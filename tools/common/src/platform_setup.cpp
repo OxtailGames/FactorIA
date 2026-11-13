@@ -60,7 +60,8 @@ std::string Context::ensure_plugin(const std::vector<std::string>& platforms) {
     Json platformList = Json::array();
     for (const std::string& p : platforms) platformList.push_back(p);
     const CommandResult r = registry->call(
-        "project.new_plugin", Json::object({{"name", backend}, {"template", backend}, {"platforms", platformList}, {"dryRun", dryRun}}));
+        "project.new_plugin",
+        Json::object({{"name", backend}, {"template", backend}, {"platforms", platformList}, {"dryRun", dryRun}}));
     if (!r.ok)
         throw CommandError(r.error.value("code", std::string("failed")),
                            "could not create the " + backend + " plugin: " + r.error.value("message", std::string()),
@@ -68,8 +69,9 @@ std::string Context::ensure_plugin(const std::vector<std::string>& platforms) {
     folder = r.result.value("folder", std::string());
     for (const Json& f : r.result.value("files", Json::array())) wrote(folder + "/" + f.get<std::string>());
     for (const Json& k : r.result.value("keys", Json::array())) keys.push_back(k.get<std::string>());
-    done.push_back(std::string(dryRun ? "would create" : "created") + " the plugin '" + backend + "' from its template in " + folder +
-                   " and " + (dryRun ? "declare" : "declared") + " it in factoria.json");
+    done.push_back(std::string(dryRun ? "would create" : "created") + " the plugin '" + backend +
+                   "' from its template in " + folder + " and " + (dryRun ? "declare" : "declared") +
+                   " it in factoria.json");
     return folder;
 }
 
@@ -80,9 +82,10 @@ void Context::run_cmake(const std::vector<std::string>& arguments, const std::st
     }
     const std::string cmake = cmakeExe.empty() ? find_cmake() : cmakeExe;
     if (cmake.empty())
-        throw CommandError("not_found", "cannot " + what + ": CMake 3.24 or newer is not installed",
-                           "Install it with `factoria call setup.install '{\"items\":[\"cmake\"]}'` (or the editor's Setup "
-                           "window), then run platform.add_backend again.");
+        throw CommandError(
+            "not_found", "cannot " + what + ": CMake 3.24 or newer is not installed",
+            "Install it with `factoria call setup.install '{\"items\":[\"cmake\"]}'` (or the editor's Setup "
+            "window), then run platform.add_backend again.");
     ProcessOptions po;
     po.argv = {cmake};
     po.argv.insert(po.argv.end(), arguments.begin(), arguments.end());
@@ -92,9 +95,12 @@ void Context::run_cmake(const std::vector<std::string>& arguments, const std::st
     if (!r.ok()) throw CommandError("failed", "cannot " + what + ": " + r.error().message, r.error().hint);
     if (r->exitCode != 0) {
         const std::string log = tail(r->stdoutText + "\n" + r->stderrText, 30);
-        throw CommandError("failed", "cannot " + what + ": CMake exited with " + std::to_string(r->exitCode) + ". The end of its output:\n" + log,
-                           "A C/C++ compiler is needed to build a plugin (Visual Studio on Windows, Xcode on macOS, GCC or Clang on "
-                           "Linux). Fix what the output says and run platform.add_backend again.");
+        throw CommandError(
+            "failed",
+            "cannot " + what + ": CMake exited with " + std::to_string(r->exitCode) + ". The end of its output:\n" +
+                log,
+            "A C/C++ compiler is needed to build a plugin (Visual Studio on Windows, Xcode on macOS, GCC or Clang on "
+            "Linux). Fix what the output says and run platform.add_backend again.");
     }
 }
 
@@ -104,13 +110,14 @@ void Context::build_plugin(const std::string& pluginDir, const std::vector<std::
     configure.insert(configure.end(), configureArguments.begin(), configureArguments.end());
     run_cmake(configure, "configure the " + backend + " plugin");
     run_cmake({"--build", build, "--config", "Release"}, "build the " + backend + " plugin");
-    done.push_back(std::string(dryRun ? "would build" : "built") + " the " + backend + " plugin for " + runtime_platform() + " (" + pluginDir +
-                   "/" + runtime_platform() + "/)");
+    done.push_back(std::string(dryRun ? "would build" : "built") + " the " + backend + " plugin for " +
+                   runtime_platform() + " (" + pluginDir + "/" + runtime_platform() + "/)");
 }
 
 }  // namespace platform_setup
 
-void register_platform_setup_commands(CommandRegistry& registry, const std::string& projectDir, const AndroidToolchainSearch* androidSearch) {
+void register_platform_setup_commands(CommandRegistry& registry, const std::string& projectDir,
+                                      const AndroidToolchainSearch* androidSearch) {
     using namespace platform_setup;
     std::vector<std::string> names;
     std::string perBackend;
@@ -120,9 +127,11 @@ void register_platform_setup_commands(CommandRegistry& registry, const std::stri
         perBackend += " " + b.name + ": " + b.summary;
         for (auto it = b.properties.begin(); it != b.properties.end(); ++it) {
             // An argument two backends read (sdk) is one property: its descriptions are joined, each starting with "(backend)".
-            if (properties.contains(it.key()) && properties[it.key()].contains("description") && it.value().contains("description")) {
+            if (properties.contains(it.key()) && properties[it.key()].contains("description") &&
+                it.value().contains("description")) {
                 Json merged = properties[it.key()];
-                merged["description"] = merged["description"].get<std::string>() + " " + it.value()["description"].get<std::string>();
+                merged["description"] =
+                    merged["description"].get<std::string>() + " " + it.value()["description"].get<std::string>();
                 properties[it.key()] = merged;
             } else {
                 properties[it.key()] = it.value();
@@ -131,8 +140,10 @@ void register_platform_setup_commands(CommandRegistry& registry, const std::stri
     }
     Json backendNames = Json::array();
     for (const std::string& n : names) backendNames.push_back(n);
-    properties["backend"] = Json::object({{"type", "string"}, {"enum", backendNames},
-                                          {"description", "The store backend to set up; it is also the plugin's name."}});
+    properties["backend"] =
+        Json::object({{"type", "string"},
+                      {"enum", backendNames},
+                      {"description", "The store backend to set up; it is also the plugin's name."}});
 
     CommandInfo info;
     info.name = "platform.add_backend";
@@ -142,18 +153,29 @@ void register_platform_setup_commands(CommandRegistry& registry, const std::stri
     info.description =
         "One call instead of the manual steps of docs/PLATFORM.md (\"Store backends\"): writes the backend's "
         "plugin from its template (project.new_plugin with template = backend) unless factoria.json already "
-        "declares it, builds it for this computer with CMake, and adds what that store needs. "
-        FA_COMMAND_DETAILS + perBackend +
-        " Run it again after a change: it keeps what is there. Returns {backend, folder, done[], nextSteps[]}: nextSteps "
-        "lists what only a person can do (store dashboards, accounts). factoria.json is patched, not rewritten: only the "
-        "plugins.<backend> key is added, and the other keys, their order and the layout stay as they are. With `dryRun` true "
-        "nothing is written, built or copied: the result is {backend, dryRun: true, folder, files[] (what it would write), keys[] "
-        "(the factoria.json keys it would write), wouldDo[], nextSteps[]}. An argument that does not exist is an error with a "
-        "\"did you mean\" (backend-specific ones like sdk or appId are listed above and are accepted for every backend). "
+        "declares it, builds it for this computer with CMake, and adds what that store needs. " FA_COMMAND_DETAILS +
+        perBackend +
+        " Run it again after a change: it keeps what is there. Returns {backend, folder, done[], nextSteps[]}: "
+        "nextSteps "
+        "lists what only a person can do (store dashboards, accounts). factoria.json is patched, not rewritten: only "
+        "the "
+        "plugins.<backend> key is added, and the other keys, their order and the layout stay as they are. With "
+        "`dryRun` true "
+        "nothing is written, built or copied: the result is {backend, dryRun: true, folder, files[] (what it would "
+        "write), keys[] "
+        "(the factoria.json keys it would write), wouldDo[], nextSteps[]}. An argument that does not exist is an error "
+        "with a "
+        "\"did you mean\" (backend-specific ones like sdk or appId are listed above and are accepted for every "
+        "backend). "
         "Example: {\"backend\": \"steam\", \"appId\": 480}.";
-    properties["dryRun"] = Json::object({{"type", "boolean"}, {"default", false},
-                                         {"description", "true = write, build and copy nothing: list the files and factoria.json keys it would write (files, keys) and the steps (wouldDo)."}});
-    info.inputSchema = Json::object({{"type", "object"}, {"required", Json::array({"backend"})}, {"properties", properties},
+    properties["dryRun"] =
+        Json::object({{"type", "boolean"},
+                      {"default", false},
+                      {"description", "true = write, build and copy nothing: list the files and factoria.json keys it "
+                                      "would write (files, keys) and the steps (wouldDo)."}});
+    info.inputSchema = Json::object({{"type", "object"},
+                                     {"required", Json::array({"backend"})},
+                                     {"properties", properties},
                                      {"additionalProperties", false}});
     registry.add(info, [&registry, projectDir, androidSearch](const Json& a) {
         const std::string name = a.at("backend").get<std::string>();
@@ -189,8 +211,9 @@ void register_platform_setup_commands(CommandRegistry& registry, const std::stri
         return out;
     });
     // writes the plugin and patches factoria.json; builds it with CMake.
-    declare_command_capabilities(registry, {
-        {"platform.add_backend", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process}}});
+    declare_command_capabilities(
+        registry,
+        {{"platform.add_backend", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process}}});
 }
 
 }  // namespace fa

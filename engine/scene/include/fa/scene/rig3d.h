@@ -41,19 +41,21 @@ bool parse_axis_name(std::string_view text, Vec3& out);
 struct Rig3D {
     const SkeletonAsset* skeleton = nullptr;  // not owned: keep it alive while the Rig3D is used
     int skin = 0;
-    std::vector<int> bones;                   // node of each joint of the skin, in skin order (parents first)
-    std::vector<int> boneOfNode;              // node -> index in `bones`, -1 when the node is not a joint
-    std::string templateName;                 // the rig.bake template ("humanoid"...), "" when the skin has none
-    bool hasRoles = false;                    // at least one joint carries a (role, index, side)
-    bool identityRest = true;                 // every joint rests with an identity rotation (the rig.bake layout)
+    std::vector<int> bones;       // node of each joint of the skin, in skin order (parents first)
+    std::vector<int> boneOfNode;  // node -> index in `bones`, -1 when the node is not a joint
+    std::string templateName;     // the rig.bake template ("humanoid"...), "" when the skin has none
+    bool hasRoles = false;        // at least one joint carries a (role, index, side)
+    bool identityRest = true;     // every joint rests with an identity rotation (the rig.bake layout)
     Pose rest;
     PoseFrame restFrame;
-    std::vector<Vec3> axis;                   // per node: unit rest direction head -> tail in model space, (0,0,0) = unknown
-    std::vector<float> length;                // per node: head -> tail distance at rest, 0 = unknown
+    std::vector<Vec3> axis;     // per node: unit rest direction head -> tail in model space, (0,0,0) = unknown
+    std::vector<float> length;  // per node: head -> tail distance at rest, 0 = unknown
 
     int node_count() const { return skeleton ? int(skeleton->nodes.size()) : 0; }
     const SkelNode& node(int n) const { return skeleton->nodes[std::size_t(n)]; }
-    bool is_bone(int n) const { return n >= 0 && std::size_t(n) < boneOfNode.size() && boneOfNode[std::size_t(n)] >= 0; }
+    bool is_bone(int n) const {
+        return n >= 0 && std::size_t(n) < boneOfNode.size() && boneOfNode[std::size_t(n)] >= 0;
+    }
     // The joint node named `name` (canonical `role[_index][_side]`), -1 when the skin has none.
     int find(std::string_view name) const;
     // The joint with this triple (index 0 = the only one of its role and side), -1 when the skin has none.

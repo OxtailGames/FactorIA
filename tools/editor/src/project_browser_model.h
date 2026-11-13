@@ -16,17 +16,18 @@ namespace fa::editor {
 inline constexpr const char* kAssetPayload = "FA_ASSET";
 
 struct BrowserFile {
-    std::string path;      // project-relative, forward slashes
-    std::string type;      // asset_type_of(path): texture, audio, font, mesh, script, scene, prefab, material, vfx, other
+    std::string path;  // project-relative, forward slashes
+    std::string type;  // asset_type_of(path): texture, audio, font, mesh, script, scene, prefab, material, vfx, other
     std::uint64_t size = 0;
 };
 
 // What one walk of the disk found. The panel keeps it until a refresh is due: it never walks the disk per frame.
 struct ProjectListing {
-    std::vector<BrowserFile> files;     // sorted by path
-    std::vector<std::string> folders;   // every folder walked (empty ones too), sorted
-    bool truncated = false;             // more than the limit: the rest was left out
-    std::vector<AssetRecipeStatus> recipes;  // the made assets (assets.json provenance.recipe), sorted by path, with their input check
+    std::vector<BrowserFile> files;    // sorted by path
+    std::vector<std::string> folders;  // every folder walked (empty ones too), sorted
+    bool truncated = false;            // more than the limit: the rest was left out
+    std::vector<AssetRecipeStatus>
+        recipes;  // the made assets (assets.json provenance.recipe), sorted by path, with their input check
 };
 
 // Walks `projectDir` (the same skips as list_asset_files: hidden folders, build, node_modules, dist, export).
@@ -41,18 +42,18 @@ std::vector<std::string> stale_assets(const ProjectListing& listing);
 std::string recipe_inputs_stamp(const std::string& projectDir, const ProjectListing& listing);
 
 struct FolderNode {
-    std::string name;                   // last path part ("Project" for the root)
-    std::string path;                   // project-relative, "" for the root
-    int fileCount = 0;                  // files in it and below
-    std::vector<FolderNode> children;   // sorted by name, case-insensitive
+    std::string name;                  // last path part ("Project" for the root)
+    std::string path;                  // project-relative, "" for the root
+    int fileCount = 0;                 // files in it and below
+    std::vector<FolderNode> children;  // sorted by name, case-insensitive
 };
 FolderNode build_folder_tree(const ProjectListing& listing);
 
 enum class BrowserSort { Name, Type, Size };
 struct BrowserQuery {
-    std::string folder;                 // "" = every file of the project; else only the files directly in that folder
-    std::string type = "all";           // "all" or an asset type
-    std::string search;                 // case-insensitive substring of the path; when set it looks through the whole project
+    std::string folder;        // "" = every file of the project; else only the files directly in that folder
+    std::string type = "all";  // "all" or an asset type
+    std::string search;        // case-insensitive substring of the path; when set it looks through the whole project
     BrowserSort sort = BrowserSort::Name;
     bool descending = false;
 };
@@ -62,9 +63,9 @@ const std::vector<std::string>& browser_type_filters();
 // The indices into listing.files that the query shows, sorted (ties by path).
 std::vector<std::size_t> query_files(const ProjectListing& listing, const BrowserQuery& q);
 
-std::string folder_of(std::string_view path);        // "assets/a/b.png" -> "assets/a"; "b.png" -> ""
-std::string file_name_of(std::string_view path);     // "assets/a/b.png" -> "b.png"
-std::string size_text(std::uint64_t bytes);          // "812 B", "4.2 KB", "1.5 MB"
+std::string folder_of(std::string_view path);     // "assets/a/b.png" -> "assets/a"; "b.png" -> ""
+std::string file_name_of(std::string_view path);  // "assets/a/b.png" -> "b.png"
+std::string size_text(std::uint64_t bytes);       // "812 B", "4.2 KB", "1.5 MB"
 // The short label of a file icon with no thumbnail: "WAV", "JS", "SCN", "PFB"...
 std::string type_badge(std::string_view path, std::string_view type);
 
@@ -75,22 +76,23 @@ Vec3 drop_point_3d(Vec3 rayOrigin, Vec3 rayDir, float fallbackDistance = 10.0f, 
 // The panel's state (kept by the editor for the whole run).
 struct ProjectBrowser {
     ProjectListing listing;
-    FolderNode tree;                    // build_folder_tree(listing), rebuilt with each scan
+    FolderNode tree;  // build_folder_tree(listing), rebuilt with each scan
     BrowserQuery query;
-    bool stale = true;                  // rescan before the next draw: set by Refresh, window focus, and the editor's own file writes
+    bool stale = true;  // rescan before the next draw: set by Refresh, window focus, and the editor's own file writes
     bool scanned = false;
-    std::string selected;               // the clicked file (path)
-    std::string deleteAsk;              // file waiting for the Delete confirmation
-    std::string error;                  // what the last drop or delete said when it failed
-    std::string project;                // the project dir the listing is of
-    int scans = 0;                      // how many times the disk was walked (tests, and a check that drawing does not rescan)
-    bool windowFocused = false;         // the panel had focus last frame
-    bool recipesDirty = false;          // files were written: the recipes' check is read again by the watcher
-    bool recipesLoaded = false;         // listing.recipes holds a first read (the watcher reads it even when the panel is closed)
-    std::string inputsStamp;            // recipe_inputs_stamp at the last scan
-    double inputsPolled = -100;         // editor time of the last stamp check
-    std::string offeredStale;           // the stale list (joined) the banner was dismissed for: quiet until the list changes
-    std::string regenerateError;        // what the last Regenerate said when it failed
+    std::string selected;        // the clicked file (path)
+    std::string deleteAsk;       // file waiting for the Delete confirmation
+    std::string error;           // what the last drop or delete said when it failed
+    std::string project;         // the project dir the listing is of
+    int scans = 0;               // how many times the disk was walked (tests, and a check that drawing does not rescan)
+    bool windowFocused = false;  // the panel had focus last frame
+    bool recipesDirty = false;   // files were written: the recipes' check is read again by the watcher
+    bool recipesLoaded =
+        false;                // listing.recipes holds a first read (the watcher reads it even when the panel is closed)
+    std::string inputsStamp;  // recipe_inputs_stamp at the last scan
+    double inputsPolled = -100;   // editor time of the last stamp check
+    std::string offeredStale;     // the stale list (joined) the banner was dismissed for: quiet until the list changes
+    std::string regenerateError;  // what the last Regenerate said when it failed
 };
 
 }  // namespace fa::editor

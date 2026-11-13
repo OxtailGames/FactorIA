@@ -364,9 +364,9 @@ TEST_CASE("bones2d: an outline mesh keeps the cells that hold opaque pixels") {
     int kept = 0;
     for (std::uint8_t k : grid->keep) kept += k;
     CHECK(kept < 64);
-    CHECK(kept >= 9);  // the 3 x 3 cells of the square, plus the one-pixel margin
-    CHECK(grid->keep[0] == 1);             // top left: opaque
-    CHECK(grid->keep[7 * 8 + 7] == 0);     // bottom right: empty
+    CHECK(kept >= 9);                   // the 3 x 3 cells of the square, plus the one-pixel margin
+    CHECK(grid->keep[0] == 1);          // top left: opaque
+    CHECK(grid->keep[7 * 8 + 7] == 0);  // bottom right: empty
     CHECK(sprite_outline_grid(path.string(), Rect{0, 0, 0, 0}, 8, 8).get() == grid.get());  // cached
 
     // A skinned sprite with outline: true builds only the kept cells.
@@ -467,7 +467,8 @@ TEST_CASE("ik2d: bend decides which side the elbow goes to") {
 
 TEST_CASE("ik2d: bend keeps its meaning under a mirrored parent") {
     Rig a, b;
-    b.w.get<Transform>(b.body)->scale = {-1, 1, 1};  // mirrored along X: the elbow of "positive" ends on the mirrored side
+    b.w.get<Transform>(b.body)->scale = {-1, 1,
+                                         1};  // mirrored along X: the elbow of "positive" ends on the mirrored side
     a.ik({60, 40});
     b.ik({-60, 40});
     REQUIRE(solve_ik2d(a.w, a.b1).ok());
@@ -676,8 +677,8 @@ TEST_CASE("ik2d ground: flat ground, offset and lift above the rest height") {
     CHECK(g.lastIgnore == r.body);                                 // the chain's character is ignored
     r.set_pos(r.target, 60, 16);                                   // swing: 6 over the rest height
     REQUIRE(solve_ik2d(r.w, r.b1, g.fn()).ok());
-    CHECK(r.tip().y == doctest::Approx(8).epsilon(1e-3));          // 0 + 2 + 6
-    r.set_pos(r.target, 60, 4);                                    // below the rest height: no negative lift
+    CHECK(r.tip().y == doctest::Approx(8).epsilon(1e-3));  // 0 + 2 + 6
+    r.set_pos(r.target, 60, 4);                            // below the rest height: no negative lift
     REQUIRE(solve_ik2d(r.w, r.b1, g.fn()).ok());
     CHECK(r.tip().y == doctest::Approx(2).epsilon(1e-3));
 }
@@ -731,8 +732,9 @@ TEST_CASE("ik2d ground: the character is the nearest ancestor with a RigidBody2D
     r.w.add<RigidBody2D>(r.body);
     r.set_pos(r.body, 0, -100);  // the character's origin stays at world y 0
     REQUIRE(solve_ik2d(r.w, r.b1, g.fn()).ok());
-    CHECK(g.lastIgnore == r.body);                       // the container (and its terrain) is not ignored
-    CHECK(r.tip().y == doctest::Approx(0).epsilon(1e-3));  // rest = body.y (0) + 10 = the target height: planted on the floor
+    CHECK(g.lastIgnore == r.body);  // the container (and its terrain) is not ignored
+    CHECK(r.tip().y ==
+          doctest::Approx(0).epsilon(1e-3));  // rest = body.y (0) + 10 = the target height: planted on the floor
     // Without a RigidBody2D the topmost ancestor is the character, as before.
     r.w.remove<RigidBody2D>(r.body);
     REQUIRE(solve_ik2d(r.w, r.b1, g.fn()).ok());

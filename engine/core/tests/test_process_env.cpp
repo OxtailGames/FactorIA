@@ -86,10 +86,11 @@ TEST_CASE("base_child_env: the common names, never a secret") {
             if (env_name_matches(pattern, name, false)) return true;
         return false;
     };
-    for (const char* ok : {"PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "FACTORIA_AI_CONFIG"}) CHECK_MESSAGE(matches(ok), ok);
-    for (const char* secret : {"FACTORIA_WINDOWS_PFX_PASSWORD", "FACTORIA_APPLE_APP_PASSWORD", "FACTORIA_ANDROID_KEYSTORE_PASSWORD",
-                               "FACTORIA_ANDROID_KEY_PASSWORD", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN",
-                               "AWS_SECRET_ACCESS_KEY"})
+    for (const char* ok : {"PATH", "HOME", "LANG", "LC_ALL", "TERM", "TMPDIR", "FACTORIA_AI_CONFIG"})
+        CHECK_MESSAGE(matches(ok), ok);
+    for (const char* secret : {"FACTORIA_WINDOWS_PFX_PASSWORD", "FACTORIA_APPLE_APP_PASSWORD",
+                               "FACTORIA_ANDROID_KEYSTORE_PASSWORD", "FACTORIA_ANDROID_KEY_PASSWORD",
+                               "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "GITHUB_TOKEN", "AWS_SECRET_ACCESS_KEY"})
         CHECK_MESSAGE(!matches(secret), secret);
 
     const auto widened = child_env_allow({"AWS_PROFILE", "PATH", "", "AWS_PROFILE"});
@@ -98,8 +99,8 @@ TEST_CASE("base_child_env: the common names, never a secret") {
 }
 
 TEST_CASE("run_process: inheritEnv passes the tool-path variables of base_child_env, not other variables") {
-    const char* const names[] = {"SOKOL_SHDC", "FACTORIA_EXPORT_CONFIG", "FACTORIA_FFMPEG", "FACTORIA_STEAMCMD",
-                                 "FACTORIA_FASTLANE", "FACTORIA_XCRUN", "FA_JOB_THREADS"};
+    const char* const names[] = {"SOKOL_SHDC",        "FACTORIA_EXPORT_CONFIG", "FACTORIA_FFMPEG", "FACTORIA_STEAMCMD",
+                                 "FACTORIA_FASTLANE", "FACTORIA_XCRUN",         "FA_JOB_THREADS"};
     std::vector<std::unique_ptr<ScopedVar>> set;
     for (const char* n : names) set.push_back(std::make_unique<ScopedVar>(n, "value-of-it"));
     ScopedVar neighbour("FACTORIA_WINDOWS_PFX_PASSWORD", "hunter2");
@@ -164,7 +165,7 @@ TEST_CASE("run_process: variable names are matched without regard to case on Win
     CHECK(has(env, "FA_TEST_ENV_CASE"));  // listed in another case
     CHECK(has(env, "Path"));              // "PATH" in the base list, "Path" in the environment
 
-    po.env["fa_test_env_case"] = "new";   // replaces the inherited one, it does not add a second
+    po.env["fa_test_env_case"] = "new";  // replaces the inherited one, it does not add a second
     env = child_environment(po);
     int n = 0;
     for (const auto& kv : env)

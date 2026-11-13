@@ -28,26 +28,30 @@
 namespace fa {
 
 struct ServeWebOptions {
-    std::string projectDir;            // folder with factoria.json
-    bool lan = false;                  // listen on every interface (the LAN can connect) instead of 127.0.0.1 only
-    std::string playerBinary;          // like ExportOptions::playerBinary: a folder with factoria_player.js/.wasm ("" = find it)
+    std::string projectDir;  // folder with factoria.json
+    bool lan = false;        // listen on every interface (the LAN can connect) instead of 127.0.0.1 only
+    std::string
+        playerBinary;  // like ExportOptions::playerBinary: a folder with factoria_player.js/.wasm ("" = find it)
     bool allowPlayerMismatch = false;  // like ExportOptions::allowPlayerMismatch
     std::string buildSourceRoot;       // like ExportOptions::buildSourceRoot (tests)
     int pollMs = 1000;                 // how often the project is checked for changes (tests make it shorter)
-    int phoneLinesPerWindow = 600;     // log lines taken from pages per window; the rest are dropped and counted (tests make it smaller)
-    int phoneWindowMs = 60000;         // the length of that window
+    int phoneLinesPerWindow =
+        600;  // log lines taken from pages per window; the rest are dropped and counted (tests make it smaller)
+    int phoneWindowMs = 60000;  // the length of that window
 };
 
 struct ServeWebStatus {
     bool running = false;
-    std::string state = "stopped";  // "stopped", "exporting" (the first export or a re-export is running), "ready" or "failed" (the last export failed)
+    std::string state =
+        "stopped";  // "stopped", "exporting" (the first export or a re-export is running), "ready" or "failed" (the last export failed)
     std::string projectDir;
-    std::string outputDir;              // the folder being served (empty before the first export)
+    std::string outputDir;  // the folder being served (empty before the first export)
     bool lan = false;
     int port = 0;
-    std::string localUrl;               // http://127.0.0.1:<port>/<token>/
-    std::vector<std::string> lanUrls;   // http://<address>:<port>/<token>/ for each private address of this computer (lan only)
-    std::string error, hint;            // state "failed": why the last export failed
+    std::string localUrl;  // http://127.0.0.1:<port>/<token>/
+    std::vector<std::string>
+        lanUrls;              // http://<address>:<port>/<token>/ for each private address of this computer (lan only)
+    std::string error, hint;  // state "failed": why the last export failed
     std::vector<std::string> warnings;  // of the last export, and "no LAN address" when lan found none
     std::uint64_t version = 0;          // successful exports since the start: a page reloads when it changes
     std::uint64_t requests = 0;         // answered requests
@@ -81,11 +85,14 @@ public:
 
 private:
     struct Impl;
-    std::shared_ptr<Impl> current() const;  // the running server (or null); a status() in flight keeps it alive while stop() joins
+    std::shared_ptr<Impl>
+    current() const;  // the running server (or null); a status() in flight keeps it alive while stop() joins
     void stop_locked();
     std::shared_ptr<Impl> impl_;
-    mutable std::mutex ptrMutex_;  // guards impl_ only, held for a pointer copy: status() never waits for a start or a stop
-    std::mutex lifecycleMutex_;    // one start()/stop() at a time (the editor's window and the command can both call them)
+    mutable std::mutex
+        ptrMutex_;  // guards impl_ only, held for a pointer copy: status() never waits for a start or a stop
+    std::mutex
+        lifecycleMutex_;  // one start()/stop() at a time (the editor's window and the command can both call them)
 };
 
 // The server of this process: the one project.serve_web and the editor's "Play on phone" window share.

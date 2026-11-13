@@ -73,7 +73,9 @@ struct Project {
         stdfs::create_directories((dir / rel).parent_path());
         std::ofstream(dir / rel, std::ios::binary) << text;
     }
-    std::string path(const std::string& rel = "") const { return rel.empty() ? dir.generic_string() : (dir / rel).generic_string(); }
+    std::string path(const std::string& rel = "") const {
+        return rel.empty() ? dir.generic_string() : (dir / rel).generic_string();
+    }
     std::string read(const std::string& rel) const {
         std::ifstream f(dir / rel, std::ios::binary);
         std::stringstream ss;
@@ -135,8 +137,10 @@ TEST_CASE("profiler: run_headless reports systems, behaviour classes, gpu and me
     // GPU: a number where the backend can time, else null with the reason (never missing).
     MESSAGE("gpu: ", prof["gpu"].dump());
     REQUIRE(prof["gpu"].contains("avgMs"));
-    if (prof["gpu"]["avgMs"].is_null()) CHECK(prof["gpu"]["reason"].is_string());
-    else CHECK(prof["gpu"]["avgMs"].get<double>() >= 0.0);
+    if (prof["gpu"]["avgMs"].is_null())
+        CHECK(prof["gpu"]["reason"].is_string());
+    else
+        CHECK(prof["gpu"]["avgMs"].get<double>() >= 0.0);
 
     REQUIRE(prof["memory"].contains("start"));
     CHECK(prof["memory"]["end"]["entities"].get<int>() >= 4);
@@ -206,11 +210,13 @@ TEST_CASE("profiler: ProfBehaviourScope charges nested probes to the inner one o
     {
         ProfBehaviourScope a(outer, path);
         const double t0 = Profiler::now_ms();
-        while (Profiler::now_ms() - t0 < 2.0) {}  // outer's own work
+        while (Profiler::now_ms() - t0 < 2.0) {
+        }  // outer's own work
         {
             ProfBehaviourScope b(inner, path);
             const double t1 = Profiler::now_ms();
-            while (Profiler::now_ms() - t1 < 40.0) {}
+            while (Profiler::now_ms() - t1 < 40.0) {
+            }
         }
     }
     pr.end_frame();

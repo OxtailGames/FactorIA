@@ -41,21 +41,34 @@
 namespace fa {
 
 enum class FieldKind : std::uint8_t {
-    Bool, Int, Float, String, Vec2, Vec3, Vec4, Color, Rect, Entity, Enum, Asset, Json
+    Bool,
+    Int,
+    Float,
+    String,
+    Vec2,
+    Vec3,
+    Vec4,
+    Color,
+    Rect,
+    Entity,
+    Enum,
+    Asset,
+    Json
 };
 const char* field_kind_name(FieldKind k);  // "bool", "int", "float", "string", "vec2", ...
 
 struct FieldInfo {
-    std::string name;          // JSON / script key, camelCase
+    std::string name;  // JSON / script key, camelCase
     FieldKind kind = FieldKind::Float;
-    std::size_t offset = 0;    // byte offset inside the owning struct
-    std::string doc;           // one or two sentences; shown to humans and AIs
+    std::size_t offset = 0;              // byte offset inside the owning struct
+    std::string doc;                     // one or two sentences; shown to humans and AIs
     std::vector<std::string> enumNames;  // Enum: value i <-> enumNames[i] (lowercase)
-    std::string assetType;     // Asset: "texture" | "mesh" | "audio" | "video" | "font" | "script" | "scene" | "prefab" | "any"
-    float minValue = 0.0f;     // UI/validation hint; minValue == maxValue means unbounded
+    std::string
+        assetType;  // Asset: "texture" | "mesh" | "audio" | "video" | "font" | "script" | "scene" | "prefab" | "any"
+    float minValue = 0.0f;  // UI/validation hint; minValue == maxValue means unbounded
     float maxValue = 0.0f;
-    bool serialized = true;    // false = runtime-only state (not saved to scenes)
-    bool readOnly = false;     // scripts/tools may read but not write
+    bool serialized = true;  // false = runtime-only state (not saved to scenes)
+    bool readOnly = false;   // scripts/tools may read but not write
 
     void* ptr(void* object) const { return static_cast<char*>(object) + offset; }
     const void* ptr(const void* object) const { return static_cast<const char*>(object) + offset; }
@@ -68,13 +81,13 @@ struct TypeInfo {
     TypeId id = kInvalidTypeId;  // dense index in the registry (stable per process)
     std::string name;            // PascalCase, e.g. "Sprite"
     std::string doc;
-    std::string category;        // grouping for docs/editor: "Core", "2D", "3D", "Physics", "Audio", "Gameplay"...
+    std::string category;  // grouping for docs/editor: "Core", "2D", "3D", "Physics", "Audio", "Gameplay"...
     std::size_t size = 0;
     std::size_t align = 0;
     std::vector<FieldInfo> fields;
 
     // Type-erased lifecycle (used by the ECS pools and serialization).
-    void (*construct)(void* dst) = nullptr;               // placement default-construct
+    void (*construct)(void* dst) = nullptr;  // placement default-construct
     void (*destruct)(void* obj) = nullptr;
     void (*copy_assign)(void* dst, const void* src) = nullptr;
     void (*move_construct)(void* dst, void* src) = nullptr;  // leaves src valid-but-unspecified
@@ -127,8 +140,8 @@ public:
     template <class T>
     TypeBuilder<T> add(std::string name, std::string doc, std::string category);
 
-    const TypeInfo* find(std::string_view name) const;          // exact match
-    const TypeInfo* find_ci(std::string_view name) const;       // case-insensitive
+    const TypeInfo* find(std::string_view name) const;     // exact match
+    const TypeInfo* find_ci(std::string_view name) const;  // case-insensitive
     const TypeInfo* get(TypeId id) const;
     template <class T>
     const TypeInfo* of() const {
@@ -136,7 +149,9 @@ public:
         return id == kInvalidTypeId ? nullptr : get(id);
     }
     template <class T>
-    TypeId id_of() const { return type_slot<T>(); }
+    TypeId id_of() const {
+        return type_slot<T>();
+    }
 
     std::vector<const TypeInfo*> all() const;  // registration order
     std::vector<std::string> names() const;
@@ -158,22 +173,34 @@ private:
 namespace detail {
 template <class T>
 constexpr FieldKind kind_of() {
-    if constexpr (std::is_same_v<T, bool>) return FieldKind::Bool;
-    else if constexpr (std::is_same_v<T, int> || std::is_same_v<T, std::int32_t>) return FieldKind::Int;
-    else if constexpr (std::is_same_v<T, float>) return FieldKind::Float;
-    else if constexpr (std::is_same_v<T, std::string>) return FieldKind::String;
-    else if constexpr (std::is_same_v<T, Vec2>) return FieldKind::Vec2;
-    else if constexpr (std::is_same_v<T, Vec3>) return FieldKind::Vec3;
-    else if constexpr (std::is_same_v<T, Vec4>) return FieldKind::Vec4;
-    else if constexpr (std::is_same_v<T, Color>) return FieldKind::Color;
-    else if constexpr (std::is_same_v<T, Rect>) return FieldKind::Rect;
-    else if constexpr (std::is_same_v<T, Entity>) return FieldKind::Entity;
-    else if constexpr (std::is_same_v<T, Json>) return FieldKind::Json;
-    else static_assert(sizeof(T) == 0, "Unsupported reflected field type; see reflect.h");
+    if constexpr (std::is_same_v<T, bool>)
+        return FieldKind::Bool;
+    else if constexpr (std::is_same_v<T, int> || std::is_same_v<T, std::int32_t>)
+        return FieldKind::Int;
+    else if constexpr (std::is_same_v<T, float>)
+        return FieldKind::Float;
+    else if constexpr (std::is_same_v<T, std::string>)
+        return FieldKind::String;
+    else if constexpr (std::is_same_v<T, Vec2>)
+        return FieldKind::Vec2;
+    else if constexpr (std::is_same_v<T, Vec3>)
+        return FieldKind::Vec3;
+    else if constexpr (std::is_same_v<T, Vec4>)
+        return FieldKind::Vec4;
+    else if constexpr (std::is_same_v<T, Color>)
+        return FieldKind::Color;
+    else if constexpr (std::is_same_v<T, Rect>)
+        return FieldKind::Rect;
+    else if constexpr (std::is_same_v<T, Entity>)
+        return FieldKind::Entity;
+    else if constexpr (std::is_same_v<T, Json>)
+        return FieldKind::Json;
+    else
+        static_assert(sizeof(T) == 0, "Unsupported reflected field type; see reflect.h");
 }
 
 template <class T, class M>
-std::size_t offset_of(M T::*member) {
+std::size_t offset_of(M T::* member) {
     // Computed on a real object: valid for non-standard-layout types too.
     static const T sample{};
     return std::size_t(reinterpret_cast<const char*>(&(sample.*member)) - reinterpret_cast<const char*>(&sample));
@@ -186,7 +213,7 @@ public:
     explicit TypeBuilder(TypeInfo& info) : info_(&info) {}
 
     template <class M>
-    TypeBuilder& field(const char* name, M T::*member, const char* doc) {
+    TypeBuilder& field(const char* name, M T::* member, const char* doc) {
         FieldInfo f;
         f.name = name;
         f.kind = detail::kind_of<M>();
@@ -198,7 +225,8 @@ public:
 
     // enum class E : int32_t { A, B, C } with names {"a", "b", "c"} (index = value).
     template <class E>
-    TypeBuilder& enum_field(const char* name, E T::*member, std::initializer_list<const char*> names, const char* doc) {
+    TypeBuilder& enum_field(const char* name, E T::* member, std::initializer_list<const char*> names,
+                            const char* doc) {
         static_assert(std::is_enum_v<E> && sizeof(E) == sizeof(std::int32_t), "enum fields must be 32-bit enums");
         FieldInfo f;
         f.name = name;
@@ -211,7 +239,7 @@ public:
     }
 
     // std::string holding a project-relative asset path ("assets/hero.png").
-    TypeBuilder& asset_field(const char* name, std::string T::*member, const char* assetType, const char* doc) {
+    TypeBuilder& asset_field(const char* name, std::string T::* member, const char* assetType, const char* doc) {
         FieldInfo f;
         f.name = name;
         f.kind = FieldKind::Asset;
@@ -223,9 +251,19 @@ public:
     }
 
     // Modifiers apply to the most recently added field.
-    TypeBuilder& range(float lo, float hi) { last().minValue = lo; last().maxValue = hi; return *this; }
-    TypeBuilder& runtime_only() { last().serialized = false; return *this; }
-    TypeBuilder& read_only() { last().readOnly = true; return *this; }
+    TypeBuilder& range(float lo, float hi) {
+        last().minValue = lo;
+        last().maxValue = hi;
+        return *this;
+    }
+    TypeBuilder& runtime_only() {
+        last().serialized = false;
+        return *this;
+    }
+    TypeBuilder& read_only() {
+        last().readOnly = true;
+        return *this;
+    }
 
     const TypeInfo& info() const { return *info_; }
 

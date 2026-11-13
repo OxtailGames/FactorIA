@@ -56,7 +56,9 @@ struct CStr {
     size_t len = 0;
     const char* p;
     CStr(JSContext* c, JSValueConst v) : ctx(c), p(JS_ToCStringLen(c, &len, v)) {}
-    ~CStr() { if (p) JS_FreeCString(ctx, p); }
+    ~CStr() {
+        if (p) JS_FreeCString(ctx, p);
+    }
     CStr(const CStr&) = delete;
     CStr& operator=(const CStr&) = delete;
     std::string str() const { return p ? std::string(p, len) : std::string(); }
@@ -143,15 +145,19 @@ bool need_entity(Impl* I, JSContext* ctx, JSValueConst v, Entity& out, JSValue& 
 }
 
 #define NATIVE(name) JSValue n_##name(JSContext* ctx, JSValueConst thisv, int argc, JSValueConst* argv)
-#define SETUP                                          \
-    Impl* I = impl_of(ctx);                            \
-    World& W = I->host->world();                       \
-    (void)I; (void)W; (void)thisv; (void)argc; (void)argv
-#define ENTITY(var, idx)                                                                  \
-    Entity var;                                                                           \
-    {                                                                                     \
-        JSValue exc_ = JS_UNDEFINED;                                                      \
-        if (!need_entity(I, ctx, (idx) < argc ? argv[idx] : JS_UNDEFINED, var, exc_)) return exc_; \
+#define SETUP                                                                                                          \
+    Impl* I = impl_of(ctx);                                                                                            \
+    World& W = I->host->world();                                                                                       \
+    (void)I;                                                                                                           \
+    (void)W;                                                                                                           \
+    (void)thisv;                                                                                                       \
+    (void)argc;                                                                                                        \
+    (void)argv
+#define ENTITY(var, idx)                                                                                               \
+    Entity var;                                                                                                        \
+    {                                                                                                                  \
+        JSValue exc_ = JS_UNDEFINED;                                                                                   \
+        if (!need_entity(I, ctx, (idx) < argc ? argv[idx] : JS_UNDEFINED, var, exc_)) return exc_;                     \
     }
 
 const TypeInfo* find_type(JSContext* ctx, const std::string& name, JSValue* exc) {
@@ -159,14 +165,16 @@ const TypeInfo* find_type(JSContext* ctx, const std::string& name, JSValue* exc)
     const TypeInfo* t = reg.find(name);
     if (!t) {
         auto& fixed = impl_of(ctx)->caseFixed;
-        if (const auto hit = fixed.find(name); hit != fixed.end()) return hit->second;  // a wrong case seen before: no search, no warning
+        if (const auto hit = fixed.find(name); hit != fixed.end())
+            return hit->second;  // a wrong case seen before: no search, no warning
         t = reg.find_ci(name);
         // Names are case-sensitive everywhere else (scene files, commands, the typings): it works here, once, with a warning.
         if (t && fixed.size() < 1024) fixed.emplace(name, t);
         if (t && impl_of(ctx)->caseWarned.insert(name).second)
             log(LogLevel::Warn, "script",
                 "the component is called '" + t->name + "', not '" + name + "': use entity.get(\"" + t->name +
-                    "\") (names are case-sensitive in scene files, commands and the typings; this call works, this warning shows once)");
+                    "\") (names are case-sensitive in scene files, commands and the typings; this call works, this "
+                    "warning shows once)");
     }
     if (!t) {
         const std::string sug = reg.suggest(name);
@@ -177,9 +185,10 @@ const TypeInfo* find_type(JSContext* ctx, const std::string& name, JSValue* exc)
         std::stable_sort(ranked.begin(), ranked.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         std::string closeNames;
         for (std::size_t i = 0; i < ranked.size() && i < 4; ++i) closeNames += (i ? ", " : "") + ranked[i].second;
-        *exc = throw_err(ctx, "unknown component '" + name + "'" + (sug.empty() ? std::string(".") : "; did you mean '" + sug + "'?") +
-                                  " The closest of the " + std::to_string(ranked.size()) + " components: " + closeNames +
-                                  "; all of them: `factoria api components`");
+        *exc = throw_err(ctx, "unknown component '" + name + "'" +
+                                  (sug.empty() ? std::string(".") : "; did you mean '" + sug + "'?") +
+                                  " The closest of the " + std::to_string(ranked.size()) +
+                                  " components: " + closeNames + "; all of them: `factoria api components`");
     }
     return t;
 }
@@ -252,7 +261,8 @@ std::filesystem::path corrupt_keep_path() {
     const std::filesystem::path dir = fs::user_dir();
     std::error_code ec;
     std::filesystem::path p = dir / "storage.corrupt.json";
-    for (int n = 2; std::filesystem::exists(p, ec) && n < 1000; ++n) p = dir / ("storage.corrupt." + std::to_string(n) + ".json");
+    for (int n = 2; std::filesystem::exists(p, ec) && n < 1000; ++n)
+        p = dir / ("storage.corrupt." + std::to_string(n) + ".json");
     return p;
 }
 }  // namespace
@@ -274,14 +284,16 @@ bool keep_damaged(const std::filesystem::path& file, const std::string& text, co
     if (ec) {  // e.g. another volume: copy the bytes instead
         auto w = fs::write_bytes(keep.generic_string(), text.data(), text.size());
         if (!w) {
-            log(LogLevel::Warn, "script", what + " does not parse and could not be kept as " + keep.string() + ": " + w.error().message +
-                                              ". The next save will replace it; copy it by hand now if it matters.");
+            log(LogLevel::Warn, "script",
+                what + " does not parse and could not be kept as " + keep.string() + ": " + w.error().message +
+                    ". The next save will replace it; copy it by hand now if it matters.");
             return false;
         }
     }
     fs::user_dir_changed();
     log(LogLevel::Warn, "script",
-        what + " does not parse (damaged by a crash or a bad edit?); it was kept as " + keep.filename().string() + " in " + fs::user_dir().string() +
+        what + " does not parse (damaged by a crash or a bad edit?); it was kept as " + keep.filename().string() +
+            " in " + fs::user_dir().string() +
             " and the game starts without it. A script can check storage.corrupt at start to tell the player.");
     return true;
 }
@@ -293,7 +305,8 @@ void Impl::storage_write(const std::string& key, bool compress) {
     const std::filesystem::path file = storage_files::dir() / storage_files::file_name(key);
     auto r = fs::write_bytes(file.generic_string(), text.data(), text.size());  // temporary file, then rename: atomic
     if (!r) {
-        log(LogLevel::Warn, "script", "cannot write " + file.string() + " for storage key '" + key + "': " + r.error().message);
+        log(LogLevel::Warn, "script",
+            "cannot write " + file.string() + " for storage key '" + key + "': " + r.error().message);
         return;
     }
     storageMeta[key] = {compress, static_cast<std::int64_t>(text.size())};
@@ -326,7 +339,8 @@ void Impl::load_storage() {
         }
         storageCorrupt = true;
         log(LogLevel::Warn, "script",
-            "the text game.setStorageText gave does not parse: storage.corrupt is true and storage starts empty (a test never "
+            "the text game.setStorageText gave does not parse: storage.corrupt is true and storage starts empty (a "
+            "test never "
             "writes the real save)");
         return;
     }
@@ -372,8 +386,14 @@ void Impl::load_storage() {
     }
     if (!allWritten) return;  // keep storage.json where it is; the next start tries again
     fs::replace_file(legacy, fs::user_dir() / "storage.migrated.json", ec);
-    if (ec) log(LogLevel::Warn, "script", "storage.json was split into " + storage_files::dir().string() + " but could not be set aside: " + ec.message());
-    else log(LogLevel::Info, "script", "storage.json was split into one file per key in " + storage_files::dir().string() + "; the old file is now storage.migrated.json");
+    if (ec)
+        log(LogLevel::Warn, "script",
+            "storage.json was split into " + storage_files::dir().string() +
+                " but could not be set aside: " + ec.message());
+    else
+        log(LogLevel::Info, "script",
+            "storage.json was split into one file per key in " + storage_files::dir().string() +
+                "; the old file is now storage.migrated.json");
     fs::user_dir_changed();
 }
 
@@ -407,7 +427,8 @@ Json Impl::storage_report() {
             storage_files::Decoded d;
             std::string problem;
             if (!ok || !storage_files::decode(text, d, problem)) {
-                damaged.push_back(Json::object({{"file", file.generic_string()}, {"problem", ok ? problem : "cannot be read"}}));
+                damaged.push_back(
+                    Json::object({{"file", file.generic_string()}, {"problem", ok ? problem : "cannot be read"}}));
                 continue;
             }
             Row& r = rows[d.key];
@@ -418,7 +439,8 @@ Json Impl::storage_report() {
     }
     Json keys = Json::array();
     for (const auto& [key, r] : rows) {
-        Json row = Json::object({{"key", key}, {"inMemory", r.inMemory}, {"onDisk", r.onDisk}, {"compressed", r.compressed}});
+        Json row =
+            Json::object({{"key", key}, {"inMemory", r.inMemory}, {"onDisk", r.onDisk}, {"compressed", r.compressed}});
         if (r.bytes >= 0) row["bytes"] = r.bytes;
         keys.push_back(std::move(row));
     }
@@ -510,7 +532,9 @@ NATIVE(watchdogCuts) {
     std::string text;
     // `since` counts cuts from the start (what cutCount said then); the list has dropped the oldest ones.
     const double local = since - static_cast<double>(I->droppedCuts);
-    const size_t first = local <= 0.0 ? 0 : local >= static_cast<double>(I->cuts.size()) ? I->cuts.size() : static_cast<size_t>(local);
+    const size_t first = local <= 0.0                                   ? 0
+                         : local >= static_cast<double>(I->cuts.size()) ? I->cuts.size()
+                                                                        : static_cast<size_t>(local);
     // A test that fails with it prints the text: the first few cuts say what is slow, the rest is a count.
     constexpr size_t kMaxCutsInText = 5;
     const size_t shown = std::min(I->cuts.size() - first, kMaxCutsInText);
@@ -520,7 +544,9 @@ NATIVE(watchdogCuts) {
 }
 
 NATIVE(logSeq) {
-    (void)thisv; (void)argc; (void)argv;
+    (void)thisv;
+    (void)argc;
+    (void)argv;
     return JS_NewFloat64(ctx, static_cast<double>(fa::log_last_seq()));
 }
 
@@ -547,7 +573,8 @@ NATIVE(logErrors) {
         if (I->testErrors->dropped > 0 && I->testErrors->lastDroppedSeq > since) {
             LogEntry note;
             note.category = "script";
-            note.message = std::to_string(I->testErrors->dropped) + " more ERROR records of this test run were dropped (the runner keeps the first " +
+            note.message = std::to_string(I->testErrors->dropped) +
+                           " more ERROR records of this test run were dropped (the runner keeps the first " +
                            std::to_string(I->kMaxTestErrors) + ").";
             add(note);
         }
@@ -571,13 +598,16 @@ NATIVE(forgetLoggedErrors) {
 NATIVE(sourceCaret) {
     (void)thisv;
     return JS_NewString(ctx, source_caret(arg_str(ctx, argc, argv, 0), static_cast<int>(arg_num(ctx, argc, argv, 1, 0)),
-                                          static_cast<int>(arg_num(ctx, argc, argv, 2, 0))).c_str());
+                                          static_cast<int>(arg_num(ctx, argc, argv, 2, 0)))
+                                 .c_str());
 }
 
 NATIVE(nowMs) {
     auto t = std::chrono::steady_clock::now().time_since_epoch();
     return JS_NewFloat64(ctx, std::chrono::duration<double, std::milli>(t).count());
-    (void)thisv; (void)argc; (void)argv;
+    (void)thisv;
+    (void)argc;
+    (void)argv;
 }
 
 // ---- reflection tables --------------------------------------------------------------------------------------------
@@ -616,7 +646,9 @@ NATIVE(types) {
 NATIVE(timeInfo) {
     SETUP;
     JSValue a = JS_NewArray(ctx);
-    JS_SetPropertyUint32(ctx, a, 0, JS_NewFloat64(ctx, I->lastDt * I->timeScale * W.feel().hit_stop_factor()));  // time.dt: a hit-stop slows it too
+    JS_SetPropertyUint32(
+        ctx, a, 0,
+        JS_NewFloat64(ctx, I->lastDt * I->timeScale * W.feel().hit_stop_factor()));  // time.dt: a hit-stop slows it too
     JS_SetPropertyUint32(ctx, a, 1, JS_NewFloat64(ctx, I->host->fixed_dt()));
     JS_SetPropertyUint32(ctx, a, 2, JS_NewFloat64(ctx, W.time()));
     JS_SetPropertyUint32(ctx, a, 3, JS_NewFloat64(ctx, static_cast<double>(W.frame())));
@@ -635,7 +667,8 @@ NATIVE(feelDo) {  // (entity handle or null, action object): runs one {"action":
         return throw_err(ctx, id.empty() ? std::string("entity was destroyed; check entity.alive before using it")
                                          : "entity '" + id + "' was destroyed; check entity.alive before using it");
     }
-    W.feel().systemReduceMotion = I->owner->system_reduce_motion();  // fresh: a game.setAccessibility of this very frame counts
+    W.feel().systemReduceMotion =
+        I->owner->system_reduce_motion();  // fresh: a game.setAccessibility of this very frame counts
     auto r = feel_apply_action(W, e, argc > 1 ? I->to_json(argv[1]) : Json());
     if (!r.ok()) return throw_err(ctx, r.error().to_string());
     return JS_UNDEFINED;
@@ -652,9 +685,12 @@ NATIVE(feelSet) {  // ("reduceMotion" | "reducedEffects", true | false | null = 
     const std::string which = arg_str(ctx, argc, argv, 0);
     std::optional<bool> value;
     if (argc > 1 && !JS_IsNull(argv[1]) && !JS_IsUndefined(argv[1])) value = arg_bool(ctx, argc, argv, 1, false);
-    if (which == "reduceMotion") W.feel().reduceMotionSetting = value;
-    else if (which == "reducedEffects") W.feel().reducedEffectsSetting = value;
-    else return throw_err(ctx, "feel: unknown setting '" + which + "' (reduceMotion or reducedEffects)");
+    if (which == "reduceMotion")
+        W.feel().reduceMotionSetting = value;
+    else if (which == "reducedEffects")
+        W.feel().reducedEffectsSetting = value;
+    else
+        return throw_err(ctx, "feel: unknown setting '" + which + "' (reduceMotion or reducedEffects)");
     return JS_UNDEFINED;
 }
 
@@ -679,7 +715,8 @@ NATIVE(feelInfo) {
 NATIVE(setTimeScale) {
     SETUP;
     double v = arg_num(ctx, argc, argv, 0, 1.0);
-    if (!(v >= 0) || !std::isfinite(v)) return throw_err(ctx, "time.scale must be a finite number >= 0 (0 pauses gameplay)");
+    if (!(v >= 0) || !std::isfinite(v))
+        return throw_err(ctx, "time.scale must be a finite number >= 0 (0 pauses gameplay)");
     I->timeScale = v;
     return JS_UNDEFINED;
 }
@@ -848,7 +885,8 @@ NATIVE(setParent) {
     ENTITY(e, 0);
     Entity p = ent_from(ctx, argc > 1 ? argv[1] : JS_NULL);
     if (!p.is_null() && !W.alive(p)) return throw_err(ctx, "setParent: the new parent entity was destroyed");
-    if (p == e || (!p.is_null() && W.is_ancestor(e, p))) return throw_err(ctx, "setParent: an entity cannot be parented under itself or its own descendant");
+    if (p == e || (!p.is_null() && W.is_ancestor(e, p)))
+        return throw_err(ctx, "setParent: an entity cannot be parented under itself or its own descendant");
     if (auto ok = W.check_set_parent(e, p); !ok) return throw_err(ctx, "setParent: " + ok.error().to_string());
     int index = -1;
     if (argc > 3 && !JS_IsUndefined(argv[3]) && !JS_IsNull(argv[3])) {
@@ -875,7 +913,11 @@ NATIVE(setWorldPos) {
         float v[3] = {p.x, p.y, p.z};
         for (uint32_t i = 0; i < 3; ++i) {
             JSValue x = JS_GetPropertyUint32(ctx, argv[1], i);
-            if (JS_IsNumber(x)) { double d = 0; JS_ToFloat64(ctx, &d, x); v[i] = static_cast<float>(d); }
+            if (JS_IsNumber(x)) {
+                double d = 0;
+                JS_ToFloat64(ctx, &d, x);
+                v[i] = static_cast<float>(d);
+            }
             JS_FreeValue(ctx, x);
         }
         W.set_world_position(e, {v[0], v[1], v[2]});
@@ -901,7 +943,8 @@ void localize_created(Impl* I, const std::vector<Entity>& created) {
 NATIVE(spawn) {
     SETUP;
     Json j = I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED);
-    if (!j.is_object()) return throw_err(ctx, "world.spawn expects an entity object like { name, tags, components: {...} }");
+    if (!j.is_object())
+        return throw_err(ctx, "world.spawn expects an entity object like { name, tags, components: {...} }");
     Entity parent = ent_from(ctx, argc > 1 ? argv[1] : JS_NULL);
     int index = -1;
     if (argc > 2 && !JS_IsUndefined(argv[2]) && !JS_IsNull(argv[2])) {
@@ -918,7 +961,7 @@ NATIVE(spawn) {
         if (m.severity == LoadMessage::Severity::Warning) fa::log(LogLevel::Warn, "script", m.to_string());
     for (Entity c : report.created) W.info(c).scriptSpawned = true;  // scene.save leaves these out
     for (const DeferredRef& d : report.deferred) I->waitingRefs.push_back({d, 0});
-    I->resolve_waiting_refs(false);  // this spawn may be the knob an earlier slider is waiting for
+    I->resolve_waiting_refs(false);    // this spawn may be the knob an earlier slider is waiting for
     I->construct_for(report.created);  // entity.behaviour exists right away; onStart runs before the first update
     localize_created(I, report.created);
     return ent_val(ctx, e);
@@ -938,7 +981,8 @@ NATIVE(spawnPrefab) {
     }
     LoadReport report;
     Entity e = instantiate_prefab(W, path, parent, report, overrides, index);
-    if (!report.ok() || e.is_null()) return throw_err(ctx, "world.spawnPrefab('" + path + "') failed:\n" + report.summary());
+    if (!report.ok() || e.is_null())
+        return throw_err(ctx, "world.spawnPrefab('" + path + "') failed:\n" + report.summary());
     for (Entity c : report.created) W.info(c).scriptSpawned = true;  // scene.save leaves these out
     I->construct_for(report.created);
     localize_created(I, report.created);
@@ -962,7 +1006,8 @@ NATIVE(isGrounded) {
 NATIVE(isTouching) {  // (entity, x, y, z, tolerance)
     SETUP;
     ENTITY(e, 0);
-    Vec3 d{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))};
+    Vec3 d{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2)),
+           static_cast<float>(arg_num(ctx, argc, argv, 3))};
     Physics& ph = I->host->physics();
     if (W.get<RigidBody3D>(e) || W.get<Collider3D>(e))
         return JS_NewBool(ctx, ph.is_touching3d(W, e, d, static_cast<float>(arg_num(ctx, argc, argv, 4, 0.05))));
@@ -987,9 +1032,11 @@ NATIVE(animCall) {
     } else if (m == "sample") {
         r = animator_sample(W, e, arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, 0.0)));
     } else if (m == "layerWeight") {
-        r = animator_set_layer_weight(W, e, arg_str(ctx, argc, argv, 2), static_cast<float>(arg_num(ctx, argc, argv, 3, 1.0)));
+        r = animator_set_layer_weight(W, e, arg_str(ctx, argc, argv, 2),
+                                      static_cast<float>(arg_num(ctx, argc, argv, 3, 1.0)));
     } else if (m == "layerPlay") {
-        r = animator_play_layer(W, e, arg_str(ctx, argc, argv, 2), arg_str(ctx, argc, argv, 3), static_cast<float>(arg_num(ctx, argc, argv, 4, 0.2)));
+        r = animator_play_layer(W, e, arg_str(ctx, argc, argv, 2), arg_str(ctx, argc, argv, 3),
+                                static_cast<float>(arg_num(ctx, argc, argv, 4, 0.2)));
     } else if (m == "clips") {
         auto c = animator_clips(W, e);
         if (!c) return throw_err(ctx, c.error().to_string());
@@ -1010,14 +1057,19 @@ NATIVE(musicCall) {
     const std::string m = arg_str(ctx, argc, argv, 1);
     const Json o = argc > 2 && JS_IsObject(argv[2]) ? I->to_json(argv[2]) : Json::object();
     Audio& audio = I->host->audio();
-    auto str = [&](const char* k) { return o.contains(k) && o[k].is_string() ? o[k].get<std::string>() : std::string(); };
-    auto num = [&](const char* k, float fallback) { return o.contains(k) && o[k].is_number() ? o[k].get<float>() : fallback; };
+    auto str = [&](const char* k) {
+        return o.contains(k) && o[k].is_string() ? o[k].get<std::string>() : std::string();
+    };
+    auto num = [&](const char* k, float fallback) {
+        return o.contains(k) && o[k].is_number() ? o[k].get<float>() : fallback;
+    };
     std::optional<MusicQuantize> q;
     if (o.contains("quantize") && o["quantize"].is_string()) {
         q = music_quantize_from_name(o["quantize"].get<std::string>());
         if (!q)
-            return throw_err(ctx, "unknown quantize '" + o["quantize"].get<std::string>() +
-                                      "'; use \"none\" (now), \"beat\", \"bar\" or \"section\" (when the section pass ends)");
+            return throw_err(
+                ctx, "unknown quantize '" + o["quantize"].get<std::string>() +
+                         "'; use \"none\" (now), \"beat\", \"bar\" or \"section\" (when the section pass ends)");
     }
     Result<void> r;
     if (m == "play") {
@@ -1099,14 +1151,17 @@ VisualMeasure script_measure(Impl* I, const char* what) {
         static bool warned = false;
         if (!warned) {
             warned = true;
-            fa::log(LogLevel::Warn, "script", std::string(what) + ": this host has no renderer and no text measurer; using an approximation of 0.6 * fontSize per character");
+            fa::log(LogLevel::Warn, "script",
+                    std::string(what) + ": this host has no renderer and no text measurer; using an approximation of "
+                                        "0.6 * fontSize per character");
         }
         return approx_text_size(t, I->host->text_scale());
     };
     return m;
 }
 
-NATIVE(measureText) {  // (text, fontSize, font, maxWidth, screenSpace, maxTextScale, autoShrink, minFontSize, maxHeight, markup, bold) -> [w, h, size]
+NATIVE(
+    measureText) {  // (text, fontSize, font, maxWidth, screenSpace, maxTextScale, autoShrink, minFontSize, maxHeight, markup, bold) -> [w, h, size]
     SETUP;
     Text t;
     t.text = arg_str(ctx, argc, argv, 0);
@@ -1125,7 +1180,8 @@ NATIVE(measureText) {  // (text, fontSize, font, maxWidth, screenSpace, maxTextS
     return array_of(ctx, {fit.size.x, fit.size.y, fit.px});
 }
 
-NATIVE(markupProblems) {  // (text) -> string[]: what is wrong with the markup of `text` (tags, unknown colours and icons)
+NATIVE(
+    markupProblems) {  // (text) -> string[]: what is wrong with the markup of `text` (tags, unknown colours and icons)
     SETUP;
     const std::vector<std::string> problems = markup_problems(arg_str(ctx, argc, argv, 0), I->host->rich_text_style());
     JSValue a = JS_NewArray(ctx);
@@ -1144,10 +1200,12 @@ NATIVE(setTextScale) {  // (scale): 0.5 .. 3, throws saying what is accepted
     double v = 0;
     const bool number = argc > 0 && JS_IsNumber(argv[0]) && JS_ToFloat64(ctx, &v, argv[0]) == 0 && std::isfinite(v);
     if (!number || v < double(kMinTextScale) || v > double(kMaxTextScale))
-        return throw_err(ctx, std::format("ui.textScale = {}: expected a number from {} to {} (1 is normal size, 1.5 is 50% bigger). A saved option "
-                                          "from an older version or a hand-edited file may be out of range: clamp it first, e.g. "
-                                          "ui.textScale = math.clamp(saved, {}, {}).",
-                                          arg_str(ctx, argc, argv, 0), kMinTextScale, kMaxTextScale, kMinTextScale, kMaxTextScale));
+        return throw_err(
+            ctx, std::format("ui.textScale = {}: expected a number from {} to {} (1 is normal size, 1.5 is 50% "
+                             "bigger). A saved option "
+                             "from an older version or a hand-edited file may be out of range: clamp it first, e.g. "
+                             "ui.textScale = math.clamp(saved, {}, {}).",
+                             arg_str(ctx, argc, argv, 0), kMinTextScale, kMaxTextScale, kMinTextScale, kMaxTextScale));
     I->host->set_text_scale(float(v));
     return JS_UNDEFINED;
 }
@@ -1162,10 +1220,13 @@ NATIVE(setUiScale) {  // (scale): 0.5 .. 3, throws saying what is accepted
     double v = 0;
     const bool number = argc > 0 && JS_IsNumber(argv[0]) && JS_ToFloat64(ctx, &v, argv[0]) == 0 && std::isfinite(v);
     if (!number || v < double(kMinUiScale) || v > double(kMaxUiScale))
-        return throw_err(ctx, std::format("ui.scale = {}: expected a number from {} to {} (1 is the size the UI was authored at, 1.5 is 50% bigger). A saved "
-                                          "option from an older version or a hand-edited file may be out of range: clamp it first, e.g. "
-                                          "ui.scale = math.clamp(saved, {}, {}).",
-                                          arg_str(ctx, argc, argv, 0), kMinUiScale, kMaxUiScale, kMinUiScale, kMaxUiScale));
+        return throw_err(
+            ctx,
+            std::format("ui.scale = {}: expected a number from {} to {} (1 is the size the UI was authored at, 1.5 is "
+                        "50% bigger). A saved "
+                        "option from an older version or a hand-edited file may be out of range: clamp it first, e.g. "
+                        "ui.scale = math.clamp(saved, {}, {}).",
+                        arg_str(ctx, argc, argv, 0), kMinUiScale, kMaxUiScale, kMinUiScale, kMaxUiScale));
     I->host->set_ui_scale(float(v));
     return JS_UNDEFINED;
 }
@@ -1178,8 +1239,10 @@ NATIVE(uiMirrorRtl) {  // () -> whether a right-to-left language mirrors the UI
 NATIVE(setUiMirrorRtl) {  // (on: boolean)
     SETUP;
     if (argc < 1 || !JS_IsBool(argv[0]))
-        return throw_err(ctx, std::format("ui.mirrorRtl = {}: expected true or false (true mirrors the screen-space UI in a right-to-left language, "
-                                          "docs/LOCALIZATION.md, \"Right to left\").", arg_str(ctx, argc, argv, 0)));
+        return throw_err(ctx, std::format("ui.mirrorRtl = {}: expected true or false (true mirrors the screen-space UI "
+                                          "in a right-to-left language, "
+                                          "docs/LOCALIZATION.md, \"Right to left\").",
+                                          arg_str(ctx, argc, argv, 0)));
     W.set_ui_mirror_rtl(JS_ToBool(ctx, argv[0]) != 0);
     return JS_UNDEFINED;
 }
@@ -1189,7 +1252,8 @@ NATIVE(speak) {  // (text, interrupt) -> true when the system was asked to say i
     SETUP;
     const I18n* L = I->host->i18n();
     const std::string language = L && L->enabled() ? L->language() : std::string();
-    return JS_NewBool(ctx, I->host->speech().speak(arg_str(ctx, argc, argv, 0), language, arg_bool(ctx, argc, argv, 1, true)));
+    return JS_NewBool(
+        ctx, I->host->speech().speak(arg_str(ctx, argc, argv, 0), language, arg_bool(ctx, argc, argv, 1, true)));
 }
 
 NATIVE(stopSpeaking) {
@@ -1223,7 +1287,8 @@ NATIVE(uiState) {  // () -> [focused, hovered]: entity handles, null for none (o
     return a;
 }
 
-NATIVE(uiWidgetAt) {  // (x, y) -> entity | null: the topmost visible widget or Interactable at a screen point (UiSystem::widget_at)
+NATIVE(
+    uiWidgetAt) {  // (x, y) -> entity | null: the topmost visible widget or Interactable at a screen point (UiSystem::widget_at)
     SETUP;
     const Vec2 p{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))};
     UiSystem* U = I->host->ui();
@@ -1236,9 +1301,12 @@ NATIVE(uiSetPointer) {  // (x, y, down) | (): the virtual pointer; no arguments 
     SETUP;
     UiSystem* U = I->host->ui();
     if (!U) return throw_err(ctx, "ui.setPointer: this run has no UI system");
-    if (argc < 2) U->clear_pointer();
-    else U->set_pointer({static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))},
-                        arg_bool(ctx, argc, argv, 2, false));
+    if (argc < 2)
+        U->clear_pointer();
+    else
+        U->set_pointer(
+            {static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))},
+            arg_bool(ctx, argc, argv, 2, false));
     return JS_UNDEFINED;
 }
 
@@ -1286,7 +1354,8 @@ NATIVE(uiSetTooltipDelay) {  // (seconds): 0 .. 60
     double v = 0;
     const bool number = argc > 0 && JS_IsNumber(argv[0]) && JS_ToFloat64(ctx, &v, argv[0]) == 0 && std::isfinite(v);
     if (!number || v < 0.0 || v > 60.0)
-        return throw_err(ctx, std::format("ui.tooltipDelay = {}: expected a number of seconds from 0 to 60 (0 shows a tooltip at once, the default is 0.5).",
+        return throw_err(ctx, std::format("ui.tooltipDelay = {}: expected a number of seconds from 0 to 60 (0 shows a "
+                                          "tooltip at once, the default is 0.5).",
                                           arg_str(ctx, argc, argv, 0)));
     UiTooltipSettings s = W.ui_tooltip_settings();
     s.delay = float(v);
@@ -1324,7 +1393,10 @@ NATIVE(uiSetDropTarget) {  // (entity | null for the world, mode 0 none / 1 acce
         if (!need_entity(I, ctx, argv[0], e, exc)) return exc;
     }
     const int mode = int(arg_num(ctx, argc, argv, 1));
-    U->set_drop_target(e, mode == 1 ? UiDropMode::Accept : mode == 2 ? UiDropMode::Reject : mode == 3 ? UiDropMode::Script : UiDropMode::None);
+    U->set_drop_target(e, mode == 1   ? UiDropMode::Accept
+                          : mode == 2 ? UiDropMode::Reject
+                          : mode == 3 ? UiDropMode::Script
+                                      : UiDropMode::None);
     return JS_UNDEFINED;
 }
 
@@ -1347,7 +1419,8 @@ NATIVE(uiCancelDrag) {
     return JS_UNDEFINED;
 }
 
-NATIVE(uiFocus) {  // (entity | null): true when focused; false for a disabled widget; throws saying why for any other entity that cannot take focus
+NATIVE(
+    uiFocus) {  // (entity | null): true when focused; false for a disabled widget; throws saying why for any other entity that cannot take focus
     SETUP;
     UiSystem* U = I->host->ui();
     if (!U) return throw_err(ctx, "ui.focus: this run has no UI system");
@@ -1364,15 +1437,20 @@ NATIVE(uiFocus) {  // (entity | null): true when focused; false for a disabled w
     }
     std::string why;
     if (ui_is_interactable(W, e)) {
-        if (W.active_in_hierarchy(e)) return JS_FALSE;  // set_focus refused an active one: it is disabled, like a greyed-out built-in widget
+        if (W.active_in_hierarchy(e))
+            return JS_FALSE;  // set_focus refused an active one: it is disabled, like a greyed-out built-in widget
         why = "it is inactive (itself or an ancestor), so set active = true first";
     } else if (!ui_is_control(kind))
-        why = kind == UiKind::None ? "it has no Button, Toggle, Slider, TextField or Interactable component"
-                                   : std::string("a ") + ui_kind_name(kind) +
-                                         (kind == UiKind::Panel || kind == UiKind::ScrollList ? " is a container and" : " is touch-only and") +
-                                         " cannot be focused; focus a Button, Toggle, Slider, TextField or Interactable";
-    else if (!W.active_in_hierarchy(e)) why = "it is inactive (itself or an ancestor), so set active = true first";
-    else why = "it cannot take focus";
+        why = kind == UiKind::None
+                  ? "it has no Button, Toggle, Slider, TextField or Interactable component"
+                  : std::string("a ") + ui_kind_name(kind) +
+                        (kind == UiKind::Panel || kind == UiKind::ScrollList ? " is a container and"
+                                                                             : " is touch-only and") +
+                        " cannot be focused; focus a Button, Toggle, Slider, TextField or Interactable";
+    else if (!W.active_in_hierarchy(e))
+        why = "it is inactive (itself or an ancestor), so set active = true first";
+    else
+        why = "it cannot take focus";
     return throw_err(ctx, "ui.focus(target): '" + W.id_of(e) + "' cannot take focus: " + why);
 }
 
@@ -1392,7 +1470,10 @@ Vec2 texture_pixel_size(Impl* I, const std::string& path) {
     auto it = I->texSizes.find(key);
     if (it == I->texSizes.end() || it->second.mtime != mtime) {
         Impl::TexSize ts{32, 32, mtime};
-        if (auto size = texture_size(key); size.ok()) { ts.w = size->width; ts.h = size->height; }  // also an exported twin or atlas rect
+        if (auto size = texture_size(key); size.ok()) {
+            ts.w = size->width;
+            ts.h = size->height;
+        }  // also an exported twin or atlas rect
         it = I->texSizes.insert_or_assign(key, ts).first;
     }
     return {static_cast<float>(it->second.w), static_cast<float>(it->second.h)};
@@ -1407,14 +1488,17 @@ NATIVE(textureSize) {  // (path) -> [w, h]; assets.textureSize
 // ---- render.captureTexture / render.textureFromPNG ------------------------------------------------------------------------
 constexpr int kMaxRuntimeTextures = 32;
 constexpr int kMaxRuntimeTextureSide = 2048;  // render.captureTexture of the whole frame
-constexpr int kMaxWorldTextureSide = Renderer::kMaxWorldCaptureSide;  // of the world, and what textureFromPNG takes (4096)
+constexpr int kMaxWorldTextureSide =
+    Renderer::kMaxWorldCaptureSide;  // of the world, and what textureFromPNG takes (4096)
 
 // Registers `img` as a run-time texture: uploaded when the run has a renderer (the id is the renderer's), kept in
 // I->runtimeTextures either way. Returns the id; "" with *error set when it cannot be made.
 std::string add_runtime_texture(Impl* I, Image img, std::string* error) {
     if (I->runtimeTextures.size() >= std::size_t(kMaxRuntimeTextures)) {
-        *error = std::format("{} textures are alive already (the limit). Call texture.destroy() on the ones you no longer show, "
-                             "for example the picture of a slot that was overwritten", kMaxRuntimeTextures);
+        *error = std::format(
+            "{} textures are alive already (the limit). Call texture.destroy() on the ones you no longer show, "
+            "for example the picture of a slot that was overwritten",
+            kMaxRuntimeTextures);
         return {};
     }
     std::string id;
@@ -1441,7 +1525,11 @@ NATIVE(renderCapture) {  // (width, height, stretch) -> [id, width, height, plac
     SETUP;
     const int w = int(arg_num(ctx, argc, argv, 0)), h = int(arg_num(ctx, argc, argv, 1));
     if (w < 1 || h < 1 || w > kMaxRuntimeTextureSide || h > kMaxRuntimeTextureSide)
-        return throw_err(ctx, std::format("render.captureTexture({{ width, height }}): both must be whole numbers from 1 to {}, but got {} x {}", kMaxRuntimeTextureSide, w, h));
+        return throw_err(
+            ctx,
+            std::format(
+                "render.captureTexture({{ width, height }}): both must be whole numbers from 1 to {}, but got {} x {}",
+                kMaxRuntimeTextureSide, w, h));
     Image img;
     bool placeholder = false;
     if (Renderer* r = I->host->renderer(); r && r->initialized()) {
@@ -1476,7 +1564,8 @@ std::optional<Rect> subtree_world_rect(Impl* I, Entity root, const VisualMeasure
         const Entity e = stack.back();
         stack.pop_back();
         if (const std::optional<Rect> b = entity_world_rect(W, e, measure)) {
-            if (!out) out = *b;
+            if (!out)
+                out = *b;
             else {
                 const float x0 = std::min(out->x, b->x), y0 = std::min(out->y, b->y);
                 const float x1 = std::max(out->x + out->w, b->x + b->w), y1 = std::max(out->y + out->h, b->y + b->h);
@@ -1504,21 +1593,36 @@ NATIVE(renderCaptureWorld) {
         measure.textureSize = [I](const std::string& path) { return texture_pixel_size(I, path); };
         const std::optional<Rect> box = subtree_world_rect(I, subject, measure);
         if (!box)
-            return throw_err(ctx, std::format("{}: entity '{}' and its children draw nothing in world space (no Sprite, Shape2D, Text or Tilemap "
-                                              "with space \"world\", or an empty one), so there is no area to photograph. Give the area yourself with rect: [x, y, width, height] "
-                                              "in world units (that draws everything inside it, not only this entity)", label, W.id_of(subject)));
+            return throw_err(
+                ctx,
+                std::format(
+                    "{}: entity '{}' and its children draw nothing in world space (no Sprite, Shape2D, Text or Tilemap "
+                    "with space \"world\", or an empty one), so there is no area to photograph. Give the area yourself "
+                    "with rect: [x, y, width, height] "
+                    "in world units (that draws everything inside it, not only this entity)",
+                    label, W.id_of(subject)));
         rect = *box;
     }
-    if (!std::isfinite(rect.x) || !std::isfinite(rect.y) || !(rect.w > 0.0f) || !(rect.h > 0.0f) || !std::isfinite(rect.w) || !std::isfinite(rect.h))
-        return throw_err(ctx, std::format("{}: the area [{}, {}, {}, {}] is empty. rect is [x, y, width, height] in world units, +Y up, with a "
-                                          "positive width and height", label, rect.x, rect.y, rect.w, rect.h));
+    if (!std::isfinite(rect.x) || !std::isfinite(rect.y) || !(rect.w > 0.0f) || !(rect.h > 0.0f) ||
+        !std::isfinite(rect.w) || !std::isfinite(rect.h))
+        return throw_err(
+            ctx,
+            std::format(
+                "{}: the area [{}, {}, {}, {}] is empty. rect is [x, y, width, height] in world units, +Y up, with a "
+                "positive width and height",
+                label, rect.x, rect.y, rect.w, rect.h));
     if (!std::isfinite(scale) || !(scale > 0.0f))
-        return throw_err(ctx, std::format("{}: scale must be a number above 0 (pixels per world unit, default 1), but got {}", label, scale));
-    const double pw = std::ceil(double(rect.w) * double(scale) - 1e-4), ph = std::ceil(double(rect.h) * double(scale) - 1e-4);
+        return throw_err(
+            ctx, std::format("{}: scale must be a number above 0 (pixels per world unit, default 1), but got {}", label,
+                             scale));
+    const double pw = std::ceil(double(rect.w) * double(scale) - 1e-4),
+                 ph = std::ceil(double(rect.h) * double(scale) - 1e-4);
     if (pw > kMaxWorldTextureSide || ph > kMaxWorldTextureSide)
-        return throw_err(ctx, std::format("{}: the picture would be {} x {} pixels ({} x {} world units at scale {}), more than the {} a side a texture "
-                                          "may have. Use a smaller scale (at most {}) or a smaller area", label, static_cast<long long>(pw),
-                                          static_cast<long long>(ph), rect.w, rect.h, scale, kMaxWorldTextureSide,
+        return throw_err(ctx, std::format("{}: the picture would be {} x {} pixels ({} x {} world units at scale {}), "
+                                          "more than the {} a side a texture "
+                                          "may have. Use a smaller scale (at most {}) or a smaller area",
+                                          label, static_cast<long long>(pw), static_cast<long long>(ph), rect.w, rect.h,
+                                          scale, kMaxWorldTextureSide,
                                           static_cast<double>(kMaxWorldTextureSide) / std::max(rect.w, rect.h)));
     const int w = std::max(1, static_cast<int>(pw)), h = std::max(1, static_cast<int>(ph));
     Image img;
@@ -1551,15 +1655,22 @@ NATIVE(renderCaptureWorld) {
 NATIVE(renderFromPng) {  // (base64 text) -> [id, width, height, false]; render.textureFromPNG
     SETUP;
     std::string text = arg_str(ctx, argc, argv, 0);
-    if (const std::size_t comma = text.find(','); text.rfind("data:", 0) == 0 && comma != std::string::npos) text.erase(0, comma + 1);
+    if (const std::size_t comma = text.find(','); text.rfind("data:", 0) == 0 && comma != std::string::npos)
+        text.erase(0, comma + 1);
     const std::vector<unsigned char> bytes = base64_decode(text);
     if (bytes.empty())
-        return throw_err(ctx, "render.textureFromPNG(png): the text is not Base64 (or is empty). Pass what texture.toPNG() returned, "
-                              "for example render.textureFromPNG(storage.get(\"slot1.png\"))");
+        return throw_err(
+            ctx,
+            "render.textureFromPNG(png): the text is not Base64 (or is empty). Pass what texture.toPNG() returned, "
+            "for example render.textureFromPNG(storage.get(\"slot1.png\"))");
     auto img = decode_image(bytes.data(), bytes.size());
-    if (!img.ok()) return throw_err(ctx, "render.textureFromPNG(png): the bytes are not an image: " + img.error().message + (img.error().hint.empty() ? "" : " " + img.error().hint));
+    if (!img.ok())
+        return throw_err(ctx, "render.textureFromPNG(png): the bytes are not an image: " + img.error().message +
+                                  (img.error().hint.empty() ? "" : " " + img.error().hint));
     if (img->width > kMaxWorldTextureSide || img->height > kMaxWorldTextureSide)
-        return throw_err(ctx, std::format("render.textureFromPNG(png): the picture is {} x {}, more than the {} pixels a side a run-time texture may have", img->width, img->height, kMaxWorldTextureSide));
+        return throw_err(ctx, std::format("render.textureFromPNG(png): the picture is {} x {}, more than the {} pixels "
+                                          "a side a run-time texture may have",
+                                          img->width, img->height, kMaxWorldTextureSide));
     std::string err;
     const std::string id = add_runtime_texture(I, std::move(*img), &err);
     if (id.empty()) return throw_err(ctx, "render.textureFromPNG: " + err);
@@ -1635,7 +1746,8 @@ std::string mesh_input_of(Impl* I, JSContext* ctx, JSValueConst arrays, JSValueC
 NATIVE(meshCreate) {  // (arrays, submeshes) -> info; mesh.create
     SETUP;
     MeshInput in;
-    if (std::string e = mesh_input_of(I, ctx, argv[0], argc > 1 ? argv[1] : JS_UNDEFINED, &in); !e.empty()) return throw_err(ctx, "mesh.create: " + e);
+    if (std::string e = mesh_input_of(I, ctx, argv[0], argc > 1 ? argv[1] : JS_UNDEFINED, &in); !e.empty())
+        return throw_err(ctx, "mesh.create: " + e);
     auto id = W.meshes().create(in);
     if (!id.ok()) return throw_err(ctx, "mesh.create: " + id.error().to_string());
     return I->from_json(mesh_info_json(*W.meshes().find(*id)));
@@ -1645,7 +1757,8 @@ NATIVE(meshUpdate) {  // (id, arrays, submeshes) -> info; mesh.update
     SETUP;
     const std::string id = arg_str(ctx, argc, argv, 0);
     MeshInput in;
-    if (std::string e = mesh_input_of(I, ctx, argv[1], argc > 2 ? argv[2] : JS_UNDEFINED, &in); !e.empty()) return throw_err(ctx, "mesh.update: " + e);
+    if (std::string e = mesh_input_of(I, ctx, argv[1], argc > 2 ? argv[2] : JS_UNDEFINED, &in); !e.empty())
+        return throw_err(ctx, "mesh.update: " + e);
     auto r = W.meshes().update(id, in);
     if (!r.ok()) return throw_err(ctx, "mesh.update: " + r.error().to_string());
     return I->from_json(mesh_info_json(*W.meshes().find(id)));
@@ -1686,16 +1799,20 @@ NATIVE(uiLayout) {  // () -> undefined: the per-frame UI layout, now
     UiSystem* U = I->host->ui();
     if (!U) return throw_err(ctx, "ui.layout: this run has no UI system");
     const VisualMeasure measure = script_measure(I, "ui.layout()");
-    U->layout(W, I->host->design_size(), measure, false);  // the script is still changing the menu: the frame's layout warns
+    U->layout(W, I->host->design_size(), measure,
+              false);  // the script is still changing the menu: the frame's layout warns
     return JS_UNDEFINED;
 }
 
-NATIVE(uiUnclickable) {  // (entity) -> null | string: why a widget cannot be clicked now (game.click throws it), null when it can
+NATIVE(
+    uiUnclickable) {  // (entity) -> null | string: why a widget cannot be clicked now (game.click throws it), null when it can
     SETUP;
     ENTITY(e, 0);
     const Vec2 design = I->host->design_size();
     if (ui_is_interactable(W, e)) {
-        if (!W.active_in_hierarchy(e)) return JS_NewString(ctx, "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks");
+        if (!W.active_in_hierarchy(e))
+            return JS_NewString(
+                ctx, "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks");
         UiSystem* U = I->host->ui();
         if (U) {
             const UiClickAim aim = U->click_aim(W, e, design, script_measure(I, "ui.unclickable()"));
@@ -1704,17 +1821,22 @@ NATIVE(uiUnclickable) {  // (entity) -> null | string: why a widget cannot be cl
         return JS_NULL;
     }
     if (ui_kind(W, e) == UiKind::None) return JS_NULL;
-    if (!W.active_in_hierarchy(e)) return JS_NewString(ctx, "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks");
+    if (!W.active_in_hierarchy(e))
+        return JS_NewString(
+            ctx, "it or one of its parents is inactive (active = false), so it is not drawn and takes no clicks");
     const std::optional<Rect> r = ui_rect(W, e, design);
     if (!r || !(r->w > 0) || !(r->h > 0))
-        return JS_NewString(ctx, "it has no area (its size is 0), so it was never laid out: give it a size, or make it a child of a Panel with a layout");
+        return JS_NewString(ctx, "it has no area (its size is 0), so it was never laid out: give it a size, or make it "
+                                 "a child of a Panel with a layout");
     if (const std::optional<Rect> clip = ui_clip_rect(W, e, design))
         if (!(clip->w > 0) || !(clip->h > 0) || !clip->overlaps(*r))
-            return JS_NewString(ctx, "it is scrolled out of its ScrollList, so it is clipped away: scroll it into view first (ui.focus(widget) scrolls to it)");
+            return JS_NewString(ctx, "it is scrolled out of its ScrollList, so it is clipped away: scroll it into view "
+                                     "first (ui.focus(widget) scrolls to it)");
     return JS_NULL;
 }
 
-NATIVE(uiAim) {  // (entity) -> [x, y] | null: where the mouse goes to click an Interactable (through a mesh that shows its page, if need be)
+NATIVE(
+    uiAim) {  // (entity) -> [x, y] | null: where the mouse goes to click an Interactable (through a mesh that shows its page, if need be)
     SETUP;
     ENTITY(e, 0);
     UiSystem* U = I->host->ui();
@@ -1733,8 +1855,9 @@ NATIVE(screenRect) {  // (entity) -> [x, y, w, h] in design pixels, top-left ori
     if (!W.active_in_hierarchy(e)) return JS_NULL;  // hidden by itself or a parent: not on screen, like ui.state
     const VisualMeasure measure = script_measure(I, "ui.rectOf() of a Text");
     UiSystem* U = I->host->ui();
-    const std::optional<Rect> box = ui_is_interactable(W, e) ? (U ? U->interactable_rect(W, e, I->host->design_size(), measure) : std::nullopt)
-                                                              : ui_screen_rect(W, e, I->host->design_size(), measure);
+    const std::optional<Rect> box =
+        ui_is_interactable(W, e) ? (U ? U->interactable_rect(W, e, I->host->design_size(), measure) : std::nullopt)
+                                 : ui_screen_rect(W, e, I->host->design_size(), measure);
     if (!box) return JS_NULL;
     JSValue a = JS_NewArray(ctx);
     const float v[4] = {box->x, box->y, box->w, box->h};
@@ -1742,7 +1865,8 @@ NATIVE(screenRect) {  // (entity) -> [x, y, w, h] in design pixels, top-left ori
     return a;
 }
 
-NATIVE(overflowed) {  // (entity) -> bool: the text of a Text or a widget label does not fit its box at its effective size
+NATIVE(
+    overflowed) {  // (entity) -> bool: the text of a Text or a widget label does not fit its box at its effective size
     SETUP;
     ENTITY(e, 0);
     const VisualMeasure measure = script_measure(I, "ui.overflowed()");
@@ -1766,7 +1890,10 @@ NATIVE(bounds) {  // (entity) -> [x, y, w, h] | null
 // replaced: one element changes in place (see set_tilemap_tile).
 Tilemap* script_tilemap(Impl* I, JSContext* ctx, Entity e, JSValue* exc) {
     Tilemap* tm = I->host->world().get<Tilemap>(e);
-    if (!tm) *exc = throw_err(ctx, "entity '" + I->host->world().id_of(e) + "' has no Tilemap component; add one: entity.add(\"Tilemap\", {tileset: \"assets/tiles.png\", tileSize: [16, 16], width: 8, height: 8, tiles: [...]})");
+    if (!tm)
+        *exc = throw_err(ctx, "entity '" + I->host->world().id_of(e) +
+                                  "' has no Tilemap component; add one: entity.add(\"Tilemap\", {tileset: "
+                                  "\"assets/tiles.png\", tileSize: [16, 16], width: 8, height: 8, tiles: [...]})");
     return tm;
 }
 
@@ -1776,7 +1903,8 @@ NATIVE(tileGet) {  // (entity, col, row) -> tile value (index + flag bits), -1 =
     JSValue exc = JS_UNDEFINED;
     Tilemap* tm = script_tilemap(I, ctx, e, &exc);
     if (!tm) return exc;
-    const int col = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1, 0))), row = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2, 0)));
+    const int col = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1, 0))),
+              row = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2, 0)));
     return JS_NewInt32(ctx, tilemap_tile_at(*tm, tilemap_size(*tm), col, row));
 }
 
@@ -1793,16 +1921,20 @@ NATIVE(tileDims) {  // (entity) -> [width, height] in tiles, the size drawing an
     return a;
 }
 
-NATIVE(tileCellAt) {  // (entity, x, y) -> [col, row, inside]: the cell under the WORLD point (x, y), even outside the map
+NATIVE(
+    tileCellAt) {  // (entity, x, y) -> [col, row, inside]: the cell under the WORLD point (x, y), even outside the map
     SETUP;
     ENTITY(e, 0);
     JSValue exc = JS_UNDEFINED;
     Tilemap* tm = script_tilemap(I, ctx, e, &exc);
     if (!tm) return exc;
-    const Vec3 local = W.world_matrix(e).inverse().transform_point({float(arg_num(ctx, argc, argv, 1, 0)), float(arg_num(ctx, argc, argv, 2, 0)), 0.0f});
+    const Vec3 local = W.world_matrix(e).inverse().transform_point(
+        {float(arg_num(ctx, argc, argv, 1, 0)), float(arg_num(ctx, argc, argv, 2, 0)), 0.0f});
     int col = 0, row = 0;
     if (!tilemap_cell_at_local(*tm, {local.x, local.y}, col, row))
-        return throw_err(ctx, "tilemap.cellAt: the Tilemap on '" + W.id_of(e) + "' has no positive tileSize, so it has no cells; set Tilemap.tileSize to [width, height] in world units");
+        return throw_err(ctx, "tilemap.cellAt: the Tilemap on '" + W.id_of(e) +
+                                  "' has no positive tileSize, so it has no cells; set Tilemap.tileSize to [width, "
+                                  "height] in world units");
     const TilemapSize size = tilemap_size(*tm);
     JSValue a = JS_NewArray(ctx);
     JS_SetPropertyUint32(ctx, a, 0, JS_NewInt32(ctx, col));
@@ -1817,7 +1949,8 @@ NATIVE(tileCellToWorld) {  // (entity, col, row) -> [x, y]: the WORLD position o
     JSValue exc = JS_UNDEFINED;
     Tilemap* tm = script_tilemap(I, ctx, e, &exc);
     if (!tm) return exc;
-    const Vec2 local = tilemap_cell_center(*tm, static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1, 0))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2, 0))));
+    const Vec2 local = tilemap_cell_center(*tm, static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1, 0))),
+                                           static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2, 0))));
     const Vec3 w = W.world_matrix(e).transform_point({local.x, local.y, 0.0f});
     JSValue a = JS_NewArray(ctx);
     JS_SetPropertyUint32(ctx, a, 0, float_to_js(ctx, w.x));
@@ -1831,11 +1964,14 @@ NATIVE(tileSet) {  // (entity, col, row, tile) -> void; throws when outside the 
     JSValue exc = JS_UNDEFINED;
     Tilemap* tm = script_tilemap(I, ctx, e, &exc);
     if (!tm) return exc;
-    const double c = arg_num(ctx, argc, argv, 1, 0), r = arg_num(ctx, argc, argv, 2, 0), v = arg_num(ctx, argc, argv, 3, -1);
+    const double c = arg_num(ctx, argc, argv, 1, 0), r = arg_num(ctx, argc, argv, 2, 0),
+                 v = arg_num(ctx, argc, argv, 3, -1);
     if (!set_tilemap_tile(*tm, static_cast<int>(std::floor(c)), static_cast<int>(std::floor(r)), static_cast<int>(v))) {
         const TilemapSize size = tilemap_size(*tm);
-        return throw_err(ctx, std::format("tilemap.setTile({}, {}, {}) failed: the cell must be inside the {} x {} map (0-based, row 0 = top) and the tile -1 (empty) or a tile index (plus optional flip flags)",
-                                          c, r, v, size.width, size.height));
+        return throw_err(
+            ctx, std::format("tilemap.setTile({}, {}, {}) failed: the cell must be inside the {} x {} map (0-based, "
+                             "row 0 = top) and the tile -1 (empty) or a tile index (plus optional flip flags)",
+                             c, r, v, size.width, size.height));
     }
     return JS_UNDEFINED;
 }
@@ -1845,8 +1981,12 @@ Json terrain_result_json(const TerrainPaintResult& r) {
     constexpr std::size_t kMaxListed = 1000;
     Json changes = Json::array();
     for (std::size_t i = 0; i < r.changes.size() && i < kMaxListed; ++i)
-        changes.push_back(Json::object({{"col", r.changes[i].col}, {"row", r.changes[i].row}, {"from", r.changes[i].from}, {"to", r.changes[i].to}}));
-    return Json::object({{"painted", r.painted}, {"outside", r.outside}, {"changed", r.changes.size()}, {"changes", changes}});
+        changes.push_back(Json::object({{"col", r.changes[i].col},
+                                        {"row", r.changes[i].row},
+                                        {"from", r.changes[i].from},
+                                        {"to", r.changes[i].to}}));
+    return Json::object(
+        {{"painted", r.painted}, {"outside", r.outside}, {"changed", r.changes.size()}, {"changes", changes}});
 }
 
 NATIVE(tilePaintTerrain) {  // (entity, terrain, [[col,row],...], erase) -> {painted, outside, changed, changes}
@@ -1859,7 +1999,8 @@ NATIVE(tilePaintTerrain) {  // (entity, terrain, [[col,row],...], erase) -> {pai
     std::vector<std::pair<int, int>> cells;
     if (cellsJson.is_array())
         for (const Json& c : cellsJson)
-            if (c.is_array() && c.size() == 2) cells.push_back({int(std::floor(c[0].get<double>())), int(std::floor(c[1].get<double>()))});
+            if (c.is_array() && c.size() == 2)
+                cells.push_back({int(std::floor(c[0].get<double>())), int(std::floor(c[1].get<double>()))});
     auto r = paint_terrain(*tm, arg_str(ctx, argc, argv, 1), cells, arg_num(ctx, argc, argv, 3, 0) != 0);
     if (!r.ok()) return throw_err(ctx, "tilemap.paintTerrain: " + r.error().to_string());
     return I->from_json(terrain_result_json(*r));
@@ -1883,8 +2024,11 @@ NATIVE(tileTerrainAt) {  // (entity, col, row) -> the name of the terrain the ce
     Tilemap* tm = script_tilemap(I, ctx, e, &exc);
     if (!tm) return exc;
     auto terrains = parse_terrains(tm->terrains);
-    if (!terrains.ok()) return throw_err(ctx, "tilemap.terrainAt: this tilemap's terrain rules are invalid: " + terrains.error().to_string());
-    const int col = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1, 0))), row = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2, 0)));
+    if (!terrains.ok())
+        return throw_err(ctx, "tilemap.terrainAt: this tilemap's terrain rules are invalid: " +
+                                  terrains.error().to_string());
+    const int col = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1, 0))),
+              row = static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2, 0)));
     const TerrainOfTile of = terrain_of_tile(*terrains, tilemap_tile_at(*tm, tilemap_size(*tm), col, row));
     return of.terrain.empty() ? JS_NULL : JS_NewString(ctx, of.terrain.c_str());
 }
@@ -1969,7 +2113,8 @@ NATIVE(patchComp) {
     const TypeInfo* t = find_type(ctx, arg_str(ctx, argc, argv, 1), &exc);
     if (!t) return exc;
     Json fields = I->to_json(argc > 2 ? argv[2] : JS_UNDEFINED);
-    if (!fields.is_object()) return throw_err(ctx, "entity.set(name, fields): fields must be an object like { speed: 3 }");
+    if (!fields.is_object())
+        return throw_err(ctx, "entity.set(name, fields): fields must be an object like { speed: 3 }");
     if (t->name == "EntityInfo" && fields.contains("id")) {
         auto r = W.set_id(e, fields["id"].get<std::string>());
         if (!r) return throw_err(ctx, r.error().to_string());
@@ -1994,7 +2139,8 @@ NATIVE(fget) {
     if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc)) return exc;
     int32_t fi = 0;
     JS_ToInt32(ctx, &fi, argv[2]);
-    if (fi < 0 || fi >= static_cast<int32_t>(t->fields.size())) return throw_err(ctx, "internal error: bad field index");
+    if (fi < 0 || fi >= static_cast<int32_t>(t->fields.size()))
+        return throw_err(ctx, "internal error: bad field index");
     const FieldInfo& f = t->fields[static_cast<size_t>(fi)];
     const void* p = f.ptr(obj);
     switch (f.kind) {
@@ -2005,7 +2151,8 @@ NATIVE(fget) {
         case FieldKind::Asset: return JS_NewString(ctx, static_cast<const std::string*>(p)->c_str());
         case FieldKind::Enum: {
             std::int32_t v = *static_cast<const std::int32_t*>(p);
-            if (v >= 0 && v < static_cast<std::int32_t>(f.enumNames.size())) return JS_NewString(ctx, f.enumNames[static_cast<size_t>(v)].c_str());
+            if (v >= 0 && v < static_cast<std::int32_t>(f.enumNames.size()))
+                return JS_NewString(ctx, f.enumNames[static_cast<size_t>(v)].c_str());
             return JS_NewInt32(ctx, v);
         }
         case FieldKind::Entity: {
@@ -2053,7 +2200,8 @@ NATIVE(fsetn) {
     double d = 0;
     if (!JS_IsNumber(argv[4])) {
         CStr s(ctx, argv[4]);
-        return throw_err(ctx, std::format("{}.{} components must be numbers, got {}", t->name, f.name, s.str().empty() ? "an empty value" : "'" + s.str() + "'"));
+        return throw_err(ctx, std::format("{}.{} components must be numbers, got {}", t->name, f.name,
+                                          s.str().empty() ? "an empty value" : "'" + s.str() + "'"));
     }
     JS_ToFloat64(ctx, &d, argv[4]);
     static_cast<float*>(f.ptr(obj))[k] = static_cast<float>(d);
@@ -2069,14 +2217,16 @@ NATIVE(fset) {
     if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc)) return exc;
     int32_t fi = 0;
     JS_ToInt32(ctx, &fi, argv[2]);
-    if (fi < 0 || fi >= static_cast<int32_t>(t->fields.size())) return throw_err(ctx, "internal error: bad field index");
+    if (fi < 0 || fi >= static_cast<int32_t>(t->fields.size()))
+        return throw_err(ctx, "internal error: bad field index");
     const FieldInfo& f = t->fields[static_cast<size_t>(fi)];
     std::string what = t->name + "." + f.name;
     if (f.readOnly) return throw_err(ctx, what + " is read-only");
     JSValueConst v = argc > 3 ? argv[3] : JS_UNDEFINED;
     auto wrong = [&](const char* expected) {
         CStr s(ctx, v);
-        return throw_err(ctx, std::format("{} expects {}, got {}", what, expected, JS_IsUndefined(v) ? "undefined" : "'" + s.str() + "'"));
+        return throw_err(ctx, std::format("{} expects {}, got {}", what, expected,
+                                          JS_IsUndefined(v) ? "undefined" : "'" + s.str() + "'"));
     };
     void* p = f.ptr(obj);
     // EntityInfo.id must go through World::set_id (lookup tables).
@@ -2139,10 +2289,16 @@ NATIVE(fset) {
             break;
         }
         case FieldKind::Entity: {
-            if (JS_IsNull(v) || JS_IsUndefined(v)) { *static_cast<Entity*>(p) = kNullEntity; break; }
+            if (JS_IsNull(v) || JS_IsUndefined(v)) {
+                *static_cast<Entity*>(p) = kNullEntity;
+                break;
+            }
             if (JS_IsString(v)) {
                 std::string id = CStr(ctx, v).str();
-                if (id.empty()) { *static_cast<Entity*>(p) = kNullEntity; break; }  // "" = no entity (the world, for a joint)
+                if (id.empty()) {
+                    *static_cast<Entity*>(p) = kNullEntity;
+                    break;
+                }  // "" = no entity (the world, for a joint)
                 Entity target = W.find_by_id(id);
                 if (target.is_null()) return throw_err(ctx, what + ": no entity with id '" + id + "'");
                 *static_cast<Entity*>(p) = target;
@@ -2159,7 +2315,10 @@ NATIVE(fset) {
         }
         default: {
             int n = float_count(f.kind);
-            if (!JS_IsObject(v)) return wrong(n == 2 ? "{x, y} or [x, y]" : n == 3 ? "{x, y, z} or [x, y, z]" : "an array or object of numbers");
+            if (!JS_IsObject(v))
+                return wrong(n == 2   ? "{x, y} or [x, y]"
+                             : n == 3 ? "{x, y, z} or [x, y, z]"
+                                      : "an array or object of numbers");
             float* fp = static_cast<float*>(p);
             for (int i = 0; i < n; ++i) {
                 JSValue x = JS_GetPropertyUint32(ctx, v, static_cast<uint32_t>(i));
@@ -2210,8 +2369,10 @@ NATIVE(requestScene) {
     if (argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1])) {
         Json props = I->to_json(argv[1]);
         if (!props.is_object())
-            return throw_err(ctx, "scene.load(path, props): props must be a plain object like { level: 3, difficulty: \"hard\" }, got " +
-                                      describe_json_value(props));
+            return throw_err(
+                ctx,
+                "scene.load(path, props): props must be a plain object like { level: 3, difficulty: \"hard\" }, got " +
+                    describe_json_value(props));
         I->host->request_scene_change_with_props(path, props);
     } else if (reload) {
         I->host->request_scene_reload(path);  // a reload keeps the props the scene was started with
@@ -2232,11 +2393,13 @@ NATIVE(rngFloat) {
 }
 NATIVE(rngRange) {
     SETUP;
-    return float_to_js(ctx, W.rng().range(static_cast<float>(arg_num(ctx, argc, argv, 0, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1, 1))));
+    return float_to_js(ctx, W.rng().range(static_cast<float>(arg_num(ctx, argc, argv, 0, 0)),
+                                          static_cast<float>(arg_num(ctx, argc, argv, 1, 1))));
 }
 NATIVE(rngInt) {
     SETUP;
-    return JS_NewInt32(ctx, W.rng().range_int(static_cast<int>(arg_num(ctx, argc, argv, 0, 0)), static_cast<int>(arg_num(ctx, argc, argv, 1, 1))));
+    return JS_NewInt32(ctx, W.rng().range_int(static_cast<int>(arg_num(ctx, argc, argv, 0, 0)),
+                                              static_cast<int>(arg_num(ctx, argc, argv, 1, 1))));
 }
 NATIVE(rngChance) {
     SETUP;
@@ -2255,9 +2418,10 @@ bool check_action(Impl* I, JSContext* ctx, const std::string& a, JSValue& exc) {
     Input& in = I->host->input();
     if (in.has_action(a)) return true;
     auto names = in.action_names();
-    exc = throw_err(ctx, "unknown input action '" + a + "'. " +
-                             (names.empty() ? std::string("No actions are defined; add them to factoria.json under input.actions.")
-                                            : did_you_mean(a, names)));
+    exc = throw_err(
+        ctx, "unknown input action '" + a + "'. " +
+                 (names.empty() ? std::string("No actions are defined; add them to factoria.json under input.actions.")
+                                : did_you_mean(a, names)));
     return false;
 }
 
@@ -2290,7 +2454,8 @@ NATIVE(inAxis) {
 
 NATIVE(inVector) {
     SETUP;
-    std::string a[4] = {arg_str(ctx, argc, argv, 0), arg_str(ctx, argc, argv, 1), arg_str(ctx, argc, argv, 2), arg_str(ctx, argc, argv, 3)};
+    std::string a[4] = {arg_str(ctx, argc, argv, 0), arg_str(ctx, argc, argv, 1), arg_str(ctx, argc, argv, 2),
+                        arg_str(ctx, argc, argv, 3)};
     JSValue exc = JS_UNDEFINED;
     for (auto& s : a)
         if (!check_action(I, ctx, s, exc)) return exc;
@@ -2318,9 +2483,12 @@ NATIVE(inKey) {
     JSValue exc = JS_UNDEFINED;
     bool ok = false;
     Input& in = I->host->input();
-    if (key_from_name(arg_str(ctx, argc, argv, 1)) == Key::Unknown)  // "Ctrl", "Shift", "Alt", "Super": either side's key
+    if (key_from_name(arg_str(ctx, argc, argv, 1)) ==
+        Key::Unknown)  // "Ctrl", "Shift", "Alt", "Super": either side's key
         if (std::uint8_t bit = modifier_from_name(arg_str(ctx, argc, argv, 1)))
-            return JS_NewBool(ctx, kind == 0 ? in.modifier_down(bit) : kind == 1 ? in.modifier_pressed(bit) : in.modifier_released(bit));
+            return JS_NewBool(ctx, kind == 0   ? in.modifier_down(bit)
+                                   : kind == 1 ? in.modifier_pressed(bit)
+                                               : in.modifier_released(bit));
     Key k = parse_key(I, ctx, arg_str(ctx, argc, argv, 1), exc, ok);
     if (!ok) return exc;
     return JS_NewBool(ctx, kind == 0 ? in.key_down(k) : kind == 1 ? in.key_pressed(k) : in.key_released(k));
@@ -2352,7 +2520,9 @@ NATIVE(inMouseButton) {
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     bool ok = false;
     MouseButton b = parse_button(arg_str(ctx, argc, argv, 1), ok);
-    if (!ok) return throw_err(ctx, "unknown mouse button '" + arg_str(ctx, argc, argv, 1) + "'; use \"left\", \"right\" or \"middle\"");
+    if (!ok)
+        return throw_err(ctx, "unknown mouse button '" + arg_str(ctx, argc, argv, 1) +
+                                  "'; use \"left\", \"right\" or \"middle\"");
     Input& in = I->host->input();
     return JS_NewBool(ctx, kind == 0 ? in.mouse_down(b) : kind == 1 ? in.mouse_pressed(b) : in.mouse_released(b));
 }
@@ -2383,8 +2553,8 @@ NATIVE(inValue) {
 bool pad_index(JSContext* ctx, int argc, JSValueConst* argv, int at, int& out, JSValue& exc) {
     double d = arg_num(ctx, argc, argv, at, 0);
     if (!(d >= 0 && d < kMaxGamepads) || d != std::floor(d)) {
-        exc = throw_err(ctx, "gamepad index must be an integer from 0 to " + std::to_string(kMaxGamepads - 1) + ", got " +
-                                 arg_str(ctx, argc, argv, at));
+        exc = throw_err(ctx, "gamepad index must be an integer from 0 to " + std::to_string(kMaxGamepads - 1) +
+                                 ", got " + arg_str(ctx, argc, argv, at));
         return false;
     }
     out = static_cast<int>(d);
@@ -2419,7 +2589,9 @@ NATIVE(inPad) {  // (kind 0 connected|1 down|2 pressed|3 released|4 axis (deadzo
     }
     GamepadButton b{};
     if (!pad_button(ctx, name, b, exc)) return exc;
-    return JS_NewBool(ctx, kind == 1 ? in.gamepad_down(i, b) : kind == 2 ? in.gamepad_pressed(i, b) : in.gamepad_released(i, b));
+    return JS_NewBool(ctx, kind == 1   ? in.gamepad_down(i, b)
+                           : kind == 2 ? in.gamepad_pressed(i, b)
+                                       : in.gamepad_released(i, b));
 }
 
 NATIVE(inDeadzone) {  // (value?) sets when given; returns the current deadzone
@@ -2427,7 +2599,9 @@ NATIVE(inDeadzone) {  // (value?) sets when given; returns the current deadzone
     Input& in = I->host->input();
     if (argc > 0 && !JS_IsUndefined(argv[0])) {
         double d = arg_num(ctx, argc, argv, 0);
-        if (!(d >= 0 && d < 1)) return throw_err(ctx, "input.deadzone must be a number from 0 up to (not including) 1, got " + arg_str(ctx, argc, argv, 0));
+        if (!(d >= 0 && d < 1))
+            return throw_err(ctx, "input.deadzone must be a number from 0 up to (not including) 1, got " +
+                                      arg_str(ctx, argc, argv, 0));
         in.set_gamepad_deadzone(static_cast<float>(d));
     }
     return float_to_js(ctx, in.gamepad_deadzone());
@@ -2458,14 +2632,17 @@ NATIVE(inKeyEvent) {
 }
 NATIVE(inMouseMove) {
     SETUP;
-    I->host->input().on_mouse_move({static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))});
+    I->host->input().on_mouse_move(
+        {static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))});
     return JS_UNDEFINED;
 }
 NATIVE(inMouseEvent) {
     SETUP;
     bool ok = false;
     MouseButton b = parse_button(arg_str(ctx, argc, argv, 0), ok);
-    if (!ok) return throw_err(ctx, "unknown mouse button '" + arg_str(ctx, argc, argv, 0) + "'; use \"left\", \"right\" or \"middle\"");
+    if (!ok)
+        return throw_err(ctx, "unknown mouse button '" + arg_str(ctx, argc, argv, 0) +
+                                  "'; use \"left\", \"right\" or \"middle\"");
     I->host->input().on_mouse_button(b, arg_bool(ctx, argc, argv, 1, true));
     return JS_UNDEFINED;
 }
@@ -2504,12 +2681,16 @@ NATIVE(inRebind) {  // (action, bindings[])
     bool ok = list.is_array();
     if (ok)
         for (const Json& item : list) {
-            if (item.is_string()) names.push_back(item.get<std::string>());
-            else ok = false;
+            if (item.is_string())
+                names.push_back(item.get<std::string>());
+            else
+                ok = false;
         }
     if (!ok)
         return throw_err(ctx, "input.rebind(action, bindings) expects an array of binding names, e.g. "
-                              "input.rebind(\"" + a + "\", [\"Space\", \"GamepadA\"]); got " + (list.is_null() ? "nothing" : describe_json_value(list)));
+                              "input.rebind(\"" +
+                                  a + "\", [\"Space\", \"GamepadA\"]); got " +
+                                  (list.is_null() ? "nothing" : describe_json_value(list)));
     std::vector<std::string> problems = I->host->input().rebind(a, names);
     if (!problems.empty()) return throw_err(ctx, join(problems, "\n"));
     return JS_UNDEFINED;
@@ -2529,8 +2710,9 @@ NATIVE(inResetBindings) {  // (action?)
 bool check_player(JSContext* ctx, int argc, JSValueConst* argv, int i, int& player, JSValue& exc) {
     double d = arg_num(ctx, argc, argv, i);
     if (!(d >= 0 && d < kMaxPlayers) || d != std::floor(d)) {
-        exc = throw_err(ctx, "input.player(index): index must be a whole number from 0 to " + std::to_string(kMaxPlayers - 1) +
-                                 " (a player; the first is 0), got " + arg_str(ctx, argc, argv, i));
+        exc = throw_err(ctx, "input.player(index): index must be a whole number from 0 to " +
+                                 std::to_string(kMaxPlayers - 1) + " (a player; the first is 0), got " +
+                                 arg_str(ctx, argc, argv, i));
         return false;
     }
     player = static_cast<int>(d);
@@ -2541,9 +2723,10 @@ bool check_player_action(Impl* I, JSContext* ctx, const std::string& a, JSValue&
     Input& in = I->host->input();
     if (in.has_player_action(a)) return true;
     auto names = in.action_names();
-    exc = throw_err(ctx, "unknown input action '" + a + "'. " +
-                             (names.empty() ? std::string("No actions are defined; add them to factoria.json under input.actions.")
-                                            : did_you_mean(a, names)));
+    exc = throw_err(
+        ctx, "unknown input action '" + a + "'. " +
+                 (names.empty() ? std::string("No actions are defined; add them to factoria.json under input.actions.")
+                                : did_you_mean(a, names)));
     return false;
 }
 
@@ -2553,7 +2736,8 @@ NATIVE(inPlayerRead) {  // (kind, player, action...) kind: 0 down, 1 pressed, 2 
     int player = 0;
     JSValue exc = JS_UNDEFINED;
     if (!check_player(ctx, argc, argv, 1, player, exc)) return exc;
-    std::string a[4] = {arg_str(ctx, argc, argv, 2), arg_str(ctx, argc, argv, 3), arg_str(ctx, argc, argv, 4), arg_str(ctx, argc, argv, 5)};
+    std::string a[4] = {arg_str(ctx, argc, argv, 2), arg_str(ctx, argc, argv, 3), arg_str(ctx, argc, argv, 4),
+                        arg_str(ctx, argc, argv, 5)};
     const int count = kind == 5 ? 4 : kind == 4 ? 2 : 1;
     for (int i = 0; i < count; ++i)
         if (!check_player_action(I, ctx, a[i], exc)) return exc;
@@ -2589,20 +2773,31 @@ NATIVE(inPlayerDevice) {  // (player, spec?) with a spec: assigns; without: { pa
     if (spec.is_null()) {
         // no device
     } else if (!spec.is_object()) {
-        problems.push_back(who + "(device) expects an object like {pad: 0, keys: \"left\"} or {padId: gamepad.id}, or null for no device; got " +
+        problems.push_back(who +
+                           "(device) expects an object like {pad: 0, keys: \"left\"} or {padId: gamepad.id}, or null "
+                           "for no device; got " +
                            describe_json_value(spec));
     } else {
         const std::vector<std::string> fields = {"pad", "padId", "keys"};
         for (auto it = spec.begin(); it != spec.end(); ++it) {
             if (it.key() == "pad") {
-                if (it.value().is_number_integer()) device.pad = it.value().get<int>();
-                else if (!it.value().is_null()) problems.push_back(who + ": pad must be a gamepad slot (a whole number from 0 to " + std::to_string(kMaxGamepads - 1) + "), got " + describe_json_value(it.value()));
+                if (it.value().is_number_integer())
+                    device.pad = it.value().get<int>();
+                else if (!it.value().is_null())
+                    problems.push_back(who + ": pad must be a gamepad slot (a whole number from 0 to " +
+                                       std::to_string(kMaxGamepads - 1) + "), got " + describe_json_value(it.value()));
             } else if (it.key() == "padId") {
-                if (it.value().is_string()) device.padId = it.value().get<std::string>();
-                else if (!it.value().is_null()) problems.push_back(who + ": padId must be the id string of a pad (input.gamepad(i).id), got " + describe_json_value(it.value()));
+                if (it.value().is_string())
+                    device.padId = it.value().get<std::string>();
+                else if (!it.value().is_null())
+                    problems.push_back(who + ": padId must be the id string of a pad (input.gamepad(i).id), got " +
+                                       describe_json_value(it.value()));
             } else if (it.key() == "keys") {
-                if (it.value().is_string()) device.keys = it.value().get<std::string>();
-                else if (!it.value().is_null()) problems.push_back(who + ": keys must be the name of a key scheme (input.keySchemes()), got " + describe_json_value(it.value()));
+                if (it.value().is_string())
+                    device.keys = it.value().get<std::string>();
+                else if (!it.value().is_null())
+                    problems.push_back(who + ": keys must be the name of a key scheme (input.keySchemes()), got " +
+                                       describe_json_value(it.value()));
             } else {
                 problems.push_back(who + ": unknown field '" + it.key() + "'. " + did_you_mean(it.key(), fields));
             }
@@ -2622,7 +2817,9 @@ NATIVE(inPlayerBindings) {  // (player, action, family?)
     if (!check_player_action(I, ctx, a, exc)) return exc;
     std::string family = argc > 2 && JS_IsString(argv[2]) ? arg_str(ctx, argc, argv, 2) : "";
     if (!family.empty() && family != "keys" && family != "pad")
-        return throw_err(ctx, "input.player(i).bindings(action, family): family must be \"keys\" or \"pad\" (or left out), got '" + family + "'");
+        return throw_err(
+            ctx, "input.player(i).bindings(action, family): family must be \"keys\" or \"pad\" (or left out), got '" +
+                     family + "'");
     return I->from_json(Json(I->host->input().player_bindings(player, a, family)));
 }
 
@@ -2638,12 +2835,16 @@ NATIVE(inPlayerRebind) {  // (player, action, bindings[], family?)
     bool ok = list.is_array();
     if (ok)
         for (const Json& item : list) {
-            if (item.is_string()) names.push_back(item.get<std::string>());
-            else ok = false;
+            if (item.is_string())
+                names.push_back(item.get<std::string>());
+            else
+                ok = false;
         }
     if (!ok)
         return throw_err(ctx, "input.player(i).rebind(action, bindings) expects an array of binding names, e.g. "
-                              "input.player(1).rebind(\"" + a + "\", [\"Space\"]); got " + (list.is_null() ? "nothing" : describe_json_value(list)));
+                              "input.player(1).rebind(\"" +
+                                  a + "\", [\"Space\"]); got " +
+                                  (list.is_null() ? "nothing" : describe_json_value(list)));
     std::string family = argc > 3 && JS_IsString(argv[3]) ? arg_str(ctx, argc, argv, 3) : "";
     std::vector<std::string> problems = I->host->input().player_rebind(player, a, names, family);
     if (!problems.empty()) return throw_err(ctx, join(problems, "\n"));
@@ -2670,7 +2871,8 @@ NATIVE(inPlayerLastPressed) {
     return s.empty() ? JS_NULL : JS_NewString(ctx, s.c_str());
 }
 
-NATIVE(inPlayerData) {  // (player, data?) without data: what the player rebound; with data: imports it, returns the problems
+NATIVE(
+    inPlayerData) {  // (player, data?) without data: what the player rebound; with data: imports it, returns the problems
     SETUP;
     int player = 0;
     JSValue exc = JS_UNDEFINED;
@@ -2748,8 +2950,9 @@ NATIVE(screenInsets) {  // [left, top, right, bottom] of the safe area, in desig
 
 NATIVE(testSafeInsets) {  // (left, top, right, bottom): the device a test pretends to run on
     SETUP;
-    W.set_safe_insets(EdgeInsets{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)),
-                                 static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))});
+    W.set_safe_insets(
+        EdgeInsets{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)),
+                   static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))});
     return JS_UNDEFINED;
 }
 
@@ -2760,7 +2963,8 @@ NATIVE(testSafeProfile) {  // (name) -> "" or what is wrong
     const std::string name = arg_str(ctx, argc, argv, 0);
     EdgeInsets e;
     if (!safe_area_profile(name, design_size(I), e))
-        return JS_NewString(ctx, ("unknown profile '" + name + "'. " + did_you_mean(name, safe_area_profile_names())).c_str());
+        return JS_NewString(
+            ctx, ("unknown profile '" + name + "'. " + did_you_mean(name, safe_area_profile_names())).c_str());
     W.set_safe_insets(e);
     return JS_NewString(ctx, "");
 }
@@ -2783,7 +2987,8 @@ NATIVE(quitCancel) {  // event.cancel() of game.on("quit"): the window stays ope
     return JS_UNDEFINED;
 }
 
-NATIVE(testCloseWindow) {  // the player clicks the close button: true when the window would close (and a quit is then requested)
+NATIVE(
+    testCloseWindow) {  // the player clicks the close button: true when the window would close (and a quit is then requested)
     SETUP;
     const bool closes = I->owner->close_requested();
     if (closes) I->request_quit();
@@ -2831,28 +3036,37 @@ NATIVE(testVibrations) {
     return I->from_json(Json(I->host->input().vibrations()));
 }
 
-NATIVE(inCursor) {  // (kind 0 mouse visible|1 mouse locked|2 keyboard shown|3 platform keyboard (read-only)|4 text input mode (sets the script flag), value?): sets when given; returns the state
+NATIVE(
+    inCursor) {  // (kind 0 mouse visible|1 mouse locked|2 keyboard shown|3 platform keyboard (read-only)|4 text input mode (sets the script flag), value?): sets when given; returns the state
     SETUP;
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     Input& in = I->host->input();
     if (argc > 1 && !JS_IsUndefined(argv[1])) {
         bool v = arg_bool(ctx, argc, argv, 1);
-        if (kind == 0) in.set_mouse_visible(v);
-        else if (kind == 1) in.set_mouse_locked(v);
-        else if (kind == 2) in.set_keyboard_shown(v);
-        else if (kind == 4) in.set_script_text_input(v);
+        if (kind == 0)
+            in.set_mouse_visible(v);
+        else if (kind == 1)
+            in.set_mouse_locked(v);
+        else if (kind == 2)
+            in.set_keyboard_shown(v);
+        else if (kind == 4)
+            in.set_script_text_input(v);
     }
-    return JS_NewBool(ctx, kind == 0 ? in.mouse_visible() : kind == 1 ? in.mouse_locked()
-                                                          : kind == 3 ? in.platform_keyboard()
-                                                          : kind == 4 ? in.text_input_mode() : in.keyboard_shown());
+    return JS_NewBool(ctx, kind == 0   ? in.mouse_visible()
+                           : kind == 1 ? in.mouse_locked()
+                           : kind == 3 ? in.platform_keyboard()
+                           : kind == 4 ? in.text_input_mode()
+                                       : in.keyboard_shown());
 }
 
 // ---- window -----------------------------------------------------------------------------------------------------------
-NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the window, any other run answers from factoria.json
+NATIVE(
+    windowInfo) {  // the state window.* reads: a windowed run asks the window, any other run answers from factoria.json
     SETUP;
     WindowControl* win = I->host->window();
     Json p = I->host->project_settings();
-    const Json display = p.is_object() && p.contains("display") && p["display"].is_object() ? p["display"] : Json::object();
+    const Json display =
+        p.is_object() && p.contains("display") && p["display"].is_object() ? p["display"] : Json::object();
     int w = display.value("width", 1280), h = display.value("height", 720);
     bool fullscreen = display.value("fullscreen", false), vsync = display.value("vsync", true);
     int dw = w, dh = h, cap = 0;
@@ -2883,7 +3097,8 @@ NATIVE(windowInfo) {  // the state window.* reads: a windowed run asks the windo
     return o;
 }
 
-NATIVE(windowMonitors) {  // [{ name, width, height, primary, current }]: the window's monitors, or the one display of a run without one
+NATIVE(
+    windowMonitors) {  // [{ name, width, height, primary, current }]: the window's monitors, or the one display of a run without one
     SETUP;
     (void)argc;
     (void)argv;
@@ -2892,7 +3107,8 @@ NATIVE(windowMonitors) {  // [{ name, width, height, primary, current }]: the wi
         list = win->monitors();
     } else {
         Json p = I->host->project_settings();
-        const Json display = p.is_object() && p.contains("display") && p["display"].is_object() ? p["display"] : Json::object();
+        const Json display =
+            p.is_object() && p.contains("display") && p["display"].is_object() ? p["display"] : Json::object();
         list.push_back({"Display", display.value("width", 1280), display.value("height", 720), true, true});
     }
     JSValue arr = JS_NewArray(ctx);
@@ -2912,15 +3128,22 @@ NATIVE(windowSet) {  // (kind 0 mode|1 size|2 vsync|3 frame cap|4 monitor, a, b)
     SETUP;
     WindowControl* win = I->host->window();
     if (!win)
-        return JS_NewString(ctx, "this run has no window (headless run / test). Full screen, size, vsync and the frame cap only "
-                                 "apply to a windowed run (factoria run, an exported game); check window.available first.");
+        return JS_NewString(
+            ctx, "this run has no window (headless run / test). Full screen, size, vsync and the frame cap only "
+                 "apply to a windowed run (factoria run, an exported game); check window.available first.");
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     std::string err;
-    if (kind == 0) err = win->set_mode(arg_str(ctx, argc, argv, 1));
-    else if (kind == 1) err = win->set_size(static_cast<int>(arg_num(ctx, argc, argv, 1)), static_cast<int>(arg_num(ctx, argc, argv, 2)));
-    else if (kind == 2) err = win->set_vsync(arg_bool(ctx, argc, argv, 1));
-    else if (kind == 4) err = win->set_monitor(static_cast<int>(arg_num(ctx, argc, argv, 1)));
-    else err = win->set_frame_cap(static_cast<int>(arg_num(ctx, argc, argv, 1)));
+    if (kind == 0)
+        err = win->set_mode(arg_str(ctx, argc, argv, 1));
+    else if (kind == 1)
+        err =
+            win->set_size(static_cast<int>(arg_num(ctx, argc, argv, 1)), static_cast<int>(arg_num(ctx, argc, argv, 2)));
+    else if (kind == 2)
+        err = win->set_vsync(arg_bool(ctx, argc, argv, 1));
+    else if (kind == 4)
+        err = win->set_monitor(static_cast<int>(arg_num(ctx, argc, argv, 1)));
+    else
+        err = win->set_frame_cap(static_cast<int>(arg_num(ctx, argc, argv, 1)));
     return JS_NewString(ctx, err.c_str());
 }
 
@@ -2940,16 +3163,21 @@ NATIVE(audioPlay) {
     pp.priority = std::isfinite(priority) ? static_cast<int>(std::clamp(priority, 0.0, 255.0)) : 128;
     // (hasPosition, x, y, z, range): a sound heard from a place, as an AudioSource with `spatial` is (Audio::play_at).
     const bool atPlace = arg_bool(ctx, argc, argv, 12, false);
-    const auto finite = [](double v) { return std::isfinite(v) ? static_cast<float>(std::clamp(v, -1e30, 1e30)) : 0.0f; };
+    const auto finite = [](double v) {
+        return std::isfinite(v) ? static_cast<float>(std::clamp(v, -1e30, 1e30)) : 0.0f;
+    };
     bool outOfRange = false;
-    const VoiceId voice = atPlace
-        ? I->host->audio().play_at(W, path, pp,
-                                   {finite(arg_num(ctx, argc, argv, 13)), finite(arg_num(ctx, argc, argv, 14)), finite(arg_num(ctx, argc, argv, 15))},
-                                   static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 16, 800), 1e-3, 1e30)),
-                                   static_cast<AudioRolloff>(static_cast<int>(std::clamp(arg_num(ctx, argc, argv, 17, 0), 0.0, 2.0))),
-                                   static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 18, 0), 0.0, 1e30)),
-                                   static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 19, 1), 0.0, 100.0)), &outOfRange)
-        : I->host->audio().play(path, pp);
+    const VoiceId voice =
+        atPlace
+            ? I->host->audio().play_at(
+                  W, path, pp,
+                  {finite(arg_num(ctx, argc, argv, 13)), finite(arg_num(ctx, argc, argv, 14)),
+                   finite(arg_num(ctx, argc, argv, 15))},
+                  static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 16, 800), 1e-3, 1e30)),
+                  static_cast<AudioRolloff>(static_cast<int>(std::clamp(arg_num(ctx, argc, argv, 17, 0), 0.0, 2.0))),
+                  static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 18, 0), 0.0, 1e30)),
+                  static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 19, 1), 0.0, 100.0)), &outOfRange)
+            : I->host->audio().play(path, pp);
     // (text, key, speaker, seconds): a caption that lives with the sound (seconds > 0: for that long instead). A clip that could
     // not play (voice 0, the error is logged) still shows its caption for `seconds`, or 3 s; a sound from a place that is out of
     // range (play_at says so: nobody hears it, and it is no failure) shows it only when `seconds` is given.
@@ -2963,8 +3191,10 @@ NATIVE(audioPlay) {
         line.speaker = arg_str(ctx, argc, argv, 8);
         line.source = "audio:" + path;
         line.voice = voice;
-        if (seconds > 0) line.endsAt = W.time() + seconds;
-        else if (voice == 0) line.endsAt = W.time() + 3.0;
+        if (seconds > 0)
+            line.endsAt = W.time() + seconds;
+        else if (voice == 0)
+            line.endsAt = W.time() + 3.0;
         I->host->captions().add(std::move(line), I->host->i18n());
     }
     return JS_NewInt32(ctx, static_cast<int32_t>(voice));
@@ -2972,7 +3202,8 @@ NATIVE(audioPlay) {
 NATIVE(audioVariantPath) {  // (path, variant 1-based, count) -> the file name of that baked variant (sfx_variant_path)
     SETUP;
     const std::string path = arg_str(ctx, argc, argv, 0);
-    const std::string out = sfx_variant_path(path, static_cast<int>(arg_num(ctx, argc, argv, 1, 1)), static_cast<int>(arg_num(ctx, argc, argv, 2, 2)));
+    const std::string out = sfx_variant_path(path, static_cast<int>(arg_num(ctx, argc, argv, 1, 1)),
+                                             static_cast<int>(arg_num(ctx, argc, argv, 2, 2)));
     return JS_NewStringLen(ctx, out.data(), out.size());
 }
 NATIVE(audioStop) {
@@ -3024,8 +3255,9 @@ NATIVE(captionList) {  // () -> [{text, speaker, key, source}], oldest first
 }
 NATIVE(audioMusic) {
     SETUP;
-    I->host->audio().play_music(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0.6)), static_cast<float>(arg_num(ctx, argc, argv, 2, 0.5)),
-                                  arg_num(ctx, argc, argv, 3, 0) != 0);
+    I->host->audio().play_music(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0.6)),
+                                static_cast<float>(arg_num(ctx, argc, argv, 2, 0.5)),
+                                arg_num(ctx, argc, argv, 3, 0) != 0);
     return JS_UNDEFINED;
 }
 NATIVE(audioMusicLayers) {  // ([{name, path, level}], volume, fade, persist) -> true when every layer started
@@ -3048,7 +3280,8 @@ NATIVE(audioMusicLayers) {  // ([{name, path, level}], volume, fade, persist) ->
 }
 NATIVE(audioSetLayer) {  // (name, level, fade) -> false for an unknown layer
     SETUP;
-    return JS_NewBool(ctx, I->host->audio().set_layer(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 1)),
+    return JS_NewBool(ctx, I->host->audio().set_layer(arg_str(ctx, argc, argv, 0),
+                                                      static_cast<float>(arg_num(ctx, argc, argv, 1, 1)),
                                                       static_cast<float>(arg_num(ctx, argc, argv, 2, 0))));
 }
 NATIVE(audioLayerNames) {
@@ -3062,7 +3295,8 @@ NATIVE(audioSetVoiceVolume) {  // (voice, volume, fade) -> true while the voice 
     Audio& a = I->host->audio();
     const VoiceId voice = static_cast<VoiceId>(arg_num(ctx, argc, argv, 0));
     if (!a.is_playing(voice)) return JS_NewBool(ctx, false);
-    a.set_voice_volume(voice, static_cast<float>(arg_num(ctx, argc, argv, 1, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    a.set_voice_volume(voice, static_cast<float>(arg_num(ctx, argc, argv, 1, 1)),
+                       static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
     return JS_NewBool(ctx, true);
 }
 NATIVE(audioStopMusic) {
@@ -3073,7 +3307,8 @@ NATIVE(audioStopMusic) {
 // "unknown audio bus 'x'. Did you mean ...? The buses are ...": the buses of the project included.
 static JSValue throw_unknown_bus(JSContext* ctx, const Audio& a, const std::string& bus) {
     const std::vector<std::string> names = a.bus_names();
-    return throw_err(ctx, "unknown audio bus '" + bus + "'. " + did_you_mean(bus, names) + " The buses are " + join(names, ", ") +
+    return throw_err(ctx, "unknown audio bus '" + bus + "'. " + did_you_mean(bus, names) + " The buses are " +
+                              join(names, ", ") +
                               " (a project declares its own in factoria.json \"audio\".\"buses\").");
 }
 NATIVE(audioVolume) {
@@ -3111,19 +3346,22 @@ NATIVE(audioBusVolume) {  // (bus, volume, fade)
     const std::string bus = arg_str(ctx, argc, argv, 0);
     Audio& a = I->host->audio();
     if (a.bus_volume(bus) < 0) return throw_unknown_bus(ctx, a, bus);
-    a.set_bus_volume(bus, static_cast<float>(arg_num(ctx, argc, argv, 1, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    a.set_bus_volume(bus, static_cast<float>(arg_num(ctx, argc, argv, 1, 1)),
+                     static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
     return JS_UNDEFINED;
 }
 NATIVE(audioBusLowpass) {  // (bus, hz, fade): hz 0 = off
     SETUP;
-    const auto r = I->host->audio().set_bus_lowpass(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0)),
+    const auto r = I->host->audio().set_bus_lowpass(arg_str(ctx, argc, argv, 0),
+                                                    static_cast<float>(arg_num(ctx, argc, argv, 1, 0)),
                                                     static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
     return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
 }
 NATIVE(audioBusReverb) {  // (bus, mix, fade): mix 0 = off
     SETUP;
-    const auto r = I->host->audio().set_bus_reverb(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0)),
-                                                   static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
+    const auto r =
+        I->host->audio().set_bus_reverb(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, 0)),
+                                        static_cast<float>(arg_num(ctx, argc, argv, 2, 0)));
     return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
 }
 NATIVE(audioBusDuck) {  // (bus, by, amount, attack, release): by "" = off
@@ -3145,7 +3383,8 @@ NATIVE(audioBusState) {  // (bus) -> { volume, snapshotVolume, lowpass, reverb, 
 }
 NATIVE(audioSnapshot) {  // (name, fade): fade < 0 = the snapshot's own
     SETUP;
-    const auto r = I->host->audio().apply_snapshot(arg_str(ctx, argc, argv, 0), static_cast<float>(arg_num(ctx, argc, argv, 1, -1)));
+    const auto r = I->host->audio().apply_snapshot(arg_str(ctx, argc, argv, 0),
+                                                   static_cast<float>(arg_num(ctx, argc, argv, 1, -1)));
     return r.ok() ? JS_UNDEFINED : throw_audio_error(ctx, r.error());
 }
 NATIVE(audioSnapshots) {  // () -> { names, current }
@@ -3183,13 +3422,16 @@ NATIVE(raycast2d) {
 }
 NATIVE(raycast3d) {
     SETUP;
-    Vec3 o{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2))};
-    Vec3 d{static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4)), static_cast<float>(arg_num(ctx, argc, argv, 5))};
+    Vec3 o{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)),
+           static_cast<float>(arg_num(ctx, argc, argv, 2))};
+    Vec3 d{static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4)),
+           static_cast<float>(arg_num(ctx, argc, argv, 5))};
     RaycastOptions opt;
     opt.mask = static_cast<std::int32_t>(arg_num(ctx, argc, argv, 7, -1));
     opt.ignore = ent_from(ctx, argc > 8 ? argv[8] : JS_NULL);
     opt.ignoreTriggers = arg_bool(ctx, argc, argv, 9, true);
-    return hit_to_js(ctx, I->host->physics().raycast3d(W, o, d, static_cast<float>(arg_num(ctx, argc, argv, 6, 1000)), opt));
+    return hit_to_js(ctx,
+                     I->host->physics().raycast3d(W, o, d, static_cast<float>(arg_num(ctx, argc, argv, 6, 1000)), opt));
 }
 JSValue hits_to_js(JSContext* ctx, const std::vector<RaycastHit>& hits) {
     JSValue arr = JS_NewArray(ctx);
@@ -3210,14 +3452,17 @@ NATIVE(raycast2dAll) {
 }
 NATIVE(raycast3dAll) {
     SETUP;
-    Vec3 o{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2))};
-    Vec3 d{static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4)), static_cast<float>(arg_num(ctx, argc, argv, 5))};
+    Vec3 o{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)),
+           static_cast<float>(arg_num(ctx, argc, argv, 2))};
+    Vec3 d{static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4)),
+           static_cast<float>(arg_num(ctx, argc, argv, 5))};
     RaycastOptions opt;
     opt.mask = static_cast<std::int32_t>(arg_num(ctx, argc, argv, 7, -1));
     opt.ignore = ent_from(ctx, argc > 8 ? argv[8] : JS_NULL);
     opt.ignoreTriggers = arg_bool(ctx, argc, argv, 9, true);
     opt.maxHits = static_cast<std::int32_t>(arg_num(ctx, argc, argv, 10, 32));
-    return hits_to_js(ctx, I->host->physics().raycast3d_all(W, o, d, static_cast<float>(arg_num(ctx, argc, argv, 6, 1000)), opt));
+    return hits_to_js(
+        ctx, I->host->physics().raycast3d_all(W, o, d, static_cast<float>(arg_num(ctx, argc, argv, 6, 1000)), opt));
 }
 // Shape casts. The shape arrives as the plain object the script wrote; cast_shape_from_json teaches what is wrong with it.
 bool cast_shape_arg(Impl* I, JSContext* ctx, int argc, JSValueConst* argv, bool is3d, CastShape& out, JSValue& exc) {
@@ -3247,8 +3492,10 @@ NATIVE(shapeCast3d) {  // (shape, fromX, fromY, fromZ, toX, toY, toZ, mask, igno
     CastShape shape;
     JSValue exc = JS_UNDEFINED;
     if (!cast_shape_arg(I, ctx, argc, argv, true, shape, exc)) return exc;
-    Vec3 a{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))};
-    Vec3 b{static_cast<float>(arg_num(ctx, argc, argv, 4)), static_cast<float>(arg_num(ctx, argc, argv, 5)), static_cast<float>(arg_num(ctx, argc, argv, 6))};
+    Vec3 a{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2)),
+           static_cast<float>(arg_num(ctx, argc, argv, 3))};
+    Vec3 b{static_cast<float>(arg_num(ctx, argc, argv, 4)), static_cast<float>(arg_num(ctx, argc, argv, 5)),
+           static_cast<float>(arg_num(ctx, argc, argv, 6))};
     RaycastOptions o;
     o.mask = static_cast<std::int32_t>(arg_num(ctx, argc, argv, 7, -1));
     o.ignore = ent_from(ctx, argc > 8 ? argv[8] : JS_NULL);
@@ -3272,7 +3519,8 @@ NATIVE(navFindPath) {  // ({ from: [x,y,z], to: [x,y,z], radius?, snap?, closest
     if (!r.ok()) return throw_err(ctx, "nav.findPath(from, to): " + r.error().to_string());
     return I->from_json(r.value().to_json());
 }
-NATIVE(navFindPaths) {  // ({ queries: [{ from, to, radius?, snap?, closest?, mesh? }], radius?, snap?, closest?, mesh? }) -> [path]
+NATIVE(
+    navFindPaths) {  // ({ queries: [{ from, to, radius?, snap?, closest?, mesh? }], radius?, snap?, closest?, mesh? }) -> [path]
     SETUP;
     auto queries = nav_parse_path_queries(I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED), "nav.findPaths(queries)");
     if (!queries.ok()) return throw_err(ctx, queries.error().to_string());
@@ -3301,12 +3549,15 @@ struct NavHandle {
     std::shared_ptr<NavCostGrid> grid;
     std::shared_ptr<NavFlowField> field;
 };
-void nav_handle_finalizer(JSRuntime*, JSValue val) { delete static_cast<NavHandle*>(JS_GetOpaque(val, g_navHandleClass)); }
+void nav_handle_finalizer(JSRuntime*, JSValue val) {
+    delete static_cast<NavHandle*>(JS_GetOpaque(val, g_navHandleClass));
+}
 
 NavHandle* nav_handle(JSContext* ctx, JSValueConst v, bool wantField, JSValue* exc) {
     auto* h = static_cast<NavHandle*>(JS_GetOpaque(v, g_navHandleClass));
     if (!h || (wantField ? !h->field : !h->grid))
-        *exc = throw_err(ctx, wantField ? "expected a flow field made by nav.flowField" : "expected a grid made by nav.createGrid");
+        *exc = throw_err(ctx, wantField ? "expected a flow field made by nav.flowField"
+                                        : "expected a grid made by nav.createGrid");
     return wantField ? (h && h->field ? h : nullptr) : (h && h->grid ? h : nullptr);
 }
 
@@ -3332,8 +3583,9 @@ NATIVE(navGridNew) {  // (width, height, costs | undefined, originX, originY, ce
     SETUP;
     const int w = static_cast<int>(arg_num(ctx, argc, argv, 0)), h = static_cast<int>(arg_num(ctx, argc, argv, 1));
     if (w <= 0 || h <= 0) return throw_err(ctx, "nav.createGrid: width and height must be at least 1");
-    auto g = std::make_shared<NavCostGrid>(w, h, Vec2{static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4))},
-                                           Vec2{static_cast<float>(arg_num(ctx, argc, argv, 5, 1)), static_cast<float>(arg_num(ctx, argc, argv, 6, 1))});
+    auto g = std::make_shared<NavCostGrid>(
+        w, h, Vec2{static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4))},
+        Vec2{static_cast<float>(arg_num(ctx, argc, argv, 5, 1)), static_cast<float>(arg_num(ctx, argc, argv, 6, 1))});
     if (argc > 2 && JS_IsObject(argv[2])) {
         std::vector<float> costs(static_cast<std::size_t>(w) * static_cast<std::size_t>(h));
         for (std::size_t i = 0; i < costs.size(); ++i) {
@@ -3373,7 +3625,8 @@ NATIVE(navGridGet) {  // (grid, col, row) -> the cost, -1 for a blocked cell or 
     JSValue exc = JS_UNDEFINED;
     NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, false, &exc);
     if (!h) return exc;
-    return float_to_js(ctx, h->grid->cost(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2)))));
+    return float_to_js(ctx, h->grid->cost(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))),
+                                          static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2)))));
 }
 NATIVE(navGridVersion) {  // (grid | field) -> [version of the grid, rebuilds of the field (0 for a grid)]
     SETUP;
@@ -3407,14 +3660,19 @@ NATIVE(navGridPaths) {  // (grid, [from c, from r, to c, to r, ...], opts) -> [t
     if (!h) return exc;
     std::vector<std::pair<std::pair<int, int>, std::pair<int, int>>> queries;
     if (argc < 2 || !JS_IsArray(argv[1]))
-        return throw_err(ctx, "nav.findTilePaths: the cells must be an array [from col, from row, to col, to row, ...]; use nav.findTilePaths(map, [{from: [c, r], to: [c, r]}, ...]).");
+        return throw_err(ctx, "nav.findTilePaths: the cells must be an array [from col, from row, to col, to row, "
+                              "...]; use nav.findTilePaths(map, [{from: [c, r], to: [c, r]}, ...]).");
     uint32_t n = 0;
     JSValue len = JS_GetPropertyStr(ctx, argv[1], "length");
     JS_ToUint32(ctx, &n, len);
     JS_FreeValue(ctx, len);
     if (n % 4 != 0)
-        return throw_err(ctx, "nav.findTilePaths: " + std::to_string(n) + " numbers is not a whole number of queries; each query is four numbers (from col, from row, to col, to row).");
-    if (n / 4 > kNavMaxBatch) return throw_err(ctx, "nav.findTilePaths: too many queries in one call (the most is " + std::to_string(kNavMaxBatch) + ")");
+        return throw_err(ctx, "nav.findTilePaths: " + std::to_string(n) +
+                                  " numbers is not a whole number of queries; each query is four numbers (from col, "
+                                  "from row, to col, to row).");
+    if (n / 4 > kNavMaxBatch)
+        return throw_err(ctx, "nav.findTilePaths: too many queries in one call (the most is " +
+                                  std::to_string(kNavMaxBatch) + ")");
     bool badNumber = false;
     uint32_t badAt = 0;
     auto whole = [&](uint32_t i) {
@@ -3431,7 +3689,8 @@ NATIVE(navGridPaths) {  // (grid, [from c, from r, to c, to r, ...], opts) -> [t
     };
     for (uint32_t i = 0; i + 3 < n; i += 4) queries.push_back({{whole(i), whole(i + 1)}, {whole(i + 2), whole(i + 3)}});
     if (badNumber)
-        return throw_err(ctx, "nav.findTilePaths /queries/" + std::to_string(badAt / 4) + ": every cell coordinate must be a finite number.");
+        return throw_err(ctx, "nav.findTilePaths /queries/" + std::to_string(badAt / 4) +
+                                  ": every cell coordinate must be a finite number.");
     auto r = nav_tile_run_many(h->grid->grid(), nullptr, I->to_json(argc > 2 ? argv[2] : JS_UNDEFINED), queries);
     if (!r.ok()) return throw_err(ctx, r.error().to_string());
     return I->from_json(r.value());
@@ -3463,7 +3722,8 @@ NATIVE(navFlowDist) {  // (field, col, row) -> cost to the nearest goal, Infinit
     JSValue exc = JS_UNDEFINED;
     NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, true, &exc);
     if (!h) return exc;
-    return float_to_js(ctx, h->field->distance(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2)))));
+    return float_to_js(ctx, h->field->distance(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))),
+                                               static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2)))));
 }
 NATIVE(navFlowStep) {  // (field, col, row) -> [col, row] of the next cell, or null
     SETUP;
@@ -3471,15 +3731,19 @@ NATIVE(navFlowStep) {  // (field, col, row) -> [col, row] of the next cell, or n
     NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, true, &exc);
     if (!h) return exc;
     int nc = 0, nr = 0;
-    if (!h->field->step_toward(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2))), nc, nr)) return JS_NULL;
+    if (!h->field->step_toward(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))),
+                               static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2))), nc, nr))
+        return JS_NULL;
     return array_of(ctx, {static_cast<double>(nc), static_cast<double>(nr)});
 }
-NATIVE(navFlowPath) {  // (field, col, row) -> [c0, r0, c1, r1, ...] from the cell to its goal, [] when none can be reached
+NATIVE(
+    navFlowPath) {  // (field, col, row) -> [c0, r0, c1, r1, ...] from the cell to its goal, [] when none can be reached
     SETUP;
     JSValue exc = JS_UNDEFINED;
     NavHandle* h = nav_handle(ctx, argc > 0 ? argv[0] : JS_UNDEFINED, true, &exc);
     if (!h) return exc;
-    const auto cells = h->field->path_from(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))), static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2))));
+    const auto cells = h->field->path_from(static_cast<int>(std::floor(arg_num(ctx, argc, argv, 1))),
+                                           static_cast<int>(std::floor(arg_num(ctx, argc, argv, 2))));
     JSValue a = JS_NewArray(ctx);
     uint32_t i = 0;
     for (const auto& c : cells) {
@@ -3506,18 +3770,26 @@ NATIVE(navBake) {  // (mesh)
 }
 NATIVE(overlapCircle) {
     SETUP;
-    return entities_array(ctx, I->host->physics().overlap_circle2d(W, {static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))},
-                                                                   static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<std::int32_t>(arg_num(ctx, argc, argv, 3, -1))));
+    return entities_array(
+        ctx, I->host->physics().overlap_circle2d(
+                 W, {static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1))},
+                 static_cast<float>(arg_num(ctx, argc, argv, 2)),
+                 static_cast<std::int32_t>(arg_num(ctx, argc, argv, 3, -1))));
 }
 NATIVE(overlapBox) {
     SETUP;
-    Rect r{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))};
-    return entities_array(ctx, I->host->physics().overlap_box2d(W, r, static_cast<std::int32_t>(arg_num(ctx, argc, argv, 4, -1))));
+    Rect r{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)),
+           static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))};
+    return entities_array(
+        ctx, I->host->physics().overlap_box2d(W, r, static_cast<std::int32_t>(arg_num(ctx, argc, argv, 4, -1))));
 }
 NATIVE(overlapSphere) {
     SETUP;
-    Vec3 c{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2))};
-    return entities_array(ctx, I->host->physics().overlap_sphere3d(W, c, static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<std::int32_t>(arg_num(ctx, argc, argv, 4, -1))));
+    Vec3 c{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)),
+           static_cast<float>(arg_num(ctx, argc, argv, 2))};
+    return entities_array(
+        ctx, I->host->physics().overlap_sphere3d(W, c, static_cast<float>(arg_num(ctx, argc, argv, 3)),
+                                                 static_cast<std::int32_t>(arg_num(ctx, argc, argv, 4, -1))));
 }
 NATIVE(physicsApply) {  // (kind 0 impulse|1 force|2 velocity, entity, x, y, z)
     SETUP;
@@ -3525,10 +3797,13 @@ NATIVE(physicsApply) {  // (kind 0 impulse|1 force|2 velocity, entity, x, y, z)
     Entity e;
     JSValue exc = JS_UNDEFINED;
     if (!need_entity(I, ctx, argc > 1 ? argv[1] : JS_UNDEFINED, e, exc)) return exc;
-    Vec3 v{static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3)), static_cast<float>(arg_num(ctx, argc, argv, 4))};
+    Vec3 v{static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3)),
+           static_cast<float>(arg_num(ctx, argc, argv, 4))};
     Physics& ph = I->host->physics();
-    if (kind == 0) ph.apply_impulse(W, e, v);
-    else if (kind == 1) ph.apply_force(W, e, v);
+    if (kind == 0)
+        ph.apply_impulse(W, e, v);
+    else if (kind == 1)
+        ph.apply_force(W, e, v);
     else {
         ph.set_velocity(W, e, v);
         // keep the mirrored component field in sync so the next physics step does not overwrite it
@@ -3538,17 +3813,23 @@ NATIVE(physicsApply) {  // (kind 0 impulse|1 force|2 velocity, entity, x, y, z)
     return JS_UNDEFINED;
 }
 
-NATIVE(moveCharacter) {  // (entity, dx, dy, dz) -> { position, moved, isGrounded, groundNormal, ground, hitWall, hitCeiling }
+NATIVE(
+    moveCharacter) {  // (entity, dx, dy, dz) -> { position, moved, isGrounded, groundNormal, ground, hitWall, hitCeiling }
     SETUP;
     Entity e;
     JSValue exc = JS_UNDEFINED;
     if (!need_entity(I, ctx, argc > 0 ? argv[0] : JS_UNDEFINED, e, exc)) return exc;
-    Vec3 delta{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))};
+    Vec3 delta{static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2)),
+               static_cast<float>(arg_num(ctx, argc, argv, 3))};
     if (!W.get<CharacterController3D>(e))
-        return throw_err(ctx, "physics.moveCharacter(entity, delta): entity '" + W.id_of(e) + "' has no CharacterController3D. Add the component "
-                              "(radius, height, stepOffset, slopeLimit) to the entity that walks, or use RigidBody3D.velocity for a physics body.");
+        return throw_err(ctx, "physics.moveCharacter(entity, delta): entity '" + W.id_of(e) +
+                                  "' has no CharacterController3D. Add the component "
+                                  "(radius, height, stepOffset, slopeLimit) to the entity that walks, or use "
+                                  "RigidBody3D.velocity for a physics body.");
     auto r = I->host->physics().move_character(W, e, delta);
-    if (!r) return throw_err(ctx, "physics.moveCharacter(entity, delta): the character could not move (delta must be finite numbers; the entity must be enabled).");
+    if (!r)
+        return throw_err(ctx, "physics.moveCharacter(entity, delta): the character could not move (delta must be "
+                              "finite numbers; the entity must be enabled).");
     JSValue o = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, o, "position", array_of(ctx, {r->position.x, r->position.y, r->position.z}));
     JS_SetPropertyStr(ctx, o, "moved", array_of(ctx, {r->moved.x, r->moved.y, r->moved.z}));
@@ -3573,7 +3854,8 @@ NATIVE(cameraAll) {
 }
 
 Vec2 design_size(Impl* I) {
-    if (Renderer* r = I->host->renderer(); r && r->initialized()) return {static_cast<float>(r->target_width()), static_cast<float>(r->target_height())};
+    if (Renderer* r = I->host->renderer(); r && r->initialized())
+        return {static_cast<float>(r->target_width()), static_cast<float>(r->target_height())};
     return I->host->design_size();
 }
 
@@ -3592,7 +3874,8 @@ Entity arg_camera(JSContext* ctx, int argc, JSValueConst* argv, int i) {
 
 NATIVE(worldToScreen) {
     SETUP;
-    Vec3 p{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)), static_cast<float>(arg_num(ctx, argc, argv, 2))};
+    Vec3 p{static_cast<float>(arg_num(ctx, argc, argv, 0)), static_cast<float>(arg_num(ctx, argc, argv, 1)),
+           static_cast<float>(arg_num(ctx, argc, argv, 2))};
     const Entity camera = arg_camera(ctx, argc, argv, 3);
     if (Renderer* r = I->host->renderer(); r && r->initialized()) {
         Vec2 s = r->world_to_screen(p, camera);
@@ -3662,7 +3945,11 @@ Color arg_color(JSContext* ctx, int argc, JSValueConst* argv, int i) {
         float* f = &c.r;
         for (uint32_t k = 0; k < 4; ++k) {
             JSValue x = JS_GetPropertyUint32(ctx, argv[i], k);
-            if (JS_IsNumber(x)) { double d = 0; JS_ToFloat64(ctx, &d, x); f[k] = static_cast<float>(d); }
+            if (JS_IsNumber(x)) {
+                double d = 0;
+                JS_ToFloat64(ctx, &d, x);
+                f[k] = static_cast<float>(d);
+            }
             JS_FreeValue(ctx, x);
         }
     }
@@ -3680,7 +3967,9 @@ NATIVE(debugDraw) {  // (kind, ...)
         case 0: d.line({n(1), n(2), n(3)}, {n(4), n(5), n(6)}, arg_color(ctx, argc, argv, 7), 1.0f); break;
         case 1: d.rect({n(1), n(2), n(3), n(4)}, arg_color(ctx, argc, argv, 5), arg_bool(ctx, argc, argv, 6)); break;
         case 2: d.circle({n(1), n(2)}, n(3), arg_color(ctx, argc, argv, 4), arg_bool(ctx, argc, argv, 5)); break;
-        case 3: d.text({n(1), n(2)}, arg_str(ctx, argc, argv, 3), arg_color(ctx, argc, argv, 4), argc > 5 ? n(5) : 16.0f); break;
+        case 3:
+            d.text({n(1), n(2)}, arg_str(ctx, argc, argv, 3), arg_color(ctx, argc, argv, 4), argc > 5 ? n(5) : 16.0f);
+            break;
         case 4: d.box({n(1), n(2), n(3)}, {n(4), n(5), n(6)}, arg_color(ctx, argc, argv, 7)); break;
         case 5: d.sphere({n(1), n(2), n(3)}, n(4), arg_color(ctx, argc, argv, 5)); break;
         case 6: {  // bones(root | null, color): the Bone2D kites of a subtree, or of the whole scene
@@ -3720,7 +4009,8 @@ NATIVE(notices) {
     SETUP;
     Json out = Json::array();
     for (const ThirdPartyComponent& c : third_party_components())
-        if (c.inGames) out.push_back({{"name", c.name}, {"url", c.url}, {"license", c.license}, {"usedFor", c.usedFor}});
+        if (c.inGames)
+            out.push_back({{"name", c.name}, {"url", c.url}, {"license", c.license}, {"usedFor", c.usedFor}});
     return I->from_json(out);
 }
 
@@ -3729,14 +4019,13 @@ NATIVE(notices) {
 NATIVE(autoplayPhase) {
     SETUP;
     if (!I->autoplayOn) return JS_UNDEFINED;
-    if (I->autoplayPhases.size() >= Impl::kMaxAutoplayPhases) return JS_UNDEFINED;  // a loop calling it every frame cannot grow the list without end
+    if (I->autoplayPhases.size() >= Impl::kMaxAutoplayPhases)
+        return JS_UNDEFINED;  // a loop calling it every frame cannot grow the list without end
     I->autoplayPhases.push_back({arg_str(ctx, argc, argv, 0), arg_str(ctx, argc, argv, 1)});
     return JS_UNDEFINED;
 }
 
-NATIVE(platform) {
-    return JS_NewString(ctx, FA_PLATFORM_NAME);
-}
+NATIVE(platform) { return JS_NewString(ctx, FA_PLATFORM_NAME); }
 
 // [textScale, reduceMotion, highContrast, screenReader]. Only a game with its own window reads the system; headless runs,
 // tests and the editor give the defaults (or what game.setAccessibility set), so that output never depends on the machine.
@@ -3785,7 +4074,8 @@ NATIVE(renderScaleSet) {  // "" or the reason it did not happen
     return JS_NewString(ctx, err.c_str());
 }
 
-NATIVE(testAccessibility) {  // (textScale, reduceMotion, highContrast, screenReader); no arguments = back to the defaults
+NATIVE(
+    testAccessibility) {  // (textScale, reduceMotion, highContrast, screenReader); no arguments = back to the defaults
     SETUP;
     AccessibilitySettings s;
     if (argc >= 4) {
@@ -3845,7 +4135,9 @@ NATIVE(storageSize) {  // (key) -> bytes of the key's file, 0 when the key is no
     Impl::StorageMeta& m = I->storageMeta[key];
     if (m.bytes < 0)
         m.bytes = static_cast<std::int64_t>(
-            storage_files::encode(key, I->storage[key].dump(-1, ' ', false, Json::error_handler_t::replace), m.compressed).size());
+            storage_files::encode(key, I->storage[key].dump(-1, ' ', false, Json::error_handler_t::replace),
+                                  m.compressed)
+                .size());
     return JS_NewFloat64(ctx, static_cast<double>(m.bytes));
 }
 NATIVE(storageRemove) {
@@ -3864,7 +4156,8 @@ NATIVE(storageKeys) {
     I->load_storage();
     JSValue a = JS_NewArray(ctx);
     uint32_t i = 0;
-    for (auto it = I->storage.begin(); it != I->storage.end(); ++it) JS_SetPropertyUint32(ctx, a, i++, JS_NewString(ctx, it.key().c_str()));
+    for (auto it = I->storage.begin(); it != I->storage.end(); ++it)
+        JS_SetPropertyUint32(ctx, a, i++, JS_NewString(ctx, it.key().c_str()));
     return a;
 }
 NATIVE(storageCorrupt) {
@@ -3897,12 +4190,15 @@ NATIVE(callCommand) {
     if (args.is_null()) args = Json::object();
     // Runs with the set of whoever runs this code (a game script, a test, or a tool's caller): script_capabilities.cpp.
     CommandResult r = I->run_command(name, args);
-    if (r.ok && name == "tilemap.generate_start" && r.result.is_object() && r.result.contains("job") && r.result["job"].is_number_integer())
-        I->wfcJobIds.push_back(r.result["job"].get<int>());   // this context owns the job: it is dropped with it
+    if (r.ok && name == "tilemap.generate_start" && r.result.is_object() && r.result.contains("job") &&
+        r.result["job"].is_number_integer())
+        I->wfcJobIds.push_back(r.result["job"].get<int>());  // this context owns the job: it is dropped with it
     JSValue o = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, o, "ok", JS_NewBool(ctx, r.ok));
-    if (r.ok) JS_SetPropertyStr(ctx, o, "result", I->from_json(r.result));
-    else JS_SetPropertyStr(ctx, o, "error", I->from_json(r.error));
+    if (r.ok)
+        JS_SetPropertyStr(ctx, o, "result", I->from_json(r.result));
+    else
+        JS_SetPropertyStr(ctx, o, "error", I->from_json(r.error));
     return o;
 }
 
@@ -3953,7 +4249,8 @@ NATIVE(pluginCall) {  // (plugin, function, args array) -> {ok, result} | {ok: f
                 JS_SetPropertyStr(ctx, o, "result", I->from_json(result));
             } catch (const CommandError& e) {
                 JS_SetPropertyStr(ctx, o, "ok", JS_NewBool(ctx, false));
-                JS_SetPropertyStr(ctx, o, "error", I->from_json(Json::object({{"message", e.what()}, {"hint", e.hint}})));
+                JS_SetPropertyStr(ctx, o, "error",
+                                  I->from_json(Json::object({{"message", e.what()}, {"hint", e.hint}})));
             }
             return o;
         }
@@ -3970,12 +4267,15 @@ NATIVE(platformStart) {  // (method, args) -> {id, answer?} | {mistake: {message
     PlatformServices* services = I->host->platform_services();
     JSValue o = JS_NewObject(ctx);
     if (!services) {
-        JS_SetPropertyStr(ctx, o, "mistake", I->from_json(Json::object({{"message", "this run has no platform services"}, {"hint", ""}})));
+        JS_SetPropertyStr(ctx, o, "mistake",
+                          I->from_json(Json::object({{"message", "this run has no platform services"}, {"hint", ""}})));
         return o;
     }
     auto started = services->start(method, args);
     if (!started.ok()) {
-        JS_SetPropertyStr(ctx, o, "mistake", I->from_json(Json::object({{"message", started.error().message}, {"hint", started.error().hint}})));
+        JS_SetPropertyStr(
+            ctx, o, "mistake",
+            I->from_json(Json::object({{"message", started.error().message}, {"hint", started.error().hint}})));
         return o;
     }
     JS_SetPropertyStr(ctx, o, "id", JS_NewFloat64(ctx, static_cast<double>(started->id)));
@@ -3997,8 +4297,13 @@ NATIVE(platformInfo) {  // {backend, services, player: {id, name, signedIn}, pen
 NATIVE(i18nInfo) {  // {enabled, language, defaultLanguage, languages, names, systemLanguages}
     SETUP;
     const I18n* L = I->host->i18n();
-    Json j = Json::object({{"enabled", L && L->enabled()}, {"language", ""}, {"defaultLanguage", ""}, {"languages", Json::array()},
-                           {"names", Json::object()}, {"systemLanguages", Json::array()}, {"direction", "ltr"}});
+    Json j = Json::object({{"enabled", L && L->enabled()},
+                           {"language", ""},
+                           {"defaultLanguage", ""},
+                           {"languages", Json::array()},
+                           {"names", Json::object()},
+                           {"systemLanguages", Json::array()},
+                           {"direction", "ltr"}});
     if (L && L->enabled()) {
         j["language"] = L->language();
         j["defaultLanguage"] = L->default_language();
@@ -4072,7 +4377,9 @@ NATIVE(testLoad) {
     if (hasProps) {
         props = I->to_json(argv[1]);
         if (!props.is_object())
-            return JS_NewString(ctx, ("game.load(path, props): props must be a plain object like { level: 3 }, got " + describe_json_value(props)).c_str());
+            return JS_NewString(ctx, ("game.load(path, props): props must be a plain object like { level: 3 }, got " +
+                                      describe_json_value(props))
+                                         .c_str());
     }
     std::string err = hasProps ? I->host->load_scene_now_with_props(path, props) : I->host->load_scene_now(path);
     if (!err.empty()) return JS_NewString(ctx, err.c_str());
@@ -4082,8 +4389,10 @@ NATIVE(testLoad) {
 
 NATIVE(testStorageText) {
     SETUP;
-    if (argc > 0 && JS_IsString(argv[0])) I->storageTextHook = arg_str(ctx, argc, argv, 0);
-    else I->storageTextHook.reset();
+    if (argc > 0 && JS_IsString(argv[0]))
+        I->storageTextHook = arg_str(ctx, argc, argv, 0);
+    else
+        I->storageTextHook.reset();
     I->storage = Json::object();
     I->storageLoaded = false;
     return JS_UNDEFINED;
@@ -4092,13 +4401,18 @@ NATIVE(testStorageText) {
 NATIVE(testLoadJson) {
     SETUP;
     Json scene = argc > 0 ? I->to_json(argv[0]) : Json(nullptr);
-    if (!scene.is_object()) return JS_NewString(ctx, "game.loadJson(scene) expects a scene object like { format: \"factoria.scene/1\", entities: [...] }");
+    if (!scene.is_object())
+        return JS_NewString(
+            ctx, "game.loadJson(scene) expects a scene object like { format: \"factoria.scene/1\", entities: [...] }");
     Json props;
     const bool hasProps = argc > 1 && !JS_IsUndefined(argv[1]) && !JS_IsNull(argv[1]);
     if (hasProps) {
         props = I->to_json(argv[1]);
         if (!props.is_object())
-            return JS_NewString(ctx, ("game.loadJson(scene, props): props must be a plain object like { level: 3 }, got " + describe_json_value(props)).c_str());
+            return JS_NewString(ctx,
+                                ("game.loadJson(scene, props): props must be a plain object like { level: 3 }, got " +
+                                 describe_json_value(props))
+                                    .c_str());
     }
     std::string err = hasProps ? I->host->load_scene_json_now_with_props(scene, "game.loadJson", props)
                                : I->host->load_scene_json_now(scene, "game.loadJson");
@@ -4113,13 +4427,17 @@ NATIVE(testTouch) {  // (kind 0 begin|1 move|2 end, id, x, y)
     auto id = static_cast<std::uint64_t>(arg_num(ctx, argc, argv, 1, 1));
     Vec2 p{static_cast<float>(arg_num(ctx, argc, argv, 2)), static_cast<float>(arg_num(ctx, argc, argv, 3))};
     Input& in = I->host->input();
-    if (kind == 0) in.on_touch_begin(id, p);
-    else if (kind == 1) in.on_touch_move(id, p);
-    else in.on_touch_end(id);
+    if (kind == 0)
+        in.on_touch_begin(id, p);
+    else if (kind == 1)
+        in.on_touch_move(id, p);
+    else
+        in.on_touch_end(id);
     return JS_UNDEFINED;
 }
 
-NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 set the pad type|6 validate a pad type, index, name, value, info)
+NATIVE(
+    testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 set the pad type|6 validate a pad type, index, name, value, info)
     SETUP;
     int kind = static_cast<int>(arg_num(ctx, argc, argv, 0));
     int i = 0;
@@ -4134,17 +4452,21 @@ NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 se
     } else if (kind == 2) {
         GamepadAxis a{};
         if (!pad_axis_name(ctx, name, a, exc)) return exc;
-        if (argc < 4 || !JS_IsNumber(argv[3])) return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").axis('" + name + "', value): value must be a number (-1..1, triggers 0..1)");
+        if (argc < 4 || !JS_IsNumber(argv[3]))
+            return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").axis('" + name +
+                                      "', value): value must be a number (-1..1, triggers 0..1)");
         in.on_gamepad_axis(i, a, static_cast<float>(arg_num(ctx, argc, argv, 3)));
     } else if (kind == 6) {  // only checks that `name` is a pad family
         GamepadType t{};
         if (!gamepad_type_from_name(name, t))
-            return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").connect: unknown pad type '" + name + "'. " + did_you_mean(name, gamepad_type_names()));
+            return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").connect: unknown pad type '" + name + "'. " +
+                                      did_you_mean(name, gamepad_type_names()));
     } else if (kind == 5) {
         GamepadType t{};
         if (!gamepad_type_from_name(name, t))
-            return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").setType: unknown pad type '" + name + "'. " + did_you_mean(name, gamepad_type_names()));
-        in.set_gamepad_type(i, t);  // first: a pad that is announced by this call carries its type
+            return throw_err(ctx, "game.gamepad(" + std::to_string(i) + ").setType: unknown pad type '" + name + "'. " +
+                                      did_you_mean(name, gamepad_type_names()));
+        in.set_gamepad_type(i, t);         // first: a pad that is announced by this call carries its type
         in.on_gamepad_connected(i, true);  // a type only means something for a pad that is there
     } else {
         if (kind == 3 && argc > 4 && JS_IsObject(argv[4])) {  // connect(info): who the pad is, before it is announced
@@ -4154,7 +4476,8 @@ NATIVE(testPad) {  // (kind 0 press|1 release|2 axis|3 connect|4 disconnect|5 se
             if (j.contains("vendor")) info.vendor = std::uint16_t(j["vendor"].get<int>());
             if (j.contains("product")) info.product = std::uint16_t(j["product"].get<int>());
             if (j.contains("type")) gamepad_type_from_name(j["type"].get<std::string>(), info.type);
-            info.id = j.contains("id") ? j["id"].get<std::string>() : std::string();  // empty: made from the ids and the name
+            info.id =
+                j.contains("id") ? j["id"].get<std::string>() : std::string();  // empty: made from the ids and the name
             if (info.id.empty() && (j.contains("name") || j.contains("vendor") || j.contains("product")))
                 info.id = make_gamepad_id(info.vendor, info.product, info.name.empty() ? "Gamepad" : info.name, "");
             if (info.id.empty()) info.id = in.gamepad_info(i).id;
@@ -4176,8 +4499,9 @@ NATIVE(today) {  // [year, month, day, weekday, utcOffsetMinutes, hour, minute, 
     SETUP;
     const CalendarDate d = I->owner->today();
     const CalendarDate u = d.utc();
-    return array_of(ctx, {double(d.year), double(d.month), double(d.day), double(d.weekday()), double(d.utcOffsetMinutes), double(d.hour),
-                          double(d.minute), double(d.second), double(u.year), double(u.month), double(u.day)});
+    return array_of(ctx, {double(d.year), double(d.month), double(d.day), double(d.weekday()),
+                          double(d.utcOffsetMinutes), double(d.hour), double(d.minute), double(d.second),
+                          double(u.year), double(u.month), double(u.day)});
 }
 
 NATIVE(testSetDate) {  // (iso, utcOffsetMinutes | undefined): "" when set, else the teaching error
@@ -4198,8 +4522,9 @@ NATIVE(appState) {  // [focused, suspended]
 NATIVE(testAppEvent) {  // (0 suspend, 1 resume, 2 focus, 3 blur)
     SETUP;
     const int kind = static_cast<int>(arg_num(ctx, argc, argv, 0, 0));
-    static const ScriptSystem::AppLifecycle events[] = {ScriptSystem::AppLifecycle::Suspend, ScriptSystem::AppLifecycle::Resume,
-                                                    ScriptSystem::AppLifecycle::Focus, ScriptSystem::AppLifecycle::Blur};
+    static const ScriptSystem::AppLifecycle events[] = {
+        ScriptSystem::AppLifecycle::Suspend, ScriptSystem::AppLifecycle::Resume, ScriptSystem::AppLifecycle::Focus,
+        ScriptSystem::AppLifecycle::Blur};
     if (kind >= 0 && kind < 4) I->owner->app_event(events[kind]);
     return JS_UNDEFINED;
 }
@@ -4222,14 +4547,16 @@ NATIVE(preloadStart) {
     Result<int> r = I->host->background_load_start(kind, paths, props ? &*props : nullptr);
     JSValue o = JS_NewObject(ctx);
     if (!r.ok()) {
-        JS_SetPropertyStr(ctx, o, "mistake", I->from_json(Json::object({{"message", r.error().message}, {"hint", r.error().hint}})));
+        JS_SetPropertyStr(ctx, o, "mistake",
+                          I->from_json(Json::object({{"message", r.error().message}, {"hint", r.error().hint}})));
         return o;
     }
     JS_SetPropertyStr(ctx, o, "id", JS_NewInt32(ctx, r.value()));
     return o;
 }
 
-NATIVE(generateActive) {  // (count): how many tilemap.generate generations the script side advances; 0 stops the per-frame generateTick
+NATIVE(
+    generateActive) {  // (count): how many tilemap.generate generations the script side advances; 0 stops the per-frame generateTick
     SETUP;
     I->generateJobs = static_cast<int>(arg_num(ctx, argc, argv, 0, 0));
     return JS_UNDEFINED;
@@ -4268,7 +4595,9 @@ NATIVE(testStep) {
 NATIVE(testScreenshot) {
     SETUP;
     std::string err;
-    if (!I->host->screenshot_simulated(arg_str(ctx, argc, argv, 0), arg_num(ctx, argc, argv, 1, 1.0), arg_str(ctx, argc, argv, 2), &err)) return JS_NewString(ctx, err.empty() ? "screenshot failed" : err.c_str());
+    if (!I->host->screenshot_simulated(arg_str(ctx, argc, argv, 0), arg_num(ctx, argc, argv, 1, 1.0),
+                                       arg_str(ctx, argc, argv, 2), &err))
+        return JS_NewString(ctx, err.empty() ? "screenshot failed" : err.c_str());
     return JS_NewString(ctx, "");
 }
 
@@ -4292,7 +4621,7 @@ NATIVE(resetInput) {
     Input& in = I->host->input();
     in.clear_action_overrides();
     in.release_all();  // also unplugs the gamepads
-    double dz = 0.2;  // a test that changed input.deadzone starts the next one from the project's value
+    double dz = 0.2;   // a test that changed input.deadzone starts the next one from the project's value
     Json ps = I->host->project_settings();
     if (ps.is_object() && ps.contains("input") && ps["input"].is_object()) {
         auto it = ps["input"].find("deadzone");
@@ -4307,7 +4636,8 @@ NATIVE(resetInput) {
 NATIVE(pumpJobs) {
     SETUP;
     I->run_jobs();
-    if (I->check_interrupt()) return throw_interrupted(ctx);  // an async test over its limit (run_jobs stopped its body)
+    if (I->check_interrupt())
+        return throw_interrupted(ctx);  // an async test over its limit (run_jobs stopped its body)
     return JS_UNDEFINED;
 }
 
@@ -4319,31 +4649,303 @@ struct Reg {
 
 #define R(n, a) {#n, n_##n, a}
 const Reg kRegs[] = {
-    R(log, 2), R(reportError, 3), R(guardBegin, 2), R(guardEnd, 0), R(nowMs, 0), R(sourceCaret, 3), R(logSeq, 0), R(logErrors, 1), R(forgetLoggedErrors, 0), R(watchdogCuts, 1), R(types, 0), R(timeInfo, 0),
-    R(setTimeScale, 1), R(feelDo, 2), R(feelCancel, 1), R(feelSet, 2), R(feelInfo, 1), R(alive, 1), R(pendingDestroy, 1), R(idOf, 1), R(destroyedId, 1), R(find, 1), R(findAll, 1),
-    R(findByTag, 1), R(entities, 0), R(tags, 1), R(setTags, 2), R(hasTag, 2), R(addTag, 2), R(removeTag, 2),
-    R(setId, 2), R(getName, 1), R(setName, 2), R(getActive, 1), R(setActive, 2), R(activeInHierarchy, 1),
-    R(destroy, 1), R(parent, 1), R(children, 1), R(setParent, 4), R(worldPos, 1), R(setWorldPos, 2),
-    R(entityJson, 3), R(spawn, 3), R(spawnPrefab, 4), R(behaviour, 1), R(isGrounded, 2), R(hasComp, 2),
-    R(compType, 1), R(addComp, 3), R(removeComp, 2), R(compNames, 1), R(compJson, 2), R(patchComp, 3), R(fget, 3),
-    R(fgetn, 4), R(fsetn, 5), R(fset, 4), R(emit, 3), R(scenePath, 0), R(sceneGeneration, 0), R(requestScene, 2), R(sceneProps, 0), R(rngFloat, 0),
-    R(rngRange, 2), R(rngInt, 2), R(rngChance, 1), R(rngSeed, 1), R(inAction, 2), R(inConsume, 1), R(inAxis, 2), R(inVector, 4),
-    R(inKey, 2), R(inMouse, 0), R(inMouseButton, 2), R(inTouches, 0), R(inSetAction, 2), R(inClearOverrides, 0),
-    R(inValue, 1), R(inPad, 3), R(inDeadzone, 1), R(testPad, 5),
-    R(inText, 0), R(inActions, 0), R(inBindings, 1), R(inRebind, 2), R(inResetBindings, 1), R(inLastPressed, 0),
-    R(inPlayerRead, 6), R(inPlayerDevice, 2), R(inPlayerBindings, 3), R(inPlayerRebind, 4), R(inPlayerReset, 2),
-    R(inPlayerLastPressed, 1), R(inPlayerData, 2), R(inKeySchemes, 1),
-    R(inLastDevice, 0), R(inPadType, 1), R(inPadInfo, 1), R(inButtonName, 2), R(inCursor, 2), R(windowInfo, 0), R(windowMonitors, 0), R(windowSet, 3),
-    R(testText, 1), R(inVibrate, 1), R(screenInsets, 0), R(testSafeInsets, 4), R(testSafeProfile, 1), R(testBack, 0), R(testQuit, 1), R(quitCancel, 0), R(inTestRun, 0), R(testCloseWindow, 0), R(clipboardSupported, 0), R(clipboardGet, 0), R(clipboardSet, 1), R(testSystemLanguages, 1), R(testVibrations, 0),
-    R(inKeyEvent, 2), R(inMouseMove, 2), R(inMouseEvent, 2), R(inWheel, 1), R(audioPlay, 11), R(audioVariantPath, 3), R(audioStop, 1), R(audioActiveVoices, 0), R(audioTakeEnded, 0),
-    R(audioStopAll, 0), R(captionAdd, 4), R(captionClear, 0), R(captionList, 0), R(audioMusic, 4), R(audioMusicLayers, 4), R(audioSetLayer, 3), R(audioLayerNames, 0), R(audioSetVoiceVolume, 3), R(audioStopMusic, 1), R(audioVolume, 2), R(audioGetVolume, 1), R(audioLog, 1),
-    R(audioBusVolume, 3), R(audioBusLowpass, 3), R(audioBusReverb, 3), R(audioBusDuck, 5), R(audioBusState, 1), R(audioSnapshot, 2),
-    R(audioSnapshots, 0), R(audioFxReset, 0), R(raycast2d, 7),
-    R(raycast3d, 10), R(raycast2dAll, 8), R(raycast3dAll, 11), R(navFindPath, 1), R(navFindPaths, 1), R(navBake, 1), R(navFindTilePath, 1), R(navFindTilePaths, 1), R(navGridPaths, 3), R(navGridNew, 7), R(navGridSet, 4), R(navGridFill, 2), R(navGridGet, 3), R(navGridVersion, 1), R(navGridPath, 4), R(navFlowNew, 3), R(navFlowDist, 3), R(navFlowStep, 3), R(navFlowPath, 3), R(tileVersion, 1), R(shapeCast2d, 8), R(shapeCast3d, 10), R(isTouching, 5), R(particlesBurst, 2), R(animCall, 4), R(musicCall, 3), R(spriteAnimCall, 4), R(tileGet, 3), R(tileSet, 4), R(tileDims, 1), R(tileCellAt, 3), R(tileCellToWorld, 3), R(tilePaintTerrain, 4), R(tileRetile, 1), R(tileTerrainAt, 3), R(measureText, 11), R(markupProblems, 1), R(overflowed, 1), R(textScale, 0), R(setTextScale, 1), R(uiScale, 0), R(setUiScale, 1), R(uiMirrorRtl, 0), R(setUiMirrorRtl, 1), R(speak, 2), R(stopSpeaking, 0), R(speechAvailable, 0), R(spokenLog, 1), R(uiState, 0), R(uiFocus, 1), R(uiDragState, 0), R(uiSetDropTarget, 2), R(uiSetDragImage, 1), R(uiCancelDrag, 0), R(uiTooltipShow, 3), R(uiTooltipHide, 0), R(uiTooltipView, 0), R(uiTooltipDelay, 0), R(uiSetTooltipDelay, 1), R(uiSetTooltipFn, 2), R(uiSetWorldTooltipFn, 1), R(uiWidgetAt, 2), R(uiSetPointer, 3), R(uiPointerState, 0), R(uiLayout, 0), R(textureSize, 1), R(renderCapture, 3), R(renderCaptureWorld, 6), R(renderFromPng, 1), R(renderPng, 1), R(renderDestroy, 1), R(bounds, 1), R(screenRect, 1), R(uiUnclickable, 1), R(uiAim, 1), R(overlapCircle, 4), R(overlapBox, 5), R(overlapSphere, 5), R(physicsApply, 5), R(moveCharacter, 4), R(meshCreate, 2), R(meshUpdate, 3), R(meshDestroy, 1), R(meshInfo, 1), R(meshList, 0), R(meshSave, 2),
-    R(cameraMain, 0), R(cameraAll, 0), R(cameraAt, 2), R(screenRay, 3), R(worldToScreen, 4), R(screenToWorld, 4), R(debugDraw, 8), R(quit, 0), R(project, 0),
-    R(screenSize, 0), R(notices, 0), R(autoplayPhase, 2), R(platform, 0), R(accessibility, 0), R(testAccessibility, 4), R(deviceInfo, 0), R(testDevice, 1), R(renderScaleGet, 0), R(renderStatsNow, 0), R(renderScaleSet, 1), R(storageGet, 1), R(storageSet, 3), R(storageSetAsync, 3), R(storageSize, 1), R(storageRemove, 1), R(storageKeys, 0),
-    R(storageClear, 0), R(storageCorrupt, 0), R(testStorageText, 1), R(callCommand, 2), R(commands, 0), R(capabilitiesCheck, 2), R(testCapabilities, 1), R(pluginList, 0), R(pluginCall, 3), R(platformStart, 2), R(platformInfo, 0), R(i18nInfo, 0), R(i18nT, 2), R(i18nNumber, 2), R(i18nDuration, 2), R(i18nHas, 1), R(i18nGender, 1), R(i18nSet, 1), R(testLoad, 2), R(testLoadJson, 2), R(testTouch, 4), R(testStep, 1), R(today, 0), R(testSetDate, 1), R(appState, 0), R(testAppEvent, 1), R(testAppReset, 0), R(preloadStart, 3), R(preloadRelease, 1), R(generateActive, 1), R(testDiskReads, 0), R(testScreenshot, 3),
-    R(testState, 0), R(pumpJobs, 0), R(resetInput, 0),
+    R(log, 2),
+    R(reportError, 3),
+    R(guardBegin, 2),
+    R(guardEnd, 0),
+    R(nowMs, 0),
+    R(sourceCaret, 3),
+    R(logSeq, 0),
+    R(logErrors, 1),
+    R(forgetLoggedErrors, 0),
+    R(watchdogCuts, 1),
+    R(types, 0),
+    R(timeInfo, 0),
+    R(setTimeScale, 1),
+    R(feelDo, 2),
+    R(feelCancel, 1),
+    R(feelSet, 2),
+    R(feelInfo, 1),
+    R(alive, 1),
+    R(pendingDestroy, 1),
+    R(idOf, 1),
+    R(destroyedId, 1),
+    R(find, 1),
+    R(findAll, 1),
+    R(findByTag, 1),
+    R(entities, 0),
+    R(tags, 1),
+    R(setTags, 2),
+    R(hasTag, 2),
+    R(addTag, 2),
+    R(removeTag, 2),
+    R(setId, 2),
+    R(getName, 1),
+    R(setName, 2),
+    R(getActive, 1),
+    R(setActive, 2),
+    R(activeInHierarchy, 1),
+    R(destroy, 1),
+    R(parent, 1),
+    R(children, 1),
+    R(setParent, 4),
+    R(worldPos, 1),
+    R(setWorldPos, 2),
+    R(entityJson, 3),
+    R(spawn, 3),
+    R(spawnPrefab, 4),
+    R(behaviour, 1),
+    R(isGrounded, 2),
+    R(hasComp, 2),
+    R(compType, 1),
+    R(addComp, 3),
+    R(removeComp, 2),
+    R(compNames, 1),
+    R(compJson, 2),
+    R(patchComp, 3),
+    R(fget, 3),
+    R(fgetn, 4),
+    R(fsetn, 5),
+    R(fset, 4),
+    R(emit, 3),
+    R(scenePath, 0),
+    R(sceneGeneration, 0),
+    R(requestScene, 2),
+    R(sceneProps, 0),
+    R(rngFloat, 0),
+    R(rngRange, 2),
+    R(rngInt, 2),
+    R(rngChance, 1),
+    R(rngSeed, 1),
+    R(inAction, 2),
+    R(inConsume, 1),
+    R(inAxis, 2),
+    R(inVector, 4),
+    R(inKey, 2),
+    R(inMouse, 0),
+    R(inMouseButton, 2),
+    R(inTouches, 0),
+    R(inSetAction, 2),
+    R(inClearOverrides, 0),
+    R(inValue, 1),
+    R(inPad, 3),
+    R(inDeadzone, 1),
+    R(testPad, 5),
+    R(inText, 0),
+    R(inActions, 0),
+    R(inBindings, 1),
+    R(inRebind, 2),
+    R(inResetBindings, 1),
+    R(inLastPressed, 0),
+    R(inPlayerRead, 6),
+    R(inPlayerDevice, 2),
+    R(inPlayerBindings, 3),
+    R(inPlayerRebind, 4),
+    R(inPlayerReset, 2),
+    R(inPlayerLastPressed, 1),
+    R(inPlayerData, 2),
+    R(inKeySchemes, 1),
+    R(inLastDevice, 0),
+    R(inPadType, 1),
+    R(inPadInfo, 1),
+    R(inButtonName, 2),
+    R(inCursor, 2),
+    R(windowInfo, 0),
+    R(windowMonitors, 0),
+    R(windowSet, 3),
+    R(testText, 1),
+    R(inVibrate, 1),
+    R(screenInsets, 0),
+    R(testSafeInsets, 4),
+    R(testSafeProfile, 1),
+    R(testBack, 0),
+    R(testQuit, 1),
+    R(quitCancel, 0),
+    R(inTestRun, 0),
+    R(testCloseWindow, 0),
+    R(clipboardSupported, 0),
+    R(clipboardGet, 0),
+    R(clipboardSet, 1),
+    R(testSystemLanguages, 1),
+    R(testVibrations, 0),
+    R(inKeyEvent, 2),
+    R(inMouseMove, 2),
+    R(inMouseEvent, 2),
+    R(inWheel, 1),
+    R(audioPlay, 11),
+    R(audioVariantPath, 3),
+    R(audioStop, 1),
+    R(audioActiveVoices, 0),
+    R(audioTakeEnded, 0),
+    R(audioStopAll, 0),
+    R(captionAdd, 4),
+    R(captionClear, 0),
+    R(captionList, 0),
+    R(audioMusic, 4),
+    R(audioMusicLayers, 4),
+    R(audioSetLayer, 3),
+    R(audioLayerNames, 0),
+    R(audioSetVoiceVolume, 3),
+    R(audioStopMusic, 1),
+    R(audioVolume, 2),
+    R(audioGetVolume, 1),
+    R(audioLog, 1),
+    R(audioBusVolume, 3),
+    R(audioBusLowpass, 3),
+    R(audioBusReverb, 3),
+    R(audioBusDuck, 5),
+    R(audioBusState, 1),
+    R(audioSnapshot, 2),
+    R(audioSnapshots, 0),
+    R(audioFxReset, 0),
+    R(raycast2d, 7),
+    R(raycast3d, 10),
+    R(raycast2dAll, 8),
+    R(raycast3dAll, 11),
+    R(navFindPath, 1),
+    R(navFindPaths, 1),
+    R(navBake, 1),
+    R(navFindTilePath, 1),
+    R(navFindTilePaths, 1),
+    R(navGridPaths, 3),
+    R(navGridNew, 7),
+    R(navGridSet, 4),
+    R(navGridFill, 2),
+    R(navGridGet, 3),
+    R(navGridVersion, 1),
+    R(navGridPath, 4),
+    R(navFlowNew, 3),
+    R(navFlowDist, 3),
+    R(navFlowStep, 3),
+    R(navFlowPath, 3),
+    R(tileVersion, 1),
+    R(shapeCast2d, 8),
+    R(shapeCast3d, 10),
+    R(isTouching, 5),
+    R(particlesBurst, 2),
+    R(animCall, 4),
+    R(musicCall, 3),
+    R(spriteAnimCall, 4),
+    R(tileGet, 3),
+    R(tileSet, 4),
+    R(tileDims, 1),
+    R(tileCellAt, 3),
+    R(tileCellToWorld, 3),
+    R(tilePaintTerrain, 4),
+    R(tileRetile, 1),
+    R(tileTerrainAt, 3),
+    R(measureText, 11),
+    R(markupProblems, 1),
+    R(overflowed, 1),
+    R(textScale, 0),
+    R(setTextScale, 1),
+    R(uiScale, 0),
+    R(setUiScale, 1),
+    R(uiMirrorRtl, 0),
+    R(setUiMirrorRtl, 1),
+    R(speak, 2),
+    R(stopSpeaking, 0),
+    R(speechAvailable, 0),
+    R(spokenLog, 1),
+    R(uiState, 0),
+    R(uiFocus, 1),
+    R(uiDragState, 0),
+    R(uiSetDropTarget, 2),
+    R(uiSetDragImage, 1),
+    R(uiCancelDrag, 0),
+    R(uiTooltipShow, 3),
+    R(uiTooltipHide, 0),
+    R(uiTooltipView, 0),
+    R(uiTooltipDelay, 0),
+    R(uiSetTooltipDelay, 1),
+    R(uiSetTooltipFn, 2),
+    R(uiSetWorldTooltipFn, 1),
+    R(uiWidgetAt, 2),
+    R(uiSetPointer, 3),
+    R(uiPointerState, 0),
+    R(uiLayout, 0),
+    R(textureSize, 1),
+    R(renderCapture, 3),
+    R(renderCaptureWorld, 6),
+    R(renderFromPng, 1),
+    R(renderPng, 1),
+    R(renderDestroy, 1),
+    R(bounds, 1),
+    R(screenRect, 1),
+    R(uiUnclickable, 1),
+    R(uiAim, 1),
+    R(overlapCircle, 4),
+    R(overlapBox, 5),
+    R(overlapSphere, 5),
+    R(physicsApply, 5),
+    R(moveCharacter, 4),
+    R(meshCreate, 2),
+    R(meshUpdate, 3),
+    R(meshDestroy, 1),
+    R(meshInfo, 1),
+    R(meshList, 0),
+    R(meshSave, 2),
+    R(cameraMain, 0),
+    R(cameraAll, 0),
+    R(cameraAt, 2),
+    R(screenRay, 3),
+    R(worldToScreen, 4),
+    R(screenToWorld, 4),
+    R(debugDraw, 8),
+    R(quit, 0),
+    R(project, 0),
+    R(screenSize, 0),
+    R(notices, 0),
+    R(autoplayPhase, 2),
+    R(platform, 0),
+    R(accessibility, 0),
+    R(testAccessibility, 4),
+    R(deviceInfo, 0),
+    R(testDevice, 1),
+    R(renderScaleGet, 0),
+    R(renderStatsNow, 0),
+    R(renderScaleSet, 1),
+    R(storageGet, 1),
+    R(storageSet, 3),
+    R(storageSetAsync, 3),
+    R(storageSize, 1),
+    R(storageRemove, 1),
+    R(storageKeys, 0),
+    R(storageClear, 0),
+    R(storageCorrupt, 0),
+    R(testStorageText, 1),
+    R(callCommand, 2),
+    R(commands, 0),
+    R(capabilitiesCheck, 2),
+    R(testCapabilities, 1),
+    R(pluginList, 0),
+    R(pluginCall, 3),
+    R(platformStart, 2),
+    R(platformInfo, 0),
+    R(i18nInfo, 0),
+    R(i18nT, 2),
+    R(i18nNumber, 2),
+    R(i18nDuration, 2),
+    R(i18nHas, 1),
+    R(i18nGender, 1),
+    R(i18nSet, 1),
+    R(testLoad, 2),
+    R(testLoadJson, 2),
+    R(testTouch, 4),
+    R(testStep, 1),
+    R(today, 0),
+    R(testSetDate, 1),
+    R(appState, 0),
+    R(testAppEvent, 1),
+    R(testAppReset, 0),
+    R(preloadStart, 3),
+    R(preloadRelease, 1),
+    R(generateActive, 1),
+    R(testDiskReads, 0),
+    R(testScreenshot, 3),
+    R(testState, 0),
+    R(pumpJobs, 0),
+    R(resetInput, 0),
 };
 #undef R
 

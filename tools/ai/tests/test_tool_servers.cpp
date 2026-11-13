@@ -63,7 +63,8 @@ TEST_CASE("parse_tool_server: the transport is inferred, the fields are read") {
     REQUIRE(viaUrl.ok());
     CHECK(viaUrl->type == "http");
     // Claude Code's spelling of the transport
-    auto streamable = parse_tool_server(Json::parse(R"({"type":"streamable-http","url":"https://a.example/mcp"})"), "s", "/x");
+    auto streamable =
+        parse_tool_server(Json::parse(R"({"type":"streamable-http","url":"https://a.example/mcp"})"), "s", "/x");
     REQUIRE(streamable.ok());
     CHECK(streamable->type == "http");
 }
@@ -123,14 +124,15 @@ TEST_CASE("parse_tool_server: errors say where, what is wrong and how to fix it"
 
 TEST_CASE("parse_tool_server: pasted entries may carry keys this version does not know, they are listed and skipped") {
     std::vector<std::string> ignored;
-    auto s = parse_tool_server(Json::parse(R"({"url":"https://a.example/mcp","disabled":true,"alwaysAllow":["x"]})"), "pasted",
-                               "/x", &ignored);
+    auto s = parse_tool_server(Json::parse(R"({"url":"https://a.example/mcp","disabled":true,"alwaysAllow":["x"]})"),
+                               "pasted", "/x", &ignored);
     REQUIRE(s.ok());
     CHECK(ignored == std::vector<std::string>{"disabled", "alwaysAllow"});  // in the order of the entry
 }
 
 TEST_CASE("parse_tool_servers: the object, or Claude Code's {\"mcpServers\": ...} wrapper") {
-    const Json inner = Json::parse(R"({"scenario":{"url":"https://mcp.scenario.com/mcp"},"local":{"command":"node","args":["s.js"]}})");
+    const Json inner = Json::parse(
+        R"({"scenario":{"url":"https://mcp.scenario.com/mcp"},"local":{"command":"node","args":["s.js"]}})");
     auto plain = parse_tool_servers(inner, "/mcpServers");
     REQUIRE(plain.ok());
     REQUIRE(plain->size() == 2);
@@ -142,7 +144,8 @@ TEST_CASE("parse_tool_servers: the object, or Claude Code's {\"mcpServers\": ...
     auto notObject = parse_tool_servers(Json::array(), "/mcpServers");
     REQUIRE_FALSE(notObject.ok());
     CHECK(has(notObject.error().message, "one entry per server"));
-    auto oneBad = parse_tool_servers(Json::parse(R"({"good":{"command":"x"},"bad name":{"command":"x"}})"), "/mcpServers");
+    auto oneBad =
+        parse_tool_servers(Json::parse(R"({"good":{"command":"x"},"bad name":{"command":"x"}})"), "/mcpServers");
     REQUIRE_FALSE(oneBad.ok());
     CHECK(has(oneBad.error().message, "bad name"));
 }
@@ -208,7 +211,7 @@ TEST_CASE("keys are redacted when the config is shown, kept when it is written")
     CHECK(shown["apiKey"] == "***");
     CHECK(shown["headers"]["Authorization"] == "***");  // a secret written out in full
     CHECK(shown["headers"]["Accept"] == "text/plain");
-    CHECK(shown["headers"]["X-Api-Key"] == "{key}");    // a reference is not a secret
+    CHECK(shown["headers"]["X-Api-Key"] == "{key}");  // a reference is not a secret
     CHECK_FALSE(has(shown.dump(), "secret-key-1"));
     CHECK_FALSE(has(shown.dump(), "aGFyZGNvZGVk"));
     const Json written = tool_server_to_json(*parsed, false);
@@ -318,7 +321,8 @@ TEST_CASE("save_tool_servers: only mcpServers changes, the file stays private, b
     CHECK(read_file(notJson) == "[1,2]");
 }
 
-TEST_CASE("external_tools_prompt: each server with its note and how its tools are named; the read-only variant brings nothing in") {
+TEST_CASE("external_tools_prompt: each server with its note and how its tools are named; the read-only variant brings "
+          "nothing in") {
     CHECK(external_tools_prompt({}).empty());
     const std::vector<ToolServerBrief> servers = {{"scenario", "AI game art: sprites, textures.", "mcp__scenario__"},
                                                   {"local", "", ""}};
@@ -344,7 +348,8 @@ TEST_CASE("external_tools_prompt: each server with its note and how its tools ar
 TEST_CASE("doctor: the tool servers are listed with where the key comes from, never the key") {
     AiConfig cfg = default_config();
     cfg.toolServers.push_back(*parse_tool_server(scenario_entry(), "scenario", "/x"));
-    cfg.toolServers.push_back(*parse_tool_server(Json::parse(R"({"command":"npx","args":["a"],"enabled":false})"), "off", "/x"));
+    cfg.toolServers.push_back(
+        *parse_tool_server(Json::parse(R"({"command":"npx","args":["a"],"enabled":false})"), "off", "/x"));
 
     const auto ready = tool_server_statuses(cfg, fake_env({{"SCENARIO_KEY", "very-secret"}}));
     REQUIRE(ready.size() == 2);
@@ -373,7 +378,8 @@ TEST_CASE("doctor: the tool servers are listed with where the key comes from, ne
 
 TEST_CASE("a key in the URL's query string stays out of the status") {
     AiConfig cfg = default_config();
-    cfg.toolServers.push_back(*parse_tool_server(Json::parse(R"({"url":"https://a.example/mcp?token=hunter2"})"), "q", "/x"));
+    cfg.toolServers.push_back(
+        *parse_tool_server(Json::parse(R"({"url":"https://a.example/mcp?token=hunter2"})"), "q", "/x"));
     const auto st = tool_server_statuses(cfg, fake_env({}));
     REQUIRE(st.size() == 1);
     CHECK(st[0].target == "https://a.example/mcp");

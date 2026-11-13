@@ -24,7 +24,8 @@ void write_file(const fsys::path& path, const std::string& text) {
     std::ofstream(path, std::ios::binary) << text;
 }
 
-std::string skill_md(const std::string& name, const std::string& description, const std::string& body = "Do the thing.") {
+std::string skill_md(const std::string& name, const std::string& description,
+                     const std::string& body = "Do the thing.") {
     return "---\nname: " + name + "\ndescription: " + description + "\n---\n\n" + body + "\n";
 }
 
@@ -42,7 +43,8 @@ struct World {
     void proj(const std::string& name, const std::string& description, const std::string& body = "Do the thing.") {
         write_file(project.path / "skills" / name / "SKILL.md", skill_md(name, description, body));
     }
-    std::vector<SkillInfo> scan(std::vector<Extension> userEntries = {}, std::vector<Extension> projectEntries = {}) const {
+    std::vector<SkillInfo> scan(std::vector<Extension> userEntries = {},
+                                std::vector<Extension> projectEntries = {}) const {
         return scan_skills(userEntries, projectEntries, ctx);
     }
 };
@@ -53,7 +55,8 @@ const SkillInfo* find(const std::vector<SkillInfo>& all, const std::string& name
     return nullptr;
 }
 
-Extension skill_entry(const std::string& name, const std::string& path, std::vector<std::string> roles = {}, bool enabled = true) {
+Extension skill_entry(const std::string& name, const std::string& path, std::vector<std::string> roles = {},
+                      bool enabled = true) {
     Extension e;
     e.kind = ExtensionKind::Skill;
     e.name = name;
@@ -69,9 +72,13 @@ std::vector<std::string> names_for(const std::vector<SkillInfo>& all, const std:
     return out;
 }
 
-std::string str_of(const Json& j, const char* key) { return j.is_object() && j.contains(key) && j[key].is_string() ? j[key].get<std::string>() : std::string(); }
+std::string str_of(const Json& j, const char* key) {
+    return j.is_object() && j.contains(key) && j[key].is_string() ? j[key].get<std::string>() : std::string();
+}
 
-bool contains(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool contains(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 }  // namespace
 
@@ -145,8 +152,8 @@ TEST_CASE("skills: engine skills go to the roles whose work they are about") {
     CHECK(contains(names_for(all, "worker"), "tile-levels"));
     CHECK_FALSE(contains(names_for(all, "artist"), "tile-levels"));
     CHECK(contains(names_for(all, "worker"), "review-ready"));
-    CHECK(names_for(all, "fast").empty());           // tiny edits need no guide
-    CHECK(names_for(all, "reviewer").empty());       // the critics and reviewers only look
+    CHECK(names_for(all, "fast").empty());      // tiny edits need no guide
+    CHECK(names_for(all, "reviewer").empty());  // the critics and reviewers only look
     CHECK(names_for(all, "artCritic").empty());
     for (const std::string& name : fa::engine_skill_names()) {
         CAPTURE(name);
@@ -177,7 +184,8 @@ TEST_CASE("skills: an entry of the extensions sets the roles and the on/off of a
     CHECK(art->entry == "art");
     CHECK_FALSE(art->enabled);
     CHECK_FALSE(art->offered_to("artist"));
-    CHECK(std::count_if(all.begin(), all.end(), [](const SkillInfo& s) { return s.name == "make-art"; }) == 1);  // not twice
+    CHECK(std::count_if(all.begin(), all.end(), [](const SkillInfo& s) { return s.name == "make-art"; }) ==
+          1);  // not twice
     const SkillInfo* pacing = find(all, "pacing");
     REQUIRE(pacing);
     CHECK(pacing->entry == "more");
@@ -187,7 +195,8 @@ TEST_CASE("skills: an entry of the extensions sets the roles and the on/off of a
 
 TEST_CASE("skills: an entry that points nowhere is reported, not hidden") {
     World w;
-    const auto all = w.scan({skill_entry("ghost", (w.home.path / "nope").string()), skill_entry("typo", "engine:make-ar")});
+    const auto all =
+        w.scan({skill_entry("ghost", (w.home.path / "nope").string()), skill_entry("typo", "engine:make-ar")});
     const SkillInfo* ghost = find(all, "ghost");
     REQUIRE(ghost);
     CHECK_FALSE(ghost->problem.empty());
@@ -288,7 +297,8 @@ TEST_CASE("skills: the prompt is smaller than the guides it replaced, and the si
     CHECK(size("artist", false, {}, true) < size("artist", false, {}, false));
     CHECK(size("audio", false, {}, true) < size("audio", false, {}, false));
     CHECK(size("worker", false, {}, true) < size("worker", false, {}, false));
-    CHECK(size("orchestrator", true, {"artist", "audio"}, true) < size("orchestrator", true, {"artist", "audio"}, false));
+    CHECK(size("orchestrator", true, {"artist", "audio"}, true) <
+          size("orchestrator", true, {"artist", "audio"}, false));
     CHECK(size("orchestrator", true, {}, true) < size("orchestrator", true, {}, false));
     // The skills section of the busiest role stays small: it is paid on every turn of every run.
     PromptContext p;
@@ -458,7 +468,8 @@ TEST_CASE("skills: skills.list, skills.read and skills.new through the registry"
     CHECK(str_of(refused.error, "code") == "skill_not_offered");
     CHECK(reg.call("skills.read", Json::object({{"name", "tile-levels"}, {"role", "worker"}})).ok);
 
-    auto made = reg.call("skills.new", Json::object({{"name", "pacing"}, {"description", "How levels are paced: read before levels."}}));
+    auto made = reg.call(
+        "skills.new", Json::object({{"name", "pacing"}, {"description", "How levels are paced: read before levels."}}));
     REQUIRE(made.ok);
     CHECK(fsys::exists(w.project.path / "skills" / "pacing" / "SKILL.md"));
     auto again = reg.call("skills.new", Json::object({{"name", "pacing"}}));
@@ -521,7 +532,8 @@ TEST_CASE("skills: Claude Code receives the skills of the role as one generated 
 
     // The plugin holds the engine skills' files and the folders as they are.
     TempDir out;
-    REQUIRE(write_skills_plugin(out.str(), {"engine:review-ready", (w.project.path / "skills" / "enemies").string()}).ok());
+    REQUIRE(
+        write_skills_plugin(out.str(), {"engine:review-ready", (w.project.path / "skills" / "enemies").string()}).ok());
     CHECK(fsys::exists(out.path / ".claude-plugin" / "plugin.json"));
     CHECK(fsys::exists(out.path / "skills" / "review-ready" / "SKILL.md"));
     CHECK(fsys::exists(out.path / "skills" / "review-ready" / "review-md-template.md"));
@@ -529,7 +541,8 @@ TEST_CASE("skills: Claude Code receives the skills of the role as one generated 
 }
 
 TEST_CASE("skills: a skill entry can name an engine skill, and nothing else in the file changes") {
-    auto ok = parse_extensions(Json::parse(R"({"skills":{"art":{"path":"engine:make-art","roles":["artist"]}}})"), "/extensions");
+    auto ok = parse_extensions(Json::parse(R"({"skills":{"art":{"path":"engine:make-art","roles":["artist"]}}})"),
+                               "/extensions");
     REQUIRE(ok.ok());
     REQUIRE(ok->entries.size() == 1);
     CHECK(ok->entries[0].path == "engine:make-art");
@@ -542,7 +555,8 @@ TEST_CASE("skills: a skill entry can name an engine skill, and nothing else in t
 
 TEST_CASE("skills: the built-in loop reads a skill as the role that asks") {
     TempDir home, project;
-    write_file(project.path / "skills" / "enemies" / "SKILL.md", skill_md("enemies", "How enemies work. Read before adding one.", "Enemies walk left."));
+    write_file(project.path / "skills" / "enemies" / "SKILL.md",
+               skill_md("enemies", "How enemies work. Read before adding one.", "Enemies walk left."));
     const EnvLookup env = fake_env({{"HOME", home.str()}});
 
     CommandRegistry registry = make_registry();
@@ -558,7 +572,8 @@ TEST_CASE("skills: the built-in loop reads a skill as the role that asks") {
                            ToolCall c;
                            c.id = "t1";
                            c.name = "skills_read";
-                           c.input = Json::object({{"name", "enemies"}, {"role", "reviewer"}});  // a role the model cannot choose
+                           c.input = Json::object(
+                               {{"name", "enemies"}, {"role", "reviewer"}});  // a role the model cannot choose
                            return c;
                        }(),
                        [] {
@@ -586,7 +601,8 @@ TEST_CASE("skills: the built-in loop reads a skill as the role that asks") {
     const ChatRequest& first = provider->requests[0];
     CHECK(has(first.system, "# Skills"));
     CHECK(has(first.system, "- enemies: How enemies work. Read before adding one."));
-    CHECK(std::any_of(first.tools.begin(), first.tools.end(), [](const ToolDef& t) { return t.name == "skills_read"; }));
+    CHECK(
+        std::any_of(first.tools.begin(), first.tools.end(), [](const ToolDef& t) { return t.name == "skills_read"; }));
 
     // the answers: the role is the session's (orchestrator), whatever the model wrote
     const Message& results = provider->requests[1].messages.back();

@@ -24,8 +24,10 @@ Loudness measure(const std::vector<float>& mono, int rate) {
 }
 
 // The Json of assets.json for one asset's import settings.
-std::string assets_json(const std::string& path, const std::string& importSettings, const std::string& analysis = "{}") {
-    return R"({"format": "factoria.assets/1", "assets": {")" + path + R"(": {"import": )" + importSettings + R"(, "analysis": )" + analysis + "}}}";
+std::string assets_json(const std::string& path, const std::string& importSettings,
+                        const std::string& analysis = "{}") {
+    return R"({"format": "factoria.assets/1", "assets": {")" + path + R"(": {"import": )" + importSettings +
+           R"(, "analysis": )" + analysis + "}}}";
 }
 
 float recorded_peak(Fixture& fx, const char* clip, PlayParams p = {}, double seconds = 1.0) {
@@ -93,7 +95,8 @@ TEST_CASE("loudness: a clip shorter than one 400 ms block is measured as that bl
 }
 
 TEST_CASE("loudness: measures what the engine decodes, ogg and qoa included") {
-    std::ifstream in(std::filesystem::path(FA_REPO_ROOT) / "engine/audio/tests/fixtures/music_3min.ogg", std::ios::binary);
+    std::ifstream in(std::filesystem::path(FA_REPO_ROOT) / "engine/audio/tests/fixtures/music_3min.ogg",
+                     std::ios::binary);
     REQUIRE(in.good());
     const std::vector<std::uint8_t> ogg((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     auto m = measure_loudness(ogg, ".ogg");
@@ -101,7 +104,8 @@ TEST_CASE("loudness: measures what the engine decodes, ogg and qoa included") {
     CHECK(m->seconds == doctest::Approx(180.0).epsilon(0.001));
     CHECK(m->peakDb > -6.5);  // the beeps (0.5 over the 0.05 tone, a little more after Vorbis)
     CHECK(m->peakDb < -3.5);
-    CHECK(m->integratedLufs == doctest::Approx(-23.0).epsilon(0.08));  // the 0.05 tone and a beep in every 100 ms of 10 s
+    CHECK(m->integratedLufs ==
+          doctest::Approx(-23.0).epsilon(0.08));  // the 0.05 tone and a beep in every 100 ms of 10 s
 
     std::vector<float> tone;
     add_sine(tone, 5.0, 1000.0, dbfs(-20.0), 44100);
@@ -119,10 +123,11 @@ TEST_CASE("loudness: measures what the engine decodes, ogg and qoa included") {
 TEST_CASE("loudness: the gain reaches the target, within 24 dB and without passing -1 dBFS") {
     CHECK(normalization_gain_db({-20.0, -6.0, 5.0}, -16.0) == doctest::Approx(4.0));
     CHECK(normalization_gain_db({-10.0, -6.0, 5.0}, -16.0) == doctest::Approx(-6.0));
-    CHECK(normalization_gain_db({-60.0, -50.0, 5.0}, -16.0) == doctest::Approx(24.0));      // clamped
-    CHECK(normalization_gain_db({-20.0, -5.0, 5.0}, -16.0) == doctest::Approx(4.0));         // peak -1 dBFS reached exactly
-    CHECK(normalization_gain_db({-30.0, -3.0, 5.0}, -16.0) == doctest::Approx(2.0));         // 14 dB wanted, 2 dB left to -1 dBFS
-    CHECK(normalization_gain_db({kSilentLufs, -200.0, 5.0}, -16.0) == 0.0);                  // nothing to scale
+    CHECK(normalization_gain_db({-60.0, -50.0, 5.0}, -16.0) == doctest::Approx(24.0));  // clamped
+    CHECK(normalization_gain_db({-20.0, -5.0, 5.0}, -16.0) == doctest::Approx(4.0));    // peak -1 dBFS reached exactly
+    CHECK(normalization_gain_db({-30.0, -3.0, 5.0}, -16.0) ==
+          doctest::Approx(2.0));                                             // 14 dB wanted, 2 dB left to -1 dBFS
+    CHECK(normalization_gain_db({kSilentLufs, -200.0, 5.0}, -16.0) == 0.0);  // nothing to scale
 }
 
 TEST_CASE("loudness: the analysis record is kept only while it describes the same file") {
@@ -159,7 +164,8 @@ TEST_CASE("normalize: every way of playing a clip applies the gain that reaches 
     CHECK(recorded_peak(fx, "sounds/quiet.wav") == doctest::Approx(want).epsilon(0.02));
     PlayParams half;
     half.volume = 0.5f;
-    CHECK(recorded_peak(fx, "sounds/quiet.wav", half) == doctest::Approx(want * 0.5f).epsilon(0.02));  // on top of the volume
+    CHECK(recorded_peak(fx, "sounds/quiet.wav", half) ==
+          doctest::Approx(want * 0.5f).epsilon(0.02));  // on top of the volume
 
     fx.audio.stop_all();
     fx.audio.start_recording();
@@ -199,7 +205,8 @@ TEST_CASE("normalize: off by default, applied to a streamed clip, limited to 24 
     CHECK(recorded_peak(fx, "sounds/streamed.wav", {}, 2.0) == doctest::Approx(float(0.1 * dbfs(4.0))).epsilon(0.02));
     CHECK(fx.audio.stats()["streamedClips"].size() == 1);
 
-    CHECK(recorded_peak(fx, "sounds/faint.wav") == doctest::Approx(float(0.0005 * dbfs(24.0))).epsilon(0.02));  // +24 dB, no more
+    CHECK(recorded_peak(fx, "sounds/faint.wav") ==
+          doctest::Approx(float(0.0005 * dbfs(24.0))).epsilon(0.02));  // +24 dB, no more
     CHECK(recorded_peak(fx, "sounds/spiky.wav") <= float(dbfs(-1.0)) * 1.002f);
     CHECK(recorded_peak(fx, "sounds/spiky.wav") > float(dbfs(-1.0)) * 0.97f);  // and it did reach it
 }
@@ -215,7 +222,8 @@ TEST_CASE("normalize: uses the measurement assets.json holds for the file, and m
     fx.write_assets(assets_json("sounds/tone.wav", on, analysis.dump()));
     clear_recent_logs();
     CHECK(recorded_peak(fx, "sounds/tone.wav") == doctest::Approx(float(0.1 * dbfs(14.0))).epsilon(0.02));
-    for (const LogEntry& line : recent_logs(20, LogLevel::Info)) CHECK(line.message.find("measured") == std::string::npos);
+    for (const LogEntry& line : recent_logs(20, LogLevel::Info))
+        CHECK(line.message.find("measured") == std::string::npos);
 
     // the file changed after the measurement: it is stale, so the engine measures the file it has
     Audio fresh;
@@ -228,7 +236,8 @@ TEST_CASE("normalize: uses the measurement assets.json holds for the file, and m
     CHECK(fresh.stop_recording("out/stale.wav", &err));
     CHECK(read_wav16("out/stale.wav").peak() == doctest::Approx(float(0.2 * dbfs(-2.0))).epsilon(0.02));
     bool logged = false;
-    for (const LogEntry& line : recent_logs(20, LogLevel::Info)) logged |= line.message.find("measured 'sounds/tone.wav'") != std::string::npos;
+    for (const LogEntry& line : recent_logs(20, LogLevel::Info))
+        logged |= line.message.find("measured 'sounds/tone.wav'") != std::string::npos;
     CHECK(logged);
 
     // reload_clip measures the new file too
@@ -301,7 +310,8 @@ TEST_CASE("qoa: a missing clip is read from its twin, with the import settings o
     auto q = encode_qoa(two_tone_wav(2.0, 44100));
     REQUIRE(q.ok());
     write_file(fx.dir / "sounds/shipped.wav.qoa", *q);  // what an export leaves of sounds/shipped.wav
-    fx.write_assets(R"({"format": "factoria.assets/1", "assets": {"sounds/shipped.wav": {"import": {"stream": "always"}}}})");
+    fx.write_assets(
+        R"({"format": "factoria.assets/1", "assets": {"sounds/shipped.wav": {"import": {"stream": "always"}}}})");
 
     CHECK(fx.audio.load("sounds/shipped.wav"));
     CHECK(streams_clip(fx, "sounds/shipped.wav"));  // the setting is keyed by the original path
@@ -321,7 +331,8 @@ TEST_CASE("qoa: a missing clip is read from its twin, with the import settings o
     clear_recent_logs();
     CHECK(fx.audio.play("sounds/nothing.wav") == 0);
     bool taught = false;
-    for (const LogEntry& line : recent_logs(20, LogLevel::Warn)) taught |= line.message.find("sounds/nothing.wav") != std::string::npos;
+    for (const LogEntry& line : recent_logs(20, LogLevel::Warn))
+        taught |= line.message.find("sounds/nothing.wav") != std::string::npos;
     CHECK(taught);
 }
 

@@ -24,8 +24,10 @@ void set_env(const char* name, const char* value) {
 #if defined(_WIN32)
     _putenv_s(name, value ? value : "");  // an empty value removes the variable
 #else
-    if (value) setenv(name, value, 1);
-    else unsetenv(name);
+    if (value)
+        setenv(name, value, 1);
+    else
+        unsetenv(name);
 #endif
 }
 
@@ -273,7 +275,7 @@ TEST_CASE("export window: the progress lines of a long step are kept for the win
     CHECK(job.progress_line().empty());
     CHECK(job.recent_lines().empty());
     job.add_line("> Task :app:preBuild UP-TO-DATE\r\n");  // a Gradle line as the process reader hands it over
-    job.add_line("");                                       // blank lines are not lines
+    job.add_line("");                                     // blank lines are not lines
     job.add_line("   ");
     job.add_line("  > Task :app:compileDebugKotlin  ");
     CHECK(job.progress_line() == "> Task :app:compileDebugKotlin");
@@ -298,11 +300,13 @@ TEST_CASE("export window: a new export starts with a clean log and no cancel req
     s.players[kHost] = p.player();
     ExportJob job;
     job.add_line("left over from an earlier export");
-    job.cancel();  // pressed after the last export finished: must not stop the next one
+    job.cancel();                   // pressed after the last export finished: must not stop the next one
     CHECK_FALSE(job.cancelling());  // nothing is running
     ExportOptions o = export_options(p.dir.string(), kHost, s);
     std::vector<std::string> seen;
-    o.progress = [&](const std::string& line) { seen.push_back(line); };  // a caller's own callback still gets the lines
+    o.progress = [&](const std::string& line) {
+        seen.push_back(line);
+    };  // a caller's own callback still gets the lines
     REQUIRE(job.start(o));
     job.wait();
     const std::optional<ExportOutcome> done = job.take_result();

@@ -16,7 +16,8 @@ namespace fsys = std::filesystem;
 
 namespace {
 
-const FlagSpec kOutFlag{"out", "DIR", "The inbox folder (default: feedback-inbox next to your ai.json, outside any repository)."};
+const FlagSpec kOutFlag{"out", "DIR",
+                        "The inbox folder (default: feedback-inbox next to your ai.json, outside any repository)."};
 const FlagSpec kJsonFlag{"json", "", "Machine-readable output."};
 
 // Where the inbox is: --out (any folder, also inside a git checkout) or the default one.
@@ -24,7 +25,9 @@ std::string inbox_of(const Context& ctx) {
     return ctx.args.has("out") ? absolute_path(ctx.args.str("out")) : default_feedback_inbox(feedback_admin_env().env);
 }
 
-Result<FeedbackAdminConfig> admin_config(const FeedbackAdminEnv& e) { return load_feedback_admin_config(feedback_admin_config_path(e.env)); }
+Result<FeedbackAdminConfig> admin_config(const FeedbackAdminEnv& e) {
+    return load_feedback_admin_config(feedback_admin_config_path(e.env));
+}
 
 void print_tree(std::ostream& out, const Json& j, int indent) {
     const std::string pad(static_cast<std::size_t>(indent) * 2, ' ');
@@ -35,7 +38,8 @@ void print_tree(std::ostream& out, const Json& j, int indent) {
                 out << pad << it.key() << ":\n";
                 print_tree(out, it.value(), indent + 1);
             } else {
-                out << pad << it.key() << ": " << (it.value().is_string() ? it.value().get<std::string>() : dump_json(it.value())) << "\n";
+                out << pad << it.key() << ": "
+                    << (it.value().is_string() ? it.value().get<std::string>() : dump_json(it.value())) << "\n";
             }
         }
     } else if (j.is_array()) {
@@ -55,34 +59,51 @@ void print_tree(std::ostream& out, const Json& j, int indent) {
 Command pull_command() {
     Command c;
     c.name = "pull";
-    c.summary = "Download the feedback users shared into an inbox, one ENGINE_FEEDBACK.json per installation (engine developer).";
+    c.summary = "Download the feedback users shared into an inbox, one ENGINE_FEEDBACK.json per installation (engine "
+                "developer).";
     c.usage = "[--out DIR] [--full] [--classify | --no-classify] [--json]";
-    c.details =
-        "Reads feedback-admin.json (endpoint, adminToken, cursor) from the folder of your ai.json; tools/feedback-server/deploy.sh writes it.\n"
-        "New reports since the saved cursor go to <inbox>/<installKey>/ENGINE_FEEDBACK.json (project install-<installKey>); a report\n"
-        "pulled again is recognised by its shareId and only its occurrences are updated. The inbox is never inside a git checkout unless\n"
-        "you name it with --out. The cursor is saved after the files are written.\n"
-        "A report that users send again only raises its 'occurrences' on the server and keeps its place in the arrival order, so an\n"
-        "incremental pull never sees the new count: run --full now and then (it ignores the cursor, reads everything and updates the\n"
-        "occurrences of the entries already in the inbox by shareId).\n"
-        "Triage: every new report is also run through the check `feedback add` makes (does the engine already have what it says is missing?).\n"
-        "The reports that fail it keep a `suggestedRejection` with a ready reason and are listed at the end: `feedback reject --suggested`\n"
-        "confirms them, `feedback keep` drops the suggestion. Nothing is rejected by pull itself.\n"
-        "Classification: when the 'fast' role of ai.json has a usable provider, each new report is judged valid, doubtful or junk, ten per\n"
-        "model call. Junk goes to <inbox>/quarantine/ (see 'feedback quarantine'), a doubtful entry gets a note. Without an AI, pull works\n"
-        "and says classification was skipped. Collect the inbox with: factoria feedback collect <inbox> --out roadmap.md";
-    c.flags = {kOutFlag, {"full", "", "Ignore the saved cursor: read every report again and update the occurrences of known ones."},
-               {"classify", "", "Judge the new reports with the AI; an error when no AI is configured."},
-               {"no-classify", "", "Do not judge the new reports."}, kJsonFlag};
-    c.examples = {"factoria feedback pull", "factoria feedback pull --full", "factoria feedback pull --no-classify --out ~/inbox"};
+    c.details = "Reads feedback-admin.json (endpoint, adminToken, cursor) from the folder of your ai.json; "
+                "tools/feedback-server/deploy.sh writes it.\n"
+                "New reports since the saved cursor go to <inbox>/<installKey>/ENGINE_FEEDBACK.json (project "
+                "install-<installKey>); a report\n"
+                "pulled again is recognised by its shareId and only its occurrences are updated. The inbox is never "
+                "inside a git checkout unless\n"
+                "you name it with --out. The cursor is saved after the files are written.\n"
+                "A report that users send again only raises its 'occurrences' on the server and keeps its place in the "
+                "arrival order, so an\n"
+                "incremental pull never sees the new count: run --full now and then (it ignores the cursor, reads "
+                "everything and updates the\n"
+                "occurrences of the entries already in the inbox by shareId).\n"
+                "Triage: every new report is also run through the check `feedback add` makes (does the engine already "
+                "have what it says is missing?).\n"
+                "The reports that fail it keep a `suggestedRejection` with a ready reason and are listed at the end: "
+                "`feedback reject --suggested`\n"
+                "confirms them, `feedback keep` drops the suggestion. Nothing is rejected by pull itself.\n"
+                "Classification: when the 'fast' role of ai.json has a usable provider, each new report is judged "
+                "valid, doubtful or junk, ten per\n"
+                "model call. Junk goes to <inbox>/quarantine/ (see 'feedback quarantine'), a doubtful entry gets a "
+                "note. Without an AI, pull works\n"
+                "and says classification was skipped. Collect the inbox with: factoria feedback collect <inbox> --out "
+                "roadmap.md";
+    c.flags = {
+        kOutFlag,
+        {"full", "", "Ignore the saved cursor: read every report again and update the occurrences of known ones."},
+        {"classify", "", "Judge the new reports with the AI; an error when no AI is configured."},
+        {"no-classify", "", "Do not judge the new reports."},
+        kJsonFlag};
+    c.examples = {"factoria feedback pull", "factoria feedback pull --full",
+                  "factoria feedback pull --no-classify --out ~/inbox"};
     c.run = [](Context& ctx) {
         const Args& a = ctx.args;
-        if (a.has("classify") && a.has("no-classify")) throw UsageError("--classify and --no-classify contradict each other.", "Pass only one.");
+        if (a.has("classify") && a.has("no-classify"))
+            throw UsageError("--classify and --no-classify contradict each other.", "Pass only one.");
         PullOptions po;
         po.outExplicit = a.has("out");
         if (po.outExplicit) po.out = absolute_path(a.str("out"));
         po.full = a.has("full");
-        po.classify = a.has("classify") ? ClassifyMode::On : a.has("no-classify") ? ClassifyMode::Off : ClassifyMode::Auto;
+        po.classify = a.has("classify")      ? ClassifyMode::On
+                      : a.has("no-classify") ? ClassifyMode::Off
+                                             : ClassifyMode::Auto;
         auto r = feedback_pull(po, feedback_admin_env());
         if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
         if (a.has("json")) {
@@ -90,8 +111,9 @@ Command pull_command() {
             return 0;
         }
         for (const auto& w : r->warnings) ctx.err << "warning: " << w << "\n";
-        ctx.out << "Fetched " << r->fetched << " report(s) in " << r->pages << " page(s): " << r->added << " new, " << r->updated << " with more occurrences, "
-                << r->known << " already known" << (r->invalid ? ", " + std::to_string(r->invalid) + " unreadable" : "") << ".\n";
+        ctx.out << "Fetched " << r->fetched << " report(s) in " << r->pages << " page(s): " << r->added << " new, "
+                << r->updated << " with more occurrences, " << r->known << " already known"
+                << (r->invalid ? ", " + std::to_string(r->invalid) + " unreadable" : "") << ".\n";
         ctx.out << "Inbox: " << r->inbox << "\n";
         if (!r->installations.empty()) {
             ctx.out << "Written for " << r->installations.size() << " installation(s):";
@@ -101,26 +123,36 @@ Command pull_command() {
         ctx.out << "Classification: " << r->classification << "\n";
         if (!po.full)
             ctx.out << "Counts of reports users sent again are only updated by `factoria feedback pull --full`.\n";
-        if (r->junk > 0) ctx.out << r->junk << " junk report(s) went to the quarantine: factoria feedback quarantine list\n";
-        if (r->alreadyRejected > 0) ctx.out << r->alreadyRejected << " new report(s) were already rejected on the server (imported as rejected).\n";
+        if (r->junk > 0)
+            ctx.out << r->junk << " junk report(s) went to the quarantine: factoria feedback quarantine list\n";
+        if (r->alreadyRejected > 0)
+            ctx.out << r->alreadyRejected
+                    << " new report(s) were already rejected on the server (imported as rejected).\n";
         if (!r->suggestions.empty()) {
-            ctx.out << r->suggestions.size() << " report(s) claim a gap the engine already has: SUGGESTED rejections, each with a ready reason:\n";
+            ctx.out
+                << r->suggestions.size()
+                << " report(s) claim a gap the engine already has: SUGGESTED rejections, each with a ready reason:\n";
             for (const Json& sg : r->suggestions)
-                ctx.out << "  " << sg.value("shareId", std::string()) << "  " << sg.value("title", std::string()) << "\n    " << sg.value("reason", std::string()) << "\n";
-            ctx.out << "Read them, then confirm with `factoria feedback reject --suggested` (all of them, or name the shareIds), or drop a suggestion with\n"
-                       "`factoria feedback keep <shareId>`. Docs: factoria docs read engine-feedback (\"Triage loop\").\n";
+                ctx.out << "  " << sg.value("shareId", std::string()) << "  " << sg.value("title", std::string())
+                        << "\n    " << sg.value("reason", std::string()) << "\n";
+            ctx.out
+                << "Read them, then confirm with `factoria feedback reject --suggested` (all of them, or name the "
+                   "shareIds), or drop a suggestion with\n"
+                   "`factoria feedback keep <shareId>`. Docs: factoria docs read engine-feedback (\"Triage loop\").\n";
         }
         if (!r->efficiency.empty()) {
-            ctx.out << "Efficiency entries in the inbox, by what fixing them saves across installations (top " << std::min<std::size_t>(r->efficiency.size(), 5)
-                    << " of " << r->efficiency.size() << "):\n";
+            ctx.out << "Efficiency entries in the inbox, by what fixing them saves across installations (top "
+                    << std::min<std::size_t>(r->efficiency.size(), 5) << " of " << r->efficiency.size() << "):\n";
             std::size_t shown = 0;
             for (const Json& g : r->efficiency) {
                 if (++shown > 5) break;
-                ctx.out << "  E" << g.value("rank", 0) << "  " << g.value("title", std::string()) << " (" << g.value("fixType", std::string()) << ")\n    "
-                        << g["verdict"].value("text", std::string()) << "; " << g.value("installations", 0) << " installation(s), "
-                        << g["total"].value("hours", 0.0) << " h, $" << g["total"].value("costUsd", 0.0) << " in total\n";
+                ctx.out << "  E" << g.value("rank", 0) << "  " << g.value("title", std::string()) << " ("
+                        << g.value("fixType", std::string()) << ")\n    " << g["verdict"].value("text", std::string())
+                        << "; " << g.value("installations", 0) << " installation(s), " << g["total"].value("hours", 0.0)
+                        << " h, $" << g["total"].value("costUsd", 0.0) << " in total\n";
             }
-            ctx.out << "Each entry has a ready reason for `factoria feedback reject`: see `feedback collect` (Efficiency section) or --json.\n";
+            ctx.out << "Each entry has a ready reason for `factoria feedback reject`: see `feedback collect` "
+                       "(Efficiency section) or --json.\n";
         }
         ctx.out << "Next: factoria feedback collect \"" << r->inbox << "\" --out roadmap.md\n";
         return 0;
@@ -134,11 +166,15 @@ Command quarantine_command() {
     c.summary = "List, restore or clear the reports `feedback pull` judged junk.";
     c.usage = "[list | restore <shareId> | clear] [--out DIR] [--json]";
     c.maxPositional = 2;
-    c.details = "The quarantine is <inbox>/quarantine/quarantine.json. 'restore' moves a report to its installation's ENGINE_FEEDBACK.json with a\n"
-                "new id; 'clear' forgets all of them on this machine (the server keeps them: use 'feedback delete' or 'feedback ban' for that).\n"
-                "To tell the installations why their junk was refused: 'feedback reject --quarantined --reason TEXT' (only the text you write is sent).";
+    c.details = "The quarantine is <inbox>/quarantine/quarantine.json. 'restore' moves a report to its installation's "
+                "ENGINE_FEEDBACK.json with a\n"
+                "new id; 'clear' forgets all of them on this machine (the server keeps them: use 'feedback delete' or "
+                "'feedback ban' for that).\n"
+                "To tell the installations why their junk was refused: 'feedback reject --quarantined --reason TEXT' "
+                "(only the text you write is sent).";
     c.flags = {kOutFlag, kJsonFlag};
-    c.examples = {"factoria feedback quarantine", "factoria feedback quarantine restore r_8f3k2m", "factoria feedback quarantine clear"};
+    c.examples = {"factoria feedback quarantine", "factoria feedback quarantine restore r_8f3k2m",
+                  "factoria feedback quarantine clear"};
     c.run = [](Context& ctx) {
         const Args& a = ctx.args;
         const std::string action = a.pos(0, "list"), inbox = inbox_of(ctx);
@@ -151,25 +187,36 @@ Command quarantine_command() {
             if (items.empty()) ctx.out << "The quarantine is empty.\n";
             for (const auto& it : items) {
                 const Json& en = it["entry"];
-                ctx.out << it.value("shareId", std::string()) << "  " << it.value("installKey", std::string()) << "  [" << en.value("category", std::string()) << "] "
-                        << en.value("title", std::string()) << "\n    judged junk on " << it.value("date", std::string()) << ": " << it.value("reason", std::string()) << "\n";
-                if (it.contains("rejection")) ctx.out << "    rejected, the installation was told: " << it.value("rejection", std::string()) << "\n";
+                ctx.out << it.value("shareId", std::string()) << "  " << it.value("installKey", std::string()) << "  ["
+                        << en.value("category", std::string()) << "] " << en.value("title", std::string())
+                        << "\n    judged junk on " << it.value("date", std::string()) << ": "
+                        << it.value("reason", std::string()) << "\n";
+                if (it.contains("rejection"))
+                    ctx.out << "    rejected, the installation was told: " << it.value("rejection", std::string())
+                            << "\n";
             }
             return 0;
         }
         if (action == "restore") {
-            if (a.positional().size() < 2) throw UsageError("Missing the shareId to restore.", "Usage: factoria feedback quarantine restore <shareId> (see 'quarantine list').");
+            if (a.positional().size() < 2)
+                throw UsageError("Missing the shareId to restore.",
+                                 "Usage: factoria feedback quarantine restore <shareId> (see 'quarantine list').");
             auto r = quarantine_restore(inbox, a.pos(1), feedback_admin_today(feedback_admin_env()));
             if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
-            if (a.has("json")) print_json(ctx.out, *r);
-            else ctx.out << "Restored " << a.pos(1) << " as " << r->value("id", std::string()) << " in " << (*r)["remote"].value("installKey", std::string()) << ".\n";
+            if (a.has("json"))
+                print_json(ctx.out, *r);
+            else
+                ctx.out << "Restored " << a.pos(1) << " as " << r->value("id", std::string()) << " in "
+                        << (*r)["remote"].value("installKey", std::string()) << ".\n";
             return 0;
         }
         if (action == "clear") {
             auto r = quarantine_clear(inbox);
             if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
-            if (a.has("json")) print_json(ctx.out, Json::object({{"cleared", *r}}));
-            else ctx.out << "Cleared " << *r << " quarantined report(s).\n";
+            if (a.has("json"))
+                print_json(ctx.out, Json::object({{"cleared", *r}}));
+            else
+                ctx.out << "Cleared " << *r << " quarantined report(s).\n";
             return 0;
         }
         throw UsageError("Unknown quarantine action '" + action + "'.", "Use list, restore <shareId> or clear.");
@@ -188,7 +235,8 @@ int admin_run(Context& ctx, const std::string& method, const std::string& path, 
 }
 
 KeyKind forced_kind(const Args& a) {
-    if (a.has("install") && a.has("reporter")) throw UsageError("--install and --reporter contradict each other.", "A key is one or the other.");
+    if (a.has("install") && a.has("reporter"))
+        throw UsageError("--install and --reporter contradict each other.", "A key is one or the other.");
     return a.has("install") ? KeyKind::Install : a.has("reporter") ? KeyKind::Reporter : KeyKind::Unknown;
 }
 
@@ -196,22 +244,34 @@ Command ban_command() {
     Command c;
     c.name = "ban";
     c.summary = "Ban an installation or a reporter on the feedback server (engine developer).";
-    c.usage = "<installKey|reporterKey|shareId> [--install | --reporter] [--purge] [--reason TEXT] [--out DIR] [--json]";
+    c.usage =
+        "<installKey|reporterKey|shareId> [--install | --reporter] [--purge] [--reason TEXT] [--out DIR] [--json]";
     c.maxPositional = 1;
-    c.details = "From now on the server refuses everything that key sends. Both kinds of key look alike, so say which with --install or\n"
-                "--reporter (or write install:KEY / reporter:KEY). Without a flag the key is taken as an installKey when it is a folder of the\n"
-                "inbox, or when it is the shareId of a pulled report (then its installation is banned). --purge also deletes the reports the\n"
+    c.details = "From now on the server refuses everything that key sends. Both kinds of key look alike, so say which "
+                "with --install or\n"
+                "--reporter (or write install:KEY / reporter:KEY). Without a flag the key is taken as an installKey "
+                "when it is a folder of the\n"
+                "inbox, or when it is the shareId of a pulled report (then its installation is banned). --purge also "
+                "deletes the reports the\n"
                 "key already sent. 'feedback unban' undoes the ban (not the purge).";
-    c.flags = {{"install", "", "The key is an installKey."}, {"reporter", "", "The key is a reporterKey."},
-               {"purge", "", "Also delete this key's stored reports."}, {"reason", "TEXT", "Why (kept with the ban)."}, kOutFlag, kJsonFlag};
-    c.examples = {"factoria feedback ban 3kF9aQ2xLm7Zp0Vt --install --purge --reason \"spam\"", "factoria feedback ban r_8f3k2m"};
+    c.flags = {{"install", "", "The key is an installKey."},
+               {"reporter", "", "The key is a reporterKey."},
+               {"purge", "", "Also delete this key's stored reports."},
+               {"reason", "TEXT", "Why (kept with the ban)."},
+               kOutFlag,
+               kJsonFlag};
+    c.examples = {"factoria feedback ban 3kF9aQ2xLm7Zp0Vt --install --purge --reason \"spam\"",
+                  "factoria feedback ban r_8f3k2m"};
     c.run = [](Context& ctx) {
         const Args& a = ctx.args;
-        if (a.positional().empty()) throw UsageError("Missing the key to ban.", "Usage: factoria feedback ban <installKey|reporterKey|shareId> [--install | --reporter]");
+        if (a.positional().empty())
+            throw UsageError("Missing the key to ban.",
+                             "Usage: factoria feedback ban <installKey|reporterKey|shareId> [--install | --reporter]");
         auto key = resolve_ban_key(a.pos(0), forced_kind(a), inbox_of(ctx));
         if (!key.ok()) throw UsageError(key.error().message, key.error().hint);
-        Json body = Json::object({{key->first == KeyKind::Install ? "installKey" : "reporterKey", key->second},
-                                  {"reason", a.has("reason") ? a.str("reason") : std::string("banned by the engine developer")}});
+        Json body = Json::object(
+            {{key->first == KeyKind::Install ? "installKey" : "reporterKey", key->second},
+             {"reason", a.has("reason") ? a.str("reason") : std::string("banned by the engine developer")}});
         if (a.has("purge")) body["purge"] = true;
         Json res;
         if (int rc = admin_run(ctx, "POST", "/v1/admin/ban", &body, res)) return rc;
@@ -220,9 +280,11 @@ Command ban_command() {
             return 0;
         }
         const char* kind = key->first == KeyKind::Install ? "installation" : "reporter";
-        ctx.out << "Banned " << kind << " " << key->second << (a.has("purge") ? " and purged its reports" : "") << ".\n";
+        ctx.out << "Banned " << kind << " " << key->second << (a.has("purge") ? " and purged its reports" : "")
+                << ".\n";
         if (res.contains("purged")) ctx.out << "Reports deleted on the server: " << dump_json(res["purged"]) << "\n";
-        ctx.out << "Undo with: factoria feedback unban " << key->second << (key->first == KeyKind::Install ? " --install" : " --reporter") << "\n";
+        ctx.out << "Undo with: factoria feedback unban " << key->second
+                << (key->first == KeyKind::Install ? " --install" : " --reporter") << "\n";
         return 0;
     };
     return c;
@@ -234,19 +296,26 @@ Command unban_command() {
     c.summary = "Lift a ban on the feedback server (engine developer).";
     c.usage = "<installKey|reporterKey> [--install | --reporter] [--out DIR] [--json]";
     c.maxPositional = 1;
-    c.flags = {{"install", "", "The key is an installKey."}, {"reporter", "", "The key is a reporterKey."}, kOutFlag, kJsonFlag};
+    c.flags = {{"install", "", "The key is an installKey."},
+               {"reporter", "", "The key is a reporterKey."},
+               kOutFlag,
+               kJsonFlag};
     c.examples = {"factoria feedback unban 3kF9aQ2xLm7Zp0Vt --install", "factoria feedback bans"};
     c.run = [](Context& ctx) {
         const Args& a = ctx.args;
-        if (a.positional().empty()) throw UsageError("Missing the key to unban.", "See the keys with 'factoria feedback bans'.");
+        if (a.positional().empty())
+            throw UsageError("Missing the key to unban.", "See the keys with 'factoria feedback bans'.");
         auto key = resolve_ban_key(a.pos(0), forced_kind(a), inbox_of(ctx));
         if (!key.ok()) throw UsageError(key.error().message, key.error().hint);
         Json body = Json::object({{key->first == KeyKind::Install ? "installKey" : "reporterKey", key->second}});
         Json res;
         if (int rc = admin_run(ctx, "POST", "/v1/admin/unban", &body, res)) return rc;
-        if (a.has("json")) print_json(ctx.out, res);
-        else if (res.value("removed", true)) ctx.out << "Unbanned " << key->second << ".\n";
-        else ctx.out << key->second << " was not banned (nothing to undo). See: factoria feedback bans\n";
+        if (a.has("json"))
+            print_json(ctx.out, res);
+        else if (res.value("removed", true))
+            ctx.out << "Unbanned " << key->second << ".\n";
+        else
+            ctx.out << key->second << " was not banned (nothing to undo). See: factoria feedback bans\n";
         return 0;
     };
     return c;
@@ -266,14 +335,19 @@ Command bans_command() {
             return 0;
         }
         const Json& list = res.contains("bans") ? res["bans"] : res;
-        if (!list.is_array()) print_tree(ctx.out, list, 0);
-        else if (list.empty()) ctx.out << "No bans.\n";
+        if (!list.is_array())
+            print_tree(ctx.out, list, 0);
+        else if (list.empty())
+            ctx.out << "No bans.\n";
         else
             for (const Json& b : list) {
                 if (!b.is_object()) continue;
                 const std::string kind = b.value("kind", std::string("?")), reason = b.value("reason", std::string());
-                ctx.out << (kind == "reporter" ? "reporter " : kind == "install" ? "install  " : kind + " ") << b.value("key", std::string("?"))
-                        << "  " << b.value("createdAt", std::string()).substr(0, 10) << (reason.empty() ? "" : "  " + reason) << "\n";
+                ctx.out << (kind == "reporter"  ? "reporter "
+                            : kind == "install" ? "install  "
+                                                : kind + " ")
+                        << b.value("key", std::string("?")) << "  " << b.value("createdAt", std::string()).substr(0, 10)
+                        << (reason.empty() ? "" : "  " + reason) << "\n";
             }
         return 0;
     };
@@ -291,10 +365,15 @@ Command delete_command() {
     c.examples = {"factoria feedback delete r_8f3k2m --local"};
     c.run = [](Context& ctx) {
         const Args& a = ctx.args;
-        if (a.positional().empty()) throw UsageError("Missing the shareId to delete.", "It is in the 'remote' field of an inbox entry, or in 'feedback quarantine list'.");
+        if (a.positional().empty())
+            throw UsageError("Missing the shareId to delete.",
+                             "It is in the 'remote' field of an inbox entry, or in 'feedback quarantine list'.");
         const std::string id = a.pos(0);
-        if (id.empty() || id.size() > 64 || id.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") != std::string::npos)
-            throw UsageError("'" + id + "' is not a shareId.", "A shareId is letters, digits, '_' and '-', like r_8f3k2m.");
+        if (id.empty() || id.size() > 64 ||
+            id.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") !=
+                std::string::npos)
+            throw UsageError("'" + id + "' is not a shareId.",
+                             "A shareId is letters, digits, '_' and '-', like r_8f3k2m.");
         Json res;
         if (int rc = admin_run(ctx, "DELETE", "/v1/admin/reports/" + id, nullptr, res)) return rc;
         int local = a.has("local") ? remove_local_report(inbox_of(ctx), id) : 0;
@@ -302,13 +381,16 @@ Command delete_command() {
             res["localRemoved"] = local;
             print_json(ctx.out, res);
         } else {
-            ctx.out << "Deleted report " << id << " on the server" << (a.has("local") ? "; removed " + std::to_string(local) + " local entr" + (local == 1 ? "y" : "ies") : "") << ".\n";
+            ctx.out << "Deleted report " << id << " on the server"
+                    << (a.has("local")
+                            ? "; removed " + std::to_string(local) + " local entr" + (local == 1 ? "y" : "ies")
+                            : "")
+                    << ".\n";
         }
         return 0;
     };
     return c;
 }
-
 
 // ---- reject / unreject / keep -----------------------------------------------------------------------------------------
 std::string read_whole(const std::string& path, bool& ok) {
@@ -327,33 +409,50 @@ void print_outcome(Context& ctx, const VerdictOutcome& o, const char* doneName, 
     ctx.out << verb << " " << o.done.size() << " report(s)";
     if (!o.done.empty()) ctx.out << ": " << join(o.done, ", ");
     ctx.out << "; " << o.localMarked << " local entr" << (o.localMarked == 1 ? "y" : "ies") << " updated.\n";
-    if (!o.notFound.empty()) ctx.out << "Not on the server (deleted, purged or a wrong id): " << join(o.notFound, ", ") << "\n";
+    if (!o.notFound.empty())
+        ctx.out << "Not on the server (deleted, purged or a wrong id): " << join(o.notFound, ", ") << "\n";
 }
 
 Command reject_command() {
     Command c;
     c.name = "reject";
-    c.summary = "Reject received reports with a reason the installation shows to its person (engine developer; never asks anything).";
+    c.summary = "Reject received reports with a reason the installation shows to its person (engine developer; never "
+                "asks anything).";
     c.usage = "<shareId>... --reason TEXT | --file FILE | --suggested [--quarantined] [--out DIR] [--json]";
     c.maxPositional = -1;
     c.details =
-        "Triage step after `feedback pull`: a report that claims a gap the engine does not have (the feature exists, or it is not a game-engine\n"
-        "gap) is rejected here. The server keeps the report and the reason; the installation that sent it asks the server for the verdicts of its\n"
-        "own reports, shows the reason verbatim in the editor's Feedback panel (detail window and a marker on the row) and the person can delete\n"
+        "Triage step after `feedback pull`: a report that claims a gap the engine does not have (the feature exists, "
+        "or it is not a game-engine\n"
+        "gap) is rejected here. The server keeps the report and the reason; the installation that sent it asks the "
+        "server for the verdicts of its\n"
+        "own reports, shows the reason verbatim in the editor's Feedback panel (detail window and a marker on the row) "
+        "and the person can delete\n"
         "the entry. The local copy in the inbox is closed as rejected too. Take it back with `feedback unreject`.\n"
-        "Forms (all non-interactive; --json prints {rejected, notFound, localMarked}; exit 1 when a shareId is not on the server):\n"
+        "Forms (all non-interactive; --json prints {rejected, notFound, localMarked}; exit 1 when a shareId is not on "
+        "the server):\n"
         "  reject r_8f3k2m r_9abcde --reason TEXT        the same reason for each shareId\n"
-        "  reject --file batch.json                      a JSON array of {shareId, reason} (or {\"rejections\": [...]}), one reason each\n"
-        "  reject --suggested [r_8f3k2m ...]             confirm the suggested rejections `pull` prepared, with their ready reasons\n"
-        "                                                (--reason replaces the ready reason); the shareIds narrow the choice\n"
-        "  reject --quarantined --reason TEXT            tell the installations of every quarantined (junk) report why\n"
-        "The reason is plain text, 1 to 500 characters, whitespace collapsed; write only about the report (what exists, where it is documented):\n"
-        "never anything about other installations or users. Docs: factoria docs read engine-feedback (\"Triage loop\").";
-    c.flags = {{"reason", "TEXT", "Why (shown to the person who sent the report): what the engine has and where it is documented."},
-               {"file", "FILE", "A JSON file with the shareIds and their reasons."},
-               {"suggested", "", "Reject the entries `pull` marked with a suggestedRejection, using the ready reasons."},
-               {"quarantined", "", "Reject every quarantined report with --reason."}, kOutFlag, kJsonFlag};
-    c.examples = {"factoria feedback reject r_8f3k2m --reason \"Collider2D.oneWay exists (docs/reference/components/physics.md). File a bug if it fails.\"",
+        "  reject --file batch.json                      a JSON array of {shareId, reason} (or {\"rejections\": "
+        "[...]}), one reason each\n"
+        "  reject --suggested [r_8f3k2m ...]             confirm the suggested rejections `pull` prepared, with their "
+        "ready reasons\n"
+        "                                                (--reason replaces the ready reason); the shareIds narrow the "
+        "choice\n"
+        "  reject --quarantined --reason TEXT            tell the installations of every quarantined (junk) report "
+        "why\n"
+        "The reason is plain text, 1 to 500 characters, whitespace collapsed; write only about the report (what "
+        "exists, where it is documented):\n"
+        "never anything about other installations or users. Docs: factoria docs read engine-feedback (\"Triage "
+        "loop\").";
+    c.flags = {
+        {"reason", "TEXT",
+         "Why (shown to the person who sent the report): what the engine has and where it is documented."},
+        {"file", "FILE", "A JSON file with the shareIds and their reasons."},
+        {"suggested", "", "Reject the entries `pull` marked with a suggestedRejection, using the ready reasons."},
+        {"quarantined", "", "Reject every quarantined report with --reason."},
+        kOutFlag,
+        kJsonFlag};
+    c.examples = {"factoria feedback reject r_8f3k2m --reason \"Collider2D.oneWay exists "
+                  "(docs/reference/components/physics.md). File a bug if it fails.\"",
                   "factoria feedback reject --suggested --json", "factoria feedback reject --file rejections.json"};
     c.run = [](Context& ctx) {
         const Args& a = ctx.args;
@@ -374,12 +473,18 @@ Command reject_command() {
             reason = *r;
         }
         for (const std::string& id : a.positional())
-            if (id.empty() || id.size() > 64 || id.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") != std::string::npos)
-                throw UsageError("'" + id + "' is not a shareId.", "A shareId is letters, digits, '_' and '-', like r_8f3k2m (the 'remote' field of an inbox entry).");
+            if (id.empty() || id.size() > 64 ||
+                id.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") !=
+                    std::string::npos)
+                throw UsageError(
+                    "'" + id + "' is not a shareId.",
+                    "A shareId is letters, digits, '_' and '-', like r_8f3k2m (the 'remote' field of an inbox entry).");
         if (a.has("file")) {
             bool ok = false;
             const std::string text = read_whole(absolute_path(a.str("file")), ok);
-            if (!ok) throw UsageError("Cannot read " + absolute_path(a.str("file")) + ".", "Pass a JSON file: [{\"shareId\": \"r_8f3k2m\", \"reason\": \"...\"}].");
+            if (!ok)
+                throw UsageError("Cannot read " + absolute_path(a.str("file")) + ".",
+                                 "Pass a JSON file: [{\"shareId\": \"r_8f3k2m\", \"reason\": \"...\"}].");
             auto batch = parse_reject_batch(text, a.str("file"));
             if (!batch.ok()) throw UsageError(batch.error().message, batch.error().hint);
             for (const RejectItem& it : *batch) add_item(it.shareId, it.reason);
@@ -389,13 +494,17 @@ Command reject_command() {
             bool any = false;
             for (const Json& sg : sug) {
                 const std::string id = sg.value("shareId", std::string());
-                if (!a.positional().empty() && std::find(a.positional().begin(), a.positional().end(), id) == a.positional().end()) continue;
+                if (!a.positional().empty() &&
+                    std::find(a.positional().begin(), a.positional().end(), id) == a.positional().end())
+                    continue;
                 add_item(id, reason.empty() ? sg.value("reason", std::string()) : reason);
                 any = true;
             }
             if (!any) {
                 if (a.has("json")) {
-                    print_json(ctx.out, Json::object({{"rejected", Json::array()}, {"notFound", Json::array()}, {"localMarked", 0}}));
+                    print_json(
+                        ctx.out,
+                        Json::object({{"rejected", Json::array()}, {"notFound", Json::array()}, {"localMarked", 0}}));
                     return 0;
                 }
                 ctx.out << "No suggested rejections in " << inbox << " (`factoria feedback pull` prepares them).\n";
@@ -403,11 +512,16 @@ Command reject_command() {
             }
         } else if (!a.has("file")) {
             if (a.has("quarantined")) {
-                if (reason.empty()) throw UsageError("--quarantined needs --reason TEXT.", "Say why the junk reports are refused; each installation reads it.");
+                if (reason.empty())
+                    throw UsageError("--quarantined needs --reason TEXT.",
+                                     "Say why the junk reports are refused; each installation reads it.");
                 for (const Json& it : quarantine_list(inbox)) add_item(it.value("shareId", std::string()), reason);
             }
             for (const std::string& id : a.positional()) {
-                if (reason.empty()) throw UsageError("Rejecting needs --reason TEXT.", "Say what the engine has and where it is documented; the installation shows it to the person who sent the report.");
+                if (reason.empty())
+                    throw UsageError("Rejecting needs --reason TEXT.",
+                                     "Say what the engine has and where it is documented; the installation shows it to "
+                                     "the person who sent the report.");
                 add_item(id, reason);
             }
             if (items.empty()) {
@@ -415,17 +529,21 @@ Command reject_command() {
                     ctx.out << "The quarantine is empty: nothing to reject.\n";
                     return 0;
                 }
-                throw UsageError("Name the report(s) to reject.", "Usage: factoria feedback reject <shareId>... --reason TEXT   (or --file, --suggested, --quarantined)");
+                throw UsageError("Name the report(s) to reject.",
+                                 "Usage: factoria feedback reject <shareId>... --reason TEXT   (or --file, "
+                                 "--suggested, --quarantined)");
             }
         } else if (a.has("quarantined")) {
-            throw UsageError("--quarantined cannot be combined with --file.", "Put the shareIds in the file, or use --quarantined --reason TEXT alone.");
+            throw UsageError("--quarantined cannot be combined with --file.",
+                             "Put the shareIds in the file, or use --quarantined --reason TEXT alone.");
         }
         auto cfg = admin_config(feedback_admin_env());
         if (!cfg.ok()) return report_failure(ctx, cfg.error().message, cfg.error().hint);
         auto out = feedback_reject_reports(*cfg, feedback_admin_env().transport, inbox, items);
         if (!out.ok()) return report_failure(ctx, out.error().message, out.error().hint);
         print_outcome(ctx, *out, "rejected", "Rejected");
-        if (!a.has("json") && !out->done.empty()) ctx.out << "Undo with: factoria feedback unreject " << out->done.front() << "\n";
+        if (!a.has("json") && !out->done.empty())
+            ctx.out << "Undo with: factoria feedback unreject " << out->done.front() << "\n";
         return out->notFound.empty() ? 0 : 1;
     };
     return c;
@@ -434,34 +552,52 @@ Command reject_command() {
 Command unreject_command() {
     Command c;
     c.name = "unreject";
-    c.summary = "Take a rejection back: the installation sees the report as sent again (engine developer; never asks anything).";
+    c.summary = "Take a rejection back: the installation sees the report as sent again (engine developer; never asks "
+                "anything).";
     c.usage = "<shareId>... | --file FILE [--out DIR] [--json]";
     c.maxPositional = -1;
-    c.details = "The server forgets the verdict and its reason; the installation's next check turns the entry back into a sent one (and open again when\n"
-                "the rejection had closed it). The local inbox entry is open again. --file takes the same JSON array as `reject` (only the shareIds count).";
-    c.flags = {{"file", "FILE", "A JSON file like the one of `reject`; only the shareIds are used."}, kOutFlag, kJsonFlag};
+    c.details = "The server forgets the verdict and its reason; the installation's next check turns the entry back "
+                "into a sent one (and open again when\n"
+                "the rejection had closed it). The local inbox entry is open again. --file takes the same JSON array "
+                "as `reject` (only the shareIds count).";
+    c.flags = {
+        {"file", "FILE", "A JSON file like the one of `reject`; only the shareIds are used."}, kOutFlag, kJsonFlag};
     c.examples = {"factoria feedback unreject r_8f3k2m", "factoria feedback unreject r_8f3k2m r_9abcde --json"};
     c.run = [](Context& ctx) {
         const Args& a = ctx.args;
         std::vector<std::string> ids = a.positional();
         for (const std::string& id : ids)
-            if (id.empty() || id.size() > 64 || id.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") != std::string::npos)
-                throw UsageError("'" + id + "' is not a shareId.", "A shareId is letters, digits, '_' and '-', like r_8f3k2m.");
+            if (id.empty() || id.size() > 64 ||
+                id.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-") !=
+                    std::string::npos)
+                throw UsageError("'" + id + "' is not a shareId.",
+                                 "A shareId is letters, digits, '_' and '-', like r_8f3k2m.");
         if (a.has("file")) {
             bool ok = false;
             const std::string text = read_whole(absolute_path(a.str("file")), ok);
-            if (!ok) throw UsageError("Cannot read " + absolute_path(a.str("file")) + ".", "Pass a JSON file: [{\"shareId\": \"r_8f3k2m\"}].");
+            if (!ok)
+                throw UsageError("Cannot read " + absolute_path(a.str("file")) + ".",
+                                 "Pass a JSON file: [{\"shareId\": \"r_8f3k2m\"}].");
             auto parsed = parse_json(text, a.str("file"));
-            if (!parsed.ok()) throw UsageError(parsed.error().message, "The file is a JSON array of {\"shareId\": \"r_8f3k2m\"}.");
-            const Json* list = parsed->is_object() && parsed->contains("rejections") ? &(*parsed)["rejections"] : &*parsed;
-            if (!list->is_array()) throw UsageError(a.str("file") + " must be a JSON array of {shareId}.", "Example: [{\"shareId\": \"r_8f3k2m\"}]");
+            if (!parsed.ok())
+                throw UsageError(parsed.error().message, "The file is a JSON array of {\"shareId\": \"r_8f3k2m\"}.");
+            const Json* list =
+                parsed->is_object() && parsed->contains("rejections") ? &(*parsed)["rejections"] : &*parsed;
+            if (!list->is_array())
+                throw UsageError(a.str("file") + " must be a JSON array of {shareId}.",
+                                 "Example: [{\"shareId\": \"r_8f3k2m\"}]");
             for (const Json& v : *list) {
-                const std::string id = v.is_string() ? v.get<std::string>() : v.is_object() ? v.value("shareId", std::string()) : std::string();
-                if (id.empty()) throw UsageError(a.str("file") + " has an item without a shareId.", "Every item is {\"shareId\": \"r_8f3k2m\"}.");
+                const std::string id = v.is_string()   ? v.get<std::string>()
+                                       : v.is_object() ? v.value("shareId", std::string())
+                                                       : std::string();
+                if (id.empty())
+                    throw UsageError(a.str("file") + " has an item without a shareId.",
+                                     "Every item is {\"shareId\": \"r_8f3k2m\"}.");
                 ids.push_back(id);
             }
         }
-        if (ids.empty()) throw UsageError("Name the report(s) to restore.", "Usage: factoria feedback unreject <shareId>...");
+        if (ids.empty())
+            throw UsageError("Name the report(s) to restore.", "Usage: factoria feedback unreject <shareId>...");
         auto cfg = admin_config(feedback_admin_env());
         if (!cfg.ok()) return report_failure(ctx, cfg.error().message, cfg.error().hint);
         auto out = feedback_unreject_reports(*cfg, feedback_admin_env().transport, inbox_of(ctx), ids);
@@ -478,16 +614,20 @@ Command keep_command() {
     c.summary = "Drop the suggested rejection of pulled reports: they stay as they are (engine developer).";
     c.usage = "[<shareId>...] [--out DIR] [--json]";
     c.maxPositional = -1;
-    c.details = "`feedback pull` marks reports that claim something the engine already has with a `suggestedRejection`. After reading them, the ones that\n"
-                "really are gaps (the check was wrong) are kept: this removes the suggestion so `reject --suggested` no longer offers them. Without\n"
+    c.details = "`feedback pull` marks reports that claim something the engine already has with a "
+                "`suggestedRejection`. After reading them, the ones that\n"
+                "really are gaps (the check was wrong) are kept: this removes the suggestion so `reject --suggested` "
+                "no longer offers them. Without\n"
                 "shareIds it drops every suggestion. Nothing is sent to the server.";
     c.flags = {kOutFlag, kJsonFlag};
     c.examples = {"factoria feedback keep r_8f3k2m", "factoria feedback keep"};
     c.run = [](Context& ctx) {
         auto n = feedback_keep_reports(inbox_of(ctx), ctx.args.positional());
         if (!n.ok()) return report_failure(ctx, n.error().message, n.error().hint);
-        if (ctx.args.has("json")) print_json(ctx.out, Json::object({{"kept", *n}}));
-        else ctx.out << "Dropped " << *n << " suggested rejection(s); the reports stay open.\n";
+        if (ctx.args.has("json"))
+            print_json(ctx.out, Json::object({{"kept", *n}}));
+        else
+            ctx.out << "Dropped " << *n << " suggested rejection(s); the reports stay open.\n";
         return 0;
     };
     return c;
@@ -496,7 +636,9 @@ Command keep_command() {
 // Totals first, then one line per day that had any activity (the server sends every day of its window).
 void print_stats(std::ostream& out, const Json& res) {
     const Json totals = res.value("totals", Json::object());
-    auto num = [](const Json& o, const char* k) { return o.contains(k) && o[k].is_number() ? o[k].get<long long>() : 0LL; };
+    auto num = [](const Json& o, const char* k) {
+        return o.contains(k) && o[k].is_number() ? o[k].get<long long>() : 0LL;
+    };
     out << "reports: " << num(totals, "reports") << "  installations: " << num(totals, "installations")
         << "  occurrences: " << num(totals, "occurrences") << "  bans: " << num(totals, "bans") << "\n";
     const Json days = res.value("days", Json::array());
@@ -507,12 +649,13 @@ void print_stats(std::ostream& out, const Json& res) {
                         limited = num(d, "rateLimited"), banned = num(d, "banned");
         if (accepted + merged + rejected + limited + banned == 0) continue;
         if (shown++ == 0) out << "\nDays with activity (UTC):\n";
-        out << "  " << d.value("day", std::string("?")) << "  accepted " << accepted << ", merged " << merged << ", rejected "
-            << rejected << ", rate-limited " << limited << ", banned " << banned;
+        out << "  " << d.value("day", std::string("?")) << "  accepted " << accepted << ", merged " << merged
+            << ", rejected " << rejected << ", rate-limited " << limited << ", banned " << banned;
         if (d.contains("rejections") && d["rejections"].is_object() && !d["rejections"].empty()) {
             std::string why;
             for (auto it = d["rejections"].begin(); it != d["rejections"].end(); ++it)
-                why += (why.empty() ? "" : ", ") + it.key() + " " + std::to_string(it->is_number() ? it->get<long long>() : 0);
+                why += (why.empty() ? "" : ", ") + it.key() + " " +
+                       std::to_string(it->is_number() ? it->get<long long>() : 0);
             out << " (" << why << ")";
         }
         out << "\n";
@@ -523,7 +666,8 @@ void print_stats(std::ostream& out, const Json& res) {
 Command stats_command() {
     Command c;
     c.name = "stats";
-    c.summary = "Counts of reports, installations, rejections and rate-limit hits on the feedback server (engine developer).";
+    c.summary =
+        "Counts of reports, installations, rejections and rate-limit hits on the feedback server (engine developer).";
     c.usage = "[--json]";
     c.flags = {kJsonFlag};
     c.run = [](Context& ctx) {
@@ -549,7 +693,8 @@ Command fixed_command() {
     Command g;
     g.name = "fixed";
     g.summary = "Maintain feedback/fixed.json: the gaps engine releases fixed (engine developer).";
-    g.details = "Users' open entries that match a fix are closed with the version that fixed it when their engine ships the list. Keep the\n"
+    g.details = "Users' open entries that match a fix are closed with the version that fixed it when their engine "
+                "ships the list. Keep the\n"
                 "format as it is: feedback/fixed.json is embedded in the binary.";
     g.maxPositional = -1;
 
@@ -557,19 +702,28 @@ Command fixed_command() {
     add.name = "add";
     add.summary = "Record that a release fixed a gap.";
     add.usage = "--category C --title T [--title T2] --version V [--note N] [--file PATH]";
-    add.details = "--title is how the gap reads in users' reports; repeat it for other wordings. Entries match when their category (or family) and\n"
-                  "title are alike (feedback_entry_similarity >= 0.7). Adding the same category, version and a title again extends that fix.\n"
-                  "The file is <repo>/feedback/fixed.json (created with an empty list when missing); run it inside the engine checkout or pass --file.";
-    add.flags = {{"category", "C", "Engine area (the categories of 'feedback add')."}, {"title", "T", "Title of the gap; repeatable.", true},
-                 {"version", "V", "Engine version that ships the fix, like 0.11.0."}, {"note", "N", "What fixed it, for the notes of closed entries."},
-                 {"file", "PATH", "The fixed.json to change (default: the checkout's feedback/fixed.json)."}, kJsonFlag};
-    add.examples = {"factoria feedback fixed add --category physics --title \"No fluid simulation\" --version 0.11.0 --note \"Fluid2D\""};
+    add.details = "--title is how the gap reads in users' reports; repeat it for other wordings. Entries match when "
+                  "their category (or family) and\n"
+                  "title are alike (feedback_entry_similarity >= 0.7). Adding the same category, version and a title "
+                  "again extends that fix.\n"
+                  "The file is <repo>/feedback/fixed.json (created with an empty list when missing); run it inside the "
+                  "engine checkout or pass --file.";
+    add.flags = {{"category", "C", "Engine area (the categories of 'feedback add')."},
+                 {"title", "T", "Title of the gap; repeatable.", true},
+                 {"version", "V", "Engine version that ships the fix, like 0.11.0."},
+                 {"note", "N", "What fixed it, for the notes of closed entries."},
+                 {"file", "PATH", "The fixed.json to change (default: the checkout's feedback/fixed.json)."},
+                 kJsonFlag};
+    add.examples = {"factoria feedback fixed add --category physics --title \"No fluid simulation\" --version 0.11.0 "
+                    "--note \"Fluid2D\""};
     add.run = [](Context& ctx) {
         const Args& a = ctx.args;
         std::vector<std::string> missing;
         for (const char* k : {"category", "title", "version"})
             if (!a.has(k)) missing.push_back(std::string("--") + k);
-        if (!missing.empty()) throw UsageError("Missing required " + join(missing, ", ") + ".", "Usage: factoria feedback fixed add --category C --title T --version V [--note N]");
+        if (!missing.empty())
+            throw UsageError("Missing required " + join(missing, ", ") + ".",
+                             "Usage: factoria feedback fixed add --category C --title T --version V [--note N]");
         auto file = fixed_file(ctx);
         if (!file.ok()) return report_failure(ctx, file.error().message, file.error().hint);
         FeedbackFix fix;
@@ -580,12 +734,21 @@ Command fixed_command() {
         auto r = add_fixed_to_file(*file, fix);
         if (!r.ok()) return report_failure(ctx, r.error().message, r.error().hint);
         if (a.has("json")) {
-            print_json(ctx.out, Json::object({{"file", *file}, {"created", r->created}, {"merged", r->merged}, {"total", r->total},
-                                              {"fix", Json::object({{"category", r->fix.category}, {"titles", r->fix.titles}, {"fixedIn", r->fix.fixedIn}, {"note", r->fix.note}})}}));
+            print_json(ctx.out, Json::object({{"file", *file},
+                                              {"created", r->created},
+                                              {"merged", r->merged},
+                                              {"total", r->total},
+                                              {"fix", Json::object({{"category", r->fix.category},
+                                                                    {"titles", r->fix.titles},
+                                                                    {"fixedIn", r->fix.fixedIn},
+                                                                    {"note", r->fix.note}})}}));
             return 0;
         }
-        ctx.out << (r->created ? "Created " + *file + " and added" : r->merged ? "Extended" : "Added") << " the fix of " << r->fix.category << " \"" << r->fix.titles.front()
-                << "\" in " << r->fix.fixedIn << " (" << r->total << " fix" << (r->total == 1 ? "" : "es") << " in " << *file << ").\n";
+        ctx.out << (r->created  ? "Created " + *file + " and added"
+                    : r->merged ? "Extended"
+                                : "Added")
+                << " the fix of " << r->fix.category << " \"" << r->fix.titles.front() << "\" in " << r->fix.fixedIn
+                << " (" << r->total << " fix" << (r->total == 1 ? "" : "es") << " in " << *file << ").\n";
         return 0;
     };
 
@@ -621,7 +784,8 @@ Command fixed_command() {
 }  // namespace
 
 std::vector<Command> make_feedback_admin_commands() {
-    return {pull_command(), quarantine_command(), reject_command(), unreject_command(), keep_command(), ban_command(), unban_command(), bans_command(), delete_command(), stats_command(), fixed_command()};
+    return {pull_command(),  quarantine_command(), reject_command(), unreject_command(), keep_command(), ban_command(),
+            unban_command(), bans_command(),       delete_command(), stats_command(),    fixed_command()};
 }
 
 }  // namespace fa::cli

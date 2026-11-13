@@ -22,11 +22,11 @@ namespace fa {
 inline constexpr int kCheckpointLimit = 30;
 
 struct CheckpointInfo {
-    std::string id;            // "20261022-153012-7": UTC time and a sequence number, never reused
+    std::string id;  // "20261022-153012-7": UTC time and a sequence number, never reused
     std::string label;
     std::int64_t created = 0;  // epoch seconds
     int files = 0;
-    std::uint64_t bytes = 0;   // total size of the files it holds (not what it adds on disk)
+    std::uint64_t bytes = 0;  // total size of the files it holds (not what it adds on disk)
 };
 
 struct CheckpointCreated {

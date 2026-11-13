@@ -17,7 +17,9 @@ namespace stdfs = std::filesystem;
 std::string McpHost::server_version() const { return FA_ENGINE_VERSION; }
 std::string McpHost::instructions() const { return default_mcp_instructions(); }
 std::vector<McpResource> McpHost::list_resources() { return default_mcp_resources(project_dir()); }
-Result<McpResourceContent> McpHost::read_resource(std::string_view uri) { return default_mcp_read_resource(project_dir(), uri); }
+Result<McpResourceContent> McpHost::read_resource(std::string_view uri) {
+    return default_mcp_read_resource(project_dir(), uri);
+}
 std::vector<McpPrompt> McpHost::list_prompts() { return default_mcp_prompts(); }
 Result<std::vector<McpPromptMessage>> McpHost::get_prompt(std::string_view name, const Json& arguments) {
     return default_mcp_prompt_messages(name, arguments);
@@ -25,7 +27,7 @@ Result<std::vector<McpPromptMessage>> McpHost::get_prompt(std::string_view name,
 
 std::string default_mcp_instructions() {
     return
-R"(FactorIA is an AI-native 2D/3D game engine. You build games by editing JSON (scenes, prefabs, factoria.json) and JavaScript (scripts, tools, tests), and you verify them with the tools below. Everything is text; you can see the game through screenshots.
+        R"(FactorIA is an AI-native 2D/3D game engine. You build games by editing JSON (scenes, prefabs, factoria.json) and JavaScript (scripts, tools, tests), and you verify them with the tools below. Everything is text; you can see the game through screenshots.
 
 WORKFLOW (repeat for every change)
 1. Read first, and only what the task needs, the guide BY SECTION, never whole: docs_read {"name":"ai-guide","heading":"Index"} says which section holds what; then read those sections with docs_read {"name":"ai-guide","heading":"..."}, never the guide whole. docs_list gives every doc a one-line summary and audience (pass audience "gameAi"); docs_search finds where anything is. Component names and fields are strict: ask for one at a time, docs_components {"name":"Sprite"} / docs_commands {"name":"game.step"} (or "filter"), never with "full" and never docs_read {"name":"components"} whole (1.8 MB). Every long page comes in parts with a contents list and the exact call that continues.
@@ -48,13 +50,17 @@ Resources: factoria://docs/<file> (documentation), factoria://project/factoria.j
 
 std::vector<McpPrompt> default_mcp_prompts() {
     return {
-        {"make-game", "Build a complete small game from an idea, step by step, with validation, screenshots and tests.",
+        {"make-game",
+         "Build a complete small game from an idea, step by step, with validation, screenshots and tests.",
          {{"idea", "What game to make (genre, mechanics, look).", true}}},
-        {"add-feature", "Add one feature to the current game and verify it.",
+        {"add-feature",
+         "Add one feature to the current game and verify it.",
          {{"feature", "The feature to add, e.g. 'enemies that chase the player'.", true}}},
-        {"fix-bug", "Reproduce, fix and lock in a bug with a regression test.",
+        {"fix-bug",
+         "Reproduce, fix and lock in a bug with a regression test.",
          {{"description", "What goes wrong and how to trigger it.", true}}},
-        {"report-engine-gap", "Record something the engine lacked, with the workaround, in ENGINE_FEEDBACK.json.",
+        {"report-engine-gap",
+         "Record something the engine lacked, with the workaround, in ENGINE_FEEDBACK.json.",
          {{"summary", "What the engine lacked or got wrong (optional; you will be asked to be specific).", false}}},
     };
 }
@@ -70,60 +76,99 @@ Result<std::vector<McpPromptMessage>> default_mcp_prompt_messages(std::string_vi
     std::string text;
     if (name == "make-game") {
         std::string idea = arg_of(arguments, "idea");
-        if (idea.empty()) return make_error("Prompt 'make-game' needs the argument 'idea'.", "Pass {\"idea\": \"a top-down space shooter\"}.");
-        text =
-"Make this game with FactorIA: " + idea + "\n\n"
-"Follow these steps and do not skip the verification steps.\n"
-"1. Read only what you need: docs_read {\"name\":\"ai-guide\",\"heading\":\"Index\"} first, then just the sections your game needs by heading (docs_read {\"name\":\"ai-guide\",\"heading\":\"...\"}); docs_list {\"audience\":\"gameAi\"} gives the other docs a summary each. Ask for components one at a time (docs_components {\"name\":\"Sprite\"} or \"filter\"), never with \"full\" and never docs_read {\"name\":\"components\"} whole. Read AGENTS.md in the project if present.\n"
-"2. Plan in a few lines: core loop, entities, input actions, win/lose condition. Keep scope small enough to finish; prefer Shape2D / primitive meshes over external art.\n"
-"3. Set up factoria.json (display size, input actions) and build scenes/main.scene.json with the essential entities.\n"
-"4. Call project_validate. Fix every error using its hint, repeat until ok.\n"
-"5. Call game_step {\"frames\":60} and game_screenshot. LOOK at the image: is the scene visible, scaled and positioned as intended? Fix and re-check.\n"
-"6. Implement behaviour in scripts/*.js (Behaviour classes) one mechanic at a time. After each mechanic: project_validate, game_step with input (game_input), game_screenshot, and check game_logs for script errors.\n"
-"7. Write tests in tests/*.test.js for each mechanic (movement, scoring, win/lose) and run them (tool project_test if available, else `factoria test`).\n"
-"8. Whenever the engine lacked something and you worked around it or dropped a feature, call feedback_report right away.\n"
-"9. Finish with a summary: what works, how to run it (`factoria run`), what you could not do and the feedback you reported.";
+        if (idea.empty())
+            return make_error("Prompt 'make-game' needs the argument 'idea'.",
+                              "Pass {\"idea\": \"a top-down space shooter\"}.");
+        text = "Make this game with FactorIA: " + idea +
+               "\n\n"
+               "Follow these steps and do not skip the verification steps.\n"
+               "1. Read only what you need: docs_read {\"name\":\"ai-guide\",\"heading\":\"Index\"} first, then just "
+               "the sections your game needs by heading (docs_read {\"name\":\"ai-guide\",\"heading\":\"...\"}); "
+               "docs_list {\"audience\":\"gameAi\"} gives the other docs a summary each. Ask for components one at a "
+               "time (docs_components {\"name\":\"Sprite\"} or \"filter\"), never with \"full\" and never docs_read "
+               "{\"name\":\"components\"} whole. Read AGENTS.md in the project if present.\n"
+               "2. Plan in a few lines: core loop, entities, input actions, win/lose condition. Keep scope small "
+               "enough to finish; prefer Shape2D / primitive meshes over external art.\n"
+               "3. Set up factoria.json (display size, input actions) and build scenes/main.scene.json with the "
+               "essential entities.\n"
+               "4. Call project_validate. Fix every error using its hint, repeat until ok.\n"
+               "5. Call game_step {\"frames\":60} and game_screenshot. LOOK at the image: is the scene visible, scaled "
+               "and positioned as intended? Fix and re-check.\n"
+               "6. Implement behaviour in scripts/*.js (Behaviour classes) one mechanic at a time. After each "
+               "mechanic: project_validate, game_step with input (game_input), game_screenshot, and check game_logs "
+               "for script errors.\n"
+               "7. Write tests in tests/*.test.js for each mechanic (movement, scoring, win/lose) and run them (tool "
+               "project_test if available, else `factoria test`).\n"
+               "8. Whenever the engine lacked something and you worked around it or dropped a feature, call "
+               "feedback_report right away.\n"
+               "9. Finish with a summary: what works, how to run it (`factoria run`), what you could not do and the "
+               "feedback you reported.";
     } else if (name == "add-feature") {
         std::string feature = arg_of(arguments, "feature");
-        if (feature.empty()) return make_error("Prompt 'add-feature' needs the argument 'feature'.", "Pass {\"feature\": \"enemies that chase the player\"}.");
-        text =
-"Add this feature to the current FactorIA game: " + feature + "\n\n"
-"1. Understand the current state: fs_list / read factoria.json, the main scene and relevant scripts; call game_state to see the live entities.\n"
-"2. Check the docs for the components and APIs you will use (docs_search, then docs_components {\"name\":\"Sprite\"} one component at a time, never with \"full\"). Do not guess field names.\n"
-"3. Implement the smallest change that delivers the feature (scene/prefab JSON and/or scripts). Keep existing behaviour working.\n"
-"4. Call project_validate and fix every error.\n"
-"5. Run: game_step {\"frames\":120} (feed input with game_input if needed), then game_screenshot and LOOK at it. Check game_logs for errors.\n"
-"6. Add or extend a test in tests/*.test.js that fails without the feature, and run all tests.\n"
-"7. If the engine lacked something you needed, call feedback_report immediately with the workaround you used.\n"
-"8. Report what changed and how you verified it.";
+        if (feature.empty())
+            return make_error("Prompt 'add-feature' needs the argument 'feature'.",
+                              "Pass {\"feature\": \"enemies that chase the player\"}.");
+        text = "Add this feature to the current FactorIA game: " + feature +
+               "\n\n"
+               "1. Understand the current state: fs_list / read factoria.json, the main scene and relevant scripts; "
+               "call game_state to see the live entities.\n"
+               "2. Check the docs for the components and APIs you will use (docs_search, then docs_components "
+               "{\"name\":\"Sprite\"} one component at a time, never with \"full\"). Do not guess field names.\n"
+               "3. Implement the smallest change that delivers the feature (scene/prefab JSON and/or scripts). Keep "
+               "existing behaviour working.\n"
+               "4. Call project_validate and fix every error.\n"
+               "5. Run: game_step {\"frames\":120} (feed input with game_input if needed), then game_screenshot and "
+               "LOOK at it. Check game_logs for errors.\n"
+               "6. Add or extend a test in tests/*.test.js that fails without the feature, and run all tests.\n"
+               "7. If the engine lacked something you needed, call feedback_report immediately with the workaround you "
+               "used.\n"
+               "8. Report what changed and how you verified it.";
     } else if (name == "fix-bug") {
         std::string desc = arg_of(arguments, "description");
-        if (desc.empty()) return make_error("Prompt 'fix-bug' needs the argument 'description'.", "Pass {\"description\": \"player falls through the floor after jumping\"}.");
-        text =
-"Fix this bug in the current FactorIA game: " + desc + "\n\n"
-"1. Reproduce it headlessly: project_validate first, then game_step with the input that triggers it (game_input), game_screenshot and game_state. Read game_logs for script errors.\n"
-"2. Write a failing test in tests/*.test.js that captures the bug (deterministic: the engine uses a fixed step and seeded rng). Run it and confirm it fails for the right reason.\n"
-"3. Find the cause: inspect the relevant scene entries and scripts (fs_read, fs_search). Prefer fixing data/scripts; if the cause is an engine bug, work around it AND call feedback_report with category, severity and a suggestion.\n"
-"4. Apply the smallest fix. Run project_validate, the new test and the full test suite.\n"
-"5. Take a screenshot to confirm the visual result, then summarize the cause, the fix and the regression test.";
+        if (desc.empty())
+            return make_error("Prompt 'fix-bug' needs the argument 'description'.",
+                              "Pass {\"description\": \"player falls through the floor after jumping\"}.");
+        text = "Fix this bug in the current FactorIA game: " + desc +
+               "\n\n"
+               "1. Reproduce it headlessly: project_validate first, then game_step with the input that triggers it "
+               "(game_input), game_screenshot and game_state. Read game_logs for script errors.\n"
+               "2. Write a failing test in tests/*.test.js that captures the bug (deterministic: the engine uses a "
+               "fixed step and seeded rng). Run it and confirm it fails for the right reason.\n"
+               "3. Find the cause: inspect the relevant scene entries and scripts (fs_read, fs_search). Prefer fixing "
+               "data/scripts; if the cause is an engine bug, work around it AND call feedback_report with category, "
+               "severity and a suggestion.\n"
+               "4. Apply the smallest fix. Run project_validate, the new test and the full test suite.\n"
+               "5. Take a screenshot to confirm the visual result, then summarize the cause, the fix and the "
+               "regression test.";
     } else if (name == "report-engine-gap") {
         std::string summary = arg_of(arguments, "summary");
         text =
-"Record an engine gap with the feedback_report tool." + (summary.empty() ? std::string() : "\nWhat I noticed: " + summary) + "\n\n"
-"1. Check that the engine really lacks it. Models often report as missing something that exists: search the docs (docs_search for the thing, docs_components for the fields of the component you mean) or call feedback_check {title, missing, suggestion}. If it exists but does not work as documented, report a BUG that says what you set, what you expected and what happened. feedback_report refuses a report whose missing thing exists, and tells you where it is documented.\n"
-"2. Call feedback_list {\"status\":\"open\"} to see whether a similar gap is already recorded (similar reports are merged, so it is fine if it is).\n"
-"3. Call feedback_report with:\n"
-"   - category: rendering-2d, rendering-3d, physics, audio, input, ui, scripting, scene, assets, animation, tooling, ai-integration, docs, platform, performance, networking or other\n"
-"   - severity: blocker (could not build it), major (big/fragile workaround), minor (small workaround), nice-to-have\n"
-"   - title: short noun phrase naming the gap (an invented example of the shape: \"No fluid simulation\")\n"
-"   - missing: what exactly the engine lacked and what you were trying to do\n"
-"   - workaround: what you did instead, and workaroundFiles listing the files\n"
-"   - suggestion: the concrete engine change (component field, command, API) that would remove the workaround\n"
-"4. Confirm the returned id, then continue with your task.";
+            "Record an engine gap with the feedback_report tool." +
+            (summary.empty() ? std::string() : "\nWhat I noticed: " + summary) +
+            "\n\n"
+            "1. Check that the engine really lacks it. Models often report as missing something that exists: search "
+            "the docs (docs_search for the thing, docs_components for the fields of the component you mean) or call "
+            "feedback_check {title, missing, suggestion}. If it exists but does not work as documented, report a BUG "
+            "that says what you set, what you expected and what happened. feedback_report refuses a report whose "
+            "missing thing exists, and tells you where it is documented.\n"
+            "2. Call feedback_list {\"status\":\"open\"} to see whether a similar gap is already recorded (similar "
+            "reports are merged, so it is fine if it is).\n"
+            "3. Call feedback_report with:\n"
+            "   - category: rendering-2d, rendering-3d, physics, audio, input, ui, scripting, scene, assets, "
+            "animation, tooling, ai-integration, docs, platform, performance, networking or other\n"
+            "   - severity: blocker (could not build it), major (big/fragile workaround), minor (small workaround), "
+            "nice-to-have\n"
+            "   - title: short noun phrase naming the gap (an invented example of the shape: \"No fluid simulation\")\n"
+            "   - missing: what exactly the engine lacked and what you were trying to do\n"
+            "   - workaround: what you did instead, and workaroundFiles listing the files\n"
+            "   - suggestion: the concrete engine change (component field, command, API) that would remove the "
+            "workaround\n"
+            "4. Confirm the returned id, then continue with your task.";
     } else {
         std::vector<std::string> names;
         for (const auto& p : default_mcp_prompts()) names.push_back(p.name);
-        return make_error("Unknown prompt '" + std::string(name) + "'. " + did_you_mean(name, names), "Use prompts/list to see available prompts.");
+        return make_error("Unknown prompt '" + std::string(name) + "'. " + did_you_mean(name, names),
+                          "Use prompts/list to see available prompts.");
     }
     return std::vector<McpPromptMessage>{{"user", text}};
 }
@@ -131,19 +176,27 @@ Result<std::vector<McpPromptMessage>> default_mcp_prompt_messages(std::string_vi
 std::vector<McpResource> default_mcp_resources(const std::string& projectDir) {
     std::vector<McpResource> out;
     for (const auto& d : list_docs())
-        out.push_back({"factoria://docs/" + d.path.substr(5), d.name, d.title.empty() ? d.name : d.title, "text/markdown"});
-    out.push_back({"factoria://docs/components", "components", "Components reference (generated from reflection)", "text/markdown"});
+        out.push_back(
+            {"factoria://docs/" + d.path.substr(5), d.name, d.title.empty() ? d.name : d.title, "text/markdown"});
+    out.push_back({"factoria://docs/components", "components", "Components reference (generated from reflection)",
+                   "text/markdown"});
     std::error_code ec;
     auto exists = [&](const char* f) { return stdfs::exists(stdfs::path(projectDir) / f, ec); };
-    if (exists("factoria.json")) out.push_back({"factoria://project/factoria.json", "factoria.json", "Project settings", "application/json"});
+    if (exists("factoria.json"))
+        out.push_back({"factoria://project/factoria.json", "factoria.json", "Project settings", "application/json"});
     if (exists("ENGINE_FEEDBACK.json"))
-        out.push_back({"factoria://project/ENGINE_FEEDBACK.json", "ENGINE_FEEDBACK.json", "Engine gaps recorded for this project", "application/json"});
-    if (exists("AGENTS.md")) out.push_back({"factoria://project/AGENTS.md", "AGENTS.md", "Game-making guide for AI agents", "text/markdown"});
+        out.push_back({"factoria://project/ENGINE_FEEDBACK.json", "ENGINE_FEEDBACK.json",
+                       "Engine gaps recorded for this project", "application/json"});
+    if (exists("AGENTS.md"))
+        out.push_back(
+            {"factoria://project/AGENTS.md", "AGENTS.md", "Game-making guide for AI agents", "text/markdown"});
     return out;
 }
 
 Result<McpResourceContent> default_mcp_read_resource(const std::string& projectDir, std::string_view uri) {
-    auto mime_for = [](std::string_view path) { return path.size() > 5 && path.substr(path.size() - 5) == ".json" ? "application/json" : "text/markdown"; };
+    auto mime_for = [](std::string_view path) {
+        return path.size() > 5 && path.substr(path.size() - 5) == ".json" ? "application/json" : "text/markdown";
+    };
     constexpr std::string_view docsPrefix = "factoria://docs/", projectPrefix = "factoria://project/";
     if (uri.substr(0, docsPrefix.size()) == docsPrefix) {
         auto text = read_doc(uri);
@@ -155,7 +208,10 @@ Result<McpResourceContent> default_mcp_read_resource(const std::string& projectD
         static const char* allowed[] = {"factoria.json", "ENGINE_FEEDBACK.json", "AGENTS.md"};
         bool ok = false;
         for (const char* a : allowed) ok = ok || rel == a;
-        if (!ok) return make_error("Project resource '" + rel + "' is not exposed.", "Available: factoria.json, ENGINE_FEEDBACK.json, AGENTS.md. Use fs_read for other files.");
+        if (!ok)
+            return make_error(
+                "Project resource '" + rel + "' is not exposed.",
+                "Available: factoria.json, ENGINE_FEEDBACK.json, AGENTS.md. Use fs_read for other files.");
         auto path = resolve_project_path(projectDir, rel);
         if (!path.ok()) return path.error();
         fa::fs::ReadStream in(path.value(), std::ios::binary);
@@ -164,7 +220,8 @@ Result<McpResourceContent> default_mcp_read_resource(const std::string& projectD
         ss << in.rdbuf();
         return McpResourceContent{std::string(uri), mime_for(rel), ss.str()};
     }
-    return make_error("Unknown resource '" + std::string(uri) + "'.", "Use resources/list; URIs start with factoria://docs/ or factoria://project/.");
+    return make_error("Unknown resource '" + std::string(uri) + "'.",
+                      "Use resources/list; URIs start with factoria://docs/ or factoria://project/.");
 }
 
 }  // namespace fa

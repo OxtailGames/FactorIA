@@ -40,7 +40,8 @@ void put(Image& img, std::size_t i, Vec4 c) {
     img.rgba[i * 4 + 3] = to_byte(c.w);
 }
 Vec4 get(const Image& img, std::size_t i) {
-    return {img.rgba[i * 4] / 255.0f, img.rgba[i * 4 + 1] / 255.0f, img.rgba[i * 4 + 2] / 255.0f, img.rgba[i * 4 + 3] / 255.0f};
+    return {img.rgba[i * 4] / 255.0f, img.rgba[i * 4 + 1] / 255.0f, img.rgba[i * 4 + 2] / 255.0f,
+            img.rgba[i * 4 + 3] / 255.0f};
 }
 // `src` over what is in the pixel (straight alpha)
 void over(Image& img, std::size_t i, Vec3 rgb, float alpha) {
@@ -72,7 +73,9 @@ Vec4 sample_image(const Image& img, float u, float v, bool wrap) {
     const float w00 = (1 - tx) * (1 - ty), w10 = tx * (1 - ty), w01 = (1 - tx) * ty, w11 = tx * ty;
     const float a = c00.w * w00 + c10.w * w10 + c01.w * w01 + c11.w * w11;
     if (a <= 1e-6f) return {0, 0, 0, 0};
-    const Vec3 rgb = (c00.xyz() * (c00.w * w00) + c10.xyz() * (c10.w * w10) + c01.xyz() * (c01.w * w01) + c11.xyz() * (c11.w * w11)) / a;
+    const Vec3 rgb = (c00.xyz() * (c00.w * w00) + c10.xyz() * (c10.w * w10) + c01.xyz() * (c01.w * w01) +
+                      c11.xyz() * (c11.w * w11)) /
+                     a;
     return Vec4(rgb, a);
 }
 
@@ -85,7 +88,8 @@ float pow_int(float v, int k) {
 }
 
 Vec4 sample_triplanar(const Image& img, Vec3 p, Vec3 n, const ModelMaterialTexturing& m) {
-    float wx = pow_int(std::fabs(n.x), m.sharpness), wy = pow_int(std::fabs(n.y), m.sharpness), wz = pow_int(std::fabs(n.z), m.sharpness);
+    float wx = pow_int(std::fabs(n.x), m.sharpness), wy = pow_int(std::fabs(n.y), m.sharpness),
+          wz = pow_int(std::fabs(n.z), m.sharpness);
     const float sum = wx + wy + wz;
     if (sum < 1e-9f) {
         wx = wz = 0;
@@ -182,7 +186,8 @@ void line(Image& img, int x0, int y0, int x1, int y1, Vec4 c) {
     const int sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1;
     int err = dx + dy;
     for (int guard = 0; guard < 20000; ++guard) {
-        if (x0 >= 0 && y0 >= 0 && x0 < img.width && y0 < img.height) put(img, std::size_t(y0) * std::size_t(img.width) + std::size_t(x0), c);
+        if (x0 >= 0 && y0 >= 0 && x0 < img.width && y0 < img.height)
+            put(img, std::size_t(y0) * std::size_t(img.width) + std::size_t(x0), c);
         if (x0 == x1 && y0 == y1) break;
         const int e2 = 2 * err;
         if (e2 >= dy) {
@@ -199,14 +204,19 @@ void line(Image& img, int x0, int y0, int x1, int y1, Vec4 c) {
 }  // namespace
 
 Result<ModelTextureLayers> bake_model_textures(const ModelTextureInput& in) {
-    if (!in.mesh || !in.settings) return make_error("bake_model_textures needs a mesh and the texturing settings", "This is a bug of the caller.");
+    if (!in.mesh || !in.settings)
+        return make_error("bake_model_textures needs a mesh and the texturing settings",
+                          "This is a bug of the caller.");
     const MeshData& mesh = *in.mesh;
     const ModelTexturing& S = *in.settings;
     if (!mesh.hasUvs)
-        return make_error("the model has no uvs to bake a texture into", "Add a `uv` section with layout \"atlas\" (model.uv, or model.texture adds one).");
+        return make_error("the model has no uvs to bake a texture into",
+                          "Add a `uv` section with layout \"atlas\" (model.uv, or model.texture adds one).");
     int size = S.size > 0 ? S.size : (in.uvTextureSize > 0 ? in.uvTextureSize : 1024);
     if (size < kModelTextureMinSize || size > kModelTextureMaxSize)
-        return make_error(std::format("the texture size {} is outside {} to {}", size, kModelTextureMinSize, kModelTextureMaxSize), "Set texturing.size to a power of two such as 1024.");
+        return make_error(
+            std::format("the texture size {} is outside {} to {}", size, kModelTextureMinSize, kModelTextureMaxSize),
+            "Set texturing.size to a power of two such as 1024.");
     const int bleed = S.bleed >= 0 ? S.bleed : in.uvPadding;
 
     ModelTextureLayers out;
@@ -218,7 +228,8 @@ Result<ModelTextureLayers> bake_model_textures(const ModelTextureInput& in) {
     const Params prm = params_of(S.maps, g);
     Texels tx = rasterize(g, size, bleed);
     if (tx.covered == 0)
-        return make_error("no triangle covers a texel of the atlas: the uvs are empty or outside 0..1", "Check the `uv` section (model.uv check:true measures it).");
+        return make_error("no triangle covers a texel of the atlas: the uvs are empty or outside 0..1",
+                          "Check the `uv` section (model.uv check:true measures it).");
     rep.texels = tx.covered;
     rep.utilization = double(tx.covered) / (double(size) * double(size));
     rep.overlap = double(tx.overlapped) / double(tx.covered);
@@ -232,9 +243,15 @@ Result<ModelTextureLayers> bake_model_textures(const ModelTextureInput& in) {
                     break;
                 }
             }
-        if (outside) rep.warnings.push_back(std::format("{} triangle(s) have uvs outside 0..1 and are cut off in the texture: the atlas layout of the `uv` section is needed (model.uv).", outside));
+        if (outside)
+            rep.warnings.push_back(std::format("{} triangle(s) have uvs outside 0..1 and are cut off in the texture: "
+                                               "the atlas layout of the `uv` section is needed (model.uv).",
+                                               outside));
         if (rep.overlap > 0.02)
-            rep.warnings.push_back(std::format("{:.1f}% of the covered texels are claimed by two triangles (overlapping uvs): painting there shows on both. Unwrap the model (`uv` method \"unwrap\").", rep.overlap * 100));
+            rep.warnings.push_back(
+                std::format("{:.1f}% of the covered texels are claimed by two triangles (overlapping uvs): painting "
+                            "there shows on both. Unwrap the model (`uv` method \"unwrap\").",
+                            rep.overlap * 100));
     }
 
     // ---- materials of the submeshes
@@ -251,9 +268,15 @@ Result<ModelTextureLayers> bake_model_textures(const ModelTextureInput& in) {
     auto load = [&](const std::string& path, const std::string& what) -> Result<const Image*> {
         auto it = loaded.find(path);
         if (it != loaded.end()) return &it->second;
-        if (!in.images) return make_error(what + " \"" + path + "\" cannot be read: no image source", "This is a bug of the caller.");
+        if (!in.images)
+            return make_error(what + " \"" + path + "\" cannot be read: no image source",
+                              "This is a bug of the caller.");
         auto img = in.images(path);
-        if (!img.ok()) return make_error(what + " \"" + path + "\": " + img.error().message, img.error().hint.empty() ? "Use a png or jpg of the project (assets.generate_texture makes one)." : img.error().hint);
+        if (!img.ok())
+            return make_error(what + " \"" + path + "\": " + img.error().message,
+                              img.error().hint.empty()
+                                  ? "Use a png or jpg of the project (assets.generate_texture makes one)."
+                                  : img.error().hint);
         inputs.insert(path);
         return &loaded.emplace(path, std::move(*img)).first->second;
     };
@@ -282,14 +305,17 @@ Result<ModelTextureLayers> bake_model_textures(const ModelTextureInput& in) {
         for (const std::string& p : partNames)
             if (!p.empty()) have.push_back(p);
         for (const std::string& w : unknown_names(wanted, partNames))
-            rep.warnings.push_back(std::format("{} names the part \"{}\", which the model does not have: it has no effect. {}", where, w, have.empty() ? "No node names a part." : did_you_mean(w, have)));
+            rep.warnings.push_back(
+                std::format("{} names the part \"{}\", which the model does not have: it has no effect. {}", where, w,
+                            have.empty() ? "No node names a part." : did_you_mean(w, have)));
     };
 
     const std::size_t total = tx.tri.size();
     const bool bakeColors = S.vertexColors == "bake" && !g.col.empty();
 
     // ---- base colour
-    out.base = make_image(size, to_byte(S.background.x), to_byte(S.background.y), to_byte(S.background.z), to_byte(S.background.w));
+    out.base = make_image(size, to_byte(S.background.x), to_byte(S.background.y), to_byte(S.background.z),
+                          to_byte(S.background.w));
     for (std::size_t i = 0; i < total; ++i) {
         if (!tx.has(i)) continue;
         const std::size_t ti = std::size_t(tx.tri[i]);
@@ -338,7 +364,9 @@ Result<ModelTextureLayers> bake_model_textures(const ModelTextureInput& in) {
     if (wantAo) ao = compute_ao(g, bvh, tx, S.maps.samples, prm.aoDistance);
     if (wantThick) thick = compute_thickness(g, bvh, tx, S.maps.samples, prm.thickDistance);
     if (wantEdges) edges.build(g, S.maps.edgeAngle, maxWidth);
-    auto has_write = [&](const char* n) { return std::find(S.maps.write.begin(), S.maps.write.end(), n) != S.maps.write.end(); };
+    auto has_write = [&](const char* n) {
+        return std::find(S.maps.write.begin(), S.maps.write.end(), n) != S.maps.write.end();
+    };
     if (wantAo) {
         const MapStats s = stats_of(ao, tx, 1.0f, 0.02f);
         rep.maps.push_back({"ao", s.mean, s.min, s.max, s.coverage});
@@ -375,7 +403,9 @@ Result<ModelTextureLayers> bake_model_textures(const ModelTextureInput& in) {
         for (const ModelWearSpec& w : S.wear) {
             check_parts(w.parts, "texturing.wear \"" + w.name + "\" parts");
             const float width = w.width ? *w.width : prm.edgeWidth;
-            const Vec4 color = w.color ? *w.color : ((w.mask == "edges" || w.mask == "thickness") ? Vec4{0.85f, 0.82f, 0.75f, 1} : Vec4{0.10f, 0.08f, 0.06f, 1});
+            const Vec4 color = w.color ? *w.color
+                                       : ((w.mask == "edges" || w.mask == "thickness") ? Vec4{0.85f, 0.82f, 0.75f, 1}
+                                                                                       : Vec4{0.10f, 0.08f, 0.06f, 1});
             std::vector<float> alphaOf(total, 0.0f);
             for (std::size_t i = 0; i < total; ++i) {
                 if (!tx.has(i)) continue;
@@ -387,7 +417,8 @@ Result<ModelTextureLayers> bake_model_textures(const ModelTextureInput& in) {
                     float cv, cc;
                     edges.bands(p, width, cv, cc);
                     const float soft = std::clamp(edges.curvature(g, tx, i) * width * 0.5f, -1.0f, 1.0f);
-                    m = w.mask == "edges" ? std::max(cv, std::max(0.0f, soft)) : std::max(std::max(cc, std::max(0.0f, -soft)), 1 - ao[i]);
+                    m = w.mask == "edges" ? std::max(cv, std::max(0.0f, soft))
+                                          : std::max(std::max(cc, std::max(0.0f, -soft)), 1 - ao[i]);
                 } else if (w.mask == "ao")
                     m = 1 - ao[i];
                 else
@@ -419,8 +450,9 @@ Result<ModelTextureLayers> bake_model_textures(const ModelTextureInput& in) {
             ms.coverage = n ? double(strong) / double(n) : 0;
             rep.wear.push_back(ms);
             if (strong == 0)
-                rep.warnings.push_back(std::format("wear \"{}\" (mask {}) painted nothing: lower `threshold`, raise `width` or `amount`{}.", w.name, w.mask,
-                                                   w.mask == "edges" ? ", or lower maps.edgeAngle (the model may have no sharp edges)" : ""));
+                rep.warnings.push_back(std::format(
+                    "wear \"{}\" (mask {}) painted nothing: lower `threshold`, raise `width` or `amount`{}.", w.name,
+                    w.mask, w.mask == "edges" ? ", or lower maps.edgeAngle (the model may have no sharp edges)" : ""));
         }
     }
 
@@ -492,22 +524,29 @@ Result<ModelTextureLayers> bake_model_textures(const ModelTextureInput& in) {
             info.triangles = reached.size();
             rep.decals.push_back(info);
             if (info.texels == 0)
-                rep.warnings.push_back(std::format("decal \"{}\" painted no texel: nothing lies within {:.3g} m of its plane at the position, or the surface there turns more than {:.0f} degrees from its normal"
-                                                   "{}{}. Move `position` onto the surface (model.info lists the bounds of each part), check `normal`, or raise `depth` and `maxAngle`.",
-                                                   d.name, depth, d.maxAngle, d.parts.empty() ? "" : ", or the parts do not match", d.faces.is_null() ? "" : ", or the face selection chose none of them"));
+                rep.warnings.push_back(
+                    std::format("decal \"{}\" painted no texel: nothing lies within {:.3g} m of its plane at the "
+                                "position, or the surface there turns more than {:.0f} degrees from its normal"
+                                "{}{}. Move `position` onto the surface (model.info lists the bounds of each part), "
+                                "check `normal`, or raise `depth` and `maxAngle`.",
+                                d.name, depth, d.maxAngle, d.parts.empty() ? "" : ", or the parts do not match",
+                                d.faces.is_null() ? "" : ", or the face selection chose none of them"));
         }
     }
 
     // ---- uv wireframe (a hidden layer to paint by)
     out.uvWire = make_image(size, 0, 0, 0, 0);
     {
-        static const Vec4 palette[8] = {{1, 0.3f, 0.3f, 1}, {0.3f, 0.8f, 0.3f, 1}, {0.3f, 0.5f, 1, 1}, {1, 0.8f, 0.2f, 1}, {0.8f, 0.4f, 1, 1}, {0.2f, 0.9f, 0.9f, 1}, {1, 0.55f, 0.1f, 1}, {0.9f, 0.9f, 0.9f, 1}};
+        static const Vec4 palette[8] = {{1, 0.3f, 0.3f, 1},  {0.3f, 0.8f, 0.3f, 1}, {0.3f, 0.5f, 1, 1},
+                                        {1, 0.8f, 0.2f, 1},  {0.8f, 0.4f, 1, 1},    {0.2f, 0.9f, 0.9f, 1},
+                                        {1, 0.55f, 0.1f, 1}, {0.9f, 0.9f, 0.9f, 1}};
         const float S2 = float(size);
         for (std::size_t t = 0; t < g.tri.size(); ++t) {
             const Vec4 c = palette[g.sub[t] % 8];
             for (int k = 0; k < 3; ++k) {
                 const Vec2 a = g.uv[g.tri[t][std::size_t(k)]] * S2, b = g.uv[g.tri[t][std::size_t((k + 1) % 3)]] * S2;
-                line(out.uvWire, int(std::floor(a.x)), int(std::floor(a.y)), int(std::floor(b.x)), int(std::floor(b.y)), c);
+                line(out.uvWire, int(std::floor(a.x)), int(std::floor(a.y)), int(std::floor(b.x)), int(std::floor(b.y)),
+                     c);
             }
         }
     }
@@ -517,16 +556,23 @@ Result<ModelTextureLayers> bake_model_textures(const ModelTextureInput& in) {
 
 // ---- the maps alone ----------------------------------------------------------------------------------------------------------
 
-Result<ModelMapsResult> bake_model_maps(const MeshData& mesh, int size, int bleed, const ModelMapSettings& settings, const std::vector<std::string>& maps) {
-    if (!mesh.hasUvs) return make_error("the model has no uvs to bake maps into", "Add a `uv` section with layout \"atlas\" (model.uv).");
+Result<ModelMapsResult> bake_model_maps(const MeshData& mesh, int size, int bleed, const ModelMapSettings& settings,
+                                        const std::vector<std::string>& maps) {
+    if (!mesh.hasUvs)
+        return make_error("the model has no uvs to bake maps into",
+                          "Add a `uv` section with layout \"atlas\" (model.uv).");
     if (size < kModelTextureMinSize || size > kModelTextureMaxSize)
-        return make_error(std::format("the map size {} is outside {} to {}", size, kModelTextureMinSize, kModelTextureMaxSize), "Use a power of two such as 1024.");
+        return make_error(
+            std::format("the map size {} is outside {} to {}", size, kModelTextureMinSize, kModelTextureMaxSize),
+            "Use a power of two such as 1024.");
     ModelMapsResult out;
     out.size = size;
     Geo g = make_geo(mesh);
     const Params prm = params_of(settings, g);
     Texels tx = rasterize(g, size, bleed);
-    if (tx.covered == 0) return make_error("no triangle covers a texel of the atlas: the uvs are empty or outside 0..1", "Check the `uv` section (model.uv check:true measures it).");
+    if (tx.covered == 0)
+        return make_error("no triangle covers a texel of the atlas: the uvs are empty or outside 0..1",
+                          "Check the `uv` section (model.uv check:true measures it).");
     out.report.size = size;
     out.report.bleed = bleed;
     out.report.texels = tx.covered;
@@ -558,9 +604,11 @@ Result<ModelMapsResult> bake_model_maps(const MeshData& mesh, int size, int blee
     return out;
 }
 
-Result<ModelMapField> compute_model_map(const MeshData& mesh, int size, const ModelMapSettings& settings, const std::string& map) {
+Result<ModelMapField> compute_model_map(const MeshData& mesh, int size, const ModelMapSettings& settings,
+                                        const std::string& map) {
     if (!mesh.hasUvs) return make_error("the model has no uvs", "Add a `uv` section with layout \"atlas\".");
-    if (map != "ao" && map != "curvature" && map != "thickness") return make_error("\"" + map + "\" is not a map", "Use \"ao\", \"curvature\" or \"thickness\".");
+    if (map != "ao" && map != "curvature" && map != "thickness")
+        return make_error("\"" + map + "\" is not a map", "Use \"ao\", \"curvature\" or \"thickness\".");
     Geo g = make_geo(mesh);
     const Params prm = params_of(settings, g);
     Texels tx = rasterize(g, size, 0);
@@ -574,7 +622,8 @@ Result<ModelMapField> compute_model_map(const MeshData& mesh, int size, const Mo
         return f;
     }
     bvh.build(g);
-    f.values = map == "ao" ? compute_ao(g, bvh, tx, settings.samples, prm.aoDistance) : compute_thickness(g, bvh, tx, settings.samples, prm.thickDistance);
+    f.values = map == "ao" ? compute_ao(g, bvh, tx, settings.samples, prm.aoDistance)
+                           : compute_thickness(g, bvh, tx, settings.samples, prm.thickDistance);
     return f;
 }
 

@@ -26,7 +26,8 @@ struct Waiting {
     std::uint64_t id = 0;
     std::string plugin, method;
     const void* owner = nullptr;  // the adapter that made the request (cancel() looks for its own)
-    bool cancelled = false;       // the engine gave up on it (cancel()); kept only for a purchase, whose late answer is still wanted
+    bool cancelled =
+        false;  // the engine gave up on it (cancel()); kept only for a purchase, whose late answer is still wanted
 };
 
 std::map<std::uintptr_t, Waiting>& waiting() {
@@ -61,8 +62,10 @@ bool take(FaRequest* req, Waiting& out) {
 void warn_not_waiting(const char* what) {
     static std::atomic<bool> warned{false};
     if (warned.exchange(true)) return;
-    FA_WARN("plugin", "{}() was called for a platform request that is not waiting for an answer (answered twice, or its game has "
-                      "ended): ignored. Answer each FaRequest exactly once. This is logged once.", what);
+    FA_WARN("plugin",
+            "{}() was called for a platform request that is not waiting for an answer (answered twice, or its game has "
+            "ended): ignored. Answer each FaRequest exactly once. This is logged once.",
+            what);
 }
 
 class PluginBackendAdapter final : public PlatformBackend {
@@ -97,7 +100,8 @@ public:
         try {
             spec_.request(req, method.c_str(), text.c_str(), spec_.user);
         } catch (const std::exception& e) {  // a handler must not throw; if one does, the game still gets an answer
-            plugin_reject(req, "failed", (spec_.plugin + " threw while handling " + method + ": " + e.what()).c_str(), nullptr);
+            plugin_reject(req, "failed", (spec_.plugin + " threw while handling " + method + ": " + e.what()).c_str(),
+                          nullptr);
         } catch (...) {
             plugin_reject(req, "failed", (spec_.plugin + " threw while handling " + method).c_str(), nullptr);
         }
@@ -115,13 +119,16 @@ public:
         auto& m = waiting();
         for (auto it = m.begin(); it != m.end(); ++it) {
             if (it->second.owner != this || it->second.id != id) continue;
-            if (it->second.method == "purchases.buy" || it->second.method == "purchases.restore") it->second.cancelled = true;
-            else m.erase(it);
+            if (it->second.method == "purchases.buy" || it->second.method == "purchases.restore")
+                it->second.cancelled = true;
+            else
+                m.erase(it);
             break;
         }
         std::size_t keptCancelled = 0;
         for (const auto& [token, w] : m) keptCancelled += w.cancelled ? 1 : 0;
-        for (auto it = m.begin(); it != m.end() && keptCancelled > kPlatformMaxWatchedPurchases;) {  // oldest first (tokens only grow)
+        for (auto it = m.begin();
+             it != m.end() && keptCancelled > kPlatformMaxWatchedPurchases;) {  // oldest first (tokens only grow)
             if (it->second.cancelled) {
                 it = m.erase(it);
                 --keptCancelled;
@@ -151,7 +158,8 @@ void plugin_resolve(FaRequest* req, const char* resultJson) {
         w.sink.fail(w.id, {"failed",
                            "the plugin '" + w.plugin + "' answered " + w.method + " with text that is not JSON (" +
                                parsed.error().message + ")",
-                           "resolve() takes JSON text: a number \"3\", a string \"\\\"text\\\"\" (with its quotes), an object \"{...}\"."});
+                           "resolve() takes JSON text: a number \"3\", a string \"\\\"text\\\"\" (with its quotes), an "
+                           "object \"{...}\"."});
         return;
     }
     w.sink.complete(w.id, std::move(parsed.value()));
@@ -160,9 +168,11 @@ void plugin_resolve(FaRequest* req, const char* resultJson) {
 void plugin_reject(FaRequest* req, const char* code, const char* message, const char* hint) {
     Waiting w;
     if (!req || !take(req, w)) return warn_not_waiting("reject");
-    w.sink.fail(w.id, {code && *code ? code : "failed",
-                       message && *message ? message : "the plugin '" + w.plugin + "' rejected " + w.method + " without a message",
-                       hint ? hint : ""});
+    w.sink.fail(
+        w.id,
+        {code && *code ? code : "failed",
+         message && *message ? message : "the plugin '" + w.plugin + "' rejected " + w.method + " without a message",
+         hint ? hint : ""});
 }
 
 void plugin_emit(const FaPluginApi* api, const char* event, const char* dataJson) {
@@ -185,15 +195,16 @@ void plugin_emit(const FaPluginApi* api, const char* event, const char* dataJson
 
 static bool is_ads_backend(const PluginBackend& b) { return b.services.size() == 1 && b.services[0] == "ads"; }
 
-BackendChoice choose_platform_backend(const std::string& requested, const std::string& fallback, const PlatformCatalog& catalog,
-                                      const PluginInstall& plugins, const std::string& platform) {
+BackendChoice choose_platform_backend(const std::string& requested, const std::string& fallback,
+                                      const PlatformCatalog& catalog, const PluginInstall& plugins,
+                                      const std::string& platform) {
     BackendChoice out;
     auto make_fake = [] { return std::unique_ptr<PlatformBackend>(std::make_unique<FakeBackend>()); };
     auto use_fallback = [&](const std::string& why) {
         const bool none = fallback == "none";
         out.backend = none ? make_none_backend() : make_fake();
         out.reason = why + (none ? ", platform services are unavailable (docs/PLATFORM.md)"
-                                                : ", using the fake backend: purchases are not real (docs/PLATFORM.md)");
+                                 : ", using the fake backend: purchases are not real (docs/PLATFORM.md)");
         out.why = out.reason;
     };
     auto use_plugin = [&](const PluginBackend& b, const std::string& how) {
@@ -203,7 +214,8 @@ BackendChoice choose_platform_backend(const std::string& requested, const std::s
     // Store backends and ads backends (a plugin whose only service is "ads") are chosen separately.
     std::vector<const PluginBackend*> stores, adsPlugins;
     for (const PluginBackend& b : plugins.backends) (is_ads_backend(b) ? adsPlugins : stores).push_back(&b);
-    auto find_in = [](const std::vector<const PluginBackend*>& list, const std::string& plugin) -> const PluginBackend* {
+    auto find_in = [](const std::vector<const PluginBackend*>& list,
+                      const std::string& plugin) -> const PluginBackend* {
         for (const PluginBackend* b : list)
             if (b->plugin == plugin) return b;
         return nullptr;
@@ -223,21 +235,25 @@ BackendChoice choose_platform_backend(const std::string& requested, const std::s
             return source + " names the plugin '" + name + "', which did not load (see the warning above)";
         std::string message;
         if (find_in(adsPlugins, name)) {
-            message = source + " names '" + name + "', which offers only ads: set it as \"backend\" in the \"ads\" part of the \"platform\" "
-                      "section instead (\"ads\": {\"backend\": \"" + name + "\"}) and leave this one for the store plugin";
+            message = source + " names '" + name +
+                      "', which offers only ads: set it as \"backend\" in the \"ads\" part of the \"platform\" "
+                      "section instead (\"ads\": {\"backend\": \"" +
+                      name + "\"}) and leave this one for the store plugin";
             out.warnings.push_back(message);
             return message;
         }
         message = source + " names '" + name + "', but no plugin of that name offers a platform backend on " + platform;
-        message += names.empty() ? " (no plugin does: a backend plugin registers one with api->add_backend, docs/PLATFORM.md)"
-                                 : ". " + did_you_mean(name, names);
+        message += names.empty()
+                       ? " (no plugin does: a backend plugin registers one with api->add_backend, docs/PLATFORM.md)"
+                       : ". " + did_you_mean(name, names);
         out.warnings.push_back(message);
         return message;
     };
 
     if (requested == "fake") {
         out.backend = make_fake();
-        out.why = "this run asked for it: headless runs, tests, `factoria call` and the MCP server always use the fake backend";
+        out.why = "this run asked for it: headless runs, tests, `factoria call` and the MCP server always use the fake "
+                  "backend";
         return out;
     }
     if (requested == "none") {
@@ -251,14 +267,18 @@ BackendChoice choose_platform_backend(const std::string& requested, const std::s
         source = "factoria.json platform.backend";
     }
     if (!wanted.empty()) {
-        if (const PluginBackend* b = find(wanted)) use_plugin(*b, source + " names it");
-        else use_fallback("no store backend on " + platform + " (" + unavailable(wanted, source) + ")");
+        if (const PluginBackend* b = find(wanted))
+            use_plugin(*b, source + " names it");
+        else
+            use_fallback("no store backend on " + platform + " (" + unavailable(wanted, source) + ")");
     } else if (names.size() == 1) {
         use_plugin(*find(names[0]), "it is the only backend plugin of the game");
     } else if (names.size() > 1) {
-        out.warnings.push_back("several plugins offer a platform backend on " + platform + ": " + join_names(names) + ". Using '" +
-                               names[0] + "'; set \"backend\" in the \"platform\" section of factoria.json to choose, e.g. "
-                               "\"backend\": \"" + names[0] + "\" (or one per platform: {\"windows\": \"" + names[0] + "\"}).");
+        out.warnings.push_back("several plugins offer a platform backend on " + platform + ": " + join_names(names) +
+                               ". Using '" + names[0] +
+                               "'; set \"backend\" in the \"platform\" section of factoria.json to choose, e.g. "
+                               "\"backend\": \"" +
+                               names[0] + "\" (or one per platform: {\"windows\": \"" + names[0] + "\"}).");
         use_plugin(*find(names[0]), "it is the first of several");
     } else {
         use_fallback("no store backend on " + platform);
@@ -269,7 +289,8 @@ BackendChoice choose_platform_backend(const std::string& requested, const std::s
     const std::vector<std::string> adsNames = sorted_names(adsPlugins);
     if (out.backend->name() == "fake") {
         if (!adsNames.empty())
-            out.adsWhy = "the fake backend serves ads in development runs; the ads plugin '" + adsNames[0] + "' only runs in shipped games";
+            out.adsWhy = "the fake backend serves ads in development runs; the ads plugin '" + adsNames[0] +
+                         "' only runs in shipped games";
         return out;
     }
     const std::string adsWanted = catalog.adsBackend;
@@ -280,14 +301,19 @@ BackendChoice choose_platform_backend(const std::string& requested, const std::s
         } else {
             std::string message;
             if (std::find(plugins.failed.begin(), plugins.failed.end(), adsWanted) != plugins.failed.end())
-                message = "factoria.json platform.ads.backend names the plugin '" + adsWanted + "', which did not load (see the warning above)";
+                message = "factoria.json platform.ads.backend names the plugin '" + adsWanted +
+                          "', which did not load (see the warning above)";
             else if (find(adsWanted))
-                message = "factoria.json platform.ads.backend names '" + adsWanted + "', which is a store backend, not an ads plugin: it offers " +
-                          join_names(find(adsWanted)->services) + ". Use \"backend\" in the \"platform\" section for it";
+                message = "factoria.json platform.ads.backend names '" + adsWanted +
+                          "', which is a store backend, not an ads plugin: it offers " +
+                          join_names(find(adsWanted)->services) +
+                          ". Use \"backend\" in the \"platform\" section for it";
             else
-                message = "factoria.json platform.ads.backend names '" + adsWanted + "', but no plugin of that name offers an ads backend on " +
-                          platform + (adsNames.empty() ? " (no plugin does: platform.add_backend {\"backend\":\"admob\"} adds the AdMob one)"
-                                                       : ". " + did_you_mean(adsWanted, adsNames));
+                message = "factoria.json platform.ads.backend names '" + adsWanted +
+                          "', but no plugin of that name offers an ads backend on " + platform +
+                          (adsNames.empty()
+                               ? " (no plugin does: platform.add_backend {\"backend\":\"admob\"} adds the AdMob one)"
+                               : ". " + did_you_mean(adsWanted, adsNames));
             out.warnings.push_back(message);
             out.adsWhy = message;
         }
@@ -295,9 +321,12 @@ BackendChoice choose_platform_backend(const std::string& requested, const std::s
         out.adsBackend = find_in(adsPlugins, adsNames[0])->create();
         out.adsWhy = "the plugin '" + adsNames[0] + "' registered it and it is the only ads plugin of the game";
     } else if (adsNames.size() > 1) {
-        out.warnings.push_back("several plugins offer an ads backend on " + platform + ": " + join_names(adsNames) + ". Using '" + adsNames[0] +
-                               "'; set \"backend\" in the \"ads\" part of the \"platform\" section of factoria.json to choose, e.g. "
-                               "\"ads\": {\"backend\": \"" + adsNames[0] + "\"}.");
+        out.warnings.push_back(
+            "several plugins offer an ads backend on " + platform + ": " + join_names(adsNames) + ". Using '" +
+            adsNames[0] +
+            "'; set \"backend\" in the \"ads\" part of the \"platform\" section of factoria.json to choose, e.g. "
+            "\"ads\": {\"backend\": \"" +
+            adsNames[0] + "\"}.");
         out.adsBackend = find_in(adsPlugins, adsNames[0])->create();
         out.adsWhy = "the plugin '" + adsNames[0] + "' registered it and it is the first of several";
     }

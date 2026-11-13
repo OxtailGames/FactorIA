@@ -19,7 +19,9 @@ constexpr const char* kPng = "assets/art/a.png";
 
 const Rgba kRed{255, 0, 0, 255}, kGreen{0, 255, 0, 255}, kBlue{0, 0, 255, 255}, kClear{0, 0, 0, 0};
 
-std::string error_of(const CommandResult& r) { return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string()); }
+std::string error_of(const CommandResult& r) {
+    return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string());
+}
 
 Json read_doc(const AssetsProject& p) { return parse_json(read_all(p.file(kDoc)), kDoc).value(); }
 
@@ -43,7 +45,8 @@ void put_pixels_pngs(const AssetsProject& p) {
     put_png(p, "blue.png", kBlue);
 }
 
-Image frame_of(const ImageDocument& doc, const std::string& dir, int frame, std::optional<ImageOnionSkin> onion = std::nullopt) {
+Image frame_of(const ImageDocument& doc, const std::string& dir, int frame,
+               std::optional<ImageOnionSkin> onion = std::nullopt) {
     ImageRenderOptions options;
     options.projectDir = dir;
     options.frame = frame;
@@ -55,12 +58,15 @@ Image frame_of(const ImageDocument& doc, const std::string& dir, int frame, std:
 
 // 4x4 indexed documents: a one-pixel dot that moves right by one pixel per frame.
 void make_dot(const AssetsProject& p, int frames = 3) {
-    p.ok("image.create", {{"path", kDoc}, {"width", 4}, {"height", 4}, {"palette", Json::array({"#000000", "#ff0000"})}});
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "dot"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
+    p.ok("image.create",
+         {{"path", kDoc}, {"width", 4}, {"height", 4}, {"palette", Json::array({"#000000", "#ff0000"})}});
+    p.ok("image.pixel",
+         {{"path", kDoc}, {"layer", "dot"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
     p.ok("image.frame.add", {{"path", kDoc}, {"count", frames - 1}});
     for (int f = 1; f < frames; ++f) {
         p.ok("image.frame.cel", {{"path", kDoc}, {"layer", "dot"}, {"frame", f}, {"clear", true}});
-        p.ok("image.pixel", {{"path", kDoc}, {"layer", "dot"}, {"frame", f}, {"pixels", Json::array({Json::array({f, 0, 1})})}});
+        p.ok("image.pixel",
+             {{"path", kDoc}, {"layer", "dot"}, {"frame", f}, {"pixels", Json::array({Json::array({f, 0, 1})})}});
     }
 }
 
@@ -82,18 +88,20 @@ TEST_CASE("frames: held cels, links and empty cels give what each frame shows") 
     CHECK(image_frame_count(*doc) == 4);
     CHECK(get(frame_of(*doc, p.dir, 0), 0, 0) == kRed);
     CHECK(get(frame_of(*doc, p.dir, 1), 1, 1) == kGreen);
-    CHECK(get(frame_of(*doc, p.dir, 2), 0, 1) == kGreen);   // no cel of its own: holds frame 1
+    CHECK(get(frame_of(*doc, p.dir, 2), 0, 1) == kGreen);  // no cel of its own: holds frame 1
     CHECK(get(frame_of(*doc, p.dir, 3), 0, 0) == kBlue);
 
     // A link shows an earlier frame's picture again; an empty cel shows nothing.
-    j["layers"][0]["cels"] = Json::parse(R"([{"frame": 1, "source": "assets/art/green.png"}, {"frame": 2, "link": 0}, {"frame": 3, "empty": true}])");
+    j["layers"][0]["cels"] = Json::parse(
+        R"([{"frame": 1, "source": "assets/art/green.png"}, {"frame": 2, "link": 0}, {"frame": 3, "empty": true}])");
     auto linked = parse_image_document(j, "a.image.json", p.dir);
     REQUIRE_MESSAGE(linked.ok(), (linked.ok() ? "" : linked.error().message));
     CHECK(get(frame_of(*linked, p.dir, 2), 1, 1) == kRed);
     CHECK(get(frame_of(*linked, p.dir, 3), 1, 1) == kClear);
 
     // A layer without cels (a fill) is the same in every frame.
-    j["layers"].push_back(Json::parse(R"({"kind": "fill", "color": "#0000ff", "width": 1, "height": 1, "x": 1, "y": 1})"));
+    j["layers"].push_back(
+        Json::parse(R"({"kind": "fill", "color": "#0000ff", "width": 1, "height": 1, "x": 1, "y": 1})"));
     auto both = parse_image_document(j, "a.image.json", p.dir);
     REQUIRE(both.ok());
     for (int f = 0; f < 4; ++f) CHECK(get(frame_of(*both, p.dir, f), 1, 1) == kBlue);
@@ -129,14 +137,15 @@ TEST_CASE("frames: the format rejects what it cannot show, naming the JSON point
     CHECK(range->hint.find("0 to 3") != std::string::npos);
     const ImageIssue* dir = find(a, "/tags/0/direction");
     REQUIRE(dir);
-    CHECK(dir->hint.find("pingpong") != std::string::npos);   // did you mean
+    CHECK(dir->hint.find("pingpong") != std::string::npos);  // did you mean
 
     Json twice = pixels_doc();
     twice["tags"] = Json::parse(R"([{"name": "a", "from": 0, "to": 1}, {"name": "a", "from": 2, "to": 3}])");
     CHECK(find(issues(twice), "/tags/1/name"));
 
     Json cels = pixels_doc();
-    cels["layers"][0]["cels"] = Json::parse(R"([{"frame": 2, "source": "assets/art/green.png"}, {"frame": 1, "source": "assets/art/blue.png"}, {"frame": 3, "link": 3}, {"frame": 9, "empty": true}])");
+    cels["layers"][0]["cels"] = Json::parse(
+        R"([{"frame": 2, "source": "assets/art/green.png"}, {"frame": 1, "source": "assets/art/blue.png"}, {"frame": 3, "link": 3}, {"frame": 9, "empty": true}])");
     auto b = issues(cels);
     const ImageIssue* order = find(b, "/layers/0/cels/1/frame");
     REQUIRE(order);
@@ -162,27 +171,33 @@ TEST_CASE("frames: the format rejects what it cannot show, naming the JSON point
 
 TEST_CASE("frames: a document with one frame stays exactly as it was") {
     AssetsProject p;
-    p.ok("image.create", {{"path", kDoc}, {"width", 4}, {"height", 4}, {"layers", Json::array({Json::parse(R"({"kind": "fill", "color": "#ff0000", "name": "bg"})")})}});
+    p.ok("image.create",
+         {{"path", kDoc},
+          {"width", 4},
+          {"height", 4},
+          {"layers", Json::array({Json::parse(R"({"kind": "fill", "color": "#ff0000", "name": "bg"})")})}});
     const std::string bytes = read_all(p.file(kPng));
     const Json doc = read_doc(p);
     CHECK_FALSE(doc.contains("frames"));
     CHECK_FALSE(doc.contains("tags"));
     CHECK_FALSE(p.manifest()["assets"][kPng].contains("sheet"));
     const Image img = read_png(p.file(kPng));
-    CHECK(img.width == 4);   // the canvas, not a sheet
+    CHECK(img.width == 4);  // the canvas, not a sheet
     CHECK(get(img, 3, 3) == kRed);
 
     // frame 0 of a still document is the document: a `frame` argument 0 changes nothing.
     const Json r = p.ok("image.info", {{"path", kDoc}});
     CHECK_FALSE(r.contains("animation"));
-    CHECK_FALSE(p.call("image.draw", {{"path", kDoc}, {"layer", "x"}, {"frame", 1}, {"create", true}, {"shapes", Json::array()}}).ok);
+    CHECK_FALSE(p.call("image.draw",
+                       {{"path", kDoc}, {"layer", "x"}, {"frame", 1}, {"create", true}, {"shapes", Json::array()}})
+                    .ok);
 }
 
 TEST_CASE("frames: tags become the clips of the baked sheet, and the sheet is stale-checked like any bake") {
     AssetsProject p;
     put_pixels_pngs(p);
     Json j = pixels_doc();
-    j["frames"][2]["duration"] = 200;   // frames 0, 1, 3: 100 ms; frame 2: 200 ms
+    j["frames"][2]["duration"] = 200;  // frames 0, 1, 3: 100 ms; frame 2: 200 ms
     j["tags"] = Json::parse(R"([
       {"name": "fwd", "from": 0, "to": 1},
       {"name": "back", "from": 0, "to": 2, "direction": "reverse"},
@@ -203,7 +218,7 @@ TEST_CASE("frames: tags become the clips of the baked sheet, and the sheet is st
     REQUIRE(fwd);
     CHECK((*fwd)["firstFrame"] == 0);
     CHECK((*fwd)["lastFrame"] == 1);
-    CHECK((*fwd)["fps"] == 10);   // 100 ms a frame
+    CHECK((*fwd)["fps"] == 10);  // 100 ms a frame
     CHECK((*fwd)["loop"] == true);
 
     // Everything else is spelled out in extra cells after the four frames.
@@ -228,7 +243,7 @@ TEST_CASE("frames: tags become the clips of the baked sheet, and the sheet is st
     // once: plays once and stops; twice: two passes
     const Json& once = *clip_named(sheet, "once");
     CHECK(once["loop"] == false);
-    CHECK(once["lastFrame"].get<int>() == 1);   // a forward, uniform tag that plays once needs no extra cells
+    CHECK(once["lastFrame"].get<int>() == 1);  // a forward, uniform tag that plays once needs no extra cells
     const Json& twice = *clip_named(sheet, "twice");
     CHECK(twice["lastFrame"].get<int>() - twice["firstFrame"].get<int>() + 1 == 4);
     CHECK(twice["loop"] == false);
@@ -242,14 +257,14 @@ TEST_CASE("frames: tags become the clips of the baked sheet, and the sheet is st
     const int cells = sheet["frames"].get<int>();
     CHECK(img.width == 4 * 2);
     CHECK(img.height == ((cells + 3) / 4) * 2);
-    CHECK(get(img, 0, 0) == kRed);     // cell 0 = frame 0
-    CHECK(get(img, 2, 0) == kGreen);   // cell 1 = frame 1
-    CHECK(get(img, 4, 0) == kGreen);   // cell 2 = frame 2 (held)
-    CHECK(get(img, 6, 0) == kBlue);    // cell 3 = frame 3
+    CHECK(get(img, 0, 0) == kRed);    // cell 0 = frame 0
+    CHECK(get(img, 2, 0) == kGreen);  // cell 1 = frame 1
+    CHECK(get(img, 4, 0) == kGreen);  // cell 2 = frame 2 (held)
+    CHECK(get(img, 6, 0) == kBlue);   // cell 3 = frame 3
     // back starts on frame 2 (green)
     const int bc = back["firstFrame"].get<int>();
     CHECK(get(img, (bc % 4) * 2, (bc / 4) * 2) == kGreen);
-    CHECK(get(img, ((bc + 3) % 4) * 2, ((bc + 3) / 4) * 2) == kRed);   // and ends on frame 0
+    CHECK(get(img, ((bc + 3) % 4) * 2, ((bc + 3) / 4) * 2) == kRed);  // and ends on frame 0
 
     // Provenance and staleness: the recipe is image.bake; a changed cel makes the sheet stale.
     const Json entry = p.manifest()["assets"][kPng];
@@ -286,13 +301,13 @@ TEST_CASE("frames: the onion skin ghosts the neighbouring frames under the frame
 
     ImageOnionSkin onion;
     const Image ghosted = frame_of(*doc, p.dir, 1, onion);
-    CHECK(get(ghosted, 1, 0) == get(plain, 1, 0));   // the frame itself is drawn over the ghosts
+    CHECK(get(ghosted, 1, 0) == get(plain, 1, 0));  // the frame itself is drawn over the ghosts
     const Rgba before = get(ghosted, 0, 0), after = get(ghosted, 2, 0);
     CHECK(before.a > 0);
     CHECK(before.a < 255);
-    CHECK(before.r > before.b);   // the frame before is tinted red
+    CHECK(before.r > before.b);  // the frame before is tinted red
     CHECK(after.a > 0);
-    CHECK(after.b > after.r);     // the frame after is tinted blue
+    CHECK(after.b > after.r);  // the frame after is tinted blue
     CHECK(get(ghosted, 3, 0).a == 0);
 
     // Configurable: nothing before, two after, a different opacity.
@@ -300,10 +315,10 @@ TEST_CASE("frames: the onion skin ghosts the neighbouring frames under the frame
     onion.after = 2;
     onion.opacity = 0.8f;
     const Image custom = frame_of(*doc, p.dir, 0, onion);
-    CHECK(get(custom, 0, 0).a == 255);   // the frame
+    CHECK(get(custom, 0, 0).a == 255);  // the frame
     CHECK(get(custom, 1, 0).a > 0);
     CHECK(get(custom, 2, 0).a > 0);
-    CHECK(get(custom, 1, 0).a > get(custom, 2, 0).a);   // the second ghost is fainter
+    CHECK(get(custom, 1, 0).a > get(custom, 2, 0).a);  // the second ghost is fainter
     // Loop: the frame before frame 0 is the last one.
     ImageOnionSkin wrap;
     wrap.after = 0;
@@ -313,13 +328,14 @@ TEST_CASE("frames: the onion skin ghosts the neighbouring frames under the frame
 
     // The bake does not draw it.
     const Image baked = read_png(p.file(kPng));
-    CHECK(get(baked, 4 + 0, 0).a == 0);   // cell 1 is frame 1: the dot at x = 1 is in cell 1, x = 4 + 1
+    CHECK(get(baked, 4 + 0, 0).a == 0);  // cell 1 is frame 1: the dot at x = 1 is in cell 1, x = 4 + 1
     CHECK(get(baked, 4 + 1, 0) == Rgba{255, 0, 0, 255});
 }
 
-TEST_CASE("image.frame.*: add, remove, move, set, cel and sheet change the frames of every layer and keep the tags in place") {
+TEST_CASE("image.frame.*: add, remove, move, set, cel and sheet change the frames of every layer and keep the tags in "
+          "place") {
     AssetsProject p;
-    make_dot(p, 3);   // frame f: the dot at x = f
+    make_dot(p, 3);  // frame f: the dot at x = f
     p.ok("image.tag.set", {{"path", kDoc}, {"name", "all"}, {"from", 0}, {"to", 2}});
     p.ok("image.tag.set", {{"path", kDoc}, {"name", "last"}, {"from", 2}, {"to", 2}});
 
@@ -341,8 +357,8 @@ TEST_CASE("image.frame.*: add, remove, move, set, cel and sheet change the frame
     CHECK(dot_at(2) == 1);
     CHECK(dot_at(3) == 2);
     Json doc = read_doc(p);
-    CHECK(doc["tags"][0]["to"] == 3);      // "all" contained the new frame
-    CHECK(doc["tags"][1]["from"] == 3);    // "last" moved
+    CHECK(doc["tags"][0]["to"] == 3);    // "all" contained the new frame
+    CHECK(doc["tags"][1]["from"] == 3);  // "last" moved
     CHECK(doc["tags"][1]["to"] == 3);
 
     // blank frames, with a duration
@@ -377,7 +393,7 @@ TEST_CASE("image.frame.*: add, remove, move, set, cel and sheet change the frame
     CHECK(doc["frames"][1]["duration"] == 60);
     r = p.ok("image.frame.set", {{"path", kDoc}, {"frame", "all"}, {"duration", 80}});
     for (const Json& f : r["animation"]["frames"]) CHECK(f["duration"] == 80);
-    CHECK(r["sheet"]["frames"] == 3 + 0 * 1);   // uniform durations: a forward tag needs no extra cells
+    CHECK(r["sheet"]["frames"] == 3 + 0 * 1);  // uniform durations: a forward tag needs no extra cells
 
     // cel: frame 2 shows what frame 0 shows; clear shows nothing
     p.ok("image.frame.cel", {{"path", kDoc}, {"layer", "dot"}, {"frame", 2}, {"from", 0}});
@@ -419,21 +435,22 @@ TEST_CASE("image.frame.*, image.tag.*: errors teach the range and the fix") {
     REQUIRE_FALSE(r.ok);
     r = p.call("image.frame.cel", {{"path", kDoc}, {"layer", "dto"}, {"frame", 1}, {"clear", true}});
     REQUIRE_FALSE(r.ok);
-    CHECK(error_of(r).find("dot") != std::string::npos);   // did you mean
+    CHECK(error_of(r).find("dot") != std::string::npos);  // did you mean
     r = p.call("image.tag.set", {{"path", kDoc}, {"name", "x"}, {"from", 2}, {"to", 1}});
     REQUIRE_FALSE(r.ok);
     r = p.call("image.tag.set", {{"path", kDoc}, {"name", "x"}, {"from", 0}, {"to", 1}, {"direction", "backwards"}});
     REQUIRE_FALSE(r.ok);
     CHECK(error_of(r).find("reverse") != std::string::npos);
     r = p.call("image.tag.set", {{"path", kDoc}, {"name", "new"}});
-    REQUIRE_FALSE(r.ok);   // a new tag needs its range
+    REQUIRE_FALSE(r.ok);  // a new tag needs its range
     r = p.call("image.tag.remove", {{"path", kDoc}, {"name", "nothing"}});
     REQUIRE_FALSE(r.ok);
     r = p.call("image.frame.add", {{"path", kDoc}, {"count", 2000}});
     REQUIRE_FALSE(r.ok);
     r = p.call("image.frame.sheet", {{"path", kDoc}, {"columns", 0}});
     REQUIRE_FALSE(r.ok);
-    r = p.call("image.pixel", {{"path", kDoc}, {"layer", "dot"}, {"frame", 7}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
+    r = p.call("image.pixel",
+               {{"path", kDoc}, {"layer", "dot"}, {"frame", 7}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
     REQUIRE_FALSE(r.ok);
     CHECK(error_of(r).find("3 frames") != std::string::npos);
     // nothing was written by the failed calls
@@ -443,14 +460,15 @@ TEST_CASE("image.frame.*, image.tag.*: errors teach the range and the fix") {
 TEST_CASE("image.tag.set: changing a tag keeps what is not given, and the clip name plays by name") {
     AssetsProject p;
     make_dot(p, 4);
-    Json r = p.ok("image.tag.set", {{"path", kDoc}, {"name", "walk"}, {"from", 0}, {"to", 3}, {"direction", "reverse"}});
+    Json r =
+        p.ok("image.tag.set", {{"path", kDoc}, {"name", "walk"}, {"from", 0}, {"to", 3}, {"direction", "reverse"}});
     CHECK(r["tag"]["direction"] == "reverse");
     CHECK(r["replaced"] == false);
     r = p.ok("image.tag.set", {{"path", kDoc}, {"name", "walk"}, {"to", 2}});
     CHECK(r["replaced"] == true);
     CHECK(r["tag"]["from"] == 0);
     CHECK(r["tag"]["to"] == 2);
-    CHECK(r["tag"]["direction"] == "reverse");   // kept
+    CHECK(r["tag"]["direction"] == "reverse");  // kept
     CHECK(clip_named(r["sheet"], "walk"));
     CHECK(clip_named(p.manifest()["assets"][kPng]["sheet"], "walk"));
     r = p.ok("image.tag.remove", {{"path", kDoc}, {"name", "walk"}});
@@ -463,7 +481,8 @@ TEST_CASE("image.pixel, image.draw, image.edit, image.paint and image.export wor
     make_dot(p, 3);
     // image.pixel / image.draw: only frame 2 changes
     const Json before = read_doc(p);
-    Json r = p.ok("image.pixel", {{"path", kDoc}, {"layer", "dot"}, {"frame", 2}, {"pixels", Json::array({Json::array({3, 3, 1})})}});
+    Json r = p.ok("image.pixel",
+                  {{"path", kDoc}, {"layer", "dot"}, {"frame", 2}, {"pixels", Json::array({Json::array({3, 3, 1})})}});
     CHECK(r["frame"] == 2);
     CHECK(r["frames"] == 3);
     CHECK(r.contains("$image"));
@@ -475,7 +494,13 @@ TEST_CASE("image.pixel, image.draw, image.edit, image.paint and image.export wor
     CHECK(get(frame_of(*doc, p.dir, 0), 0, 0).a == 255);
     CHECK(read_doc(p)["frames"] == before["frames"]);
 
-    r = p.ok("image.draw", {{"path", kDoc}, {"layer", "dot"}, {"frame", 1}, {"shapes", Json::array({Json::parse(R"({"type": "rect", "x": 0, "y": 3, "width": 4, "height": 1, "fill": 1, "color": 1})")})}});
+    r = p.ok(
+        "image.draw",
+        {{"path", kDoc},
+         {"layer", "dot"},
+         {"frame", 1},
+         {"shapes", Json::array({Json::parse(
+                        R"({"type": "rect", "x": 0, "y": 3, "width": 4, "height": 1, "fill": 1, "color": 1})")})}});
     doc = load_image_document(p.dir, kDoc);
     REQUIRE(doc.ok());
     CHECK(get(frame_of(*doc, p.dir, 1), 2, 3).a == 255);
@@ -483,11 +508,23 @@ TEST_CASE("image.pixel, image.draw, image.edit, image.paint and image.export wor
     CHECK(get(frame_of(*doc, p.dir, 2), 2, 3).a == 0);
 
     // The onion skin of the preview is a choice of the call; the baked sheet has none.
-    r = p.ok("image.pixel", {{"path", kDoc}, {"layer", "dot"}, {"frame", 1}, {"onion", true}, {"pixels", Json::array({Json::array({3, 1, 1})})}});
+    r = p.ok("image.pixel", {{"path", kDoc},
+                             {"layer", "dot"},
+                             {"frame", 1},
+                             {"onion", true},
+                             {"pixels", Json::array({Json::array({3, 1, 1})})}});
     CHECK(r.contains("$image"));
-    r = p.ok("image.pixel", {{"path", kDoc}, {"layer", "dot"}, {"frame", 1}, {"onion", {{"before", 2}, {"after", 0}, {"opacity", 0.5}}}, {"pixels", Json::array({Json::array({3, 2, 1})})}});
+    r = p.ok("image.pixel", {{"path", kDoc},
+                             {"layer", "dot"},
+                             {"frame", 1},
+                             {"onion", {{"before", 2}, {"after", 0}, {"opacity", 0.5}}},
+                             {"pixels", Json::array({Json::array({3, 2, 1})})}});
     CHECK(r.contains("$image"));
-    CommandResult badOnion = p.call("image.pixel", {{"path", kDoc}, {"layer", "dot"}, {"frame", 1}, {"onion", {{"before", 20}}}, {"pixels", Json::array({Json::array({3, 2, 1})})}});
+    CommandResult badOnion = p.call("image.pixel", {{"path", kDoc},
+                                                    {"layer", "dot"},
+                                                    {"frame", 1},
+                                                    {"onion", {{"before", 20}}},
+                                                    {"pixels", Json::array({Json::array({3, 2, 1})})}});
     REQUIRE_FALSE(badOnion.ok);
     CHECK(error_of(badOnion).find("8") != std::string::npos);
 
@@ -514,19 +551,27 @@ TEST_CASE("image.edit and image.paint on a frame of a pixels layer copy the cel 
     p.ok("image.bake", {{"path", kDoc}});
 
     // paint a stroke in frame 0 only (the red cel)
-    p.ok("image.paint", {{"path", kDoc}, {"layer", "body"}, {"frame", 0},
-                         {"strokes", Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#ffffff", "hardness": 1})")})}});
+    p.ok("image.paint",
+         {{"path", kDoc},
+          {"layer", "body"},
+          {"frame", 0},
+          {"strokes",
+           Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#ffffff", "hardness": 1})")})}});
     auto doc = load_image_document(p.dir, kDoc);
     REQUIRE(doc.ok());
     CHECK(get(frame_of(*doc, p.dir, 0), 0, 0) == Rgba{255, 255, 255, 255});
-    CHECK(get(frame_of(*doc, p.dir, 1), 0, 0) == kGreen);   // frame 1 and the held frame 2 keep their picture
+    CHECK(get(frame_of(*doc, p.dir, 1), 0, 0) == kGreen);  // frame 1 and the held frame 2 keep their picture
     CHECK(get(frame_of(*doc, p.dir, 2), 0, 0) == kGreen);
     CHECK(get(frame_of(*doc, p.dir, 3), 0, 0) == kBlue);
     // the shared files are untouched: the green file was not edited
     CHECK(get(read_png(p.file("assets/art/green.png")), 0, 0) == kGreen);
 
     // editing frame 2 (which held frame 1's cel) makes it a cel of its own; frame 1 is unchanged
-    p.ok("image.edit", {{"path", kDoc}, {"frame", 2}, {"layer", "body"}, {"selection", "all"}, {"action", {{"type", "recolor"}, {"from", "#00ff00"}, {"to", "#ffff00"}}}});
+    p.ok("image.edit", {{"path", kDoc},
+                        {"frame", 2},
+                        {"layer", "body"},
+                        {"selection", "all"},
+                        {"action", {{"type", "recolor"}, {"from", "#00ff00"}, {"to", "#ffff00"}}}});
     doc = load_image_document(p.dir, kDoc);
     REQUIRE(doc.ok());
     const Rgba yellow = get(frame_of(*doc, p.dir, 2), 0, 0);
@@ -572,7 +617,8 @@ bool listed(const Json& files, const std::string& rel) {
 }
 
 Rgba export_pixel(const AssetsProject& p, const std::string& layer, int frame) {
-    p.ok("image.export", {{"path", kDoc}, {"out", "assets/art/out.png"}, {"layer", layer}, {"frame", frame}, {"overwrite", true}});
+    p.ok("image.export",
+         {{"path", kDoc}, {"out", "assets/art/out.png"}, {"layer", layer}, {"frame", frame}, {"overwrite", true}});
     return get(read_png(p.file("assets/art/out.png")), 1, 1);
 }
 
@@ -580,16 +626,19 @@ Rgba export_pixel(const AssetsProject& p, const std::string& layer, int frame) {
 
 TEST_CASE("image.select takes a frame: color, alpha and layer selections read that frame's picture") {
     AssetsProject p;
-    make_dot(p, 3);   // the dot is at (frame, 0)
+    make_dot(p, 3);  // the dot is at (frame, 0)
     for (int f = 0; f < 3; ++f) {
         Json r = p.ok("image.select", {{"path", kDoc}, {"name", "dot"}, {"by", "alpha"}, {"frame", f}});
         CHECK(r["selected"] == 1);
         CHECK(r["region"]["x"] == f);
         CHECK(r["region"]["y"] == 0);
     }
-    Json byLayer = p.ok("image.select", {{"path", kDoc}, {"name", "layerdot"}, {"by", "layer"}, {"layer", "dot"}, {"frame", 2}});
+    Json byLayer =
+        p.ok("image.select", {{"path", kDoc}, {"name", "layerdot"}, {"by", "layer"}, {"layer", "dot"}, {"frame", 2}});
     CHECK(byLayer["region"]["x"] == 2);
-    Json byColor = p.ok("image.select", {{"path", kDoc}, {"name", "red"}, {"by", "color"}, {"color", "#ff0000"}, {"tolerance", 0}, {"frame", 1}});
+    Json byColor =
+        p.ok("image.select",
+             {{"path", kDoc}, {"name", "red"}, {"by", "color"}, {"color", "#ff0000"}, {"tolerance", 0}, {"frame", 1}});
     CHECK(byColor["selected"] == 1);
     CHECK(byColor["region"]["x"] == 1);
     // without `frame` it is frame 0, as before; the stored selection is one per document and name, whatever the frame
@@ -603,20 +652,29 @@ TEST_CASE("image.select takes a frame: color, alpha and layer selections read th
     CHECK(error_of(bad).find("0 to 2") != std::string::npos);
     // the selection is usable on any frame: edit frame 2 inside the selection made on frame 2
     p.ok("image.select", {{"path", kDoc}, {"name", "here"}, {"by", "alpha"}, {"frame", 2}});
-    CHECK(p.ok("image.select", {{"path", kDoc}, {"name", "here"}, {"then", Json::array({Json{{"grow", 1}}})}})["selected"].get<int>() > 1);
+    CHECK(
+        p.ok("image.select", {{"path", kDoc}, {"name", "here"}, {"then", Json::array({Json{{"grow", 1}}})}})["selected"]
+            .get<int>() > 1);
 }
 
 TEST_CASE("image.select with a frame on a pixels layer leaves no file behind") {
     AssetsProject p;
     make_body(p);
-    p.ok("image.paint", {{"path", kDoc}, {"layer", "body"}, {"frame", 2}, {"strokes", Json::array({Json::parse(R"({"points": [[1, 1]], "size": 2, "color": "#00ff00", "hardness": 1})")})}});
+    p.ok("image.paint",
+         {{"path", kDoc},
+          {"layer", "body"},
+          {"frame", 2},
+          {"strokes",
+           Json::array({Json::parse(R"({"points": [[1, 1]], "size": 2, "color": "#00ff00", "hardness": 1})")})}});
     const std::string before = read_all(p.file(kDoc));
     p.ok("image.select", {{"path", kDoc}, {"by", "layer"}, {"layer", "body"}, {"frame", 2}});
-    p.ok("image.select", {{"path", kDoc}, {"by", "color"}, {"color", "#00ff00"}, {"layer", "body"}, {"frame", 2}, {"tolerance", 0}});
-    CHECK(read_all(p.file(kDoc)) == before);   // a selection never edits the document
+    p.ok("image.select",
+         {{"path", kDoc}, {"by", "color"}, {"color", "#00ff00"}, {"layer", "body"}, {"frame", 2}, {"tolerance", 0}});
+    CHECK(read_all(p.file(kDoc)) == before);  // a selection never edits the document
     int pngs = 0;
-    for (const auto& e : std::filesystem::directory_iterator(p.file("assets/art/a.layers"))) pngs += e.path().extension() == ".png" ? 1 : 0;
-    CHECK(pngs == 2);   // body.png and the cel painted in frame 2; the selection's projections were removed
+    for (const auto& e : std::filesystem::directory_iterator(p.file("assets/art/a.layers")))
+        pngs += e.path().extension() == ".png" ? 1 : 0;
+    CHECK(pngs == 2);  // body.png and the cel painted in frame 2; the selection's projections were removed
 }
 
 TEST_CASE("orphan cel pictures are deleted in the same save, and the result names them") {
@@ -624,15 +682,31 @@ TEST_CASE("orphan cel pictures are deleted in the same save, and the result name
     make_body(p);
     CHECK(exists(p, "assets/art/a.layers/body.png"));
     // frames 1 and 2 get cels of their own
-    p.ok("image.paint", {{"path", kDoc}, {"layer", "body"}, {"frame", 1}, {"strokes", Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#00ff00", "hardness": 1})")})}});
-    p.ok("image.paint", {{"path", kDoc}, {"layer", "body"}, {"frame", 2}, {"strokes", Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#0000ff", "hardness": 1})")})}});
+    p.ok("image.paint",
+         {{"path", kDoc},
+          {"layer", "body"},
+          {"frame", 1},
+          {"strokes",
+           Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#00ff00", "hardness": 1})")})}});
+    p.ok("image.paint",
+         {{"path", kDoc},
+          {"layer", "body"},
+          {"frame", 2},
+          {"strokes",
+           Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#0000ff", "hardness": 1})")})}});
     const Json doc = read_doc(p);
     const std::string cel1 = doc["layers"][0]["cels"][0]["source"], cel2 = doc["layers"][0]["cels"][1]["source"];
     REQUIRE(exists(p, cel1));
     REQUIRE(exists(p, cel2));
 
     // a cel replaced: painting frame 1 again makes a new file and the old one goes
-    Json r = p.ok("image.paint", {{"path", kDoc}, {"layer", "body"}, {"frame", 1}, {"strokes", Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#ffff00", "hardness": 1})")})}});
+    Json r =
+        p.ok("image.paint",
+             {{"path", kDoc},
+              {"layer", "body"},
+              {"frame", 1},
+              {"strokes",
+               Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#ffff00", "hardness": 1})")})}});
     REQUIRE(r.contains("removedFiles"));
     CHECK(listed(r["removedFiles"], cel1));
     CHECK_FALSE(exists(p, cel1));
@@ -663,11 +737,18 @@ TEST_CASE("orphan cel pictures are deleted in the same save, and the result name
 TEST_CASE("orphan cel pictures: a file another document or the document itself still reads stays") {
     AssetsProject p;
     make_body(p);
-    p.ok("image.paint", {{"path", kDoc}, {"layer", "body"}, {"frame", 1}, {"strokes", Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#00ff00", "hardness": 1})")})}});
+    p.ok("image.paint",
+         {{"path", kDoc},
+          {"layer", "body"},
+          {"frame", 1},
+          {"strokes",
+           Json::array({Json::parse(R"({"points": [[1, 1]], "size": 8, "color": "#00ff00", "hardness": 1})")})}});
     const std::string cel1 = read_doc(p)["layers"][0]["cels"][0]["source"];
     // another document draws that picture
-    write_all(p.file("assets/art/other.image.json"),
-              Json{{"width", 4}, {"height", 4}, {"layers", Json::array({Json{{"kind", "pixels"}, {"source", cel1}}})}}.dump(2));
+    write_all(
+        p.file("assets/art/other.image.json"),
+        Json{{"width", 4}, {"height", 4}, {"layers", Json::array({Json{{"kind", "pixels"}, {"source", cel1}}})}}.dump(
+            2));
     // a user file that is not in the layers folder, used as a cel
     put_png(p, "mine.png", kBlue);
     Json doc = read_doc(p);
@@ -698,7 +779,12 @@ TEST_CASE("image.edit copy and cut and create: true make a layer that shows in t
     AssetsProject p;
     make_body(p);
     // copy in frame 1: the new layer has the picture in frame 1 and nothing in frames 0 and 2
-    Json r = p.ok("image.edit", {{"path", kDoc}, {"layer", "body"}, {"frame", 1}, {"selection", "all"}, {"action", {{"type", "copy"}}}, {"name", "dup"}});
+    Json r = p.ok("image.edit", {{"path", kDoc},
+                                 {"layer", "body"},
+                                 {"frame", 1},
+                                 {"selection", "all"},
+                                 {"action", {{"type", "copy"}}},
+                                 {"name", "dup"}});
     CHECK(r["newLayer"]["name"] == "dup");
     CHECK(export_pixel(p, "dup", 1) == kRed);
     CHECK(export_pixel(p, "dup", 0).a == 0);
@@ -706,17 +792,23 @@ TEST_CASE("image.edit copy and cut and create: true make a layer that shows in t
     const Json doc = read_doc(p);
     CHECK(doc["layers"][1]["name"] == "dup");
     CHECK(doc["layers"][1]["cels"][0]["frame"] == 1);
-    CHECK_FALSE(doc["layers"][1].contains("source"));   // empty in frame 0
+    CHECK_FALSE(doc["layers"][1].contains("source"));  // empty in frame 0
 
     // cut in frame 2: frame 2's body is gone, the cut layer shows only there
-    p.ok("image.edit", {{"path", kDoc}, {"layer", "body"}, {"frame", 2}, {"selection", "all"}, {"action", {{"type", "cut"}}}, {"name", "piece"}});
+    p.ok("image.edit", {{"path", kDoc},
+                        {"layer", "body"},
+                        {"frame", 2},
+                        {"selection", "all"},
+                        {"action", {{"type", "cut"}}},
+                        {"name", "piece"}});
     CHECK(export_pixel(p, "piece", 2) == kRed);
     CHECK(export_pixel(p, "piece", 1).a == 0);
     CHECK(export_pixel(p, "body", 2).a == 0);
     CHECK(export_pixel(p, "body", 1) == kRed);
 
     // create: true with a frame: painted there, empty elsewhere
-    p.ok("image.paint", {{"path", kDoc}, {"layer", "fx"}, {"create", true}, {"frame", 1}, {"strokes", Json::array({kFullStroke})}});
+    p.ok("image.paint",
+         {{"path", kDoc}, {"layer", "fx"}, {"create", true}, {"frame", 1}, {"strokes", Json::array({kFullStroke})}});
     CHECK(export_pixel(p, "fx", 1) == kRed);
     CHECK(export_pixel(p, "fx", 0).a == 0);
     CHECK(export_pixel(p, "fx", 2).a == 0);
@@ -724,10 +816,14 @@ TEST_CASE("image.edit copy and cut and create: true make a layer that shows in t
     Json withPalette = read_doc(p);
     withPalette["palette"] = Json::array({"#000000", "#ff0000"});
     write_all(p.file(kDoc), withPalette.dump(2));
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "marks"}, {"create", true}, {"frame", 2}, {"pixels", Json::array({Json::array({1, 1, 1})})}});
+    p.ok("image.pixel", {{"path", kDoc},
+                         {"layer", "marks"},
+                         {"create", true},
+                         {"frame", 2},
+                         {"pixels", Json::array({Json::array({1, 1, 1})})}});
     const Json marks = read_doc(p)["layers"].back();
     CHECK(marks["kind"] == "indexed");
-    CHECK_FALSE(marks.contains("rows"));   // empty in frame 0
+    CHECK_FALSE(marks.contains("rows"));  // empty in frame 0
     REQUIRE(marks.contains("cels"));
     CHECK(marks["cels"].size() == 1);
     CHECK(marks["cels"][0]["frame"] == 2);
@@ -736,7 +832,8 @@ TEST_CASE("image.edit copy and cut and create: true make a layer that shows in t
 TEST_CASE("image.edit copy without a frame keeps showing the new layer in every frame") {
     AssetsProject p;
     make_body(p);
-    p.ok("image.edit", {{"path", kDoc}, {"layer", "body"}, {"selection", "all"}, {"action", {{"type", "copy"}}}, {"name", "dup"}});
+    p.ok("image.edit",
+         {{"path", kDoc}, {"layer", "body"}, {"selection", "all"}, {"action", {{"type", "copy"}}}, {"name", "dup"}});
     for (int f = 0; f < 3; ++f) CHECK(export_pixel(p, "dup", f) == kRed);
     CHECK_FALSE(read_doc(p)["layers"][1].contains("cels"));
 }

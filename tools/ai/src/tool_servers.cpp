@@ -44,7 +44,8 @@ std::string tool_server_name_problem(std::string_view name) {
         return "the name is longer than " + std::to_string(kMaxToolServerName) + " characters";
     for (char c : name) {
         const bool ok = std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-';
-        if (!ok) return std::string("the name has the character '") + c + "', only letters, digits, _ and - are allowed";
+        if (!ok)
+            return std::string("the name has the character '") + c + "', only letters, digits, _ and - are allowed";
     }
     if (name == kToolServerFactoria) return "\"factoria\" is the name of the engine's own tool server";
     return {};
@@ -52,8 +53,9 @@ std::string tool_server_name_problem(std::string_view name) {
 
 namespace {
 
-constexpr const char* kServerKeys[] = {"type",   "url",  "headers", "command", "args",    "env",
-                                       "apiKeyEnv", "apiKey", "note", "roles", "enabled", "timeoutSeconds", "inheritEnv"};
+constexpr const char* kServerKeys[] = {"type",      "url",    "headers", "command", "args",    "env",
+                                       "apiKeyEnv", "apiKey", "note",    "roles",   "enabled", "timeoutSeconds",
+                                       "inheritEnv"};
 
 std::string join_names(const std::vector<std::string>& v) {
     std::string out;
@@ -75,12 +77,17 @@ std::string substitute(const std::string& text, const std::string* key, bool& us
     for (std::size_t i = 0; i < text.size();) {
         if (text.compare(i, 5, "{key}") == 0) {
             usedKey = true;
-            if (key) out += *key;
-            else if (problem.empty()) problem = "{key}";
+            if (key)
+                out += *key;
+            else if (problem.empty())
+                problem = "{key}";
             i += 5;
         } else if (text.compare(i, 2, "${") == 0) {
             auto close = text.find('}', i + 2);
-            if (close == std::string::npos) { out += text.substr(i); break; }
+            if (close == std::string::npos) {
+                out += text.substr(i);
+                break;
+            }
             std::string inner = text.substr(i + 2, close - i - 2);
             std::string dflt;
             bool hasDefault = false;
@@ -126,11 +133,13 @@ Result<ResolvedToolServer> resolve_tool_server(const ToolServer& s, const EnvLoo
         std::string message = "Tool server '" + s.name + "': " + where + " uses " + what + ", which has no value";
         std::string hint;
         if (what == "{key}") {
-            hint = s.apiKeyEnv.empty()
-                       ? "Set \"apiKeyEnv\" to the name of an environment variable that holds the key, or put the key in "
-                         "\"apiKey\" (AI settings > External tools)."
-                       : "Set the environment variable " + s.apiKeyEnv + " (restart the editor or the shell after setting "
-                         "it), or put the key in \"apiKey\" (AI settings > External tools).";
+            hint =
+                s.apiKeyEnv.empty()
+                    ? "Set \"apiKeyEnv\" to the name of an environment variable that holds the key, or put the key in "
+                      "\"apiKey\" (AI settings > External tools)."
+                    : "Set the environment variable " + s.apiKeyEnv +
+                          " (restart the editor or the shell after setting "
+                          "it), or put the key in \"apiKey\" (AI settings > External tools).";
         } else {
             hint = "Set that environment variable (restart the editor or the shell after setting it), or write "
                    "${NAME:-default} to give it a default.";
@@ -173,14 +182,19 @@ Result<ToolServer> parse_tool_server(const Json& entry, std::string name, std::s
                           "Use a short name such as scenario or filesystem (letters, digits, _ and -).");
     }
     if (!entry.is_object()) {
-        return make_error(at + ": a tool server is an object, for example {\"type\": \"http\", \"url\": \"https://...\"}",
-                          "See docs/AI_PROVIDERS.md, \"External tools (MCP servers)\".");
+        return make_error(
+            at + ": a tool server is an object, for example {\"type\": \"http\", \"url\": \"https://...\"}",
+            "See docs/AI_PROVIDERS.md, \"External tools (MCP servers)\".");
     }
     std::vector<std::string> known(std::begin(kServerKeys), std::end(kServerKeys));
     for (auto it = entry.begin(); it != entry.end(); ++it) {
         if (std::find(known.begin(), known.end(), it.key()) != known.end()) continue;
-        if (ignored) { ignored->push_back(it.key()); continue; }
-        return make_error(at + "/" + it.key() + ": unknown property '" + it.key() + "'", fa::did_you_mean(it.key(), known));
+        if (ignored) {
+            ignored->push_back(it.key());
+            continue;
+        }
+        return make_error(at + "/" + it.key() + ": unknown property '" + it.key() + "'",
+                          fa::did_you_mean(it.key(), known));
     }
 
     ToolServer s;
@@ -194,7 +208,8 @@ Result<ToolServer> parse_tool_server(const Json& entry, std::string name, std::s
     s.enabled = flag(entry, "enabled", true);
     s.timeoutSeconds = num(entry, "timeoutSeconds", s.timeoutSeconds);
     if (s.timeoutSeconds <= 0) {
-        return make_error(at + "/timeoutSeconds: must be above 0", "Use the seconds one tool call may take, for example 120.");
+        return make_error(at + "/timeoutSeconds: must be above 0",
+                          "Use the seconds one tool call may take, for example 120.");
     }
     if (const Json* a = child(entry, "args"); a && a->is_array()) {
         for (const Json& v : *a) {
@@ -213,9 +228,12 @@ Result<ToolServer> parse_tool_server(const Json& entry, std::string name, std::s
         }
         return {};
     };
-    if (auto ok = read_map("headers", [&](const std::string& k, std::string v) { s.headers.emplace_back(k, std::move(v)); }); !ok)
+    if (auto ok =
+            read_map("headers", [&](const std::string& k, std::string v) { s.headers.emplace_back(k, std::move(v)); });
+        !ok)
         return ok.error();
-    if (auto ok = read_map("env", [&](const std::string& k, std::string v) { s.env[k] = std::move(v); }); !ok) return ok.error();
+    if (auto ok = read_map("env", [&](const std::string& k, std::string v) { s.env[k] = std::move(v); }); !ok)
+        return ok.error();
     if (const Json* n = child(entry, "inheritEnv")) {
         auto names = parse_env_names(*n, at + "/inheritEnv");
         if (!names) return names.error();
@@ -249,12 +267,14 @@ Result<ToolServer> parse_tool_server(const Json& entry, std::string name, std::s
                           "instead of /sse), or ask its documentation for the \"streamable http\" URL.");
     }
     if (s.type.empty()) {
-        return make_error(at + ": a tool server needs a \"url\" (a remote server) or a \"command\" (a local program)",
-                          "Remote: {\"url\": \"https://mcp.example.com/mcp\"}. Local: {\"command\": \"npx\", \"args\": [\"-y\", "
-                          "\"some-mcp-server\"]}.");
+        return make_error(
+            at + ": a tool server needs a \"url\" (a remote server) or a \"command\" (a local program)",
+            "Remote: {\"url\": \"https://mcp.example.com/mcp\"}. Local: {\"command\": \"npx\", \"args\": [\"-y\", "
+            "\"some-mcp-server\"]}.");
     }
     if (s.type != "http" && s.type != "stdio") {
-        return make_error(at + "/type: unknown transport '" + s.type + "'", fa::did_you_mean(s.type, std::vector<std::string>{"http", "stdio"}));
+        return make_error(at + "/type: unknown transport '" + s.type + "'",
+                          fa::did_you_mean(s.type, std::vector<std::string>{"http", "stdio"}));
     }
     if (s.type == "http") {
         if (s.url.empty())
@@ -286,8 +306,9 @@ Result<std::vector<ToolServer>> parse_tool_servers(const Json& objectIn, std::st
         where += "/mcpServers";
     }
     if (!object->is_object()) {
-        return make_error(where + ": \"mcpServers\" is an object with one entry per server",
-                          "For example {\"scenario\": {\"type\": \"http\", \"url\": \"https://mcp.scenario.com/mcp\"}}.");
+        return make_error(
+            where + ": \"mcpServers\" is an object with one entry per server",
+            "For example {\"scenario\": {\"type\": \"http\", \"url\": \"https://mcp.scenario.com/mcp\"}}.");
     }
     std::vector<ToolServer> out;
     for (auto it = object->begin(); it != object->end(); ++it) {

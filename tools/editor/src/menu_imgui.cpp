@@ -27,7 +27,9 @@ void draw_items(const std::vector<Item>& items, const Track& track) {
             }
         } else {
             const std::string shortcut = shortcut_label(it.shortcut_for(kApple), kApple);
-            if (ImGui::MenuItem(it.label.c_str(), shortcut.empty() ? nullptr : shortcut.c_str(), it.checked, it.enabled) && it.action)
+            if (ImGui::MenuItem(it.label.c_str(), shortcut.empty() ? nullptr : shortcut.c_str(), it.checked,
+                                it.enabled) &&
+                it.action)
                 it.action();
             finish_item(it, track);
         }

@@ -26,7 +26,8 @@ std::string shared_status(const Json& entry) {
     return entry["shared"].value("status", std::string());
 }
 std::string shared_reason(const Json& entry) {
-    return entry.contains("shared") && entry["shared"].is_object() ? entry["shared"].value("reason", std::string()) : std::string();
+    return entry.contains("shared") && entry["shared"].is_object() ? entry["shared"].value("reason", std::string())
+                                                                   : std::string();
 }
 std::string str_of(const Json& j, const char* key) {
     return j.is_object() && j.contains(key) && j[key].is_string() ? j[key].get<std::string>() : std::string();
@@ -39,7 +40,8 @@ ShareColumn share_column(const Json& entry) {
     if (status == "pending") {
         c.kind = ShareKind::Waiting;
         c.label = "waiting";
-        c.tooltip = "In the outbox: it goes when the sharing mode allows it (Always: soon; Ask me each time: after you press Send in Send feedback).";
+        c.tooltip = "In the outbox: it goes when the sharing mode allows it (Always: soon; Ask me each time: after you "
+                    "press Send in Send feedback).";
     } else if (status == "sent") {
         c.kind = ShareKind::Sent;
         c.label = "sent";
@@ -55,7 +57,9 @@ ShareColumn share_column(const Json& entry) {
     } else if (status == "skipped") {
         c.kind = ShareKind::Skipped;
         c.label = "skipped";
-        c.tooltip = reason.empty() ? "Not sent: sharing is off or it was left out of Send feedback. Send feedback offers it again, unchecked." : reason;
+        c.tooltip = reason.empty() ? "Not sent: sharing is off or it was left out of Send feedback. Send feedback "
+                                     "offers it again, unchecked."
+                                   : reason;
     } else {
         c.label = "not sent";
         c.tooltip = "Not sent yet. Send feedback lists it with the text that would leave this computer.";
@@ -107,10 +111,15 @@ std::string share_fields_problem(const ShareFields& fields) {
     for (const ShareLimit& l : share_limits()) {
         const std::string text(trim(share_field_text(fields, l.field)));
         const int n = text_chars(text);
-        if (n > l.max) return std::string("share.") + l.field + " is too long (at most " + std::to_string(l.max) + " characters, it has " + std::to_string(n) + ")";
+        if (n > l.max)
+            return std::string("share.") + l.field + " is too long (at most " + std::to_string(l.max) +
+                   " characters, it has " + std::to_string(n) + ")";
         if (n < l.min) {
-            if (n == 0) return std::string("share.") + l.field + " is missing (at least " + std::to_string(l.min) + " characters)";
-            return std::string("share.") + l.field + " is too short (at least " + std::to_string(l.min) + " characters, it has " + std::to_string(n) + ")";
+            if (n == 0)
+                return std::string("share.") + l.field + " is missing (at least " + std::to_string(l.min) +
+                       " characters)";
+            return std::string("share.") + l.field + " is too short (at least " + std::to_string(l.min) +
+                   " characters, it has " + std::to_string(n) + ")";
         }
     }
     return {};
@@ -154,8 +163,8 @@ std::vector<std::string> entries_to_queue(const Json& doc) {
 
 namespace {
 // A candidate text sanitized, within the limits, and the entry as the server would receive it. False + `problem` otherwise.
-bool finish_row(SendRow& row, const Json& entry, const ShareFields& text, const EngineNames& engine, const ProjectNames& project,
-                std::string& problem) {
+bool finish_row(SendRow& row, const Json& entry, const ShareFields& text, const EngineNames& engine,
+                const ProjectNames& project, std::string& problem) {
     ShareFields t;
     t.title = std::string(trim(text.title));
     t.missing = std::string(trim(text.missing));
@@ -185,12 +194,14 @@ bool entry_can_be_sent(const Json& e) {
     if (e.contains("shared") && e["shared"].is_object()) {
         const std::string st = e["shared"].value("status", std::string());
         if (st == "rejected") return false;
-        if (st == "sent") return e["shared"].value("occurrences", 1) < std::min(e.value("occurrences", 1), kMaxSharedOccurrences);
+        if (st == "sent")
+            return e["shared"].value("occurrences", 1) < std::min(e.value("occurrences", 1), kMaxSharedOccurrences);
     }
     return true;
 }
 
-std::vector<SendRow> plan_send(const Json& doc, const SendOutbox& outbox, const EngineNames& engine, const ProjectNames& project) {
+std::vector<SendRow> plan_send(const Json& doc, const SendOutbox& outbox, const EngineNames& engine,
+                               const ProjectNames& project) {
     std::vector<SendRow> rows;
     if (!doc.is_object() || !doc.contains("entries") || !doc["entries"].is_array()) return rows;
     for (const Json& e : doc["entries"]) {
@@ -223,12 +234,14 @@ std::vector<SendRow> plan_send(const Json& doc, const SendOutbox& outbox, const 
                 if (ok) {
                     row.hasShare = false;
                     row.madeHere = true;
-                    row.note = row.note.empty() ? std::string() : row.note + "; this text was made from the entry instead.";
+                    row.note =
+                        row.note.empty() ? std::string() : row.note + "; this text was made from the entry instead.";
                 } else {
                     problem = problem.empty() ? again : problem + "; and the text made from the entry: " + again;
                 }
             } else {
-                problem = problem.empty() ? sug.reason : problem + "; and no text can be made from the entry: " + sug.reason;
+                problem =
+                    problem.empty() ? sug.reason : problem + "; and no text can be made from the entry: " + sug.reason;
             }
         }
         row.canSend = ok;
@@ -244,8 +257,8 @@ std::vector<SendRow> plan_send(const Json& doc, const SendOutbox& outbox, const 
     return rows;
 }
 
-bool set_send_text(SendRow& row, const Json& entry, const ShareFields& text, const EngineNames& engine, const ProjectNames& project,
-                   std::string& problem) {
+bool set_send_text(SendRow& row, const Json& entry, const ShareFields& text, const EngineNames& engine,
+                   const ProjectNames& project, std::string& problem) {
     SendRow next = row;
     if (!finish_row(next, entry, text, engine, project, problem)) return false;
     row = std::move(next);
@@ -254,7 +267,8 @@ bool set_send_text(SendRow& row, const Json& entry, const ShareFields& text, con
 
 std::optional<FeedbackShareEdit> share_edit_for_send(const Json& entry, const ShareFields& shown, bool reviewPassed) {
     const bool hasStored = entry.contains("share") && entry["share"].is_object();
-    const bool wasReviewed = entry.contains("reviewed") && entry["reviewed"].is_boolean() && entry["reviewed"].get<bool>();
+    const bool wasReviewed =
+        entry.contains("reviewed") && entry["reviewed"].is_boolean() && entry["reviewed"].get<bool>();
     const bool reviewed = reviewPassed || wasReviewed;
     if (!hasStored || !(ShareFields::from_entry(entry) == shown)) {
         FeedbackShareEdit edit;
@@ -270,15 +284,16 @@ std::optional<FeedbackShareEdit> share_edit_for_send(const Json& entry, const Sh
     return std::nullopt;
 }
 
-SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::string& projectDir, const EngineNames& engine,
-                       const std::vector<SendChoice>& choices) {
+SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::string& projectDir,
+                       const EngineNames& engine, const std::vector<SendChoice>& choices) {
     SendApplied out;
     const ShareSettings settings = load_share_settings(env);
     const ShareMode mode = effective_share_mode(settings, projectDir);
     out.mode = mode;
     if (mode != ShareMode::Always && mode != ShareMode::Ask) {
-        out.error = mode == ShareMode::Never ? "Sharing is off for this project (File > Feedback Settings turns it on): nothing was sent."
-                                             : "Sharing is not set up yet: nothing was sent.";
+        out.error = mode == ShareMode::Never
+                        ? "Sharing is off for this project (File > Feedback Settings turns it on): nothing was sent."
+                        : "Sharing is not set up yet: nothing was sent.";
         return out;
     }
     auto loaded = load_feedback(file);
@@ -303,7 +318,8 @@ SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::
             continue;
         }
         if (auto edit = share_edit_for_send(e, c.text, c.reviewPassed)) {
-            const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread does not wait seconds for a lock another program holds
+            const ShareWaitCap shortWait(
+                ui_lock_wait_sec());  // the UI thread does not wait seconds for a lock another program holds
             if (auto r = set_feedback_share_file(file, c.id, *edit); !r) {
                 out.rows.push_back({c.id, "failed", "the share text could not be stored: " + r.error().message});
                 continue;
@@ -345,8 +361,11 @@ SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::
                         if (r.status == "queued")
                             r = {r.id, "failed",
                                  mode == ShareMode::Always
-                                     ? "it is in the outbox and, because this project shares always, it goes out with the next pass; your confirmation could not be saved (" + why + ")."
-                                     : "it is stored, but your confirmation could not be saved (" + why + "); it waits in the outbox. Press Send again."};
+                                     ? "it is in the outbox and, because this project shares always, it goes out with "
+                                       "the next pass; your confirmation could not be saved (" +
+                                           why + ")."
+                                     : "it is stored, but your confirmation could not be saved (" + why +
+                                           "); it waits in the outbox. Press Send again."};
                 }
             }
         }
@@ -354,7 +373,9 @@ SendApplied apply_send(const ShareEnv& env, const std::string& file, const std::
     if (!toSkip.empty()) {
         if (auto skipped = share_skip(env, file, toSkip, "left out in Send feedback"); !skipped.ok()) {
             for (const std::string& id : toSkip)
-                out.rows.push_back({id, "failed", "it could not be left out of the outbox (" + skipped.error().message + "); it is still offered"});
+                out.rows.push_back(
+                    {id, "failed",
+                     "it could not be left out of the outbox (" + skipped.error().message + "); it is still offered"});
         } else {
             for (const std::string& id : toSkip) out.rows.push_back({id, "skipped", {}});
         }

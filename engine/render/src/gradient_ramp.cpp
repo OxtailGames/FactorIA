@@ -31,7 +31,10 @@ std::uint64_t GradientSpec::hash() const {
     for (int i = 0; i < count; ++i) {
         h = mix(h, bits(t[std::size_t(i)]));
         const Color& c = color[std::size_t(i)];
-        h = mix(h, bits(c.r)); h = mix(h, bits(c.g)); h = mix(h, bits(c.b)); h = mix(h, bits(c.a));
+        h = mix(h, bits(c.r));
+        h = mix(h, bits(c.g));
+        h = mix(h, bits(c.b));
+        h = mix(h, bits(c.a));
     }
     return h;
 }
@@ -39,7 +42,8 @@ std::uint64_t GradientSpec::hash() const {
 bool GradientSpec::operator==(const GradientSpec& o) const {
     if (ease != o.ease || count != o.count) return false;
     for (int i = 0; i < count; ++i)
-        if (t[std::size_t(i)] != o.t[std::size_t(i)] || !(color[std::size_t(i)] == o.color[std::size_t(i)])) return false;
+        if (t[std::size_t(i)] != o.t[std::size_t(i)] || !(color[std::size_t(i)] == o.color[std::size_t(i)]))
+            return false;
     return true;
 }
 
@@ -65,14 +69,16 @@ bool gradient_spec(const Shape2D& s, const Color& tint, GradientSpec& out, std::
             ++out.count;
         }
         if (skipped > 0 && warning)
-            *warning = std::format("Shape2D.gradientStops: {} entr{} skipped, the first was {}. Each stop is [position 0..1, colour], "
-                                   "e.g. [0.5, [0, 0, 0, 0.3]] or [1, \"#00000000\"]",
-                                   skipped, skipped == 1 ? "y was" : "ies were", firstProblem);
+            *warning = std::format(
+                "Shape2D.gradientStops: {} entr{} skipped, the first was {}. Each stop is [position 0..1, colour], "
+                "e.g. [0.5, [0, 0, 0, 0.3]] or [1, \"#00000000\"]",
+                skipped, skipped == 1 ? "y was" : "ies were", firstProblem);
     }
     if (out.count == 0) {
         if (out.ease == GradientEase::Linear) return false;  // color -> color2, blended by the shader
         out.count = 2;
-        out.t[0] = 0.0f; out.t[1] = 1.0f;
+        out.t[0] = 0.0f;
+        out.t[1] = 1.0f;
         out.color[0] = s.color * tint;
         out.color[1] = s.color2 * tint;
         return true;
@@ -96,7 +102,12 @@ void bake_ramp_row(const GradientSpec& spec, std::uint8_t* rgba) {
     for (int i = 0; i < kRampWidth; ++i) {
         const float x = gradient_ease_apply(spec.ease, float(i) / float(kRampWidth - 1));
         float pr = 0, pg = 0, pb = 0, pa = 0;  // premultiplied
-        auto premul = [](const Color& c, float& r, float& g, float& b, float& a) { r = c.r * c.a; g = c.g * c.a; b = c.b * c.a; a = c.a; };
+        auto premul = [](const Color& c, float& r, float& g, float& b, float& a) {
+            r = c.r * c.a;
+            g = c.g * c.a;
+            b = c.b * c.a;
+            a = c.a;
+        };
         if (spec.count <= 0) {
             // nothing to draw
         } else if (x <= spec.t[0]) {
@@ -111,11 +122,16 @@ void bake_ramp_row(const GradientSpec& spec, std::uint8_t* rgba) {
             float r0, g0, b0, a0, r1, g1, b1, a1;
             premul(spec.color[std::size_t(k - 1)], r0, g0, b0, a0);
             premul(spec.color[std::size_t(k)], r1, g1, b1, a1);
-            pr = r0 + (r1 - r0) * f; pg = g0 + (g1 - g0) * f; pb = b0 + (b1 - b0) * f; pa = a0 + (a1 - a0) * f;
+            pr = r0 + (r1 - r0) * f;
+            pg = g0 + (g1 - g0) * f;
+            pb = b0 + (b1 - b0) * f;
+            pa = a0 + (a1 - a0) * f;
         }
         const float inv = pa > 1e-5f ? 1.0f / pa : 0.0f;
-        const Color straight = pa > 1e-5f ? Color{pr * inv, pg * inv, pb * inv, pa}
-                                          : (spec.count > 0 ? Color{spec.color[0].r, spec.color[0].g, spec.color[0].b, 0.0f} : Color{0, 0, 0, 0});
+        const Color straight =
+            pa > 1e-5f
+                ? Color{pr * inv, pg * inv, pb * inv, pa}
+                : (spec.count > 0 ? Color{spec.color[0].r, spec.color[0].g, spec.color[0].b, 0.0f} : Color{0, 0, 0, 0});
         const std::uint32_t p = straight.to_rgba8();
         std::memcpy(rgba + std::size_t(i) * 4, &p, 4);
     }
@@ -146,7 +162,10 @@ int GradientRamps::acquire(const GradientSpec& spec) {
     if (row < 0) {
         std::uint64_t oldest = tick_;
         for (int r = 0; r < kRampRows; ++r)
-            if (rows_[std::size_t(r)].used < oldest) { oldest = rows_[std::size_t(r)].used; row = r; }
+            if (rows_[std::size_t(r)].used < oldest) {
+                oldest = rows_[std::size_t(r)].used;
+                row = r;
+            }
         if (row < 0) return -1;
         auto& list = byHash_[rows_[std::size_t(row)].spec.hash()];
         list.erase(std::remove(list.begin(), list.end(), row), list.end());

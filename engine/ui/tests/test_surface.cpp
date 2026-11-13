@@ -31,7 +31,8 @@ struct Page {
             ++calls;
             if (!pin && !kScreen.contains(p)) return std::nullopt;
             UiSurface s;
-            s.point = {(p.x - kScreen.x) * 2.0f, (p.y - kScreen.y) * 2.0f};  // a pinned pointer may be outside the rectangle
+            s.point = {(p.x - kScreen.x) * 2.0f,
+                       (p.y - kScreen.y) * 2.0f};  // a pinned pointer may be outside the rectangle
             s.project = [](Vec3 w, const Vec2*) { return Vec2{100.0f + (w.x - 1000.0f), 50.0f - w.y}; };
             s.pin = UiSurfacePin{mesh, 0};
             return s;
@@ -102,7 +103,9 @@ TEST_CASE("surface pointer: the page's Interactables replace the main view's whi
     p.t.w.add<Shape2D>(main).size = {20, 20};
     p.t.w.add<Interactable>(main);
     p.t.frame();
-    p.move({160, 90});  // the middle of the screen rectangle: page pixel (120, 80), not on "onPage" (centre (100, 50), 60 x 30)
+    p.move(
+        {160,
+         90});  // the middle of the screen rectangle: page pixel (120, 80), not on "onPage" (centre (100, 50), 60 x 30)
     CHECK(p.t.ui.hovered() == kNullEntity);
     p.move({210, 90});  // outside the rectangle: the main view again
     p.move({160, 90 + 40});

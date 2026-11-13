@@ -25,8 +25,10 @@ AccessibilitySettings read_system_accessibility() {
     AccessibilitySettings s;
     if (auto v = parse_gsettings_number(gsettings_get("org.gnome.desktop.interface", "text-scaling-factor")))
         s.textScale = static_cast<float>(*v);
-    if (auto v = parse_gsettings_bool(gsettings_get("org.gnome.desktop.interface", "enable-animations"))) s.reduceMotion = !*v;
-    if (auto v = parse_gsettings_bool(gsettings_get("org.gnome.desktop.a11y.interface", "high-contrast"))) s.highContrast = *v;
+    if (auto v = parse_gsettings_bool(gsettings_get("org.gnome.desktop.interface", "enable-animations")))
+        s.reduceMotion = !*v;
+    if (auto v = parse_gsettings_bool(gsettings_get("org.gnome.desktop.a11y.interface", "high-contrast")))
+        s.highContrast = *v;
     if (auto v = parse_gsettings_bool(gsettings_get("org.gnome.desktop.a11y.applications", "screen-reader-enabled")))
         s.screenReader = *v;
     return s;

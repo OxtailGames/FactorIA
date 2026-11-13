@@ -27,8 +27,10 @@ struct Gfx {
     bool ok = false;
     std::string error;
 
-    Gfx(int w = 320, int h = 180, int samples = std::getenv("FA_TEST_SAMPLES") ? std::atoi(std::getenv("FA_TEST_SAMPLES")) : 1) {
-        static const std::filesystem::path dir = fs::make_temp_dir("fa_render_test_project").value();  // one per test process
+    Gfx(int w = 320, int h = 180,
+        int samples = std::getenv("FA_TEST_SAMPLES") ? std::atoi(std::getenv("FA_TEST_SAMPLES")) : 1) {
+        static const std::filesystem::path dir =
+            fs::make_temp_dir("fa_render_test_project").value();  // one per test process
         projectDir = dir;
         std::filesystem::create_directories(projectDir / "assets");
         fs::set_project_root(projectDir);
@@ -85,7 +87,8 @@ inline Gfx& gfx() {
 // the share of pixels over the per-pixel threshold and the largest error. A missing golden FAILS; FA_UPDATE_GOLDENS=1
 // writes it (docs/BUILDING.md, "Golden images"). One golden serves every backend (Metal, D3D11, GL on llvmpipe).
 inline GoldenResult expect_golden(const Image& img, const std::string& name, const GoldenLimits& limits) {
-    return expect_golden_file(img, fs::path_from_utf8(FA_RENDER_GOLDEN_DIR) / fs::path_from_utf8(name + ".png"), limits);
+    return expect_golden_file(img, fs::path_from_utf8(FA_RENDER_GOLDEN_DIR) / fs::path_from_utf8(name + ".png"),
+                              limits);
 }
 inline GoldenResult expect_golden(const Image& img, const std::string& name, double maxMeanError = 0.004) {
     return expect_golden(img, name, golden_limits(maxMeanError));

@@ -57,7 +57,8 @@ struct ClaimResult {
 
 // `registry` (optional): its commands are known too, with their summaries. `relatedMax`: how many related docs to return.
 // Deterministic; reads the reflection registry, the bundled api_since.json and the embedded docs only.
-ClaimResult check_feedback_claim(const ClaimInput& input, const CommandRegistry* registry = nullptr, int relatedMax = 0);
+ClaimResult check_feedback_claim(const ClaimInput& input, const CommandRegistry* registry = nullptr,
+                                 int relatedMax = 0);
 
 // The same for an entry of ENGINE_FEEDBACK.json (title, missing, suggestion).
 ClaimResult check_feedback_entry_claim(const Json& entry, const CommandRegistry* registry = nullptr);
@@ -65,7 +66,8 @@ ClaimResult check_feedback_entry_claim(const Json& entry, const CommandRegistry*
 // Rejects the OPEN entries of the feedback file whose claim fails the check: status rejected, statusBy "engine", the reason being the
 // teaching text (what exists, where it is documented). An entry whose claimCheck is "dismissed" (a person reopened it) is left
 // alone. Returns the ids rejected.
-Result<std::vector<std::string>> reject_claimed_feedback_file(const std::string& path, const CommandRegistry* registry = nullptr);
+Result<std::vector<std::string>> reject_claimed_feedback_file(const std::string& path,
+                                                              const CommandRegistry* registry = nullptr);
 
 // Registers feedback.check: the check on its own, for a report that is not filed yet or for the open entries of the project.
 void register_feedback_check_commands(CommandRegistry& registry, const std::string& projectDir);

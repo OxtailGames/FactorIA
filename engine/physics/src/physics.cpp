@@ -91,7 +91,8 @@ std::vector<Entity> Physics::overlap_circle2d(World& world, Vec2 center, float r
 std::vector<Entity> Physics::overlap_box2d(World& world, Rect box, std::int32_t mask) {
     return impl_->p2d.overlap_box(world, box, mask);
 }
-std::optional<RaycastHit> Physics::raycast3d(World& world, Vec3 origin, Vec3 dir, float maxDistance, std::int32_t mask) {
+std::optional<RaycastHit> Physics::raycast3d(World& world, Vec3 origin, Vec3 dir, float maxDistance,
+                                             std::int32_t mask) {
     RaycastOptions o;
     o.mask = mask;
     return impl_->p3d.raycast(world, origin, dir, maxDistance, o);
@@ -135,21 +136,29 @@ Result<NavPath> Physics::nav_find_path(World& world, Vec3 from, Vec3 to, const N
 Result<std::vector<NavPath>> Physics::nav_find_paths(World& world, const std::vector<NavPathQuery>& queries) {
     return impl_->p3d.nav_find_paths(world, queries);
 }
-std::vector<NavCell> Physics::nav_cells(World& world, std::size_t maxCells) { return impl_->p3d.nav_cells(world, maxCells); }
+std::vector<NavCell> Physics::nav_cells(World& world, std::size_t maxCells) {
+    return impl_->p3d.nav_cells(world, maxCells);
+}
 std::vector<NavLinkDraw> Physics::nav_links(World& world) { return impl_->p3d.nav_links(world); }
 Json Physics::nav_info(World& world) { return impl_->p3d.nav_info(world); }
 
 void Physics::apply_impulse(World& world, Entity e, Vec3 impulse) {
-    if (impl_->p2d.has_body(e)) impl_->p2d.apply_impulse(world, e, impulse);
-    else if (impl_->p3d.has_body(e)) impl_->p3d.apply_impulse(world, e, impulse);
+    if (impl_->p2d.has_body(e))
+        impl_->p2d.apply_impulse(world, e, impulse);
+    else if (impl_->p3d.has_body(e))
+        impl_->p3d.apply_impulse(world, e, impulse);
 }
 void Physics::apply_force(World& world, Entity e, Vec3 force) {
-    if (impl_->p2d.has_body(e)) impl_->p2d.apply_force(world, e, force);
-    else if (impl_->p3d.has_body(e)) impl_->p3d.apply_force(world, e, force);
+    if (impl_->p2d.has_body(e))
+        impl_->p2d.apply_force(world, e, force);
+    else if (impl_->p3d.has_body(e))
+        impl_->p3d.apply_force(world, e, force);
 }
 void Physics::set_velocity(World& world, Entity e, Vec3 velocity) {
-    if (impl_->p2d.has_body(e)) impl_->p2d.set_velocity(world, e, velocity);
-    else if (impl_->p3d.has_body(e)) impl_->p3d.set_velocity(world, e, velocity);
+    if (impl_->p2d.has_body(e))
+        impl_->p2d.set_velocity(world, e, velocity);
+    else if (impl_->p3d.has_body(e))
+        impl_->p3d.set_velocity(world, e, velocity);
 }
 bool Physics::is_grounded2d(World& world, Entity e, float tolerance) {
     return impl_->p2d.is_grounded(world, e, tolerance);
@@ -163,7 +172,8 @@ bool Physics::is_touching3d(World& world, Entity e, Vec3 direction, float tolera
 }
 bool Physics::is_grounded(World& world, Entity e, float tolerance) {
     if (impl_->p2d.has_body(e)) return impl_->p2d.is_grounded(world, e, tolerance < 0.0f ? 2.0f : tolerance);
-    if (impl_->p3d.has_body(e)) return impl_->p3d.is_touching(world, e, {0, -1, 0}, tolerance < 0.0f ? 0.05f : tolerance);
+    if (impl_->p3d.has_body(e))
+        return impl_->p3d.is_touching(world, e, {0, -1, 0}, tolerance < 0.0f ? 0.05f : tolerance);
     return false;
 }
 

@@ -44,7 +44,8 @@ std::string env_of(const Context& c, const char* name) { return c.options.env ? 
 // returns the steps; a real run stops with the error. Use: `if (auto e = dry_missing(c, err(...))) return *e;`.
 std::optional<Error> dry_missing(Context& c, Error e) {
     if (!c.options.dryRun) return e;
-    c.warnings.push_back("Missing, a placeholder is used in this dry run: " + e.message + (e.hint.empty() ? std::string() : ". " + e.hint));
+    c.warnings.push_back("Missing, a placeholder is used in this dry run: " + e.message +
+                         (e.hint.empty() ? std::string() : ". " + e.hint));
     return std::nullopt;
 }
 
@@ -62,32 +63,41 @@ Result<std::string> steam_app_id(Context& c) {
     if (text.empty()) {
         const stdfs::path file = c.projectDir / "steam_appid.txt";
         if (!is_file(file)) {
-            if (auto e = dry_missing(c, err("steam: the game has no Steam app id: there is no steam_appid.txt in " + generic(c.projectDir) + " and no appId argument",
-                       "Your app id is the number in the Steamworks partner site (App Admin). Write it to steam_appid.txt with "
-                       "platform.add_backend {\"backend\":\"steam\",\"appId\":<your id>} (the file is for development and never shipped), or pass \"appId\".")))
+            if (auto e = dry_missing(c, err("steam: the game has no Steam app id: there is no steam_appid.txt in " +
+                                                generic(c.projectDir) + " and no appId argument",
+                                            "Your app id is the number in the Steamworks partner site (App Admin). "
+                                            "Write it to steam_appid.txt with "
+                                            "platform.add_backend {\"backend\":\"steam\",\"appId\":<your id>} (the "
+                                            "file is for development and never shipped), or pass \"appId\".")))
                 return *e;
             return std::string("MISSING_APP_ID");
         }
         text = std::string(trim(tooling_detail::read_file(file).value_or("")));
         from = "steam_appid.txt";
     }
-    const bool digits = !text.empty() && text.size() <= 10 && std::all_of(text.begin(), text.end(), [](char ch) { return ch >= '0' && ch <= '9'; });
+    const bool digits = !text.empty() && text.size() <= 10 &&
+                        std::all_of(text.begin(), text.end(), [](char ch) { return ch >= '0' && ch <= '9'; });
     const long long n = digits ? std::stoll(text) : 0;
     if (n < 1 || n > 4294967295LL)
         return err("steam: the app id from " + from + " is not a Steam app id (it says '" + text.substr(0, 40) + "')",
                    "Use the number of your game from the Steamworks partner site, e.g. 1234560.");
     if (n == kSteamTestApp && c.options.dryRun) {  // a dry run only plans: the real upload below still refuses it
-        c.warnings.push_back("steam: the app id from " + from + " is 480, Spacewar, Valve's test app: this dry run goes on, but a real upload needs "
+        c.warnings.push_back("steam: the app id from " + from +
+                             " is 480, Spacewar, Valve's test app: this dry run goes on, but a real upload needs "
                              "your own app id (steam_appid.txt, or the appId argument)");
         return std::to_string(n);
     }
     if (n == kSteamTestApp)
-        return err("steam: the app id from " + from + " is 480, Valve's test app (Spacewar): a build cannot be uploaded to it",
-                   "Put your own app id in steam_appid.txt (platform.add_backend {\"backend\":\"steam\",\"appId\":<your id>}) or pass \"appId\".");
+        return err("steam: the app id from " + from +
+                       " is 480, Valve's test app (Spacewar): a build cannot be uploaded to it",
+                   "Put your own app id in steam_appid.txt (platform.add_backend "
+                   "{\"backend\":\"steam\",\"appId\":<your id>}) or pass \"appId\".");
     return std::to_string(n);
 }
 
-bool steam_configured(const PublishSettings& s, const std::string& platform) { return s.steam.depots.count(platform) > 0; }
+bool steam_configured(const PublishSettings& s, const std::string& platform) {
+    return s.steam.depots.count(platform) > 0;
+}
 
 Result<std::vector<Job>> plan_steam(Context& c) {
     const SteamPublishSettings& s = c.settings.steam;
@@ -95,16 +105,20 @@ Result<std::vector<Job>> plan_steam(Context& c) {
     if (!appId.ok()) return appId.error();
     std::string account = !c.options.account.empty() ? c.options.account : s.account;
     if (account.empty()) {
-        if (auto e = dry_missing(c, err("steam: no Steam account to upload with (factoria.json#/publish/steam/account is not set and there is no account argument)",
-                   pointer_hint("the name of your Steam build account", "\"publish\": {\"steam\": {\"account\": \"mystudio_build\"}}") +
-                       " Its password is never stored: run `steamcmd +login <account>` once to enter it (and the Steam Guard code); steamcmd keeps the login.")))
+        if (auto e = dry_missing(c, err("steam: no Steam account to upload with (factoria.json#/publish/steam/account "
+                                        "is not set and there is no account argument)",
+                                        pointer_hint("the name of your Steam build account",
+                                                     "\"publish\": {\"steam\": {\"account\": \"mystudio_build\"}}") +
+                                            " Its password is never stored: run `steamcmd +login <account>` once to "
+                                            "enter it (and the Steam Guard code); steamcmd keeps the login.")))
             return *e;
         account = "MISSING_ACCOUNT";
     }
     const std::string branch = !c.options.branch.empty() ? c.options.branch : s.branch;
     if (to_lower(branch) == "default")
         return err("steam: 'default' cannot be set live from an upload",
-                   "Use a beta branch (\"branch\": \"beta\"), then make the build default in the Steamworks partner site (App Admin > SteamPipe > Builds).");
+                   "Use a beta branch (\"branch\": \"beta\"), then make the build default in the Steamworks partner "
+                   "site (App Admin > SteamPipe > Builds).");
 
     std::string launchText;
     std::vector<std::pair<stdfs::path, std::string>> depotFiles;  // after the app script
@@ -115,22 +129,30 @@ Result<std::vector<Job>> plan_steam(Context& c) {
     for (const Folder& f : c.folders) {
         auto depot = s.depots.find(f.platform);
         if (depot == s.depots.end())
-            return err("steam: no depot id for " + f.platform + " (factoria.json#/publish/steam/depots/" + f.platform + " is not set)",
-                       pointer_hint("a depot per platform", "\"depots\": {\"windows\": 1234561, \"macos\": 1234562, \"linux\": 1234563}") +
+            return err("steam: no depot id for " + f.platform + " (factoria.json#/publish/steam/depots/" + f.platform +
+                           " is not set)",
+                       pointer_hint("a depot per platform",
+                                    "\"depots\": {\"windows\": 1234561, \"macos\": 1234562, \"linux\": 1234563}") +
                            " Depots are created in the Steamworks partner site (App Admin > SteamPipe > Depots).");
         const std::string depotId = std::to_string(depot->second);
         const std::string file = "depot_build_" + depotId + ".vdf";
         depotLines += "\t\t\"" + depotId + "\" \"" + file + "\"\n";
-        std::string vdf = "\"DepotBuild\"\n{\n\t\"DepotID\" \"" + depotId + "\"\n\t\"ContentRoot\" \"" + tab_value(generic(f.path)) + "\"\n"
-                          "\t\"FileMapping\"\n\t{\n\t\t\"LocalPath\" \"*\"\n\t\t\"DepotPath\" \".\"\n\t\t\"Recursive\" \"1\"\n\t}\n";
+        std::string vdf =
+            "\"DepotBuild\"\n{\n\t\"DepotID\" \"" + depotId + "\"\n\t\"ContentRoot\" \"" + tab_value(generic(f.path)) +
+            "\"\n"
+            "\t\"FileMapping\"\n\t{\n\t\t\"LocalPath\" \"*\"\n\t\t\"DepotPath\" \".\"\n\t\t\"Recursive\" \"1\"\n\t}\n";
         for (const std::string& x : excluded_files()) vdf += "\t\"FileExclusion\" \"" + x + "\"\n";
         vdf += "}\n";
         depotFiles.push_back({c.workDir / file, vdf});
         job.uploads.push_back({f.platform, "Steam app " + *appId + ", depot " + depotId + " (" + f.platform + ")"});
-        launchText += (launchText.empty() ? "" : "; ") + f.platform + ": " + (f.platform == "macos" ? c.safeName + ".app" : f.launch);
+        launchText += (launchText.empty() ? "" : "; ") + f.platform + ": " +
+                      (f.platform == "macos" ? c.safeName + ".app" : f.launch);
     }
-    std::string app = "\"AppBuild\"\n{\n\t\"AppID\" \"" + *appId + "\"\n\t\"Desc\" \"" + tab_value(c.name + " " + c.version) + "\"\n"
-                      "\t\"ContentRoot\" \"" + generic(c.workDir) + "\"\n\t\"BuildOutput\" \"" + generic(c.workDir / "output") + "\"\n";
+    std::string app = "\"AppBuild\"\n{\n\t\"AppID\" \"" + *appId + "\"\n\t\"Desc\" \"" +
+                      tab_value(c.name + " " + c.version) +
+                      "\"\n"
+                      "\t\"ContentRoot\" \"" +
+                      generic(c.workDir) + "\"\n\t\"BuildOutput\" \"" + generic(c.workDir / "output") + "\"\n";
     if (!branch.empty()) app += "\t\"SetLive\" \"" + tab_value(branch) + "\"\n";
     app += "\t\"Depots\"\n\t{\n" + depotLines + "\t}\n}\n";
     job.files.push_back({c.workDir / ("app_build_" + *appId + ".vdf"), app});
@@ -138,15 +160,25 @@ Result<std::vector<Job>> plan_steam(Context& c) {
 
     job.argv = {"", "+login", account, "+run_app_build", appVdf, "+quit"};
     job.shown = job.argv;
-    job.failureHint = "steamcmd keeps its login: if it says the login was denied or asks for a Steam Guard code, run `steamcmd +login " + account +
-                      "` once in a terminal, enter the password and the code (set_steam_guard_code <code>), then publish again. The build log is in " +
+    job.failureHint = "steamcmd keeps its login: if it says the login was denied or asks for a Steam Guard code, run "
+                      "`steamcmd +login " +
+                      account +
+                      "` once in a terminal, enter the password and the code (set_steam_guard_code <code>), then "
+                      "publish again. The build log is in " +
                       generic(c.workDir / "output") + ".";
     if (branch.empty())
-        c.nextSteps.push_back("The build is uploaded but not live: in the Steamworks partner site (App Admin > SteamPipe > Builds) put it on a branch, or pass \"branch\": \"beta\" next time to set it live on that beta branch.");
+        c.nextSteps.push_back(
+            "The build is uploaded but not live: in the Steamworks partner site (App Admin > SteamPipe > Builds) put "
+            "it on a branch, or pass \"branch\": \"beta\" next time to set it live on that beta branch.");
     else
-        c.nextSteps.push_back("The build is live on the '" + branch + "' beta branch. Making it the default branch is done by hand in the Steamworks partner site (App Admin > SteamPipe > Builds).");
-    c.nextSteps.push_back("First upload of a depot? Set the launch options in the Steamworks partner site (App Admin > Installation > General): " + launchText +
-                          ". Steam keeps a file's executable bit only from a macOS or Linux machine: upload those depots from that OS (an export made on Windows has no executable bit to keep).");
+        c.nextSteps.push_back("The build is live on the '" + branch +
+                              "' beta branch. Making it the default branch is done by hand in the Steamworks partner "
+                              "site (App Admin > SteamPipe > Builds).");
+    c.nextSteps.push_back("First upload of a depot? Set the launch options in the Steamworks partner site (App Admin > "
+                          "Installation > General): " +
+                          launchText +
+                          ". Steam keeps a file's executable bit only from a macOS or Linux machine: upload those "
+                          "depots from that OS (an export made on Windows has no executable bit to keep).");
     return std::vector<Job>{std::move(job)};
 }
 
@@ -168,16 +200,21 @@ bool butler_login_exists(const Context& c) {
 Result<std::vector<Job>> plan_itch(Context& c) {
     ItchPublishSettings s = c.settings.itch;
     if (s.game.empty()) {
-        if (auto e = dry_missing(c, err("itch: factoria.json#/publish/itch/game is not set",
-                   pointer_hint("your itch.io page", "\"publish\": {\"itch\": {\"game\": \"mystudio/space-dodge\"}}") +
-                       " That is the user and the page name of your game's address (mystudio.itch.io/space-dodge), in lower case. Create the page on itch.io first.")))
+        if (auto e = dry_missing(
+                c,
+                err("itch: factoria.json#/publish/itch/game is not set",
+                    pointer_hint("your itch.io page", "\"publish\": {\"itch\": {\"game\": \"mystudio/space-dodge\"}}") +
+                        " That is the user and the page name of your game's address (mystudio.itch.io/space-dodge), in "
+                        "lower case. Create the page on itch.io first.")))
             return *e;
         s.game = "MISSING_USER/MISSING_GAME";
     }
     std::vector<std::string> secrets;
-    if (const std::string key = env_of(c, "BUTLER_API_KEY"); !key.empty()) secrets.push_back(key);
+    if (const std::string key = env_of(c, "BUTLER_API_KEY"); !key.empty())
+        secrets.push_back(key);
     else if (!butler_login_exists(c))
-        c.warnings.push_back("Neither BUTLER_API_KEY is set nor a butler login was found: butler cannot sign in and the upload will fail. Run `butler login` once, or set BUTLER_API_KEY "
+        c.warnings.push_back("Neither BUTLER_API_KEY is set nor a butler login was found: butler cannot sign in and "
+                             "the upload will fail. Run `butler login` once, or set BUTLER_API_KEY "
                              "(an API key from itch.io > Settings > API keys, which is secret).");
     std::vector<Job> jobs;
     for (const Folder& f : c.folders) {
@@ -189,17 +226,21 @@ Result<std::vector<Job>> plan_itch(Context& c) {
         job.shown = job.argv;
         job.uploads.push_back({f.platform, "itch.io " + target + " (version " + c.version + ")"});
         job.secrets = secrets;
-        job.failureHint = "butler needs a login: run `butler login` once, or set BUTLER_API_KEY (itch.io > Settings > API keys). A 'game not found' error means the page " + s.game +
-                          " does not exist or belongs to another account.";
+        job.failureHint = "butler needs a login: run `butler login` once, or set BUTLER_API_KEY (itch.io > Settings > "
+                          "API keys). A 'game not found' error means the page " +
+                          s.game + " does not exist or belongs to another account.";
         jobs.push_back(std::move(job));
     }
-    c.nextSteps.push_back("A channel makes a download file on the game's page the first time; check them (and tick the platform tags) on the page's Edit game screen at itch.io.");
+    c.nextSteps.push_back("A channel makes a download file on the game's page the first time; check them (and tick the "
+                          "platform tags) on the page's Edit game screen at itch.io.");
     return jobs;
 }
 
 // ---- Epic Games Store ----------------------------------------------------------------------------------------
 
-bool epic_configured(const PublishSettings& s, const std::string& platform) { return s.epic.artifacts.count(platform) > 0; }
+bool epic_configured(const PublishSettings& s, const std::string& platform) {
+    return s.epic.artifacts.count(platform) > 0;
+}
 
 Result<std::vector<Job>> plan_epic(Context& c) {
     EpicPublishSettings s = c.settings.epic;
@@ -208,10 +249,14 @@ Result<std::vector<Job>> plan_epic(Context& c) {
     if (s.productId.empty()) missing.push_back("productId");
     if (s.clientId.empty()) missing.push_back("clientId");
     if (!missing.empty()) {
-        if (auto e = dry_missing(c, err("epic: factoria.json#/publish/epic has no " + join(missing, ", "),
-                   pointer_hint("the ids of the Epic Games Dev Portal", "\"publish\": {\"epic\": {\"organizationId\": \"o-...\", \"productId\": \"...\", \"clientId\": \"...\", "
-                                "\"artifacts\": {\"windows\": \"<artifact id>\"}}}") +
-                       " The client is the Build Patch Tool credential of Product Settings; its secret goes in " + kEpicSecretVar + ".")))
+        if (auto e = dry_missing(
+                c, err("epic: factoria.json#/publish/epic has no " + join(missing, ", "),
+                       pointer_hint("the ids of the Epic Games Dev Portal",
+                                    "\"publish\": {\"epic\": {\"organizationId\": \"o-...\", \"productId\": \"...\", "
+                                    "\"clientId\": \"...\", "
+                                    "\"artifacts\": {\"windows\": \"<artifact id>\"}}}") +
+                           " The client is the Build Patch Tool credential of Product Settings; its secret goes in " +
+                           kEpicSecretVar + ".")))
             return *e;
         if (s.organizationId.empty()) s.organizationId = "MISSING_ORGANIZATION_ID";
         if (s.productId.empty()) s.productId = "MISSING_PRODUCT_ID";
@@ -219,16 +264,21 @@ Result<std::vector<Job>> plan_epic(Context& c) {
     }
     std::string secret = env_of(c, kEpicSecretVar);
     if (secret.empty()) {
-        if (auto e = dry_missing(c, err(std::string("epic: the client secret is not set: ") + kEpicSecretVar + " is empty",
-                   std::string("Set the environment variable ") + kEpicSecretVar + " to the client secret of your Build Patch Tool credential (Dev Portal > Product Settings > General). "
-                   "It is passed to the tool by name (-ClientSecretEnvVar), so it never appears on a command line or in a log.")))
+        if (auto e =
+                dry_missing(c, err(std::string("epic: the client secret is not set: ") + kEpicSecretVar + " is empty",
+                                   std::string("Set the environment variable ") + kEpicSecretVar +
+                                       " to the client secret of your Build Patch Tool credential (Dev Portal > "
+                                       "Product Settings > General). "
+                                       "It is passed to the tool by name (-ClientSecretEnvVar), so it never appears on "
+                                       "a command line or in a log.")))
             return *e;
         secret = "MISSING_CLIENT_SECRET";
     }
     static const std::regex versionRe("^[A-Za-z0-9.+_-]{1,100}$");
     if (!std::regex_match(c.version, versionRe))
         return err("epic: the version '" + c.version + "' of factoria.json cannot be an Epic BuildVersion",
-                   "Epic accepts 1 to 100 characters from a-z, A-Z, 0-9 and . + - _ (no spaces), and each version can be uploaded once per artifact: change \"version\" to e.g. \"1.0.1\".");
+                   "Epic accepts 1 to 100 characters from a-z, A-Z, 0-9 and . + - _ (no spaces), and each version can "
+                   "be uploaded once per artifact: change \"version\" to e.g. \"1.0.1\".");
 
     const stdfs::path ignoreFile = c.workDir / "ignore.txt";
     std::string ignore;
@@ -237,9 +287,11 @@ Result<std::vector<Job>> plan_epic(Context& c) {
     for (const Folder& f : c.folders) {
         auto artifact = s.artifacts.find(f.platform);
         if (artifact == s.artifacts.end())
-            return err("epic: no artifact id for " + f.platform + " (factoria.json#/publish/epic/artifacts/" + f.platform + " is not set)",
-                       pointer_hint("an artifact per platform", "\"artifacts\": {\"windows\": \"<artifact id>\"}") +
-                           " Artifacts are made in the Dev Portal (Artifacts and Binaries); each platform has its own.");
+            return err(
+                "epic: no artifact id for " + f.platform + " (factoria.json#/publish/epic/artifacts/" + f.platform +
+                    " is not set)",
+                pointer_hint("an artifact per platform", "\"artifacts\": {\"windows\": \"<artifact id>\"}") +
+                    " Artifacts are made in the Dev Portal (Artifacts and Binaries); each platform has its own.");
         Job job;
         job.title = "BuildPatchTool UploadBinary " + f.platform;
         job.argv = {"",
@@ -261,11 +313,15 @@ Result<std::vector<Job>> plan_epic(Context& c) {
         job.dirs.push_back(c.workDir / "cloud" / f.platform);
         job.files.push_back({ignoreFile, ignore});
         job.uploads.push_back({f.platform, "Epic artifact " + artifact->second + " (build " + c.version + ")"});
-        job.failureHint = "Check the client id and that " + std::string(kEpicSecretVar) + " is the secret of the same Build Patch Tool credential (not an SDK credential). Each BuildVersion can be "
-                          "uploaded once per artifact: raise \"version\" in factoria.json after an upload. -BuildRoot and -CloudDir must be different folders.";
+        job.failureHint =
+            "Check the client id and that " + std::string(kEpicSecretVar) +
+            " is the secret of the same Build Patch Tool credential (not an SDK credential). Each BuildVersion can be "
+            "uploaded once per artifact: raise \"version\" in factoria.json after an upload. -BuildRoot and -CloudDir "
+            "must be different folders.";
         jobs.push_back(std::move(job));
     }
-    c.nextSteps.push_back("An uploaded build is not on sale yet: in the Dev Portal assign it to the artifact's platform label and publish the product (Epic's review applies).");
+    c.nextSteps.push_back("An uploaded build is not on sale yet: in the Dev Portal assign it to the artifact's "
+                          "platform label and publish the product (Epic's review applies).");
     return jobs;
 }
 
@@ -275,25 +331,36 @@ Result<std::vector<Job>> plan_gog(Context& c) {
     GogPublishSettings s = c.settings.gog;
     if (s.productId.empty()) {
         if (auto e = dry_missing(c, err("gog: factoria.json#/publish/gog/productId is not set",
-                   pointer_hint("the product id of your game", "\"publish\": {\"gog\": {\"productId\": \"1234567890\"}}") +
-                       " It is in the GOG Developer Portal (your game > Product details).")))
+                                        pointer_hint("the product id of your game",
+                                                     "\"publish\": {\"gog\": {\"productId\": \"1234567890\"}}") +
+                                            " It is in the GOG Developer Portal (your game > Product details).")))
             return *e;
         s.productId = "MISSING_PRODUCT_ID";
     }
     if (to_lower(c.options.branch) == "master")
         return err("gog: Pipeline Builder cannot publish to the Master branch",
-                   "Upload to a private branch (\"branch\": \"<name>\"), or none, and publish the build from the GOG Developer Portal (Builds & Branches).");
+                   "Upload to a private branch (\"branch\": \"<name>\"), or none, and publish the build from the GOG "
+                   "Developer Portal (Builds & Branches).");
     const std::string user = env_of(c, kGogUserVar), password = env_of(c, kGogPasswordVar);
     if (user.empty() != password.empty())
-        return err(std::string("gog: ") + (user.empty() ? kGogPasswordVar : kGogUserVar) + " is set but " + (user.empty() ? kGogUserVar : kGogPasswordVar) + " is not",
-                   std::string("Set both, or neither to use the credentials Pipeline Builder cached when you last signed in (run GOGGalaxyPipelineBuilder once, interactively, to cache them)."));
+        return err(std::string("gog: ") + (user.empty() ? kGogPasswordVar : kGogUserVar) + " is set but " +
+                       (user.empty() ? kGogUserVar : kGogPasswordVar) + " is not",
+                   std::string("Set both, or neither to use the credentials Pipeline Builder cached when you last "
+                               "signed in (run GOGGalaxyPipelineBuilder once, interactively, to cache them)."));
     if (user.empty())
-        c.warnings.push_back(std::string("Neither ") + kGogUserVar + " nor " + kGogPasswordVar + " is set: Pipeline Builder uses the credentials it cached from an earlier sign-in, "
-                             "and fails when there are none. Sign in once by running it by hand (that keeps the password off the command line), or set both variables.");
+        c.warnings.push_back(std::string("Neither ") + kGogUserVar + " nor " + kGogPasswordVar +
+                             " is set: Pipeline Builder uses the credentials it cached from an earlier sign-in, "
+                             "and fails when there are none. Sign in once by running it by hand (that keeps the "
+                             "password off the command line), or set both variables.");
     else
-        c.warnings.push_back(std::string("GOGGalaxyPipelineBuilder takes the password only as the argument --password (it has no environment variable, file or standard-input form): while it runs, ") + kGogPasswordVar +
-                             " is visible in the process list (ps, Task Manager) to every user of this computer. FactorIA hides it everywhere else (report, log, progress). To keep it off the command line, sign in "
-                             "once by running GOGGalaxyPipelineBuilder by hand so it caches the login, then unset " + kGogUserVar + " and " + kGogPasswordVar + ".");
+        c.warnings.push_back(
+            std::string("GOGGalaxyPipelineBuilder takes the password only as the argument --password (it has no "
+                        "environment variable, file or standard-input form): while it runs, ") +
+            kGogPasswordVar +
+            " is visible in the process list (ps, Task Manager) to every user of this computer. FactorIA hides it "
+            "everywhere else (report, log, progress). To keep it off the command line, sign in "
+            "once by running GOGGalaxyPipelineBuilder by hand so it caches the login, then unset " +
+            kGogUserVar + " and " + kGogPasswordVar + ".");
 
     const stdfs::path ignoreFile = c.workDir / "ignore.txt";
     std::string ignore;
@@ -301,19 +368,36 @@ Result<std::vector<Job>> plan_gog(Context& c) {
     std::vector<Job> jobs;
     for (const Folder& f : c.folders) {
         const std::string platform = f.platform == "macos" ? "osx" : f.platform;
-        Json task = Json::object({{"category", "game"}, {"isPrimary", true}, {"languages", s.languages}, {"name", c.name},
-                                  {"path", f.platform == "macos" ? c.safeName + ".app" : f.launch}, {"type", "FileTask"}});
+        Json task = Json::object({{"category", "game"},
+                                  {"isPrimary", true},
+                                  {"languages", s.languages},
+                                  {"name", c.name},
+                                  {"path", f.platform == "macos" ? c.safeName + ".app" : f.launch},
+                                  {"type", "FileTask"}});
         if (f.platform == "windows") task["osBitness"] = Json::array({"64"});
-        Json depot = Json::object({{"folder", generic(f.path)}, {"languages", s.languages}, {"name", c.slug + "-" + c.version + "-" + f.platform}});
-        Json product = Json::object({{"name", c.name}, {"productId", s.productId}, {"depots", Json::array({depot})}, {"tasks", Json::array({task})}});
-        Json project = Json::object({{"baseProductId", s.productId}, {"clientId", s.clientId}, {"clientSecret", ""}, {"installDirectory", c.safeName},
-                                     {"name", c.name}, {"platform", platform}, {"version", ""}, {"scriptInterpreter", true},
-                                     {"dependencies", Json::array()}, {"products", Json::array({product})}});
+        Json depot = Json::object({{"folder", generic(f.path)},
+                                   {"languages", s.languages},
+                                   {"name", c.slug + "-" + c.version + "-" + f.platform}});
+        Json product = Json::object({{"name", c.name},
+                                     {"productId", s.productId},
+                                     {"depots", Json::array({depot})},
+                                     {"tasks", Json::array({task})}});
+        Json project = Json::object({{"baseProductId", s.productId},
+                                     {"clientId", s.clientId},
+                                     {"clientSecret", ""},
+                                     {"installDirectory", c.safeName},
+                                     {"name", c.name},
+                                     {"platform", platform},
+                                     {"version", ""},
+                                     {"scriptInterpreter", true},
+                                     {"dependencies", Json::array()},
+                                     {"products", Json::array({product})}});
         const stdfs::path projectFile = c.workDir / ("gog-" + f.platform + ".json");
 
         Job job;
         job.title = "GOGGalaxyPipelineBuilder build-game " + f.platform;
-        job.argv = {"", "build-game", generic(projectFile), "--ignore_list", generic(ignoreFile), "--version", c.version};
+        job.argv = {"",          "build-game", generic(projectFile), "--ignore_list", generic(ignoreFile),
+                    "--version", c.version};
         if (!c.options.branch.empty()) job.argv.insert(job.argv.end(), {"--branch", c.options.branch});
         job.shown = job.argv;
         if (!user.empty()) {
@@ -323,12 +407,16 @@ Result<std::vector<Job>> plan_gog(Context& c) {
         }
         job.files.push_back({projectFile, dump_json(Json::object({{"project", project}}))});
         job.files.push_back({ignoreFile, ignore});
-        job.uploads.push_back({f.platform, "GOG product " + s.productId + " (" + platform + ", version " + c.version + (c.options.branch.empty() ? "" : ", branch " + c.options.branch) + ")"});
-        job.failureHint = "Pipeline Builder signs in with the cached credentials, or with " + std::string(kGogUserVar) + " and " + kGogPasswordVar + ". Its own log: run it again with --log_level=debug "
+        job.uploads.push_back({f.platform, "GOG product " + s.productId + " (" + platform + ", version " + c.version +
+                                               (c.options.branch.empty() ? "" : ", branch " + c.options.branch) + ")"});
+        job.failureHint = "Pipeline Builder signs in with the cached credentials, or with " + std::string(kGogUserVar) +
+                          " and " + kGogPasswordVar +
+                          ". Its own log: run it again with --log_level=debug "
                           "(logs go to the __gog/logs folder of your temp folder).";
         jobs.push_back(std::move(job));
     }
-    c.nextSteps.push_back("An uploaded build is not live yet: publish it from the GOG Developer Portal (your game > Builds & Branches), or with GOGGalaxyPipelineBuilder publish-build.");
+    c.nextSteps.push_back("An uploaded build is not live yet: publish it from the GOG Developer Portal (your game > "
+                          "Builds & Branches), or with GOGGalaxyPipelineBuilder publish-build.");
     return jobs;
 }
 
@@ -352,21 +440,29 @@ Result<std::vector<Job>> plan_appstore(Context& c) {
     const std::string build = mac ? c.macosBuild : c.iosBuild;
     if (s.appleId.empty()) {
         if (auto e = dry_missing(c, err("appstore: factoria.json#/publish/appstore/appleId is not set",
-                   pointer_hint("the Apple ID of your app", "\"publish\": {\"appstore\": {\"appleId\": \"6448277777\"}}") +
-                       " It is the number under App Store Connect > your app > App Information > General Information > Apple ID. Create the app there first (My Apps > +) "
-                       "with the bundle id " + (c.bundleId.empty() ? std::string("of your game") : c.bundleId) + ".")))
+                                        pointer_hint("the Apple ID of your app",
+                                                     "\"publish\": {\"appstore\": {\"appleId\": \"6448277777\"}}") +
+                                            " It is the number under App Store Connect > your app > App Information > "
+                                            "General Information > Apple ID. Create the app there first (My Apps > +) "
+                                            "with the bundle id " +
+                                            (c.bundleId.empty() ? std::string("of your game") : c.bundleId) + ".")))
             return *e;
         s.appleId = "MISSING_APPLE_ID";
     }
     if (c.bundleId.empty()) {
-        if (auto e = dry_missing(c, err("appstore: factoria.json#/id is not set", "Add \"id\": \"com.mystudio.mygame\" (the bundle id of the app in App Store Connect) to factoria.json.")))
+        if (auto e = dry_missing(c, err("appstore: factoria.json#/id is not set",
+                                        "Add \"id\": \"com.mystudio.mygame\" (the bundle id "
+                                        "of the app in App Store Connect) to factoria.json.")))
             return *e;
         c.bundleId = "MISSING.BUNDLE.ID";
     }
     static const std::regex versionRe("^[0-9]+(\\.[0-9]+){0,2}$");
     if (!std::regex_match(c.version, versionRe))
-        return err("appstore: the version '" + c.version + "' of factoria.json cannot be " + std::string(mac ? "a macOS" : "an iOS") + " version (CFBundleShortVersionString)",
-                   "Apple takes one to three numbers separated by dots, e.g. \"1.2.3\": change \"version\" in factoria.json and export the game for " + kind + " again.");
+        return err("appstore: the version '" + c.version + "' of factoria.json cannot be " +
+                       std::string(mac ? "a macOS" : "an iOS") + " version (CFBundleShortVersionString)",
+                   "Apple takes one to three numbers separated by dots, e.g. \"1.2.3\": change \"version\" in "
+                   "factoria.json and export the game for " +
+                       kind + " again.");
 
     std::string keyPath = env_first(c, kAppStoreKeyVar, "FACTORIA_NOTARY_API_KEY");
     std::string keyId = env_first(c, kAppStoreKeyIdVar, "FACTORIA_NOTARY_API_KEY_ID");
@@ -377,9 +473,12 @@ Result<std::vector<Job>> plan_appstore(Context& c) {
     if (issuer.empty()) missing.push_back(std::string(kAppStoreIssuerVar) + " (the Issuer ID)");
     const bool keyMissing = !missing.empty();
     if (keyMissing) {
-        if (auto e = dry_missing(c, err("appstore: the App Store Connect API key is not set: " + join(missing, ", "),
-                   "Create a key in App Store Connect > Users and Access > Integrations > App Store Connect API (Team Keys, role App Manager), download the AuthKey_<KeyID>.p8 "
-                   "(Apple lets you download it once) and set these variables. The Issuer ID is on the same page. The key is a file outside the project; nothing of it is written to the project or shown.")))
+        if (auto e = dry_missing(
+                c, err("appstore: the App Store Connect API key is not set: " + join(missing, ", "),
+                       "Create a key in App Store Connect > Users and Access > Integrations > App Store Connect API "
+                       "(Team Keys, role App Manager), download the AuthKey_<KeyID>.p8 "
+                       "(Apple lets you download it once) and set these variables. The Issuer ID is on the same page. "
+                       "The key is a file outside the project; nothing of it is written to the project or shown.")))
             return *e;
         if (keyPath.empty()) keyPath = "MISSING_KEY_PATH/AuthKey_MISSING.p8";
         if (keyId.empty()) keyId = "MISSING";
@@ -387,29 +486,62 @@ Result<std::vector<Job>> plan_appstore(Context& c) {
     }
     const stdfs::path key(tooling_detail::expand_home(keyPath, c.options.env));
     if (!keyMissing && !is_file(key))
-        return err("appstore: " + std::string(kAppStoreKeyVar) + " is '" + keyPath + "', which is not a file", "Set it to the path of the AuthKey_" + keyId + ".p8 you downloaded from App Store Connect.");
+        return err("appstore: " + std::string(kAppStoreKeyVar) + " is '" + keyPath + "', which is not a file",
+                   "Set it to the path of the AuthKey_" + keyId + ".p8 you downloaded from App Store Connect.");
     if (!keyMissing && key.filename().string() != "AuthKey_" + keyId + ".p8")
-        return err("appstore: the key file is named '" + key.filename().string() + "', but altool finds a key by the name AuthKey_" + keyId + ".p8",
-                   "Keep the name Apple gave the file (AuthKey_<KeyID>.p8) or rename it to AuthKey_" + keyId + ".p8; " + kAppStoreKeyIdVar + " is its Key ID.");
+        return err("appstore: the key file is named '" + key.filename().string() +
+                       "', but altool finds a key by the name AuthKey_" + keyId + ".p8",
+                   "Keep the name Apple gave the file (AuthKey_<KeyID>.p8) or rename it to AuthKey_" + keyId + ".p8; " +
+                       kAppStoreKeyIdVar + " is its Key ID.");
 
     Job job;
     job.title = "xcrun altool --upload-package (app " + s.appleId + ")";
-    job.argv = {"", "altool", "--upload-package", generic(c.artifact), "--type", mac ? "macos" : "ios", "--apple-id", s.appleId, "--bundle-id", c.bundleId,
-                "--bundle-version", build, "--bundle-short-version-string", c.version, "--apiKey", keyId, "--apiIssuer", issuer};
+    job.argv = {"",
+                "altool",
+                "--upload-package",
+                generic(c.artifact),
+                "--type",
+                mac ? "macos" : "ios",
+                "--apple-id",
+                s.appleId,
+                "--bundle-id",
+                c.bundleId,
+                "--bundle-version",
+                build,
+                "--bundle-short-version-string",
+                c.version,
+                "--apiKey",
+                keyId,
+                "--apiIssuer",
+                issuer};
     job.shown = job.argv;
     job.env["API_PRIVATE_KEYS_DIR"] = generic(key.parent_path());  // where altool looks for AuthKey_<KeyID>.p8
-    job.uploads.push_back({mac ? "macos" : "ios", "App Store Connect app " + s.appleId + " (" + c.bundleId + "), version " + c.version + " build " + build});
-    job.failureHint = "altool reports the reason in its output: 'Unable to authenticate' means a wrong Key ID/Issuer ID or a key without the App Manager role; a bundle id or version that does not match "
-                      "the package means it was built from other settings (export again and " + std::string(mac ? "sign again" : "archive again") + "); 'build number already used' means raise export." +
-                      (mac ? "macos" : "ios") + ".buildNumber, export, " + (mac ? "sign" : "archive") + " and upload again.";
-    c.warnings.push_back("altool checks --bundle-id, --bundle-version and --bundle-short-version-string against the " + std::string(mac ? ".pkg" : ".ipa") + ": they are read from factoria.json (id " + c.bundleId +
-                         ", version " + c.version + ", export." + (mac ? "macos" : "ios") + ".buildNumber " + build + "), so the " + (mac ? ".pkg must come from a macOS export signed with sign.macos distribution appStore" : ".ipa must come from an iOS export") +
+    job.uploads.push_back({mac ? "macos" : "ios", "App Store Connect app " + s.appleId + " (" + c.bundleId +
+                                                      "), version " + c.version + " build " + build});
+    job.failureHint = "altool reports the reason in its output: 'Unable to authenticate' means a wrong Key ID/Issuer "
+                      "ID or a key without the App Manager role; a bundle id or version that does not match "
+                      "the package means it was built from other settings (export again and " +
+                      std::string(mac ? "sign again" : "archive again") +
+                      "); 'build number already used' means raise export." + (mac ? "macos" : "ios") +
+                      ".buildNumber, export, " + (mac ? "sign" : "archive") + " and upload again.";
+    c.warnings.push_back("altool checks --bundle-id, --bundle-version and --bundle-short-version-string against the " +
+                         std::string(mac ? ".pkg" : ".ipa") + ": they are read from factoria.json (id " + c.bundleId +
+                         ", version " + c.version + ", export." + (mac ? "macos" : "ios") + ".buildNumber " + build +
+                         "), so the " +
+                         (mac ? ".pkg must come from a macOS export signed with sign.macos distribution appStore"
+                              : ".ipa must come from an iOS export") +
                          " made with the same factoria.json.");
     if (mac && c.artifactGiven)
-        c.warnings.push_back("The .pkg was given by `artifact`: FactorIA cannot tell how it was signed. App Store Connect refuses a package that is not signed with a \"3rd Party Mac Developer Installer\" / \"Mac Installer Distribution\" certificate (`pkgutil --check-signature <pkg>` shows it).");
-    c.nextSteps.push_back("App Store Connect now processes the build (a few minutes to an hour; it e-mails you if it is rejected). When it shows under App Store Connect > your app > TestFlight, add it to a "
+        c.warnings.push_back(
+            "The .pkg was given by `artifact`: FactorIA cannot tell how it was signed. App Store Connect refuses a "
+            "package that is not signed with a \"3rd Party Mac Developer Installer\" / \"Mac Installer Distribution\" "
+            "certificate (`pkgutil --check-signature <pkg>` shows it).");
+    c.nextSteps.push_back("App Store Connect now processes the build (a few minutes to an hour; it e-mails you if it "
+                          "is rejected). When it shows under App Store Connect > your app > TestFlight, add it to a "
                           "tester group; to submit it for review pick it on the version page of the App Store tab.");
-    c.nextSteps.push_back("App Store Connect takes each build number once per version: raise export." + std::string(mac ? "macos" : "ios") + ".buildNumber in factoria.json before the next export and " + (mac ? "sign." : "archive."));
+    c.nextSteps.push_back("App Store Connect takes each build number once per version: raise export." +
+                          std::string(mac ? "macos" : "ios") +
+                          ".buildNumber in factoria.json before the next export and " + (mac ? "sign." : "archive."));
     return std::vector<Job>{std::move(job)};
 }
 
@@ -420,54 +552,93 @@ const char* const kPlayKeyVar = "FACTORIA_GOOGLEPLAY_JSON_KEY";
 Result<std::vector<Job>> plan_googleplay(Context& c) {
     const GooglePlayPublishSettings& s = c.settings.googleplay;
     if (c.bundleId.empty()) {
-        if (auto e = dry_missing(c, err("googleplay: factoria.json#/id is not set", "Add \"id\": \"com.mystudio.mygame\" (the package name of the app in the Play Console) to factoria.json.")))
+        if (auto e = dry_missing(c, err("googleplay: factoria.json#/id is not set",
+                                        "Add \"id\": \"com.mystudio.mygame\" (the package name of the app in the Play "
+                                        "Console) to factoria.json.")))
             return *e;
         c.bundleId = "MISSING.PACKAGE.NAME";
     }
     const std::string track = !c.options.track.empty() ? c.options.track : s.track;
     static const std::regex trackRe("^[A-Za-z0-9_.-]{1,64}$");
     if (!std::regex_match(track, trackRe))
-        return err("googleplay: '" + track + "' is not a track name", "Use internal, alpha, beta or production, or the name of a closed testing track (letters, digits and . _ - only).");
+        return err("googleplay: '" + track + "' is not a track name",
+                   "Use internal, alpha, beta or production, or the name of a closed testing track (letters, digits "
+                   "and . _ - only).");
     const std::string status = !c.options.releaseStatus.empty() ? c.options.releaseStatus : s.releaseStatus;
     if (status != "draft" && status != "completed")
         return err("googleplay: '" + status + "' is not a release status",
-                   did_you_mean(status, std::vector<std::string>{"draft", "completed"}) + " draft waits in the Play Console until you roll it out; completed rolls out right away.");
+                   did_you_mean(status, std::vector<std::string>{"draft", "completed"}) +
+                       " draft waits in the Play Console until you roll it out; completed rolls out right away.");
 
     // The bundle must be signed with an upload key of yours: a debug-signed one is refused by Google Play.
     const std::string file = c.artifact.filename().string();
     if (file.ends_with("-debug.aab"))
         return err("googleplay: " + file + " is a debug build, signed with the debug key, which Google Play rejects",
-                   "Create a keystore (the editor's Platform settings > Android > Create keystore..., or keytool -genkeypair), set export.android.signing.keystore and .alias in factoria.json, "
-                   "and build the release bundle: factoria export --platform android --format aab --release. See docs/MOBILE.md, \"Signing and release\".");
+                   "Create a keystore (the editor's Platform settings > Android > Create keystore..., or keytool "
+                   "-genkeypair), set export.android.signing.keystore and .alias in factoria.json, "
+                   "and build the release bundle: factoria export --platform android --format aab --release. See "
+                   "docs/MOBILE.md, \"Signing and release\".");
     if (!c.androidKeystore) {
         if (!c.artifactGiven)
-            return err("googleplay: factoria.json#/export/android/signing/keystore is not set, so " + file + " is signed with the debug key, which Google Play rejects",
-                       "Create a keystore (the editor's Platform settings > Android > Create keystore..., or keytool -genkeypair), set export.android.signing.keystore and .alias in factoria.json, "
-                       "and build the release bundle again: factoria export --platform android --format aab --release. (A bundle you signed yourself: pass it as `artifact`.)");
-        c.warnings.push_back("export.android.signing has no keystore in factoria.json, so FactorIA cannot tell how " + file + " was signed: Google Play rejects a bundle signed with the debug key.");
+            return err("googleplay: factoria.json#/export/android/signing/keystore is not set, so " + file +
+                           " is signed with the debug key, which Google Play rejects",
+                       "Create a keystore (the editor's Platform settings > Android > Create keystore..., or keytool "
+                       "-genkeypair), set export.android.signing.keystore and .alias in factoria.json, "
+                       "and build the release bundle again: factoria export --platform android --format aab --release. "
+                       "(A bundle you signed yourself: pass it as `artifact`.)");
+        c.warnings.push_back("export.android.signing has no keystore in factoria.json, so FactorIA cannot tell how " +
+                             file + " was signed: Google Play rejects a bundle signed with the debug key.");
     }
 
     std::string keyValue = env_first(c, kPlayKeyVar, "SUPPLY_JSON_KEY");
     const bool keyMissing = keyValue.empty();
     if (keyMissing) {
-        if (auto e = dry_missing(c, err(std::string("googleplay: the service account key is not set: ") + kPlayKeyVar + " is empty",
-                   std::string("Create a service account in Google Cloud, give it access in the Play Console (Users and permissions > Invite new users, with permission to release to the track), "
-                               "create a JSON key for it, and set ") + kPlayKeyVar + " to the path of that file (outside the project; it is a secret and is never written or shown).")))
+        if (auto e = dry_missing(
+                c,
+                err(std::string("googleplay: the service account key is not set: ") + kPlayKeyVar + " is empty",
+                    std::string("Create a service account in Google Cloud, give it access in the Play Console (Users "
+                                "and permissions > Invite new users, with permission to release to the track), "
+                                "create a JSON key for it, and set ") +
+                        kPlayKeyVar +
+                        " to the path of that file (outside the project; it is a secret and is never written or "
+                        "shown).")))
             return *e;
         keyValue = "MISSING_KEY.json";
     }
     const stdfs::path key(tooling_detail::expand_home(keyValue, c.options.env));
     if (!keyMissing && !is_file(key))
-        return err(std::string("googleplay: ") + kPlayKeyVar + " is '" + keyValue + "', which is not a file", "Set it to the path of the service account's JSON key.");
-    auto keyJson = keyMissing ? Result<Json>(Json::object({{"type", "service_account"}})) : parse_json(tooling_detail::read_file(key).value_or(""), generic(key));
+        return err(std::string("googleplay: ") + kPlayKeyVar + " is '" + keyValue + "', which is not a file",
+                   "Set it to the path of the service account's JSON key.");
+    auto keyJson = keyMissing ? Result<Json>(Json::object({{"type", "service_account"}}))
+                              : parse_json(tooling_detail::read_file(key).value_or(""), generic(key));
     if (!keyJson.ok() || !keyJson->is_object() || keyJson->value("type", std::string()) != "service_account")
-        return err("googleplay: " + generic(key) + " is not a service account key (its \"type\" must be \"service_account\")",
-                   "Google Cloud console > IAM > Service accounts > your account > Keys > Add key > JSON. A client secret or an OAuth file does not work.");
+        return err("googleplay: " + generic(key) +
+                       " is not a service account key (its \"type\" must be \"service_account\")",
+                   "Google Cloud console > IAM > Service accounts > your account > Keys > Add key > JSON. A client "
+                   "secret or an OAuth file does not work.");
 
     Job job;
     job.title = "fastlane supply (" + c.bundleId + ", track " + track + ")";
-    job.argv = {"", "supply", "--aab", generic(c.artifact), "--track", track, "--release_status", status, "--package_name", c.bundleId, "--json_key", generic(key),
-                "--skip_upload_apk", "true", "--skip_upload_metadata", "true", "--skip_upload_images", "true", "--skip_upload_screenshots", "true"};
+    job.argv = {"",
+                "supply",
+                "--aab",
+                generic(c.artifact),
+                "--track",
+                track,
+                "--release_status",
+                status,
+                "--package_name",
+                c.bundleId,
+                "--json_key",
+                generic(key),
+                "--skip_upload_apk",
+                "true",
+                "--skip_upload_metadata",
+                "true",
+                "--skip_upload_images",
+                "true",
+                "--skip_upload_screenshots",
+                "true"};
     if (s.changelogs.empty()) {
         job.argv.insert(job.argv.end(), {"--skip_upload_changelogs", "true"});
     } else {
@@ -479,26 +650,40 @@ Result<std::vector<Job>> plan_googleplay(Context& c) {
             const std::string where = "factoria.json#/publish/googleplay/changelogs/" + locale;
             if (!path.ok()) return err("googleplay: " + where + ": " + path.error().message, path.error().hint);
             auto text = tooling_detail::read_file(*path);
-            if (!text) return err("googleplay: " + where + ": the file '" + rel + "' does not exist", "Write the release notes for " + locale + " in that file (up to 500 characters, plain text).");
+            if (!text)
+                return err("googleplay: " + where + ": the file '" + rel + "' does not exist",
+                           "Write the release notes for " + locale +
+                               " in that file (up to 500 characters, plain text).");
             const std::string notes(trim(*text));
             if (notes.empty() || utf8_length(notes) > 500)
-                return err("googleplay: " + where + ": '" + rel + "' has " + std::to_string(utf8_length(notes)) + " characters",
-                           "Google Play takes release notes of 1 to 500 characters per language: shorten the text of that file.");
+                return err("googleplay: " + where + ": '" + rel + "' has " + std::to_string(utf8_length(notes)) +
+                               " characters",
+                           "Google Play takes release notes of 1 to 500 characters per language: shorten the text of "
+                           "that file.");
             job.files.push_back({metadata / locale / "changelogs" / "default.txt", notes});
         }
         job.argv.insert(job.argv.end(), {"--metadata_path", generic(metadata)});
     }
     job.shown = job.argv;
-    job.uploads.push_back({"android", "Google Play " + c.bundleId + ", track " + track + " (" + status + ", version code " + std::to_string(c.androidVersionCode) + ")"});
-    job.failureHint = "Typical causes: 'Package not found' - the first bundle of an app must be uploaded by hand in the Play Console; 'The caller does not have permission' - the service account needs access "
-                      "to the app (Play Console > Users and permissions) and the Google Play Android Developer API enabled in its Google Cloud project; 'Version code N has already been used' - raise "
-                      "version (or export.android.versionCode) in factoria.json and export the bundle again; 'Only releases with status draft may be created on draft app' - use releaseStatus draft until the app is published.";
+    job.uploads.push_back({"android", "Google Play " + c.bundleId + ", track " + track + " (" + status +
+                                          ", version code " + std::to_string(c.androidVersionCode) + ")"});
+    job.failureHint =
+        "Typical causes: 'Package not found' - the first bundle of an app must be uploaded by hand in the Play "
+        "Console; 'The caller does not have permission' - the service account needs access "
+        "to the app (Play Console > Users and permissions) and the Google Play Android Developer API enabled in its "
+        "Google Cloud project; 'Version code N has already been used' - raise "
+        "version (or export.android.versionCode) in factoria.json and export the bundle again; 'Only releases with "
+        "status draft may be created on draft app' - use releaseStatus draft until the app is published.";
     if (track == "production" && status == "completed")
-        c.warnings.push_back("This puts the bundle on the production track and rolls it out to everyone right away. Use releaseStatus draft to review it in the Play Console first.");
+        c.warnings.push_back("This puts the bundle on the production track and rolls it out to everyone right away. "
+                             "Use releaseStatus draft to review it in the Play Console first.");
     c.nextSteps.push_back(status == "draft"
-                              ? "The release is a draft: open Play Console > your app > Testing/Release > " + track + ", check it and roll it out."
-                              : "The release is rolling out on the '" + track + "' track; follow it in Play Console > your app > Release.");
-    c.nextSteps.push_back("Google Play takes each version code once: raise \"version\" (or export.android.versionCode) in factoria.json before the next release export.");
+                              ? "The release is a draft: open Play Console > your app > Testing/Release > " + track +
+                                    ", check it and roll it out."
+                              : "The release is rolling out on the '" + track +
+                                    "' track; follow it in Play Console > your app > Release.");
+    c.nextSteps.push_back("Google Play takes each version code once: raise \"version\" (or export.android.versionCode) "
+                          "in factoria.json before the next release export.");
     return std::vector<Job>{std::move(job)};
 }
 
@@ -513,66 +698,102 @@ const char* const kMsSecretVar = "FACTORIA_MSSTORE_CLIENT_SECRET";
 Result<std::vector<Job>> plan_microsoft(Context& c) {
     std::string productId = c.settings.microsoft.productId;
     if (productId.empty()) {
-        if (auto e = dry_missing(c, err("microsoft: factoria.json#/publish/microsoft/productId is not set",
-                   pointer_hint("the Store ID of your app", "\"publish\": {\"microsoft\": {\"productId\": \"9NBLGGH4NNS1\"}}") +
-                       " It is in Partner Center > your app > Product identity > Store ID. Create the app there first (reserve its name): the first submission is made by hand.")))
+        if (auto e =
+                dry_missing(c, err("microsoft: factoria.json#/publish/microsoft/productId is not set",
+                                   pointer_hint("the Store ID of your app",
+                                                "\"publish\": {\"microsoft\": {\"productId\": \"9NBLGGH4NNS1\"}}") +
+                                       " It is in Partner Center > your app > Product identity > Store ID. Create the "
+                                       "app there first (reserve its name): the first submission is made by hand.")))
             return *e;
         productId = "MISSING_PRODUCT_ID";
     }
-    const std::string tenant = env_of(c, kMsTenantVar), seller = env_of(c, kMsSellerVar), client = env_of(c, kMsClientVar), secret = env_of(c, kMsSecretVar);
+    const std::string tenant = env_of(c, kMsTenantVar), seller = env_of(c, kMsSellerVar),
+                      client = env_of(c, kMsClientVar), secret = env_of(c, kMsSecretVar);
     std::vector<std::string> missing;
     if (tenant.empty()) missing.push_back(kMsTenantVar);
     if (seller.empty()) missing.push_back(kMsSellerVar);
     if (client.empty()) missing.push_back(kMsClientVar);
     if (secret.empty()) missing.push_back(kMsSecretVar);
     if (!missing.empty()) {
-        if (auto e = dry_missing(c, err("microsoft: the Partner Center credentials are not set: " + join(missing, ", ") + (missing.size() == 1 ? " is" : " are") + " empty",
-                   "Partner Center > Account settings > Tenants links your Microsoft Entra tenant; Account settings > User management > Azure AD applications > Add Azure AD application "
-                   "(role Manager) gives the client id and a client secret; the tenant id and the seller id are on the same pages. Put them in the environment variables " +
-                       join(std::vector<std::string>{kMsTenantVar, kMsSellerVar, kMsClientVar, kMsSecretVar}, ", ") + " (never in factoria.json; they are not written, shown or logged).")))
+        if (auto e = dry_missing(
+                c,
+                err("microsoft: the Partner Center credentials are not set: " + join(missing, ", ") +
+                        (missing.size() == 1 ? " is" : " are") + " empty",
+                    "Partner Center > Account settings > Tenants links your Microsoft Entra tenant; Account settings > "
+                    "User management > Azure AD applications > Add Azure AD application "
+                    "(role Manager) gives the client id and a client secret; the tenant id and the seller id are on "
+                    "the same pages. Put them in the environment variables " +
+                        join(std::vector<std::string>{kMsTenantVar, kMsSellerVar, kMsClientVar, kMsSecretVar}, ", ") +
+                        " (never in factoria.json; they are not written, shown or logged).")))
             return *e;
     }
     const std::string status = c.options.releaseStatus.empty() ? "draft" : c.options.releaseStatus;
     if (status != "draft" && status != "completed")
         return err("microsoft: '" + status + "' is not a release status",
-                   did_you_mean(status, std::vector<std::string>{"draft", "completed"}) + " draft prepares the submission in Partner Center without sending it to certification; completed also submits it.");
+                   did_you_mean(status, std::vector<std::string>{"draft", "completed"}) +
+                       " draft prepares the submission in Partner Center without sending it to certification; "
+                       "completed also submits it.");
 
     // The package is checked as far as a zip can be: Partner Center refuses an identity that is not the app's.
     auto manifest = export_detail::zip_read_entry(c.artifact, "AppxManifest.xml");
     if (!manifest.ok())
         return err("microsoft: " + generic(c.artifact) + " is not an MSIX package: " + manifest.error().message,
-                   "Export it again: project.export {\"platform\":\"windows\",\"format\":\"msix\"} writes build/export/<game-slug>-windows.msix.");
+                   "Export it again: project.export {\"platform\":\"windows\",\"format\":\"msix\"} writes "
+                   "build/export/<game-slug>-windows.msix.");
     if (manifest->find("Publisher=\"CN=FactorIA Developer\"") != std::string::npos)
-        c.warnings.push_back("The package carries the placeholder identity (no export.windows.msix identity in factoria.json): Partner Center rejects it. Copy Package/Identity/Name, "
-                             "Package/Identity/Publisher and Package/Properties/PublisherDisplayName from Partner Center > your app > Product identity into export.windows.msix and export again.");
+        c.warnings.push_back("The package carries the placeholder identity (no export.windows.msix identity in "
+                             "factoria.json): Partner Center rejects it. Copy Package/Identity/Name, "
+                             "Package/Identity/Publisher and Package/Properties/PublisherDisplayName from Partner "
+                             "Center > your app > Product identity into export.windows.msix and export again.");
 
     Job reconfigure;
     reconfigure.title = "msstore reconfigure (Partner Center credentials)";
-    reconfigure.argv = {"", "reconfigure", "--tenantId", tenant.empty() ? "MISSING_TENANT_ID" : tenant, "--sellerId", seller.empty() ? "MISSING_SELLER_ID" : seller,
-                        "--clientId", client.empty() ? "MISSING_CLIENT_ID" : client, "--clientSecret", secret.empty() ? "MISSING_CLIENT_SECRET" : secret};
+    reconfigure.argv = {"",
+                        "reconfigure",
+                        "--tenantId",
+                        tenant.empty() ? "MISSING_TENANT_ID" : tenant,
+                        "--sellerId",
+                        seller.empty() ? "MISSING_SELLER_ID" : seller,
+                        "--clientId",
+                        client.empty() ? "MISSING_CLIENT_ID" : client,
+                        "--clientSecret",
+                        secret.empty() ? "MISSING_CLIENT_SECRET" : secret};
     reconfigure.shown = reconfigure.argv;
     reconfigure.shown.back() = kRedacted;
     reconfigure.secrets = {secret};
     if (!secret.empty())
-        c.warnings.push_back(std::string("msstore takes the client secret only as the argument --clientSecret of `msstore reconfigure` (it has no environment variable, file or standard-input form): during that step ") +
-                             kMsSecretVar + " is visible in the process list (ps, Task Manager) to every user of this computer, for a few seconds. FactorIA hides it everywhere else (report, log, progress). "
-                             "Use an Azure AD application whose secret you can revoke, and rotate it if the computer is shared.");
-    reconfigure.failureHint = "Check the tenant id, seller id, client id and client secret (the secret expires: Partner Center > Account settings > Azure AD applications). msstore keeps the credentials itself.";
+        c.warnings.push_back(
+            std::string("msstore takes the client secret only as the argument --clientSecret of `msstore reconfigure` "
+                        "(it has no environment variable, file or standard-input form): during that step ") +
+            kMsSecretVar +
+            " is visible in the process list (ps, Task Manager) to every user of this computer, for a few seconds. "
+            "FactorIA hides it everywhere else (report, log, progress). "
+            "Use an Azure AD application whose secret you can revoke, and rotate it if the computer is shared.");
+    reconfigure.failureHint =
+        "Check the tenant id, seller id, client id and client secret (the secret expires: Partner Center > Account "
+        "settings > Azure AD applications). msstore keeps the credentials itself.";
 
     Job publish;
     publish.title = "msstore publish (" + productId + ")";
-    publish.argv = {"", "publish", generic(c.artifact.parent_path()), "--inputFile", generic(c.artifact), "--appId", productId};
+    publish.argv = {"",        "publish", generic(c.artifact.parent_path()), "--inputFile", generic(c.artifact),
+                    "--appId", productId};
     if (status == "draft") publish.argv.push_back("--noCommit");
     publish.shown = publish.argv;
     publish.secrets = {secret};
     publish.uploads.push_back({"windows", "Microsoft Store " + productId + " (" + status + ")"});
-    publish.failureHint = "Typical causes: 'identity does not match' - copy Name, Publisher and PublisherDisplayName from Partner Center > Product identity into export.windows.msix and export again; "
-                          "'a submission is already in progress' - finish or delete the pending submission in Partner Center; 'version must be higher' - raise \"version\" in factoria.json "
-                          "(every submission needs a higher package version); the very first submission of an app has to be made by hand in Partner Center.";
-    c.nextSteps.push_back(status == "draft"
-                              ? "The submission is prepared, not sent: open Partner Center > your app > the pending submission, check it (and fill in the Store listing and the age rating if it is the first one) and submit it for certification."
-                              : "The submission was sent for certification; follow it in Partner Center > your app > Submission. Certification can take a few days.");
-    c.nextSteps.push_back("The package is uploaded unsigned: the Store signs it. Every submission needs a higher \"version\" in factoria.json (export again).");
+    publish.failureHint = "Typical causes: 'identity does not match' - copy Name, Publisher and PublisherDisplayName "
+                          "from Partner Center > Product identity into export.windows.msix and export again; "
+                          "'a submission is already in progress' - finish or delete the pending submission in Partner "
+                          "Center; 'version must be higher' - raise \"version\" in factoria.json "
+                          "(every submission needs a higher package version); the very first submission of an app has "
+                          "to be made by hand in Partner Center.";
+    c.nextSteps.push_back(status == "draft" ? "The submission is prepared, not sent: open Partner Center > your app > "
+                                              "the pending submission, check it (and fill in the Store listing and the "
+                                              "age rating if it is the first one) and submit it for certification."
+                                            : "The submission was sent for certification; follow it in Partner Center "
+                                              "> your app > Submission. Certification can take a few days.");
+    c.nextSteps.push_back("The package is uploaded unsigned: the Store signs it. Every submission needs a higher "
+                          "\"version\" in factoria.json (export again).");
     return std::vector<Job>{std::move(reconfigure), std::move(publish)};
 }
 
@@ -581,29 +802,83 @@ Result<std::vector<Job>> plan_microsoft(Context& c) {
 const Store* find_store(const std::string& name) {
     static const std::vector<Store> stores = [] {
         std::vector<Store> v;
-        v.push_back({"steam", "steamcmd", "FACTORIA_STEAMCMD", "steamcmd", {"steamcmd", "steamcmd.sh"},
-                     "https://developer.valvesoftware.com/wiki/SteamCMD (Steamworks: https://partner.steamgames.com/doc/sdk/uploading)", false, steam_configured, plan_steam});
-        v.push_back({"itch", "butler", "FACTORIA_BUTLER", "butler", {"butler"}, "https://itch.io/docs/butler/installing.html", false, always_configured, plan_itch});
-        v.push_back({"epic", "BuildPatchTool", "FACTORIA_BUILDPATCHTOOL", "buildPatchTool", {"BuildPatchTool"},
-                     "https://dev.epicgames.com/docs/epic-games-store/publishing-tools/uploading-binaries/bpt-instructions-160 (the zip is "
-                     "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/BuildPatchTool.zip)",
-                     true, epic_configured, plan_epic});
-        v.push_back({"gog", "GOGGalaxyPipelineBuilder", "FACTORIA_GOG_PIPELINE_BUILDER", "galaxyPipelineBuilder", {"GOGGalaxyPipelineBuilder"},
-                     "https://docs.gog.com/pb-quick-start/ (the GOG Developer Portal > GALAXY Components > Pipeline Builder)", true, always_configured, plan_gog});
-        Store appstore{"appstore", "xcrun", "FACTORIA_XCRUN", "xcrun", {"xcrun"},
-                       "Xcode: install it from the Mac App Store, then run `xcode-select --install` (https://developer.apple.com/xcode/); xcrun and altool come with it",
-                       false, always_configured, plan_appstore};
+        v.push_back({"steam",
+                     "steamcmd",
+                     "FACTORIA_STEAMCMD",
+                     "steamcmd",
+                     {"steamcmd", "steamcmd.sh"},
+                     "https://developer.valvesoftware.com/wiki/SteamCMD (Steamworks: "
+                     "https://partner.steamgames.com/doc/sdk/uploading)",
+                     false,
+                     steam_configured,
+                     plan_steam});
+        v.push_back({"itch",
+                     "butler",
+                     "FACTORIA_BUTLER",
+                     "butler",
+                     {"butler"},
+                     "https://itch.io/docs/butler/installing.html",
+                     false,
+                     always_configured,
+                     plan_itch});
+        v.push_back({"epic",
+                     "BuildPatchTool",
+                     "FACTORIA_BUILDPATCHTOOL",
+                     "buildPatchTool",
+                     {"BuildPatchTool"},
+                     "https://dev.epicgames.com/docs/epic-games-store/publishing-tools/uploading-binaries/"
+                     "bpt-instructions-160 (the zip is "
+                     "https://launcher-public-service-prod06.ol.epicgames.com/launcher/api/installer/download/"
+                     "BuildPatchTool.zip)",
+                     true,
+                     epic_configured,
+                     plan_epic});
+        v.push_back(
+            {"gog",
+             "GOGGalaxyPipelineBuilder",
+             "FACTORIA_GOG_PIPELINE_BUILDER",
+             "galaxyPipelineBuilder",
+             {"GOGGalaxyPipelineBuilder"},
+             "https://docs.gog.com/pb-quick-start/ (the GOG Developer Portal > GALAXY Components > Pipeline Builder)",
+             true,
+             always_configured,
+             plan_gog});
+        Store appstore{"appstore",
+                       "xcrun",
+                       "FACTORIA_XCRUN",
+                       "xcrun",
+                       {"xcrun"},
+                       "Xcode: install it from the Mac App Store, then run `xcode-select --install` "
+                       "(https://developer.apple.com/xcode/); xcrun and altool come with it",
+                       false,
+                       always_configured,
+                       plan_appstore};
         appstore.mobile = "ios";
         appstore.macOnly = true;
         v.push_back(appstore);
-        Store googleplay{"googleplay", "fastlane", "FACTORIA_FASTLANE", "fastlane", {"fastlane"},
-                         "https://docs.fastlane.tools/getting-started/android/setup/ (gem install fastlane, or brew install fastlane)", false, always_configured, plan_googleplay};
+        Store googleplay{"googleplay",
+                         "fastlane",
+                         "FACTORIA_FASTLANE",
+                         "fastlane",
+                         {"fastlane"},
+                         "https://docs.fastlane.tools/getting-started/android/setup/ (gem install fastlane, or brew "
+                         "install fastlane)",
+                         false,
+                         always_configured,
+                         plan_googleplay};
         googleplay.mobile = "android";
         v.push_back(googleplay);
-        Store microsoft{"microsoft", "msstore", "FACTORIA_MSSTORE", "msstore", {"msstore"},
-                        "https://aka.ms/msstoredevcli/releases (Microsoft Store Developer CLI; needs the .NET runtime. macOS: brew install microsoft/msstore-cli/msstore-cli; "
+        Store microsoft{"microsoft",
+                        "msstore",
+                        "FACTORIA_MSSTORE",
+                        "msstore",
+                        {"msstore"},
+                        "https://aka.ms/msstoredevcli/releases (Microsoft Store Developer CLI; needs the .NET runtime. "
+                        "macOS: brew install microsoft/msstore-cli/msstore-cli; "
                         "Windows: winget install \"Microsoft Store Developer CLI\")",
-                        false, always_configured, plan_microsoft};
+                        false,
+                        always_configured,
+                        plan_microsoft};
         microsoft.mobile = "windows";  // uploads one built file (the .msix), not the export folders
         v.push_back(microsoft);
         return v;

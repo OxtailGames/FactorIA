@@ -48,7 +48,8 @@ TEST_CASE("nav tiles: a path goes around a wall, 4-way") {
     CHECK(p.cost == doctest::Approx(6.0f));
     CHECK_FALSE(has_cell(p, 2, 1));
     for (std::size_t i = 1; i < p.cells.size(); ++i)  // every step is orthogonal
-        CHECK(std::abs(p.cells[i].first - p.cells[i - 1].first) + std::abs(p.cells[i].second - p.cells[i - 1].second) == 1);
+        CHECK(std::abs(p.cells[i].first - p.cells[i - 1].first) + std::abs(p.cells[i].second - p.cells[i - 1].second) ==
+              1);
 }
 
 TEST_CASE("nav tiles: diagonals shorten the path and never cut a corner") {
@@ -218,14 +219,17 @@ TEST_CASE("nav tiles: a path on an isometric Tilemap walks the diamonds and repo
     const NavTileGrid grid = nav_tile_grid_from_tilemap(tm, Json::object());
     CHECK(grid.isometric);
     const Vec2 a = nav_tile_cell_center(grid, 0, 0), b = nav_tile_cell_center(grid, 1, 0);
-    CHECK(std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)) == doctest::Approx(std::sqrt(50.0f * 50.0f + 25.0f * 25.0f)));
+    CHECK(std::sqrt((b.x - a.x) * (b.x - a.x) + (b.y - a.y) * (b.y - a.y)) ==
+          doctest::Approx(std::sqrt(50.0f * 50.0f + 25.0f * 25.0f)));
     CHECK(j["length"].get<float>() == doctest::Approx(5.0f * std::sqrt(50.0f * 50.0f + 25.0f * 25.0f)));
 }
 
 TEST_CASE("nav tiles: a plain grid with origin and cell size") {
     World world;
-    auto r = nav_tile_query(world, Json::parse(
-        R"({"grid":{"width":3,"height":1,"cost":[1,null,1],"origin":[10,20],"cellSize":4},"from":[0,0],"to":[2,0],"closest":true})"));
+    auto r = nav_tile_query(
+        world,
+        Json::parse(
+            R"({"grid":{"width":3,"height":1,"cost":[1,null,1],"origin":[10,20],"cellSize":4},"from":[0,0],"to":[2,0],"closest":true})"));
     REQUIRE(r.ok());
     CHECK(r.value()["found"] == true);
     CHECK(r.value()["complete"] == false);
@@ -264,7 +268,8 @@ TEST_CASE("nav grid: a kept grid gives the same paths as the array form, before 
         o.closest = true;
         int compared = 0;
         for (int i = 0; i < 60; ++i) {
-            const int fc = (i * 7) % plain.width, fr = (i * 5) % plain.height, tc = (i * 11 + 3) % plain.width, tr = (i * 3 + 1) % plain.height;
+            const int fc = (i * 7) % plain.width, fr = (i * 5) % plain.height, tc = (i * 11 + 3) % plain.width,
+                      tr = (i * 3 + 1) % plain.height;
             const NavTilePath a = nav_find_tile_path(plain, fc, fr, tc, tr, o);
             const NavTilePath b = nav_find_tile_path(kept.grid(), fc, fr, tc, tr, o);
             REQUIRE(a.found == b.found);
@@ -274,12 +279,14 @@ TEST_CASE("nav grid: a kept grid gives the same paths as the array form, before 
         }
         CHECK(compared == 60);
         // change cells, including the cheapest one, on both; the kept grid must follow
-        for (const auto& [c, r, v] : {std::tuple{3, 3, -1.0f}, std::tuple{4, 3, 0.5f}, std::tuple{4, 3, 2.0f}, std::tuple{5, 6, 1.0f}}) {
+        for (const auto& [c, r, v] :
+             {std::tuple{3, 3, -1.0f}, std::tuple{4, 3, 0.5f}, std::tuple{4, 3, 2.0f}, std::tuple{5, 6, 1.0f}}) {
             plain.cost[std::size_t(r * plain.width + c)] = v;
             CHECK(kept.set_cost(c, r, v));
         }
         for (int i = 0; i < 30; ++i) {
-            const int fc = (i * 3) % plain.width, fr = (i * 5) % plain.height, tc = (i * 13 + 1) % plain.width, tr = (i * 7 + 2) % plain.height;
+            const int fc = (i * 3) % plain.width, fr = (i * 5) % plain.height, tc = (i * 13 + 1) % plain.width,
+                      tr = (i * 7 + 2) % plain.height;
             const NavTilePath a = nav_find_tile_path(plain, fc, fr, tc, tr, o);
             const NavTilePath b = nav_find_tile_path(kept.grid(), fc, fr, tc, tr, o);
             REQUIRE(a.found == b.found);
@@ -387,8 +394,9 @@ TEST_CASE("nav flow: a changed grid rebuilds the field, a blocked goal is entere
 
 TEST_CASE("nav flow: the nav.flow_field command") {
     World world;
-    auto r = nav_flow_query(world, Json::parse(
-        R"({"grid":{"width":4,"height":2,"cost":[1,1,null,1, 1,1,1,1]},"goals":[[3,0]],"from":[0,0]})"));
+    auto r = nav_flow_query(
+        world,
+        Json::parse(R"({"grid":{"width":4,"height":2,"cost":[1,1,null,1, 1,1,1,1]},"goals":[[3,0]],"from":[0,0]})"));
     REQUIRE(r.ok());
     CHECK(r.value()["distance"].size() == 8);
     CHECK(r.value()["distance"][2].is_null());
@@ -485,7 +493,8 @@ TEST_CASE("nav tiles: the Tilemap grid and the shared rules give the same cost i
     REQUIRE(fromMap.width == fromTiles.width);
     REQUIRE(fromMap.height == fromTiles.height);
     REQUIRE(fromMap.cost.size() == fromTiles.cost.size());
-    for (std::size_t i = 0; i < fromMap.cost.size(); ++i) CHECK_MESSAGE(fromMap.cost[i] == fromTiles.cost[i], "cell " << i);
+    for (std::size_t i = 0; i < fromMap.cost.size(); ++i)
+        CHECK_MESSAGE(fromMap.cost[i] == fromTiles.cost[i], "cell " << i);
     const std::vector<float> expect = {1.0f, -1.0f, 2.5f, 1.5f, -1.0f, 0.5f, -1.0f, 2.5f, 1.5f, 1.0f};
     CHECK(fromTiles.cost == expect);
 
@@ -505,7 +514,9 @@ TEST_CASE("nav tiles: many queries give the answers of single ones, in request o
     g.width = 40;
     g.height = 30;
     for (int r = 0; r < g.height; ++r)
-        for (int c = 0; c < g.width; ++c) g.cost.push_back((c % 6 == 3 && r % 7 != 2) || (r % 8 == 5 && c % 9 != 4) ? -1.0f : 1.0f + float((c * r) % 3));
+        for (int c = 0; c < g.width; ++c)
+            g.cost.push_back((c % 6 == 3 && r % 7 != 2) || (r % 8 == 5 && c % 9 != 4) ? -1.0f
+                                                                                      : 1.0f + float((c * r) % 3));
     Json args = Json::object();
     args["diagonals"] = true;
     args["closest"] = true;

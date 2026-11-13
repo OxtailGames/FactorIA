@@ -12,16 +12,47 @@ namespace {
 // out how to use the rest (docs_*). Grouped by what they do.
 const std::vector<std::string> kCore = {
     // files and docs
-    "fs.read", "fs.write", "fs.edit", "fs.list", "fs.search", "fs.delete", "docs.list", "docs.read", "docs.search",
-    "docs.commands", "docs.components",
+    "fs.read",
+    "fs.write",
+    "fs.edit",
+    "fs.list",
+    "fs.search",
+    "fs.delete",
+    "docs.list",
+    "docs.read",
+    "docs.search",
+    "docs.commands",
+    "docs.components",
     // the scene
-    "scene.spawn", "scene.set_component", "scene.remove_component", "scene.get_entity", "scene.list_entities",
-    "scene.destroy", "scene.set_parent", "scene.save", "scene.load", "scene.reload",
+    "scene.spawn",
+    "scene.set_component",
+    "scene.remove_component",
+    "scene.get_entity",
+    "scene.list_entities",
+    "scene.destroy",
+    "scene.set_parent",
+    "scene.save",
+    "scene.load",
+    "scene.reload",
     // running and looking at the game
-    "game.step", "game.input", "game.click", "game.pause", "game.resume", "game.state", "game.logs", "game.screenshot",
+    "game.step",
+    "game.input",
+    "game.click",
+    "game.pause",
+    "game.resume",
+    "game.state",
+    "game.logs",
+    "game.screenshot",
     // checking the project, scripts, engine gaps
-    "project.validate", "project.info", "project.test", "script.eval", "script.errors", "script.reload",
-    "feedback.report", "assets.list", "assets.import",
+    "project.validate",
+    "project.info",
+    "project.test",
+    "script.eval",
+    "script.errors",
+    "script.reload",
+    "feedback.report",
+    "assets.list",
+    "assets.import",
     // topic guides read on demand (skills.list and skills.new stay in the catalog)
     "skills.read",
 };
@@ -43,7 +74,8 @@ bool command_in_tool_group(const CommandInfo& info, std::string_view group) {
 std::string tool_group_hint(std::string_view group, const std::vector<const CommandInfo*>& commands) {
     std::vector<std::string> candidates = {"core", "all"};
     for (const CommandInfo* c : commands)
-        if (std::find(candidates.begin(), candidates.end(), c->category) == candidates.end()) candidates.push_back(c->category);
+        if (std::find(candidates.begin(), candidates.end(), c->category) == candidates.end())
+            candidates.push_back(c->category);
     for (const CommandInfo* c : commands) candidates.push_back(c->name);
     return fa::did_you_mean(std::string(group), candidates);
 }

@@ -35,7 +35,8 @@ Json scalar(std::string_view s) {
     long long iv = 0;
     auto r = std::from_chars(s.data(), s.data() + s.size(), iv);
     if (r.ec == std::errc() && r.ptr == s.data() + s.size()) return iv;
-    if (!s.empty() && (std::isdigit(static_cast<unsigned char>(s[0])) || ((s[0] == '-' || s[0] == '.') && s.size() > 1))) {
+    if (!s.empty() &&
+        (std::isdigit(static_cast<unsigned char>(s[0])) || ((s[0] == '-' || s[0] == '.') && s.size() > 1))) {
         char* end = nullptr;
         const std::string tmp(s);
         double d = std::strtod(tmp.c_str(), &end);
@@ -56,7 +57,10 @@ struct Parser {
 
     // A block of lines that all start at `indent`.
     bool block(int indent, Json& out) {
-        if (pos >= lines.size()) { out = Json::array(); return true; }
+        if (pos >= lines.size()) {
+            out = Json::array();
+            return true;
+        }
         const Line& first = lines[pos];
         if (first.text == "-") return sequence(indent, out);
         return mapping(indent, out);
@@ -97,7 +101,8 @@ struct Parser {
             ++pos;
             if (!value.empty()) {
                 out[key] = scalar(value);
-            } else if (pos < lines.size() && (lines[pos].indent > indent || (lines[pos].indent == indent && lines[pos].text == "-"))) {
+            } else if (pos < lines.size() &&
+                       (lines[pos].indent > indent || (lines[pos].indent == indent && lines[pos].text == "-"))) {
                 Json child;
                 if (!block(lines[pos].indent, child)) return false;
                 out[key] = std::move(child);
@@ -132,18 +137,25 @@ Result<Json> parse_shdc_yaml(std::string_view text) {
             p.lines.push_back({indent, "-", number});
             std::string rest = content.substr(2);
             int extra = 2;
-            while (!rest.empty() && rest.front() == ' ') { rest.erase(rest.begin()); ++extra; }
+            while (!rest.empty() && rest.front() == ' ') {
+                rest.erase(rest.begin());
+                ++extra;
+            }
             p.lines.push_back({indent + extra, rest, number});
         } else {
             p.lines.push_back({indent, content, number});
         }
     }
-    if (p.lines.empty()) return make_error("sokol-shdc wrote an empty reflection file", "Run sokol-shdc by hand on the generated top file to see what it prints.");
+    if (p.lines.empty())
+        return make_error("sokol-shdc wrote an empty reflection file",
+                          "Run sokol-shdc by hand on the generated top file to see what it prints.");
     Json root;
     if (!p.block(p.lines.front().indent, root) || !p.error.empty() || p.pos < p.lines.size()) {
-        if (p.error.empty() && p.pos < p.lines.size()) p.error = "line " + std::to_string(p.lines[p.pos].number) + ": unexpected content";
+        if (p.error.empty() && p.pos < p.lines.size())
+            p.error = "line " + std::to_string(p.lines[p.pos].number) + ": unexpected content";
         return make_error("cannot read the reflection YAML of sokol-shdc: " + p.error,
-                          "The reader understands the YAML of the pinned sokol-shdc (fa/tooling/setup.h, kSetupSokolShdcCommit); another version may write something else. "
+                          "The reader understands the YAML of the pinned sokol-shdc (fa/tooling/setup.h, "
+                          "kSetupSokolShdcCommit); another version may write something else. "
                           "Use `factoria setup shaders` to install the pinned one.");
     }
     return root;

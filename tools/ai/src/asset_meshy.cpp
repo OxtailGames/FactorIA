@@ -18,7 +18,8 @@ constexpr std::size_t kMaxPromptChars = 800;
 
 }  // namespace
 
-Result<AssetResult> meshy_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt, const CancelFlag* cancel) {
+Result<AssetResult> meshy_asset(const ProviderConfig& cfg, const AssetRequest& req, const ProviderRuntime& rt,
+                                const CancelFlag* cancel) {
     auto key = asset_api_key(cfg, rt);
     if (!key) return key.error();
     if (req.prompt.size() > kMaxPromptChars) {
@@ -59,7 +60,9 @@ Result<AssetResult> meshy_asset(const ProviderConfig& cfg, const AssetRequest& r
         if (status == "SUCCEEDED") {
             const Json* urls = child(task, "model_urls");
             const std::string glb = urls ? str(*urls, "glb") : std::string();
-            if (glb.empty()) return make_error("Meshy finished task " + id + " without a GLB file", "Reply: " + polled->body.substr(0, 200));
+            if (glb.empty())
+                return make_error("Meshy finished task " + id + " without a GLB file",
+                                  "Reply: " + polled->body.substr(0, 200));
             HttpRequest download;  // a signed link on Meshy's storage: no key goes with it
             download.method = "GET";
             download.url = glb;
@@ -73,16 +76,20 @@ Result<AssetResult> meshy_asset(const ProviderConfig& cfg, const AssetRequest& r
         if (status == "FAILED" || status == "CANCELED") {
             const Json* err = child(task, "task_error");
             const std::string why = err ? str(*err, "message") : std::string();
-            return make_error("Meshy " + std::string(status == "FAILED" ? "failed" : "canceled") + " task " + id + (why.empty() ? "" : ": " + why),
+            return make_error("Meshy " + std::string(status == "FAILED" ? "failed" : "canceled") + " task " + id +
+                                  (why.empty() ? "" : ": " + why),
                               "Try another prompt. A failed task costs no credits.");
         }
         if (waited >= cfg.timeoutSeconds) {
             return make_error("Meshy task " + id + " was still " + (status.empty() ? "running" : status) + " after " +
                                   std::to_string(static_cast<int>(waited)) + " seconds",
-                              "Raise \"timeoutSeconds\" of the meshy provider in ai.json, or retry later: the task keeps running on Meshy's side.");
+                              "Raise \"timeoutSeconds\" of the meshy provider in ai.json, or retry later: the task "
+                              "keeps running on Meshy's side.");
         }
-        if (rt.sleep) rt.sleep(kPollSeconds);
-        else default_sleep(kPollSeconds, cancel);
+        if (rt.sleep)
+            rt.sleep(kPollSeconds);
+        else
+            default_sleep(kPollSeconds, cancel);
         if (is_cancelled(cancel)) return make_error("Cancelled");
     }
 }

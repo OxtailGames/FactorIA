@@ -109,7 +109,8 @@ Result<void> write_text(const stdfs::path& path, const std::string& text, bool e
     if (!write_file(path, text, &e)) return err("export: " + e);
     if (executable) {
         std::error_code ec;
-        stdfs::permissions(os_path(path), stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
+        stdfs::permissions(os_path(path),
+                           stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
                            stdfs::perm_options::add, ec);
     }
     return {};
@@ -117,7 +118,8 @@ Result<void> write_text(const stdfs::path& path, const std::string& text, bool e
 
 std::string safe_version_name(const std::string& v) {
     std::string o;
-    for (char c : v) if (std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == '_' || c == '+') o += c;
+    for (char c : v)
+        if (std::isalnum(static_cast<unsigned char>(c)) || c == '.' || c == '-' || c == '_' || c == '+') o += c;
     return o.empty() ? "0.1.0" : o;
 }
 
@@ -178,7 +180,8 @@ Result<std::string> select_sections(const std::string& text, bool source, const 
             out += line;
         }
     }
-    if (bad || inSource) return err("export: bad section markers in template " + where, "this is an engine bug; report it");
+    if (bad || inSource)
+        return err("export: bad section markers in template " + where, "this is an engine bug; report it");
     return out;
 }
 
@@ -203,21 +206,23 @@ bool is_reverse_dns(const std::string& id) {
 
 bool is_java_keyword(const std::string& s) {
     static const std::set<std::string> kw = {
-        "abstract", "assert",  "boolean",   "break",     "byte",   "case",      "catch",  "char",      "class",
-        "const",    "continue", "default",  "do",        "double", "else",      "enum",   "extends",   "final",
-        "finally",  "float",   "for",       "goto",      "if",     "implements", "import", "instanceof", "int",
-        "interface", "long",   "native",    "new",       "package", "private",  "protected", "public",  "return",
-        "short",    "static",  "strictfp",  "super",     "switch", "synchronized", "this", "throw",     "throws",
-        "transient", "try",    "void",      "volatile",  "while",  "true",      "false",  "null"};
+        "abstract",  "assert",   "boolean",  "break",    "byte",    "case",         "catch",     "char",       "class",
+        "const",     "continue", "default",  "do",       "double",  "else",         "enum",      "extends",    "final",
+        "finally",   "float",    "for",      "goto",     "if",      "implements",   "import",    "instanceof", "int",
+        "interface", "long",     "native",   "new",      "package", "private",      "protected", "public",     "return",
+        "short",     "static",   "strictfp", "super",    "switch",  "synchronized", "this",      "throw",      "throws",
+        "transient", "try",      "void",     "volatile", "while",   "true",         "false",     "null"};
     return kw.count(s) > 0;
 }
 
 // ---- project -----------------------------------------------------------------------------------
 
-Result<Project> load_and_validate(const ExportOptions& o, const std::string& platform, std::vector<std::string>& warnings) {
+Result<Project> load_and_validate(const ExportOptions& o, const std::string& platform,
+                                  std::vector<std::string>& warnings) {
     Project p;
     std::error_code ec;
-    if (o.projectDir.empty()) return err("export: no project directory given", "pass the folder that contains factoria.json");
+    if (o.projectDir.empty())
+        return err("export: no project directory given", "pass the folder that contains factoria.json");
     p.dir = stdfs::weakly_canonical(o.projectDir, ec);
     if (!stdfs::is_directory(p.dir, ec)) return err("export: project directory '" + o.projectDir + "' does not exist");
     stdfs::path file = p.dir / "factoria.json";
@@ -231,7 +236,8 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
     if (!j.is_object()) return err(generic(file) + "#/: expected a JSON object");
 
     p.name = j.value("name", std::string());
-    if (p.name.empty()) return err(generic(file) + "#/name: missing or empty", "set \"name\": \"My Game\" in factoria.json");
+    if (p.name.empty())
+        return err(generic(file) + "#/name: missing or empty", "set \"name\": \"My Game\" in factoria.json");
     if (j.contains("id")) {
         if (!j["id"].is_string()) return err(generic(file) + "#/id: expected a string");
         p.id = j["id"].get<std::string>();
@@ -242,9 +248,10 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
             return err(generic(file) + "#/id: missing (required for " + platform + " bundles)",
                        "add a reverse-DNS id, e.g. \"id\": \"com.example." + slugify(p.name, '_') + "\"");
     } else if (!is_reverse_dns(p.id)) {
-        return err(generic(file) + "#/id: '" + p.id + "' is not a reverse-DNS identifier",
-                   "use letters, digits and underscores in at least two dot-separated parts, each starting with a letter "
-                   "(e.g. com.example.spacedodge)");
+        return err(
+            generic(file) + "#/id: '" + p.id + "' is not a reverse-DNS identifier",
+            "use letters, digits and underscores in at least two dot-separated parts, each starting with a letter "
+            "(e.g. com.example.spacedodge)");
     }
     if (mobile) {
         std::string bad;
@@ -258,17 +265,20 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
             }
         }
         if (!bad.empty())
-            return err(generic(file) + "#/id: segment '" + bad + "' is a Java keyword and cannot be used in an Android package name",
+            return err(generic(file) + "#/id: segment '" + bad +
+                           "' is a Java keyword and cannot be used in an Android package name",
                        "rename that part of the id, e.g. '" + bad + "_game'");
     }
     if (j.contains("version") && j["version"].is_string()) p.version = j["version"].get<std::string>();
     if (j.contains("mainScene") && j["mainScene"].is_string()) p.mainScene = j["mainScene"].get<std::string>();
-    if (j.contains("feedbackFile") && j["feedbackFile"].is_string()) p.feedbackFile = j["feedbackFile"].get<std::string>();
+    if (j.contains("feedbackFile") && j["feedbackFile"].is_string())
+        p.feedbackFile = j["feedbackFile"].get<std::string>();
     if (j.contains("display") && j["display"].is_object() && j["display"].contains("orientation") &&
         j["display"]["orientation"].is_string())
         p.orientation = j["display"]["orientation"].get<std::string>();
     if (p.orientation != "landscape" && p.orientation != "portrait" && p.orientation != "any") {
-        warnings.push_back("display.orientation '" + p.orientation + "' is not landscape|portrait|any; using landscape");
+        warnings.push_back("display.orientation '" + p.orientation +
+                           "' is not landscape|portrait|any; using landscape");
         p.orientation = "landscape";
     }
     if (j.contains("platforms") && j["platforms"].is_array()) {
@@ -298,14 +308,17 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
         if (!build.ok()) {
             if (!o.allowMissingPlugins) {
                 Error e = build.error();
-                e.hint += std::string(e.hint.empty() ? "" : " ") + "To export without this plugin, pass --allow-missing-plugins "
+                e.hint += std::string(e.hint.empty() ? "" : " ") +
+                          "To export without this plugin, pass --allow-missing-plugins "
                           "(the export command's \"allowMissingPlugins\": true); the game then runs without it" +
-                          (plugin.optional ? "." : ", and scripts that call it fail (the plugin is not \"optional\" in factoria.json).");
+                          (plugin.optional
+                               ? "."
+                               : ", and scripts that call it fail (the plugin is not \"optional\" in factoria.json).");
                 return e;
             }
             p.pluginsLeftOut.push_back(plugin.name);
-            warnings.push_back("plugin '" + plugin.name + "' is left out of the " + platform + " export because its build is missing (" +
-                               build.error().message + "); " +
+            warnings.push_back("plugin '" + plugin.name + "' is left out of the " + platform +
+                               " export because its build is missing (" + build.error().message + "); " +
                                (plugin.optional ? "it is declared optional, so the game runs without it"
                                                 : "it is NOT declared \"optional\", so scripts that call it fail") +
                                " (allowMissingPlugins / --allow-missing-plugins is on)");
@@ -314,9 +327,10 @@ Result<Project> load_and_validate(const ExportOptions& o, const std::string& pla
         p.plugins.push_back({plugin.name, build.value()});
     }
     if (platform != "web" && p.settings.icon_for(platform).empty())  // a web export has no icon to set
-        warnings.push_back("No icon is set for " + platform + ", so the app gets the platform's default icon. Set \"icon\" in "
-                           "factoria.json (a square PNG or JPG, 1024x1024 recommended), or \"export." + platform +
-                           ".icon\" for this platform only");
+        warnings.push_back("No icon is set for " + platform +
+                           ", so the app gets the platform's default icon. Set \"icon\" in "
+                           "factoria.json (a square PNG or JPG, 1024x1024 recommended), or \"export." +
+                           platform + ".icon\" for this platform only");
     return p;
 }
 
@@ -326,17 +340,23 @@ namespace {
 
 std::string size_text(std::uint64_t bytes) {
     char buf[32];
-    if (bytes >= 1024ull * 1024) std::snprintf(buf, sizeof buf, "%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
-    else if (bytes >= 1024) std::snprintf(buf, sizeof buf, "%.1f KB", static_cast<double>(bytes) / 1024.0);
-    else std::snprintf(buf, sizeof buf, "%llu B", static_cast<unsigned long long>(bytes));
+    if (bytes >= 1024ull * 1024)
+        std::snprintf(buf, sizeof buf, "%.1f MB", static_cast<double>(bytes) / (1024.0 * 1024.0));
+    else if (bytes >= 1024)
+        std::snprintf(buf, sizeof buf, "%.1f KB", static_cast<double>(bytes) / 1024.0);
+    else
+        std::snprintf(buf, sizeof buf, "%llu B", static_cast<unsigned long long>(bytes));
     return buf;
 }
 
 std::string seconds_text(double s) {
     char buf[32];
-    if (s < 1.0) std::snprintf(buf, sizeof buf, "under 1 s");
-    else if (s < 90.0) std::snprintf(buf, sizeof buf, "%.0f s", s);
-    else std::snprintf(buf, sizeof buf, "%.1f min", s / 60.0);
+    if (s < 1.0)
+        std::snprintf(buf, sizeof buf, "under 1 s");
+    else if (s < 90.0)
+        std::snprintf(buf, sizeof buf, "%.0f s", s);
+    else
+        std::snprintf(buf, sizeof buf, "%.1f min", s / 60.0);
     return buf;
 }
 
@@ -353,14 +373,14 @@ static std::string report_folder(const std::string& path) {
     return second == std::string::npos ? path.substr(0, first) : path.substr(0, second);
 }
 
-
 // The project's own commands (the modules under tools/, subfolders included) are for the people and AIs who work on the
 // game: `factoria export` leaves tools/ out, so a shipped game has no `project.<name>` command and a script that calls
 // one fails when it runs there. Warns, for each shipped script, about every literal `fa.call("project.<name>")` whose
 // command a tool defines (docs/EXPORTING.md).
 static void report_tool_only_calls(const Project& p, const std::vector<std::string>& files, ExportReport& report) {
     using namespace tooling_detail;
-    const std::map<std::string, std::string> toolFile = tool_commands(p.dir);  // command name -> the tool file that defines it
+    const std::map<std::string, std::string> toolFile =
+        tool_commands(p.dir);  // command name -> the tool file that defines it
     if (toolFile.empty()) return;
     for (const std::string& f : files) {
         if (to_lower(fs::extension(f)) != ".js") continue;
@@ -411,10 +431,13 @@ static void report_packed_sizes(const Project& p, const std::vector<std::string>
     });
     if (report.largestFolders.size() > 5) report.largestFolders.resize(5);
     for (const auto& [name, s] : suspect)
-        report.warnings.push_back("The folder " + name + "/ (" + std::to_string(s.files) + " file(s), " + size_text(s.bytes) +
-                                  ") is packed into the game. A folder of that name usually holds store pictures, screenshots or the "
-                                  "sources of the assets, which the game never loads: if so, add \"" + name + "\" to \"export.exclude\" in "
-                                  "factoria.json (docs/EXPORTING.md, \"What is shipped and what is not\")");
+        report.warnings.push_back(
+            "The folder " + name + "/ (" + std::to_string(s.files) + " file(s), " + size_text(s.bytes) +
+            ") is packed into the game. A folder of that name usually holds store pictures, screenshots or the "
+            "sources of the assets, which the game never loads: if so, add \"" +
+            name +
+            "\" to \"export.exclude\" in "
+            "factoria.json (docs/EXPORTING.md, \"What is shipped and what is not\")");
 }
 
 // ---- game file collection ----------------------------------------------------------------------
@@ -422,12 +445,23 @@ static void report_packed_sizes(const Project& p, const std::vector<std::string>
 bool excluded_top_level(const std::string& name, const std::string& feedbackFile) {
     // steam_appid.txt makes a game run as the app it names, whoever starts it (the Steam plugin reads it in development):
     // a shipped game gets its app id from the Steam client.
-    static const std::set<std::string> names = {"build", "tests", "tools", "types", "node_modules", "AGENTS.md",
-                                                "CLAUDE.md", "jsconfig.json", "ENGINE_FEEDBACK.json", "ENGINE_FEEDBACK.archive.json",
-                                                "steam_appid.txt", "REVIEW.md"};
+    static const std::set<std::string> names = {"build",
+                                                "tests",
+                                                "tools",
+                                                "types",
+                                                "node_modules",
+                                                "AGENTS.md",
+                                                "CLAUDE.md",
+                                                "jsconfig.json",
+                                                "ENGINE_FEEDBACK.json",
+                                                "ENGINE_FEEDBACK.archive.json",
+                                                "steam_appid.txt",
+                                                "REVIEW.md"};
     // REVIEW.md is the note the art critics and game reviewers read first (docs/AI_PROVIDERS.md, "Reviews").
     // The project's own README is documentation for whoever works on the game, and no game reads it (any capitalization).
-    return names.count(name) > 0 || name == feedbackFile || name == stdfs::path(feedback_archive_path(feedbackFile)).filename().string() || to_lower(name) == "readme.md";
+    return names.count(name) > 0 || name == feedbackFile ||
+           name == stdfs::path(feedback_archive_path(feedbackFile)).filename().string() ||
+           to_lower(name) == "readme.md";
 }
 
 // Project-relative paths (forward slashes, sorted) of every file that ships.
@@ -439,7 +473,8 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
         stdfs::path rel = stdfs::relative(full, p.dir, ec);
         std::string name = full.filename().string();
         bool skip = !name.empty() && name[0] == '.';
-        if (!skip && tooling_detail::export_excluded(p.settings.exclude, generic(rel))) skip = true;  // export.exclude (a folder too)
+        if (!skip && tooling_detail::export_excluded(p.settings.exclude, generic(rel)))
+            skip = true;  // export.exclude (a folder too)
         if (!skip && rel.has_parent_path() == false && excluded_top_level(name, p.feedbackFile)) skip = true;
         // scripts/autoplay.js is the bot play.auto runs (docs/SCRIPTING.md, "The bot"): a shipped game never carries it. Windows and
         // macOS find the file under any capitalization, so the match ignores case too.
@@ -472,7 +507,8 @@ bool gradle_working_dir(const std::string& rel) {
 }
 // A folder with a Gradle working folder inside: app, plugins, plugins/<name>.
 bool holds_gradle_working_dir(const std::string& rel) {
-    return rel == "app" || rel == "plugins" || (rel.rfind("plugins/", 0) == 0 && rel.size() > 8 && rel.find('/', 8) == std::string::npos);
+    return rel == "app" || rel == "plugins" ||
+           (rel.rfind("plugins/", 0) == 0 && rel.size() > 8 && rel.find('/', 8) == std::string::npos);
 }
 
 // The files a game that runs from an export holds open for as long as it runs, so that Windows refuses to delete them:
@@ -496,10 +532,12 @@ void remove_output(const stdfs::path& outRoot, bool keepGradle, std::error_code&
         fs::remove_tree(outRoot, ec);
         return;
     }
-    std::function<void(const stdfs::path&, const std::string&)> clear = [&](const stdfs::path& dir, const std::string& relDir) {
+    std::function<void(const stdfs::path&, const std::string&)> clear = [&](const stdfs::path& dir,
+                                                                            const std::string& relDir) {
         std::error_code lec;
         std::vector<stdfs::path> names;
-        for (stdfs::directory_iterator it(os_path(dir), lec), end; !lec && it != end; it.increment(lec)) names.push_back(it->path().filename());
+        for (stdfs::directory_iterator it(os_path(dir), lec), end; !lec && it != end; it.increment(lec))
+            names.push_back(it->path().filename());
         if (lec && !ec) ec = lec;
         for (const stdfs::path& name : names) {
             const std::string rel = relDir.empty() ? fs::path_to_utf8(name) : relDir + "/" + fs::path_to_utf8(name);
@@ -592,10 +630,12 @@ Result<MobileSetup> resolve_mobile(const ExportOptions& o, const std::string& pl
         s.libs = libs;
         return s;
     }
-    const std::string what = android ? "libfactoria_player.so in " + generic(libs / "jniLibs" / "<abi>")
-                                     : std::string(kIosMarkerLib) + " in " + generic(libs / "<iphoneos|iphonesimulator>");
+    const std::string what = android
+                                 ? "libfactoria_player.so in " + generic(libs / "jniLibs" / "<abi>")
+                                 : std::string(kIosMarkerLib) + " in " + generic(libs / "<iphoneos|iphonesimulator>");
     if (!o.mobileDir.empty())
-        return err("export: no prebuilt " + std::string(android ? "Android" : "iOS") + " player: " + what + " not found",
+        return err("export: no prebuilt " + std::string(android ? "Android" : "iOS") + " player: " + what +
+                       " not found",
                    "point --mobile-dir at the mobile/ folder of the FactorIA download, or omit it");
     const std::string builtFrom = o.buildSourceRoot.empty() ? std::string(FA_SOURCE_ROOT) : o.buildSourceRoot;
     if (auto engine = engine_checkout(builtFrom, need, {}); engine.ok()) {
@@ -611,13 +651,18 @@ Result<MobileSetup> resolve_mobile(const ExportOptions& o, const std::string& pl
             return s;
         }
     }
-    return err("export: cannot export for " + platform + ": no prebuilt player (" + what + " not found) and no engine "
-                   "source checkout (the one factoria was built from, '" + builtFrom + "', has no " + need + ")",
-               "run `factoria setup players` (the editor: Set up in the Export window) to download the prebuilt players of "
-               "this FactorIA version" + std::string(android ? "" : " (the iOS ones come from the macOS package)") +
-                   ", use the FactorIA download from https://github.com/OxtailGames/FactorIA/releases, whose mobile/ folder "
-                   "holds them, or set FACTORIA_ENGINE_DIR (or pass --engine-root) to a FactorIA source checkout to compile the "
-                   "engine from source");
+    return err(
+        "export: cannot export for " + platform + ": no prebuilt player (" + what +
+            " not found) and no engine "
+            "source checkout (the one factoria was built from, '" +
+            builtFrom + "', has no " + need + ")",
+        "run `factoria setup players` (the editor: Set up in the Export window) to download the prebuilt players of "
+        "this FactorIA version" +
+            std::string(android ? "" : " (the iOS ones come from the macOS package)") +
+            ", use the FactorIA download from https://github.com/OxtailGames/FactorIA/releases, whose mobile/ folder "
+            "holds them, or set FACTORIA_ENGINE_DIR (or pass --engine-root) to a FactorIA source checkout to compile "
+            "the "
+            "engine from source");
 }
 
 // ---- license notices -----------------------------------------------------------------------------
@@ -631,11 +676,17 @@ stdfs::path notices_dir(const Project& p, const std::string& platform, const std
     return outRoot;
 }
 
-Result<void> write_notices(const Project& p, const std::string& platform, const stdfs::path& outRoot, ExportReport& report) {
+Result<void> write_notices(const Project& p, const std::string& platform, const stdfs::path& outRoot,
+                           ExportReport& report) {
     const stdfs::path dir = notices_dir(p, platform, outRoot);
-    if (auto r = write_text(dir / kExportNoticesFile, third_party_notices(NoticeScope::Game, std::set<std::string>(report.builtinFonts.begin(), report.builtinFonts.end()))); !r.ok()) return r;
+    if (auto r = write_text(dir / kExportNoticesFile,
+                            third_party_notices(NoticeScope::Game, std::set<std::string>(report.builtinFonts.begin(),
+                                                                                         report.builtinFonts.end())));
+        !r.ok())
+        return r;
     report.notices = generic((dir.lexically_relative(outRoot) / kExportNoticesFile).lexically_normal());
-    report.nextSteps.push_back(report.notices + " holds the licenses of the FactorIA runtime inside the game: keep it in "
+    report.nextSteps.push_back(report.notices +
+                               " holds the licenses of the FactorIA runtime inside the game: keep it in "
                                "what you distribute (docs/EXPORTING.md, \"License notices\")");
     return {};
 }
@@ -643,14 +694,16 @@ Result<void> write_notices(const Project& p, const std::string& platform, const 
 // AI_CONTENT_DISCLOSURE.md at the top of the export when any asset of the project is recorded as made with AI
 // (provenance in assets.json): the text for the AI questions of Steam's content survey. `projectFiles` are the project's
 // files before the asset steps swapped some for their converted forms.
-Result<void> write_ai_disclosure(const Project& p, const std::vector<std::string>& projectFiles, const stdfs::path& outRoot,
-                                 ExportReport& report) {
+Result<void> write_ai_disclosure(const Project& p, const std::vector<std::string>& projectFiles,
+                                 const stdfs::path& outRoot, ExportReport& report) {
     auto text = read_file(p.dir / assets::kManifestFile);
     if (!text) return {};
     auto manifest = parse_json(*text, assets::kManifestFile);
     if (!manifest.ok() || !has_ai_content(*manifest)) return {};
-    if (auto r = write_text(outRoot / kAiDisclosureFile, ai_content_disclosure(*manifest, projectFiles)); !r.ok()) return r;
-    report.nextSteps.push_back(std::string(kAiDisclosureFile) + " answers the AI-generated content questions of store forms (Steam); "
+    if (auto r = write_text(outRoot / kAiDisclosureFile, ai_content_disclosure(*manifest, projectFiles)); !r.ok())
+        return r;
+    report.nextSteps.push_back(std::string(kAiDisclosureFile) +
+                               " answers the AI-generated content questions of store forms (Steam); "
                                "check its section on assets without provenance first");
     return {};
 }
@@ -659,7 +712,8 @@ Result<void> write_ai_disclosure(const Project& p, const std::vector<std::string
 
 // kExportMarkerFile, written first into every export folder (so an export that stopped halfway is replaced too).
 std::string marker_text(const Project& p, const std::string& platform) {
-    return "Written by `factoria export` (" + platform + " export of \"" + replace_all(p.name, "\n", " ") + "\").\n"
+    return "Written by `factoria export` (" + platform + " export of \"" + replace_all(p.name, "\n", " ") +
+           "\").\n"
            "The next export of this game deletes this folder and writes it again. A folder of that name without this\n"
            "file is never deleted: the export stops with an error instead (docs/EXPORTING.md). The game does not need\n"
            "this file; leave it out of what you ship if you like.\n";
@@ -673,21 +727,23 @@ Result<void> check_replaceable(const Project& p, const std::string& platform, co
     std::error_code ec;
     if (!stdfs::exists(stdfs::symlink_status(os_path(outRoot), ec))) return {};
     const std::string where = "'" + generic(outRoot) + "'";
-    const std::string choose =
-        "choose another output folder (--out, the `out` argument of project.export, or Choose... in the editor's Export "
-        "window)";
+    const std::string choose = "choose another output folder (--out, the `out` argument of project.export, or "
+                               "Choose... in the editor's Export "
+                               "window)";
     if (!stdfs::is_directory(os_path(outRoot), ec))
-        return err("export: " + where + " already exists and is not a folder; an export would delete it, so it is left "
-                   "as it is",
+        return err("export: " + where +
+                       " already exists and is not a folder; an export would delete it, so it is left "
+                       "as it is",
                    choose + ", or move or delete that file yourself");
     if (stdfs::is_regular_file(os_path(outRoot / kExportMarkerFile), ec)) return {};
     if (stdfs::is_regular_file(os_path(notices_dir(p, platform, outRoot) / kExportNoticesFile), ec)) return {};
     if (bool empty = stdfs::is_empty(os_path(outRoot), ec); empty && !ec) return {};
-    return err("export: the output folder " + where + " already exists and was not written by an export (it has no " +
-                   kExportMarkerFile + " file); an export would delete it, so it is left as it is",
-               choose + ", or move or delete that folder yourself if nothing in it is needed. A folder an older "
-               "factoria exported has no marker either: delete it once and export again; later exports replace it on "
-               "their own");
+    return err(
+        "export: the output folder " + where + " already exists and was not written by an export (it has no " +
+            kExportMarkerFile + " file); an export would delete it, so it is left as it is",
+        choose + ", or move or delete that folder yourself if nothing in it is needed. A folder an older "
+                 "factoria exported has no marker either: delete it once and export again; later exports replace it on "
+                 "their own");
 }
 
 // ---- plan: every check, before anything is written ------------------------------------------------
@@ -699,13 +755,13 @@ struct Plan {
                                      // empty or an earlier export: check_replaceable)
     stdfs::path player;              // desktop
     WebPlayer web;                   // web
-    stdfs::path webZip;              // web: <outParent>/<slug>-web.zip, next to the export folder (empty with singleFile)
-    stdfs::path webPage;             // web, singleFile: <outRoot>/<slug>.html
-    MobileSetup mobile;              // android/ios
-    Image icon;                      // linux/windows/macos/ios, only when the plan is made for an export: the platform's icon
-    AndroidPlan android;             // android
-    AppImagePlan appimage;           // linux, format "appimage"
-    MsixPlan msix;                   // windows, format "msix"
+    stdfs::path webZip;     // web: <outParent>/<slug>-web.zip, next to the export folder (empty with singleFile)
+    stdfs::path webPage;    // web, singleFile: <outRoot>/<slug>.html
+    MobileSetup mobile;     // android/ios
+    Image icon;             // linux/windows/macos/ios, only when the plan is made for an export: the platform's icon
+    AndroidPlan android;    // android
+    AppImagePlan appimage;  // linux, format "appimage"
+    MsixPlan msix;          // windows, format "msix"
     std::vector<std::string> warnings;
 };
 
@@ -715,7 +771,8 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
     Plan plan;
     plan.platform = normalize_export_platform(options.platform);
     if (plan.platform.empty())
-        return err("export: unknown platform '" + options.platform + "'", "use one of: linux, windows, macos, android, ios, web");
+        return err("export: unknown platform '" + options.platform + "'",
+                   "use one of: linux, windows, macos, android, ios, web");
     if (options.singleFile && plan.platform != "web")
         return err("export: /singleFile applies to the web platform only (this export is for " + plan.platform + ")",
                    "pass platform \"web\" with singleFile, or leave singleFile out");
@@ -730,7 +787,8 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
     const std::string slug = slugify(p.name, '-').empty() ? "game" : slugify(p.name, '-');
     plan.outRoot = plan.outParent / (slug + "-" + plan.platform);
     if (is_inside(p.dir, plan.outRoot) || plan.outRoot == p.dir)
-        return err("export: output folder '" + generic(plan.outRoot) + "' would contain the project", "choose another --out folder");
+        return err("export: output folder '" + generic(plan.outRoot) + "' would contain the project",
+                   "choose another --out folder");
     if (auto r = check_replaceable(p, plan.platform, plan.outRoot); !r.ok()) return r.error();
 
     // Checked before the player: on a computer that cannot build an AppImage, a missing player is beside the point.
@@ -745,21 +803,26 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         auto setup = resolve_mobile(options, plan.platform);
         if (!setup.ok()) return setup.error();
         plan.mobile = std::move(setup.value());
-        if (plan.mobile.prebuilt) {  // the engine compiled from source is this checkout's; prebuilt libraries have a fingerprint
+        if (plan.mobile
+                .prebuilt) {  // the engine compiled from source is this checkout's; prebuilt libraries have a fingerprint
             std::vector<stdfs::path> libs;
             if (plan.platform == "android")
-                for (const char* abi : kAndroidAbis) libs.push_back(plan.mobile.libs / "jniLibs" / abi / "libfactoria_player.so");
+                for (const char* abi : kAndroidAbis)
+                    libs.push_back(plan.mobile.libs / "jniLibs" / abi / "libfactoria_player.so");
             else
                 for (const char* slice : kIosSlices) libs.push_back(plan.mobile.libs / slice / kIosMarkerLib);
             for (const stdfs::path& lib : libs)
                 if (auto r = check_player_build(options, lib, plan.platform, plan.warnings); !r.ok()) return r.error();
         }
     } else if (plan.platform == "web") {
-        auto web = find_web_player(options, options.buildSourceRoot.empty() ? std::string(FA_SOURCE_ROOT) : options.buildSourceRoot);
+        auto web = find_web_player(options, options.buildSourceRoot.empty() ? std::string(FA_SOURCE_ROOT)
+                                                                            : options.buildSourceRoot);
         if (!web.ok()) return web.error();
         plan.web = std::move(web.value());
-        if (auto r = check_player_build(options, plan.web.wasm, plan.platform, plan.warnings); !r.ok()) return r.error();
-        if (options.singleFile) {  // refused before anything is built; the pack is not written yet, so only the player counts here
+        if (auto r = check_player_build(options, plan.web.wasm, plan.platform, plan.warnings); !r.ok())
+            return r.error();
+        if (options
+                .singleFile) {  // refused before anything is built; the pack is not written yet, so only the player counts here
             if (auto r = check_web_single_file(options, plan.web, 0); !r.ok()) return r.error();
             plan.webPage = plan.outRoot / web_single_file_name(p);
         } else {
@@ -785,8 +848,10 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         plan.android = std::move(android.value());
     } else {
         if (!options.format.empty() && !appimage && !msix && to_lower(options.format) != "folder")
-            plan.warnings.push_back("The format '" + options.format + "' only applies to android (apk, aab, gradle), linux (appimage) and windows (msix); " +
-                                    plan.platform + " has a single format, so it is ignored");
+            plan.warnings.push_back(
+                "The format '" + options.format +
+                "' only applies to android (apk, aab, gradle), linux (appimage) and windows (msix); " + plan.platform +
+                " has a single format, so it is ignored");
         if (plan.platform == "web") return plan;  // no icon: the page is the game's face
         const std::string rel = p.settings.icon_for(plan.platform);
         std::error_code iconEc;
@@ -810,7 +875,8 @@ std::vector<std::string> list_game_files(const stdfs::path& dir, const std::stri
     if (auto settings = load_export_settings(generic(dir)); settings.ok()) p.settings.exclude = settings->exclude;
     if (auto project = load_project(generic(dir)); project.ok())
         for (const PluginSettings& plugin : project->plugins)
-            if (auto folder = plugin_folder(generic(dir), plugin); folder.ok()) p.pluginFolders.push_back(folder.value());
+            if (auto folder = plugin_folder(generic(dir), plugin); folder.ok())
+                p.pluginFolders.push_back(folder.value());
     return collect_game_files(p, {});
 }
 
@@ -850,7 +916,8 @@ std::vector<std::string> ExportReport::size_lines() const {
     std::vector<std::string> out;
     if (!largestFolders.empty()) {
         std::string line = "Largest folders in the game:";
-        for (const ExportSize& f : largestFolders) line += "\n  " + f.name + "  " + size_text(f.bytes) + " (" + std::to_string(f.files) + " files)";
+        for (const ExportSize& f : largestFolders)
+            line += "\n  " + f.name + "  " + size_text(f.bytes) + " (" + std::to_string(f.files) + " files)";
         out.push_back(line);
     }
     if (packBytes > 0) {
@@ -865,17 +932,21 @@ std::vector<std::string> ExportReport::size_lines() const {
             out.push_back("Pack order: first use in play sessions for " + std::to_string(packOrderedFiles) + " of " +
                           std::to_string(packed.size()) + " files (the rest by path)");
         else
-            out.push_back("Pack order: by path (no play session recorded the order of first use yet, or export.pack.useLoadOrder "
-                          "is false: play the game once in the editor or with `factoria run`, then export again)");
+            out.push_back(
+                "Pack order: by path (no play session recorded the order of first use yet, or export.pack.useLoadOrder "
+                "is false: play the game once in the editor or with `factoria run`, then export again)");
     }
     if (!webFiles.empty()) {
         std::string line = "Web download (raw / about gzip):";
-        for (const ExportSize& f : webFiles) line += "\n  " + f.name + "  " + size_text(f.bytes) + " / " + size_text(f.gzipBytes);
+        for (const ExportSize& f : webFiles)
+            line += "\n  " + f.name + "  " + size_text(f.bytes) + " / " + size_text(f.gzipBytes);
         line += "\n  total  " + size_text(webBytes) + " / " + size_text(webGzipBytes);
         out.push_back(line);
         std::string times = "Download of the total, compressed, at";
         for (const double mbit : kSpeeds)
-            times += " " + std::to_string(static_cast<int>(mbit)) + " Mbit/s: " + seconds_text(static_cast<double>(webGzipBytes) * 8.0 / (mbit * 1e6)) + (mbit == kSpeeds[3] ? "" : ",");
+            times += " " + std::to_string(static_cast<int>(mbit)) +
+                     " Mbit/s: " + seconds_text(static_cast<double>(webGzipBytes) * 8.0 / (mbit * 1e6)) +
+                     (mbit == kSpeeds[3] ? "" : ",");
         out.push_back(times + " (a host that does not gzip sends the raw total)");
     }
     return out;
@@ -895,9 +966,13 @@ Json ExportReport::to_json() const {
     if (packBytes > 0) {
         Json codecs = Json::array();
         for (const ExportPackCodec& c : packCodecs)
-            codecs.push_back(Json::object({{"codec", c.codec}, {"files", c.files}, {"bytes", c.bytes}, {"storedBytes", c.storedBytes}}));
-        j["packStats"] = Json::object({{"bytes", packBytes}, {"fileBytes", packFileBytes}, {"codecs", std::move(codecs)},
-                                       {"order", packOrder}, {"orderedFiles", packOrderedFiles}});
+            codecs.push_back(Json::object(
+                {{"codec", c.codec}, {"files", c.files}, {"bytes", c.bytes}, {"storedBytes", c.storedBytes}}));
+        j["packStats"] = Json::object({{"bytes", packBytes},
+                                       {"fileBytes", packFileBytes},
+                                       {"codecs", std::move(codecs)},
+                                       {"order", packOrder},
+                                       {"orderedFiles", packOrderedFiles}});
     }
     if (!materials.empty()) j["materials"] = materials;
     if (!builtinFonts.empty()) j["builtinFonts"] = builtinFonts;
@@ -919,7 +994,8 @@ Json ExportReport::to_json() const {
         j["webGzipBytes"] = webGzipBytes;
         Json t = Json::array();
         for (const double mbit : kSpeeds)
-            t.push_back(Json::object({{"mbitPerSecond", mbit}, {"seconds", static_cast<double>(webGzipBytes) * 8.0 / (mbit * 1e6)}}));
+            t.push_back(Json::object(
+                {{"mbitPerSecond", mbit}, {"seconds", static_cast<double>(webGzipBytes) * 8.0 / (mbit * 1e6)}}));
         j["webDownloadSeconds"] = t;
     }
     j["nextSteps"] = nextSteps;
@@ -952,13 +1028,15 @@ Result<ExportPlan> plan_export(const ExportOptions& options) {
     ExportPlan out;
     out.platform = plan.platform;
     out.outputDir = generic(plan.outRoot);
-    if (plan.platform == "android" || plan.platform == "ios") out.mode = plan.mobile.prebuilt ? "prebuilt" : "source";
+    if (plan.platform == "android" || plan.platform == "ios")
+        out.mode = plan.mobile.prebuilt ? "prebuilt" : "source";
     else if (plan.platform == "web") {
         out.mode = plan.web.from;
         out.player = generic(plan.web.js);
         out.format = options.singleFile ? "html" : "zip";
         out.artifact = generic(options.singleFile ? plan.webPage : plan.webZip);
-    } else out.player = generic(plan.player);
+    } else
+        out.player = generic(plan.player);
     if (plan.appimage.enabled) {
         out.format = "appimage";
         out.artifact = generic(plan.appimage.artifact);
@@ -1013,23 +1091,27 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     bool markLost = false;
     const stdfs::path busy = fs::find_file_in_use(outRoot, probed, 100000, &markLost);
     if (!busy.empty() && markLost)
-        return err("export: Windows did not take back the deletion mark that looked whether '" + fs::path_to_utf8(busy) +
-                       "' is open in another program: that file may be deleted now",
+        return err("export: Windows did not take back the deletion mark that looked whether '" +
+                       fs::path_to_utf8(busy) + "' is open in another program: that file may be deleted now",
                    "The rest of the previous export in " + fs::path_to_utf8(outRoot) +
                        " is as it was. Export again: the next export writes all of it.");
     if (!busy.empty())
         return err("export: '" + fs::path_to_utf8(busy) + "' is open in another program (the game running from " +
                        fs::path_to_utf8(outRoot) + "?): close it and export again",
-                   "Windows does not let a program delete or replace a file that is open, and the export replaces that folder. "
+                   "Windows does not let a program delete or replace a file that is open, and the export replaces that "
+                   "folder. "
                    "Nothing was deleted: the previous export is as it was.");
     remove_output(outRoot, keepGradle, ec);
     if (ec) {
         const bool held = fs::is_sharing_violation(ec) && ec != std::errc::permission_denied;
-        return err("export: cannot delete the previous export " + fs::path_to_utf8(outRoot) + ": " + ec.message(),
-                   held ? "A file in it is open in another program: close it and export again. Part of the previous export may "
-                          "be gone already; the next export writes all of it."
-                        : "Check that the folder can be written (permissions, a read-only drive or folder), or delete it yourself, "
-                          "then export again.");
+        return err(
+            "export: cannot delete the previous export " + fs::path_to_utf8(outRoot) + ": " + ec.message(),
+            held
+                ? "A file in it is open in another program: close it and export again. Part of the previous export may "
+                  "be gone already; the next export writes all of it."
+                : "Check that the folder can be written (permissions, a read-only drive or folder), or delete it "
+                  "yourself, "
+                  "then export again.");
     }
     stdfs::create_directories(os_path(outRoot), ec);
     if (ec) return err("export: cannot create '" + generic(outRoot) + "': " + ec.message());
@@ -1037,21 +1119,27 @@ Result<ExportReport> export_project(const ExportOptions& options) {
 
     std::vector<std::string> files = collect_game_files(p, plan.outParent == p.dir ? outRoot : plan.outParent);
     // The release keystore never ships: a keystore kept inside the project folder would end up in the app.
-    if (const std::string keystore = p.settings.android.signing.keystore; !keystore.empty() && !stdfs::path(keystore).is_absolute()) {
+    if (const std::string keystore = p.settings.android.signing.keystore;
+        !keystore.empty() && !stdfs::path(keystore).is_absolute()) {
         const std::string rel = generic(stdfs::path(keystore).lexically_normal());
         const auto it = std::find(files.begin(), files.end(), rel);
         if (it != files.end()) {
             files.erase(it);
             if (platform == "android")
-                report.warnings.push_back("The keystore '" + rel + "' is inside the project folder. It is left out of the app, but keep it out of "
-                                          "your repository too (add it to .gitignore, or move it outside the project and use an absolute path in "
-                                          "export.android.signing.keystore): anyone who gets it can sign apps as you");
+                report.warnings.push_back(
+                    "The keystore '" + rel +
+                    "' is inside the project folder. It is left out of the app, but keep it out of "
+                    "your repository too (add it to .gitignore, or move it outside the project and use an absolute "
+                    "path in "
+                    "export.android.signing.keystore): anyone who gets it can sign apps as you");
         }
     }
 
     const std::vector<std::string> projectFiles = files;  // before the asset steps swap files for their converted forms
     const SetupContext thisMachine;
-    if (auto assetsReady = prepare_game_assets(p, platform, files, report, options.setup ? *options.setup : thisMachine); !assetsReady.ok()) {
+    if (auto assetsReady =
+            prepare_game_assets(p, platform, files, report, options.setup ? *options.setup : thisMachine);
+        !assetsReady.ok()) {
         remove_output(outRoot, keepGradle, ec);
         return assetsReady.error();
     }
@@ -1071,8 +1159,11 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     }
     if (r.ok()) r = write_notices(p, platform, outRoot, report);  // before the build: the APK carries the notices
     if (r.ok()) r = write_ai_disclosure(p, projectFiles, outRoot, report);
-    if (r.ok() && platform == "web" && !options.singleFile) r = zip_web(outRoot, plan.webZip, report);  // after the notices: they ship in the zip
-    if (r.ok() && plan.appimage.enabled) {  // the folder is complete by now: a failed appimagetool leaves it, like a failed Gradle build leaves its project
+    if (r.ok() && platform == "web" && !options.singleFile)
+        r = zip_web(outRoot, plan.webZip, report);  // after the notices: they ship in the zip
+    if (r.ok() &&
+        plan.appimage
+            .enabled) {  // the folder is complete by now: a failed appimagetool leaves it, like a failed Gradle build leaves its project
         r = build_appimage(options, p, plan.appimage, outRoot, report);
         keepOutput = !r.ok();
     }
@@ -1080,7 +1171,8 @@ Result<ExportReport> export_project(const ExportOptions& options) {
         r = build_msix(options, p, plan.msix, outRoot, plan.icon, report);
         keepOutput = !r.ok();
     }
-    if (r.ok() && platform == "android") r = build_android(options, p, plan.mobile, plan.android, outRoot, report, keepOutput);
+    if (r.ok() && platform == "android")
+        r = build_android(options, p, plan.mobile, plan.android, outRoot, report, keepOutput);
     if (!r.ok()) {
         if (!keepOutput) remove_output(outRoot, keepGradle, ec);
         return r.error();
@@ -1088,9 +1180,10 @@ Result<ExportReport> export_project(const ExportOptions& options) {
     if (platform == "macos") {  // last: the signature seals every file of the bundle, the notices too
         const std::string app = fs_safe_name(p.name) + ".app";
         if (std::string why = sign_app_ad_hoc(outRoot / app); !why.empty()) {
-            report.warnings.push_back("The app bundle is not signed as a whole (" + why + "), so macOS will call it "
-                                      "damaged once it is downloaded. On a Mac: codesign --force --sign - '" + app +
-                                      "', or sign it with your Developer ID (next steps)");
+            report.warnings.push_back("The app bundle is not signed as a whole (" + why +
+                                      "), so macOS will call it "
+                                      "damaged once it is downloaded. On a Mac: codesign --force --sign - '" +
+                                      app + "', or sign it with your Developer ID (next steps)");
         }
     }
     report.outputDir = generic(outRoot);
@@ -1103,24 +1196,31 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
     info.name = "project.export";
     info.category = "project";
     info.readOnly = false;
-    info.summary = "Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5).";
+    info.summary =
+        "Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5).";
     info.description =
-        "Validates the project and writes a fresh <out>/<game-slug>-<platform>/ folder, replaced on every call but only "
-        "when it is empty or an earlier export wrote it; any other existing folder of that name is an error that says how "
+        "Validates the project and writes a fresh <out>/<game-slug>-<platform>/ folder, replaced on every call but "
+        "only "
+        "when it is empty or an earlier export wrote it; any other existing folder of that name is an error that says "
+        "how "
         "to proceed, never deleted. The project itself is not modified, except that a layered image document "
-        "(*.image.json) whose PNG is missing or stale is baked first. linux/windows/macos: the game plus the factoria_player runtime next to the running factoria "
+        "(*.image.json) whose PNG is missing or stale is baked first. linux/windows/macos: the game plus the "
+        "factoria_player runtime next to the running factoria "
         "binary, so exporting for another OS than this machine's fails with a hint. android: a Gradle project that is "
         "then BUILT with its own wrapper (needs a JDK 17+ and the Android SDK, found automatically; the first build "
         "takes minutes): `format` \"apk\" (default) or \"aab\" leaves <slug>[-debug].apk/.aab, "
         "reported as `artifact`; \"gradle\" only writes the project. ios: the game plus an Xcode/CMake project. web: a "
-        "folder with index.html, the player and game.pak, and a zip. `release` builds the release variant (android: signed with export.android.signing), `dryRun` "
+        "folder with index.html, the player and game.pak, and a zip. `release` builds the release variant (android: "
+        "signed with export.android.signing), `dryRun` "
         "true checks everything and writes nothing. Examples: "
-        "{\"platform\":\"windows\",\"release\":true}, {\"platform\":\"android\",\"format\":\"aab\",\"release\":true}."
-        FA_COMMAND_DETAILS
+        "{\"platform\":\"windows\",\"release\":true}, "
+        "{\"platform\":\"android\",\"format\":\"aab\",\"release\":true}." FA_COMMAND_DETAILS
         "`singleFile` true (web) writes one html page; the first Android build needs network. "
         "Every export leaves a .factoria-export file at the top of its folder, which is how a later call knows it may "
-        "replace it; the image documents are described in docs/IMAGES.md. Checked first: factoria.json, the name, mainScene, the reverse-DNS id, the icon and the export settings. "
-        "android: the first build downloads Gradle and the Android Gradle plugin; \"aab\" is the Google Play bundle, and "
+        "replace it; the image documents are described in docs/IMAGES.md. Checked first: factoria.json, the name, "
+        "mainScene, the reverse-DNS id, the icon and the export settings. "
+        "android: the first build downloads Gradle and the Android Gradle plugin; \"aab\" is the Google Play bundle, "
+        "and "
         "\"gradle\" only writes the project and builds nothing. `release` builds the release variant "
         "(signed with export.android.signing; without a keystore it is an error unless `allowDebugKey` is "
         "true); on linux, windows and macos it packs the whole game into one archive, game.pak, next to the "
@@ -1184,7 +1284,8 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         o.platform = tooling_detail::arg_string(args, "platform", false);
         if (!o.platform.empty() && normalize_export_platform(o.platform).empty()) {
             const std::vector<std::string> platforms = {"linux", "windows", "macos", "android", "ios", "web"};
-            throw CommandError("invalid_argument", "Unknown platform '" + o.platform + "'.", did_you_mean(o.platform, platforms));
+            throw CommandError("invalid_argument", "Unknown platform '" + o.platform + "'.",
+                               did_you_mean(o.platform, platforms));
         }
         // Inside the project only, like fs.*, for a caller that may not write elsewhere (MCP, the built-in agent): the export
         // folder is deleted and rewritten on every call (when an export wrote it). The command-line user may name any folder.
@@ -1194,22 +1295,28 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
             o.outDir = dir->string();
         }
         o.format = tooling_detail::arg_string(args, "format", false);
-        if (!o.format.empty() && std::find(all_export_formats().begin(), all_export_formats().end(), o.format) == all_export_formats().end())
-            throw CommandError("invalid_argument", "Unknown format '" + o.format + "'.", did_you_mean(o.format, all_export_formats()));
+        if (!o.format.empty() &&
+            std::find(all_export_formats().begin(), all_export_formats().end(), o.format) == all_export_formats().end())
+            throw CommandError("invalid_argument", "Unknown format '" + o.format + "'.",
+                               did_you_mean(o.format, all_export_formats()));
         o.release = tooling_detail::arg_bool(args, "release", false);
         o.singleFile = tooling_detail::arg_bool(args, "singleFile", false);
         if (o.singleFile && !o.platform.empty() && normalize_export_platform(o.platform) != "web")
-            throw CommandError("invalid_argument", "/singleFile applies to platform \"web\" only, but /platform is \"" + o.platform + "\".",
+            throw CommandError("invalid_argument",
+                               "/singleFile applies to platform \"web\" only, but /platform is \"" + o.platform + "\".",
                                "pass platform \"web\" together with singleFile, or leave singleFile out");
         if (o.singleFile && o.platform.empty())
-            throw CommandError("invalid_argument", "/singleFile needs /platform \"web\": the default platform is this computer's.",
+            throw CommandError("invalid_argument",
+                               "/singleFile needs /platform \"web\": the default platform is this computer's.",
                                "pass {\"platform\":\"web\",\"singleFile\":true}");
         if (auto it = args.find("singleFileMaxMb"); it != args.end()) {
             if (!o.singleFile)
-                throw CommandError("invalid_argument", "/singleFileMaxMb only has a meaning with /singleFile: true.", "add \"singleFile\":true, or remove singleFileMaxMb");
+                throw CommandError("invalid_argument", "/singleFileMaxMb only has a meaning with /singleFile: true.",
+                                   "add \"singleFile\":true, or remove singleFileMaxMb");
             if (!it->is_number() || !(it->get<double>() >= 1.0 && it->get<double>() <= 256.0))
                 throw CommandError("invalid_argument", "/singleFileMaxMb must be a number of megabytes from 1 to 256.",
-                                   "the default is 64; a page over about 100 MB is slow to open in a browser (and over 256 MB it cannot be held as text), so serve a normal web export instead");
+                                   "the default is 64; a page over about 100 MB is slow to open in a browser (and over "
+                                   "256 MB it cannot be held as text), so serve a normal web export instead");
             o.singleFileMaxBytes = static_cast<std::uint64_t>(std::llround(it->get<double>() * 1048576.0));
         }
         o.allowDebugKey = tooling_detail::arg_bool(args, "allowDebugKey", false);
@@ -1229,8 +1336,9 @@ void register_export_commands(CommandRegistry& registry, const std::string& proj
         return r->to_json();
     });
     // project.export writes the export folder (inside the project for an agent), builds an Android/iOS project with Gradle/CMake (process) and the first Android build downloads Gradle (network).
-    declare_command_capabilities(registry, {
-        {"project.export", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network}}});
+    declare_command_capabilities(registry,
+                                 {{"project.export", CapabilitySet{Capability::Read, Capability::WriteProject,
+                                                                   Capability::Process, Capability::Network}}});
 }
 
 }  // namespace fa

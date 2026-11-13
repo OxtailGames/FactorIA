@@ -42,14 +42,14 @@ std::string auto_play_executable();
 // One run's result, as the window and the toast show it.
 struct AutoPlayOutcome {
     bool ok = false;
-    bool cancelled = false;       // the user pressed Cancel: the child was stopped and no session was written
-    std::string session;          // folder name under .factoria/sessions/ ("" when not ok)
-    std::string ended;            // won | lost | timeout | stuck | broken | quit | aborted
+    bool cancelled = false;  // the user pressed Cancel: the child was stopped and no session was written
+    std::string session;     // folder name under .factoria/sessions/ ("" when not ok)
+    std::string ended;       // won | lost | timeout | stuck | broken | quit | aborted
     std::string endedWhy;
-    int problems = 0;             // the marks the bot made
+    int problems = 0;  // the marks the bot made
     int phases = 0;
-    std::string error, hint;      // when not ok (and not cancelled): what went wrong and how to fix it
-    double seconds = 0;           // real time the run took
+    std::string error, hint;  // when not ok (and not cancelled): what went wrong and how to fix it
+    double seconds = 0;       // real time the run took
 };
 // Reads what `factoria call --json play.auto` printed (a command error is {"ok":false,"error":{...}}).
 AutoPlayOutcome auto_play_outcome(const ProcessResult& run, const std::string& stdoutText);
@@ -71,15 +71,15 @@ public:
     bool running() const { return running_.load(); }
     void cancel() { cancel_.store(true); }
     bool cancelling() const { return running() && cancel_.load(); }
-    double elapsed_seconds() const;                  // real time since the run started (0 when none runs)
-    std::string progress_line() const;               // the child's latest log line ("" = none yet)
+    double elapsed_seconds() const;                              // real time since the run started (0 when none runs)
+    std::string progress_line() const;                           // the child's latest log line ("" = none yet)
     const AutoPlayRequest& request() const { return request_; }  // of the running or last run
-    std::optional<AutoPlayOutcome> take_result();    // the finished run's outcome, once; nullopt while it runs
-    bool has_result() const {                        // a run ended and take_result() has not collected it yet
+    std::optional<AutoPlayOutcome> take_result();  // the finished run's outcome, once; nullopt while it runs
+    bool has_result() const {                      // a run ended and take_result() has not collected it yet
         std::lock_guard lock(mu_);
         return result_.has_value();
     }
-    void wait();                                     // blocks until the run is done (the child is killed first by cancel())
+    void wait();  // blocks until the run is done (the child is killed first by cancel())
 
 private:
     std::thread thread_;

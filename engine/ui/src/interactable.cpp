@@ -33,9 +33,9 @@ struct Geometry {
     std::array<Vec2, 4> quad{};
     Vec2 trackA{}, trackB{};
     int layer = 0;
-    bool hasLocal = false;   // `local` is the area in the entity's own frame (knob and fill can be placed)
-    Rect local;              // x, y = the minimum corner, y up (screen space too: the frame of the footprint boxes)
-    bool yFlipped = false;   // screen space: a local y is a position.y of the opposite sign
+    bool hasLocal = false;  // `local` is the area in the entity's own frame (knob and fill can be placed)
+    Rect local;             // x, y = the minimum corner, y up (screen space too: the frame of the footprint boxes)
+    bool yFlipped = false;  // screen space: a local y is a position.y of the opposite sign
 };
 
 Geometry geometry_of(const World& w, Entity e, const Interactable& ia, Vec2 design, const VisualMeasure& measure,
@@ -84,8 +84,8 @@ Geometry geometry_of(const World& w, Entity e, const Interactable& ia, Vec2 desi
         }
         if (!(local.w > 0.0f) || !(local.h > 0.0f)) return g;
         const auto to_screen = [&](Vec2 p) { return project(me.transform_point({p.x, p.y, 0.0f}), pointer); };
-        g.quad = {to_screen({local.x, local.y}), to_screen({local.x + local.w, local.y}), to_screen({local.x + local.w, local.y + local.h}),
-                  to_screen({local.x, local.y + local.h})};
+        g.quad = {to_screen({local.x, local.y}), to_screen({local.x + local.w, local.y}),
+                  to_screen({local.x + local.w, local.y + local.h}), to_screen({local.x, local.y + local.h})};
         const Vec2 c = local.center();
         if (ia.axis == InteractableAxis::X) {
             g.trackA = to_screen({local.x, c.y});
@@ -108,7 +108,9 @@ Geometry geometry_of(const World& w, Entity e, const Interactable& ia, Vec2 desi
                 base = &f;
                 break;
             }
-        const Vec2 a = base ? anchor_point(base->anchor, base->safeArea, ui_layout_screen(w, design), ui_layout_insets(w)) : Vec2{0, 0};
+        const Vec2 a =
+            base ? anchor_point(base->anchor, base->safeArea, ui_layout_screen(w, design), ui_layout_insets(w))
+                 : Vec2{0, 0};
         Mat4 m = w.world_matrix(e);
         if (base && base->mirrored) m.at(3, 0) = -m.at(3, 0);
         const Rect local = Rect::from_center(ia.offset, ia.size);
@@ -116,8 +118,8 @@ Geometry geometry_of(const World& w, Entity e, const Interactable& ia, Vec2 desi
             const Vec3 q = m.transform_point({p.x, -p.y, 0.0f});
             return Vec2{(q.x) * k + a.x * k, (q.y) * k + a.y * k};
         };
-        g.quad = {to_screen({local.x, local.y}), to_screen({local.x + local.w, local.y}), to_screen({local.x + local.w, local.y + local.h}),
-                  to_screen({local.x, local.y + local.h})};
+        g.quad = {to_screen({local.x, local.y}), to_screen({local.x + local.w, local.y}),
+                  to_screen({local.x + local.w, local.y + local.h}), to_screen({local.x, local.y + local.h})};
         const Vec2 c = local.center();
         if (ia.axis == InteractableAxis::X) {
             g.trackA = to_screen({local.x, c.y});
@@ -160,10 +162,12 @@ Geometry geometry_of(const World& w, Entity e, const Interactable& ia, Vec2 desi
 
 }  // namespace
 
-bool is_custom(const World& w, Entity e) { return w.alive(e) && w.has<Interactable>(e) && ui_kind(w, e) == UiKind::None; }
+bool is_custom(const World& w, Entity e) {
+    return w.alive(e) && w.has<Interactable>(e) && ui_kind(w, e) == UiKind::None;
+}
 
-std::vector<Item> interactable_items(const World& w, Vec2 design, const VisualMeasure& measure, Entity modal, const ProjectFn& project,
-                                     const Vec2* pointer, const CameraMask& mask) {
+std::vector<Item> interactable_items(const World& w, Vec2 design, const VisualMeasure& measure, Entity modal,
+                                     const ProjectFn& project, const Vec2* pointer, const CameraMask& mask) {
     std::vector<Item> out;
     const std::vector<Entity> list = w.entities_with(&World::type_of<Interactable>());
     if (list.empty()) return out;
@@ -178,7 +182,8 @@ std::vector<Item> interactable_items(const World& w, Vec2 design, const VisualMe
         const Interactable& ia = *w.get<Interactable>(e);
         const Geometry g = geometry_of(w, e, ia, design, measure, proj, pointer);
         if (!g.valid) continue;
-        if (g.world && !mask.draws(w, e)) continue;  // the camera does not draw it (Camera.showTags / hideTags): it takes no pointer
+        if (g.world && !mask.draws(w, e))
+            continue;  // the camera does not draw it (Camera.showTags / hideTags): it takes no pointer
         bool inScope = true;
         if (modal) {
             inScope = false;
@@ -207,7 +212,9 @@ std::vector<Item> interactable_items(const World& w, Vec2 design, const VisualMe
     return out;
 }
 
-bool item_contains(const Item& it, Vec2 p) { return it.custom ? it.rect.contains(p) && point_in_quad(p, it.quad) : it.rect.contains(p); }
+bool item_contains(const Item& it, Vec2 p) {
+    return it.custom ? it.rect.contains(p) && point_in_quad(p, it.quad) : it.rect.contains(p);
+}
 
 float track_fraction(const Item& it, Vec2 p) {
     const Vec2 d = it.trackB - it.trackA;
@@ -219,7 +226,8 @@ float track_fraction(const Item& it, Vec2 p) {
 float snap_value(float v, float lo, float hi, float step) {
     const double l = lo, h = std::max(lo, hi);
     double d = std::clamp(double(v), l, h);
-    if (step > 0.0f) {  // the nearest step from lo, or hi itself when that is nearer (a range that is not a multiple of step)
+    if (step >
+        0.0f) {  // the nearest step from lo, or hi itself when that is nearer (a range that is not a multiple of step)
         const double grid = std::clamp(l + std::round((d - l) / step) * step, l, h);
         d = std::fabs(h - d) < std::fabs(grid - d) ? h : grid;
     }
@@ -277,7 +285,8 @@ std::optional<Rect> UiSystem::interactable_rect(const World& w, Entity e, Vec2 d
     if (hiddenByCamera) *hiddenByCamera = false;
     if (!ui_detail::is_custom(w, e)) return std::nullopt;
     auto find = [&](const Vec2* pointer, const CameraMask& mask) -> std::optional<ui_detail::Item> {
-        for (ui_detail::Item& it : ui_detail::interactable_items(w, design, measure, kNullEntity, project_, pointer, mask))
+        for (ui_detail::Item& it :
+             ui_detail::interactable_items(w, design, measure, kNullEntity, project_, pointer, mask))
             if (it.e == e) return it;
         return std::nullopt;
     };
@@ -287,7 +296,8 @@ std::optional<Rect> UiSystem::interactable_rect(const World& w, Entity e, Vec2 d
     // A world widget is seen through the camera that draws at its own centre (several cameras may show different parts).
     const Vec2 centre{first->rect.x + first->rect.w / 2, first->rect.y + first->rect.h / 2};
     const CameraMask mask = mask_at(&centre);
-    if (!mask.draws(w, e)) {  // that camera does not draw it (Camera.showTags / hideTags): it cannot be reached through it
+    if (!mask.draws(w,
+                    e)) {  // that camera does not draw it (Camera.showTags / hideTags): it cannot be reached through it
         if (hiddenByCamera) *hiddenByCamera = true;
         return std::nullopt;
     }
@@ -295,8 +305,9 @@ std::optional<Rect> UiSystem::interactable_rect(const World& w, Entity e, Vec2 d
     return again ? again->rect : first->rect;
 }
 
-std::optional<std::array<Vec2, 4>> UiSystem::interactable_quad(const World& w, Entity e, Vec2 design, const VisualMeasure& measure,
-                                                               const UiProjectFn& project, const CameraMask& mask) const {
+std::optional<std::array<Vec2, 4>> UiSystem::interactable_quad(const World& w, Entity e, Vec2 design,
+                                                               const VisualMeasure& measure, const UiProjectFn& project,
+                                                               const CameraMask& mask) const {
     if (!ui_detail::is_custom(w, e) || !w.active_in_hierarchy(e)) return std::nullopt;
     for (ui_detail::Item& it : ui_detail::interactable_items(w, design, measure, kNullEntity, project, nullptr, mask))
         if (it.e == e) return it.quad;
@@ -335,9 +346,11 @@ UiClickAim UiSystem::click_aim(const World& w, Entity e, Vec2 design, const Visu
         out.point = centre;  // off the screen, and no page shows it: the click goes where the main view puts it
         return out;
     }
-    out.problem = hidden ? "the camera that draws where it is does not draw it (Camera.showTags / hideTags), so a click through that camera cannot "
+    out.problem = hidden ? "the camera that draws where it is does not draw it (Camera.showTags / hideTags), so a "
+                           "click through that camera cannot "
                            "reach it, and no camera with a Camera.renderTarget draws it either"
-                         : "it has no hit area: give the Interactable a size, or children with a Sprite, Shape2D or Text to take the area from";
+                         : "it has no hit area: give the Interactable a size, or children with a Sprite, Shape2D or "
+                           "Text to take the area from";
     return out;
 }
 
@@ -351,8 +364,8 @@ void UiSystem::sync_interactables(World& w, Vec2 design, const VisualMeasure& me
         if (ia.kind != InteractableKind::Slider || (!ia.knob && !ia.fill)) return;
         if (!w.active_in_hierarchy(e)) return;
         // The knob and the fill sit at the value: the track is the area along `axis`, in the entity's own frame.
-        ui_detail::Geometry g = ui_detail::geometry_of(w, e, ia, design, measure,
-                                                       [](Vec3, const Vec2*) { return Vec2{}; }, nullptr);
+        ui_detail::Geometry g =
+            ui_detail::geometry_of(w, e, ia, design, measure, [](Vec3, const Vec2*) { return Vec2{}; }, nullptr);
         if (!g.valid || !g.hasLocal) return;
         const float t = interactable_fraction(ia);
         const bool xAxis = ia.axis == InteractableAxis::X;
@@ -362,7 +375,9 @@ void UiSystem::sync_interactables(World& w, Vec2 design, const VisualMeasure& me
             if (!child || !w.alive(child)) return;
             if (w.parent(child) != e) {
                 if (warnedKnobs_.insert(child.bits()).second)
-                    FA_WARN("ui", "Interactable '{}': {} '{}' is not a child of it, so it is not moved along the track (make it a child)",
+                    FA_WARN("ui",
+                            "Interactable '{}': {} '{}' is not a child of it, so it is not moved along the track (make "
+                            "it a child)",
                             w.id_of(e), what, w.id_of(child));
                 return;
             }
@@ -399,7 +414,11 @@ void UiSystem::sync_interactables(World& w, Vec2 design, const VisualMeasure& me
             const bool on = holds(v.when, *ia);
             if (w.info(e).active != on) w.set_active(e, on);
         } else if (Color* c = tint_target(w, e)) {
-            const Color& want = !ia->enabled ? v.disabled : ia->pressed ? v.pressed : ia->hovered ? v.hover : ia->focused ? v.focused : v.normal;
+            const Color& want = !ia->enabled  ? v.disabled
+                                : ia->pressed ? v.pressed
+                                : ia->hovered ? v.hover
+                                : ia->focused ? v.focused
+                                              : v.normal;
             if (!same(*c, want)) *c = want;
         }
     });

@@ -28,7 +28,8 @@ Result<float> nav_number(const Json& v, const std::string& who, const std::strin
 }
 Result<bool> nav_point(const Json& v, const std::string& who, const std::string& pointer, Vec3& out) {
     bool ok = v.is_array() && v.size() == 3;
-    for (std::size_t i = 0; ok && i < 3; ++i) ok = v[i].is_number() && std::isfinite(v[i].get<double>()) && std::fabs(v[i].get<double>()) <= 1e30;
+    for (std::size_t i = 0; ok && i < 3; ++i)
+        ok = v[i].is_number() && std::isfinite(v[i].get<double>()) && std::fabs(v[i].get<double>()) <= 1e30;
     if (!ok)
         return Error{std::format("{} {}: must be [x,y,z] numbers, but got {}.", who, pointer, v.dump()),
                      "Pass 3D points in meters, for example [0,0,0]."};
@@ -45,13 +46,15 @@ Result<bool> nav_options(const Json& o, const std::string& who, const std::strin
     }
     if (o.contains("closest") && !o["closest"].is_null()) {
         if (!o["closest"].is_boolean())
-            return Error{std::format("{} {}/closest: must be true or false, but got {}.", who, pointer, o["closest"].dump()),
-                         "Pass closest: true to get a path to the reachable point nearest the goal, or leave it out."};
+            return Error{
+                std::format("{} {}/closest: must be true or false, but got {}.", who, pointer, o["closest"].dump()),
+                "Pass closest: true to get a path to the reachable point nearest the goal, or leave it out."};
         opt.closest = o["closest"].get<bool>();
     }
     if (o.contains("mesh") && !o["mesh"].is_null()) {
         if (!o["mesh"].is_string())
-            return Error{std::format("{} {}/mesh: must be the id of an entity with a NavMesh3D, but got {}.", who, pointer, o["mesh"].dump()),
+            return Error{std::format("{} {}/mesh: must be the id of an entity with a NavMesh3D, but got {}.", who,
+                                     pointer, o["mesh"].dump()),
                          "Pass a string such as \"navmesh\", or leave it out."};
         opt.mesh = o["mesh"].get<std::string>();
     }
@@ -61,12 +64,14 @@ Result<bool> nav_options(const Json& o, const std::string& who, const std::strin
 
 Result<std::vector<NavPathQuery>> nav_parse_path_queries(const Json& args, const std::string& who) {
     if (!args.is_object() || !args.contains("queries") || !args["queries"].is_array())
-        return Error{who + " /queries: pass a list of queries, each {from: [x,y,z], to: [x,y,z], radius?, snap?, closest?, mesh?}.",
+        return Error{who + " /queries: pass a list of queries, each {from: [x,y,z], to: [x,y,z], radius?, snap?, "
+                           "closest?, mesh?}.",
                      "Example: {\"queries\":[{\"from\":[0,0,0],\"to\":[10,0,5]},{\"from\":[2,0,2],\"to\":[-4,0,6]}]}."};
     const Json& list = args["queries"];
     if (list.size() > kNavMaxBatch)
-        return Error{std::format("{} /queries: {} queries in one call, the most is {}.", who, list.size(), kNavMaxBatch),
-                     "Split the list into several calls."};
+        return Error{
+            std::format("{} /queries: {} queries in one call, the most is {}.", who, list.size(), kNavMaxBatch),
+            "Split the list into several calls."};
     NavPathOptions defaults;
     auto d = nav_options(args, who, "", defaults);
     if (!d.ok()) return d.error();
@@ -76,13 +81,15 @@ Result<std::vector<NavPathQuery>> nav_parse_path_queries(const Json& args, const
         const std::string at = "/queries/" + std::to_string(i);
         const Json& q = list[i];
         if (!q.is_object())
-            return Error{std::format("{} {}: must be an object {{from, to, ...}}, but got {}.", who, at, q.dump()),
-                         "Each query is {\"from\":[x,y,z],\"to\":[x,y,z]} with the optional radius, snap, closest and mesh."};
+            return Error{
+                std::format("{} {}: must be an object {{from, to, ...}}, but got {}.", who, at, q.dump()),
+                "Each query is {\"from\":[x,y,z],\"to\":[x,y,z]} with the optional radius, snap, closest and mesh."};
         NavPathQuery nq;
         nq.options = defaults;
         for (const char* key : {"from", "to"}) {
             if (!q.contains(key))
-                return Error{std::format("{} {}/{}: missing.", who, at, key), "Every query needs `from` and `to` as [x,y,z] in meters."};
+                return Error{std::format("{} {}/{}: missing.", who, at, key),
+                             "Every query needs `from` and `to` as [x,y,z] in meters."};
             auto pt = nav_point(q[key], who, at + "/" + key, key[0] == 'f' ? nq.from : nq.to);
             if (!pt.ok()) return pt.error();
         }
@@ -199,7 +206,8 @@ NavParams Physics3D::nav_params(const NavMesh3D& cfg, Vec3 position) {
 // The solid intervals of one body along the vertical line through (x, z). Appends [bottom, top] with the up component of
 // the normal at the top; false when the line misses the body. Convex shapes give one interval; a mesh gives one per pair
 // of crossings (a closed mesh) or a thin plate for a lone surface.
-bool Physics3D::nav_column(const Body& b, float x, float z, float yLo, float yHi, float cellHeight, std::vector<NavSolid>& out) {
+bool Physics3D::nav_column(const Body& b, float x, float z, float yLo, float yHi, float cellHeight,
+                           std::vector<NavSolid>& out) {
     if (b.kind == Body::Kind::Sphere) {
         const float dx = x - b.center.x, dz = z - b.center.z;
         const float d2 = dx * dx + dz * dz, r2 = b.radius * b.radius;
@@ -263,8 +271,10 @@ bool Physics3D::nav_column(const Body& b, float x, float z, float yLo, float yHi
     }
     if (hits.empty()) return false;
     for (std::size_t i = 0; i < hits.size(); i += 2) {
-        if (i + 1 < hits.size()) out.push_back({hits[i + 1].first, hits[i].first, hits[i].second});
-        else out.push_back({hits[i].first - cellHeight, hits[i].first, hits[i].second});
+        if (i + 1 < hits.size())
+            out.push_back({hits[i + 1].first, hits[i].first, hits[i].second});
+        else
+            out.push_back({hits[i].first - cellHeight, hits[i].first, hits[i].second});
     }
     return true;
 }
@@ -357,17 +367,21 @@ std::uint64_t Physics3D::nav_signature(const NavState& n) const {
 bool Physics3D::nav_bake_one(World& world, NavState& n, std::string& error) {
     const NavMesh3D& c = n.cfg;
     if (!(c.size.x > 0.0f && c.size.y > 0.0f && c.size.z > 0.0f)) {
-        error = std::format("NavMesh3D on '{}': size {} must be positive on every axis. Set size to the box that covers the "
-                            "walkable level, e.g. [40, 10, 40].", n.id, fmt3(c.size));
+        error = std::format(
+            "NavMesh3D on '{}': size {} must be positive on every axis. Set size to the box that covers the "
+            "walkable level, e.g. [40, 10, 40].",
+            n.id, fmt3(c.size));
         return false;
     }
     const double cells = std::ceil(double(c.size.x) / double(std::max(c.cellSize, 0.05f))) *
                          std::ceil(double(c.size.z) / double(std::max(c.cellSize, 0.05f)));
     if (cells > kMaxCells) {
-        error = std::format("NavMesh3D on '{}': {} x {} m with cellSize {} makes {:.0f} cells; the limit is 4 million. Use a "
-                            "bigger cellSize (a cellSize of {:.2f} fits), or a smaller size, or split the level in several "
-                            "NavMesh3D.", n.id, c.size.x, c.size.z, c.cellSize, cells,
-                            std::sqrt(double(c.size.x) * double(c.size.z) / kMaxCells) * 1.01);
+        error = std::format(
+            "NavMesh3D on '{}': {} x {} m with cellSize {} makes {:.0f} cells; the limit is 4 million. Use a "
+            "bigger cellSize (a cellSize of {:.2f} fits), or a smaller size, or split the level in several "
+            "NavMesh3D.",
+            n.id, c.size.x, c.size.z, c.cellSize, cells,
+            std::sqrt(double(c.size.x) * double(c.size.z) / kMaxCells) * 1.01);
         return false;
     }
     const NavParams p = nav_params(c, n.position);
@@ -473,8 +487,9 @@ void Physics3D::nav_apply_obstacles(NavState& n) {
         if (!b.navObstacle || b.navWalkable || !b.enabled || !b.hasShape || b.trigger || b.character) continue;
         Vec3 lo, hi;
         aabb(b, lo, hi);
-        if (hi.y < p.yMin || lo.y > p.yMax || hi.x < p.origin.x - 1.0f || lo.x > p.origin.x + float(p.nx) * p.cell + 1.0f ||
-            hi.z < p.origin.z - 1.0f || lo.z > p.origin.z + float(p.nz) * p.cell + 1.0f)
+        if (hi.y < p.yMin || lo.y > p.yMax || hi.x < p.origin.x - 1.0f ||
+            lo.x > p.origin.x + float(p.nx) * p.cell + 1.0f || hi.z < p.origin.z - 1.0f ||
+            lo.z > p.origin.z + float(p.nz) * p.cell + 1.0f)
             continue;
         const std::uint64_t key = b.e.bits(), sig = nav_obstacle_signature(b);
         seen.insert(key);
@@ -548,8 +563,10 @@ void Physics3D::nav_update(World& world, bool allowBake) {
         }
     }
     for (auto it = navs_.begin(); it != navs_.end();) {
-        if (!alive.count(it->first)) it = navs_.erase(it);
-        else ++it;
+        if (!alive.count(it->first))
+            it = navs_.erase(it);
+        else
+            ++it;
     }
 }
 
@@ -564,19 +581,22 @@ Result<std::vector<NavBakeStats>> Physics3D::nav_bake(World& world, const std::s
             for (std::uint64_t k : navOrder_) ids.push_back(navs_[k].id);
             if (ids.empty())
                 return Error{std::format("nav.bake: no NavMesh3D named '{}': the scene has none.", mesh),
-                             "Add the component to an entity: scene.add_component {\"entity\":\"navmesh\",\"component\":\"NavMesh3D\"} "
+                             "Add the component to an entity: scene.add_component "
+                             "{\"entity\":\"navmesh\",\"component\":\"NavMesh3D\"} "
                              "with its size covering the level."};
             return Error{"nav.bake: no NavMesh3D on entity '" + mesh + "'.", did_you_mean(mesh, ids)};
         }
         if (!it->second.cfg.enabled)
-            return Error{std::format("nav.bake: the NavMesh3D on '{}' is disabled.", mesh), "Set NavMesh3D.enabled to true."};
+            return Error{std::format("nav.bake: the NavMesh3D on '{}' is disabled.", mesh),
+                         "Set NavMesh3D.enabled to true."};
         targets.push_back(it->first);
     } else {
         for (std::uint64_t k : navOrder_)
             if (navs_[k].cfg.enabled && world.active_in_hierarchy(navs_[k].e)) targets.push_back(k);
         if (targets.empty())
             return Error{"nav.bake: the scene has no enabled NavMesh3D.",
-                         "Add the component to an entity: scene.add_component {\"entity\":\"navmesh\",\"component\":\"NavMesh3D\"} "
+                         "Add the component to an entity: scene.add_component "
+                         "{\"entity\":\"navmesh\",\"component\":\"NavMesh3D\"} "
                          "and set its size to cover the walkable level."};
     }
     std::vector<NavBakeStats> out;
@@ -612,7 +632,8 @@ Result<const Physics3D::NavState*> Physics3D::nav_pick_mesh(World& world, Vec3 f
             std::vector<std::string> ids;
             for (std::uint64_t k : navOrder_) ids.push_back(navs_[k].id);
             return Error{"nav.find_path: no NavMesh3D on entity '" + options.mesh + "'.",
-                         ids.empty() ? "The scene has no NavMesh3D: add the component to an entity." : did_you_mean(options.mesh, ids)};
+                         ids.empty() ? "The scene has no NavMesh3D: add the component to an entity."
+                                     : did_you_mean(options.mesh, ids)};
         }
         mesh = &it->second;
         if (!mesh->baked)
@@ -626,7 +647,8 @@ Result<const Physics3D::NavState*> Physics3D::nav_pick_mesh(World& world, Vec3 f
                 if (!navs_[k].error.empty()) why = " The bake failed: " + navs_[k].error;
             if (navOrder_.empty())
                 return Error{"nav.find_path: the scene has no NavMesh3D.",
-                             "Add the component to an entity: scene.add_component {\"entity\":\"navmesh\",\"component\":\"NavMesh3D\"} "
+                             "Add the component to an entity: scene.add_component "
+                             "{\"entity\":\"navmesh\",\"component\":\"NavMesh3D\"} "
                              "with its size covering the level (docs/NAVIGATION.md)."};
             return Error{"nav.find_path: no NavMesh3D is baked and enabled." + why,
                          "Call nav.bake, or set NavMesh3D.autoBake and enabled to true."};
@@ -636,23 +658,33 @@ Result<const Physics3D::NavState*> Physics3D::nav_pick_mesh(World& world, Vec3 f
         auto holds = [&](NavState* n) {
             const NavParams& p = n->grid.params();
             return from.x >= p.origin.x && from.x <= p.origin.x + float(p.nx) * p.cell && from.z >= p.origin.z &&
-                   from.z <= p.origin.z + float(p.nz) * p.cell && from.y >= p.yMin - p.height && from.y <= p.yMax + 1.0f;
+                   from.z <= p.origin.z + float(p.nz) * p.cell && from.y >= p.yMin - p.height &&
+                   from.y <= p.yMax + 1.0f;
         };
         for (NavState* n : usable)
-            if (fits(n) && holds(n)) { mesh = n; break; }
+            if (fits(n) && holds(n)) {
+                mesh = n;
+                break;
+            }
         if (!mesh)
             for (NavState* n : usable)
-                if (fits(n)) { mesh = n; break; }
+                if (fits(n)) {
+                    mesh = n;
+                    break;
+                }
         if (!mesh) mesh = usable.front();
     }
     const NavMesh3D& cfg = mesh->cfg;
     const float radius = options.radius < 0.0f ? cfg.agentRadius : options.radius;
     if (radius > cfg.agentRadius + 1e-4f)
-        return Error{std::format("nav.find_path: radius {:.2f} m is larger than the {:.2f} m the NavMesh3D on '{}' was baked for: "
-                                 "walkable cells keep only agentRadius from walls, so a wider agent would be stuck in them.",
-                                 radius, cfg.agentRadius, mesh->id),
-                     std::format("Bake for the bigger agent: add a second NavMesh3D with agentRadius {:.2f} (same size and "
-                                 "position) and pass its id as the `mesh` option, or raise agentRadius on this one.", radius)};
+        return Error{
+            std::format(
+                "nav.find_path: radius {:.2f} m is larger than the {:.2f} m the NavMesh3D on '{}' was baked for: "
+                "walkable cells keep only agentRadius from walls, so a wider agent would be stuck in them.",
+                radius, cfg.agentRadius, mesh->id),
+            std::format("Bake for the bigger agent: add a second NavMesh3D with agentRadius {:.2f} (same size and "
+                        "position) and pass its id as the `mesh` option, or raise agentRadius on this one.",
+                        radius)};
 
     return mesh;
 }
@@ -664,7 +696,8 @@ NavPath Physics3D::nav_search(const NavState& meshState, Vec3 from, Vec3 to, con
     const NavState* mesh = &meshState;
     const NavMesh3D& cfg = mesh->cfg;
     auto search = [&](int a, int b, int* closestOut, std::vector<int>* viaOut) {
-        return scratch ? mesh->grid.search(a, b, closestOut, viaOut, *scratch) : mesh->grid.search(a, b, closestOut, viaOut);
+        return scratch ? mesh->grid.search(a, b, closestOut, viaOut, *scratch)
+                       : mesh->grid.search(a, b, closestOut, viaOut);
     };
     const NavGrid& g = mesh->grid;
     const NavParams& p = g.params();
@@ -682,15 +715,20 @@ NavPath Physics3D::nav_search(const NavState& meshState, Vec3 from, Vec3 to, con
         float d = -1.0f;
         const int ns = g.nearest_anywhere(pt, &d);
         if (!g.inside(pt)) {
-            res.message = std::format("The {} {} is outside the bounds of the NavMesh3D on '{}' (x {:.1f}..{:.1f}, y {:.1f}..{:.1f}, "
-                                      "z {:.1f}..{:.1f}).", what, fmt3(pt), mesh->id, p.origin.x,
-                                      p.origin.x + float(p.nx) * p.cell, p.yMin, p.yMax, p.origin.z, p.origin.z + float(p.nz) * p.cell);
+            res.message = std::format(
+                "The {} {} is outside the bounds of the NavMesh3D on '{}' (x {:.1f}..{:.1f}, y {:.1f}..{:.1f}, "
+                "z {:.1f}..{:.1f}).",
+                what, fmt3(pt), mesh->id, p.origin.x, p.origin.x + float(p.nx) * p.cell, p.yMin, p.yMax, p.origin.z,
+                p.origin.z + float(p.nz) * p.cell);
             res.hint = "Make the NavMesh3D size cover the whole level, or pick a point inside it.";
         } else {
-            res.message = std::format("The {} {} is not on walkable ground (no walkable cell within {:.2f} m horizontally and "
-                                      "between {:.2f} m below and {:.2f} m above it)", what, fmt3(pt), snap, reachDown, reachUp);
+            res.message =
+                std::format("The {} {} is not on walkable ground (no walkable cell within {:.2f} m horizontally and "
+                            "between {:.2f} m below and {:.2f} m above it)",
+                            what, fmt3(pt), snap, reachDown, reachUp);
             res.hint = "Pass a point on the floor (a raycast down finds it), or raise `snap`; the walkable cells keep "
-                       "agentRadius away from walls and drops, and exclude ground with less than agentHeight of room above it.";
+                       "agentRadius away from walls and drops, and exclude ground with less than agentHeight of room "
+                       "above it.";
         }
         if (ns >= 0) {
             res.nearest = g.center(ns);
@@ -698,7 +736,8 @@ NavPath Physics3D::nav_search(const NavState& meshState, Vec3 from, Vec3 to, con
             res.message += std::format("; the nearest walkable point is {}, {:.2f} m away.", fmt3(res.nearest), d);
         } else {
             res.message += "; the mesh has no walkable cells at all.";
-            res.hint = "Check the colliders under the NavMesh3D (static, not triggers) and its size, agentRadius and maxSlope.";
+            res.hint = "Check the colliders under the NavMesh3D (static, not triggers) and its size, agentRadius and "
+                       "maxSlope.";
         }
         return false;
     };
@@ -729,27 +768,34 @@ NavPath Physics3D::nav_search(const NavState& meshState, Vec3 from, Vec3 to, con
             res.found = false;
             res.reason = "disconnected";
             const bool moving = rs == 0 || rg == 0;  // a start or goal on the top of a walkable moving body
-            const std::string bodies =
-                g.walkable_body_count() > 0
-                    ? std::format(" A moving platform or bridge (Collider3D.navWalkable; {} body(ies), {} cells now) may be away.",
-                                  int(g.walkable_body_count()), g.dynamic_count())
-                    : std::string();
+            const std::string bodies = g.walkable_body_count() > 0
+                                           ? std::format(" A moving platform or bridge (Collider3D.navWalkable; {} "
+                                                         "body(ies), {} cells now) may be away.",
+                                                         int(g.walkable_body_count()), g.dynamic_count())
+                                           : std::string();
             if (moving)
-                res.message = std::format("No route from {} to {} right now: one of them is on a moving body (Collider3D.navWalkable) that "
-                                          "does not join the other right now.", fmt3(g.center(ss)), fmt3(g.center(gs))) + bodies;
+                res.message = std::format("No route from {} to {} right now: one of them is on a moving body "
+                                          "(Collider3D.navWalkable) that "
+                                          "does not join the other right now.",
+                                          fmt3(g.center(ss)), fmt3(g.center(gs))) +
+                              bodies;
             else if (rs != rg)
-                res.message = std::format("No route from {} to {}: they are in different walkable areas (area {} and area {} of {}). "
-                                          "Between them is a wall, a drop, a step higher than stepHeight ({:.2f} m), a slope "
-                                          "steeper than maxSlope ({:.0f} degrees) or a gap narrower than 2 x agentRadius ({:.2f} m).",
-                                          fmt3(g.center(ss)), fmt3(g.center(gs)), rs, rg, g.region_count(), p.step, p.maxSlopeDeg,
-                                          2.0f * p.radius);
+                res.message = std::format(
+                    "No route from {} to {}: they are in different walkable areas (area {} and area {} of {}). "
+                    "Between them is a wall, a drop, a step higher than stepHeight ({:.2f} m), a slope "
+                    "steeper than maxSlope ({:.0f} degrees) or a gap narrower than 2 x agentRadius ({:.2f} m).",
+                    fmt3(g.center(ss)), fmt3(g.center(gs)), rs, rg, g.region_count(), p.step, p.maxSlopeDeg,
+                    2.0f * p.radius);
             else
-                res.message = std::format("No route from {} to {} right now: both are in walkable area {}, but the way is closed: a moving obstacle "
-                                          "(Collider3D.navObstacle; {} active) blocks it, or a NavLink3D on the way is one-way.", fmt3(g.center(ss)),
-                                          fmt3(g.center(gs)), rs, int(g.obstacle_count()));
+                res.message =
+                    std::format("No route from {} to {} right now: both are in walkable area {}, but the way is "
+                                "closed: a moving obstacle "
+                                "(Collider3D.navObstacle; {} active) blocks it, or a NavLink3D on the way is one-way.",
+                                fmt3(g.center(ss)), fmt3(g.center(gs)), rs, int(g.obstacle_count()));
             if (rs != rg && !moving) res.message += bodies;
-            res.hint = "Look at the walkable cells (the editor's Show navmesh, or nav.info), widen the gap or add a ramp; "
-                       "or pass {closest: true} to walk to the reachable point nearest the goal.";
+            res.hint =
+                "Look at the walkable cells (the editor's Show navmesh, or nav.info), widen the gap or add a ramp; "
+                "or pass {closest: true} to walk to the reachable point nearest the goal.";
             return res;
         }
     }
@@ -758,8 +804,7 @@ NavPath Physics3D::nav_search(const NavState& meshState, Vec3 from, Vec3 to, con
     res.found = true;
     for (std::size_t i = 0; i < corners.size(); ++i) {
         // a link starts at the point before the corner it leads to
-        if (cornerLink[i] >= 0 && i > 0)
-            res.links.push_back({int(i) - 1, mesh->links[std::size_t(cornerLink[i])].id});
+        if (cornerLink[i] >= 0 && i > 0) res.links.push_back({int(i) - 1, mesh->links[std::size_t(cornerLink[i])].id});
         res.points.push_back(g.center(corners[i]));
     }
     // The ends are the points asked for, on the surface, when they were on a walkable cell themselves.

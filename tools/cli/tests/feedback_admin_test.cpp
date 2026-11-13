@@ -40,15 +40,27 @@ void spit(const stdfs::path& p, const std::string& s) {
 }
 Json slurp_json(const stdfs::path& p) { return Json::parse(slurp(p)); }
 
-const std::string kKeyA = "aaaaaaaaaaaaaaaa";       // the server's keys are exactly 16 characters
+const std::string kKeyA = "aaaaaaaaaaaaaaaa";  // the server's keys are exactly 16 characters
 const std::string kKeyB = "bbbbbbbbbbbbbbbb";
 
 Json report(const std::string& shareId, const std::string& installKey, const std::string& title, int occurrences = 1,
             const std::string& trust = "anonymous") {
-    return Json::object({{"shareId", shareId}, {"installKey", installKey}, {"reporterKey", trust == "verified" ? Json("rrrrrrrrrrrrrrrr") : Json(nullptr)},
-                         {"trust", trust}, {"receivedAt", "2026-10-20T10:00:00Z"}, {"occurrences", occurrences}, {"engineVersion", "0.10.0"},
-                         {"platform", "macos"}, {"category", "physics"}, {"severity", "major"}, {"effort", "small"}, {"title", title},
-                         {"missing", "The engine lacks " + title}, {"suggestion", "Add it"}, {"workaround", ""}, {"reporterKind", "ai"},
+    return Json::object({{"shareId", shareId},
+                         {"installKey", installKey},
+                         {"reporterKey", trust == "verified" ? Json("rrrrrrrrrrrrrrrr") : Json(nullptr)},
+                         {"trust", trust},
+                         {"receivedAt", "2026-10-20T10:00:00Z"},
+                         {"occurrences", occurrences},
+                         {"engineVersion", "0.10.0"},
+                         {"platform", "macos"},
+                         {"category", "physics"},
+                         {"severity", "major"},
+                         {"effort", "small"},
+                         {"title", title},
+                         {"missing", "The engine lacks " + title},
+                         {"suggestion", "Add it"},
+                         {"workaround", ""},
+                         {"reporterKind", "ai"},
                          {"reviewed", false}});
 }
 
@@ -82,7 +94,9 @@ struct FakeServer {
                 page.push_back(reports[i]);
                 last = i + 1;
             }
-            return json(200, Json::object({{"ok", true}, {"reports", page}, {"next", last == 0 ? Json(nullptr) : Json("c" + std::to_string(last))}}));
+            return json(200, Json::object({{"ok", true},
+                                           {"reports", page},
+                                           {"next", last == 0 ? Json(nullptr) : Json("c" + std::to_string(last))}}));
         }
         if (path == "/v1/admin/reject" || path == "/v1/admin/unreject") {
             const bool reject = path == "/v1/admin/reject";
@@ -113,19 +127,35 @@ struct FakeServer {
                     }
                 }
             }
-            return json(200, Json::object({{"ok", true}, {reject ? "rejected" : "restored", done}, {"notFound", missing}}));
+            return json(200,
+                        Json::object({{"ok", true}, {reject ? "rejected" : "restored", done}, {"notFound", missing}}));
         }
         if (path == "/v1/admin/bans") return json(200, Json::object({{"ok", true}, {"bans", bans}}));
-        if (path == "/v1/admin/ban") return json(200, Json::object({{"ok", true}, {"banned", Json::object({{"kind", "install"}, {"key", "x"}})}, {"purged", 2}}));
+        if (path == "/v1/admin/ban")
+            return json(
+                200, Json::object(
+                         {{"ok", true}, {"banned", Json::object({{"kind", "install"}, {"key", "x"}})}, {"purged", 2}}));
         if (path == "/v1/admin/unban") return json(200, Json::object({{"ok", true}, {"removed", true}}));
-        if (path.rfind("/v1/admin/reports/", 0) == 0) return json(200, Json::object({{"ok", true}, {"deleted", path.substr(18)}}));
+        if (path.rfind("/v1/admin/reports/", 0) == 0)
+            return json(200, Json::object({{"ok", true}, {"deleted", path.substr(18)}}));
         if (path == "/v1/admin/stats")
-            return json(200, Json::object({{"ok", true}, {"totals", Json::object({{"reports", 7}, {"installations", 3}, {"bans", 1}})},
-                                          {"days", Json::array({Json::object({{"day", "2026-10-31"}, {"accepted", 2}, {"rejected", 1}, {"rejections", Json::object({{"too_short", 1}})}}),
-                                                                Json::object({{"day", "2026-10-30"}, {"accepted", 0}})})}}));
-        return json(404, Json::object({{"ok", false}, {"error", Json::object({{"code", "not_found"}, {"message", path + " is not an endpoint."}, {"hint", "x"}})}}));
+            return json(
+                200,
+                Json::object({{"ok", true},
+                              {"totals", Json::object({{"reports", 7}, {"installations", 3}, {"bans", 1}})},
+                              {"days", Json::array({Json::object({{"day", "2026-10-31"},
+                                                                  {"accepted", 2},
+                                                                  {"rejected", 1},
+                                                                  {"rejections", Json::object({{"too_short", 1}})}}),
+                                                    Json::object({{"day", "2026-10-30"}, {"accepted", 0}})})}}));
+        return json(404, Json::object({{"ok", false},
+                                       {"error", Json::object({{"code", "not_found"},
+                                                               {"message", path + " is not an endpoint."},
+                                                               {"hint", "x"}})}}));
     }
-    std::string last_path() const { return requests.empty() ? std::string() : requests.back().url.substr(requests.back().url.find("/v1/")); }
+    std::string last_path() const {
+        return requests.empty() ? std::string() : requests.back().url.substr(requests.back().url.find("/v1/"));
+    }
 };
 
 // The process-wide environment of the commands, pointed at a temp dir and a fake server for one test.
@@ -135,7 +165,8 @@ struct Fixture {
     std::string adminFile, inbox;
     int modelCalls = 0;
     std::map<std::string, std::string> env;
-    std::unique_ptr<ScopedShareEnv> scopedShare;  // the inbox files are rewritten under the feedback-file lock of the user's folder: this one's
+    std::unique_ptr<ScopedShareEnv>
+        scopedShare;  // the inbox files are rewritten under the feedback-file lock of the user's folder: this one's
 
     explicit Fixture(bool configured = true) {
         dir = fs::make_temp_dir("fa_feedback_admin").value();
@@ -148,10 +179,15 @@ struct Fixture {
         }
         adminFile = (dir / "cfg" / "feedback-admin.json").string();
         inbox = (dir / "cfg" / "feedback-inbox").string();
-        if (configured) spit(adminFile, R"({"endpoint": "https://feedback.example.test/", "adminToken": "tok-secret", "other": 1})");
+        if (configured)
+            spit(adminFile,
+                 R"({"endpoint": "https://feedback.example.test/", "adminToken": "tok-secret", "other": 1})");
         FeedbackAdminEnv& e = feedback_admin_env();
         e = FeedbackAdminEnv{};
-        e.env = [this](const std::string& n) { auto it = env.find(n); return it == env.end() ? std::string() : it->second; };
+        e.env = [this](const std::string& n) {
+            auto it = env.find(n);
+            return it == env.end() ? std::string() : it->second;
+        };
         e.transport = [this](const ai::HttpRequest& r) { return server.handle(r); };
         e.today = [] { return std::string("2026-10-31"); };
     }
@@ -168,16 +204,21 @@ struct Fixture {
         return run(a);
     }
     std::string cursor() const { return slurp_json(adminFile).value("cursor", std::string()); }
-    Json entries_of(const std::string& key) const { return slurp_json(stdfs::path(inbox) / key / "ENGINE_FEEDBACK.json")["entries"]; }
+    Json entries_of(const std::string& key) const {
+        return slurp_json(stdfs::path(inbox) / key / "ENGINE_FEEDBACK.json")["entries"];
+    }
     void model_says(const std::string& verdict, const std::string& which = {}) {
-        feedback_admin_env().model = [this, verdict, which](const std::string&, const std::string& user) -> Result<std::string> {
+        feedback_admin_env().model = [this, verdict, which](const std::string&,
+                                                            const std::string& user) -> Result<std::string> {
             ++modelCalls;
             Json out = Json::array();
             std::size_t pos = 0;
             while ((pos = user.find("\"id\": \"", pos)) != std::string::npos) {
                 pos += 7;
                 std::string id = user.substr(pos, user.find('"', pos) - pos);
-                out.push_back(Json::object({{"id", id}, {"verdict", which.empty() || which == id ? verdict : "valid"}, {"reason", "because " + id}}));
+                out.push_back(Json::object({{"id", id},
+                                            {"verdict", which.empty() || which == id ? verdict : "valid"},
+                                            {"reason", "because " + id}}));
             }
             return "Here you go:\n" + out.dump();
         };
@@ -188,9 +229,10 @@ struct Fixture {
 
 TEST_CASE("feedback pull: pages through the server, writes one file per installation, saves the cursor last") {
     Fixture f;
-    f.server.reports = {report("r_1", kKeyA, "No one-way platforms"), report("r_2", kKeyB, "Audio cannot loop", 3, "verified"),
-                        report("r_3", kKeyA, "Tilemap collisions are slow"), report("r_4", kKeyA, "Particles cannot collide"),
-                        report("r_5", kKeyB, "Sprites flicker")};
+    f.server.reports = {report("r_1", kKeyA, "No one-way platforms"),
+                        report("r_2", kKeyB, "Audio cannot loop", 3, "verified"),
+                        report("r_3", kKeyA, "Tilemap collisions are slow"),
+                        report("r_4", kKeyA, "Particles cannot collide"), report("r_5", kKeyB, "Sprites flicker")};
     PullOptions po;
     po.out = f.inbox;
     po.outExplicit = true;
@@ -341,7 +383,8 @@ TEST_CASE("feedback pull: never writes inside a git checkout unless --out names 
 
 TEST_CASE("feedback pull: without feedback-admin.json it points at deploy.sh") {
     Fixture f(false);
-    for (const auto& args : std::vector<std::vector<std::string>>{{"feedback", "pull"}, {"feedback", "stats"}, {"feedback", "bans"}}) {
+    for (const auto& args :
+         std::vector<std::vector<std::string>>{{"feedback", "pull"}, {"feedback", "stats"}, {"feedback", "bans"}}) {
         auto r = run(args);
         CHECK(r.code == 1);
         CHECK(r.err.find("tools/feedback-server/deploy.sh") != std::string::npos);
@@ -361,7 +404,8 @@ TEST_CASE("feedback pull: contradictory flags are a usage error") {
 
 TEST_CASE("feedback pull: classification sorts valid, doubtful and junk; junk goes to the quarantine") {
     Fixture f;
-    f.server.reports = {report("r_1", kKeyA, "No one-way platforms"), report("r_2", kKeyA, "Buy cheap watches now"), report("r_3", kKeyB, "Maybe the audio is quiet")};
+    f.server.reports = {report("r_1", kKeyA, "No one-way platforms"), report("r_2", kKeyA, "Buy cheap watches now"),
+                        report("r_3", kKeyB, "Maybe the audio is quiet")};
     feedback_admin_env().model = [&](const std::string& system, const std::string& user) -> Result<std::string> {
         ++f.modelCalls;
         CHECK(system.find("untrusted") != std::string::npos);  // the reports are data, not instructions
@@ -404,7 +448,8 @@ TEST_CASE("feedback pull: classification sorts valid, doubtful and junk; junk go
 
 TEST_CASE("feedback pull: batches of ten, and a failing model leaves the reports in, unjudged") {
     Fixture f;
-    for (int i = 0; i < 23; ++i) f.server.reports.push_back(report("r_" + std::to_string(i + 1), kKeyA, "Gap number " + std::to_string(i)));
+    for (int i = 0; i < 23; ++i)
+        f.server.reports.push_back(report("r_" + std::to_string(i + 1), kKeyA, "Gap number " + std::to_string(i)));
     f.model_says("valid");
     CHECK(f.pull({"--classify"}).code == 0);
     CHECK(f.modelCalls == 3);
@@ -412,7 +457,9 @@ TEST_CASE("feedback pull: batches of ten, and a failing model leaves the reports
 
     Fixture g;
     g.server.reports = {report("r_1", kKeyA, "No one-way platforms")};
-    feedback_admin_env().model = [](const std::string&, const std::string&) -> Result<std::string> { return make_error("rate limited", "wait"); };
+    feedback_admin_env().model = [](const std::string&, const std::string&) -> Result<std::string> {
+        return make_error("rate limited", "wait");
+    };
     auto r = g.pull({"--classify"});
     CHECK(r.code == 0);
     CHECK(r.err.find("Classification stopped: rate limited") != std::string::npos);
@@ -422,7 +469,9 @@ TEST_CASE("feedback pull: batches of ten, and a failing model leaves the reports
 
     Fixture h;
     h.server.reports = {report("r_1", kKeyA, "No one-way platforms")};
-    feedback_admin_env().model = [](const std::string&, const std::string&) -> Result<std::string> { return std::string("I cannot do that."); };
+    feedback_admin_env().model = [](const std::string&, const std::string&) -> Result<std::string> {
+        return std::string("I cannot do that.");
+    };
     auto garbage = h.pull({"--classify"});
     CHECK(garbage.code == 0);
     CHECK(garbage.err.find("did not answer with a JSON array") != std::string::npos);
@@ -454,11 +503,18 @@ TEST_CASE("feedback pull: the model of the fast role is built from ai.json (API 
         modelRequests.push_back(req);
         ai::HttpResponse r;
         r.status = 200;
-        r.body = Json::object({{"id", "x"}, {"model", "gpt-5-mini"},
-                               {"choices", Json::array({Json::object({{"index", 0}, {"finish_reason", "stop"},
-                                                                       {"message", Json::object({{"role", "assistant"},
-                                                                                                 {"content", R"([{"id": "r_1", "verdict": "junk", "reason": "test text"}])"}})}})})},
-                               {"usage", Json::object({{"prompt_tokens", 10}, {"completion_tokens", 5}, {"total_tokens", 15}})}})
+        r.body = Json::object(
+                     {{"id", "x"},
+                      {"model", "gpt-5-mini"},
+                      {"choices",
+                       Json::array({Json::object(
+                           {{"index", 0},
+                            {"finish_reason", "stop"},
+                            {"message",
+                             Json::object(
+                                 {{"role", "assistant"},
+                                  {"content", R"([{"id": "r_1", "verdict": "junk", "reason": "test text"}])"}})}})})},
+                      {"usage", Json::object({{"prompt_tokens", 10}, {"completion_tokens", 5}, {"total_tokens", 15}})}})
                      .dump();
         return r;
     };
@@ -475,10 +531,12 @@ TEST_CASE("feedback pull: the model of the fast role is built from ai.json (API 
 
 TEST_CASE("feedback quarantine: list, restore and clear") {
     Fixture f;
-    f.server.reports = {report("r_1", kKeyA, "No one-way platforms"), report("r_2", kKeyA, "Buy cheap watches now"), report("r_3", kKeyB, "lorem ipsum dolor")};
+    f.server.reports = {report("r_1", kKeyA, "No one-way platforms"), report("r_2", kKeyA, "Buy cheap watches now"),
+                        report("r_3", kKeyB, "lorem ipsum dolor")};
     f.model_says("junk", "r_2");
     feedback_admin_env().model = [](const std::string&, const std::string&) -> Result<std::string> {
-        return std::string(R"([{"id":"r_1","verdict":"valid","reason":"ok"},{"id":"r_2","verdict":"junk","reason":"spam"},{"id":"r_3","verdict":"junk","reason":"filler"}])");
+        return std::string(
+            R"([{"id":"r_1","verdict":"valid","reason":"ok"},{"id":"r_2","verdict":"junk","reason":"spam"},{"id":"r_3","verdict":"junk","reason":"filler"}])");
     };
     REQUIRE(f.pull({"--classify"}).code == 0);
 
@@ -513,7 +571,8 @@ TEST_CASE("feedback quarantine: list, restore and clear") {
 
 TEST_CASE("feedback ban, unban, bans, delete and stats talk to the admin API") {
     Fixture f;
-    f.server.bans = Json::array({Json::object({{"kind", "install"}, {"key", kKeyB}, {"reason", "spam"}, {"createdAt", "2026-10-30T00:00:00Z"}})});
+    f.server.bans = Json::array({Json::object(
+        {{"kind", "install"}, {"key", kKeyB}, {"reason", "spam"}, {"createdAt", "2026-10-30T00:00:00Z"}})});
 
     auto ban = run({"feedback", "ban", kKeyA, "--install", "--purge", "--reason", "spam wave", "--out", f.inbox});
     CHECK(ban.code == 0);
@@ -564,10 +623,12 @@ TEST_CASE("feedback ban, unban, bans, delete and stats talk to the admin API") {
     CHECK(Json::parse(run({"feedback", "stats", "--json"}).out)["totals"]["installations"] == 3);
 
     f.server.fixed["/v1/admin/unban"] = f.server.json(200, Json::object({{"ok", true}, {"removed", false}}));
-    CHECK(run({"feedback", "unban", kKeyA, "--install", "--out", f.inbox}).out.find("was not banned") != std::string::npos);
+    CHECK(run({"feedback", "unban", kKeyA, "--install", "--out", f.inbox}).out.find("was not banned") !=
+          std::string::npos);
 }
 
-TEST_CASE("feedback ban: a key that could be an installKey or a reporterKey teaches; a shareId or an inbox folder decides") {
+TEST_CASE(
+    "feedback ban: a key that could be an installKey or a reporterKey teaches; a shareId or an inbox folder decides") {
     Fixture f;
     f.server.reports = {report("r_1", kKeyA, "No one-way platforms")};
     REQUIRE(f.pull({"--no-classify"}).code == 0);
@@ -618,16 +679,21 @@ TEST_CASE("feedback admin: every kind of server answer is explained") {
         std::string expect2;  // also
     };
     auto err = [](const std::string& code, const std::string& message, const std::string& hint) {
-        return Json::object({{"ok", false}, {"error", Json::object({{"code", code}, {"message", message}, {"hint", hint}})}}).dump();
+        return Json::object(
+                   {{"ok", false}, {"error", Json::object({{"code", code}, {"message", message}, {"hint", hint}})}})
+            .dump();
     };
     const std::vector<Case> cases = {
-        {401, err("unauthorized", "The admin token is missing or wrong.", "Send Authorization."), "The admin token is missing or wrong.", "deploy.sh"},
+        {401, err("unauthorized", "The admin token is missing or wrong.", "Send Authorization."),
+         "The admin token is missing or wrong.", "deploy.sh"},
         {403, err("banned", "banned", "no"), "refused the admin token", "ADMIN_TOKEN"},
-        {503, err("not_configured", "The server has no ADMIN_TOKEN.", "Run deploy."), "no admin token yet", "deploy.sh"},
+        {503, err("not_configured", "The server has no ADMIN_TOKEN.", "Run deploy."), "no admin token yet",
+         "deploy.sh"},
         {404, err("not_found", "No report r_9.", "Deleted already."), "No report r_9.", "Deleted already."},
         {404, "<html>Not found</html>", "does not look like the feedback server", "endpoint"},
         {400, err("invalid_cursor", "since is not a cursor.", "Pass next."), "since is not a cursor.", "Pass next."},
-        {400, err("invalid_request", "limit must be an integer.", "Use limit=500."), "limit must be an integer.", "Use limit=500."},
+        {400, err("invalid_request", "limit must be an integer.", "Use limit=500."), "limit must be an integer.",
+         "Use limit=500."},
         {405, err("method_not_allowed", "no POST", "Use GET."), "no POST", "Use GET."},
         {413, err("too_large", "too big", "smaller"), "too big for the server", "bug"},
         {429, err("rate_limited", "slow down", "later"), "rate limiting", "midnight UTC"},
@@ -712,8 +778,8 @@ TEST_CASE("feedback fixed: add and list through the CLI, and the offer after `up
     CHECK(none.code == 1);
     CHECK(none.err.find("fixed add") != std::string::npos);
 
-    auto add = run({"feedback", "fixed", "add", "--category", "physics", "--title", "No one-way platforms", "--title", "One-way platforms missing",
-                    "--version", "0.11.0", "--note", "Collider2D.oneWay", "--file", file});
+    auto add = run({"feedback", "fixed", "add", "--category", "physics", "--title", "No one-way platforms", "--title",
+                    "One-way platforms missing", "--version", "0.11.0", "--note", "Collider2D.oneWay", "--file", file});
     CHECK(add.code == 0);
     CHECK(add.out.find("Created") != std::string::npos);
     Json doc = slurp_json(file);
@@ -723,11 +789,14 @@ TEST_CASE("feedback fixed: add and list through the CLI, and the offer after `up
 
     auto list = run({"feedback", "fixed", "list", "--file", file});
     CHECK(list.code == 0);
-    CHECK(list.out.find("0.11.0  [physics]  No one-way platforms | One-way platforms missing  - Collider2D.oneWay") != std::string::npos);
+    CHECK(list.out.find("0.11.0  [physics]  No one-way platforms | One-way platforms missing  - Collider2D.oneWay") !=
+          std::string::npos);
     CHECK(Json::parse(run({"feedback", "fixed", "list", "--file", file, "--json"}).out)["fixes"].size() == 1);
 
-    CHECK(run({"feedback", "fixed", "add", "--category", "physics", "--version", "0.11.0", "--file", file}).code == 2);  // no --title
-    auto badCat = run({"feedback", "fixed", "add", "--category", "phisics", "--title", "x gap", "--version", "0.11.0", "--file", file});
+    CHECK(run({"feedback", "fixed", "add", "--category", "physics", "--version", "0.11.0", "--file", file}).code ==
+          2);  // no --title
+    auto badCat = run({"feedback", "fixed", "add", "--category", "phisics", "--title", "x gap", "--version", "0.11.0",
+                       "--file", file});
     CHECK(badCat.code == 1);
     CHECK(badCat.err.find("physics") != std::string::npos);
     CHECK(slurp_json(file)["fixes"].size() == 1);
@@ -735,10 +804,14 @@ TEST_CASE("feedback fixed: add and list through the CLI, and the offer after `up
     // Closing a pulled entry as fixed offers the command that records the fix; a project's own entry does not.
     f.server.reports = {report("r_1", kKeyA, "No one-way platforms")};
     REQUIRE(f.pull({"--no-classify"}).code == 0);
-    auto update = run({"feedback", "update", (stdfs::path(f.inbox) / kKeyA).string(), "FB-0001", "--status", "fixed-in-engine"});
+    auto update =
+        run({"feedback", "update", (stdfs::path(f.inbox) / kKeyA).string(), "FB-0001", "--status", "fixed-in-engine"});
     CHECK(update.code == 0);
-    CHECK(update.out.find("factoria feedback fixed add --category physics --title \"No one-way platforms\" --version") != std::string::npos);
-    auto wontfix = run({"feedback", "update", (stdfs::path(f.inbox) / kKeyA).string(), "FB-0001", "--status", "wont-fix"});
+    CHECK(
+        update.out.find("factoria feedback fixed add --category physics --title \"No one-way platforms\" --version") !=
+        std::string::npos);
+    auto wontfix =
+        run({"feedback", "update", (stdfs::path(f.inbox) / kKeyA).string(), "FB-0001", "--status", "wont-fix"});
     CHECK(wontfix.out.find("fixed add") == std::string::npos);
 
     Json local = Json::object({{"title", "t"}, {"category", "physics"}});
@@ -761,7 +834,8 @@ Json gap_report(const std::string& shareId) {
 }
 }  // namespace
 
-TEST_CASE("feedback pull: a report that claims what the engine has is a suggested rejection with a ready reason; nothing is rejected by it") {
+TEST_CASE("feedback pull: a report that claims what the engine has is a suggested rejection with a ready reason; "
+          "nothing is rejected by it") {
     Fixture f;
     f.server.reports = {claimed_report("r_1"), gap_report("r_2")};
     auto p = f.pull({"--no-classify"});
@@ -775,10 +849,12 @@ TEST_CASE("feedback pull: a report that claims what the engine has is a suggeste
     CHECK(e[0].contains("suggestedRejection"));
     CHECK(e[0]["suggestedRejection"]["reason"].get<std::string>().find("Collider2D.oneWay") != std::string::npos);
     CHECK_FALSE(e[1].contains("suggestedRejection"));
-    for (const auto& rq : f.server.requests) CHECK(rq.url.find("/v1/admin/reject") == std::string::npos);  // pull never rejects
+    for (const auto& rq : f.server.requests)
+        CHECK(rq.url.find("/v1/admin/reject") == std::string::npos);  // pull never rejects
 }
 
-TEST_CASE("feedback reject --suggested sends the ready reasons, closes the local entries, and --json is machine-readable") {
+TEST_CASE(
+    "feedback reject --suggested sends the ready reasons, closes the local entries, and --json is machine-readable") {
     Fixture f;
     f.server.reports = {claimed_report("r_1"), gap_report("r_2")};
     REQUIRE(f.pull({"--no-classify"}).code == 0);
@@ -800,10 +876,12 @@ TEST_CASE("feedback reject --suggested sends the ready reasons, closes the local
     CHECK(all[0]["statusReason"].get<std::string>().find("Collider2D.oneWay") != std::string::npos);
     CHECK(all[1]["status"] == "open");
     // nothing more is suggested
-    CHECK(run({"feedback", "reject", "--suggested", "--out", f.inbox}).out.find("No suggested rejections") != std::string::npos);
+    CHECK(run({"feedback", "reject", "--suggested", "--out", f.inbox}).out.find("No suggested rejections") !=
+          std::string::npos);
 }
 
-TEST_CASE("feedback reject: shareIds with --reason, a JSON batch file, --quarantined; never a prompt, and a wrong reason teaches") {
+TEST_CASE("feedback reject: shareIds with --reason, a JSON batch file, --quarantined; never a prompt, and a wrong "
+          "reason teaches") {
     Fixture f;
     f.server.reports = {claimed_report("r_1"), gap_report("r_2"), gap_report("r_3")};
     REQUIRE(f.pull({"--no-classify"}).code == 0);
@@ -819,11 +897,13 @@ TEST_CASE("feedback reject: shareIds with --reason, a JSON batch file, --quarant
     CHECK(longReason.code == 2);
     CHECK(longReason.err.find("500") != std::string::npos);
 
-    auto one = run({"feedback", "reject", "r_2", "--reason", "Tilemap\n has it.\t See docs.", "--out", f.inbox, "--json"});
+    auto one =
+        run({"feedback", "reject", "r_2", "--reason", "Tilemap\n has it.\t See docs.", "--out", f.inbox, "--json"});
     CHECK_MESSAGE(one.code == 0, one.err);
     CHECK(f.server.verdicts["r_2"] == "Tilemap has it. See docs.");  // control characters become one space
 
-    spit(stdfs::path(f.dir) / "batch.json", R"([{"shareId":"r_1","reason":"Collider2D.oneWay exists."},{"shareId":"r_3","reason":"Not an engine gap."}])");
+    spit(stdfs::path(f.dir) / "batch.json",
+         R"([{"shareId":"r_1","reason":"Collider2D.oneWay exists."},{"shareId":"r_3","reason":"Not an engine gap."}])");
     auto batch = run({"feedback", "reject", "--file", (f.dir / "batch.json").string(), "--out", f.inbox, "--json"});
     CHECK_MESSAGE(batch.code == 0, batch.err);
     CHECK(f.server.verdicts["r_1"] == "Collider2D.oneWay exists.");
@@ -863,21 +943,25 @@ TEST_CASE("feedback unreject takes a rejection back on the server and in the inb
 
 namespace {
 // A report the installation shared for an efficiency entry: its text in engine terms and the measured numbers.
-Json efficiency_report(const std::string& shareId, const std::string& installKey, const std::string& title, const std::string& fixType,
-                       double minutes, const std::string& trust = "anonymous") {
+Json efficiency_report(const std::string& shareId, const std::string& installKey, const std::string& title,
+                       const std::string& fixType, double minutes, const std::string& trust = "anonymous") {
     Json r = report(shareId, installKey, title, 1, trust);
     r["kind"] = "efficiency";
     r["category"] = "scene";
     r["missing"] = "Working out the order of the calls took many steps of trial and error.";
-    r["efficiency"] = Json::object({{"fixType", fixType}, {"appliesTo", "every-game"},
-                                    {"measured", Json::object({{"steps", 40}, {"minutes", minutes * 2}, {"tokens", 200000}, {"costUsd", 1.0}})},
-                                    {"saving", Json::object({{"steps", 20}, {"minutes", minutes}, {"tokens", 100000}, {"costUsd", 0.5}})},
-                                    {"expectedShare", 0.5}, {"spans", 1}});
+    r["efficiency"] = Json::object(
+        {{"fixType", fixType},
+         {"appliesTo", "every-game"},
+         {"measured", Json::object({{"steps", 40}, {"minutes", minutes * 2}, {"tokens", 200000}, {"costUsd", 1.0}})},
+         {"saving", Json::object({{"steps", 20}, {"minutes", minutes}, {"tokens", 100000}, {"costUsd", 0.5}})},
+         {"expectedShare", 0.5},
+         {"spans", 1}});
     return r;
 }
 }  // namespace
 
-TEST_CASE("feedback pull: efficiency entries are ranked by the total saving across installations, with a verdict and a ready reason") {
+TEST_CASE("feedback pull: efficiency entries are ranked by the total saving across installations, with a verdict and a "
+          "ready reason") {
     Fixture f;
     f.server.reports = {efficiency_report("r_1", kKeyA, "Flux calibration order", "doc", 30, "verified"),
                         efficiency_report("r_2", kKeyB, "Flux calibration order", "doc", 30),
@@ -914,7 +998,8 @@ TEST_CASE("feedback pull: efficiency entries are ranked by the total saving acro
     CHECK(Json::parse(c.out)["efficiency"] == e);
 }
 
-TEST_CASE("feedback pull: a later report of an efficiency entry replaces its numbers (they are cumulative), and a bad block stays a plain entry") {
+TEST_CASE("feedback pull: a later report of an efficiency entry replaces its numbers (they are cumulative), and a bad "
+          "block stays a plain entry") {
     Fixture f;
     f.server.reports = {efficiency_report("r_1", kKeyA, "Flux calibration order", "doc", 30)};
     REQUIRE(f.pull({"--no-classify"}).code == 0);

@@ -16,8 +16,9 @@ namespace fa::editor {
 
 // A ghost quad the onion skin draws: a sprite (or one cell of a skin) of the animated entity in another pose, in world space.
 struct OnionQuad {
-    Vec2 corner[4];       // world positions, in the order of the texture corners top-left, top-right, bottom-right, bottom-left
-    Vec2 uv[4];           // texture coordinates (0..1) of those corners
+    Vec2 corner
+        [4];     // world positions, in the order of the texture corners top-left, top-right, bottom-right, bottom-left
+    Vec2 uv[4];  // texture coordinates (0..1) of those corners
     std::string texture;  // "" = outline only
 };
 struct OnionPose {
@@ -45,10 +46,10 @@ struct AnimUi {
     int fps = 30;
     bool snap = true;
     // ---- view
-    bool curves = false;       // the curve view instead of the dopesheet
-    float pps = 240.0f;        // pixels per second
-    double viewStart = 0;      // seconds at the left edge of the time area
-    bool fitNext = true;       // fit the clip to the width on the next frame
+    bool curves = false;              // the curve view instead of the dopesheet
+    float pps = 240.0f;               // pixels per second
+    double viewStart = 0;             // seconds at the left edge of the time area
+    bool fitNext = true;              // fit the clip to the width on the next frame
     std::set<std::string> collapsed;  // parts (track paths) whose rows are folded
     std::set<int> curveTracks;        // tracks whose curves the curve view draws
     // ---- selection
@@ -66,7 +67,7 @@ struct AnimUi {
     float dragSlope = 0, dragValue = 0;
     int dragEvent = -1;
     double dragEventTo = 0;
-    KeySet dragBase;       // the selection when a drag began
+    KeySet dragBase;  // the selection when a drag began
     // ---- popups
     std::string newClipName = "idle";
     float newClipDuration = 1.0f;
@@ -79,11 +80,11 @@ struct AnimUi {
     bool posed = false;
     std::uint64_t posedGeneration = 0;  // World::scene_generation() when it posed: a reload makes the pose moot
     std::string posedOwner;
-    std::string savedClip;              // Animator.clip / time / playing before the first pose: put back after every pose
+    std::string savedClip;  // Animator.clip / time / playing before the first pose: put back after every pose
     float savedTime = 0;
     bool savedPlaying = true;
-    bool dirtyPose = true;              // the clip or the playhead changed: pose again
-    struct BoneRest {                   // a Bone2D's Transform before the first pose (an IK solve moves bones no clip drives)
+    bool dirtyPose = true;  // the clip or the playhead changed: pose again
+    struct BoneRest {       // a Bone2D's Transform before the first pose (an IK solve moves bones no clip drives)
         std::string id;
         Json position, rotation, scale;
     };
@@ -92,14 +93,15 @@ struct AnimUi {
     std::vector<OnionPose> ghosts;
     std::string ghostKey;
     // ---- layout of the last frame (the autotest clicks by these)
-    float timeX0 = 0, timeX1 = 0;       // screen x of the time area's left and right edge
+    float timeX0 = 0, timeX1 = 0;  // screen x of the time area's left and right edge
     float rulerY = 0, rowsY0 = 0;
     // ---- counters the autotest reads
-    int recordedKeys = 0;               // keys record mode wrote
-    int onionDrawn = 0;                 // ghost quads the viewport drew in the last frame
+    int recordedKeys = 0;  // keys record mode wrote
+    int onionDrawn = 0;    // ghost quads the viewport drew in the last frame
     // ---- the last problem
     std::string error;
-    std::string eventError;             // the event popup's own problem (a bad feel JSON, a refused command): the panel's `error` is not its to write or show
+    std::string
+        eventError;  // the event popup's own problem (a bad feel JSON, a refused command): the panel's `error` is not its to write or show
 };
 
 // What the bone tools window asks of the viewport.
@@ -108,31 +110,31 @@ enum class BoneTool { Off, Chain, Weights, Ik };
 struct BoneUi {
     BoneTool tool = BoneTool::Off;
     // ---- chain
-    std::vector<Vec2> chain;   // clicked points, in the parent's local space
+    std::vector<Vec2> chain;  // clicked points, in the parent's local space
     std::string chainPrefix = "bone";
-    std::string chainParent;   // the entity the chain hangs from (set at the first click: the selection)
+    std::string chainParent;  // the entity the chain hangs from (set at the first click: the selection)
     // ---- bind
     int meshColumns = 4, meshRows = 8;
-    std::string bindRoot;      // a bone: it and the bones below it
+    std::string bindRoot;  // a bone: it and the bones below it
     // ---- weights
-    std::string skinId;        // the sprite whose weights are shown
-    int boneIndex = 0;         // the bone painted (index in SpriteSkin.bones)
-    float radius = 24.0f;      // brush radius, in the sprite's local units
+    std::string skinId;    // the sprite whose weights are shown
+    int boneIndex = 0;     // the bone painted (index in SpriteSkin.bones)
+    float radius = 24.0f;  // brush radius, in the sprite's local units
     float strength = 0.5f;
-    int mode = 0;              // 0 add, 1 set, 2 smooth
+    int mode = 0;  // 0 add, 1 set, 2 smooth
     bool painting = false;
     std::string paintKey;
-    int strokes = 0;           // paint commands in this stroke
-    Vec2 lastDab{};            // where the brush last painted in this stroke (sprite-local), so a still mouse does not pile up
+    int strokes = 0;  // paint commands in this stroke
+    Vec2 lastDab{};   // where the brush last painted in this stroke (sprite-local), so a still mouse does not pile up
     bool hasDab = false;
     // ---- ik
     int ikDragging = -1;
-    std::string ikTarget;      // id of the target being dragged
+    std::string ikTarget;  // id of the target being dragged
     std::string ikKey;
     // ---- counters the autotest reads
-    int bonesDrawn = 0;        // bone outlines the viewport drew in the last frame
-    int weightDots = 0;        // weight dots the viewport drew in the last frame
-    int ikHandles = 0;         // IK handles the viewport drew in the last frame
+    int bonesDrawn = 0;  // bone outlines the viewport drew in the last frame
+    int weightDots = 0;  // weight dots the viewport drew in the last frame
+    int ikHandles = 0;   // IK handles the viewport drew in the last frame
     std::string error;
 };
 

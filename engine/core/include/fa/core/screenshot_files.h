@@ -17,7 +17,7 @@
 namespace fa {
 
 inline constexpr const char* kScreenshotDir = ".factoria/screenshots";
-inline constexpr int kScreenshotMaxAgeDays = 3;       // prune_screenshots: older engine-named files are deleted
+inline constexpr int kScreenshotMaxAgeDays = 3;          // prune_screenshots: older engine-named files are deleted
 inline constexpr std::size_t kScreenshotMaxFiles = 200;  // prune_screenshots: at most this many engine-named files stay
 
 // True for a file name the engine picks for a screenshot without a `path`: frame_<digits>.png, optionally followed by

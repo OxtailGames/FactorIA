@@ -22,9 +22,11 @@ const ModeTables& tables(AutotileMode mode) {
     static const ModeTables basic = [] {
         ModeTables t;
         for (int s = 0; s < 16; ++s)
-            t.masks.push_back((s & 1 ? kAutoN : 0) | (s & 2 ? kAutoE : 0) | (s & 4 ? kAutoS : 0) | (s & 8 ? kAutoW : 0));
+            t.masks.push_back((s & 1 ? kAutoN : 0) | (s & 2 ? kAutoE : 0) | (s & 4 ? kAutoS : 0) |
+                              (s & 8 ? kAutoW : 0));
         for (int raw = 0; raw < 256; ++raw)
-            t.slotOfRaw[std::size_t(raw)] = (raw & kAutoN ? 1 : 0) | (raw & kAutoE ? 2 : 0) | (raw & kAutoS ? 4 : 0) | (raw & kAutoW ? 8 : 0);
+            t.slotOfRaw[std::size_t(raw)] =
+                (raw & kAutoN ? 1 : 0) | (raw & kAutoE ? 2 : 0) | (raw & kAutoS ? 4 : 0) | (raw & kAutoW ? 8 : 0);
         return t;
     }();
     static const ModeTables blob = [] {
@@ -63,7 +65,8 @@ ParseOut parse_impl(const Json& terrains) {
     };
     if (!terrains.is_array()) {
         err("/terrains", "terrains must be an array of terrain objects, got " + json_text(terrains),
-            "Example: \"terrains\": [{\"name\": \"grass\", \"mode\": \"blob47\", \"first\": 0}]. Use [] for no autotile rules.");
+            "Example: \"terrains\": [{\"name\": \"grass\", \"mode\": \"blob47\", \"first\": 0}]. Use [] for no "
+            "autotile rules.");
         return out;
     }
     static const std::vector<std::string> kKeys = {"name", "mode", "first", "tiles", "seed", "joins", "outside"};
@@ -95,7 +98,9 @@ ParseOut parse_impl(const Json& terrains) {
         } else {
             t.name = e["name"].get<std::string>();
             if (byName.count(t.name)) {
-                err(at + "/name", "two terrains are named '" + t.name + "' (terrain " + std::to_string(byName[t.name]) + " and " + std::to_string(i) + ")",
+                err(at + "/name",
+                    "two terrains are named '" + t.name + "' (terrain " + std::to_string(byName[t.name]) + " and " +
+                        std::to_string(i) + ")",
                     "Names must be unique: rename one of them.");
                 bad = true;
             }
@@ -103,13 +108,17 @@ ParseOut parse_impl(const Json& terrains) {
         // mode
         bool haveMode = false;
         if (!e.contains("mode")) {
-            err(at + "/mode", "terrain " + std::to_string(i) + (t.name.empty() ? "" : " ('" + t.name + "')") + " needs a \"mode\": \"basic16\" or \"blob47\"",
+            err(at + "/mode",
+                "terrain " + std::to_string(i) + (t.name.empty() ? "" : " ('" + t.name + "')") +
+                    " needs a \"mode\": \"basic16\" or \"blob47\"",
                 "basic16 looks at the 4 neighbours (16 tiles), blob47 at the 8 (47 tiles).");
             bad = true;
         } else if (!e["mode"].is_string() || !autotile_mode_from_name(e["mode"].get<std::string>(), t.mode)) {
             const std::string given = e["mode"].is_string() ? e["mode"].get<std::string>() : json_text(e["mode"]);
             err(at + "/mode", "unknown terrain mode " + (e["mode"].is_string() ? "'" + given + "'" : given),
-                e["mode"].is_string() ? did_you_mean(given, kModes) : "Use \"basic16\" (4 neighbours, 16 tiles) or \"blob47\" (8 neighbours, 47 tiles).");
+                e["mode"].is_string()
+                    ? did_you_mean(given, kModes)
+                    : "Use \"basic16\" (4 neighbours, 16 tiles) or \"blob47\" (8 neighbours, 47 tiles).");
             bad = true;
         } else {
             haveMode = true;
@@ -119,7 +128,8 @@ ParseOut parse_impl(const Json& terrains) {
         if (e.contains("seed")) {
             if (!e["seed"].is_number_integer()) {
                 err(at + "/seed", "seed must be an integer, got " + json_text(e["seed"]),
-                    "The seed picks the variation of each cell: the same seed gives the same map. Example: \"seed\": 7.");
+                    "The seed picks the variation of each cell: the same seed gives the same map. Example: \"seed\": "
+                    "7.");
                 bad = true;
             } else {
                 t.seed = e["seed"].get<std::int64_t>();
@@ -128,10 +138,12 @@ ParseOut parse_impl(const Json& terrains) {
         // outside
         if (e.contains("outside")) {
             const std::string o = e["outside"].is_string() ? e["outside"].get<std::string>() : std::string();
-            if (o == "terrain") t.outsideIsTerrain = true;
+            if (o == "terrain")
+                t.outsideIsTerrain = true;
             else if (o != "empty") {
                 err(at + "/outside", "outside must be \"empty\" or \"terrain\", got " + json_text(e["outside"]),
-                    o.empty() ? "\"terrain\": the map edge counts as this terrain (no border tiles there); \"empty\" (default): it counts as nothing."
+                    o.empty() ? "\"terrain\": the map edge counts as this terrain (no border tiles there); \"empty\" "
+                                "(default): it counts as nothing."
                               : did_you_mean(o, kOutside));
                 bad = true;
             }
@@ -139,12 +151,15 @@ ParseOut parse_impl(const Json& terrains) {
         // joins (names are checked when every terrain is known)
         if (e.contains("joins")) {
             if (!e["joins"].is_array()) {
-                err(at + "/joins", "joins must be an array of terrain names, got " + json_text(e["joins"]), "Example: \"joins\": [\"path\"].");
+                err(at + "/joins", "joins must be an array of terrain names, got " + json_text(e["joins"]),
+                    "Example: \"joins\": [\"path\"].");
                 bad = true;
             } else {
                 for (std::size_t j = 0; j < e["joins"].size(); ++j) {
                     if (!e["joins"][j].is_string()) {
-                        err(at + "/joins/" + std::to_string(j), "joins entry " + std::to_string(j) + " must be a terrain name, got " + json_text(e["joins"][j]));
+                        err(at + "/joins/" + std::to_string(j), "joins entry " + std::to_string(j) +
+                                                                    " must be a terrain name, got " +
+                                                                    json_text(e["joins"][j]));
                         bad = true;
                     } else {
                         t.joins.push_back(e["joins"][j].get<std::string>());
@@ -155,12 +170,15 @@ ParseOut parse_impl(const Json& terrains) {
         // tiles / first
         const bool hasFirst = e.contains("first"), hasTiles = e.contains("tiles");
         if (hasFirst && hasTiles) {
-            err(at, "terrain " + std::to_string(i) + " has both \"first\" and \"tiles\"", "Give one: \"first\" for a run of tiles, or \"tiles\" for a list per slot.");
+            err(at, "terrain " + std::to_string(i) + " has both \"first\" and \"tiles\"",
+                "Give one: \"first\" for a run of tiles, or \"tiles\" for a list per slot.");
             bad = true;
         } else if (!hasFirst && !hasTiles) {
             err(at, "terrain " + std::to_string(i) + (t.name.empty() ? "" : " ('" + t.name + "')") + " lists no tiles",
-                "Give \"first\": N (the tileset index of its first tile; the " + std::string(haveMode ? std::to_string(count) : "16 or 47") +
-                    " tiles follow in slot order) or \"tiles\": [...] with one entry per slot. image.tileset.build writes these for you.");
+                "Give \"first\": N (the tileset index of its first tile; the " +
+                    std::string(haveMode ? std::to_string(count) : "16 or 47") +
+                    " tiles follow in slot order) or \"tiles\": [...] with one entry per slot. image.tileset.build "
+                    "writes these for you.");
             bad = true;
         } else if (hasFirst) {
             if (!is_tile_value(e["first"]) || e["first"].get<double>() >= double(kTileFlipX)) {
@@ -174,10 +192,13 @@ ParseOut parse_impl(const Json& terrains) {
         } else {
             const Json& tiles = e["tiles"];
             if (!tiles.is_array()) {
-                err(at + "/tiles", "tiles must be an array with one entry per slot, got " + json_text(tiles), "Each entry is a tile index, or an array of tile indices (variations of that look).");
+                err(at + "/tiles", "tiles must be an array with one entry per slot, got " + json_text(tiles),
+                    "Each entry is a tile index, or an array of tile indices (variations of that look).");
                 bad = true;
             } else if (haveMode && int(tiles.size()) != count) {
-                err(at + "/tiles", "a " + std::string(autotile_mode_name(t.mode)) + " terrain needs " + std::to_string(count) + " tiles, \"tiles\" has " + std::to_string(tiles.size()),
+                err(at + "/tiles",
+                    "a " + std::string(autotile_mode_name(t.mode)) + " terrain needs " + std::to_string(count) +
+                        " tiles, \"tiles\" has " + std::to_string(tiles.size()),
                     "One entry per slot, in the order of autotile_masks(" + std::string(autotile_mode_name(t.mode)) +
                         ") (image.tileset.info prints it). To use a run of consecutive tiles give \"first\" instead.");
                 bad = true;
@@ -191,15 +212,20 @@ ParseOut parse_impl(const Json& terrains) {
                     } else if (entry.is_array() && !entry.empty()) {
                         for (std::size_t v = 0; v < entry.size(); ++v) {
                             if (!is_tile_value(entry[v])) {
-                                err(sat + "/" + std::to_string(v), "variation " + std::to_string(v) + " of slot " + std::to_string(s) + " must be a tile index, got " + json_text(entry[v]),
-                                    "Tile indices are whole numbers >= 0 (plus optional flip flags, see Tilemap.tiles).");
+                                err(sat + "/" + std::to_string(v),
+                                    "variation " + std::to_string(v) + " of slot " + std::to_string(s) +
+                                        " must be a tile index, got " + json_text(entry[v]),
+                                    "Tile indices are whole numbers >= 0 (plus optional flip flags, see "
+                                    "Tilemap.tiles).");
                                 bad = true;
                             } else {
                                 picks.push_back(entry[v].get<int>());
                             }
                         }
                     } else {
-                        err(sat, "slot " + std::to_string(s) + " must be a tile index or a non-empty array of tile indices, got " + json_text(entry),
+                        err(sat,
+                            "slot " + std::to_string(s) +
+                                " must be a tile index or a non-empty array of tile indices, got " + json_text(entry),
                             "-1 (empty) is not allowed: every look of a terrain needs a tile.");
                         bad = true;
                     }
@@ -215,8 +241,11 @@ ParseOut parse_impl(const Json& terrains) {
                     const int idx = tile_index(v);
                     auto [it, fresh] = owner.emplace(idx, t.name);
                     if (!fresh && it->second != t.name && !bad) {
-                        err(at + "/tiles", "tile " + std::to_string(idx) + " belongs to both terrain '" + it->second + "' and '" + t.name + "'",
-                            "A cell's tile says which terrain it is, so two terrains cannot share a tile index: give each its own range of the tileset.");
+                        err(at + "/tiles",
+                            "tile " + std::to_string(idx) + " belongs to both terrain '" + it->second + "' and '" +
+                                t.name + "'",
+                            "A cell's tile says which terrain it is, so two terrains cannot share a tile index: give "
+                            "each its own range of the tileset.");
                         bad = true;
                     }
                 }
@@ -233,7 +262,9 @@ ParseOut parse_impl(const Json& terrains) {
             }
             const std::size_t at = byName[out.terrains[i].name];
             err("/terrains/" + std::to_string(at) + "/joins",
-                j == out.terrains[i].name ? "terrain '" + j + "' lists itself in joins (it always joins itself)" : "terrain '" + out.terrains[i].name + "' joins '" + j + "', which is not a terrain of this map",
+                j == out.terrains[i].name
+                    ? "terrain '" + j + "' lists itself in joins (it always joins itself)"
+                    : "terrain '" + out.terrains[i].name + "' joins '" + j + "', which is not a terrain of this map",
                 names.empty() ? "Add the terrain to \"terrains\" first." : did_you_mean(j, names));
         }
     }
@@ -306,7 +337,8 @@ struct Retiler {
 
 Error no_map_error() {
     return make_error("The tilemap has no cells to paint on (its size is 0 x 0).",
-                      "Give it a size first: width, height and a tiles array (or rows), e.g. scene.set_component with {\"width\": 20, \"height\": 12, \"tiles\": [...]}.");
+                      "Give it a size first: width, height and a tiles array (or rows), e.g. scene.set_component with "
+                      "{\"width\": 20, \"height\": 12, \"tiles\": [...]}.");
 }
 
 }  // namespace
@@ -314,9 +346,12 @@ Error no_map_error() {
 const char* autotile_mode_name(AutotileMode mode) { return mode == AutotileMode::Basic16 ? "basic16" : "blob47"; }
 
 bool autotile_mode_from_name(const std::string& name, AutotileMode& out) {
-    if (name == "basic16") out = AutotileMode::Basic16;
-    else if (name == "blob47") out = AutotileMode::Blob47;
-    else return false;
+    if (name == "basic16")
+        out = AutotileMode::Basic16;
+    else if (name == "blob47")
+        out = AutotileMode::Blob47;
+    else
+        return false;
     return true;
 }
 
@@ -338,7 +373,8 @@ int autotile_reduce(AutotileMode mode, int raw) {
 int autotile_slot(AutotileMode mode, int rawMask) { return tables(mode).slotOfRaw[std::size_t(rawMask & 255)]; }
 
 std::uint32_t autotile_hash(std::int64_t seed, int col, int row) {
-    std::uint64_t x = std::uint64_t(seed) * 0x9E3779B97F4A7C15ull + std::uint64_t(std::uint32_t(col)) * 0xC2B2AE3D27D4EB4Full +
+    std::uint64_t x = std::uint64_t(seed) * 0x9E3779B97F4A7C15ull +
+                      std::uint64_t(std::uint32_t(col)) * 0xC2B2AE3D27D4EB4Full +
                       std::uint64_t(std::uint32_t(row)) * 0x165667B19E3779F9ull + 0x27D4EB2F165667C5ull;
     x ^= x >> 30;
     x *= 0xBF58476D1CE4E5B9ull;
@@ -353,7 +389,9 @@ Result<std::vector<Terrain>> parse_terrains(const Json& terrains) {
     if (!parsed.issues.empty()) {
         const TilemapIssue& first = parsed.issues.front();
         std::string message = first.pointer + ": " + first.message;
-        if (parsed.issues.size() > 1) message += " (and " + std::to_string(parsed.issues.size() - 1) + " more problem" + (parsed.issues.size() > 2 ? "s" : "") + " in terrains)";
+        if (parsed.issues.size() > 1)
+            message += " (and " + std::to_string(parsed.issues.size() - 1) + " more problem" +
+                       (parsed.issues.size() > 2 ? "s" : "") + " in terrains)";
         return make_error(message, first.hint);
     }
     return std::move(parsed.terrains);
@@ -376,9 +414,11 @@ TerrainOfTile terrain_of_tile(const std::vector<Terrain>& terrains, int tileValu
     return out;
 }
 
-Result<TerrainPaintResult> paint_terrain(Tilemap& tm, const std::string& terrainName, const std::vector<std::pair<int, int>>& cells, bool erase) {
+Result<TerrainPaintResult> paint_terrain(Tilemap& tm, const std::string& terrainName,
+                                         const std::vector<std::pair<int, int>>& cells, bool erase) {
     auto parsed = parse_terrains(tm.terrains);
-    if (!parsed.ok()) return make_error("This tilemap's terrain rules are invalid: " + parsed.error().message, parsed.error().hint);
+    if (!parsed.ok())
+        return make_error("This tilemap's terrain rules are invalid: " + parsed.error().message, parsed.error().hint);
     const std::vector<Terrain>& terrains = *parsed;
     int self = -1;
     for (std::size_t i = 0; i < terrains.size(); ++i)
@@ -387,8 +427,10 @@ Result<TerrainPaintResult> paint_terrain(Tilemap& tm, const std::string& terrain
         std::vector<std::string> names;
         for (const Terrain& t : terrains) names.push_back(t.name);
         if (names.empty())
-            return make_error("Unknown terrain '" + terrainName + "': this tilemap has no terrains.",
-                              "Add rules to the Tilemap component's \"terrains\" (tilemap.set_terrains, or image.tileset.build writes them), e.g. {\"name\": \"grass\", \"mode\": \"blob47\", \"first\": 0}.");
+            return make_error(
+                "Unknown terrain '" + terrainName + "': this tilemap has no terrains.",
+                "Add rules to the Tilemap component's \"terrains\" (tilemap.set_terrains, or image.tileset.build "
+                "writes them), e.g. {\"name\": \"grass\", \"mode\": \"blob47\", \"first\": 0}.");
         return make_error("Unknown terrain '" + terrainName + "'.", did_you_mean(terrainName, names));
     }
     Retiler r(tm, terrains);
@@ -429,15 +471,19 @@ Result<TerrainPaintResult> paint_terrain(Tilemap& tm, const std::string& terrain
 
 Result<TerrainPaintResult> retile_terrains(Tilemap& tm) {
     auto parsed = parse_terrains(tm.terrains);
-    if (!parsed.ok()) return make_error("This tilemap's terrain rules are invalid: " + parsed.error().message, parsed.error().hint);
+    if (!parsed.ok())
+        return make_error("This tilemap's terrain rules are invalid: " + parsed.error().message, parsed.error().hint);
     if (parsed->empty())
-        return make_error("This tilemap has no terrains to re-tile.", "Add rules to the Tilemap component's \"terrains\" (tilemap.set_terrains).");
+        return make_error("This tilemap has no terrains to re-tile.",
+                          "Add rules to the Tilemap component's \"terrains\" (tilemap.set_terrains).");
     Retiler r(tm, *parsed);
     if (r.size.empty()) return no_map_error();
     TerrainPaintResult result;
     std::vector<int> before(std::size_t(r.size.width) * std::size_t(r.size.height));
     for (int row = 0; row < r.size.height; ++row)
-        for (int col = 0; col < r.size.width; ++col) before[std::size_t(row) * std::size_t(r.size.width) + std::size_t(col)] = tilemap_tile_at(tm, r.size, col, row);
+        for (int col = 0; col < r.size.width; ++col)
+            before[std::size_t(row) * std::size_t(r.size.width) + std::size_t(col)] =
+                tilemap_tile_at(tm, r.size, col, row);
     // the membership does not change while re-tiling (a terrain cell stays in its terrain), so the order is free
     for (int row = 0; row < r.size.height; ++row)
         for (int col = 0; col < r.size.width; ++col) r.retile(col, row);
@@ -451,7 +497,8 @@ Result<TerrainPaintResult> retile_terrains(Tilemap& tm) {
 }
 
 void retile_terrain_grid(const std::vector<Terrain>& terrains, int width, int height, std::vector<int>& tiles) {
-    if (terrains.empty() || width <= 0 || height <= 0 || tiles.size() != std::size_t(width) * std::size_t(height)) return;
+    if (terrains.empty() || width <= 0 || height <= 0 || tiles.size() != std::size_t(width) * std::size_t(height))
+        return;
     Tilemap tm;
     set_tilemap_grid(tm, width, height, tiles);
     Retiler r(tm, terrains);

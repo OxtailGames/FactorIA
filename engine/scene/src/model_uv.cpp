@@ -67,22 +67,35 @@ Json model_uv_settings_json(const ModelUvSettings& s) {
     return j;
 }
 
-Result<ModelUvResult> model_uv_apply(const ModelMesh& mesh, const std::vector<std::string>& partNames, const ModelUvSettings& settings, const ModelUvOptions& options) {
+Result<ModelUvResult> model_uv_apply(const ModelMesh& mesh, const std::vector<std::string>& partNames,
+                                     const ModelUvSettings& settings, const ModelUvOptions& options) {
     using namespace uv;
-    if (mesh.empty()) return make_error("the mesh has no triangles to give uvs", "Evaluate a model that makes geometry first.");
+    if (mesh.empty())
+        return make_error("the mesh has no triangles to give uvs", "Evaluate a model that makes geometry first.");
     if (mesh.triParts.size() != mesh.triangle_count() && !mesh.triParts.empty())
-        return make_error("the mesh's triParts does not have one entry per triangle", "This is a bug in the caller of model_uv_apply.");
+        return make_error("the mesh's triParts does not have one entry per triangle",
+                          "This is a bug in the caller of model_uv_apply.");
     const bool tile = settings.layout == "tile";
-    if (!tile && settings.layout != "atlas") return make_error("layout must be \"atlas\" or \"tile\", got \"" + settings.layout + "\"", "Use \"atlas\" for a texture painted for this model, \"tile\" for a seamless repeating one.");
-    if (settings.textureSize != 0 && (settings.textureSize < kModelUvMinTextureSize || settings.textureSize > kModelUvMaxTextureSize))
-        return make_error(std::format("textureSize {} is outside {} to {}", settings.textureSize, kModelUvMinTextureSize, kModelUvMaxTextureSize), "Use a power of two such as 512, 1024 or 2048, or 0 to let it be chosen.");
-    if (settings.padding < 0 || settings.padding > kModelUvMaxPadding) return make_error(std::format("padding {} is outside 0 to {}", settings.padding, kModelUvMaxPadding), "2 to 4 texels is usual.");
+    if (!tile && settings.layout != "atlas")
+        return make_error("layout must be \"atlas\" or \"tile\", got \"" + settings.layout + "\"",
+                          "Use \"atlas\" for a texture painted for this model, \"tile\" for a seamless repeating one.");
+    if (settings.textureSize != 0 &&
+        (settings.textureSize < kModelUvMinTextureSize || settings.textureSize > kModelUvMaxTextureSize))
+        return make_error(std::format("textureSize {} is outside {} to {}", settings.textureSize,
+                                      kModelUvMinTextureSize, kModelUvMaxTextureSize),
+                          "Use a power of two such as 512, 1024 or 2048, or 0 to let it be chosen.");
+    if (settings.padding < 0 || settings.padding > kModelUvMaxPadding)
+        return make_error(std::format("padding {} is outside 0 to {}", settings.padding, kModelUvMaxPadding),
+                          "2 to 4 texels is usual.");
 
     ModelMesh source = mesh;
     if (source.triParts.empty()) source.triParts.assign(source.triangle_count(), 0);
     Work w = make_work(source, partNames);
-    const float baseDensity = settings.texelsPerUnit ? *settings.texelsPerUnit : options.defaultTexelsPerMeter > 0 ? std::max(1.0f, options.defaultTexelsPerMeter) : kModelUvDefaultTexelsPerMeter;
-    if (!(baseDensity > 0)) return make_error("texelsPerUnit must be above 0", "Pixels of texture per metre of surface, e.g. 128.");
+    const float baseDensity = settings.texelsPerUnit              ? *settings.texelsPerUnit
+                              : options.defaultTexelsPerMeter > 0 ? std::max(1.0f, options.defaultTexelsPerMeter)
+                                                                  : kModelUvDefaultTexelsPerMeter;
+    if (!(baseDensity > 0))
+        return make_error("texelsPerUnit must be above 0", "Pixels of texture per metre of surface, e.g. 128.");
 
     const std::size_t partCount = w.names.size();
     std::vector<std::vector<std::uint32_t>> tris(partCount);
@@ -98,8 +111,10 @@ Result<ModelUvResult> model_uv_apply(const ModelMesh& mesh, const std::vector<st
         density[p] = ps && ps->texelsPerUnit ? *ps->texelsPerUnit : baseDensity;
         if (methods[p] == ModelUvMethod::Unwrap) {
             if (tile)
-                return make_error("part \"" + name + "\" is set to unwrap, but a tiling texture cannot be cut and packed",
-                                  "Give it a projection (\"box\", \"cylinder\", \"sphere\" or \"planar\") in uv.parts, or use layout \"atlas\".");
+                return make_error("part \"" + name +
+                                      "\" is set to unwrap, but a tiling texture cannot be cut and packed",
+                                  "Give it a projection (\"box\", \"cylinder\", \"sphere\" or \"planar\") in uv.parts, "
+                                  "or use layout \"atlas\".");
             unwrapTris[p] = tris[p];
         } else {
             anyProjection = true;
@@ -145,8 +160,11 @@ Result<ModelUvResult> model_uv_apply(const ModelMesh& mesh, const std::vector<st
         for (std::size_t p = 0; p < partCount; ++p)
             if (w.names[p] == pr.part) pr.method = model_uv_method_name(methods[p]);
     if (shrink < 0.999)
-        r.warnings.insert(r.warnings.begin(), std::format("the charts did not fit a {0}x{0} texture at {1:g} texels per metre: the density was lowered to {2:.1f} for every part. Raise `textureSize` or lower `texelsPerUnit`.",
-                                                           textureSize, baseDensity, baseDensity * shrink));
+        r.warnings.insert(
+            r.warnings.begin(),
+            std::format("the charts did not fit a {0}x{0} texture at {1:g} texels per metre: the density was lowered "
+                        "to {2:.1f} for every part. Raise `textureSize` or lower `texelsPerUnit`.",
+                        textureSize, baseDensity, baseDensity * shrink));
     return result;
 }
 

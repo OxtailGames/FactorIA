@@ -123,9 +123,8 @@ struct Vm {
 };
 
 // The stub debugger: never stops; e and m return a token, c returns its exception, the rest do nothing.
-const char* kQuietStub =
-    "globalThis.__fa_dbg = { h: () => false, e: (id, c) => ({ id, c }), m: (id, c) => ({ id, c }),"
-    " c: (f, ex) => ex, x() {}, k() {}, p() {}, b() {} };";
+const char* kQuietStub = "globalThis.__fa_dbg = { h: () => false, e: (id, c) => ({ id, c }), m: (id, c) => ({ id, c }),"
+                         " c: (f, ex) => ex, x() {}, k() {}, p() {}, b() {} };";
 
 InstrumentedScript instr(const std::string& file, const std::string& src, int id = 1) {
     auto r = instrument_script(file, src, id);
@@ -284,7 +283,8 @@ function counter() { let n = 0; return { inc: () => ++n, get n() { return n; } }
 const cn = counter(); cn.inc(); cn.inc();
 globalThis.__result = JSON.stringify([fs.map(f => f()), cn.n, typeof arguments]);
 )JS"}}},
-        {"exports", {{"main.js", R"JS(
+        {"exports",
+         {{"main.js", R"JS(
 import Def, { a, b, c, d, fn, K, aa, bb, ns, z } from './exp.js';
 import * as all from './exp.js';
 import fnDefault from './expfn.js';
@@ -293,7 +293,7 @@ import { sum } from './exp2.js';
 globalThis.__result = JSON.stringify([a, b, c, d, fn(), new K().m(), new Def().who(), aa, bb, ns.sum(1, 2), z, sum(2, 3),
     Object.keys(all).sort(), fnDefault(), value]);
 )JS"},
-                              {"exp.js", R"JS(
+          {"exp.js", R"JS(
 export const a = 1, b = 2;
 export let c = 3;
 export var d = 4;
@@ -305,12 +305,16 @@ export * from './exp2.js';
 export * as ns from './exp2.js';
 export { z } from './exp2.js'
 )JS"},
-                              {"exp2.js", "export function sum(x, y) { return x + y; }\nexport const z = 'z';\n"},
-                              {"expfn.js", "export default function () { return 'default fn'; }\n"},
-                              {"expval.js", "const base = { n: 4 }\nexport default base.n * 10\n"}}},
-        {"hashbang and bom", {{"main.js", "\xEF\xBB\xBF" "let h = 1;\nglobalThis.__result = String(h + 1);\n"}}},
+          {"exp2.js", "export function sum(x, y) { return x + y; }\nexport const z = 'z';\n"},
+          {"expfn.js", "export default function () { return 'default fn'; }\n"},
+          {"expval.js", "const base = { n: 4 }\nexport default base.n * 10\n"}}},
+        {"hashbang and bom",
+         {{"main.js", "\xEF\xBB\xBF"
+                      "let h = 1;\nglobalThis.__result = String(h + 1);\n"}}},
         {"hashbang", {{"main.js", "#!/usr/bin/env node\nlet h = 1;\nglobalThis.__result = String(h + 2);\n"}}},
-        {"crlf and comments", {{"main.js", "// c\r\nlet x = 1; /* a\r\n b */ let y = 2; // end\r\nif (x) y++\r\nglobalThis.__result = String(x + y);\r\n"}}},
+        {"crlf and comments",
+         {{"main.js", "// c\r\nlet x = 1; /* a\r\n b */ let y = 2; // end\r\nif (x) y++\r\nglobalThis.__result = "
+                      "String(x + y);\r\n"}}},
     };
     return cases;
 }
@@ -344,9 +348,13 @@ std::string read_file(const stdfs::path& p) {
 std::string probe_stub(int target, const std::vector<std::string>& names) {
     Json n = names;
     return "globalThis.__seen = [];\n"
-           "globalThis.__fa_dbg = { h: (f, k) => k === " + std::to_string(target) + ", e: (id, c) => ({ id, c }),"
+           "globalThis.__fa_dbg = { h: (f, k) => k === " +
+           std::to_string(target) +
+           ", e: (id, c) => ({ id, c }),"
            " m: (id, c) => ({ id, c }), c: (f, ex) => ex, x() {}, k() {}, b() {},"
-           " p: (f, k, c) => { const o = {}; for (const n of " + n.dump() + ") { try { o[n] = c(n); } catch (e) { o[n] = '!' + e.name; } }"
+           " p: (f, k, c) => { const o = {}; for (const n of " +
+           n.dump() +
+           ") { try { o[n] = c(n); } catch (e) { o[n] = '!' + e.name; } }"
            " __seen.push(o); } };\n";
 }
 
@@ -357,7 +365,8 @@ TEST_CASE("script_instrument: every template and example script instruments and 
     int files = 0;
     for (const char* top : {"templates", "examples"}) {
         std::error_code ec;
-        for (stdfs::recursive_directory_iterator it(stdfs::path(FA_REPO_ROOT) / top, ec), end; !ec && it != end; it.increment(ec)) {
+        for (stdfs::recursive_directory_iterator it(stdfs::path(FA_REPO_ROOT) / top, ec), end; !ec && it != end;
+             it.increment(ec)) {
             if (!it->is_regular_file() || it->path().extension() != ".js") continue;
             std::string rel = stdfs::relative(it->path(), stdfs::path(FA_REPO_ROOT)).generic_string();
             if (rel.find("node_modules") != std::string::npos) continue;
@@ -414,15 +423,16 @@ globalThis.__result = msg;
 }
 
 TEST_CASE("script_instrument: the debugger functions are called with the documented shapes") {
-    const std::string src = "function f(a) {\n  return a;\n}\nf(1);\ntry { throw 2; } catch (e) {}\ntry { throw 3; } catch {}\ndebugger;\n";
+    const std::string src =
+        "function f(a) {\n  return a;\n}\nf(1);\ntry { throw 2; } catch (e) {}\ntry { throw 3; } catch {}\ndebugger;\n";
     auto r = instr("a.js", src, 42);
-    const std::string stub =
-        "globalThis.__log = [];\n"
-        "globalThis.__fa_dbg = { h: (f, k) => { __log.push('h' + k); return false; },"
-        " m: (id, c) => { __log.push('m' + id + typeof c); return 'MF'; },"
-        " e: (id, c) => { __log.push('e' + id + typeof c); return 'EF' + id; },"
-        " c: (f, ex) => { __log.push('c' + f); return ex; }, x: (f) => { __log.push('x' + f); },"
-        " k: (f, ex) => { __log.push('k' + f + ':' + ex); }, p() {}, b: (f, k, c) => { __log.push('b' + f + k + typeof c); } };\n";
+    const std::string stub = "globalThis.__log = [];\n"
+                             "globalThis.__fa_dbg = { h: (f, k) => { __log.push('h' + k); return false; },"
+                             " m: (id, c) => { __log.push('m' + id + typeof c); return 'MF'; },"
+                             " e: (id, c) => { __log.push('e' + id + typeof c); return 'EF' + id; },"
+                             " c: (f, ex) => { __log.push('c' + f); return ex; }, x: (f) => { __log.push('x' + f); },"
+                             " k: (f, ex) => { __log.push('k' + f + ':' + ex); }, p() {}, b: (f, k, c) => { "
+                             "__log.push('b' + f + k + typeof c); } };\n";
     Vm vm;
     std::string res = vm.run(stub + "", r.code + "\nglobalThis.__result = __log.join(' ');");
     INFO(res);
@@ -445,26 +455,42 @@ TEST_CASE("script_instrument: the hook closure sees the statement's scope") {
     };
     const std::vector<Probe> probes = {
         {"block let, param, module const",
-         "const top = 'T';\nfunction probe() {}\nfunction f(p) {\n  let local = p + 1;\n  {\n    let inner = local * 2;\n    probe(inner);\n  }\n}\nf(1);\n",
-         7, {"inner", "local", "p", "top"}, R"([{"inner":4,"local":2,"p":1,"top":"T"}])"},
+         "const top = 'T';\nfunction probe() {}\nfunction f(p) {\n  let local = p + 1;\n  {\n    let inner = local * "
+         "2;\n    probe(inner);\n  }\n}\nf(1);\n",
+         7,
+         {"inner", "local", "p", "top"},
+         R"([{"inner":4,"local":2,"p":1,"top":"T"}])"},
         {"loop variable",
          "const out = [];\nfor (let i = 0; i < 3; i++) {\n  out.push(i);\n}\n",
-         3, {"i", "out.length"}, R"([{"i":0,"out.length":0},{"i":1,"out.length":1},{"i":2,"out.length":2}])"},
+         3,
+         {"i", "out.length"},
+         R"([{"i":0,"out.length":0},{"i":1,"out.length":1},{"i":2,"out.length":2}])"},
         {"this in a method",
          "class C {\n  constructor() { this.n = 7; }\n  m(a) {\n    return this.n + a;\n  }\n}\nnew C().m(1);\n",
-         4, {"this.n", "a", "this instanceof C"}, R"([{"this.n":7,"a":1,"this instanceof C":true}])"},
+         4,
+         {"this.n", "a", "this instanceof C"},
+         R"([{"this.n":7,"a":1,"this instanceof C":true}])"},
         {"TDZ and shadowing",
-         "let x = 'outer';\nfunction f() {\n  const before = 'ok';\n  let late = 1;\n  { let x = 'inner'; before; }\n}\nf();\n",
-         3, {"late", "x"}, R"([{"late":"!ReferenceError","x":"outer"}])"},
+         "let x = 'outer';\nfunction f() {\n  const before = 'ok';\n  let late = 1;\n  { let x = 'inner'; before; "
+         "}\n}\nf();\n",
+         3,
+         {"late", "x"},
+         R"([{"late":"!ReferenceError","x":"outer"}])"},
         {"catch parameter",
          "try {\n  throw new Error('e1');\n} catch (err) {\n  err.message;\n}\n",
-         4, {"err.message"}, R"([{"err.message":"e1"}])"},
+         4,
+         {"err.message"},
+         R"([{"err.message":"e1"}])"},
         {"destructured params and rest",
          "function f({a, b: [c]}, ...r) {\n  return a;\n}\nf({a: 1, b: [2]}, 3, 4);\n",
-         2, {"a", "c", "r.length"}, R"([{"a":1,"c":2,"r.length":2}])"},
+         2,
+         {"a", "c", "r.length"},
+         R"([{"a":1,"c":2,"r.length":2}])"},
         {"expression arrow body",
          "const k = 10;\nconst g = (v) =>\n  v + k;\ng(5);\n",
-         3, {"v", "k"}, R"([{"v":5,"k":10}])"},
+         3,
+         {"v", "k"},
+         R"([{"v":5,"k":10}])"},
     };
     for (const Probe& p : probes) {
         CAPTURE(p.name);
@@ -477,14 +503,16 @@ TEST_CASE("script_instrument: the hook closure sees the statement's scope") {
             }
         REQUIRE(target >= 0);
         Vm vm;
-        std::string res = vm.run(probe_stub(target, p.names), r.code + "\nglobalThis.__result = JSON.stringify(__seen);");
+        std::string res =
+            vm.run(probe_stub(target, p.names), r.code + "\nglobalThis.__result = JSON.stringify(__seen);");
         CHECK(res == p.expected);
     }
 }
 
 TEST_CASE("script_instrument: a closure sees an imported binding") {
     const std::string dep = "export const val = 5;\n";
-    const std::string main = "import { val } from './dep.js';\nconst k = 3;\nfunction f() {\n  return val + k;\n}\nf();\n";
+    const std::string main =
+        "import { val } from './dep.js';\nconst k = 3;\nfunction f() {\n  return val + k;\n}\nf();\n";
     auto r = instr("main.js", main, 1);
     int target = -1;
     for (size_t i = 0; i < r.info.statements.size(); i++)
@@ -498,32 +526,32 @@ TEST_CASE("script_instrument: a closure sees an imported binding") {
 
 // ---------------------------------------------------------------------------------------------------- debug info
 TEST_CASE("script_instrument: statements, breakable lines and functions") {
-    const std::string src =
-        "import { x } from './x.js';\n"                                           // 1
-        "const f = () => 1;\n"                                                    // 2
-        "function decl(a) {\n"                                                    // 3
-        "  return a;\n"                                                           // 4
-        "}\n"                                                                     // 5
-        "class Player {\n"                                                        // 6
-        "  static make() { return new Player(); }\n"                              // 7
-        "  constructor() { this.n = 1; }\n"                                       // 8
-        "  onUpdate(dt) {\n"                                                      // 9
-        "    this.n += dt;\n"                                                     // 10
-        "  }\n"                                                                   // 11
-        "  get hp() { return 1; }\n"                                              // 12
-        "  set hp(v) {}\n"                                                        // 13
-        "}\n"                                                                     // 14
-        "const o = { go: function () {}, run() {}, arrow: () => {}, 'quoted': () => 1 };\n"  // 15
-        "o.late = function () {};\n"                                              // 16
-        "[1].map((e) => e);\n"                                                    // 17
-        "export default class { m() {} }\n";                                      // 18
+    const std::string src = "import { x } from './x.js';\n"                                                      // 1
+                            "const f = () => 1;\n"                                                               // 2
+                            "function decl(a) {\n"                                                               // 3
+                            "  return a;\n"                                                                      // 4
+                            "}\n"                                                                                // 5
+                            "class Player {\n"                                                                   // 6
+                            "  static make() { return new Player(); }\n"                                         // 7
+                            "  constructor() { this.n = 1; }\n"                                                  // 8
+                            "  onUpdate(dt) {\n"                                                                 // 9
+                            "    this.n += dt;\n"                                                                // 10
+                            "  }\n"                                                                              // 11
+                            "  get hp() { return 1; }\n"                                                         // 12
+                            "  set hp(v) {}\n"                                                                   // 13
+                            "}\n"                                                                                // 14
+                            "const o = { go: function () {}, run() {}, arrow: () => {}, 'quoted': () => 1 };\n"  // 15
+                            "o.late = function () {};\n"                                                         // 16
+                            "[1].map((e) => e);\n"                                                               // 17
+                            "export default class { m() {} }\n";                                                 // 18
     auto r = instr("scripts/player.js", src);
     const auto& info = r.info;
 
     std::vector<std::string> names;
     for (const auto& fn : info.functions) names.push_back(fn.name);
-    CHECK(names == std::vector<std::string>{"f", "decl", "Player.make", "Player", "Player.onUpdate", "Player.hp", "Player.hp", "go",
-                                            "run", "arrow", "quoted", "late", "(anonymous)", "default.m"});
+    CHECK(names == std::vector<std::string>{"f", "decl", "Player.make", "Player", "Player.onUpdate", "Player.hp",
+                                            "Player.hp", "go", "run", "arrow", "quoted", "late", "(anonymous)",
+                                            "default.m"});
     // class `default` is anonymous: its methods are named after it
     CHECK(info.breakable_lines() == std::vector<int>{2, 4, 6, 7, 8, 10, 12, 15, 16, 17, 18});
     // `decl` and `f` start where their name is
@@ -551,19 +579,18 @@ TEST_CASE("script_instrument: statements, breakable lines and functions") {
 }
 
 TEST_CASE("script_instrument: scope tables") {
-    const std::string src =
-        "import d, { e as f } from './m.js';\n"                // 1
-        "const top = 1; let lt; var tv; class Cls {}\n"        // 2
-        "function fn(p, { q, r: [s] }, ...rest) {\n"           // 3
-        "  var hoisted = 1;\n"                                 // 4
-        "  if (p) { var deep = 2; let blk = 3; function bf() {} }\n"  // 5
-        "  const body = 4;\n"                                  // 6
-        "  for (let i = 0; i < 1; i++) { const inLoop = i; }\n"      // 7
-        "  try { x(); } catch (err) { const inCatch = err; }\n"      // 8
-        "  const arrow = (z) => z;\n"                          // 9
-        "}\n"
-        "export const ex = 1;\n"
-        "export function exf() {}\n";
+    const std::string src = "import d, { e as f } from './m.js';\n"                       // 1
+                            "const top = 1; let lt; var tv; class Cls {}\n"               // 2
+                            "function fn(p, { q, r: [s] }, ...rest) {\n"                  // 3
+                            "  var hoisted = 1;\n"                                        // 4
+                            "  if (p) { var deep = 2; let blk = 3; function bf() {} }\n"  // 5
+                            "  const body = 4;\n"                                         // 6
+                            "  for (let i = 0; i < 1; i++) { const inLoop = i; }\n"       // 7
+                            "  try { x(); } catch (err) { const inCatch = err; }\n"       // 8
+                            "  const arrow = (z) => z;\n"                                 // 9
+                            "}\n"
+                            "export const ex = 1;\n"
+                            "export function exf() {}\n";
     auto r = instr("a.js", src);
     const auto& sc = r.info.scopes;
     REQUIRE(!sc.empty());
@@ -603,10 +630,9 @@ TEST_CASE("script_instrument: scope tables") {
 }
 
 TEST_CASE("script_instrument: original_column maps instrumented columns back, also after non-ASCII text") {
-    const std::string src =
-        "const s = 'héllo ✓'; mark_one(); if (s) mark_two();\n"
-        "function f(a) { return mark_three(a); }\n"
-        "const e = '😀'; const g = () => mark_four(); /* ñ */ g();\n";
+    const std::string src = "const s = 'héllo ✓'; mark_one(); if (s) mark_two();\n"
+                            "function f(a) { return mark_three(a); }\n"
+                            "const e = '😀'; const g = () => mark_four(); /* ñ */ g();\n";
     auto r = instr("a.js", src);
     REQUIRE(count_lines(r.code) == count_lines(src));
 
@@ -621,7 +647,8 @@ TEST_CASE("script_instrument: original_column maps instrumented columns back, al
         const char* token;
         int line;
     };
-    for (Mark m : {Mark{"mark_one", 1}, Mark{"mark_two", 1}, Mark{"mark_three", 2}, Mark{"mark_four", 3}, Mark{"g();", 3}}) {
+    for (Mark m :
+         {Mark{"mark_one", 1}, Mark{"mark_two", 1}, Mark{"mark_three", 2}, Mark{"mark_four", 3}, Mark{"g();", 3}}) {
         CAPTURE(m.token);
         int original = column_of(src, m.token, m.line);
         int instrumented = column_of(r.code, m.token, m.line);
@@ -657,7 +684,8 @@ TEST_CASE("script_instrument: script_instrumenter wraps instrument_script and is
         threads.emplace_back([&, t] {
             for (int i = 0; i < 20; i++) {
                 auto r = inst("t.js", "function f() { return " + std::to_string(i) + "; }\nf();\n", t);
-                if (r.ok() && r->info.functions.size() == 1 && r->code.find("__fa_d.m(" + std::to_string(t) + ",") != std::string::npos)
+                if (r.ok() && r->info.functions.size() == 1 &&
+                    r->code.find("__fa_d.m(" + std::to_string(t) + ",") != std::string::npos)
                     ok[t]++;
             }
         });
@@ -691,7 +719,8 @@ TEST_CASE("script_instrument: a function called from an import cycle before the 
     // main -> a -> b -> a: b's top level calls a's hoisted function while a has not run yet.
     const std::map<std::string, std::string> files = {
         {"main.js", "import { res } from './a.js';\nglobalThis.__result = res;\n"},
-        {"a.js", "import { gb } from './b.js';\nexport function fa() {\n  const x = 'fa';\n  return x;\n}\nexport const res = gb + '/' + fa();\n"},
+        {"a.js", "import { gb } from './b.js';\nexport function fa() {\n  const x = 'fa';\n  return x;\n}\nexport "
+                 "const res = gb + '/' + fa();\n"},
         {"b.js", "import { fa } from './a.js';\nexport const gb = fa() + '!';\n"},
     };
     Vm plain;

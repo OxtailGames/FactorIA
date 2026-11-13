@@ -39,7 +39,9 @@ const char* kBrokenSnippet = R"(void surface(in SurfaceInput i, inout Surface s)
 }
 )";
 
-bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool has(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 // The shader files among `files`, by name only.
 std::vector<std::string> shader_files(const std::vector<std::string>& files) {
@@ -63,7 +65,9 @@ struct FakeShdc {
     std::string stderrText;
     SetupContext context(const std::string& home) {
         SetupContext c;
-        c.env = [](const std::string& n) { return n == "SOKOL_SHDC" ? std::string("/fake/sokol-shdc") : std::string(); };
+        c.env = [](const std::string& n) {
+            return n == "SOKOL_SHDC" ? std::string("/fake/sokol-shdc") : std::string();
+        };
         c.home = home;
         c.host = "linux";
         c.run = [this](const ProcessOptions& o) -> Result<ProcessResult> {
@@ -84,7 +88,8 @@ struct FakeShdc {
                     yaml += std::string("      -\n        name: ") + program + "\n";
                     for (const char* stage : {"vertex", "fragment"}) {
                         const std::string file = "out/" + slang + "_" + program + "_" + stage + ".src";
-                        yaml += std::string("        ") + stage + "_func:\n          path: " + file + "\n          entry_point: main\n";
+                        yaml += std::string("        ") + stage + "_func:\n          path: " + file +
+                                "\n          entry_point: main\n";
                         testing::write_all(work / file, "// " + slang + " " + program + " " + stage + "\n");
                     }
                 }
@@ -121,7 +126,8 @@ struct Fixture {
         if (platform == "web") {
             const stdfs::path dir = tmp.sub("web-player");
             testing::write_all(dir / "factoria_player.js", "// fake emscripten glue\n");
-            testing::write_all(dir / "factoria_player.wasm", std::string("\0asm\1\0\0\0", 8) + "FA-BUILD-FINGERPRINT:" + build_fingerprint() + ";");
+            testing::write_all(dir / "factoria_player.wasm",
+                               std::string("\0asm\1\0\0\0", 8) + "FA-BUILD-FINGERPRINT:" + build_fingerprint() + ";");
             o.playerBinary = dir.string();
         } else if (platform == "android") {
             const stdfs::path mobile = tmp.sub("download/mobile");
@@ -201,7 +207,8 @@ TEST_CASE("export shaders: a snippet that does not compile fails the export with
     const GeneratedShader g = generate_material_shader(material, kBrokenSnippet);
     const auto line = std::find(g.snippetLine.begin(), g.snippetLine.end(), 2);
     REQUIRE(line != g.snippetLine.end());
-    f.shdc.stderrText = "top.glsl:" + std::to_string(line - g.snippetLine.begin() + 1) + ":0: error: 'tnt' : undeclared identifier\n";
+    f.shdc.stderrText =
+        "top.glsl:" + std::to_string(line - g.snippetLine.begin() + 1) + ":0: error: 'tnt' : undeclared identifier\n";
 
     auto r = export_project(f.options("linux"));
     REQUIRE_FALSE(r.ok());
@@ -209,7 +216,9 @@ TEST_CASE("export shaders: a snippet that does not compile fails the export with
     ValidateOptions vo;
     vo.shaderContext = f.setup;
     const ValidationReport report = validate_project(f.proj, vo);
-    const auto shaderError = std::find_if(report.errors.begin(), report.errors.end(), [](const ValidationIssue& e) { return e.file == "shaders/gem.surface.glsl"; });
+    const auto shaderError = std::find_if(report.errors.begin(), report.errors.end(), [](const ValidationIssue& e) {
+        return e.file == "shaders/gem.surface.glsl";
+    });
     REQUIRE(shaderError != report.errors.end());
     CHECK(shaderError->message.find("line 2, column 16") != std::string::npos);
     CHECK(r.error().message.find("materials/gem.material.json does not compile") != std::string::npos);
@@ -239,7 +248,8 @@ TEST_CASE("export shaders: a project without materials ships what it has and rep
 }
 
 TEST_CASE("real sokol-shdc: an android export ships the glsl300es twin it compiled") {
-    FA_SKIP_WITHOUT_SHDC(SetupContext{}, "sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria setup shaders`): skipped here, runs in CI");
+    FA_SKIP_WITHOUT_SHDC(SetupContext{}, "sokol-shdc is not installed (SOKOL_SHDC, next to factoria, or `factoria "
+                                         "setup shaders`): skipped here, runs in CI");
     Fixture f;
     f.setup = SetupContext{};
     auto r = export_project(f.options("android"));

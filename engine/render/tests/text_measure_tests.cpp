@@ -28,7 +28,8 @@ Gfx& with_fonts() {
     static const bool installed = [&] {
         const std::filesystem::path to = g.projectDir / "assets" / "fonts";
         std::filesystem::create_directories(to);
-        for (const char* name : {"NotoSansJP-Regular-subset.ttf", "NotoSansKR-Regular-subset.ttf", "NotoSansArabic-Regular-subset.ttf"})
+        for (const char* name :
+             {"NotoSansJP-Regular-subset.ttf", "NotoSansKR-Regular-subset.ttf", "NotoSansArabic-Regular-subset.ttf"})
             std::filesystem::copy_file(std::filesystem::path(FA_RENDER_DATA_DIR) / "fonts" / name, to / name,
                                        std::filesystem::copy_options::overwrite_existing);
         return true;
@@ -67,12 +68,18 @@ const std::string kKorean = "한국어도 글자 사이에서 줄이 바뀝니�
 
 }  // namespace
 
-TEST_CASE("measure: a TextMeasurer gives the numbers of Renderer::measure_text for Latin, CJK, Arabic and wrapped text") {
+TEST_CASE(
+    "measure: a TextMeasurer gives the numbers of Renderer::measure_text for Latin, CJK, Arabic and wrapped text") {
     Gfx& g = with_fonts();
     REQUIRE(g.ok);
     Pair p(g);
     p.fallback({kJp, kKr, kAr});
-    struct Case { std::string text; float size; std::string font; float maxW; };
+    struct Case {
+        std::string text;
+        float size;
+        std::string font;
+        float maxW;
+    };
     const std::vector<Case> cases = {{"Hello world", 20, "", 0},
                                      {"VSync", 12, "", 0},
                                      {"Hello wrapped world of text that is long", 20, "", 100},
@@ -81,7 +88,9 @@ TEST_CASE("measure: a TextMeasurer gives the numbers of Renderer::measure_text f
                                      {kKorean, 18, "", 90},
                                      {"abc " + kArabicWord + " 123", 20, "", 0},
                                      {kArabicWord, 30, kAr, 0},
-                                     {"a\xF0\x9F\xAB\xA0" "b", 20, "", 0},  // melting face: in no font, drawn as the missing glyph
+                                     {"a\xF0\x9F\xAB\xA0"
+                                      "b",
+                                      20, "", 0},  // melting face: in no font, drawn as the missing glyph
                                      {"Mixed ", 16, kJp, 0}};
     for (const Case& c : cases) {
         INFO("text " << c.text << " size " << c.size << " font '" << c.font << "' maxWidth " << c.maxW);
@@ -129,9 +138,17 @@ TEST_CASE("measure: maxTextScale, autoShrink and minFontSize give the same Text 
     REQUIRE(g.ok);
     Pair p(g);
     p.text_scale(2.5f);
-    struct Case { float maxTextScale; bool autoShrink; float minFontSize, maxHeight; float maxWidth; };
-    const std::vector<Case> cases = {{0, false, 10, 0, 0},  {1.3f, false, 10, 0, 0}, {0, true, 10, 40, 120},
-                                     {0, true, 14, 30, 100}, {2.0f, true, 8, 60, 200}};
+    struct Case {
+        float maxTextScale;
+        bool autoShrink;
+        float minFontSize, maxHeight;
+        float maxWidth;
+    };
+    const std::vector<Case> cases = {{0, false, 10, 0, 0},
+                                     {1.3f, false, 10, 0, 0},
+                                     {0, true, 10, 40, 120},
+                                     {0, true, 14, 30, 100},
+                                     {2.0f, true, 8, 60, 200}};
     for (const Case& c : cases) {
         Text t;
         t.text = "A heading that does not quite fit";
@@ -165,7 +182,8 @@ TEST_CASE("measure: rich text (tags are not characters, bold, icons) is the same
     // the tags take no room: the same words without them are as wide
     const Vec2 bare = p.cpu.measure_text("Sold 3 big fish for 12 coins", 20, "", 0, RenderSpace::World, plain);
     CHECK(cpuMarkup.x > bare.x);  // [b] draws bold, which is wider
-    const Vec2 colourOnly = p.cpu.measure_text("Sold [c:good]3[/c] fish [c:bad]12[/c]", 20, "", 0, RenderSpace::World, markup);
+    const Vec2 colourOnly =
+        p.cpu.measure_text("Sold [c:good]3[/c] fish [c:bad]12[/c]", 20, "", 0, RenderSpace::World, markup);
     CHECK(colourOnly.x == p.cpu.measure_text("Sold 3 fish 12", 20, "", 0, RenderSpace::World, plain).x);
     // a whole Text drawn bold, and wrapped
     const Vec2 gpuBold = p.r.measure_text(rich, 20, "", 90, RenderSpace::World, bold);
@@ -183,7 +201,8 @@ TEST_CASE("measure: rich text (tags are not characters, bold, icons) is the same
     CHECK(p.cpu.measure_text(t).y == p.r.measure_text(t).y);
 }
 
-TEST_CASE("measure: a font that cannot be read measures like the renderer does, and the built-in font alone needs no project file") {
+TEST_CASE("measure: a font that cannot be read measures like the renderer does, and the built-in font alone needs no "
+          "project file") {
     Gfx& g = with_fonts();
     REQUIRE(g.ok);
     Pair p(g);
@@ -206,13 +225,19 @@ TEST_CASE("measure: a font that cannot be read measures like the renderer does, 
 // build may do, and is far smaller than the difference between two fonts or two layouts.
 TEST_CASE("measure: fixed sizes of the bundled font, measured without a renderer") {
     TextMeasurer m;
-    struct Case { const char* text; float size; float maxW; float w, h; };
-    const std::vector<Case> cases = {{"Hello world", 20, 0, 112.12f, 23},
-                                     {"VSync", 12, 0, 37.13f, 14},
-                                     {"two\nlines", 24, 0, 55.82f, 56},  // two lines of 28
-                                     {"Hello wrapped world of text that is long", 20, 100, 87.23f, 115},  // five lines of 23
-                                     {"iiiiiiiiii", 20, 0, 55.57f, 23},
-                                     {"WWWWWWWWWW", 20, 0, 197.75f, 23}};
+    struct Case {
+        const char* text;
+        float size;
+        float maxW;
+        float w, h;
+    };
+    const std::vector<Case> cases = {
+        {"Hello world", 20, 0, 112.12f, 23},
+        {"VSync", 12, 0, 37.13f, 14},
+        {"two\nlines", 24, 0, 55.82f, 56},                                   // two lines of 28
+        {"Hello wrapped world of text that is long", 20, 100, 87.23f, 115},  // five lines of 23
+        {"iiiiiiiiii", 20, 0, 55.57f, 23},
+        {"WWWWWWWWWW", 20, 0, 197.75f, 23}};
     for (const Case& c : cases) {
         INFO("text " << c.text << " size " << c.size << " maxWidth " << c.maxW);
         const Vec2 v = m.measure_text(c.text, c.size, "", c.maxW, RenderSpace::World);

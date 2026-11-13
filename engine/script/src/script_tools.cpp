@@ -62,7 +62,10 @@ void Impl::reload_tools() {
         ScriptError detail;
         auto ns = import_module(file, &detail);
         if (!ns) {
-            if (detail.message.empty()) { detail.file = file; detail.message = ns.error().message; }
+            if (detail.message.empty()) {
+                detail.file = file;
+                detail.message = ns.error().message;
+            }
             record_error(detail, file);
             continue;
         }
@@ -72,16 +75,29 @@ void Impl::reload_tools() {
         auto bad = [&](const std::string& why) {
             ScriptError e;
             e.file = file;
-            e.message = "tool " + why + ". A tool module must `export default { name, summary, run(args, ctx) { ... } }`";
+            e.message =
+                "tool " + why + ". A tool module must `export default { name, summary, run(args, ctx) { ... } }`";
             record_error(std::move(e), file);
         };
-        if (!JS_IsObject(def.get())) { bad("has no default export object"); continue; }
+        if (!JS_IsObject(def.get())) {
+            bad("has no default export object");
+            continue;
+        }
         JsVal nameV(ctx, JS_GetPropertyStr(ctx, def.get(), "name"));
         JsVal runV(ctx, JS_GetPropertyStr(ctx, def.get(), "run"));
-        if (!JS_IsString(nameV.get())) { bad("is missing a string `name`"); continue; }
-        if (!JS_IsFunction(ctx, runV.get())) { bad("is missing a `run` function"); continue; }
+        if (!JS_IsString(nameV.get())) {
+            bad("is missing a string `name`");
+            continue;
+        }
+        if (!JS_IsFunction(ctx, runV.get())) {
+            bad("is missing a `run` function");
+            continue;
+        }
         std::string name = sanitize_tool_name(js_to_string(ctx, nameV.get()));
-        if (name.empty()) { bad("has an empty name"); continue; }
+        if (name.empty()) {
+            bad("has an empty name");
+            continue;
+        }
         std::string cname = "project." + name;
         if (host->commands().has(cname)) {
             ScriptError e;
@@ -117,7 +133,8 @@ void Impl::reload_tools() {
             if (!caps.ok()) {
                 ScriptError e;
                 e.file = file;
-                e.message = "tool '" + name + "': `capabilities` of the default export: " + caps.error().message + " " + caps.error().hint;
+                e.message = "tool '" + name + "': `capabilities` of the default export: " + caps.error().message + " " +
+                            caps.error().hint;
                 record_error(std::move(e), file);
                 continue;
             }
@@ -126,8 +143,10 @@ void Impl::reload_tools() {
             info.readOnly = caps->without(Capability::Read).empty();
             // readOnly is derived from the set, so a `readOnly: true` next to more than {read} is overridden: say so once.
             if (JS_ToBool(ctx, ro.get()) > 0 && !info.readOnly)
-                FA_WARN("script", "tool '{}' ({}): `readOnly: true` is ignored because `capabilities` is {}; readOnly is derived from the "
-                                  "capabilities (true only for [\"read\"]). Drop `readOnly` or `capabilities`.",
+                FA_WARN("script",
+                        "tool '{}' ({}): `readOnly: true` is ignored because `capabilities` is {}; readOnly is derived "
+                        "from the "
+                        "capabilities (true only for [\"read\"]). Drop `readOnly` or `capabilities`.",
                         name, file, caps->to_string());
         }
         JsVal inputV(ctx, JS_GetPropertyStr(ctx, def.get(), "input"));
@@ -148,7 +167,9 @@ void Impl::reload_tools() {
         tools[cname] = std::move(entry);
         host->commands().add(std::move(info), [this, cname](const Json& args) -> Json {
             auto it = tools.find(cname);
-            if (it == tools.end() || !ctx) throw CommandError("unavailable", "tool '" + cname + "' is no longer loaded", "Call project tools after the script system is initialized.");
+            if (it == tools.end() || !ctx)
+                throw CommandError("unavailable", "tool '" + cname + "' is no longer loaded",
+                                   "Call project tools after the script system is initialized.");
             // A tool's fa.call runs with the set of whoever called the tool: it is already the thread's, and no scope here widens or
             // narrows it (a game script that called the tool is bounded by the scope that call was made in). The mode covers the
             // jobs this call pumps itself while the tool is running (an async tool continues there). run_jobs runs EVERY pending
@@ -158,7 +179,8 @@ void Impl::reload_tools() {
             CapModeScope callerSet(*this, CapMode::Caller);
             const std::string toolFile = it->second.file;
             // Which version of the tool file ran, so a stale tool is visible: added to an object result.
-            const Json version = Json::object({{"file", toolFile}, {"hash", it->second.hash}, {"loadedAt", it->second.loadedAt}});
+            const Json version =
+                Json::object({{"file", toolFile}, {"hash", it->second.hash}, {"loadedAt", it->second.loadedAt}});
             auto stamp = [&version](Json j) {
                 if (j.is_null()) j = Json::object();
                 if (j.is_object() && !j.contains("toolVersion")) j["toolVersion"] = version;
@@ -185,14 +207,17 @@ void Impl::reload_tools() {
                 ScriptError e = error_from_exception(exc, "", toolFile);
                 record_error(e, cname);
                 std::string loc = e.file + (e.line > 0 ? ":" + std::to_string(e.line) : "");
-                throw CommandError("failed", e.message + (loc.empty() ? "" : " (at " + loc + ")"),
-                                   "Fix the error in " + toolFile + " (see script errors), or throw new ToolError(message, hint) for expected failures.");
+                throw CommandError(
+                    "failed", e.message + (loc.empty() ? "" : " (at " + loc + ")"),
+                    "Fix the error in " + toolFile +
+                        " (see script errors), or throw new ToolError(message, hint) for expected failures.");
             };
             JSValueConst defv = it->second.fn.get();
             JsVal run(ctx, JS_GetPropertyStr(ctx, defv, "run"));
             JsVal a(ctx, from_json(args.is_null() ? Json::object() : args));
             bool failed = false;
-            JSValue r = call(cname, "", run.get(), defv, {a.get(), factoria.get()}, &failed, 10.0, true, CapMode::Caller);
+            JSValue r =
+                call(cname, "", run.get(), defv, {a.get(), factoria.get()}, &failed, 10.0, true, CapMode::Caller);
             if (JS_IsException(r)) {
                 JSValue exc = JS_GetException(ctx);
                 JsVal guard(ctx, exc);
@@ -201,7 +226,8 @@ void Impl::reload_tools() {
             if (failed) {
                 if (debug_session_ended())
                     throw CommandError("failed", "tool " + cname + " was stopped because the debug session ended", "");
-                throw CommandError("failed", "script took too long (" + limit_text(10.0) + ") in tool " + cname, "Avoid infinite loops in tools.");
+                throw CommandError("failed", "script took too long (" + limit_text(10.0) + ") in tool " + cname,
+                                   "Avoid infinite loops in tools.");
             }
             JsVal result(ctx, r);
             if (JS_PromiseState(ctx, result.get()) != JS_PROMISE_NOT_A_PROMISE) {
@@ -211,7 +237,9 @@ void Impl::reload_tools() {
                     JsVal reason(ctx, JS_PromiseResult(ctx, result.get()));
                     throw_js(reason.get());
                 }
-                if (st == JS_PROMISE_PENDING) throw CommandError("failed", "tool returned a promise that never resolved", "Tools must finish synchronously or await only already-resolved promises.");
+                if (st == JS_PROMISE_PENDING)
+                    throw CommandError("failed", "tool returned a promise that never resolved",
+                                       "Tools must finish synchronously or await only already-resolved promises.");
                 JsVal value(ctx, JS_PromiseResult(ctx, result.get()));
                 run_jobs();
                 return stamp(to_json(value.get()));
@@ -222,8 +250,10 @@ void Impl::reload_tools() {
     }
     std::set<std::string> after;
     for (auto& [name, t] : tools) after.insert(name);
-    if (toolsChanged && before != after) toolsChanged();
-    else if (toolsChanged && !suppressToolNotify) toolsChanged();
+    if (toolsChanged && before != after)
+        toolsChanged();
+    else if (toolsChanged && !suppressToolNotify)
+        toolsChanged();
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -233,7 +263,8 @@ Result<Json> Impl::eval(std::string_view code) {
     static const char kWrapper[] = "(function(__fa_code){ with (globalThis.factoria) { return eval(__fa_code); } })";
     JsVal fn(ctx, JS_Eval(ctx, kWrapper, sizeof(kWrapper) - 1, "<eval>", JS_EVAL_TYPE_GLOBAL));
     JsVal codeV(ctx, JS_NewStringLen(ctx, code.data(), code.size()));
-    CapModeScope callerSet(*this, CapMode::Caller);  // the code typed into script.eval acts for whoever called it, like a tool
+    CapModeScope callerSet(*this,
+                           CapMode::Caller);  // the code typed into script.eval acts for whoever called it, like a tool
     auto debugEntry = debug_entry(*this);
     const size_t depth = push_guard("eval", 5.0);
     timedOut = false;
@@ -250,8 +281,10 @@ Result<Json> Impl::eval(std::string_view code) {
                                               : "script took too long (" + limit_text(5.0) + ") in eval";
         }
         std::string msg = e.message;
-        if (e.line > 0 && e.file != "<eval>" && !e.file.empty()) msg += " (at " + e.file + ":" + std::to_string(e.line) + ")";
-        std::string hint = "Names from \"factoria\" (world, input, vec2, ...) are in scope. Use `world.find(\"id\")` to get entities.";
+        if (e.line > 0 && e.file != "<eval>" && !e.file.empty())
+            msg += " (at " + e.file + ":" + std::to_string(e.line) + ")";
+        std::string hint =
+            "Names from \"factoria\" (world, input, vec2, ...) are in scope. Use `world.find(\"id\")` to get entities.";
         return Error{msg, hint};
     };
     if (JS_IsException(r)) return fail(JS_GetException(ctx));
@@ -292,13 +325,15 @@ Result<void> Impl::check_syntax(std::string_view modulePath, std::string* broken
         return Error{"cannot read '" + path + "': " + text.error().message,
                      candidates.empty() ? text.error().hint : did_you_mean(path, candidates)};
     }
-    if (is_script_bytecode(*text)) {  // compiled by a --release export: it compiled then, what can be wrong is the version
+    if (is_script_bytecode(
+            *text)) {  // compiled by a --release export: it compiled then, what can be wrong is the version
         if (auto payload = script_bytecode_payload(*text, path); !payload.ok()) return payload.error();
         return {};
     }
     std::string unique = "<syntax>/" + path;
     brokenData.reset();
-    JSValue r = JS_Eval(ctx, text->c_str(), text->size(), unique.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+    JSValue r =
+        JS_Eval(ctx, text->c_str(), text->size(), unique.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
     if (JS_IsException(r)) {
         JSValue exc = JS_GetException(ctx);
         if (brokenData) {  // an imported .json that does not parse: report that file, not the importer
@@ -329,7 +364,8 @@ Result<void> Impl::check_syntax(std::string_view modulePath, std::string* broken
         if (line > 0) loc += ":" + std::to_string(line) + (col > 0 ? ":" + std::to_string(col) : "");
         std::string full = loc + ": " + (name.empty() ? "SyntaxError" : name) + ": " + msg;
         full = replace_all(full, unique, path);
-        return Error{full, "Fix the syntax error at that position; modules use ES2023 syntax (import/export, classes, async)."};
+        return Error{
+            full, "Fix the syntax error at that position; modules use ES2023 syntax (import/export, classes, async)."};
     }
     JS_FreeValue(ctx, r);
     return {};
@@ -351,7 +387,8 @@ void Impl::reload_module(std::string_view modulePath) {
     // onStart runs again). Failed loads are retried.
     for (auto& b : behaviours) {
         if (b->dead) continue;
-        bool hit = b->loadFailed || b->faulted || std::find(affected.begin(), affected.end(), b->path) != affected.end();
+        bool hit =
+            b->loadFailed || b->faulted || std::find(affected.begin(), affected.end(), b->path) != affected.end();
         if (hit) destroy_behaviour(*b, false);
     }
     compact();
@@ -415,8 +452,10 @@ void Impl::update_quit_wait(double dt) {
 }
 
 void Impl::do_request_quit() {
-    if (inTestRun) testQuitRequested = true;  // a test observes the request (game.quitRequested); the run goes on
-    else host->request_quit();
+    if (inTestRun)
+        testQuitRequested = true;  // a test observes the request (game.quitRequested); the run goes on
+    else
+        host->request_quit();
 }
 
 void Impl::request_quit() {
@@ -448,7 +487,8 @@ void Impl::reset_for_test_file() {
     drop_runtime_textures();
     Json proj = host->project_settings();
     std::string scene = "scenes/main.scene.json";
-    if (proj.is_object() && proj.contains("mainScene") && proj["mainScene"].is_string()) scene = proj["mainScene"].get<std::string>();
+    if (proj.is_object() && proj.contains("mainScene") && proj["mainScene"].is_string())
+        scene = proj["mainScene"].get<std::string>();
     drop_all_behaviours();
     reset_modules();
     storage = Json::object();
@@ -459,9 +499,10 @@ void Impl::reset_for_test_file() {
     quitDeferred = false;
     testSystemLanguages.clear();
     host->background_loads_reset();  // no background load and no warm file of the earlier test file
-    generateJobs = 0;  // resetSession (below) rejects the handles of tilemap.generate and cancels their jobs
+    generateJobs = 0;          // resetSession (below) rejects the handles of tilemap.generate and cancels their jobs
     owner->reset_app_state();  // focused, not suspended, the date the host started with (before the scene loads)
-    if (PlatformServices* platform = host->platform_services()) platform->reset_session();  // a fresh fake store per test file
+    if (PlatformServices* platform = host->platform_services())
+        platform->reset_session();  // a fresh fake store per test file
     // Every test file starts in the default language, like a headless run (before the scene loads, so it is translated).
     if (const I18n* loc = host->i18n(); loc && loc->enabled() && loc->language() != loc->default_language())
         host->set_language(loc->default_language());
@@ -476,7 +517,8 @@ void Impl::reset_for_test_file() {
     set_scales_quietly(host->default_ui_scale(), 1.0f);
     host->world().set_ui_mirror_rtl(host->default_ui_mirror_rtl());
     {  // the tooltip delay and look of factoria.json, whatever an earlier test file set (ui.tooltipDelay)
-        Result<UiTooltipSettings> tip = parse_tooltip_settings(proj.is_object() && proj.contains("ui") ? proj["ui"] : Json(), "factoria.json#/ui");
+        Result<UiTooltipSettings> tip =
+            parse_tooltip_settings(proj.is_object() && proj.contains("ui") ? proj["ui"] : Json(), "factoria.json#/ui");
         host->world().set_ui_tooltip_settings(tip.ok() ? tip.value() : UiTooltipSettings{});
     }
     timeScale = 1.0;
@@ -509,7 +551,8 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
     int errorSinkId = add_log_sink([errorList](const LogEntry& e) {
         if (e.level < LogLevel::Error) return;
         std::lock_guard<std::mutex> lk(errorList->mu);
-        if (errorList->list.size() < kMaxTestErrors) errorList->list.push_back(e);
+        if (errorList->list.size() < kMaxTestErrors)
+            errorList->list.push_back(e);
         else {
             ++errorList->dropped;
             errorList->lastDroppedSeq = e.seq;
@@ -554,7 +597,10 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
         ScriptError detail;
         auto ns = import_module(path, &detail, CapMode::Test);  // the test file's own top level is test code
         if (!ns) {
-            if (detail.message.empty()) { detail.file = path; detail.message = ns.error().message; }
+            if (detail.message.empty()) {
+                detail.file = path;
+                detail.message = ns.error().message;
+            }
             if (detail.file.empty()) detail.file = path;
             rep.loadErrors.push_back(detail);
             record_error(detail, path);
@@ -576,19 +622,24 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
             JS_FreeValue(ctx, exc);
             if (timedOut) {
                 timedOut = false;
-                if (!debug_session_ended()) record_cut(timedOutLabel.empty() ? "a test" : timedOutLabel, path, limit_text(timedOutSeconds));
-                e.message = debug_session_ended()
-                                ? "the tests were stopped because the debug session ended; the rest of " + path + " was skipped"
-                                : "a test used more than 60 s of CPU time (or " + std::to_string(static_cast<int>(60 * kWallCapFactor)) +
-                                      " s on the clock while blocked) and was stopped; the rest of " + path +
-                                      " was skipped. Split the test in two, or make the work it does cheaper";
+                if (!debug_session_ended())
+                    record_cut(timedOutLabel.empty() ? "a test" : timedOutLabel, path, limit_text(timedOutSeconds));
+                e.message =
+                    debug_session_ended()
+                        ? "the tests were stopped because the debug session ended; the rest of " + path + " was skipped"
+                        : "a test used more than 60 s of CPU time (or " +
+                              std::to_string(static_cast<int>(60 * kWallCapFactor)) +
+                              " s on the clock while blocked) and was stopped; the rest of " + path +
+                              " was skipped. Split the test in two, or make the work it does cheaper";
             }
             JsVal curV(ctx, JS_UNDEFINED);
             {
                 JsVal cf(ctx, JS_GetPropertyStr(ctx, hooks.get(), "testCurrent"));
                 JSValue cr = JS_Call(ctx, cf.get(), hooks.get(), 0, nullptr);
-                if (!JS_IsException(cr)) curV = JsVal(ctx, cr);
-                else JS_FreeValue(ctx, JS_GetException(ctx));
+                if (!JS_IsException(cr))
+                    curV = JsVal(ctx, cr);
+                else
+                    JS_FreeValue(ctx, JS_GetException(ctx));
             }
             TestCaseResult c;
             c.file = path;
@@ -617,7 +668,8 @@ TestReport Impl::run_tests(const std::vector<std::string>& files, std::string_vi
             if (j.value("skipped", false)) continue;
             c.passed ? ++rep.passed : ++rep.failed;
             rep.cases.push_back(std::move(c));
-            ranges.push_back({static_cast<std::uint64_t>(j.value("seq0", 0.0)), static_cast<std::uint64_t>(j.value("seq1", 0.0))});
+            ranges.push_back(
+                {static_cast<std::uint64_t>(j.value("seq0", 0.0)), static_cast<std::uint64_t>(j.value("seq1", 0.0))});
         }
     }
     std::vector<LogEntry> capturedLines;

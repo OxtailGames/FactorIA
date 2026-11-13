@@ -12,10 +12,13 @@ TEST_CASE("number format: 1234.5 in the languages the table knows") {
     CHECK(format_number(12345.5, -1, "es") == "12.345,5");  // Spanish groups from 5 digits
     CHECK(format_number(1234.5, -1, "es-MX") == "1,234.5");
     CHECK(format_number(1234.5, -1, "de") == "1.234,5");
-    CHECK(format_number(1234.5, -1, "de-CH") == "1\xE2\x80\x99" "234.5");
-    CHECK(format_number(1234.5, -1, "fr") == "1\xE2\x80\xAF" "234,5");
+    CHECK(format_number(1234.5, -1, "de-CH") == "1\xE2\x80\x99"
+                                                "234.5");
+    CHECK(format_number(1234.5, -1, "fr") == "1\xE2\x80\xAF"
+                                             "234,5");
     CHECK(format_number(1234.5, -1, "pt-BR") == "1.234,5");
-    CHECK(format_number(1234.5, -1, "ru") == "1\xC2\xA0" "234,5");
+    CHECK(format_number(1234.5, -1, "ru") == "1\xC2\xA0"
+                                             "234,5");
     CHECK(format_number(1234.5, -1, "ar") == "\xD9\xA1\xD9\xAC\xD9\xA2\xD9\xA3\xD9\xA4\xD9\xAB\xD9\xA5");
     CHECK(format_number(1234.5, -1, "ja") == "1,234.5");
     CHECK(format_number(1234.5, -1, "xx") == "1,234.5");  // unknown: English

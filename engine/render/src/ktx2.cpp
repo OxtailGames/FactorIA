@@ -79,9 +79,10 @@ Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_
     const std::uint64_t width = ktx.get_width(), height = ktx.get_height();
     if (width == 0 || height == 0 || width > std::uint64_t(kMaxImageSide) || height > std::uint64_t(kMaxImageSide) ||
         width * height > kMaxImagePixels || ktx.get_levels() > 16)
-        return make_error("the KTX2 file claims " + std::to_string(width) + " x " + std::to_string(height) + " pixels and " +
-                              std::to_string(ktx.get_levels()) + " mip levels, beyond the " + std::to_string(kMaxImageSide) + " x " +
-                              std::to_string(kMaxImageSide) + " and 16 levels the engine reads",
+        return make_error("the KTX2 file claims " + std::to_string(width) + " x " + std::to_string(height) +
+                              " pixels and " + std::to_string(ktx.get_levels()) + " mip levels, beyond the " +
+                              std::to_string(kMaxImageSide) + " x " + std::to_string(kMaxImageSide) +
+                              " and 16 levels the engine reads",
                           "Export the project again: `factoria export` writes these files.");
     // Without a supercompression scheme a level's stored and uncompressed lengths are the same number (KTX2 spec, "Level Index");
     // the transcoder only asserts it, so a file that disagrees is refused here (the fuzz target `ktx2` found one).
@@ -90,7 +91,8 @@ Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_
         for (std::uint32_t level = 0; level < levels && 80 + 24 * std::uint64_t(level + 1) <= size; ++level) {
             const std::uint8_t* entry = data + 80 + 24 * std::size_t(level);
             if (readle32(entry + 8) != readle32(entry + 16) || readle32(entry + 12) != readle32(entry + 20))
-                return make_error("mip level " + std::to_string(level) + " of the KTX2 file stores a different number of bytes than it unpacks to",
+                return make_error("mip level " + std::to_string(level) +
+                                      " of the KTX2 file stores a different number of bytes than it unpacks to",
                                   "Export the project again: `factoria export` writes these files.");
         }
     }
@@ -109,12 +111,14 @@ Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_
     out.format = target ? target->gpu : SG_PIXELFORMAT_RGBA8;
     for (std::uint32_t level = 0; level < ktx.get_levels(); ++level) {
         basist::ktx2_image_level_info info{};
-        if (!ktx.get_image_level_info(info, level, 0, 0)) return make_error("the KTX2 file is damaged", "Export the project again.");
+        if (!ktx.get_image_level_info(info, level, 0, 0))
+            return make_error("the KTX2 file is damaged", "Export the project again.");
         const std::uint32_t units = target ? info.m_total_blocks : info.m_orig_width * info.m_orig_height;
         const auto blockFormat = target ? target->basis : basist::transcoder_texture_format::cTFRGBA32;
         std::vector<std::uint8_t> bytes(std::size_t(units) * basist::basis_get_bytes_per_block_or_pixel(blockFormat));
         if (!ktx.transcode_image_level(level, 0, 0, bytes.data(), units, blockFormat))
-            return make_error("mip level " + std::to_string(level) + " of the KTX2 file cannot be transcoded", "Export the project again.");
+            return make_error("mip level " + std::to_string(level) + " of the KTX2 file cannot be transcoded",
+                              "Export the project again.");
         out.levels.push_back(std::move(bytes));
     }
     return out;
@@ -128,7 +132,8 @@ Result<Image> decode_ktx2(const std::uint8_t* data, std::size_t size) {
     auto tex = render::transcode_ktx2_as(data, size, SG_PIXELFORMAT_RGBA8);
     if (!tex) return tex.error();
     if (tex->levels.empty() || tex->levels.front().size() != std::size_t(tex->width) * std::size_t(tex->height) * 4)
-        return make_error("the KTX2 file has no base level", "Export the project again: `factoria export` writes these files.");
+        return make_error("the KTX2 file has no base level",
+                          "Export the project again: `factoria export` writes these files.");
     Image img;
     img.width = tex->width;
     img.height = tex->height;

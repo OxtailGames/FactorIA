@@ -35,39 +35,43 @@ namespace fa {
 // One tool call of a step, as far as the transcript tells.
 struct EfficiencyToolCall {
     std::string id;
-    std::string name;            // the tool as the model called it ("scene_inspect", "tool_call", "Bash")
-    std::string command;         // the engine command it ran ("scene.inspect"), or the tool name when it is not one
-    std::string ref;             // what it acted on: a file, a doc topic, a search query, an entity ("" = unknown)
-    std::string shell;           // a shell call's command line of a CLI agent, cut to 200 bytes ("" = not a shell call)
-    std::string code;            // the error code of a failed call ("" = it did not fail, or no code was given)
+    std::string name;     // the tool as the model called it ("scene_inspect", "tool_call", "Bash")
+    std::string command;  // the engine command it ran ("scene.inspect"), or the tool name when it is not one
+    std::string ref;      // what it acted on: a file, a doc topic, a search query, an entity ("" = unknown)
+    std::string shell;    // a shell call's command line of a CLI agent, cut to 200 bytes ("" = not a shell call)
+    std::string code;     // the error code of a failed call ("" = it did not fail, or no code was given)
     bool failed = false;
-    std::int64_t ms = 0;         // how long the tool ran (0 = not recorded)
-    std::uint64_t resultBytes = 0;  // the size of its result (the full size when the transcript says it, else of the stored text)
+    std::int64_t ms = 0;  // how long the tool ran (0 = not recorded)
+    std::uint64_t resultBytes =
+        0;  // the size of its result (the full size when the transcript says it, else of the stored text)
 };
 
 struct EfficiencyStep {
-    int number = 0;              // 1-based
-    std::int64_t endMs = 0;      // when the step ended (unix ms); a step without a time keeps the one before it
-    std::uint64_t tokens = 0;    // processed by the step: input + cache + output (built-in), estimated from bytes (CLI)
+    int number = 0;            // 1-based
+    std::int64_t endMs = 0;    // when the step ended (unix ms); a step without a time keeps the one before it
+    std::uint64_t tokens = 0;  // processed by the step: input + cache + output (built-in), estimated from bytes (CLI)
     double costUsd = 0;
     std::vector<EfficiencyToolCall> calls;
 };
 
 struct EfficiencySession {
-    std::string id;              // the file name without ".jsonl"
-    std::string agent;           // "builtin" or "cli"
+    std::string id;     // the file name without ".jsonl"
+    std::string agent;  // "builtin" or "cli"
     bool hasTimes = false;
-    bool estimated = false;      // tokens are estimated from bytes, cost unknown (a CLI agent)
-    std::int64_t startMs = 0;    // the time of the first line (0 = none)
+    bool estimated = false;    // tokens are estimated from bytes, cost unknown (a CLI agent)
+    std::int64_t startMs = 0;  // the time of the first line (0 = none)
     std::vector<EfficiencyStep> steps;
-    int skippedLines = 0;        // lines that were not JSON or too long to read
-    bool truncated = false;      // the transcript was bigger than kEfficiencyMaxSteps steps / kEfficiencyMaxBytes bytes: the rest is ignored
+    int skippedLines = 0;  // lines that were not JSON or too long to read
+    bool truncated =
+        false;  // the transcript was bigger than kEfficiencyMaxSteps steps / kEfficiencyMaxBytes bytes: the rest is ignored
 };
 
 inline constexpr int kEfficiencyMaxSteps = 20000;
-inline constexpr std::uint64_t kEfficiencyMaxBytes = 64ull * 1024 * 1024;        // of one transcript read: a bigger file is refused
-inline constexpr std::uint64_t kEfficiencyMaxTotalBytes = 256ull * 1024 * 1024;   // of all the transcripts one call reads (EfficiencyLoadBudget)
-inline constexpr std::size_t kEfficiencyMaxLine = 8u * 1024 * 1024;         // a longer line is skipped
+inline constexpr std::uint64_t kEfficiencyMaxBytes =
+    64ull * 1024 * 1024;  // of one transcript read: a bigger file is refused
+inline constexpr std::uint64_t kEfficiencyMaxTotalBytes =
+    256ull * 1024 * 1024;  // of all the transcripts one call reads (EfficiencyLoadBudget)
+inline constexpr std::size_t kEfficiencyMaxLine = 8u * 1024 * 1024;  // a longer line is skipped
 
 // The steps of the transcript `text` (JSON lines). Never fails: a line that is not JSON is skipped and counted.
 EfficiencySession read_efficiency_session(const std::string& text, const std::string& id);
@@ -78,13 +82,15 @@ EfficiencySession read_claude_stream_session(const std::string& text, const std:
 // The same, read from a stream line by line: only one line (at most kEfficiencyMaxLine bytes) and one 64 KB chunk are held in memory, and
 // at most kEfficiencyMaxBytes bytes are read (the rest sets `truncated`).
 // `maxBytes` is kEfficiencyMaxBytes unless a test lowers it.
-EfficiencySession read_efficiency_session(std::istream& in, const std::string& id, std::uint64_t maxBytes = kEfficiencyMaxBytes);
+EfficiencySession read_efficiency_session(std::istream& in, const std::string& id,
+                                          std::uint64_t maxBytes = kEfficiencyMaxBytes);
 // How much a call that reads several transcripts may still read. Every load_efficiency_session given the budget takes the size of its file
 // off it before opening it, and refuses a file that no longer fits.
 struct EfficiencyLoadBudget {
     std::uint64_t total = kEfficiencyMaxTotalBytes;
     std::uint64_t bytesLeft = kEfficiencyMaxTotalBytes;
-    std::uint64_t maxFile = kEfficiencyMaxBytes;  // the most one transcript may weigh; tests lower it instead of making a 65 MB file
+    std::uint64_t maxFile =
+        kEfficiencyMaxBytes;  // the most one transcript may weigh; tests lower it instead of making a 65 MB file
     EfficiencyLoadBudget() = default;
     explicit EfficiencyLoadBudget(std::uint64_t totalBytes, std::uint64_t fileBytes = kEfficiencyMaxBytes)
         : total(totalBytes), bytesLeft(totalBytes), maxFile(fileBytes) {}
@@ -95,16 +101,17 @@ std::string efficiency_sessions_dir(const std::string& projectDir);
 std::vector<std::string> list_efficiency_sessions(const std::string& projectDir);
 // Reads one transcript by id ("20261014-153012-main", with or without ".jsonl"). The error says which ids exist, or that the file is bigger
 // than kEfficiencyMaxBytes or does not fit what is left of `budget` (nullptr = no total limit). All strings are UTF-8.
-Result<EfficiencySession> load_efficiency_session(const std::string& projectDir, const std::string& session, EfficiencyLoadBudget* budget = nullptr);
+Result<EfficiencySession> load_efficiency_session(const std::string& projectDir, const std::string& session,
+                                                  EfficiencyLoadBudget* budget = nullptr);
 
 // ---- Measuring ----------------------------------------------------------------------------------------------------------
 struct EfficiencyMeasure {
     int steps = 0;
     int toolCalls = 0;
-    double minutes = 0;          // 0.1 minute resolution
+    double minutes = 0;  // 0.1 minute resolution
     std::uint64_t tokens = 0;
-    double costUsd = 0;          // 4 decimals; 0 when unknown
-    bool estimated = false;      // the tokens are estimated from bytes (CLI agent) and the cost is not known
+    double costUsd = 0;      // 4 decimals; 0 when unknown
+    bool estimated = false;  // the tokens are estimated from bytes (CLI agent) and the cost is not known
     EfficiencyMeasure& operator+=(const EfficiencyMeasure& o);
     Json to_json() const;
     static EfficiencyMeasure from_json(const Json& j);
@@ -124,17 +131,17 @@ EfficiencyMeasure scale_measure(const EfficiencyMeasure& m, double share);
 
 // ---- The gate -----------------------------------------------------------------------------------------------------------
 // Fix types, cheapest first: the cheapest one that removes the waste wins.
-const std::vector<std::string>& efficiency_fix_types();    // doc, guide, example, commandOption, newCommand, engineChange
+const std::vector<std::string>& efficiency_fix_types();  // doc, guide, example, commandOption, newCommand, engineChange
 // Who the fix helps: every-game, genre, feature (one feature of the engine), this-game (not engine feedback: a project fact).
 const std::vector<std::string>& efficiency_applies_to();
 
 struct EfficiencyThreshold {
     std::string fixType;
-    double minutes = 0;          // the saving per game, in minutes, that justifies the fix (0 = not a criterion)
-    std::uint64_t tokens = 0;    // ... or in tokens
-    double costUsd = 0;          // ... or in dollars
+    double minutes = 0;             // the saving per game, in minutes, that justifies the fix (0 = not a criterion)
+    std::uint64_t tokens = 0;       // ... or in tokens
+    double costUsd = 0;             // ... or in dollars
     bool widerThanFeature = false;  // appliesTo must be every-game or genre
-    bool candidateOnly = false;     // the entry is only a candidate for triage: it goes on the roadmap when reports add up
+    bool candidateOnly = false;  // the entry is only a candidate for triage: it goes on the roadmap when reports add up
     std::string cost;            // what the fix costs, in words
 };
 const std::vector<EfficiencyThreshold>& efficiency_thresholds();
@@ -150,11 +157,11 @@ struct EfficiencyInput {
     std::string waste;                        // what took the time, in engine terms
     std::vector<EfficiencySpan> evidence;
     std::string fixType, appliesTo;
-    double saveShare = 0;                     // the share of the measured span the fix removes 0.01 to 1
-    std::string saveWhy;                      // one line of why
-    std::string whyNotCheaper;                // required for commandOption, newCommand, engineChange
-    std::vector<std::string> searched;        // for a findability report: the words that docs.search did not answer
-    std::uint64_t everyStepTokens = 0;        // the tokens the fix adds to every step of every run (text loaded each time)
+    double saveShare = 0;               // the share of the measured span the fix removes 0.01 to 1
+    std::string saveWhy;                // one line of why
+    std::string whyNotCheaper;          // required for commandOption, newCommand, engineChange
+    std::vector<std::string> searched;  // for a findability report: the words that docs.search did not answer
+    std::uint64_t everyStepTokens = 0;  // the tokens the fix adds to every step of every run (text loaded each time)
 };
 
 // What only the engine's own code knows about an entry (never the AI's arguments): the stable id of the waste pattern the retrospective
@@ -173,11 +180,11 @@ struct EfficiencyRefusal {
 
 // What the engine stores next to the AI's words.
 struct EfficiencyVerdict {
-    std::vector<EfficiencySpan> evidence;     // normalised (no ".jsonl", sorted as given)
-    EfficiencyMeasure measured;               // the whole evidence
+    std::vector<EfficiencySpan> evidence;         // normalised (no ".jsonl", sorted as given)
+    EfficiencyMeasure measured;                   // the whole evidence
     std::vector<EfficiencyMeasure> spanMeasures;  // one per span of `evidence`, in the same order
-    EfficiencyMeasure saving;                 // measured x saveShare
-    std::string existingDoc;                  // findability: "docs/X.md:12 (Heading)" where the thing is documented
+    EfficiencyMeasure saving;                     // measured x saveShare
+    std::string existingDoc;                      // findability: "docs/X.md:12 (Heading)" where the thing is documented
     bool candidateOnly = false;
 };
 
@@ -215,13 +222,13 @@ inline constexpr double kEfficiencyAnonymousWeight = 0.5;
 
 // One installation's (or project's) entry of a group of reports that ask for the same fix.
 struct EfficiencyVoice {
-    std::string project;     // the local project, or "install-<key>" of an installation in the inbox
-    std::string id;          // FB-0003
-    std::string shareId;     // r_8f3k2m for a pulled report ("" for a local entry): what `feedback reject` takes
-    std::string trust;       // local | verified | anonymous
+    std::string project;  // the local project, or "install-<key>" of an installation in the inbox
+    std::string id;       // FB-0003
+    std::string shareId;  // r_8f3k2m for a pulled report ("" for a local entry): what `feedback reject` takes
+    std::string trust;    // local | verified | anonymous
     int occurrences = 1;
     EfficiencyMeasure measured, saving;
-    std::string afterFix;    // "" or the version of a fix the report says did not remove the waste
+    std::string afterFix;  // "" or the version of a fix the report says did not remove the waste
 };
 struct EfficiencyGroup {
     std::string title, category, fixType, appliesTo, suggestion;

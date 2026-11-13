@@ -4,8 +4,8 @@
 
 namespace fa::render {
 
-int emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay, Color color, Fonts& fonts, Assets& assets, int layer,
-              float secondary, const Rect& clip, int visible, Color tint) {
+int emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay, Color color, Fonts& fonts,
+              Assets& assets, int layer, float secondary, const Rect& clip, int visible, Color tint) {
     const auto shown = [visible](std::int32_t grapheme) { return visible < 0 || grapheme < visible; };
     int drawn = 0;
     for (const TextQuad& q : lay.quads) drawn += shown(q.grapheme) ? 1 : 0;
@@ -18,7 +18,8 @@ int emit_text(QuadList& list, const Mat4& m, bool screen, const TextLayout& lay,
             if (q.color == 0 || std::size_t(q.color) > lay.palette.size()) {
                 em.color = base;
             } else {
-                const Color& c = lay.palette[std::size_t(q.color) - 1];  // a run colour replaces the RGB; the opacity stays the text's
+                const Color& c = lay.palette[std::size_t(q.color) -
+                                             1];  // a run colour replaces the RGB; the opacity stays the text's
                 em.color = pack_color(Color{c.r * tint.r, c.g * tint.g, c.b * tint.b, c.a * color.a});
             }
             em.rect(q.x0, q.y0, q.x1, q.y1, q.u0, q.v0, q.u1, q.v1);

@@ -29,7 +29,8 @@ Measurement measured(const std::string& name, double medianMs, double spread = 0
 Json baseline_with(const std::vector<std::pair<std::string, double>>& entries, const std::string& jobs = "inline") {
     Json benchmarks = Json::object();
     for (const auto& [name, ms] : entries) benchmarks[name] = Json::object({{"medianMs", ms}, {"items", 100}});
-    return Json::object({{"format", kFormat}, {"runner", "linux-gcc"}, {"jobs", jobs}, {"repeats", 9}, {"benchmarks", benchmarks}});
+    return Json::object(
+        {{"format", kFormat}, {"runner", "linux-gcc"}, {"jobs", jobs}, {"repeats", 9}, {"benchmarks", benchmarks}});
 }
 
 Comparison compare(const Json& file, const Measurement& m, const std::map<std::string, Thresholds>& per = {}) {
@@ -131,10 +132,10 @@ TEST_CASE("bench: a run over the fail limit fails with a message that teaches") 
     Json file = baseline_with({{"ecs.each", 10.0}});
     Comparison c = compare(file, measured("ecs.each", 25.0));
     CHECK(c.verdict == Verdict::Fail);
-    CHECK(c.message.find("ecs.each") != std::string::npos);            // the bench
-    CHECK(c.message.find("25.") != std::string::npos);                 // the measured value
-    CHECK(c.message.find("10.") != std::string::npos);                 // the baseline
-    CHECK(c.message.find("--update-baseline") != std::string::npos);   // how to update it
+    CHECK(c.message.find("ecs.each") != std::string::npos);           // the bench
+    CHECK(c.message.find("25.") != std::string::npos);                // the measured value
+    CHECK(c.message.find("10.") != std::string::npos);                // the baseline
+    CHECK(c.message.find("--update-baseline") != std::string::npos);  // how to update it
     CHECK(c.message.find("linux-gcc") != std::string::npos);
 }
 

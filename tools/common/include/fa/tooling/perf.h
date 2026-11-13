@@ -29,14 +29,14 @@ struct PerfSample {
     // A baseline entry only: "provisional": true. Only the counters (draw calls, entities, triangles, lights) are enforced, never
     // time or memory: the entry is an estimate until a CI run of that runner replaces it (perf.baseline).
     bool provisional = false;
-    double peakMemoryMB = 0;                          // peak resident memory of the process
-    int drawCalls = 0;                                // max over the run
-    int entities = 0;                                 // max over the run
+    double peakMemoryMB = 0;  // peak resident memory of the process
+    int drawCalls = 0;        // max over the run
+    int entities = 0;         // max over the run
     // What the renderer drew (max over the run); -1 = not recorded (a baseline file from before these fields: no budget
     // for a field it does not have). A measured sample always has them (0 without a GPU).
-    double triangles = -1;                            // triangles of the main pass
-    double lights = -1;                               // lights sent to the shader
-    double textureMB = -1;                            // GPU texture memory
+    double triangles = -1;  // triangles of the main pass
+    double lights = -1;     // lights sent to the shader
+    double textureMB = -1;  // GPU texture memory
     // Reported, never gated and never written to a baseline: the decoded audio (clips, streaming buffers, music) and the music
     // alone, max over the run. -1 = not recorded.
     double audioDecodedMB = -1;
@@ -45,7 +45,7 @@ struct PerfSample {
     // scenes, scripts, textures, shaders; fa/core/startup.h). -1 = not recorded. Process CPU time, so a busy machine moves it less
     // than the wall clock; still the noisiest number here, so its limits are wide and a budget on it is a "timing" row.
     double startupMs = -1;
-    std::string graphics;                             // the GPU used, "none" without one
+    std::string graphics;  // the GPU used, "none" without one
 };
 constexpr int kPerfSlowestFrames = 5;
 // `withSlowest` false leaves the slowest frames out: a baseline entry is the same on every run, a measurement is not.
@@ -61,20 +61,20 @@ PerfSample perf_sample_from_json(const Json& j);  // missing or mistyped fields 
 //    re-measures, is what absorbs the noise, so a baseline is never refreshed to make a check pass. The absolute slack matters
 //    under a millisecond, where a ratio alone is noise (0.46 ms measured as 1.75 ms is 3.8x and not a regression).
 struct PerfTolerance {
-    double cpuMedian = 1.0;   // warn at +100% (and cpuSlackMs)
-    double cpuP95 = 1.5;      // warn at +150%
-    double cpuFail = 5.0;     // fail at +500% (6x the baseline) or cpuFailSlackMs, the larger
+    double cpuMedian = 1.0;  // warn at +100% (and cpuSlackMs)
+    double cpuP95 = 1.5;     // warn at +150%
+    double cpuFail = 5.0;    // fail at +500% (6x the baseline) or cpuFailSlackMs, the larger
     double cpuFailSlackMs = 10.0;
     double memory = 0.10;     // warn at +10% (and memorySlackMB)
     double memoryFail = 0.5;  // fail at +50% or memoryFailSlackMB, the larger
     double memoryFailSlackMB = 32.0;
-    double drawCalls = 0.0;   // exact: one more fails
+    double drawCalls = 0.0;  // exact: one more fails
     double entities = 0.0;
     double triangles = 0.0;
     double lights = 0.0;
     double textureMB = 0.10;
     double textureSlackMB = 1.0;
-    double startup = 2.0;         // +200%: reading files and compiling shaders depends on the disk, its cache and the driver
+    double startup = 2.0;  // +200%: reading files and compiling shaders depends on the disk, its cache and the driver
     double startupSlackMs = 500.0;
     double cpuSlackMs = 1.0;
     double memorySlackMB = 8.0;
@@ -84,11 +84,12 @@ struct PerfTolerance {
 PerfTolerance perf_tolerance_from_json(const Json& j, std::vector<std::string>* problems = nullptr);
 
 struct PerfCheckRow {
-    std::string metric;  // "cpuMsMedian", "cpuMsP95", "peakMemoryMB", "drawCalls", "entities", "triangles", "lights", "textureMB", "startupMs"; "maxTriangles"... for a budget
+    std::string
+        metric;  // "cpuMsMedian", "cpuMsP95", "peakMemoryMB", "drawCalls", "entities", "triangles", "lights", "textureMB", "startupMs"; "maxTriangles"... for a budget
     double measured = 0, baseline = 0;
-    double limit = 0;      // past it the row FAILS (a time: only when strictTime)
-    double warnLimit = 0;  // past it, up to `limit`, the row warns; equal to `limit` for a counter or an absolute cap
-    bool timing = false;   // a time metric (also maxStartupMs): over budget only warns outside CI
+    double limit = 0;       // past it the row FAILS (a time: only when strictTime)
+    double warnLimit = 0;   // past it, up to `limit`, the row warns; equal to `limit` for a counter or an absolute cap
+    bool timing = false;    // a time metric (also maxStartupMs): over budget only warns outside CI
     bool exceeded = false;  // measured > limit
     bool warned = false;    // warnLimit < measured <= limit
 };
@@ -98,7 +99,8 @@ struct PerfVerdict {
 };
 // `strictTime`: a time past its limit fails (CI); otherwise it only warns. Memory and the counters past theirs always fail.
 // A provisional baseline (PerfSample::provisional) compares the counters only: no time, memory, texture or start-up row.
-PerfVerdict perf_compare(const PerfSample& measured, const PerfSample& baseline, const PerfTolerance& tol, bool strictTime);
+PerfVerdict perf_compare(const PerfSample& measured, const PerfSample& baseline, const PerfTolerance& tol,
+                         bool strictTime);
 
 // Absolute caps, whatever the runner: the "budgets" object of a budget file or the `budgets` argument of perf.check.
 // {maxTriangles, maxLights, maxTextureMB, maxDrawCalls, maxEntities, maxStartupMs}; a key left out is not checked. A unknown key or a

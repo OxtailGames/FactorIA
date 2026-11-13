@@ -45,11 +45,13 @@ TEST_CASE("load order merge: a known scene gains new files at its end, a new sce
     CHECK(merge_load_order(recorded, seen) == merged);
 }
 
-TEST_CASE("load order merge: a cold session (factoria run, play.auto) sets a scene's order, an editor Play only adds to it") {
+TEST_CASE(
+    "load order merge: a cold session (factoria run, play.auto) sets a scene's order, an editor Play only adds to it") {
     const LoadOrder editor = order_of({{"scenes/a.scene.json", {"scenes/a.scene.json", "img/late.png", "img/a.png"}}});
     // The cold run read a.png before late.png and never read late.png's neighbour: its order comes first, the rest after.
-    const LoadOrder run = order_of({{"scenes/a.scene.json", {"scenes/a.scene.json", "img/a.png", "img/new.png", "img/a.png"}},
-                                    {"scenes/b.scene.json", {"img/b.png"}}});
+    const LoadOrder run =
+        order_of({{"scenes/a.scene.json", {"scenes/a.scene.json", "img/a.png", "img/new.png", "img/a.png"}},
+                  {"scenes/b.scene.json", {"img/b.png"}}});
     LoadOrderMerge st;
     const LoadOrder cold = merge_load_order(editor, run, &st, LoadOrderSource::Run);
     REQUIRE(cold.size() == 2);
@@ -60,11 +62,12 @@ TEST_CASE("load order merge: a cold session (factoria run, play.auto) sets a sce
     CHECK(st.changed);
 
     // An editor Play afterwards does not reorder the cold scene: it only appends what it was missing.
-    const LoadOrder play = order_of({{"scenes/a.scene.json", {"img/late.png", "img/editor.png", "scenes/a.scene.json"}}});
+    const LoadOrder play =
+        order_of({{"scenes/a.scene.json", {"img/late.png", "img/editor.png", "scenes/a.scene.json"}}});
     LoadOrderMerge est;
     const LoadOrder after = merge_load_order(cold, play, &est, LoadOrderSource::Editor);
-    CHECK(after[0].files ==
-          std::vector<std::string>{"scenes/a.scene.json", "img/a.png", "img/new.png", "img/late.png", "img/editor.png"});
+    CHECK(after[0].files == std::vector<std::string>{"scenes/a.scene.json", "img/a.png", "img/new.png", "img/late.png",
+                                                     "img/editor.png"});
     CHECK(after[0].cold);
     CHECK(est.added == 1);
 
@@ -73,7 +76,8 @@ TEST_CASE("load order merge: a cold session (factoria run, play.auto) sets a sce
     merge_load_order(cold, run, &same, LoadOrderSource::Run);
     CHECK_FALSE(same.changed);
     LoadOrderMerge mark;
-    const LoadOrder marked = merge_load_order(editor, order_of({{"scenes/a.scene.json", {}}}), &mark, LoadOrderSource::Run);
+    const LoadOrder marked =
+        merge_load_order(editor, order_of({{"scenes/a.scene.json", {}}}), &mark, LoadOrderSource::Run);
     CHECK(marked[0].files == editor[0].files);
     CHECK(marked[0].cold);
     CHECK(mark.changed);
@@ -81,18 +85,21 @@ TEST_CASE("load order merge: a cold session (factoria run, play.auto) sets a sce
 }
 
 TEST_CASE("load order merge: absolute paths, '..' and backslashes are left out, and the caps hold") {
-    const LoadOrder seen = order_of({{"s", {"/etc/passwd", "../up.png", "a\\b.png", "C:/x.png", "ok/..x.png", "ok/a.png", ""}}});
+    const LoadOrder seen =
+        order_of({{"s", {"/etc/passwd", "../up.png", "a\\b.png", "C:/x.png", "ok/..x.png", "ok/a.png", ""}}});
     const LoadOrder merged = merge_load_order({}, seen);
     REQUIRE(merged.size() == 1);
     CHECK(merged[0].files == std::vector<std::string>{"ok/..x.png", "ok/a.png"});
 
     LoadOrder many;
-    for (std::size_t i = 0; i < kLoadOrderMaxScenes + 10; ++i) many.push_back(SceneFiles{"s" + std::to_string(i), {"f.png"}});
+    for (std::size_t i = 0; i < kLoadOrderMaxScenes + 10; ++i)
+        many.push_back(SceneFiles{"s" + std::to_string(i), {"f.png"}});
     LoadOrderMerge st;
     const LoadOrder capped = merge_load_order({}, many, &st);
     CHECK(capped.size() == kLoadOrderMaxScenes);
     CHECK(st.scenes == kLoadOrderMaxScenes);
-    CHECK(capped.back().scene == "s" + std::to_string(kLoadOrderMaxScenes - 1));  // the first ones stay, the rest is left out
+    CHECK(capped.back().scene ==
+          "s" + std::to_string(kLoadOrderMaxScenes - 1));  // the first ones stay, the rest is left out
 
     SceneFiles big{"big", {}};
     for (std::size_t i = 0; i < kLoadOrderMaxFiles + 5; ++i) big.files.push_back("f" + std::to_string(i));
@@ -116,8 +123,9 @@ TEST_CASE("load order read: no file is an empty order, a damaged one names the f
     CHECK(wrong.error().message.find("factoria.loadorder/1") != std::string::npos);
     CHECK(wrong.error().hint.find("delete it") != std::string::npos);
 
-    testing::write_all(load_order_file(dir.path),
-                       R"({"format":"factoria.loadorder/1","scenes":[{"scene":"a","files":["x.png"]},{"scene":"b","files":["y.png",3]}]})");
+    testing::write_all(
+        load_order_file(dir.path),
+        R"({"format":"factoria.loadorder/1","scenes":[{"scene":"a","files":["x.png"]},{"scene":"b","files":["y.png",3]}]})");
     auto bad = read_load_order(dir.path);
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().message.find("#/scenes/1/files/1") != std::string::npos);
@@ -140,7 +148,8 @@ TEST_CASE("load order read: no file is an empty order, a damaged one names the f
 TEST_CASE("load order record: merges into the file under the project's lock and writes nothing when nothing is new") {
     testing::ScratchShareHome home;
     testing::TempDir dir;
-    auto first = record_load_order(dir.path, order_of({{"scenes/main.scene.json", {"scenes/main.scene.json", "a.png"}}}));
+    auto first =
+        record_load_order(dir.path, order_of({{"scenes/main.scene.json", {"scenes/main.scene.json", "a.png"}}}));
     REQUIRE_MESSAGE(first.ok(), (first.ok() ? std::string() : first.error().message));
     CHECK(first.value().added == 2);
     const std::string written = file_text(dir.path);
@@ -163,7 +172,8 @@ TEST_CASE("load order record: merges into the file under the project's lock and 
     CHECK_FALSE(stdfs::exists(dir.path / ".factoria" / "cache" / kFeedbackShareLockFile));
 }
 
-TEST_CASE("load order record: the file keeps each scene's source, and a factoria run reorders what an editor Play wrote") {
+TEST_CASE(
+    "load order record: the file keeps each scene's source, and a factoria run reorders what an editor Play wrote") {
     testing::ScratchShareHome home;
     testing::TempDir dir;
     REQUIRE(record_load_order(dir.path, order_of({{"s", {"b.png", "a.png"}}, {"t", {"c.png"}}})).ok());
@@ -234,7 +244,7 @@ TEST_CASE("load order record: a lock another program holds is reported and chang
     REQUIRE_FALSE(blocked.ok());
     CHECK(blocked.error().message.find("was not recorded") != std::string::npos);
     CHECK_FALSE(blocked.error().hint.empty());
-    CHECK(file_text(dir.path) == before);  // nothing half-written
+    CHECK(file_text(dir.path) == before);                              // nothing half-written
     record_load_order_logged(dir.path, order_of({{"s", {"c.png"}}}));  // logs, never throws, writes nothing
     CHECK(file_text(dir.path) == before);
 
@@ -248,7 +258,8 @@ TEST_CASE("load order record: a lock another program holds is reported and chang
 TEST_CASE("load order record_async: writes land in the order they were queued, and wait returns once they are done") {
     testing::ScratchShareHome home;
     testing::TempDir dir;
-    for (int i = 0; i < 8; ++i) record_load_order_async(dir.path, order_of({{"s", {"f" + std::to_string(i) + ".png"}}}));
+    for (int i = 0; i < 8; ++i)
+        record_load_order_async(dir.path, order_of({{"s", {"f" + std::to_string(i) + ".png"}}}));
     record_load_order_async(dir.path, {});  // an empty order queues nothing
     wait_load_order_writes();
     auto read = read_load_order(dir.path);
@@ -259,18 +270,20 @@ TEST_CASE("load order record_async: writes land in the order they were queued, a
     CHECK(read.value()[0].files == want);
 }
 
-TEST_CASE("pack order: the start-up files, the main scene's, then the other scenes', each shipped file once, the scene file first") {
+TEST_CASE("pack order: the start-up files, the main scene's, then the other scenes', each shipped file once, the scene "
+          "file first") {
     const LoadOrder recorded = order_of({
         {"scenes/menu.scene.json", {"ui/menu.png", "fonts/a.ttf"}},
         {LoadTrace::kStartupScene, {"factoria.json", "scripts/boot.js"}},
         {"scenes/main.scene.json", {"img/hero.png", "scenes/main.scene.json", "dev/only.txt", "fonts/a.ttf"}},
         {"scenes/gone.scene.json", {"old.png"}},
     });
-    const std::vector<std::string> shipped = {"factoria.json", "fonts/a.ttf", "img/hero.png", "scenes/main.scene.json",
-                                              "scenes/menu.scene.json", "scripts/boot.js", "ui/menu.png"};
+    const std::vector<std::string> shipped = {
+        "factoria.json",          "fonts/a.ttf",     "img/hero.png", "scenes/main.scene.json",
+        "scenes/menu.scene.json", "scripts/boot.js", "ui/menu.png"};
     const PackOrder po = pack_order(recorded, "scenes/main.scene.json", shipped);
-    CHECK(po.files == std::vector<std::string>{"factoria.json", "scripts/boot.js", "scenes/main.scene.json", "img/hero.png",
-                                               "fonts/a.ttf", "scenes/menu.scene.json", "ui/menu.png"});
+    CHECK(po.files == std::vector<std::string>{"factoria.json", "scripts/boot.js", "scenes/main.scene.json",
+                                               "img/hero.png", "fonts/a.ttf", "scenes/menu.scene.json", "ui/menu.png"});
     CHECK(po.scenes == 3);  // the start-up group counts; the scene whose files no longer ship gives nothing
 
     const PackOrder none = pack_order({}, "scenes/main.scene.json", shipped);
@@ -281,8 +294,9 @@ TEST_CASE("pack order: the start-up files, the main scene's, then the other scen
 TEST_CASE("load order record: play.auto in a folder with an accent records into that folder (the path stays native)") {
     testing::TempDir tmp;
     const stdfs::path project = tmp.path / stdfs::path(u8"juego-Adrià");
-    testing::write_all(project / "factoria.json",
-                       R"({"format":"factoria.project/1","name":"Acc","id":"com.example.acc","mainScene":"scenes/main.scene.json",
+    testing::write_all(
+        project / "factoria.json",
+        R"({"format":"factoria.project/1","name":"Acc","id":"com.example.acc","mainScene":"scenes/main.scene.json",
                            "display":{"width":64,"height":64}})");
     testing::write_all(project / "scenes" / "main.scene.json",
                        R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})");
@@ -297,6 +311,7 @@ TEST_CASE("load order record: play.auto in a folder with an accent records into 
     auto order = read_load_order(project);
     REQUIRE(order.ok());
     REQUIRE(!order.value().empty());
-    CHECK(order.value().front().scene == "scenes/main.scene.json");  // factoria.json is read by an absolute path: not the game's read
+    CHECK(order.value().front().scene ==
+          "scenes/main.scene.json");  // factoria.json is read by an absolute path: not the game's read
     CHECK(order.value().front().cold);
 }

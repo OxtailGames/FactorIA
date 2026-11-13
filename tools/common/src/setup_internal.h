@@ -115,7 +115,8 @@ std::optional<Fail> verify_checksum(const stdfs::path& file, const std::string& 
 
 // Unpacks a .zip, .tar.gz or .tgz into `destination` (created). macOS and Windows use the system bsdtar
 // (/usr/bin/tar, %SystemRoot%\System32\tar.exe), Linux `tar` and `unzip`.
-std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& archive, const stdfs::path& destination);
+std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& archive,
+                                    const stdfs::path& destination);
 
 // Moves `from` to `to`, replacing what is there: the old folder is renamed aside first and removed once the new one is in
 // place; when the move fails the old one is put back.
@@ -136,7 +137,7 @@ SetupResult android_install(const SetupContext& ctx, const SetupInstallOptions& 
 
 SetupComponent players_status(const SetupContext& ctx);
 std::string installed_player_path(const SetupContext& ctx, const std::string& platform);  // "" when not installed
-std::string installed_mobile_path(const SetupContext& ctx);                              // "" when not installed
+std::string installed_mobile_path(const SetupContext& ctx);                               // "" when not installed
 SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& options);
 
 SetupComponent webplayer_status(const SetupContext& ctx);
@@ -156,7 +157,8 @@ SetupResult appimage_install(const SetupContext& ctx, const SetupInstallOptions&
 SetupComponent shaders_status(const SetupContext& ctx);
 SetupResult shaders_install(const SetupContext& ctx, const SetupInstallOptions& options);
 // The install of one given binary entry (tests pass one whose hash matches their fake download; null = unsupported).
-SetupResult shaders_install_binary(const SetupContext& ctx, const SetupInstallOptions& options, const SokolShdcBinary* bin);
+SetupResult shaders_install_binary(const SetupContext& ctx, const SetupInstallOptions& options,
+                                   const SokolShdcBinary* bin);
 
 SetupComponent ffmpeg_status(const SetupContext& ctx);
 SetupResult ffmpeg_install(const SetupContext& ctx, const SetupInstallOptions& options);
@@ -170,8 +172,8 @@ SetupComponent launcher_status(const SetupContext& ctx);
 SetupResult launcher_install(const SetupContext& ctx, const SetupInstallOptions& options);
 
 // What the three installers and the status share about Java and the SDK folders.
-bool jdk_usable(const std::string& dir);        // bin/java + bin/javac + Java 17 or newer
-bool sdk_looks_ok(const std::string& dir);      // platform-tools/, platforms/ or licenses/
+bool jdk_usable(const std::string& dir);              // bin/java + bin/javac + Java 17 or newer
+bool sdk_looks_ok(const std::string& dir);            // platform-tools/, platforms/ or licenses/
 stdfs::path find_sdkmanager(const stdfs::path& sdk);  // cmdline-tools/<latest|version>/bin/sdkmanager[.bat], or empty
 bool sdk_license_accepted(const stdfs::path& sdk);    // licenses/android-sdk-license exists and is not empty
 

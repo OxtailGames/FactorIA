@@ -56,7 +56,8 @@ void Editor::draw_project_panel() {
     }
     ProjectBrowser& pb = projBrowser_;
     const bool focused = ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows);
-    if (focused && !pb.windowFocused) pb.stale = true;  // coming back to the panel: the files may have changed meanwhile
+    if (focused && !pb.windowFocused)
+        pb.stale = true;  // coming back to the panel: the files may have changed meanwhile
     pb.windowFocused = focused;
     if (pb.project != projectDir_) {  // another project
         pb = ProjectBrowser{};
@@ -71,8 +72,8 @@ void Editor::draw_project_panel() {
         pb.recipesDirty = false;  // scan_project read the recipes too: the watcher must not rescan for the same write
         pb.inputsStamp = recipe_inputs_stamp(projectDir_, pb.listing);
         ++pb.scans;
-        const bool known = pb.query.folder.empty() || std::find(pb.listing.folders.begin(), pb.listing.folders.end(), pb.query.folder) !=
-                                                          pb.listing.folders.end();
+        const bool known = pb.query.folder.empty() || std::find(pb.listing.folders.begin(), pb.listing.folders.end(),
+                                                                pb.query.folder) != pb.listing.folders.end();
         if (!known) pb.query.folder.clear();
     }
     BrowserQuery& q = pb.query;
@@ -80,7 +81,8 @@ void Editor::draw_project_panel() {
     // ---- toolbar
     if (ImGui::Button("Refresh")) pb.stale = true;
     at_track("proj:refresh");
-    ImGui::SetItemTooltip("Read the project's files again (this also happens when the window gains focus and after the editor writes or deletes a file)");
+    ImGui::SetItemTooltip("Read the project's files again (this also happens when the window gains focus and after the "
+                          "editor writes or deletes a file)");
     ImGui::SameLine();
     {  // Regenerate: the selected made asset, else every stale one (assets.regenerate)
         const AssetRecipeStatus* sel = recipe_of_file(pb.listing, pb.selected);
@@ -88,12 +90,14 @@ void Editor::draw_project_panel() {
         const bool canSel = sel && sel->missing.empty();
         ImGui::BeginDisabled(!canSel && staleList.empty());
         const std::string label = canSel ? "Regenerate" : "Regenerate stale (" + std::to_string(staleList.size()) + ")";
-        if (ImGui::Button(label.c_str())) regenerate_assets(canSel ? Json::object({{"path", pb.selected}}) : Json::object({{"stale", true}}));
+        if (ImGui::Button(label.c_str()))
+            regenerate_assets(canSel ? Json::object({{"path", pb.selected}}) : Json::object({{"stale", true}}));
         ImGui::EndDisabled();
         at_track("proj:regenerate", canSel || !staleList.empty());
-        ImGui::SetItemTooltip("%s", canSel ? "Make the selected asset again from its recipe (assets.regenerate)"
-                                           : staleList.empty() ? "Select a made asset (one with a recipe) to make it again; none is out of date"
-                                                               : "Make every out-of-date asset again (assets.regenerate {stale: true})");
+        ImGui::SetItemTooltip(
+            "%s", canSel              ? "Make the selected asset again from its recipe (assets.regenerate)"
+                  : staleList.empty() ? "Select a made asset (one with a recipe) to make it again; none is out of date"
+                                      : "Make every out-of-date asset again (assets.regenerate {stale: true})");
     }
     ImGui::SameLine();
     ImGui::SetNextItemWidth(100);
@@ -105,12 +109,14 @@ void Editor::draw_project_panel() {
         ImGui::EndCombo();
     }
     at_track("proj:type");
-    ImGui::SetItemTooltip("Show only files of this type (all, texture, audio, font, mesh, script, scene, prefab, material)");
+    ImGui::SetItemTooltip(
+        "Show only files of this type (all, texture, audio, font, mesh, script, scene, prefab, material)");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(std::max(120.0f, std::min(260.0f, ImGui::GetContentRegionAvail().x - 190.0f)));
     ImGui::InputTextWithHint("##projsearch", "Search...", &q.search);
     at_track("proj:search");
-    ImGui::SetItemTooltip("Case-insensitive part of a path; a search looks through the whole project, not only the chosen folder");
+    ImGui::SetItemTooltip(
+        "Case-insensitive part of a path; a search looks through the whole project, not only the chosen folder");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(84);
     static const char* sortNames[] = {"Name", "Type", "Size"};
@@ -126,7 +132,8 @@ void Editor::draw_project_panel() {
 
     const std::vector<std::size_t> shown = query_files(pb.listing, q);
     ImGui::SameLine();
-    ImGui::TextDisabled("%zu file%s%s", shown.size(), shown.size() == 1 ? "" : "s", pb.listing.truncated ? " (list cut)" : "");
+    ImGui::TextDisabled("%zu file%s%s", shown.size(), shown.size() == 1 ? "" : "s",
+                        pb.listing.truncated ? " (list cut)" : "");
 
     // ---- folder tree | files
     const float treeW = std::clamp(ImGui::GetContentRegionAvail().x * 0.22f, 130.0f, 240.0f);
@@ -140,7 +147,8 @@ void Editor::draw_project_panel() {
         const bool open = ImGui::TreeNodeEx(label.c_str(), fl);
         at_track("proj:folder:" + n.path);
         if (ImGui::IsItemClicked() && !ImGui::IsItemToggledOpen()) q.folder = n.path;
-        if (ImGui::IsItemHovered()) ImGui::SetItemTooltip("%d file%s in it and below", n.fileCount, n.fileCount == 1 ? "" : "s");
+        if (ImGui::IsItemHovered())
+            ImGui::SetItemTooltip("%d file%s in it and below", n.fileCount, n.fileCount == 1 ? "" : "s");
         if (open) {
             for (const FolderNode& c : n.children) self(self, c, false);
             ImGui::TreePop();
@@ -173,7 +181,8 @@ void Editor::draw_project_panel() {
                     const std::size_t idx = std::size_t(row) * std::size_t(cols) + std::size_t(col);
                     if (idx >= shown.size()) break;
                     if (col > 0) ImGui::SameLine();
-                    draw_project_tile(pb.listing.files[shown[idx]], ImVec2(kTileW - ImGui::GetStyle().ItemSpacing.x, tileH));
+                    draw_project_tile(pb.listing.files[shown[idx]],
+                                      ImVec2(kTileW - ImGui::GetStyle().ItemSpacing.x, tileH));
                 }
             }
         }
@@ -186,7 +195,8 @@ void Editor::draw_project_panel() {
     if (!pb.deleteAsk.empty() && !ImGui::IsPopupOpen("Delete file?")) ImGui::OpenPopup("Delete file?");
     if (ImGui::BeginPopupModal("Delete file?", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
         ImGui::Text("Delete '%s'?", pb.deleteAsk.c_str());
-        ImGui::TextColored(kStatusFailed, "The file is removed from disk (fs.delete). This cannot be undone with Ctrl+Z.");
+        ImGui::TextColored(kStatusFailed,
+                           "The file is removed from disk (fs.delete). This cannot be undone with Ctrl+Z.");
         if (pb.deleteAsk == scenePath_) ImGui::TextColored(kStatusWarn, "This is the scene that is open now.");
         const bool cancel = ImGui::Button("Cancel", ImVec2(120, 0)) || ImGui::IsKeyPressed(ImGuiKey_Escape);
         at_track("proj:delete-cancel");
@@ -197,8 +207,10 @@ void Editor::draw_project_panel() {
         if (confirmed) {
             std::string err;
             CommandResult r = edit_command("proj:delete", "fs.delete", Json::object({{"path", pb.deleteAsk}}), &err);
-            if (!r.ok) notify("Could not delete " + pb.deleteAsk + ": " + err, 2);
-            else notify("Deleted " + pb.deleteAsk);
+            if (!r.ok)
+                notify("Could not delete " + pb.deleteAsk + ": " + err, 2);
+            else
+                notify("Deleted " + pb.deleteAsk);
             if (pb.selected == pb.deleteAsk) pb.selected.clear();
             pb.deleteAsk.clear();
             pb.stale = true;
@@ -230,7 +242,8 @@ void Editor::draw_sheet_preview(const std::string& path, const assets::Sheet& sh
         return;
     }
     // The frame, on a dark square, scaled to fit.
-    const SheetPreviewFrame fr = sheet_preview_frame(sheet, sheetPreviewChoice_, time_ - sheetPreviewStart_, tex->w, tex->h);
+    const SheetPreviewFrame fr =
+        sheet_preview_frame(sheet, sheetPreviewChoice_, time_ - sheetPreviewStart_, tex->w, tex->h);
     sheetPreviewFrame_ = fr.frame;
     const ImVec2 p0 = ImGui::GetCursorScreenPos();
     const float s = std::min(side / std::max(1.0f, fr.rect.w), side / std::max(1.0f, fr.rect.h));
@@ -261,12 +274,14 @@ void Editor::draw_sheet_preview(const std::string& path, const assets::Sheet& sh
         ImGui::EndCombo();
     }
     at_track("sheet:clip");
-    ImGui::SetItemTooltip("The clip to play. The preview runs the way a SpriteAnimator with this clip would: its fps, loop and pivot.");
+    ImGui::SetItemTooltip(
+        "The clip to play. The preview runs the way a SpriteAnimator with this clip would: its fps, loop and pivot.");
     ImGui::SameLine();
     if (ImGui::SmallButton("Restart")) sheetPreviewStart_ = time_;
     at_track("sheet:restart");
     ImGui::Text("frame %d (step %d of %d)%s", fr.frame, fr.step + 1, fr.steps, fr.ended ? ", ended" : "");
-    ImGui::TextDisabled("%dx%d grid, frame %.0fx%.0f px, pivot [%.2f, %.2f] from the top-left", sheet.columns, sheet.rows, fr.rect.w, fr.rect.h, fr.pivot.x, fr.pivot.y);
+    ImGui::TextDisabled("%dx%d grid, frame %.0fx%.0f px, pivot [%.2f, %.2f] from the top-left", sheet.columns,
+                        sheet.rows, fr.rect.w, fr.rect.h, fr.pivot.x, fr.pivot.y);
     ImGui::EndGroup();
     ImGui::EndChild();
 }
@@ -279,7 +294,8 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
     ImGui::Selectable("##tile", isSel, ImGuiSelectableFlags_AllowDoubleClick, size);
     at_track("proj:file:" + f.path);
     const bool hovered = ImGui::IsItemHovered();
-    if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right)) pb.selected = f.path;
+    if (ImGui::IsItemClicked(ImGuiMouseButton_Left) || ImGui::IsItemClicked(ImGuiMouseButton_Right))
+        pb.selected = f.path;
 
     // Drag: the payload is the project-relative path (Inspector asset fields and the Viewport accept it).
     if (ImGui::BeginDragDropSource(ImGuiDragDropFlags_None)) {
@@ -289,27 +305,45 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
         ImGui::EndDragDropSource();
     }
     if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && f.type == "scene") {
-        if (dirty_) pendingScene_ = f.path;  // the "Unsaved changes" dialog asks first
-        else open_scene(f.path);
+        if (dirty_)
+            pendingScene_ = f.path;  // the "Unsaved changes" dialog asks first
+        else
+            open_scene(f.path);
     }
-    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".image.json")) open_image_document(f.path);
-    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".svg")) open_vector_document(f.path);
-    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && (ends_with(f.path, ".sfx.json") || ends_with(f.path, ".audio.json") || ends_with(f.path, ".wav") || ends_with(f.path, ".ogg"))) open_sound_document(f.path);
-    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".song.json")) open_music_document(f.path);
-    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && f.type == "vfx") open_particle_document(f.path);
-    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".model.json")) open_model_document(f.path);
-    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".anim.json") && anim3d_file_is_3d(projectDir_, f.path)) open_anim3d_clip(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".image.json"))
+        open_image_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".svg"))
+        open_vector_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) &&
+        (ends_with(f.path, ".sfx.json") || ends_with(f.path, ".audio.json") || ends_with(f.path, ".wav") ||
+         ends_with(f.path, ".ogg")))
+        open_sound_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".song.json"))
+        open_music_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && f.type == "vfx")
+        open_particle_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".model.json"))
+        open_model_document(f.path);
+    if (hovered && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left) && ends_with(f.path, ".anim.json") &&
+        anim3d_file_is_3d(projectDir_, f.path))
+        open_anim3d_clip(f.path);
     const AssetRecipeStatus* recipe = recipe_of_file(pb.listing, f.path);
     if (hovered && !ImGui::IsMouseDragging(ImGuiMouseButton_Left)) {
         std::string made;
         if (recipe) {
             made = "\nMade by " + recipe->command;
-            if (!recipe->missing.empty()) made += ": input '" + recipe->missing.front() + "' is missing, so it cannot be made again";
-            else if (recipe->stale()) made += ": out of date ('" + recipe->changed.front() + "' changed). Right-click > Regenerate";
-            else made += ": up to date";
+            if (!recipe->missing.empty())
+                made += ": input '" + recipe->missing.front() + "' is missing, so it cannot be made again";
+            else if (recipe->stale())
+                made += ": out of date ('" + recipe->changed.front() + "' changed). Right-click > Regenerate";
+            else
+                made += ": up to date";
         }
         ImGui::SetTooltip("%s\n%s, %s%s%s", f.path.c_str(), f.type.c_str(), size_text(f.size).c_str(),
-                          f.type == "scene" || ends_with(f.path, ".image.json") || ends_with(f.path, ".svg") ? "\nDouble-click to open" : f.type == "prefab" ? "\nDrag onto the Viewport to spawn it" : "",
+                          f.type == "scene" || ends_with(f.path, ".image.json") || ends_with(f.path, ".svg")
+                              ? "\nDouble-click to open"
+                          : f.type == "prefab" ? "\nDrag onto the Viewport to spawn it"
+                                               : "",
                           made.c_str());
     }
 
@@ -323,14 +357,17 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
         const ImVec2 sz(float(tex->w) * s, float(tex->h) * s);
         const ImVec2 a(box0.x + (kThumb - sz.x) * 0.5f, box0.y + (kThumb - sz.y) * 0.5f);
         dl->AddRectFilled(box0, box1, IM_COL32(40, 40, 46, 255), 3.0f);
-        dl->AddImage(ImTextureRef(ImTextureID(ui::texture_from_view(tex->view, true))), a, ImVec2(a.x + sz.x, a.y + sz.y));
+        dl->AddImage(ImTextureRef(ImTextureID(ui::texture_from_view(tex->view, true))), a,
+                     ImVec2(a.x + sz.x, a.y + sz.y));
     } else {
         dl->AddRectFilled(box0, box1, badge_color(f.type), 4.0f);
         const std::string badge = type_badge(f.path, f.type);
         const ImVec2 ts = ImGui::CalcTextSize(badge.c_str());
-        dl->AddText(ImVec2(box0.x + (kThumb - ts.x) * 0.5f, box0.y + (kThumb - ts.y) * 0.5f), IM_COL32(255, 255, 255, 235), badge.c_str());
+        dl->AddText(ImVec2(box0.x + (kThumb - ts.x) * 0.5f, box0.y + (kThumb - ts.y) * 0.5f),
+                    IM_COL32(255, 255, 255, 235), badge.c_str());
     }
-    if (recipe && (recipe->stale() || !recipe->missing.empty())) {  // the stale badge (orange) / missing input (red) on the corner
+    if (recipe && (recipe->stale() ||
+                   !recipe->missing.empty())) {  // the stale badge (orange) / missing input (red) on the corner
         const bool stale = recipe->stale();
         const char* txt = stale ? "stale" : "no src";
         const ImVec2 bs = ImGui::CalcTextSize(txt);
@@ -343,7 +380,8 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
     const ImVec2 lp(p0.x + 2.0f, box1.y + 3.0f);
     dl->PushClipRect(ImVec2(p0.x, lp.y), ImVec2(p0.x + size.x, p0.y + size.y), true);
     const ImVec2 ts = ImGui::CalcTextSize(name.c_str());
-    dl->AddText(ImVec2(ts.x < size.x - 4.0f ? p0.x + (size.x - ts.x) * 0.5f : lp.x, lp.y), ImGui::GetColorU32(ImGuiCol_Text), name.c_str());
+    dl->AddText(ImVec2(ts.x < size.x - 4.0f ? p0.x + (size.x - ts.x) * 0.5f : lp.x, lp.y),
+                ImGui::GetColorU32(ImGuiCol_Text), name.c_str());
     dl->PopClipRect();
 
     if (ImGui::BeginPopupContextItem("##ctx")) {
@@ -362,8 +400,8 @@ void Editor::draw_project_tile(const BrowserFile& f, ImVec2 size) {
             ImGui::EndDisabled();
             at_track("proj:ctx:regenerate", recipe->missing.empty());
             if (!recipe->missing.empty() && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("Input '%s' no longer exists: restore it, or run %s again with the new path.", recipe->missing.front().c_str(),
-                                  recipe->command.c_str());
+                ImGui::SetTooltip("Input '%s' no longer exists: restore it, or run %s again with the new path.",
+                                  recipe->missing.front().c_str(), recipe->command.c_str());
         }
         ImGui::Separator();
         if (ImGui::MenuItem("Delete...")) pb.deleteAsk = f.path;
@@ -399,8 +437,10 @@ void Editor::viewport_accept_drop(Renderer& r, Vec2 design) {
             std::string err;
             CommandResult res = edit_command("proj:spawn:" + std::to_string(uiFrame_), "scene.spawn",
                                              Json::object({{"prefab", path}, {"position", pos}}), &err);
-            if (!res.ok) notify("Could not spawn " + path + ": " + err, 2);
-            else select_id(res.result.value("id", std::string()));
+            if (!res.ok)
+                notify("Could not spawn " + path + ": " + err, 2);
+            else
+                select_id(res.result.value("id", std::string()));
         }
     }
     ImGui::EndDragDropTarget();
@@ -425,11 +465,14 @@ void Editor::regenerate_assets(const Json& args) {
     const std::size_t done = v.contains("regenerated") && v["regenerated"].is_array() ? v["regenerated"].size() : 0;
     const std::size_t failed = v.contains("failed") && v["failed"].is_array() ? v["failed"].size() : 0;
     if (failed) {
-        std::string first = v["failed"][0].is_object() && v["failed"][0].contains("error") ? v["failed"][0]["error"].value("message", "") : "";
+        std::string first = v["failed"][0].is_object() && v["failed"][0].contains("error")
+                                ? v["failed"][0]["error"].value("message", "")
+                                : "";
         pb.regenerateError = first;
         notify("Regenerated " + std::to_string(done) + ", " + std::to_string(failed) + " failed: " + first, 2);
     } else {
-        notify(done == 0 ? "Nothing to regenerate." : "Regenerated " + std::to_string(done) + " asset" + (done == 1 ? "" : "s") + ".");
+        notify(done == 0 ? "Nothing to regenerate."
+                         : "Regenerated " + std::to_string(done) + " asset" + (done == 1 ? "" : "s") + ".");
     }
 }
 
@@ -468,8 +511,8 @@ void Editor::draw_recipe_notice() {
     if (list.empty() || joined == pb.offeredStale) return;
     ImGuiViewport* vp = ImGui::GetMainViewport();
     const float lift = disk_update_due() ? 84.0f : 34.0f;
-    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - lift), ImGuiCond_Always,
-                            ImVec2(0.5f, 1.0f));
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x * 0.5f, vp->WorkPos.y + vp->WorkSize.y - lift),
+                            ImGuiCond_Always, ImVec2(0.5f, 1.0f));
     ImGui::SetNextWindowBgAlpha(0.96f);
     ImGui::PushStyleColor(ImGuiCol_Border, ImVec4(0.86f, 0.51f, 0.08f, 1));
     ImGui::PushStyleVar(ImGuiStyleVar_WindowBorderSize, 1.0f);
@@ -478,14 +521,15 @@ void Editor::draw_recipe_notice() {
                  ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings |
                      ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoDocking);
     ImGui::PushTextWrapPos(560);
-    ImGui::Text("%zu asset%s out of date: a source they were made from changed (%s%s).", list.size(), list.size() == 1 ? " is" : "s are",
-                list.front().c_str(), list.size() > 1 ? ", ..." : "");
+    ImGui::Text("%zu asset%s out of date: a source they were made from changed (%s%s).", list.size(),
+                list.size() == 1 ? " is" : "s are", list.front().c_str(), list.size() > 1 ? ", ..." : "");
     ImGui::PopTextWrapPos();
     at_track("recipe:notice");
     if (ImGui::Button("Regenerate", ImVec2(110, 0))) regenerate_assets(Json::object({{"stale", true}}));
     at_track("recipe:regenerate");
     ImGui::SameLine();
-    if (ImGui::Button("Not now", ImVec2(110, 0))) pb.offeredStale = joined;  // quiet until the list of stale assets changes
+    if (ImGui::Button("Not now", ImVec2(110, 0)))
+        pb.offeredStale = joined;  // quiet until the list of stale assets changes
     at_track("recipe:notnow");
     ImGui::End();
     ImGui::PopStyleVar(2);

@@ -33,7 +33,10 @@ void Image::set_pixel(int x, int y, Color c) {
     if (x < 0 || y < 0 || x >= width || y >= height) return;
     std::uint8_t* p = &rgba[(std::size_t(y) * width + x) * 4];
     auto q = [](float v) { return std::uint8_t(saturate(v) * 255.0f + 0.5f); };
-    p[0] = q(c.r); p[1] = q(c.g); p[2] = q(c.b); p[3] = q(c.a);
+    p[0] = q(c.r);
+    p[1] = q(c.g);
+    p[2] = q(c.b);
+    p[3] = q(c.a);
 }
 
 void Image::flip_vertical() {
@@ -57,7 +60,8 @@ Result<Image> decode_image(const std::uint8_t* data, std::size_t size) {
         std::uint64_t(std::abs(std::int64_t(hw))) * std::uint64_t(std::abs(std::int64_t(hh))) > kMaxImagePixels)
         return make_error(std::format("Cannot decode image: it is {} x {} pixels, more than the {} million pixels "
                                       "the engine reads",
-                                      std::abs(std::int64_t(hw)), std::abs(std::int64_t(hh)), kMaxImagePixels / 1000000),
+                                      std::abs(std::int64_t(hw)), std::abs(std::int64_t(hh)),
+                                      kMaxImagePixels / 1000000),
                           "Scale the image down in your image editor (no GPU samples a texture this large) or cut it "
                           "into several images.");
     int w = 0, h = 0, comp = 0;
@@ -65,12 +69,14 @@ Result<Image> decode_image(const std::uint8_t* data, std::size_t size) {
     if (!px) {
         const char* why = stbi_failure_reason();
         return make_error(std::string("Cannot decode image: ") + (why ? why : "unknown format"),
-                          "Supported formats: PNG, JPG, TGA, BMP (also GIF/PSD first frame). Re-export the file from your image editor.");
+                          "Supported formats: PNG, JPG, TGA, BMP (also GIF/PSD first frame). Re-export the file from "
+                          "your image editor.");
     }
     if (w <= 0 || h <= 0) {  // a BMP header may say "8 x 0", and stb_image answers with an empty picture
         stbi_image_free(px);
         return make_error(std::format("Cannot decode image: it is {} x {} pixels, a picture needs at least one in each "
-                                      "direction", w, h),
+                                      "direction",
+                                      w, h),
                           "The file is damaged. Re-export it from your image editor.");
     }
     Image img;
@@ -92,8 +98,8 @@ Result<Image> load_image(std::string_view path) {
 std::vector<Image> mip_chain(Image base) {
     constexpr int kMaxMipLevels = 16;
     std::vector<Image> chain;
-    const bool whole = base.width > 0 && base.height > 0 &&
-                       base.rgba.size() >= std::size_t(base.width) * std::size_t(base.height) * 4;
+    const bool whole =
+        base.width > 0 && base.height > 0 && base.rgba.size() >= std::size_t(base.width) * std::size_t(base.height) * 4;
     chain.push_back(std::move(base));
     while (whole && (chain.back().width > 1 || chain.back().height > 1) && int(chain.size()) < kMaxMipLevels) {
         const Image& prev = chain.back();
@@ -107,8 +113,9 @@ std::vector<Image> mip_chain(Image base) {
                 const int x0 = std::min(x * 2, w - 1), x1 = std::min(x * 2 + 1, w - 1);
                 const int y0 = std::min(y * 2, h - 1), y1 = std::min(y * 2 + 1, h - 1);
                 for (int c = 0; c < 4; ++c) {
-                    const int sum = prev.rgba[(std::size_t(y0) * w + x0) * 4 + c] + prev.rgba[(std::size_t(y0) * w + x1) * 4 + c] +
-                                    prev.rgba[(std::size_t(y1) * w + x0) * 4 + c] + prev.rgba[(std::size_t(y1) * w + x1) * 4 + c];
+                    const int sum =
+                        prev.rgba[(std::size_t(y0) * w + x0) * 4 + c] + prev.rgba[(std::size_t(y0) * w + x1) * 4 + c] +
+                        prev.rgba[(std::size_t(y1) * w + x0) * 4 + c] + prev.rgba[(std::size_t(y1) * w + x1) * 4 + c];
                     next.rgba[(std::size_t(y) * next.width + x) * 4 + c] = std::uint8_t((sum + 2) / 4);
                 }
             }
@@ -122,12 +129,15 @@ Result<ImageSize> ktx2_size(const std::uint8_t* data, std::size_t size) {
     // KTX2 header: the 12-byte identifier, then vkFormat, typeSize, pixelWidth, pixelHeight (little-endian u32).
     static const std::uint8_t magic[12] = {0xAB, 'K', 'T', 'X', ' ', '2', '0', 0xBB, 0x0D, 0x0A, 0x1A, 0x0A};
     if (size < 28 || std::memcmp(data, magic, sizeof(magic)) != 0)
-        return make_error("Not a KTX2 file", "A .ktx2 twin is written by `factoria export`; delete it and export again.");
+        return make_error("Not a KTX2 file",
+                          "A .ktx2 twin is written by `factoria export`; delete it and export again.");
     auto u32 = [&](std::size_t at) {
-        return std::uint32_t(data[at]) | std::uint32_t(data[at + 1]) << 8 | std::uint32_t(data[at + 2]) << 16 | std::uint32_t(data[at + 3]) << 24;
+        return std::uint32_t(data[at]) | std::uint32_t(data[at + 1]) << 8 | std::uint32_t(data[at + 2]) << 16 |
+               std::uint32_t(data[at + 3]) << 24;
     };
     const std::uint32_t w = u32(20), h = u32(24);
-    if (w == 0 || h == 0 || w > 16384 || h > 16384) return make_error("The KTX2 file has an invalid size", "Export the texture again.");
+    if (w == 0 || h == 0 || w > 16384 || h > 16384)
+        return make_error("The KTX2 file has an invalid size", "Export the texture again.");
     return ImageSize{int(w), int(h)};
 }
 
@@ -136,7 +146,8 @@ Result<ImageSize> image_size(const std::uint8_t* data, std::size_t size) {
     const bool readable = data && size != 0 && size <= std::size_t(std::numeric_limits<int>::max()) &&
                           stbi_info_from_memory(data, int(size), &w, &h, &comp) && w > 0 && h > 0;
     if (!readable)
-        return make_error("cannot read the image size", "Supported formats: PNG, JPG, TGA, BMP. Re-export the file from your image editor.");
+        return make_error("cannot read the image size",
+                          "Supported formats: PNG, JPG, TGA, BMP. Re-export the file from your image editor.");
     return ImageSize{w, h};
 }
 
@@ -152,7 +163,8 @@ Result<ImageSize> texture_size(std::string_view path) {
         return size;
     };
     if (fs::exists(key)) return of_file(key);
-    if (const assets::PackedTexture packed = assets::packed_texture(key); !packed.atlas.empty()) return ImageSize{packed.w, packed.h};
+    if (const assets::PackedTexture packed = assets::packed_texture(key); !packed.atlas.empty())
+        return ImageSize{packed.w, packed.h};
     const std::string twin = key + kTextureTwinExtension;
     if (fs::exists(twin)) return of_file(twin);
     return make_error("file not found: " + key);
@@ -196,7 +208,8 @@ std::vector<std::uint8_t> encode_jpeg(const Image& img, int quality) {
         const auto* p = static_cast<const std::uint8_t*>(data);
         v->insert(v->end(), p, p + size);
     };
-    stbi_write_jpg_to_func(write, &out, img.width, img.height, 4, img.rgba.data(), std::clamp(quality, 1, 100));  // alpha ignored
+    stbi_write_jpg_to_func(write, &out, img.width, img.height, 4, img.rgba.data(),
+                           std::clamp(quality, 1, 100));  // alpha ignored
     return out;
 }
 
@@ -297,7 +310,8 @@ Image resize_image(const Image& src, int width, int height) {
             if (a <= 0.0f) continue;  // fully transparent: black (0, 0, 0, 0)
             const float inv = 255.0f / a;
             for (int c = 0; c < 3; ++c)
-                dst[x * 4 + c] = std::uint8_t(std::clamp(acc[std::size_t(x) * 4 + std::size_t(c)] * inv, 0.0f, 255.0f) + 0.5f);
+                dst[x * 4 + c] =
+                    std::uint8_t(std::clamp(acc[std::size_t(x) * 4 + std::size_t(c)] * inv, 0.0f, 255.0f) + 0.5f);
             dst[x * 4 + 3] = std::uint8_t(a + 0.5f);
         }
     }
@@ -319,7 +333,8 @@ Image cover_image(const Image& src, int width, int height) {
     part.height = cropH;
     part.rgba.resize(std::size_t(cropW) * cropH * 4);
     for (int y = 0; y < cropH; ++y)
-        std::copy_n(&src.rgba[(std::size_t(y0 + y) * src.width + x0) * 4], std::size_t(cropW) * 4, &part.rgba[std::size_t(y) * cropW * 4]);
+        std::copy_n(&src.rgba[(std::size_t(y0 + y) * src.width + x0) * 4], std::size_t(cropW) * 4,
+                    &part.rgba[std::size_t(y) * cropW * 4]);
     return resize_image(part, width, height);
 }
 
@@ -407,25 +422,27 @@ float linear_to_srgb(float v) {
 
 // Machado, Oliveira, Fernandes 2009, "A Physiologically-based Model for Simulation of Color Vision Deficiency", severity
 // 1.0 (the cone is missing), rows of the 3x3 matrix applied to linear RGB. The shader (colorfilter.glsl) uses the same numbers.
-constexpr float kProtanopia[9] = {0.152286f, 1.052583f, -0.204868f, 0.114503f, 0.786281f, 0.099216f, -0.003882f, -0.048116f, 1.051998f};
-constexpr float kDeuteranopia[9] = {0.367322f, 0.860646f, -0.227968f, 0.280085f, 0.672501f, 0.047413f, -0.011820f, 0.042940f, 0.968881f};
-constexpr float kTritanopia[9] = {1.255528f, -0.076749f, -0.178779f, -0.078411f, 0.930809f, 0.147602f, 0.004733f, 0.691367f, 0.303900f};
+constexpr float kProtanopia[9] = {0.152286f, 1.052583f,  -0.204868f, 0.114503f, 0.786281f,
+                                  0.099216f, -0.003882f, -0.048116f, 1.051998f};
+constexpr float kDeuteranopia[9] = {0.367322f, 0.860646f,  -0.227968f, 0.280085f, 0.672501f,
+                                    0.047413f, -0.011820f, 0.042940f,  0.968881f};
+constexpr float kTritanopia[9] = {1.255528f, -0.076749f, -0.178779f, -0.078411f, 0.930809f,
+                                  0.147602f, 0.004733f,  0.691367f,  0.303900f};
 
 }  // namespace
 
 Result<ColorSimulation> parse_color_simulation(std::string_view name) {
     static const std::pair<const char*, ColorSimulation> kModes[] = {{"none", ColorSimulation::None},
-                                                                      {"greyscale", ColorSimulation::Greyscale},
-                                                                      {"protanopia", ColorSimulation::Protanopia},
-                                                                      {"deuteranopia", ColorSimulation::Deuteranopia},
-                                                                      {"tritanopia", ColorSimulation::Tritanopia}};
+                                                                     {"greyscale", ColorSimulation::Greyscale},
+                                                                     {"protanopia", ColorSimulation::Protanopia},
+                                                                     {"deuteranopia", ColorSimulation::Deuteranopia},
+                                                                     {"tritanopia", ColorSimulation::Tritanopia}};
     std::vector<std::string> names;
     for (const auto& [n, m] : kModes) {
         if (name == n) return m;
         names.push_back(n);
     }
-    return make_error("Unknown colour simulation '" + std::string(name) + "'.",
-                      did_you_mean(name, names));
+    return make_error("Unknown colour simulation '" + std::string(name) + "'.", did_you_mean(name, names));
 }
 
 Color simulate_color_vision(Color c, ColorSimulation mode) {
@@ -435,7 +452,9 @@ Color simulate_color_vision(Color c, ColorSimulation mode) {
     if (mode == ColorSimulation::Greyscale) {
         o[0] = o[1] = o[2] = 0.2126f * r + 0.7152f * g + 0.0722f * b;
     } else {
-        const float* m = mode == ColorSimulation::Protanopia ? kProtanopia : mode == ColorSimulation::Deuteranopia ? kDeuteranopia : kTritanopia;
+        const float* m = mode == ColorSimulation::Protanopia     ? kProtanopia
+                         : mode == ColorSimulation::Deuteranopia ? kDeuteranopia
+                                                                 : kTritanopia;
         for (int i = 0; i < 3; ++i) o[i] = m[i * 3] * r + m[i * 3 + 1] * g + m[i * 3 + 2] * b;
     }
     return Color{linear_to_srgb(o[0]), linear_to_srgb(o[1]), linear_to_srgb(o[2]), c.a};
@@ -472,8 +491,9 @@ std::string zlib_compress(std::string_view data) {
 
 Result<std::string> zlib_decompress(std::string_view stream, std::size_t expectedSize) {
     int outLen = 0;
-    char* p = stbi_zlib_decode_malloc_guesssize_headerflag(stream.data(), static_cast<int>(stream.size()),
-                                                           static_cast<int>(expectedSize > 0 ? expectedSize : stream.size() * 4 + 64), &outLen, 1);
+    char* p = stbi_zlib_decode_malloc_guesssize_headerflag(
+        stream.data(), static_cast<int>(stream.size()),
+        static_cast<int>(expectedSize > 0 ? expectedSize : stream.size() * 4 + 64), &outLen, 1);
     if (!p) return Error{"the compressed data is damaged or cut short", "Write the value again with storage.set."};
     std::string out(p, static_cast<std::size_t>(outLen));
     STBI_FREE(p);

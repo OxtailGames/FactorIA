@@ -22,8 +22,12 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-std::string code_of(const CommandResult& r) { return r.error.is_object() ? r.error.value("code", std::string()) : std::string(); }
-std::string message_of(const CommandResult& r) { return r.error.is_object() ? r.error.value("message", std::string()) : std::string(); }
+std::string code_of(const CommandResult& r) {
+    return r.error.is_object() ? r.error.value("code", std::string()) : std::string();
+}
+std::string message_of(const CommandResult& r) {
+    return r.error.is_object() ? r.error.value("message", std::string()) : std::string();
+}
 
 bool make_dir_link(const stdfs::path& link, const stdfs::path& target) {
     std::error_code ec;
@@ -35,7 +39,8 @@ const char* kDoor = R"({"format": "factoria.audio/1", "doc": "test door", "sourc
     {"type": "trim", "start": 0.2, "end": 0.8}, {"type": "normalize", "target": -6}]})";
 const char* kCrate = R"({"format":"factoria.model/1","nodes":[
     {"op":"rounded_box","size":[1,1,1],"radius":0.05,"position":[0,0.5,0],"part":"body"}]})";
-const char* kSvg = R"(<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#c03030"/></svg>)";
+const char* kSvg =
+    R"(<svg xmlns="http://www.w3.org/2000/svg" width="8" height="8"><rect width="8" height="8" fill="#c03030"/></svg>)";
 
 // A project with the inputs the commands below read, and a `.git` folder so a write into it can be seen.
 struct Fixture : AssetsProject {
@@ -63,14 +68,21 @@ struct Writer {
 
 const std::vector<Writer>& caller_path_writers() {
     static const std::vector<Writer> list = {
-        {"model.preview", "out", [](const std::string& p) { return Json{{"path", "assets/models/crate.model.json"}, {"out", p}}; }},
-        {"audio.render", "pictureOut", [](const std::string& p) { return Json{{"path", "assets/audio/door.audio.json"}, {"pictureOut", p}}; }},
-        {"assets.spectrogram", "out", [](const std::string& p) { return Json{{"path", "assets/tone.wav"}, {"out", p}}; }},
-        {"assets.contact_sheet", "path", [](const std::string& p) { return Json{{"paths", Json::array({"assets/a.png"})}, {"path", p}}; }},
-        {"music.info", "pictureOut", [](const std::string& p) { return Json{{"path", "assets/music/t.song.json"}, {"pictureOut", p}}; }},
+        {"model.preview", "out",
+         [](const std::string& p) { return Json{{"path", "assets/models/crate.model.json"}, {"out", p}}; }},
+        {"audio.render", "pictureOut",
+         [](const std::string& p) { return Json{{"path", "assets/audio/door.audio.json"}, {"pictureOut", p}}; }},
+        {"assets.spectrogram", "out",
+         [](const std::string& p) { return Json{{"path", "assets/tone.wav"}, {"out", p}}; }},
+        {"assets.contact_sheet", "path",
+         [](const std::string& p) { return Json{{"paths", Json::array({"assets/a.png"})}, {"path", p}}; }},
+        {"music.info", "pictureOut",
+         [](const std::string& p) { return Json{{"path", "assets/music/t.song.json"}, {"pictureOut", p}}; }},
         // Both judge `out` before they open the clip or the rig, so the files need not exist.
-        {"anim3d.preview", "out", [](const std::string& p) { return Json{{"path", "assets/anim/walk.anim.json"}, {"out", p}}; }},
-        {"skin3d.preview", "out", [](const std::string& p) { return Json{{"path", "assets/models/hero.rig.json"}, {"out", p}}; }},
+        {"anim3d.preview", "out",
+         [](const std::string& p) { return Json{{"path", "assets/anim/walk.anim.json"}, {"out", p}}; }},
+        {"skin3d.preview", "out",
+         [](const std::string& p) { return Json{{"path", "assets/models/hero.rig.json"}, {"out", p}}; }},
     };
     return list;
 }
@@ -78,23 +90,36 @@ const std::vector<Writer>& caller_path_writers() {
 // The writers that make a project file at `path`; `path` is judged before anything is made.
 const std::vector<Writer>& project_writers() {
     static const std::vector<Writer> list = {
-        {"audio.create", "path", [](const std::string& p) { return Json{{"path", p}, {"source", "assets/raw/door.wav"}}; }},
+        {"audio.create", "path",
+         [](const std::string& p) { return Json{{"path", p}, {"source", "assets/raw/door.wav"}}; }},
         {"anim3d.create", "path", [](const std::string& p) { return Json{{"path", p}}; }},
-        {"model.create", "path", [](const std::string& p) { return Json{{"path", p}, {"nodes", Json::array({{{"op", "box"}, {"size", {1, 1, 1}}}})}}; }},
-        {"rig.create", "path", [](const std::string& p) { return Json{{"path", p}, {"model", "assets/models/crate.model.json"}, {"template", "humanoid"}}; }},
-        {"assets.generate_texture", "path", [](const std::string& p) { return Json{{"path", p}, {"preset", "paper"}, {"width", 16}, {"height", 16}}; }},
+        {"model.create", "path",
+         [](const std::string& p) {
+             return Json{{"path", p}, {"nodes", Json::array({{{"op", "box"}, {"size", {1, 1, 1}}}})}};
+         }},
+        {"rig.create", "path",
+         [](const std::string& p) {
+             return Json{{"path", p}, {"model", "assets/models/crate.model.json"}, {"template", "humanoid"}};
+         }},
+        {"assets.generate_texture", "path",
+         [](const std::string& p) { return Json{{"path", p}, {"preset", "paper"}, {"width", 16}, {"height", 16}}; }},
         {"vfx.create", "path", [](const std::string& p) { return Json{{"path", p}}; }},
-        {"assets.slice_sheet", "out", [](const std::string& p) { return Json{{"path", "assets/walk.png"}, {"columns", 4}, {"rows", 2}, {"out", p}}; }},
+        {"assets.slice_sheet", "out",
+         [](const std::string& p) {
+             return Json{{"path", "assets/walk.png"}, {"columns", 4}, {"rows", 2}, {"out", p}};
+         }},
         {"assets.synth_sound", "path", [](const std::string& p) { return Json{{"path", p}, {"preset", "bark"}}; }},
         {"assets.rasterize_svg", "path", [](const std::string& p) { return Json{{"path", p}, {"svg", kSvg}}; }},
-        {"music.create", "path", [](const std::string& p) { return Json{{"path", p}, {"picture", false}, {"arpeggio", false}}; }},
+        {"music.create", "path",
+         [](const std::string& p) { return Json{{"path", p}, {"picture", false}, {"arpeggio", false}}; }},
     };
     return list;
 }
 
 }  // namespace
 
-TEST_CASE("a picture kept at a caller's path: MCP stays inside the project, .git is closed to everyone, the user may name any folder") {
+TEST_CASE("a picture kept at a caller's path: MCP stays inside the project, .git is closed to everyone, the user may "
+          "name any folder") {
     Fixture p;
     for (const Writer& w : caller_path_writers()) {
         CAPTURE(w.command);
@@ -106,9 +131,9 @@ TEST_CASE("a picture kept at a caller's path: MCP stays inside the project, .git
         }
         CommandCapabilityScope mcp(capability_sets::mcp());
         const std::pair<std::string, std::string> bad[] = {{"../out.png", "path_outside_root"},
-                                                          {p.outside_file(), "absolute_path_denied"},
-                                                          {".git/out.png", "managed_path_denied"},
-                                                          {".factoria/state/out.png", "managed_path_denied"}};
+                                                           {p.outside_file(), "absolute_path_denied"},
+                                                           {".git/out.png", "managed_path_denied"},
+                                                           {".factoria/state/out.png", "managed_path_denied"}};
         for (const auto& entry : bad) {
             const std::string& path = entry.first;
             const std::string& code = entry.second;
@@ -145,7 +170,9 @@ TEST_CASE("a picture kept at a caller's path: the command-line user can still wr
 
 TEST_CASE("a pictureOut with the picture switched off is refused with a hint, not ignored") {
     Fixture p;
-    CommandResult r = p.call("audio.render", Json{{"path", "assets/audio/door.audio.json"}, {"picture", false}, {"pictureOut", "assets/kept.png"}});
+    CommandResult r =
+        p.call("audio.render",
+               Json{{"path", "assets/audio/door.audio.json"}, {"picture", false}, {"pictureOut", "assets/kept.png"}});
     REQUIRE_FALSE(r.ok);
     CHECK(code_of(r) == "invalid_argument");
     CHECK(message_of(r).find("pictureOut") != std::string::npos);
@@ -153,7 +180,8 @@ TEST_CASE("a pictureOut with the picture switched off is refused with a hint, no
     CHECK_FALSE(r.error.value("hint", std::string()).empty());
     CHECK_FALSE(p.exists("assets/kept.png"));
     // The contradiction is judged before the song is opened.
-    r = p.call("music.info", Json{{"path", "assets/music/t.song.json"}, {"picture", false}, {"pictureOut", "assets/kept.png"}});
+    r = p.call("music.info",
+               Json{{"path", "assets/music/t.song.json"}, {"picture", false}, {"pictureOut", "assets/kept.png"}});
     REQUIRE_FALSE(r.ok);
     CHECK(code_of(r) == "invalid_argument");
     CHECK(message_of(r).find("pictureOut") != std::string::npos);
@@ -162,10 +190,12 @@ TEST_CASE("a pictureOut with the picture switched off is refused with a hint, no
     CHECK_MESSAGE(r.ok, r.error.dump());
 }
 
-TEST_CASE("the previews that keep a picture only at a caller's path are not read-only; {read,state} may look but not keep") {
+TEST_CASE(
+    "the previews that keep a picture only at a caller's path are not read-only; {read,state} may look but not keep") {
     Fixture p;
-    for (const char* name : {"model.preview", "audio.render", "assets.spectrogram", "assets.contact_sheet", "assets.preview_sheet",
-                             "assets.preview_in_scene", "music.info", "anim3d.preview", "skin3d.preview", "assets.check_art", "model.bake_maps"}) {
+    for (const char* name : {"model.preview", "audio.render", "assets.spectrogram", "assets.contact_sheet",
+                             "assets.preview_sheet", "assets.preview_in_scene", "music.info", "anim3d.preview",
+                             "skin3d.preview", "assets.check_art", "model.bake_maps"}) {
         CAPTURE(name);
         const CommandInfo* info = p.registry.info(name);
         REQUIRE(info != nullptr);
@@ -197,7 +227,8 @@ TEST_CASE("the previews that keep a picture only at a caller's path are not read
     CHECK_FALSE(p.exists("assets/kept.png"));
 }
 
-TEST_CASE("the commands that make project files: MCP stays inside the project and no caller reaches .git, before anything is made") {
+TEST_CASE("the commands that make project files: MCP stays inside the project and no caller reaches .git, before "
+          "anything is made") {
     Fixture p;
     for (const Writer& w : project_writers()) {
         CAPTURE(w.command);
@@ -206,7 +237,8 @@ TEST_CASE("the commands that make project files: MCP stays inside the project an
             REQUIRE_FALSE(r.ok);
         }
         CommandCapabilityScope mcp(capability_sets::mcp());
-        for (const std::string& path : {std::string("../out.png"), p.outside_file(), std::string(".git/out.png"), std::string(".factoria/state/out.png")}) {
+        for (const std::string& path : {std::string("../out.png"), p.outside_file(), std::string(".git/out.png"),
+                                        std::string(".factoria/state/out.png")}) {
             CAPTURE(path);
             CommandResult r = p.call(w.command, w.args(path));
             REQUIRE_FALSE(r.ok);
@@ -226,11 +258,11 @@ TEST_CASE("the commands that make project files refuse a link into .git") {
         return;
     }
     const std::vector<std::pair<Writer, std::string>> through = {
-        {project_writers()[0], "assets/meta/d.audio.json"},      {project_writers()[1], "assets/meta/a.anim.json"},
-        {project_writers()[2], "assets/meta/c.model.json"},      {project_writers()[3], "assets/meta/h.rig.json"},
-        {project_writers()[4], "assets/meta/t.png"},             {project_writers()[5], "assets/meta/h.vfx.json"},
-        {project_writers()[6], "assets/meta/s.png"},             {project_writers()[7], "assets/meta/b.wav"},
-        {project_writers()[8], "assets/meta/c.png"},             {project_writers()[9], "assets/meta/t.song.json"},
+        {project_writers()[0], "assets/meta/d.audio.json"}, {project_writers()[1], "assets/meta/a.anim.json"},
+        {project_writers()[2], "assets/meta/c.model.json"}, {project_writers()[3], "assets/meta/h.rig.json"},
+        {project_writers()[4], "assets/meta/t.png"},        {project_writers()[5], "assets/meta/h.vfx.json"},
+        {project_writers()[6], "assets/meta/s.png"},        {project_writers()[7], "assets/meta/b.wav"},
+        {project_writers()[8], "assets/meta/c.png"},        {project_writers()[9], "assets/meta/t.song.json"},
     };
     for (const bool mcp : {false, true}) {
         std::optional<CommandCapabilityScope> scope;
@@ -257,7 +289,8 @@ TEST_CASE("the commands that make project files refuse a link into .git") {
     CHECK(p.git_untouched());
 }
 
-TEST_CASE("the commands that make project files need writeProject: {read,state} is refused before the arguments are looked at") {
+TEST_CASE("the commands that make project files need writeProject: {read,state} is refused before the arguments are "
+          "looked at") {
     Fixture p;
     CommandCapabilityScope readOnly(capability_sets::mcp_read_only());
     for (const Writer& w : project_writers()) {
@@ -266,11 +299,36 @@ TEST_CASE("the commands that make project files need writeProject: {read,state} 
         REQUIRE_FALSE(r.ok);
         CHECK_MESSAGE(code_of(r) == "capability_denied", r.error.dump());
     }
-    for (const char* name : {"audio.bake", "audio.edit", "model.bake", "model.edit", "model.texture", "model.uv", "rig.fit", "rig.bake", "skin3d.auto",
-                             "anim3d.set_keys", "anim3d.generate", "vfx.edit", "music.edit", "music.render", "music.import_midi", "music.export_midi",
-                             "sfx.render", "sfx.preset", "assets.pack_atlas", "assets.draw_icon", "assets.draw_capsules", "assets.import",
-                             "assets.bake_sheet", "assets.regenerate", "assets.analyze_audio", "assets.subset_font", "assets.generate_loop",
-                             "assets.convert_audio", "assets.animate_svg", "model.import_clean"}) {
+    for (const char* name : {"audio.bake",
+                             "audio.edit",
+                             "model.bake",
+                             "model.edit",
+                             "model.texture",
+                             "model.uv",
+                             "rig.fit",
+                             "rig.bake",
+                             "skin3d.auto",
+                             "anim3d.set_keys",
+                             "anim3d.generate",
+                             "vfx.edit",
+                             "music.edit",
+                             "music.render",
+                             "music.import_midi",
+                             "music.export_midi",
+                             "sfx.render",
+                             "sfx.preset",
+                             "assets.pack_atlas",
+                             "assets.draw_icon",
+                             "assets.draw_capsules",
+                             "assets.import",
+                             "assets.bake_sheet",
+                             "assets.regenerate",
+                             "assets.analyze_audio",
+                             "assets.subset_font",
+                             "assets.generate_loop",
+                             "assets.convert_audio",
+                             "assets.animate_svg",
+                             "model.import_clean"}) {
         CAPTURE(name);
         const CommandInfo* info = p.registry.info(name);
         REQUIRE(info != nullptr);

@@ -175,7 +175,8 @@ void Mixer::swap_table(Cmd& cmd) {
     }
     for (std::size_t i = 0; i < voiceCount; ++i) {
         MixVoice& v = voices[i];
-        const int to = v.bus >= 0 && std::size_t(v.bus) < nt.voiceRemap.size() ? nt.voiceRemap[std::size_t(v.bus)] : BusSfx;
+        const int to =
+            v.bus >= 0 && std::size_t(v.bus) < nt.voiceRemap.size() ? nt.voiceRemap[std::size_t(v.bus)] : BusSfx;
         v.bus = to >= 0 && std::size_t(to) < nt.bus.size() && to != kMasterBus ? to : int(BusSfx);
     }
     for (std::size_t i = 0; i < playerCount; ++i) {
@@ -250,7 +251,8 @@ void Mixer::set_reverb(BusRuntime& fx, float mix, float fadeSeconds, std::unique
         }
         return;
     }
-    if (!fx.rv) fx.rv = std::move(spare);  // the game side sent one along the first time (a move: nothing allocated here)
+    if (!fx.rv)
+        fx.rv = std::move(spare);  // the game side sent one along the first time (a move: nothing allocated here)
     if (!fx.rvOn) {
         fx.rvOn = true;
         if (fx.rv) fx.rv->clear();
@@ -268,7 +270,9 @@ void Mixer::set_duck(BusRuntime& fx, int by, float amount, float attack, float r
         return;  // the gain and the detector keep where they are; nothing reads them while the bus does not duck
     }
     fx.duckAmount = amount;
-    const auto coef = [&](float seconds) { return seconds <= 0.0f ? 0.0f : std::exp(-1.0f / (seconds * float(deviceRate_))); };
+    const auto coef = [&](float seconds) {
+        return seconds <= 0.0f ? 0.0f : std::exp(-1.0f / (seconds * float(deviceRate_)));
+    };
     fx.duckAttack = coef(attack);
     fx.duckRelease = coef(release);
 }
@@ -342,7 +346,8 @@ void Mixer::render(float* out, int frames, int channels) {
                     dst[f] = 0.5f * (tmp_[std::size_t(2 * f)] + tmp_[std::size_t(2 * f + 1)]);
                 } else {
                     for (int c = 0; c < channels; ++c)
-                        dst[std::size_t(f) * std::size_t(channels) + std::size_t(c)] = c < 2 ? tmp_[std::size_t(2 * f + c)] : 0.0f;
+                        dst[std::size_t(f) * std::size_t(channels) + std::size_t(c)] =
+                            c < 2 ? tmp_[std::size_t(2 * f + c)] : 0.0f;
                 }
             }
         }
@@ -379,7 +384,8 @@ static inline bool step_fade(MixVoice& v) {
 void Mixer::mix_pcm(MixVoice& v, float* out, int frames) {
     PcmRing& p = *v.pcm;
     const std::uint64_t skip = p.skip();
-    if (v.pos < double(skip)) v.pos = double(skip);  // the game dropped what was before (clear_pcm, or over two seconds)
+    if (v.pos < double(skip))
+        v.pos = double(skip);  // the game dropped what was before (clear_pcm, or over two seconds)
     const std::uint64_t written = p.written();
     const double step = double(p.rate()) / double(deviceRate_);
     const float theta = (v.pan + 1.0f) * (kPi * 0.25f);
@@ -494,8 +500,10 @@ void Mixer::mix_voices(int frames) {
             std::size_t i0 = std::size_t(v.pos);
             if (i0 >= c.frames) i0 = c.frames - 1;
             std::size_t i1 = i0 + 1;
-            if (v.loop && i1 >= std::size_t(loopEnd)) i1 = c.loopStart;
-            else if (i1 >= c.frames) i1 = i0;
+            if (v.loop && i1 >= std::size_t(loopEnd))
+                i1 = c.loopStart;
+            else if (i1 >= c.frames)
+                i1 = i0;
             const float tt = float(v.pos - double(i0));
             const float l = d[2 * i0] + (d[2 * i1] - d[2 * i0]) * tt;
             const float r = d[2 * i0 + 1] + (d[2 * i1 + 1] - d[2 * i0 + 1]) * tt;
@@ -522,8 +530,10 @@ bool Mixer::run_effects(BusRuntime& fx, float* buf, int frames, bool used) {
             fx.lp.set_cutoff(std::exp2(fx.lpLog.cur), float(deviceRate_));
             fx.lpDirty = false;
         }
-        if (used) fx.lp.process(buf, frames);
-        else fx.lp.clear();
+        if (used)
+            fx.lp.process(buf, frames);
+        else
+            fx.lp.clear();
         if (!fx.lpLog.moving() && fx.lpOffAtEnd) {
             fx.lpOn = false;
             fx.lpOffAtEnd = false;
@@ -608,7 +618,8 @@ void Mixer::mix_block(float* out, int frames) {
             float* const dst = t.busBuf[std::size_t(ch.bus)].data();
             const bool was = ch.tr.active();
             ch.tr.set_rate_ratio(rateRatio);
-            ch.tr.set_sync_decode(syncFill_);  // streamed stems: decode a missing chunk here on the null device, play silence on a sound device
+            ch.tr.set_sync_decode(
+                syncFill_);  // streamed stems: decode a missing chunk here on the null device, play silence on a sound device
             ch.tr.mix(dst, frames);
             if (was || ch.tr.active()) t.used[std::size_t(ch.bus)] = 1;
         }
@@ -633,8 +644,9 @@ void Mixer::mix_block(float* out, int frames) {
             for (std::size_t k = from; k < to; ++k) {
                 const std::size_t b = std::size_t(t.mixOrder[k]);
                 const BusRuntime& fx = t.bus[b].rt;
-                t.ducking[b] = fx.duckBy >= 0 && (t.live[b] || t.live[std::size_t(fx.duckBy)] || t.used[std::size_t(fx.duckBy)] ||
-                                                  fx.duckGain != 1.0f || fx.duckEnv != 0.0f);
+                t.ducking[b] =
+                    fx.duckBy >= 0 && (t.live[b] || t.live[std::size_t(fx.duckBy)] || t.used[std::size_t(fx.duckBy)] ||
+                                       fx.duckGain != 1.0f || fx.duckEnv != 0.0f);
                 if (t.ducking[b]) compute_duck(int(b), frames);
             }
             for (std::size_t k = from; k < to; ++k) {
@@ -652,8 +664,10 @@ void Mixer::mix_block(float* out, int frames) {
                     float* dst = parent == kMasterBus ? out : t.busBuf[std::size_t(parent)].data();
                     const float* buf = t.busBuf[b].data();
                     for (std::size_t i = 0; i < n; ++i) dst[i] += buf[i];
-                    if (parent == kMasterBus) anyLive = true;
-                    else t.used[std::size_t(parent)] = 1;
+                    if (parent == kMasterBus)
+                        anyLive = true;
+                    else
+                        t.used[std::size_t(parent)] = 1;
                 }
             }
             from = to;

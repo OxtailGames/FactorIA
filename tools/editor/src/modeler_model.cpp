@@ -27,14 +27,18 @@ std::optional<std::string> read_file(const stdfs::path& p) {
     return ss.str();
 }
 
-std::uint64_t mix_hash(std::uint64_t h, std::uint64_t v) { return (h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2))) * 0x100000001b3ULL; }
+std::uint64_t mix_hash(std::uint64_t h, std::uint64_t v) {
+    return (h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2))) * 0x100000001b3ULL;
+}
 
 double now_ms() {
     using clock = std::chrono::steady_clock;  // UI timing only: no simulation reads it
     return std::chrono::duration<double, std::milli>(clock::now().time_since_epoch()).count();
 }
 
-bool ends_with_(const std::string& s, const std::string& suffix) { return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0; }
+bool ends_with_(const std::string& s, const std::string& suffix) {
+    return s.size() >= suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
 
 // The node at "/nodes/0/children/1" in the document's JSON (nullptr when the path leads nowhere).
 const Json* walk(const Json& root, const std::string& pointer) {
@@ -79,7 +83,8 @@ void collect_rows(const std::vector<ModelNode>& nodes, int depth, const Json& ca
                     r.kind = o.value("kind", std::string());
                     break;
                 }
-        r.container = r.kind == "group" || r.kind == "modifier" || r.kind == "sdf" || r.kind == "sdf_group" || !n.children.empty();
+        r.container = r.kind == "group" || r.kind == "modifier" || r.kind == "sdf" || r.kind == "sdf_group" ||
+                      !n.children.empty();
         out.push_back(r);
         collect_rows(n.children, depth + 1, catalog, out);
     }
@@ -87,7 +92,8 @@ void collect_rows(const std::vector<ModelNode>& nodes, int depth, const Json& ca
 
 }  // namespace
 
-ModelerModel::ModelerModel(std::string projectDir, ModelerCommandFn call) : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
+ModelerModel::ModelerModel(std::string projectDir, ModelerCommandFn call)
+    : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
 
 ModelerModel::~ModelerModel() {
     if (running_.valid && running_.future.valid()) running_.future.wait();
@@ -181,7 +187,8 @@ bool ModelerModel::load_from_disk() {
         error_.clear();
     } else {
         error_ = d.error().message + (d.error().hint.empty() ? "" : " " + d.error().hint);
-        if (issues.size() > 1) error_ += " (" + std::to_string(issues.size()) + " problems; model.info lists them all.)";
+        if (issues.size() > 1)
+            error_ += " (" + std::to_string(issues.size()) + " problems; model.info lists them all.)";
     }
     valid_ = doc_.has_value();
     stamp_ = compute_stamp();
@@ -220,7 +227,8 @@ const Json& ModelerModel::catalog() {
         catalogLoaded_ = true;
         CommandResult r = call_("model.info", Json::object());
         if (r.ok && r.result.contains("operations")) {
-            catalog_ = Json::object({{"operations", r.result["operations"]}, {"commonFields", r.result.value("commonFields", Json::array())}});
+            catalog_ = Json::object({{"operations", r.result["operations"]},
+                                     {"commonFields", r.result.value("commonFields", Json::array())}});
         } else {
             catalog_ = Json::object({{"operations", Json::array()}, {"commonFields", Json::array()}});
         }
@@ -241,7 +249,9 @@ std::vector<Json> ModelerModel::fields_of(const std::string& op) {
         for (const Json& f : (*o)["fields"]) out.push_back(f);
     for (const Json& f : catalog()["commonFields"]) {
         const std::string key = f.value("key", std::string());
-        if (key == "position" || key == "rotation" || key == "scale" || key == "align" || key == "part" || key == "material") out.push_back(f);
+        if (key == "position" || key == "rotation" || key == "scale" || key == "align" || key == "part" ||
+            key == "material")
+            out.push_back(f);
     }
     return out;
 }
@@ -292,7 +302,8 @@ std::string ModelerModel::part_of(const std::string& pointer) const {
         const std::size_t next = pointer.find('/', i + 1);
         at = pointer.substr(0, next == std::string::npos ? pointer.size() : next);
         if (const Json* n = walk(json_, at))
-            if (n->is_object() && n->contains("op") && n->contains("part") && (*n)["part"].is_string()) best = (*n)["part"].get<std::string>();
+            if (n->is_object() && n->contains("op") && n->contains("part") && (*n)["part"].is_string())
+                best = (*n)["part"].get<std::string>();
         if (next == std::string::npos) break;
         i = next;
     }
@@ -347,7 +358,7 @@ ModelerEditOutcome ModelerModel::run(const std::string& label, const std::functi
     ModelerBlob before = read_blob(rel_);
     CommandResult r = body();
     if (!r.ok) {
-        write_blob(before);   // the command wrote nothing valid; a half-done change would not be an undo step
+        write_blob(before);  // the command wrote nothing valid; a half-done change would not be an undo step
         load_from_disk();
         return fail(out, label + ": " + command_error_text(r.error));
     }
@@ -382,7 +393,8 @@ ModelerEditOutcome ModelerModel::set_values(const std::string& pointer, const Js
     if (what.empty()) {
         what = "Edit";
         if (const Json* n = node(pointer)) {
-            what += " " + (n->contains("id") && (*n)["id"].is_string() ? (*n)["id"].get<std::string>() : n->value("op", std::string("node")));
+            what += " " + (n->contains("id") && (*n)["id"].is_string() ? (*n)["id"].get<std::string>()
+                                                                       : n->value("op", std::string("node")));
         }
         if (values.is_object() && values.size() == 1) what += " " + values.begin().key();
     }
@@ -394,7 +406,8 @@ ModelerEditOutcome ModelerModel::set_values(const std::string& pointer, const Js
     });
 }
 
-ModelerEditOutcome ModelerModel::add_node(const std::string& parent, const Json& nodeJson, int index, const std::string& label) {
+ModelerEditOutcome ModelerModel::add_node(const std::string& parent, const Json& nodeJson, int index,
+                                          const std::string& label) {
     return run(label.empty() ? "Add " + nodeJson.value("op", std::string("node")) : label, [&] {
         Json a = edit_args("add");
         a["node"] = nodeJson;
@@ -406,7 +419,9 @@ ModelerEditOutcome ModelerModel::add_node(const std::string& parent, const Json&
 
 ModelerEditOutcome ModelerModel::remove_node(const std::string& pointer) {
     std::string what = "Remove node";
-    if (const Json* n = node(pointer)) what = "Remove " + (n->contains("id") && (*n)["id"].is_string() ? (*n)["id"].get<std::string>() : n->value("op", std::string("node")));
+    if (const Json* n = node(pointer))
+        what = "Remove " + (n->contains("id") && (*n)["id"].is_string() ? (*n)["id"].get<std::string>()
+                                                                        : n->value("op", std::string("node")));
     return run(what, [&] {
         Json a = edit_args("remove");
         a["target"] = pointer;
@@ -416,7 +431,8 @@ ModelerEditOutcome ModelerModel::remove_node(const std::string& pointer) {
 
 ModelerEditOutcome ModelerModel::set_enabled(const std::string& pointer, bool enabled) {
     // enabled: true is the default, so turning it on removes the field.
-    return set_values(pointer, Json::object({{"enabled", enabled ? Json() : Json(false)}}), enabled ? "Enable node" : "Disable node");
+    return set_values(pointer, Json::object({{"enabled", enabled ? Json() : Json(false)}}),
+                      enabled ? "Enable node" : "Disable node");
 }
 
 ModelerEditOutcome ModelerModel::move_node(const std::string& pointer, const std::string& parent, int index) {
@@ -429,7 +445,8 @@ ModelerEditOutcome ModelerModel::move_node(const std::string& pointer, const std
     });
 }
 
-ModelerEditOutcome ModelerModel::set_document_field(const std::string& key, const Json& value, const std::string& label) {
+ModelerEditOutcome ModelerModel::set_document_field(const std::string& key, const Json& value,
+                                                    const std::string& label) {
     return run(label.empty() ? "Edit " + key : label, [&] {
         Json a = edit_args("document");
         a[key] = value;
@@ -445,8 +462,10 @@ void ModelerModel::set_live(const std::string& pointer, const Json& values) {
     Json* n = walk_mut(copy, pointer);
     if (!n || !n->is_object()) return;
     for (auto it = values.begin(); it != values.end(); ++it) {
-        if (it.value().is_null()) n->erase(it.key());
-        else (*n)[it.key()] = it.value();
+        if (it.value().is_null())
+            n->erase(it.key());
+        else
+            (*n)[it.key()] = it.value();
     }
     livePointer_ = pointer;
     liveJson_ = std::move(copy);
@@ -472,7 +491,8 @@ ModelerEditOutcome ModelerModel::save() {
     if (!valid_) return fail(out, "Save: the file does not load: " + error_);
     if (running_.valid) running_.future.wait();
     collect();
-    CommandResult r = call_("model.bake", Json::object({{"path", rel_}, {"overwrite", overwriteOnSave_}, {"force", true}}));
+    CommandResult r =
+        call_("model.bake", Json::object({{"path", rel_}, {"overwrite", overwriteOnSave_}, {"force", true}}));
     if (!r.ok) return fail(out, "Save: " + command_error_text(r.error));
     out.result = r.result;
     status_ = "Baked " + baked_path() + ".";
@@ -518,7 +538,8 @@ void ModelerModel::start_job() {
         if (inline_) fs::set_project_root(dir);
         auto built = evaluate_model(*doc, model_project_eval_options(dir));
         if (inline_) fs::set_project_root(saved);
-        if (!built.ok()) return {nullptr, built.error().message + (built.error().hint.empty() ? "" : " " + built.error().hint)};
+        if (!built.ok())
+            return {nullptr, built.error().message + (built.error().hint.empty() ? "" : " " + built.error().hint)};
         return {std::make_shared<const ModelBuild>(std::move(*built)), ""};
     };
     running_.future = std::async(inline_ ? std::launch::deferred : std::launch::async, std::move(work));
@@ -597,7 +618,7 @@ bool ModelerModel::apply_step(int id, bool forward) {
     if (running_.valid) running_.future.wait();
     collect();
     const std::string keep = rel_;
-    rel_ = s.rel;   // write_blob writes the file the step belongs to
+    rel_ = s.rel;  // write_blob writes the file the step belongs to
     const bool ok = write_blob(forward ? s.after : s.before);
     rel_ = keep;
     if (!ok) return false;
@@ -611,8 +632,10 @@ bool ModelerModel::apply_step(int id, bool forward) {
 
 void ModelerModel::retain_steps(const std::set<int>& keep) {
     for (auto it = steps_.begin(); it != steps_.end();) {
-        if (keep.count(it->first)) ++it;
-        else it = steps_.erase(it);
+        if (keep.count(it->first))
+            ++it;
+        else
+            it = steps_.erase(it);
     }
 }
 

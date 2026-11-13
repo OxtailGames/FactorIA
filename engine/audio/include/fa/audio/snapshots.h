@@ -17,11 +17,13 @@
 namespace fa {
 
 struct AudioIssue {
-    std::string pointer, message, hint;  // pointer is a JSON pointer into factoria.json ("/audio/snapshots/underwater/fade")
+    std::string pointer, message,
+        hint;  // pointer is a JSON pointer into factoria.json ("/audio/snapshots/underwater/fade")
 };
 
 struct AudioSettingsParse {
-    std::vector<AudioBusDef> buses;    // the project's buses ("audio.buses"), in name order; a parent may come after its child
+    std::vector<AudioBusDef>
+        buses;  // the project's buses ("audio.buses"), in name order; a parent may come after its child
     AudioSnapshots snapshots;
     std::vector<AudioIssue> issues;    // every problem found; `snapshots` is only usable without any
     std::vector<AudioIssue> warnings;  // keys the engine does not know (a typo), with "did you mean"

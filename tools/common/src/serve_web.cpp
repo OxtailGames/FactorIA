@@ -31,16 +31,16 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-constexpr std::size_t kMaxHead = 8 * 1024;          // the request line and headers
-constexpr std::size_t kMaxLogBody = 16 * 1024;      // POST __fa/log
-constexpr int kWorkers = 8;                         // connections answered at the same time
-constexpr std::size_t kMaxWaiting = 32;             // accepted connections waiting for a worker; more are closed
-constexpr int kRecvTimeoutMs = 5000;                // a connection that sends nothing for this long is closed
-constexpr int kSendTimeoutMs = 30000;               // a phone that takes this long for one chunk is gone
-constexpr int kHeadDeadlineMs = 10000;              // the whole request head must arrive within this (safety net against a trickle)
-constexpr std::size_t kMaxLogLine = 1000;           // bytes of one log line
+constexpr std::size_t kMaxHead = 8 * 1024;      // the request line and headers
+constexpr std::size_t kMaxLogBody = 16 * 1024;  // POST __fa/log
+constexpr int kWorkers = 8;                     // connections answered at the same time
+constexpr std::size_t kMaxWaiting = 32;         // accepted connections waiting for a worker; more are closed
+constexpr int kRecvTimeoutMs = 5000;            // a connection that sends nothing for this long is closed
+constexpr int kSendTimeoutMs = 30000;           // a phone that takes this long for one chunk is gone
+constexpr int kHeadDeadlineMs = 10000;  // the whole request head must arrive within this (safety net against a trickle)
+constexpr std::size_t kMaxLogLine = 1000;  // bytes of one log line
 constexpr std::size_t kMaxLinesPerPost = 20;
-constexpr int kReaderWaitMs = 120000;               // safety net: waiting for the downloads of the folder the next export replaces
+constexpr int kReaderWaitMs = 120000;  // safety net: waiting for the downloads of the folder the next export replaces
 
 using Clock = std::chrono::steady_clock;
 
@@ -157,15 +157,35 @@ namespace serve_web_detail {
 std::string mime_type(std::string_view fileName) {
     const std::size_t dot = fileName.rfind('.');
     const std::string ext = dot == std::string_view::npos ? std::string() : lower(fileName.substr(dot + 1));
-    static const std::pair<const char*, const char*> table[] = {
-        {"html", "text/html; charset=utf-8"}, {"htm", "text/html; charset=utf-8"}, {"js", "text/javascript; charset=utf-8"},
-        {"mjs", "text/javascript; charset=utf-8"}, {"wasm", "application/wasm"}, {"json", "application/json"},
-        {"map", "application/json"}, {"css", "text/css; charset=utf-8"}, {"txt", "text/plain; charset=utf-8"},
-        {"md", "text/plain; charset=utf-8"}, {"png", "image/png"}, {"jpg", "image/jpeg"}, {"jpeg", "image/jpeg"},
-        {"gif", "image/gif"}, {"webp", "image/webp"}, {"svg", "image/svg+xml"}, {"ico", "image/x-icon"}, {"ogg", "audio/ogg"},
-        {"oga", "audio/ogg"}, {"wav", "audio/wav"}, {"mp3", "audio/mpeg"}, {"mp4", "video/mp4"}, {"webm", "video/webm"},
-        {"woff", "font/woff"}, {"woff2", "font/woff2"}, {"ttf", "font/ttf"}, {"otf", "font/otf"}, {"glb", "model/gltf-binary"},
-        {"xml", "application/xml"}};
+    static const std::pair<const char*, const char*> table[] = {{"html", "text/html; charset=utf-8"},
+                                                                {"htm", "text/html; charset=utf-8"},
+                                                                {"js", "text/javascript; charset=utf-8"},
+                                                                {"mjs", "text/javascript; charset=utf-8"},
+                                                                {"wasm", "application/wasm"},
+                                                                {"json", "application/json"},
+                                                                {"map", "application/json"},
+                                                                {"css", "text/css; charset=utf-8"},
+                                                                {"txt", "text/plain; charset=utf-8"},
+                                                                {"md", "text/plain; charset=utf-8"},
+                                                                {"png", "image/png"},
+                                                                {"jpg", "image/jpeg"},
+                                                                {"jpeg", "image/jpeg"},
+                                                                {"gif", "image/gif"},
+                                                                {"webp", "image/webp"},
+                                                                {"svg", "image/svg+xml"},
+                                                                {"ico", "image/x-icon"},
+                                                                {"ogg", "audio/ogg"},
+                                                                {"oga", "audio/ogg"},
+                                                                {"wav", "audio/wav"},
+                                                                {"mp3", "audio/mpeg"},
+                                                                {"mp4", "video/mp4"},
+                                                                {"webm", "video/webm"},
+                                                                {"woff", "font/woff"},
+                                                                {"woff2", "font/woff2"},
+                                                                {"ttf", "font/ttf"},
+                                                                {"otf", "font/otf"},
+                                                                {"glb", "model/gltf-binary"},
+                                                                {"xml", "application/xml"}};
     for (const auto& [e, type] : table)
         if (ext == e) return type;
     return "application/octet-stream";  // game.pak and anything unknown
@@ -179,12 +199,14 @@ bool is_reserved_device_name(std::string_view segment) {
     const std::size_t dot = segment.find('.');
     std::string base = lower(segment.substr(0, dot));
     while (!base.empty() && base.back() == ' ') base.pop_back();  // "con .txt" is the device too
-    if (base == "con" || base == "prn" || base == "aux" || base == "nul" || base == "conin$" || base == "conout$") return true;
+    if (base == "con" || base == "prn" || base == "aux" || base == "nul" || base == "conin$" || base == "conout$")
+        return true;
     if (base.rfind("com", 0) != 0 && base.rfind("lpt", 0) != 0) return false;
     if (base.size() == 4) return base[3] >= '1' && base[3] <= '9';  // COM0 and LPT0 are ordinary names
     // COM and LPT followed by the superscript digits 1, 2, 3 (U+00B9, U+00B2, U+00B3) are devices too.
     return base.size() == 5 && static_cast<unsigned char>(base[3]) == 0xC2 &&
-           (static_cast<unsigned char>(base[4]) == 0xB9 || static_cast<unsigned char>(base[4]) == 0xB2 || static_cast<unsigned char>(base[4]) == 0xB3);
+           (static_cast<unsigned char>(base[4]) == 0xB9 || static_cast<unsigned char>(base[4]) == 0xB2 ||
+            static_cast<unsigned char>(base[4]) == 0xB3);
 }
 
 std::optional<std::string> safe_relative_path(std::string_view urlPath, bool* badEncoding) {
@@ -193,7 +215,12 @@ std::optional<std::string> safe_relative_path(std::string_view urlPath, bool* ba
     for (std::size_t i = 0; i < urlPath.size(); ++i) {
         const char c = urlPath[i];
         if (c == '%') {
-            auto hexval = [](char h) { return h >= '0' && h <= '9' ? h - '0' : h >= 'a' && h <= 'f' ? h - 'a' + 10 : h >= 'A' && h <= 'F' ? h - 'A' + 10 : -1; };
+            auto hexval = [](char h) {
+                return h >= '0' && h <= '9'   ? h - '0'
+                       : h >= 'a' && h <= 'f' ? h - 'a' + 10
+                       : h >= 'A' && h <= 'F' ? h - 'A' + 10
+                                              : -1;
+            };
             if (i + 2 >= urlPath.size()) return std::nullopt;  // "%" needs two hex digits after it
             const int hi = hexval(urlPath[i + 1]), lo = hexval(urlPath[i + 2]);
             if (hi < 0 || lo < 0) return std::nullopt;
@@ -212,7 +239,8 @@ std::optional<std::string> safe_relative_path(std::string_view urlPath, bool* ba
     for (char c : decoded) {
         const unsigned char u = static_cast<unsigned char>(c);
         if (u < 0x20 || u == 0x7F) return std::nullopt;
-        if (c == '\\' || c == ':' || c == '%' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|') return std::nullopt;
+        if (c == '\\' || c == ':' || c == '%' || c == '*' || c == '?' || c == '"' || c == '<' || c == '>' || c == '|')
+            return std::nullopt;
     }
     std::string out;
     std::size_t start = 0;
@@ -221,7 +249,7 @@ std::optional<std::string> safe_relative_path(std::string_view urlPath, bool* ba
         if (slash == std::string::npos) slash = decoded.size();
         const std::string seg = decoded.substr(start, slash - start);
         if (seg.empty() || seg[0] == '.') return std::nullopt;  // "", ".", "..", hidden files (.factoria-export)
-        if (seg.back() == ' ') return std::nullopt;             // Windows drops trailing spaces and dots: "a. " names "a"
+        if (seg.back() == ' ') return std::nullopt;  // Windows drops trailing spaces and dots: "a. " names "a"
         if (seg.back() == '.') return std::nullopt;
         if (is_reserved_device_name(seg)) return std::nullopt;
         if (!out.empty()) out += '/';
@@ -259,7 +287,8 @@ Json ServeWebStatus::to_json() const {
         if (!hint.empty()) j["hint"] = hint;
     }
     j["warnings"] = warnings;
-    j["note"] = "The server runs inside this process and stops with it, or with project.serve_web {\"stop\":true}. Change a script or asset and the "
+    j["note"] = "The server runs inside this process and stops with it, or with project.serve_web {\"stop\":true}. "
+                "Change a script or asset and the "
                 "page reloads by itself; what the page logs shows up in the log (category phone).";
     return j;
 }
@@ -314,7 +343,8 @@ struct WebServer::Impl {
                 }
             }
             if (s == net::kNoSocket) {
-                std::this_thread::sleep_for(std::chrono::milliseconds(10));  // a failed accept (e.g. out of descriptors): do not spin
+                std::this_thread::sleep_for(
+                    std::chrono::milliseconds(10));  // a failed accept (e.g. out of descriptors): do not spin
                 continue;
             }
             net::set_io_timeouts(s, kRecvTimeoutMs, kSendTimeoutMs);
@@ -350,7 +380,8 @@ struct WebServer::Impl {
                 if (!sentAny()) respond_text(s, 500, "Internal error");
                 lingerAfter() = true;
             }
-            if (lingerAfter()) net::linger_close(s);  // after an error answer: no RST over the answer (see net::linger_close)
+            if (lingerAfter())
+                net::linger_close(s);  // after an error answer: no RST over the answer (see net::linger_close)
             {
                 std::lock_guard<std::mutex> lock(m);
                 live.erase(s);  // before the close: stop() only shuts down sockets that are still in the set
@@ -391,16 +422,19 @@ struct WebServer::Impl {
         }
     }
 
-    static std::string head(int code, const std::string& contentType, std::uint64_t length, const std::string& extra = {}) {
+    static std::string head(int code, const std::string& contentType, std::uint64_t length,
+                            const std::string& extra = {}) {
         std::string h = "HTTP/1.1 " + std::to_string(code) + " " + status_text(code) + "\r\n";
         if (!contentType.empty()) h += "Content-Type: " + contentType + "\r\n";
         h += "Content-Length: " + std::to_string(length) + "\r\n";
-        h += "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: no-referrer\r\nConnection: close\r\n";
+        h += "Cache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nReferrer-Policy: "
+             "no-referrer\r\nConnection: close\r\n";
         h += extra;
         return h + "\r\n";
     }
 
-    static void respond(net::Socket s, int code, const std::string& contentType, const std::string& body, bool headOnly, const std::string& extra = {}) {
+    static void respond(net::Socket s, int code, const std::string& contentType, const std::string& body, bool headOnly,
+                        const std::string& extra = {}) {
         std::string out = head(code, contentType, body.size(), extra);
         if (!headOnly) out += body;
         // Only where the request may not have been read to its end (a bad request, an oversized head or body): the system would answer the
@@ -409,7 +443,8 @@ struct WebServer::Impl {
         send_out(s, out);
     }
 
-    static void respond_text(net::Socket s, int code, const std::string& text, bool headOnly = false, const std::string& extra = {}) {
+    static void respond_text(net::Socket s, int code, const std::string& text, bool headOnly = false,
+                             const std::string& extra = {}) {
         respond(s, code, "text/plain; charset=utf-8", text + "\n", headOnly, extra);
     }
 
@@ -441,7 +476,9 @@ struct WebServer::Impl {
         const std::size_t eol = headText.find("\r\n");
         const std::string line = headText.substr(0, eol);
         const std::size_t sp1 = line.find(' '), sp2 = sp1 == std::string::npos ? sp1 : line.find(' ', sp1 + 1);
-        if (sp1 == std::string::npos || sp2 == std::string::npos || !starts_with(std::string_view(line).substr(sp2 + 1), "HTTP/1.")) return 400;
+        if (sp1 == std::string::npos || sp2 == std::string::npos ||
+            !starts_with(std::string_view(line).substr(sp2 + 1), "HTTP/1."))
+            return 400;
         req.method = line.substr(0, sp1);
         req.target = line.substr(sp1 + 1, sp2 - sp1 - 1);
         if (req.target.empty() || req.target[0] != '/') return 400;
@@ -469,7 +506,8 @@ struct WebServer::Impl {
             const auto bodyDeadline = Clock::now() + std::chrono::milliseconds(kHeadDeadlineMs);
             while (req.body.size() < req.contentLength) {
                 if (Clock::now() > bodyDeadline) return -1;
-                const std::ptrdiff_t n = net::recv_some(s, chunk, std::min(sizeof(chunk), req.contentLength - req.body.size()));
+                const std::ptrdiff_t n =
+                    net::recv_some(s, chunk, std::min(sizeof(chunk), req.contentLength - req.body.size()));
                 if (n <= 0) return -1;
                 req.body.append(chunk, static_cast<std::size_t>(n));
             }
@@ -492,7 +530,8 @@ struct WebServer::Impl {
         }
         // The token is the only door in: everything else is the same 404, so nothing tells a guess from a miss.
         const std::string prefix = "/" + token;
-        const bool tokenOk = req.path.size() >= prefix.size() && (req.path.size() == prefix.size() || req.path[prefix.size()] == '/') &&
+        const bool tokenOk = req.path.size() >= prefix.size() &&
+                             (req.path.size() == prefix.size() || req.path[prefix.size()] == '/') &&
                              net::constant_time_equal(std::string_view(req.path).substr(1, token.size()), token);
         if (!tokenOk) {
             respond_text(s, 404, "Not found", headOnly);
@@ -520,8 +559,10 @@ struct WebServer::Impl {
             bool badEncoding = false;
             auto safe = serve_web_detail::safe_relative_path(rest, &badEncoding);
             if (!safe) {
-                if (badEncoding) respond_text(s, 400, "Bad request: the path is not valid UTF-8", headOnly);
-                else respond_text(s, 404, "Not found", headOnly);
+                if (badEncoding)
+                    respond_text(s, 400, "Bad request: the path is not valid UTF-8", headOnly);
+                else
+                    respond_text(s, 404, "Not found", headOnly);
                 return;
             }
             file = *safe;
@@ -534,7 +575,8 @@ struct WebServer::Impl {
             flush_phone_notice();
             Json j;
             {
-                std::lock_guard<std::mutex> lock(m);  // copy under the lock, send after it: a slow phone must not hold up the export thread
+                std::lock_guard<std::mutex> lock(
+                    m);  // copy under the lock, send after it: a slow phone must not hold up the export thread
                 j = Json::object({{"version", version}, {"state", state}, {"error", error}});
             }
             respond(s, 200, "application/json", j.dump(-1, ' ', false, Json::error_handler_t::replace), headOnly);
@@ -554,7 +596,9 @@ struct WebServer::Impl {
     // The window of phone log lines is over: start a new one on the next line, and return how many lines it dropped (to report outside the
     // lock). `m` is held.
     std::uint64_t close_phone_window_locked(Clock::time_point now) {
-        if (phoneWindowStart == Clock::time_point{} || now - phoneWindowStart < std::chrono::milliseconds(opts.phoneWindowMs)) return 0;
+        if (phoneWindowStart == Clock::time_point{} ||
+            now - phoneWindowStart < std::chrono::milliseconds(opts.phoneWindowMs))
+            return 0;
         const std::uint64_t dropped = phoneWindowDropped;
         phoneWindowStart = Clock::time_point{};
         phoneWindowCount = 0;
@@ -563,8 +607,9 @@ struct WebServer::Impl {
     }
     void report_dropped_lines(std::uint64_t dropped) const {
         if (dropped > 0)  // never under `m`: the log has its own locks and sinks
-            FA_WARN("phone", "{} log lines from the page were dropped (more than {} in {} s); the page may be logging in a loop", dropped,
-                    opts.phoneLinesPerWindow, opts.phoneWindowMs / 1000.0);
+            FA_WARN("phone",
+                    "{} log lines from the page were dropped (more than {} in {} s); the page may be logging in a loop",
+                    dropped, opts.phoneLinesPerWindow, opts.phoneWindowMs / 1000.0);
     }
     // Called by status() and the version endpoint: a window that dropped lines reports them once it is over, also when the page sends no more.
     void flush_phone_notice() {
@@ -616,7 +661,8 @@ struct WebServer::Impl {
             if (!phone_line_allowed()) continue;  // dropped and counted
             ++taken;
             std::string clean;
-            for (char c : truncate_utf8(text, kMaxLogLine)) clean += (static_cast<unsigned char>(c) < 0x20 && c != '\t') ? ' ' : c;
+            for (char c : truncate_utf8(text, kMaxLogLine))
+                clean += (static_cast<unsigned char>(c) < 0x20 && c != '\t') ? ' ' : c;
             const LogLevel lv = level == "error" ? LogLevel::Error : level == "warn" ? LogLevel::Warn : LogLevel::Info;
             log(lv, "phone", clean);
         }
@@ -650,10 +696,14 @@ struct WebServer::Impl {
                 err = error;
             }
             const bool failed = st == "failed";
-            std::string page = "<!doctype html><meta charset=utf-8><meta name=viewport content=\"width=device-width,initial-scale=1\">";
+            std::string page = "<!doctype html><meta charset=utf-8><meta name=viewport "
+                               "content=\"width=device-width,initial-scale=1\">";
             if (!failed) page += "<meta http-equiv=refresh content=2>";
             page += "<body style=\"font:16px system-ui,sans-serif;background:#0f1115;color:#e8eaf0;padding:24px\">";
-            page += failed ? "<h2>The game could not be exported</h2><pre style=\"white-space:pre-wrap\">" + html_escape(err) + "</pre><p>Fix it and this page updates by itself on the next try.</p><script>setTimeout(function(){location.reload()},5000)</script>"
+            page += failed ? "<h2>The game could not be exported</h2><pre style=\"white-space:pre-wrap\">" +
+                                 html_escape(err) +
+                                 "</pre><p>Fix it and this page updates by itself on the next "
+                                 "try.</p><script>setTimeout(function(){location.reload()},5000)</script>"
                            : "<h2>Exporting the game...</h2><p>This page reloads by itself.</p>";
             respond(s, 503, "text/html; charset=utf-8", page, headOnly, "Retry-After: 2\r\n");
             return;
@@ -684,17 +734,21 @@ struct WebServer::Impl {
             return;
         }
         const std::string type = serve_web_detail::mime_type(file);
-        if (file == "index.html") {  // the page gets the reload/log script (the file on disk stays as the export wrote it)
+        if (file ==
+            "index.html") {  // the page gets the reload/log script (the file on disk stays as the export wrote it)
             std::string html((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
             std::uint64_t v;
             {
                 std::lock_guard<std::mutex> lock(m);
                 v = version;
             }
-            const std::string inject = "<script>window.__faServe={version:" + std::to_string(v) + "};</script><script src=\"__fa/client.js\"></script>";
+            const std::string inject = "<script>window.__faServe={version:" + std::to_string(v) +
+                                       "};</script><script src=\"__fa/client.js\"></script>";
             const std::size_t headTag = html.find("<head>");
-            if (headTag != std::string::npos) html.insert(headTag + 6, inject);
-            else html = inject + html;
+            if (headTag != std::string::npos)
+                html.insert(headTag + 6, inject);
+            else
+                html = inject + html;
             respond(s, 200, type, html, headOnly);
             return;
         }
@@ -746,7 +800,9 @@ struct WebServer::Impl {
 
     // Waits (with the lock) until nobody reads the folder the next export replaces. False when stopping or after the safety net.
     bool wait_no_readers(std::unique_lock<std::mutex>& lock, int slot) {
-        return cv.wait_for(lock, std::chrono::milliseconds(kReaderWaitMs), [&] { return stopping || slots[slot].readers == 0; }) && !stopping;
+        return cv.wait_for(lock, std::chrono::milliseconds(kReaderWaitMs), [&] {
+            return stopping || slots[slot].readers == 0;
+        }) && !stopping;
     }
 
     void do_export() {
@@ -760,12 +816,14 @@ struct WebServer::Impl {
                 if (!stopping) {
                     state = "failed";
                     error = "A browser is still downloading the previous build, so the next one cannot be written yet.";
-                    hint = "It is tried again on the next check; close the page that is loading, or stop and start project.serve_web.";
+                    hint = "It is tried again on the next check; close the page that is loading, or stop and start "
+                           "project.serve_web.";
                 }
                 cv.notify_all();
                 return;
             }
-            slots[target].valid = false;  // nobody reads it now, and nobody will until the export is done and switched to
+            slots[target].valid =
+                false;  // nobody reads it now, and nobody will until the export is done and switched to
         }
         ExportOptions eo;
         eo.projectDir = projectPath.generic_string();
@@ -809,7 +867,8 @@ struct WebServer::Impl {
                 doExport = true;
             } else if (fp != lastFp) {
                 // Wait until the files stopped changing (an editor saving several files, a build writing assets).
-                if (haveCandidate && candidate == fp) doExport = true;
+                if (haveCandidate && candidate == fp)
+                    doExport = true;
                 else {
                     candidate = fp;
                     haveCandidate = true;
@@ -817,12 +876,14 @@ struct WebServer::Impl {
             } else {
                 haveCandidate = false;
                 std::lock_guard<std::mutex> lock(m);
-                if (state == "failed" && ++failedPolls >= 10) doExport = true;  // the player may have been installed since
+                if (state == "failed" && ++failedPolls >= 10)
+                    doExport = true;  // the player may have been installed since
             }
             if (doExport) {
                 do_export();
                 haveFp = true;
-                lastFp = fp;  // taken before the export: a file the export itself rewrote (a baked image) shows as a change next time
+                lastFp =
+                    fp;  // taken before the export: a file the export itself rewrote (a baked image) shows as a change next time
                 haveCandidate = false;
                 failedPolls = 0;
             }
@@ -850,16 +911,20 @@ Result<void> WebServer::start(const ServeWebOptions& options) {
     stop_locked();
     auto impl = std::make_shared<Impl>();
     if (!impl->sockets.ok())
-        return make_error("project.serve_web: the network could not be started (Winsock)", "check that no security software blocks this program from using the network");
+        return make_error("project.serve_web: the network could not be started (Winsock)",
+                          "check that no security software blocks this program from using the network");
     std::error_code ec;
-    impl->projectPath = stdfs::absolute(stdfs::path(options.projectDir), ec);  // projectDir is a native string (ANSI code page on Windows), not UTF-8
+    impl->projectPath = stdfs::absolute(stdfs::path(options.projectDir),
+                                        ec);  // projectDir is a native string (ANSI code page on Windows), not UTF-8
     if (options.projectDir.empty() || !stdfs::is_regular_file(fs::os_path(impl->projectPath / "factoria.json"), ec))
-        return make_error("project.serve_web: '" + options.projectDir + "' is not a FactorIA project (factoria.json not found)",
-                          "open a project (or pass --project <folder with factoria.json>); a scratch session has nothing to serve");
+        return make_error(
+            "project.serve_web: '" + options.projectDir + "' is not a FactorIA project (factoria.json not found)",
+            "open a project (or pass --project <folder with factoria.json>); a scratch session has nothing to serve");
     impl->opts = options;
     impl->opts.pollMs = std::clamp(options.pollMs, 20, 60000);
     if (auto text = tooling_detail::read_file(impl->projectPath / "factoria.json"))
-        if (auto j = parse_json(*text, "factoria.json"); j.ok() && j->is_object() && j->contains("feedbackFile") && (*j)["feedbackFile"].is_string())
+        if (auto j = parse_json(*text, "factoria.json");
+            j.ok() && j->is_object() && j->contains("feedbackFile") && (*j)["feedbackFile"].is_string())
             impl->feedbackFile = (*j)["feedbackFile"].get<std::string>();
     // A plan first: a missing web player is reported now, with how to get it, not as a page that never loads.
     {
@@ -884,8 +949,10 @@ Result<void> WebServer::start(const ServeWebOptions& options) {
     if (options.lan) {
         impl->lanIps = net::lan_addresses();
         if (impl->lanIps.empty())
-            impl->noLanWarning = "No private network address (192.168.x.x, 10.x.x.x, 172.16-31.x.x) was found on this computer, so there is no LAN URL: "
-                                 "connect to Wi-Fi or Ethernet, then restart the server. The server is listening on every interface, port " +
+            impl->noLanWarning = "No private network address (192.168.x.x, 10.x.x.x, 172.16-31.x.x) was found on this "
+                                 "computer, so there is no LAN URL: "
+                                 "connect to Wi-Fi or Ethernet, then restart the server. The server is listening on "
+                                 "every interface, port " +
                                  std::to_string(impl->listener.port) + ".";
     }
     Impl* raw = impl.get();
@@ -896,7 +963,8 @@ Result<void> WebServer::start(const ServeWebOptions& options) {
         std::lock_guard<std::mutex> lock(ptrMutex_);
         impl_ = std::move(impl);
     }
-    FA_INFO("serve", "serving the web build of {} on port {} ({})", options.projectDir, listener->port, options.lan ? "LAN" : "this computer only");
+    FA_INFO("serve", "serving the web build of {} on port {} ({})", options.projectDir, listener->port,
+            options.lan ? "LAN" : "this computer only");
     return {};
 }
 
@@ -953,7 +1021,8 @@ ServeWebStatus WebServer::status() const {
     st.error = self->error;
     st.hint = self->hint;
     st.warnings = self->warnings;
-    if (self->state != "ready" && !self->noLanWarning.empty() && std::find(st.warnings.begin(), st.warnings.end(), self->noLanWarning) == st.warnings.end())
+    if (self->state != "ready" && !self->noLanWarning.empty() &&
+        std::find(st.warnings.begin(), st.warnings.end(), self->noLanWarning) == st.warnings.end())
         st.warnings.push_back(self->noLanWarning);
     st.version = self->version;
     st.requests = self->requests;
@@ -966,7 +1035,8 @@ ServeWebStatus WebServer::wait_ready(int timeoutMs) {
     if (!impl) return status();
     {
         std::unique_lock<std::mutex> lock(impl->m);
-        impl->cv.wait_for(lock, std::chrono::milliseconds(std::max(timeoutMs, 0)), [&] { return impl->stopping || impl->state != "exporting"; });
+        impl->cv.wait_for(lock, std::chrono::milliseconds(std::max(timeoutMs, 0)),
+                          [&] { return impl->stopping || impl->state != "exporting"; });
     }
     return status();
 }
@@ -999,8 +1069,10 @@ struct AsyncJob {
     std::thread thread;
     bool busy = false;
     Kind kind = Kind::Start;
-    bool stopRequested = false;  // {stop:true} came while a start ran: the start job stops the server it just started, when it ends
-    std::optional<std::pair<std::string, std::string>> error;  // why the last start failed: message, hint (reported once)
+    bool stopRequested =
+        false;  // {stop:true} came while a start ran: the start job stops the server it just started, when it ends
+    std::optional<std::pair<std::string, std::string>>
+        error;  // why the last start failed: message, hint (reported once)
 };
 
 AsyncJob& async_job() {
@@ -1011,7 +1083,8 @@ AsyncJob& async_job() {
 bool serves_this(const ServeWebStatus& now, const ServeWebOptions& o, const std::string& projectDir) {
     std::error_code ec;
     return now.running && now.lan == o.lan &&
-           stdfs::weakly_canonical(stdfs::absolute(stdfs::path(projectDir), ec), ec) == stdfs::weakly_canonical(stdfs::path(now.projectDir), ec);  // both native
+           stdfs::weakly_canonical(stdfs::absolute(stdfs::path(projectDir), ec), ec) ==
+               stdfs::weakly_canonical(stdfs::path(now.projectDir), ec);  // both native
 }
 
 // Runs a stop on the helper thread. `job.mu` is held by the caller; no job is running.
@@ -1044,9 +1117,13 @@ Json stop_without_waiting() {
         if (job.thread.joinable()) job.thread.join();
         job.error.reset();  // a failed start nobody asked about is not reported to a call that stops
     }
-    return Json::object({{"running", was}, {"stopping", stopping}, {"state", stopping ? "stopping" : "stopped"},
-                         {"note", stopping ? "The server is stopping on a helper thread; project.serve_web again to see that it is gone."
-                                           : "The server was not running."}});
+    return Json::object(
+        {{"running", was},
+         {"stopping", stopping},
+         {"state", stopping ? "stopping" : "stopped"},
+         {"note", stopping
+                      ? "The server is stopping on a helper thread; project.serve_web again to see that it is gone."
+                      : "The server was not running."}});
 }
 
 Json serve_without_waiting(const ServeWebOptions& o, const std::string& projectDir) {
@@ -1055,10 +1132,15 @@ Json serve_without_waiting(const ServeWebOptions& o, const std::string& projectD
     std::lock_guard<std::mutex> lock(job.mu);
     if (job.busy) {
         if (job.kind == AsyncJob::Kind::Stop || job.stopRequested)
-            return Json::object({{"running", server.running()}, {"state", "stopping"},
-                                 {"note", "The server is stopping on a helper thread: call project.serve_web again in a moment to start it."}});
-        return Json::object({{"running", server.running()}, {"state", "starting"},
-                             {"note", "A start is in progress on a helper thread: call project.serve_web again in a moment."}});
+            return Json::object(
+                {{"running", server.running()},
+                 {"state", "stopping"},
+                 {"note",
+                  "The server is stopping on a helper thread: call project.serve_web again in a moment to start it."}});
+        return Json::object(
+            {{"running", server.running()},
+             {"state", "starting"},
+             {"note", "A start is in progress on a helper thread: call project.serve_web again in a moment."}});
     }
     if (job.thread.joinable()) job.thread.join();  // finished (busy is false)
     if (job.error) {
@@ -1068,12 +1150,14 @@ Json serve_without_waiting(const ServeWebOptions& o, const std::string& projectD
     }
     const ServeWebStatus now = server.status();
     if (serves_this(now, o, projectDir)) {
-        if (now.state == "failed" && now.version == 0) {  // like the waiting form: nothing worth serving, no listener left behind
+        if (now.state == "failed" &&
+            now.version == 0) {  // like the waiting form: nothing worth serving, no listener left behind
             spawn_stop_job(job);
             throw CommandError("failed", now.error, now.hint);
         }
         Json j = now.to_json();
-        if (now.state == "exporting") j["note"] = "The web build is being exported: call project.serve_web again until state is \"ready\".";
+        if (now.state == "exporting")
+            j["note"] = "The web build is being exported: call project.serve_web again until state is \"ready\".";
         return j;
     }
     job.busy = true;
@@ -1089,7 +1173,8 @@ Json serve_without_waiting(const ServeWebOptions& o, const std::string& projectD
             {
                 std::lock_guard<std::mutex> lk(job.mu);
                 if (!job.stopRequested) {
-                    job.busy = false;  // under the lock that records a stop request: none is lost between the check and this line
+                    job.busy =
+                        false;  // under the lock that records a stop request: none is lost between the check and this line
                     return;
                 }
                 job.stopRequested = false;
@@ -1098,9 +1183,13 @@ Json serve_without_waiting(const ServeWebOptions& o, const std::string& projectD
             web_server().stop();
         }
     });
-    return Json::object({{"running", false}, {"state", "starting"},
-                         {"note", "The server starts and exports the web build on a helper thread (the first export takes seconds): call project.serve_web "
-                                  "again with the same arguments until state is \"ready\"; a start that fails is reported by that call."}});
+    return Json::object(
+        {{"running", false},
+         {"state", "starting"},
+         {"note",
+          "The server starts and exports the web build on a helper thread (the first export takes seconds): call "
+          "project.serve_web "
+          "again with the same arguments until state is \"ready\"; a start that fails is reported by that call."}});
 }
 
 }  // namespace
@@ -1132,7 +1221,8 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
     info.name = "project.serve_web";
     info.category = "project";
     info.readOnly = false;
-    info.summary = "Serve the game's web build on this computer, or on the Wi-Fi to try it on a phone; it reloads when the project changes.";
+    info.summary = "Serve the game's web build on this computer, or on the Wi-Fi to try it on a phone; it reloads when "
+                   "the project changes.";
     info.description =
         "Exports the web build (the same as project.export {platform:\"web\"}, into build/serve-web/, so the "
         "real export folder is not touched; the web player must be installed: `factoria setup players "
@@ -1144,8 +1234,7 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
         "open page reloads itself (a banner on the page says when it is rebuilding or when the export "
         "failed); what the page logs (console.log/warn/error and uncaught errors) comes back to the log with "
         "category \"phone\" (read it with game.logs or in the editor console). With lan, open the URL on a "
-        "phone on the same Wi-Fi; the editor's File > Play on Phone... window shows it as a QR code."
-        FA_COMMAND_DETAILS
+        "phone on the same Wi-Fi; the editor's File > Play on Phone... window shows it as a QR code." FA_COMMAND_DETAILS
         "The server stops with the process or with {\"stop\":true}; it lives in the process that runs it: "
         "the editor, `factoria mcp` and `factoria session` keep it, a one-shot `factoria call` ends it when "
         "the call returns. Calling it again with the same project and `lan` returns the current status; with "
@@ -1168,13 +1257,16 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
         const bool stop = tooling_detail::arg_bool(args, "stop", false);
         if (stop) {
             // The registry fills in the schema defaults, so "given" means "different from the default".
-            const char* given = tooling_detail::arg_bool(args, "lan", false)                  ? "lan"
-                                : !tooling_detail::arg_string(args, "player", false).empty()  ? "player"
+            const char* given = tooling_detail::arg_bool(args, "lan", false)                   ? "lan"
+                                : !tooling_detail::arg_string(args, "player", false).empty()   ? "player"
                                 : tooling_detail::arg_bool(args, "allowPlayerMismatch", false) ? "allowPlayerMismatch"
                                                                                                : nullptr;
             if (given)
-                throw CommandError("invalid_argument", std::string("/stop cannot be combined with /") + given + ": stopping takes no other argument.",
-                                   std::string("call project.serve_web {\"stop\":true} alone, or remove \"stop\" to start the server"));
+                throw CommandError(
+                    "invalid_argument",
+                    std::string("/stop cannot be combined with /") + given + ": stopping takes no other argument.",
+                    std::string(
+                        "call project.serve_web {\"stop\":true} alone, or remove \"stop\" to start the server"));
             WebServer& server = web_server();
             const bool was = server.running();
             if (!g_blocking.load()) return stop_without_waiting();
@@ -1185,7 +1277,9 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
         o.projectDir = projectDir;
         o.lan = tooling_detail::arg_bool(args, "lan", false);
         // Listening on every network interface hands the game to whoever is on the network: that is publishing it.
-        if (o.lan) require_capability(Capability::Publish, "project.serve_web", "`lan: true` (serving the game to the network)");
+        if (o.lan)
+            require_capability(Capability::Publish, "project.serve_web",
+                               "`lan: true` (serving the game to the network)");
         o.allowPlayerMismatch = tooling_detail::arg_bool(args, "allowPlayerMismatch", false);
         if (std::string player = tooling_detail::arg_string(args, "player", false); !player.empty()) {
             const stdfs::path p(player);
@@ -1198,17 +1292,21 @@ void register_serve_web_commands(CommandRegistry& registry, const std::string& p
         if (!same) {
             if (auto r = server.start(o); !r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
         }
-        const ServeWebStatus st = server.wait_ready(120000);  // a safety net: an export takes seconds; past it the state says "exporting"
+        const ServeWebStatus st =
+            server.wait_ready(120000);  // a safety net: an export takes seconds; past it the state says "exporting"
         if (st.state == "failed" && st.version == 0) {
             server.stop();  // nothing worth serving: do not leave a listener behind
             throw CommandError("failed", st.error, st.hint);
         }
-        if (st.state == "failed") throw CommandError("failed", st.error + " (the previous build is still served at " + st.localUrl + ")", st.hint);
+        if (st.state == "failed")
+            throw CommandError("failed", st.error + " (the previous build is still served at " + st.localUrl + ")",
+                               st.hint);
         return st.to_json();
     });
     // exports the web build into the project and listens on a TCP port.
-    declare_command_capabilities(registry, {
-        {"project.serve_web", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Network}}});
+    declare_command_capabilities(
+        registry,
+        {{"project.serve_web", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Network}}});
 }
 
 }  // namespace fa

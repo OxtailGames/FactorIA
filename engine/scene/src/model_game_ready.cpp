@@ -26,15 +26,21 @@ const std::vector<std::string>& shape_names() {
 
 struct Reader {
     std::vector<ModelIssue>& issues;
-    void err(const std::string& pointer, const std::string& message, const std::string& hint) { issues.push_back({pointer, message, hint}); }
+    void err(const std::string& pointer, const std::string& message, const std::string& hint) {
+        issues.push_back({pointer, message, hint});
+    }
 };
 
-bool read_number(Reader& r, const Json& obj, const std::string& at, const char* key, double lo, double hi, bool integer, double& out, const char* hint) {
+bool read_number(Reader& r, const Json& obj, const std::string& at, const char* key, double lo, double hi, bool integer,
+                 double& out, const char* hint) {
     auto it = obj.find(key);
     if (it == obj.end()) return false;
     const std::string where = at + "/" + key;
     if (!it->is_number() || (integer && !it->is_number_integer())) {
-        r.err(where, std::string(key) + " must be " + (integer ? "a whole number" : "a number") + ", got " + describe_json_value(*it), hint);
+        r.err(where,
+              std::string(key) + " must be " + (integer ? "a whole number" : "a number") + ", got " +
+                  describe_json_value(*it),
+              hint);
         return false;
     }
     const double v = it->get<double>();
@@ -53,8 +59,9 @@ void unknown_keys(Reader& r, const Json& obj, const std::string& at, const std::
 }
 
 bool same_material(const MeshMaterial& a, const MeshMaterial& b) {
-    return a.name == b.name && a.color.r == b.color.r && a.color.g == b.color.g && a.color.b == b.color.b && a.color.a == b.color.a && a.texture == b.texture &&
-           a.metallic == b.metallic && a.roughness == b.roughness && a.emissive.r == b.emissive.r && a.emissive.g == b.emissive.g && a.emissive.b == b.emissive.b &&
+    return a.name == b.name && a.color.r == b.color.r && a.color.g == b.color.g && a.color.b == b.color.b &&
+           a.color.a == b.color.a && a.texture == b.texture && a.metallic == b.metallic && a.roughness == b.roughness &&
+           a.emissive.r == b.emissive.r && a.emissive.g == b.emissive.g && a.emissive.b == b.emissive.b &&
            a.doubleSided == b.doubleSided && a.blend == b.blend;
 }
 
@@ -76,8 +83,9 @@ Drawn drawn_triangles(const MeshData& m) {
 }
 
 // A MeshInput for a vertex set and triangles grouped by submesh (ascending). `sub` per triangle; submeshes without triangles are left out.
-Result<MeshData> assemble(const MeshData& like, std::vector<float> positions, std::vector<float> normals, std::vector<float> uvs, std::vector<float> colors,
-                          const std::vector<std::uint32_t>& indices, const std::vector<std::uint32_t>& sub, const std::vector<std::string>* partNames) {
+Result<MeshData> assemble(const MeshData& like, std::vector<float> positions, std::vector<float> normals,
+                          std::vector<float> uvs, std::vector<float> colors, const std::vector<std::uint32_t>& indices,
+                          const std::vector<std::uint32_t>& sub, const std::vector<std::string>* partNames) {
     MeshInput in;
     in.positions = std::move(positions);
     in.normals = std::move(normals);
@@ -96,7 +104,8 @@ Result<MeshData> assemble(const MeshData& like, std::vector<float> positions, st
         in.submeshes.push_back(s);
         t = e;
     }
-    if (in.submeshes.empty()) return make_error("the mesh has no triangles left", "Check the settings that removed them.");
+    if (in.submeshes.empty())
+        return make_error("the mesh has no triangles left", "Check the settings that removed them.");
     return build_mesh_data(in);
 }
 
@@ -121,84 +130,136 @@ Result<ModelGameReady> parse_game_ready(const Json& json, const std::string& at,
     ModelGameReady g;
     if (!json.is_object()) {
         r.err(at, "gameReady must be an object, got " + describe_json_value(json),
-              "Example: {\"origin\": \"bottom_center\", \"merge\": true, \"lods\": [{\"ratio\": 0.5}], \"collider\": {\"shape\": \"convex\"}}.");
+              "Example: {\"origin\": \"bottom_center\", \"merge\": true, \"lods\": [{\"ratio\": 0.5}], \"collider\": "
+              "{\"shape\": \"convex\"}}.");
     } else {
         unknown_keys(r, json, at, {"origin", "merge", "lods", "collider", "platforms"});
         if (auto it = json.find("origin"); it != json.end()) {
-            if (!it->is_string() || std::find(origin_names().begin(), origin_names().end(), it->get<std::string>()) == origin_names().end())
-                r.err(at + "/origin", "origin must be one of " + join(origin_names(), ", ") + ", got " + describe_json_value(*it),
-                      it->is_string() ? did_you_mean(it->get<std::string>(), origin_names()) : "\"bottom_center\" puts the lowest point at y = 0 and the middle at x = z = 0.");
-            else g.origin = it->get<std::string>();
+            if (!it->is_string() ||
+                std::find(origin_names().begin(), origin_names().end(), it->get<std::string>()) == origin_names().end())
+                r.err(at + "/origin",
+                      "origin must be one of " + join(origin_names(), ", ") + ", got " + describe_json_value(*it),
+                      it->is_string()
+                          ? did_you_mean(it->get<std::string>(), origin_names())
+                          : "\"bottom_center\" puts the lowest point at y = 0 and the middle at x = z = 0.");
+            else
+                g.origin = it->get<std::string>();
         }
         if (auto it = json.find("merge"); it != json.end()) {
-            if (!it->is_boolean()) r.err(at + "/merge", "merge must be true or false, got " + describe_json_value(*it), "true joins the submeshes that share a material.");
-            else g.merge = it->get<bool>();
+            if (!it->is_boolean())
+                r.err(at + "/merge", "merge must be true or false, got " + describe_json_value(*it),
+                      "true joins the submeshes that share a material.");
+            else
+                g.merge = it->get<bool>();
         }
         if (auto it = json.find("lods"); it != json.end()) {
             if (!it->is_array() || it->size() > kGameReadyMaxLods)
-                r.err(at + "/lods", std::format("lods must be a list of at most {} levels, got {}", kGameReadyMaxLods, describe_json_value(*it)),
-                      "Each level is {\"ratio\": 0.5} (a fraction of the triangles), {\"triangles\": 800} or {\"error\": 0.02} (metres); the first is LOD1.");
+                r.err(at + "/lods",
+                      std::format("lods must be a list of at most {} levels, got {}", kGameReadyMaxLods,
+                                  describe_json_value(*it)),
+                      "Each level is {\"ratio\": 0.5} (a fraction of the triangles), {\"triangles\": 800} or "
+                      "{\"error\": 0.02} (metres); the first is LOD1.");
             else
                 for (std::size_t i = 0; i < it->size(); ++i) {
                     const Json& l = (*it)[i];
                     const std::string lat = at + "/lods/" + std::to_string(i);
                     if (!l.is_object()) {
-                        r.err(lat, "a LOD must be an object, got " + describe_json_value(l), "Example: {\"ratio\": 0.5}.");
+                        r.err(lat, "a LOD must be an object, got " + describe_json_value(l),
+                              "Example: {\"ratio\": 0.5}.");
                         continue;
                     }
                     unknown_keys(r, l, lat, {"ratio", "triangles", "error", "distance"});
                     ModelLodSpec s;
                     double v = 0;
-                    if (read_number(r, l, lat, "ratio", 0.001, 1.0, false, v, "A fraction of the full mesh's triangles, e.g. 0.5.")) s.ratio = v;
-                    if (read_number(r, l, lat, "triangles", 1, 10000000, true, v, "A triangle count, e.g. 800.")) s.triangles = std::size_t(v);
-                    if (read_number(r, l, lat, "error", 0.000001, 1000, false, v, "Metres the surface may move, e.g. 0.02.")) s.error = v;
-                    if (read_number(r, l, lat, "distance", 0.01, 100000, false, v, "Camera distance in metres from which the game draws this LOD, e.g. 15.")) s.distance = v;
+                    if (read_number(r, l, lat, "ratio", 0.001, 1.0, false, v,
+                                    "A fraction of the full mesh's triangles, e.g. 0.5."))
+                        s.ratio = v;
+                    if (read_number(r, l, lat, "triangles", 1, 10000000, true, v, "A triangle count, e.g. 800."))
+                        s.triangles = std::size_t(v);
+                    if (read_number(r, l, lat, "error", 0.000001, 1000, false, v,
+                                    "Metres the surface may move, e.g. 0.02."))
+                        s.error = v;
+                    if (read_number(r, l, lat, "distance", 0.01, 100000, false, v,
+                                    "Camera distance in metres from which the game draws this LOD, e.g. 15."))
+                        s.distance = v;
                     if (s.ratio == 0 && s.triangles == 0 && s.error == 0)
-                        r.err(lat, "a LOD must say how far to reduce: give ratio, triangles or error", "Example: {\"ratio\": 0.5}.");
-                    if (!g.lods.empty() && s.distance > 0 && g.lods.back().distance > 0 && s.distance <= g.lods.back().distance)
-                        r.err(lat + "/distance", "distances must grow from one LOD to the next", "Each LOD takes over farther away than the one before.");
+                        r.err(lat, "a LOD must say how far to reduce: give ratio, triangles or error",
+                              "Example: {\"ratio\": 0.5}.");
+                    if (!g.lods.empty() && s.distance > 0 && g.lods.back().distance > 0 &&
+                        s.distance <= g.lods.back().distance)
+                        r.err(lat + "/distance", "distances must grow from one LOD to the next",
+                              "Each LOD takes over farther away than the one before.");
                     g.lods.push_back(s);
                 }
         }
         if (auto it = json.find("collider"); it != json.end()) {
             const std::string cat = at + "/collider";
-            if (!it->is_object()) r.err(cat, "collider must be an object, got " + describe_json_value(*it), "Example: {\"shape\": \"convex\", \"maxVertices\": 32}.");
+            if (!it->is_object())
+                r.err(cat, "collider must be an object, got " + describe_json_value(*it),
+                      "Example: {\"shape\": \"convex\", \"maxVertices\": 32}.");
             else {
-                unknown_keys(r, *it, cat, {"shape", "maxHulls", "maxVertices", "resolution", "part", "radius", "height"});
+                unknown_keys(r, *it, cat,
+                             {"shape", "maxHulls", "maxVertices", "resolution", "part", "radius", "height"});
                 if (auto s = it->find("shape"); s != it->end()) {
-                    if (!s->is_string() || std::find(shape_names().begin(), shape_names().end(), s->get<std::string>()) == shape_names().end())
-                        r.err(cat + "/shape", "shape must be one of " + join(shape_names(), ", ") + ", got " + describe_json_value(*s),
-                              s->is_string() ? did_you_mean(s->get<std::string>(), shape_names()) : "\"decomposed\" splits a concave model into convex pieces.");
-                    else g.collider.shape = s->get<std::string>();
+                    if (!s->is_string() || std::find(shape_names().begin(), shape_names().end(),
+                                                     s->get<std::string>()) == shape_names().end())
+                        r.err(cat + "/shape",
+                              "shape must be one of " + join(shape_names(), ", ") + ", got " + describe_json_value(*s),
+                              s->is_string() ? did_you_mean(s->get<std::string>(), shape_names())
+                                             : "\"decomposed\" splits a concave model into convex pieces.");
+                    else
+                        g.collider.shape = s->get<std::string>();
                 }
                 double v = 0;
-                if (read_number(r, *it, cat, "maxHulls", 1, 64, true, v, "How many convex pieces a decomposition may use, 1..64.")) g.collider.maxHulls = int(v);
-                if (read_number(r, *it, cat, "maxVertices", 4, kGameReadyMaxHullVertices, true, v, "Points per hull, 4..256 (the physics takes at most 256).")) g.collider.maxVertices = int(v);
-                if (read_number(r, *it, cat, "resolution", 10000, 4000000, true, v, "Voxels the decomposition splits the volume into, 10000..4000000.")) g.collider.resolution = int(v);
+                if (read_number(r, *it, cat, "maxHulls", 1, 64, true, v,
+                                "How many convex pieces a decomposition may use, 1..64."))
+                    g.collider.maxHulls = int(v);
+                if (read_number(r, *it, cat, "maxVertices", 4, kGameReadyMaxHullVertices, true, v,
+                                "Points per hull, 4..256 (the physics takes at most 256)."))
+                    g.collider.maxVertices = int(v);
+                if (read_number(r, *it, cat, "resolution", 10000, 4000000, true, v,
+                                "Voxels the decomposition splits the volume into, 10000..4000000."))
+                    g.collider.resolution = int(v);
                 if (auto p = it->find("part"); p != it->end()) {
                     if (!p->is_string() || p->get<std::string>().empty())
-                        r.err(cat + "/part", "part must be the name of a part of the model, got " + describe_json_value(*p), "Example: \"trunk\". model.info lists the parts.");
-                    else g.collider.part = p->get<std::string>();
+                        r.err(cat + "/part",
+                              "part must be the name of a part of the model, got " + describe_json_value(*p),
+                              "Example: \"trunk\". model.info lists the parts.");
+                    else
+                        g.collider.part = p->get<std::string>();
                 }
-                if (read_number(r, *it, cat, "radius", 0.001, 10000, false, v, "The radius in metres, e.g. 0.35.")) g.collider.radius = v;
-                if (read_number(r, *it, cat, "height", 0.001, 10000, false, v, "The total height in metres (caps included), e.g. 4.")) g.collider.height = v;
+                if (read_number(r, *it, cat, "radius", 0.001, 10000, false, v, "The radius in metres, e.g. 0.35."))
+                    g.collider.radius = v;
+                if (read_number(r, *it, cat, "height", 0.001, 10000, false, v,
+                                "The total height in metres (caps included), e.g. 4."))
+                    g.collider.height = v;
                 if (g.collider.radius > 0 && g.collider.shape != "sphere" && g.collider.shape != "capsule")
-                    r.err(cat + "/radius", "radius only applies to a sphere or capsule collider, not '" + g.collider.shape + "'", "Set shape to \"sphere\" or \"capsule\", or remove radius.");
+                    r.err(cat + "/radius",
+                          "radius only applies to a sphere or capsule collider, not '" + g.collider.shape + "'",
+                          "Set shape to \"sphere\" or \"capsule\", or remove radius.");
                 if (g.collider.height > 0 && g.collider.shape != "capsule")
-                    r.err(cat + "/height", "height only applies to a capsule collider, not '" + g.collider.shape + "'", "Set shape to \"capsule\", or remove height.");
+                    r.err(cat + "/height", "height only applies to a capsule collider, not '" + g.collider.shape + "'",
+                          "Set shape to \"capsule\", or remove height.");
             }
         }
         if (auto it = json.find("platforms"); it != json.end()) {
             std::vector<std::string> names;
             for (const ModelPlatformBudget& b : model_platform_budgets()) names.push_back(b.platform);
-            if (!it->is_array() || it->empty()) r.err(at + "/platforms", "platforms must be a non-empty list of " + join(names, ", ") + ", got " + describe_json_value(*it), "Example: [\"desktop\", \"mobile\"].");
+            if (!it->is_array() || it->empty())
+                r.err(at + "/platforms",
+                      "platforms must be a non-empty list of " + join(names, ", ") + ", got " +
+                          describe_json_value(*it),
+                      "Example: [\"desktop\", \"mobile\"].");
             else {
                 g.platforms.clear();
                 for (std::size_t i = 0; i < it->size(); ++i) {
                     const Json& p = (*it)[i];
                     if (!p.is_string() || std::find(names.begin(), names.end(), p.get<std::string>()) == names.end())
-                        r.err(at + "/platforms/" + std::to_string(i), "unknown platform " + describe_json_value(p), p.is_string() ? did_you_mean(p.get<std::string>(), names) : "Use " + join(names, ", ") + ".");
-                    else if (std::find(g.platforms.begin(), g.platforms.end(), p.get<std::string>()) == g.platforms.end())
+                        r.err(at + "/platforms/" + std::to_string(i), "unknown platform " + describe_json_value(p),
+                              p.is_string() ? did_you_mean(p.get<std::string>(), names)
+                                            : "Use " + join(names, ", ") + ".");
+                    else if (std::find(g.platforms.begin(), g.platforms.end(), p.get<std::string>()) ==
+                             g.platforms.end())
                         g.platforms.push_back(p.get<std::string>());
                 }
             }
@@ -221,15 +282,15 @@ Json game_ready_to_json(const ModelGameReady& g) {
         if (l.distance > 0) o["distance"] = l.distance;
         lods.push_back(o);
     }
-    Json collider = Json::object({{"shape", g.collider.shape}, {"maxHulls", g.collider.maxHulls}, {"maxVertices", g.collider.maxVertices}, {"resolution", g.collider.resolution}});
+    Json collider = Json::object({{"shape", g.collider.shape},
+                                  {"maxHulls", g.collider.maxHulls},
+                                  {"maxVertices", g.collider.maxVertices},
+                                  {"resolution", g.collider.resolution}});
     if (!g.collider.part.empty()) collider["part"] = g.collider.part;
     if (g.collider.radius > 0) collider["radius"] = g.collider.radius;
     if (g.collider.height > 0) collider["height"] = g.collider.height;
-    return Json::object({{"origin", g.origin},
-                         {"merge", g.merge},
-                         {"lods", lods},
-                         {"collider", collider},
-                         {"platforms", g.platforms}});
+    return Json::object(
+        {{"origin", g.origin}, {"merge", g.merge}, {"lods", lods}, {"collider", collider}, {"platforms", g.platforms}});
 }
 
 Json game_ready_schema() {
@@ -239,34 +300,74 @@ Json game_ready_schema() {
     Json lod = Json::object(
         {{"type", "object"},
          {"additionalProperties", false},
-         {"description", "One lower-detail copy of the mesh. Give ratio, triangles or error (or several: the first limit reached stops the reduction)."},
+         {"description", "One lower-detail copy of the mesh. Give ratio, triangles or error (or several: the first "
+                         "limit reached stops the reduction)."},
          {"properties",
-          Json::object({{"ratio", num("number", 0.001, 1, "Keep this fraction of the full mesh's triangles (0.5 = half).")},
-                        {"triangles", num("integer", 1, 10000000, "Keep at most this many triangles.")},
-                        {"error", num("number", 0.000001, 1000, "The most any collapse may move the surface, in metres.")},
-                        {"distance", num("number", 0.01, 100000, "Camera distance in metres from which the game draws this LOD. Left out: the model's largest dimension times 4, 8, 16, 32 for LOD1..4.")}})}});
+          Json::object(
+              {{"ratio", num("number", 0.001, 1, "Keep this fraction of the full mesh's triangles (0.5 = half).")},
+               {"triangles", num("integer", 1, 10000000, "Keep at most this many triangles.")},
+               {"error", num("number", 0.000001, 1000, "The most any collapse may move the surface, in metres.")},
+               {"distance", num("number", 0.01, 100000,
+                                "Camera distance in metres from which the game draws this LOD. Left out: the model's "
+                                "largest dimension times 4, 8, 16, 32 for LOD1..4.")}})}});
     return Json::object(
         {{"type", "object"},
          {"additionalProperties", false},
-         {"description", "What `model.bake` derives besides the .glb: the origin, merged submeshes, LOD files (<name>.lodN.glb), a collider (<name>.collider.glb for hulls) and <name>.prefab.json that wires them. Works on `sdf` results too."},
+         {"description", "What `model.bake` derives besides the .glb: the origin, merged submeshes, LOD files "
+                         "(<name>.lodN.glb), a collider (<name>.collider.glb for hulls) and <name>.prefab.json that "
+                         "wires them. Works on `sdf` results too."},
          {"properties",
           Json::object(
-              {{"origin", Json::object({{"enum", origin_names()}, {"default", "keep"}, {"description", "Where the model's origin goes: keep, center (middle of the box), bottom (lowest point at y = 0) or bottom_center."}})},
-               {"merge", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Join the submeshes that share a material (fewer draw calls) and weld identical vertices. The parts of the .glb are then joined too."}})},
-               {"lods", Json::object({{"type", "array"}, {"maxItems", int(kGameReadyMaxLods)}, {"items", lod}, {"description", "LOD1, LOD2... in order, each simpler than the last. Every submesh keeps its borders, so parts do not come apart."}})},
+              {{"origin", Json::object({{"enum", origin_names()},
+                                        {"default", "keep"},
+                                        {"description", "Where the model's origin goes: keep, center (middle of the "
+                                                        "box), bottom (lowest point at y = 0) or bottom_center."}})},
+               {"merge",
+                Json::object({{"type", "boolean"},
+                              {"default", false},
+                              {"description", "Join the submeshes that share a material (fewer draw calls) and weld "
+                                              "identical vertices. The parts of the .glb are then joined too."}})},
+               {"lods", Json::object({{"type", "array"},
+                                      {"maxItems", int(kGameReadyMaxLods)},
+                                      {"items", lod},
+                                      {"description", "LOD1, LOD2... in order, each simpler than the last. Every "
+                                                      "submesh keeps its borders, so parts do not come apart."}})},
                {"collider",
-                Json::object({{"type", "object"},
-                              {"additionalProperties", false},
-                              {"description", "The collider fitted to the mesh. box, sphere and capsule are primitives of Collider3D; convex is the hull of the mesh; decomposed is several convex pieces for a concave model (static colliders)."},
-                              {"properties",
-                               Json::object({{"shape", Json::object({{"enum", shape_names()}, {"default", "none"}, {"description", "none, box, sphere, capsule, convex or decomposed."}})},
-                                             {"maxHulls", num("integer", 1, 64, "decomposed: at most this many convex pieces. Default 8.")},
-                                             {"maxVertices", num("integer", 4, kGameReadyMaxHullVertices, "convex, decomposed: at most this many points per hull. Default 32.")},
-                                             {"resolution", num("integer", 10000, 4000000, "decomposed: voxels the volume is split into. Default 100000.")},
-                                             {"part", Json::object({{"type", "string"}, {"description", "Fit the collider to this part of the model only (the `part` of a node, e.g. a pine's \"trunk\" so the canopy does not block). Default: the whole model."}})},
-                                             {"radius", num("number", 0.001, 10000, "sphere, capsule: this radius in metres instead of the fitted one.")},
-                                             {"height", num("number", 0.001, 10000, "capsule: this total height in metres (caps included) instead of the fitted one.")}})}})},
-               {"platforms", Json::object({{"type", "array"}, {"items", Json::object({{"enum", Json::array({"desktop", "mobile", "web"})}})}, {"description", "The platforms whose triangle and draw-call budget the report checks. Default all."}})}})}});
+                Json::object(
+                    {{"type", "object"},
+                     {"additionalProperties", false},
+                     {"description", "The collider fitted to the mesh. box, sphere and capsule are primitives of "
+                                     "Collider3D; convex is the hull of the mesh; decomposed is several convex pieces "
+                                     "for a concave model (static colliders)."},
+                     {"properties",
+                      Json::object(
+                          {{"shape",
+                            Json::object({{"enum", shape_names()},
+                                          {"default", "none"},
+                                          {"description", "none, box, sphere, capsule, convex or decomposed."}})},
+                           {"maxHulls",
+                            num("integer", 1, 64, "decomposed: at most this many convex pieces. Default 8.")},
+                           {"maxVertices", num("integer", 4, kGameReadyMaxHullVertices,
+                                               "convex, decomposed: at most this many points per hull. Default 32.")},
+                           {"resolution", num("integer", 10000, 4000000,
+                                              "decomposed: voxels the volume is split into. Default 100000.")},
+                           {"part",
+                            Json::object(
+                                {{"type", "string"},
+                                 {"description",
+                                  "Fit the collider to this part of the model only (the `part` of a node, e.g. a "
+                                  "pine's \"trunk\" so the canopy does not block). Default: the whole model."}})},
+                           {"radius", num("number", 0.001, 10000,
+                                          "sphere, capsule: this radius in metres instead of the fitted one.")},
+                           {"height", num("number", 0.001, 10000,
+                                          "capsule: this total height in metres (caps included) instead of the fitted "
+                                          "one.")}})}})},
+               {"platforms",
+                Json::object(
+                    {{"type", "array"},
+                     {"items", Json::object({{"enum", Json::array({"desktop", "mobile", "web"})}})},
+                     {"description",
+                      "The platforms whose triangle and draw-call budget the report checks. Default all."}})}})}});
 }
 
 // ---- budgets -----------------------------------------------------------------------------------------------------------------
@@ -311,7 +412,8 @@ MeshData model_translated(const MeshData& m, Vec3 offset) {
 // ---- merging -----------------------------------------------------------------------------------------------------------------
 
 Result<MeshData> model_merge_by_material(const MeshData& m, ModelMergeInfo* info) {
-    if (m.indices.empty() || m.submeshes.empty()) return make_error("the mesh has no triangles to merge", "Merge a mesh that has triangles.");
+    if (m.indices.empty() || m.submeshes.empty())
+        return make_error("the mesh has no triangles to merge", "Merge a mesh that has triangles.");
     const Drawn d = drawn_triangles(m);
     if (d.indices.empty()) return make_error("the mesh has no drawn triangles to merge", "Check its submeshes.");
     // groups of submeshes by material, in order of first appearance
@@ -345,7 +447,8 @@ Result<MeshData> model_merge_by_material(const MeshData& m, ModelMergeInfo* info
     // triangles ordered by group (stable: the order inside a group is kept)
     std::vector<std::uint32_t> order(d.sub.size());
     for (std::size_t t = 0; t < order.size(); ++t) order[t] = std::uint32_t(t);
-    std::stable_sort(order.begin(), order.end(), [&](std::uint32_t a, std::uint32_t b) { return groupOf[d.sub[a]] < groupOf[d.sub[b]]; });
+    std::stable_sort(order.begin(), order.end(),
+                     [&](std::uint32_t a, std::uint32_t b) { return groupOf[d.sub[a]] < groupOf[d.sub[b]]; });
     std::vector<std::uint32_t> idx, grp;
     for (std::uint32_t t : order) {
         for (int k = 0; k < 3; ++k) idx.push_back(d.indices[t * 3 + std::uint32_t(k)]);
@@ -365,7 +468,8 @@ Result<MeshData> model_merge_by_material(const MeshData& m, ModelMergeInfo* info
         if (hasColor) std::memcpy(p + 8, &m.colors[v * 4], 16);
     }
     std::vector<unsigned int> remap(n);
-    const std::size_t unique = meshopt_generateVertexRemap(remap.data(), idx.data(), idx.size(), packed.data(), n, stride * sizeof(float));
+    const std::size_t unique =
+        meshopt_generateVertexRemap(remap.data(), idx.data(), idx.size(), packed.data(), n, stride * sizeof(float));
     std::vector<std::uint32_t> welded(idx.size());
     meshopt_remapIndexBuffer(welded.data(), idx.data(), idx.size(), remap.data());
     std::vector<float> vertices(unique * stride);
@@ -379,7 +483,8 @@ Result<MeshData> model_merge_by_material(const MeshData& m, ModelMergeInfo* info
         at = e;
     }
     std::vector<float> fetched(unique * stride);
-    const std::size_t used = meshopt_optimizeVertexFetch(fetched.data(), welded.data(), welded.size(), vertices.data(), unique, stride * sizeof(float));
+    const std::size_t used = meshopt_optimizeVertexFetch(fetched.data(), welded.data(), welded.size(), vertices.data(),
+                                                         unique, stride * sizeof(float));
     fetched.resize(used * stride);
 
     std::vector<float> pos(used * 3), nrm(used * 3), uv(used * 2), col(hasColor ? used * 4 : 0);
@@ -411,8 +516,10 @@ double model_lod_distance(const MeshData& m, std::size_t index, const ModelLodSp
 }
 
 Result<MeshData> model_make_lod(const MeshData& m, const ModelLodSpec& spec, ModelLodInfo* info) {
-    if (m.indices.empty() || m.submeshes.empty()) return make_error("the mesh has no triangles to reduce", "Make a LOD of a mesh that has triangles.");
-    if (spec.ratio <= 0 && spec.triangles == 0 && spec.error <= 0) return make_error("a LOD needs ratio, triangles or error", "Example: {\"ratio\": 0.5}.");
+    if (m.indices.empty() || m.submeshes.empty())
+        return make_error("the mesh has no triangles to reduce", "Make a LOD of a mesh that has triangles.");
+    if (spec.ratio <= 0 && spec.triangles == 0 && spec.error <= 0)
+        return make_error("a LOD needs ratio, triangles or error", "Example: {\"ratio\": 0.5}.");
     const Drawn d = drawn_triangles(m);
     const std::size_t n = m.vertex_count();
     const bool hasColor = m.colors.size() == n * 4;
@@ -439,10 +546,13 @@ Result<MeshData> model_make_lod(const MeshData& m, const ModelLodSpec& spec, Mod
     ModelSimplifyParams sp;
     sp.maxError = spec.error;
     sp.lockBorder = true;  // an open edge of a submesh (and the border between parts) stays where it is
-    if (spec.ratio > 0) sp.targetTriangles = std::max<std::size_t>(1, std::size_t(std::ceil(double(total) * spec.ratio)));
-    if (spec.triangles > 0) sp.targetTriangles = sp.targetTriangles > 0 ? std::min(sp.targetTriangles, spec.triangles) : spec.triangles;
+    if (spec.ratio > 0)
+        sp.targetTriangles = std::max<std::size_t>(1, std::size_t(std::ceil(double(total) * spec.ratio)));
+    if (spec.triangles > 0)
+        sp.targetTriangles = sp.targetTriangles > 0 ? std::min(sp.targetTriangles, spec.triangles) : spec.triangles;
     const ModelSimplifyResult r = model_simplify(pos, attr, stride, weights, d.indices, d.sub, sp);
-    if (r.indices.empty()) return make_error("the reduction removed every triangle", "Raise ratio or triangles, or lower error.");
+    if (r.indices.empty())
+        return make_error("the reduction removed every triangle", "Raise ratio or triangles, or lower error.");
 
     const std::size_t vn = r.positions.size();
     std::vector<float> opos(vn * 3), onrm(vn * 3), ouv(vn * 2, 0.0f), ocol(hasColor ? vn * 4 : 0);
@@ -450,7 +560,8 @@ Result<MeshData> model_make_lod(const MeshData& m, const ModelLodSpec& spec, Mod
         std::memcpy(&opos[v * 3], &r.positions[v], 12);
         const float* a = &r.attributes[v * stride];
         Vec3 nrm = normalize(Vec3{a[0], a[1], a[2]});
-        if (length_sq(nrm) < 0.5f) nrm = {m.normals[r.keep[v] * 3], m.normals[r.keep[v] * 3 + 1], m.normals[r.keep[v] * 3 + 2]};
+        if (length_sq(nrm) < 0.5f)
+            nrm = {m.normals[r.keep[v] * 3], m.normals[r.keep[v] * 3 + 1], m.normals[r.keep[v] * 3 + 2]};
         std::memcpy(&onrm[v * 3], &nrm, 12);
         a += 3;
         if (m.hasUvs) {
@@ -461,13 +572,15 @@ Result<MeshData> model_make_lod(const MeshData& m, const ModelLodSpec& spec, Mod
             for (int k = 0; k < 4; ++k) ocol[v * 4 + std::size_t(k)] = std::clamp(a[k], 0.0f, 1.0f);
         }
     }
-    auto out = assemble(m, std::move(opos), std::move(onrm), std::move(ouv), std::move(ocol), r.indices, r.triParts, nullptr);
+    auto out =
+        assemble(m, std::move(opos), std::move(onrm), std::move(ouv), std::move(ocol), r.indices, r.triParts, nullptr);
     if (out.ok() && info) {
         info->triangles = out->triangle_count();
         info->vertices = out->vertex_count();
         info->submeshes = out->submeshes.size();
         info->error = r.error;
-        info->reachedTarget = sp.targetTriangles == 0 || out->triangle_count() <= sp.targetTriangles + sp.targetTriangles / 20 + 2;
+        info->reachedTarget =
+            sp.targetTriangles == 0 || out->triangle_count() <= sp.targetTriangles + sp.targetTriangles / 20 + 2;
     }
     return out;
 }
@@ -475,10 +588,12 @@ Result<MeshData> model_make_lod(const MeshData& m, const ModelLodSpec& spec, Mod
 // ---- the whole thing -----------------------------------------------------------------------------------------------------------
 
 Result<ModelGameReadyResult> make_game_ready(const MeshData& input, const ModelGameReady& s) {
-    if (input.indices.empty() || input.submeshes.empty()) return make_error("the mesh has no triangles", "Game-ready settings work on a mesh that has triangles.");
+    if (input.indices.empty() || input.submeshes.empty())
+        return make_error("the mesh has no triangles", "Game-ready settings work on a mesh that has triangles.");
     ModelGameReadyResult out;
     out.offset = model_origin_offset(input, s.origin);
-    MeshData mesh = (out.offset.x == 0 && out.offset.y == 0 && out.offset.z == 0) ? input : model_translated(input, out.offset);
+    MeshData mesh =
+        (out.offset.x == 0 && out.offset.y == 0 && out.offset.z == 0) ? input : model_translated(input, out.offset);
     MeshData unmerged;  // merging joins part names, so a collider fitted to one part reads the mesh as it was before
     const bool keepUnmerged = s.merge && !s.collider.part.empty() && s.collider.shape != "none";
     if (keepUnmerged) unmerged = mesh;
@@ -501,12 +616,18 @@ Result<ModelGameReadyResult> make_game_ready(const MeshData& input, const ModelG
         auto lod = model_make_lod(out.mesh, s.lods[i], &li);
         if (!lod.ok()) return make_error(std::format("LOD{}: {}", i + 1, lod.error().message), lod.error().hint);
         li.distance = model_lod_distance(out.mesh, i + 1, s.lods[i]);
-        if (i > 0 && s.lods[i].distance == 0 && s.lods[i - 1].distance > 0 && li.distance <= out.lodInfo.back().distance)
+        if (i > 0 && s.lods[i].distance == 0 && s.lods[i - 1].distance > 0 &&
+            li.distance <= out.lodInfo.back().distance)
             li.distance = out.lodInfo.back().distance * 2;  // an automatic distance never lands before a given one
         if (li.triangles >= previous)
-            out.warnings.push_back(std::format("LOD{} has {} triangles, no fewer than LOD{} ({}): the surface has nothing left to collapse at that error. Lower ratio/triangles or raise error.", i + 1, li.triangles, i, previous));
+            out.warnings.push_back(
+                std::format("LOD{} has {} triangles, no fewer than LOD{} ({}): the surface has nothing left to "
+                            "collapse at that error. Lower ratio/triangles or raise error.",
+                            i + 1, li.triangles, i, previous));
         else if (!li.reachedTarget)
-            out.warnings.push_back(std::format("LOD{} stopped at {} triangles, above its target: the borders between parts and open edges stay fixed (or error is too low).", i + 1, li.triangles));
+            out.warnings.push_back(std::format("LOD{} stopped at {} triangles, above its target: the borders between "
+                                               "parts and open edges stay fixed (or error is too low).",
+                                               i + 1, li.triangles));
         previous = std::min(previous, li.triangles);
         out.lodInfo.push_back(li);
         out.lods.push_back(std::move(*lod));
@@ -529,14 +650,25 @@ Result<ModelGameReadyResult> make_game_ready(const MeshData& input, const ModelG
         row.submeshesFit = out.lodInfo[0].submeshes <= b.submeshes;
         if (!row.fullMeshFits) {
             if (row.firstFittingLod > 0)
-                out.warnings.push_back(std::format("{}: the full mesh has {} triangles, over the {} budget of {}; LOD{} ({}) fits, so the game should show LOD{} or lower there.", b.platform, out.lodInfo[0].triangles, b.platform, b.triangles,
-                                                   row.firstFittingLod, out.lodInfo[size_t(row.firstFittingLod)].triangles, row.firstFittingLod));
+                out.warnings.push_back(
+                    std::format("{}: the full mesh has {} triangles, over the {} budget of {}; LOD{} ({}) fits, so the "
+                                "game should show LOD{} or lower there.",
+                                b.platform, out.lodInfo[0].triangles, b.platform, b.triangles, row.firstFittingLod,
+                                out.lodInfo[size_t(row.firstFittingLod)].triangles, row.firstFittingLod));
             else
-                out.warnings.push_back(std::format("{}: no LOD fits the {} budget of {} triangles (the smallest has {}). Add a LOD with a lower ratio or triangles.", b.platform, b.platform, b.triangles,
-                                                   std::min_element(out.lodInfo.begin(), out.lodInfo.end(), [](const ModelLodInfo& a, const ModelLodInfo& c) { return a.triangles < c.triangles; })->triangles));
+                out.warnings.push_back(std::format("{}: no LOD fits the {} budget of {} triangles (the smallest has "
+                                                   "{}). Add a LOD with a lower ratio or triangles.",
+                                                   b.platform, b.platform, b.triangles,
+                                                   std::min_element(out.lodInfo.begin(), out.lodInfo.end(),
+                                                                    [](const ModelLodInfo& a, const ModelLodInfo& c) {
+                                                                        return a.triangles < c.triangles;
+                                                                    })
+                                                       ->triangles));
         }
         if (!row.submeshesFit)
-            out.warnings.push_back(std::format("{}: {} submeshes (draw calls) over the budget of {}. Set \"merge\": true to join the submeshes that share a material.", b.platform, out.lodInfo[0].submeshes, b.submeshes));
+            out.warnings.push_back(std::format("{}: {} submeshes (draw calls) over the budget of {}. Set \"merge\": "
+                                               "true to join the submeshes that share a material.",
+                                               b.platform, out.lodInfo[0].submeshes, b.submeshes));
         out.budget.push_back(row);
     }
     return out;
@@ -546,11 +678,14 @@ Json game_ready_report_json(const ModelGameReadyResult& r, const ModelGameReady&
     Json lods = Json::array();
     for (std::size_t i = 0; i < r.lodInfo.size(); ++i) {
         const ModelLodInfo& l = r.lodInfo[i];
-        Json o = Json::object({{"lod", i}, {"triangles", l.triangles}, {"vertices", l.vertices}, {"submeshes", l.submeshes}});
+        Json o = Json::object(
+            {{"lod", i}, {"triangles", l.triangles}, {"vertices", l.vertices}, {"submeshes", l.submeshes}});
         if (i > 0) {
             o["error"] = std::round(l.error * 1e5) / 1e5;
             o["distance"] = std::round(l.distance * 100) / 100;
-            o["ratio"] = r.lodInfo[0].triangles ? std::round(double(l.triangles) / double(r.lodInfo[0].triangles) * 1000) / 1000 : 0;
+            o["ratio"] = r.lodInfo[0].triangles
+                             ? std::round(double(l.triangles) / double(r.lodInfo[0].triangles) * 1000) / 1000
+                             : 0;
         }
         lods.push_back(o);
     }
@@ -558,14 +693,26 @@ Json game_ready_report_json(const ModelGameReadyResult& r, const ModelGameReady&
     for (const ModelBudgetRow& b : r.budget) {
         Json per = Json::array();
         for (const ModelLodInfo& l : r.lodInfo) per.push_back(l.triangles <= b.budgetTriangles);
-        budget.push_back(Json::object({{"platform", b.platform}, {"budgetTriangles", b.budgetTriangles}, {"budgetSubmeshes", b.budgetSubmeshes}, {"fullMeshFits", b.fullMeshFits},
-                                       {"submeshesFit", b.submeshesFit}, {"firstFittingLod", b.firstFittingLod}, {"lodFits", per}}));
+        budget.push_back(Json::object({{"platform", b.platform},
+                                       {"budgetTriangles", b.budgetTriangles},
+                                       {"budgetSubmeshes", b.budgetSubmeshes},
+                                       {"fullMeshFits", b.fullMeshFits},
+                                       {"submeshesFit", b.submeshesFit},
+                                       {"firstFittingLod", b.firstFittingLod},
+                                       {"lodFits", per}}));
     }
-    Json out = Json::object({{"settings", game_ready_to_json(s)}, {"offset", Json::array({r.offset.x, r.offset.y, r.offset.z})}, {"lods", lods}, {"budget", budget},
-                             {"merge", Json::object({{"submeshesBefore", r.merge.submeshesBefore}, {"submeshesAfter", r.merge.submeshesAfter}, {"verticesBefore", r.merge.verticesBefore}, {"verticesAfter", r.merge.verticesAfter}})}});
+    Json out = Json::object({{"settings", game_ready_to_json(s)},
+                             {"offset", Json::array({r.offset.x, r.offset.y, r.offset.z})},
+                             {"lods", lods},
+                             {"budget", budget},
+                             {"merge", Json::object({{"submeshesBefore", r.merge.submeshesBefore},
+                                                     {"submeshesAfter", r.merge.submeshesAfter},
+                                                     {"verticesBefore", r.merge.verticesBefore},
+                                                     {"verticesAfter", r.merge.verticesAfter}})}});
     if (r.collider.shape != "none") {
         const ModelCollider& c = r.collider;
-        Json cj = Json::object({{"shape", c.shape}, {"volume", c.volume}, {"meshVolume", c.meshVolume}, {"volumeRatio", c.volumeRatio}});
+        Json cj = Json::object(
+            {{"shape", c.shape}, {"volume", c.volume}, {"meshVolume", c.meshVolume}, {"volumeRatio", c.volumeRatio}});
         if (c.shape == "box") {
             cj["center"] = Json::array({c.center.x, c.center.y, c.center.z});
             cj["size"] = Json::array({c.size.x, c.size.y, c.size.z});
@@ -575,7 +722,9 @@ Json game_ready_report_json(const ModelGameReadyResult& r, const ModelGameReady&
             if (c.shape == "capsule") cj["height"] = c.height;
         } else {
             Json hulls = Json::array();
-            for (const ModelHull& h : c.hulls) hulls.push_back(Json::object({{"vertices", h.points.size()}, {"triangles", h.indices.size() / 3}, {"volume", h.volume}}));
+            for (const ModelHull& h : c.hulls)
+                hulls.push_back(Json::object(
+                    {{"vertices", h.points.size()}, {"triangles", h.indices.size() / 3}, {"volume", h.volume}}));
             cj["hulls"] = hulls;
         }
         out["collider"] = cj;

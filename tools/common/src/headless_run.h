@@ -16,6 +16,7 @@ void require_project_dir(const std::string& projectDir, const std::string& comma
 std::string project_path(const std::string& projectDir, const std::string& p);
 
 // The engine configuration of a headless run. `graphics` false: no GPU at all (renderer() is null).
-EngineConfig headless_engine_config(const std::string& projectDir, const std::string& scene, bool graphics, RenderMode renderMode);
+EngineConfig headless_engine_config(const std::string& projectDir, const std::string& scene, bool graphics,
+                                    RenderMode renderMode);
 
 }  // namespace fa::tooling_detail

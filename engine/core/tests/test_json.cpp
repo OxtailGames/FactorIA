@@ -45,14 +45,16 @@ TEST_CASE("json: a number outside the range of a double is an error, not an exce
     }
 }
 
-TEST_CASE("json: the position of a number outside the range of a double: line and column, after strings that look like numbers") {
+TEST_CASE("json: the position of a number outside the range of a double: line and column, after strings that look like "
+          "numbers") {
     auto r = parse_json("{\n  \"s\": \"1e999\",\n  \"n\": [1, 2e999]\n}", "x.json");
     REQUIRE(!r.ok());
     CHECK(r.error().message.find("x.json:3:") == 0);
     CHECK(r.error().message.find(":12: invalid JSON") != std::string::npos);
 }
 
-TEST_CASE("json: nesting deeper than kMaxJsonDepth is an error with its position; the limit itself is fine (found by the fuzz target)") {
+TEST_CASE("json: nesting deeper than kMaxJsonDepth is an error with its position; the limit itself is fine (found by "
+          "the fuzz target)") {
     const std::string open(kMaxJsonDepth, '['), close(kMaxJsonDepth, ']');
     auto ok = parse_json(open + close, "x.json");
     REQUIRE(ok.ok());
@@ -63,8 +65,9 @@ TEST_CASE("json: nesting deeper than kMaxJsonDepth is an error with its position
     // One level more, on the second line: the error names the bracket that crossed the limit.
     auto deep = parse_json("\n" + open + "[" + close + "]", "x.json");
     REQUIRE(!deep.ok());
-    CHECK(deep.error().message == "x.json:2:" + std::to_string(kMaxJsonDepth + 1) + ": invalid JSON: nesting deeper than " +
-                                      std::to_string(kMaxJsonDepth) + " levels");
+    CHECK(deep.error().message == "x.json:2:" + std::to_string(kMaxJsonDepth + 1) +
+                                      ": invalid JSON: nesting deeper than " + std::to_string(kMaxJsonDepth) +
+                                      " levels");
     CHECK(deep.error().hint.find("Flatten") != std::string::npos);
 
     // 64 KB of brackets (an unclosed document too): refused before anything is built, so nothing overflows the stack.
@@ -227,28 +230,27 @@ TEST_CASE("json compact layout: short scalar arrays on one line, the rest as dum
         "kids": [ {"id": "a", "size": [1, 2]}, {"id": "b"} ],
         "nested": [[0, 1], [2, 3]]
     })");
-    const std::string expected =
-        "{\n"
-        "  \"name\": \"hero\",\n"
-        "  \"empty\": [],\n"
-        "  \"none\": {},\n"
-        "  \"position\": [0, 12.5, -3],\n"
-        "  \"tags\": [\"player\", \"alive\"],\n"
-        "  \"flags\": [true, false, null],\n"
-        "  \"kids\": [\n"
-        "    {\n"
-        "      \"id\": \"a\",\n"
-        "      \"size\": [1, 2]\n"
-        "    },\n"
-        "    {\n"
-        "      \"id\": \"b\"\n"
-        "    }\n"
-        "  ],\n"
-        "  \"nested\": [\n"
-        "    [0, 1],\n"
-        "    [2, 3]\n"
-        "  ]\n"
-        "}\n";
+    const std::string expected = "{\n"
+                                 "  \"name\": \"hero\",\n"
+                                 "  \"empty\": [],\n"
+                                 "  \"none\": {},\n"
+                                 "  \"position\": [0, 12.5, -3],\n"
+                                 "  \"tags\": [\"player\", \"alive\"],\n"
+                                 "  \"flags\": [true, false, null],\n"
+                                 "  \"kids\": [\n"
+                                 "    {\n"
+                                 "      \"id\": \"a\",\n"
+                                 "      \"size\": [1, 2]\n"
+                                 "    },\n"
+                                 "    {\n"
+                                 "      \"id\": \"b\"\n"
+                                 "    }\n"
+                                 "  ],\n"
+                                 "  \"nested\": [\n"
+                                 "    [0, 1],\n"
+                                 "    [2, 3]\n"
+                                 "  ]\n"
+                                 "}\n";
     CHECK(dump_json(j, JsonFormat{}) == expected);
     CHECK(Json::parse(expected) == j);
 
@@ -271,7 +273,7 @@ TEST_CASE("json compact layout: long scalar arrays wrap, long strings keep one e
     CHECK(lines[0] == "{");
     CHECK(lines[1] == "  \"values\": [");
     CHECK(lines[2].rfind("    -300, -293, -286", 0) == 0);  // wrapped lines are indented one level deeper
-    CHECK(lines[2].back() == ',');                           // commas stay at the end of the line
+    CHECK(lines[2].back() == ',');                          // commas stay at the end of the line
     CHECK(Json::parse(text) == doc);
 
     JsonFormat narrow;
@@ -282,7 +284,8 @@ TEST_CASE("json compact layout: long scalar arrays wrap, long strings keep one e
     CHECK(narrowText.rfind("[\n  1, 2, 3, 4, 5,", 0) == 0);
 
     // A string longer than maxInlineString keeps the array in the one-element-per-line layout.
-    Json longStrings = Json::parse(R"({"files": ["assets/textures/a_really_long_texture_name_that_goes_on.png", "b"]})");
+    Json longStrings =
+        Json::parse(R"({"files": ["assets/textures/a_really_long_texture_name_that_goes_on.png", "b"]})");
     CHECK(dump_json(longStrings, JsonFormat{}) == dump_json(longStrings));
 }
 
@@ -299,19 +302,18 @@ TEST_CASE("json compact layout: the rowLength hook lays numbers out in aligned r
         }
         return 0;
     };
-    const std::string expected =
-        "{\n"
-        "  \"grid\": {\n"
-        "    \"width\": 3,\n"
-        "    \"cells\": [\n"
-        "      -1,  0, 12,\n"
-        "       4,  5, -1,\n"
-        "       7,  8,  9,\n"
-        "       1\n"
-        "    ]\n"
-        "  },\n"
-        "  \"other\": [1, 2]\n"
-        "}\n";
+    const std::string expected = "{\n"
+                                 "  \"grid\": {\n"
+                                 "    \"width\": 3,\n"
+                                 "    \"cells\": [\n"
+                                 "      -1,  0, 12,\n"
+                                 "       4,  5, -1,\n"
+                                 "       7,  8,  9,\n"
+                                 "       1\n"
+                                 "    ]\n"
+                                 "  },\n"
+                                 "  \"other\": [1, 2]\n"
+                                 "}\n";
     CHECK(dump_json(doc, fmt) == expected);
     CHECK(calls == 1);
     CHECK(Json::parse(expected) == doc);

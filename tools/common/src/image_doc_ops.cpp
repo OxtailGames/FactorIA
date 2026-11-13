@@ -35,49 +35,75 @@ struct OpDef {
 const std::vector<OpDef>& adjustment_defs() {
     static const std::vector<OpDef> defs = {
         {"invert", "Inverts the colour (alpha stays): {\"type\": \"invert\"}.", {}},
-        {"brightness", "Adds `amount` (-1..1, default 0.2) to red, green and blue, clamped: {\"type\": \"brightness\", \"amount\": 0.2}.", {"amount"}},
+        {"brightness",
+         "Adds `amount` (-1..1, default 0.2) to red, green and blue, clamped: {\"type\": \"brightness\", \"amount\": "
+         "0.2}.",
+         {"amount"}},
         {"levels",
-         "Levels: input `inBlack` (0..1, default 0) and `inWhite` (1) are stretched to 0 and 1, `gamma` (0.1..10, default 1; above 1 brightens the "
-         "midtones) bends the middle, then 0..1 is mapped to `outBlack` (0) .. `outWhite` (1). `channel`: rgb (default), red, green or blue: "
+         "Levels: input `inBlack` (0..1, default 0) and `inWhite` (1) are stretched to 0 and 1, `gamma` (0.1..10, "
+         "default 1; above 1 brightens the "
+         "midtones) bends the middle, then 0..1 is mapped to `outBlack` (0) .. `outWhite` (1). `channel`: rgb "
+         "(default), red, green or blue: "
          "{\"type\": \"levels\", \"inBlack\": 0.1, \"inWhite\": 0.9, \"gamma\": 1.2, \"channel\": \"rgb\"}.",
          {"inBlack", "inWhite", "gamma", "outBlack", "outWhite", "channel"}},
         {"curves",
-         "A tone curve through `points` ([[x, y], ...], 2 to 32 points, x strictly increasing, both in 0..1) drawn as a monotone cubic "
-         "(it never overshoots between points; left of the first point the curve is flat, right of the last too). `channel`: rgb "
-         "(default), red, green or blue: {\"type\": \"curves\", \"points\": [[0, 0], [0.25, 0.15], [0.75, 0.9], [1, 1]]}.",
+         "A tone curve through `points` ([[x, y], ...], 2 to 32 points, x strictly increasing, both in 0..1) drawn as "
+         "a monotone cubic "
+         "(it never overshoots between points; left of the first point the curve is flat, right of the last too). "
+         "`channel`: rgb "
+         "(default), red, green or blue: {\"type\": \"curves\", \"points\": [[0, 0], [0.25, 0.15], [0.75, 0.9], [1, "
+         "1]]}.",
          {"points", "channel"}},
         {"hsv",
-         "Hue, saturation and value. `hue` (degrees, -180..180) turns the hue, `saturation` (-1..1) scales the saturation by 1 + it, "
-         "`value` (-1..1) is added to the value. With `colorize: true` every pixel gets the hue `hue` (0..360) and the saturation "
+         "Hue, saturation and value. `hue` (degrees, -180..180) turns the hue, `saturation` (-1..1) scales the "
+         "saturation by 1 + it, "
+         "`value` (-1..1) is added to the value. With `colorize: true` every pixel gets the hue `hue` (0..360) and the "
+         "saturation "
          "`saturation` (0..1, default 0.5) and keeps its own brightness (Rec. 709 luma) plus `value`: "
-         "{\"type\": \"hsv\", \"hue\": 30, \"saturation\": -0.2} or {\"type\": \"hsv\", \"colorize\": true, \"hue\": 210}.",
+         "{\"type\": \"hsv\", \"hue\": 30, \"saturation\": -0.2} or {\"type\": \"hsv\", \"colorize\": true, \"hue\": "
+         "210}.",
          {"hue", "saturation", "value", "colorize"}},
-        {"posterize", "Rounds each channel to `levels` evenly spaced values (2..256, default 4): {\"type\": \"posterize\", \"levels\": 4}.", {"levels"}},
+        {"posterize",
+         "Rounds each channel to `levels` evenly spaced values (2..256, default 4): {\"type\": \"posterize\", "
+         "\"levels\": 4}.",
+         {"levels"}},
         {"quantize",
-         "Maps every pixel to the nearest colour of `palette`: \"style\" (default: the `style.palette` of assets.json) or a list of colours "
-         "([\"#1a1c2c\", \"#5d275d\", ...]). Nearest is measured in `space`: oklab (default, perceptual: Euclidean distance in OKLab) or "
-         "rgb (in the stored values). `dither` (default none, see the dither operation) and `strength` (0..1, default 1) spread the error: "
+         "Maps every pixel to the nearest colour of `palette`: \"style\" (default: the `style.palette` of assets.json) "
+         "or a list of colours "
+         "([\"#1a1c2c\", \"#5d275d\", ...]). Nearest is measured in `space`: oklab (default, perceptual: Euclidean "
+         "distance in OKLab) or "
+         "rgb (in the stored values). `dither` (default none, see the dither operation) and `strength` (0..1, default "
+         "1) spread the error: "
          "{\"type\": \"quantize\", \"palette\": \"style\", \"dither\": \"bayer4\"}. Alpha is kept.",
          {"palette", "space", "dither", "strength"}},
         {"dither",
-         "Reduces the colours with a dither `method`: none, bayer2, bayer4 (default), bayer8 (ordered, a threshold matrix tiled over the "
-         "layer's own pixels) or floydSteinberg, atkinson (error diffusion, left to right and top to bottom, only into visible pixels). "
-         "It maps to `palette` (\"style\" or a list of colours, as in quantize; `space` oklab or rgb) when one is given, otherwise to "
-         "`levels` evenly spaced values per channel (2..256, default 2). `strength` (0..1, default 1) scales the dither: "
+         "Reduces the colours with a dither `method`: none, bayer2, bayer4 (default), bayer8 (ordered, a threshold "
+         "matrix tiled over the "
+         "layer's own pixels) or floydSteinberg, atkinson (error diffusion, left to right and top to bottom, only into "
+         "visible pixels). "
+         "It maps to `palette` (\"style\" or a list of colours, as in quantize; `space` oklab or rgb) when one is "
+         "given, otherwise to "
+         "`levels` evenly spaced values per channel (2..256, default 2). `strength` (0..1, default 1) scales the "
+         "dither: "
          "{\"type\": \"dither\", \"method\": \"floydSteinberg\", \"palette\": \"style\"}. Alpha is kept.",
          {"method", "levels", "palette", "space", "strength"}},
         {"gradientMap",
-         "Replaces the colour by the colour of a gradient at the pixel's brightness (Rec. 709 luma of the stored values, 0 = first stop). "
-         "`stops` is [{\"at\": 0..1, \"color\": ...}, ...] (2 to 64, `at` not decreasing); the alpha of a stop is ignored: "
-         "{\"type\": \"gradientMap\", \"stops\": [{\"at\": 0, \"color\": \"#000020\"}, {\"at\": 1, \"color\": \"#ffe0a0\"}]}.",
+         "Replaces the colour by the colour of a gradient at the pixel's brightness (Rec. 709 luma of the stored "
+         "values, 0 = first stop). "
+         "`stops` is [{\"at\": 0..1, \"color\": ...}, ...] (2 to 64, `at` not decreasing); the alpha of a stop is "
+         "ignored: "
+         "{\"type\": \"gradientMap\", \"stops\": [{\"at\": 0, \"color\": \"#000020\"}, {\"at\": 1, \"color\": "
+         "\"#ffe0a0\"}]}.",
          {"stops"}},
         {"colorBalance",
-         "Shifts the colour of the `shadows`, `midtones` and `highlights` ([red, green, blue], each -1..1; 0.2 is a clear tint). A pixel's "
+         "Shifts the colour of the `shadows`, `midtones` and `highlights` ([red, green, blue], each -1..1; 0.2 is a "
+         "clear tint). A pixel's "
          "weights come from its luma l: shadows (1 - l)^2, highlights l^2, midtones 4 l (1 - l): "
          "{\"type\": \"colorBalance\", \"shadows\": [0, 0, 0.2], \"highlights\": [0.1, 0.05, 0]}.",
          {"shadows", "midtones", "highlights"}},
         {"threshold",
-         "Pixels whose luma (Rec. 709) is at least `level` (0..1, default 0.5) become `above` (default white), the others `below` (default "
+         "Pixels whose luma (Rec. 709) is at least `level` (0..1, default 0.5) become `above` (default white), the "
+         "others `below` (default "
          "black); alpha is kept: {\"type\": \"threshold\", \"level\": 0.5}.",
          {"level", "above", "below"}},
     };
@@ -86,54 +112,78 @@ const std::vector<OpDef>& adjustment_defs() {
 
 const std::vector<OpDef>& effect_defs() {
     static const std::vector<OpDef> defs = {
-        {"colorOverlay", "Mixes the colour of the layer towards `color` by `amount` (0..1, default 1), keeping its alpha: {\"type\": \"colorOverlay\", \"color\": \"#ff0000\", \"amount\": 0.5}.",
+        {"colorOverlay",
+         "Mixes the colour of the layer towards `color` by `amount` (0..1, default 1), keeping its alpha: {\"type\": "
+         "\"colorOverlay\", \"color\": \"#ff0000\", \"amount\": 0.5}.",
          {"color", "amount"}},
         {"outline",
-         "A line of `color` (default black) `width` pixels wide (0.5..64, default 1) around the shape of the layer, from its alpha: a pixel "
-         "belongs to the shape when its alpha is above 0.5. `position`: outside (default, drawn behind and growing the layer), inside "
-         "(over the edge of the shape) or center. The stroke reaches the pixels whose centre is within `width` of the shape (Euclidean), "
-         "so width 1 is the exact 4-connected outline of pixel art; `smooth: true` anti-aliases the edge of the stroke instead of "
+         "A line of `color` (default black) `width` pixels wide (0.5..64, default 1) around the shape of the layer, "
+         "from its alpha: a pixel "
+         "belongs to the shape when its alpha is above 0.5. `position`: outside (default, drawn behind and growing the "
+         "layer), inside "
+         "(over the edge of the shape) or center. The stroke reaches the pixels whose centre is within `width` of the "
+         "shape (Euclidean), "
+         "so width 1 is the exact 4-connected outline of pixel art; `smooth: true` anti-aliases the edge of the stroke "
+         "instead of "
          "cutting it: {\"type\": \"outline\", \"color\": \"#000000\", \"width\": 1}.",
          {"color", "width", "position", "smooth"}},
-        {"stroke", "The same as outline, but `position` defaults to center (half of the width on each side): {\"type\": \"stroke\", \"color\": \"#ffffff\", \"width\": 2}.",
+        {"stroke",
+         "The same as outline, but `position` defaults to center (half of the width on each side): {\"type\": "
+         "\"stroke\", \"color\": \"#ffffff\", \"width\": 2}.",
          {"color", "width", "position", "smooth"}},
         {"dropShadow",
-         "A shadow of the layer's shape behind it: moved by `offsetX`, `offsetY` pixels (-512..512, default 2, 2; whole pixels), blurred "
-         "(`blur` -> Gaussian sigma blur / 2, 0..64, default 2), in `color` (default black) at `opacity` (0..1, default 0.5): "
+         "A shadow of the layer's shape behind it: moved by `offsetX`, `offsetY` pixels (-512..512, default 2, 2; "
+         "whole pixels), blurred "
+         "(`blur` -> Gaussian sigma blur / 2, 0..64, default 2), in `color` (default black) at `opacity` (0..1, "
+         "default 0.5): "
          "{\"type\": \"dropShadow\", \"offsetX\": 3, \"offsetY\": 3, \"blur\": 4, \"opacity\": 0.6}.",
          {"offsetX", "offsetY", "blur", "color", "opacity"}},
         {"outerGlow",
-         "A soft halo behind the layer: its alpha blurred by `size` (Gaussian sigma size / 2, 0..64, default 4), times `strength` (0..8, "
+         "A soft halo behind the layer: its alpha blurred by `size` (Gaussian sigma size / 2, 0..64, default 4), times "
+         "`strength` (0..8, "
          "default 1; clamped to 1) and `opacity` (0..1, default 1), in `color` (default white): "
          "{\"type\": \"outerGlow\", \"color\": \"#ffee88\", \"size\": 6, \"strength\": 2}.",
          {"color", "size", "strength", "opacity"}},
         {"innerGlow",
-         "A glow from the edge of the shape inwards: the transparency around the layer blurred by `size` (sigma size / 2, 0..64, default 4), "
-         "times `strength` (0..8, default 1) and `opacity` (0..1, default 1), mixed into the layer's colour in `color` (default white); alpha "
+         "A glow from the edge of the shape inwards: the transparency around the layer blurred by `size` (sigma size / "
+         "2, 0..64, default 4), "
+         "times `strength` (0..8, default 1) and `opacity` (0..1, default 1), mixed into the layer's colour in `color` "
+         "(default white); alpha "
          "stays: {\"type\": \"innerGlow\", \"color\": \"#ffffff\", \"size\": 5}.",
          {"color", "size", "strength", "opacity"}},
         {"blur",
-         "Blurs the layer (colour and alpha, weighted by alpha, so it never darkens its edge). `mode`: gaussian (default; `radius` is the "
-         "standard deviation in pixels, 0..64, default 2) or box (`radius` is the half-width: a window of 2 radius + 1 pixels, whole "
+         "Blurs the layer (colour and alpha, weighted by alpha, so it never darkens its edge). `mode`: gaussian "
+         "(default; `radius` is the "
+         "standard deviation in pixels, 0..64, default 2) or box (`radius` is the half-width: a window of 2 radius + 1 "
+         "pixels, whole "
          "pixels). The layer grows to hold the blur: {\"type\": \"blur\", \"radius\": 3}.",
          {"mode", "radius"}},
         {"sharpen",
-         "Unsharp mask: adds `amount` (0..10, default 1) times the difference between the layer and its Gaussian blur of sigma `radius` "
+         "Unsharp mask: adds `amount` (0..10, default 1) times the difference between the layer and its Gaussian blur "
+         "of sigma `radius` "
          "(0.1..32, default 1); a difference smaller than `threshold` (0..1, default 0) is left alone. Alpha stays: "
          "{\"type\": \"sharpen\", \"radius\": 1, \"amount\": 1.5}.",
          {"radius", "amount", "threshold"}},
         {"noise",
-         "Adds noise to the visible pixels: uniform in -`amount`..`amount` (0..1, default 0.1), from a hash of `seed` (integer, default 0) "
-         "and the pixel, so the same seed gives the same noise. `mode`: mono (default, the same value on red, green and blue) or color: "
+         "Adds noise to the visible pixels: uniform in -`amount`..`amount` (0..1, default 0.1), from a hash of `seed` "
+         "(integer, default 0) "
+         "and the pixel, so the same seed gives the same noise. `mode`: mono (default, the same value on red, green "
+         "and blue) or color: "
          "{\"type\": \"noise\", \"amount\": 0.08, \"seed\": 7}.",
          {"amount", "seed", "mode"}},
         {"shade",
-         "Lights the layer from a normal map: `normalMap` is a PNG of the project (tangent space, green up like OpenGL; `flipGreen: true` "
-         "for green down), read at the layer's own pixels (outside it, or where it is transparent, the surface is flat). Without it the "
-         "surface is a height map made of the layer's alpha blurred by `smooth` pixels (sigma, 0..16, default 1) with slopes scaled by "
-         "`strength` (0..32, default 3), so the edges of a shape bulge. The light comes from `lightDirection` (degrees, counter-clockwise "
-         "from +x, 90 is up; default `style.lightDirection` of assets.json, else 135 = upper left) at `elevation` degrees above the "
-         "layer (1..90, default 45). Colour is multiplied by 1 + 2 `intensity` (n.L - L.z) (a flat surface keeps its colour), `intensity` "
+         "Lights the layer from a normal map: `normalMap` is a PNG of the project (tangent space, green up like "
+         "OpenGL; `flipGreen: true` "
+         "for green down), read at the layer's own pixels (outside it, or where it is transparent, the surface is "
+         "flat). Without it the "
+         "surface is a height map made of the layer's alpha blurred by `smooth` pixels (sigma, 0..16, default 1) with "
+         "slopes scaled by "
+         "`strength` (0..32, default 3), so the edges of a shape bulge. The light comes from `lightDirection` "
+         "(degrees, counter-clockwise "
+         "from +x, 90 is up; default `style.lightDirection` of assets.json, else 135 = upper left) at `elevation` "
+         "degrees above the "
+         "layer (1..90, default 45). Colour is multiplied by 1 + 2 `intensity` (n.L - L.z) (a flat surface keeps its "
+         "colour), `intensity` "
          "0..4, default 1; `amount` (0..1, default 1) mixes the result in: {\"type\": \"shade\", \"strength\": 4}.",
          {"normalMap", "flipGreen", "smooth", "strength", "lightDirection", "elevation", "intensity", "amount"}},
     };
@@ -206,27 +256,32 @@ bool is_array_of_numbers(const Json& j, std::size_t n) {
 
 // ---- validation ------------------------------------------------------------------------------------------------------
 
-void check_op(bool effect, const Json& op, const std::string& pointer, std::vector<ImageIssue>& issues, const std::string& projectDir) {
+void check_op(bool effect, const Json& op, const std::string& pointer, std::vector<ImageIssue>& issues,
+              const std::string& projectDir) {
     const char* list = effect ? "effects" : "adjustments";
     const auto& defs = defs_of(effect);
     std::vector<std::string> names;
     for (const OpDef& d : defs) names.push_back(d.name);
     if (!op.is_object()) {
-        issues.push_back({pointer, std::string("An entry of `") + list + "` must be an object, got " + describe_json_value(op) + ".",
-                          "Write {\"type\": \"" + names.front() + "\"}. Types: " + join(names, ", ") + "."});
+        issues.push_back(
+            {pointer, std::string("An entry of `") + list + "` must be an object, got " + describe_json_value(op) + ".",
+             "Write {\"type\": \"" + names.front() + "\"}. Types: " + join(names, ", ") + "."});
         return;
     }
     auto type = op.find("type");
     if (type == op.end() || !type->is_string()) {
-        issues.push_back({pointer + "/type", "Every entry of `" + std::string(list) + "` needs a string `type`.", "Types: " + join(names, ", ") + "."});
+        issues.push_back({pointer + "/type", "Every entry of `" + std::string(list) + "` needs a string `type`.",
+                          "Types: " + join(names, ", ") + "."});
         return;
     }
     const OpDef* def = nullptr;
     for (const OpDef& d : defs)
         if (type->get<std::string>() == d.name) def = &d;
     if (!def) {
-        issues.push_back({pointer + "/type", "Unknown " + std::string(effect ? "effect" : "adjustment") + " type '" + type->get<std::string>() + "'.",
-                          did_you_mean(type->get<std::string>(), names) + " Types: " + join(names, ", ") + "."});
+        issues.push_back(
+            {pointer + "/type",
+             "Unknown " + std::string(effect ? "effect" : "adjustment") + " type '" + type->get<std::string>() + "'.",
+             did_you_mean(type->get<std::string>(), names) + " Types: " + join(names, ", ") + "."});
         return;
     }
     std::vector<std::string> allowed = def->keys;
@@ -235,33 +290,43 @@ void check_op(bool effect, const Json& op, const std::string& pointer, std::vect
         if (std::find(allowed.begin(), allowed.end(), it.key()) != allowed.end()) continue;
         std::string escaped;
         for (char c : it.key()) escaped += c == '~' ? "~0" : c == '/' ? "~1" : std::string(1, c);
-        issues.push_back({pointer + "/" + escaped, "Unknown key '" + it.key() + "' for " + def->name + ".", did_you_mean(it.key(), allowed) + " " + def->description});
+        issues.push_back({pointer + "/" + escaped, "Unknown key '" + it.key() + "' for " + def->name + ".",
+                          did_you_mean(it.key(), allowed) + " " + def->description});
     }
     const std::string kind = def->name;
-    auto bad = [&](const std::string& key, const std::string& message) { issues.push_back({pointer + "/" + key, message, def->description}); };
+    auto bad = [&](const std::string& key, const std::string& message) {
+        issues.push_back({pointer + "/" + key, message, def->description});
+    };
     auto range = [&](const char* key, float lo, float hi) {
         auto it = op.find(key);
         if (it == op.end()) return;
         if (!it->is_number() || it->get<float>() < lo || it->get<float>() > hi)
-            bad(key, std::string("`") + key + "` of " + kind + " must be a number from " + num(lo) + " to " + num(hi) + ", got " + describe_json_value(*it) + ".");
+            bad(key, std::string("`") + key + "` of " + kind + " must be a number from " + num(lo) + " to " + num(hi) +
+                         ", got " + describe_json_value(*it) + ".");
     };
     auto integer = [&](const char* key, int lo, int hi) {
         auto it = op.find(key);
         if (it == op.end()) return;
         if (!it->is_number_integer() || it->get<long long>() < lo || it->get<long long>() > hi)
-            bad(key, std::string("`") + key + "` of " + kind + " must be a whole number from " + std::to_string(lo) + " to " + std::to_string(hi) + ", got " + describe_json_value(*it) + ".");
+            bad(key, std::string("`") + key + "` of " + kind + " must be a whole number from " + std::to_string(lo) +
+                         " to " + std::to_string(hi) + ", got " + describe_json_value(*it) + ".");
     };
     auto choice = [&](const char* key, const std::vector<std::string>& values) {
         auto it = op.find(key);
         if (it == op.end()) return;
         if (!it->is_string() || std::find(values.begin(), values.end(), it->get<std::string>()) == values.end()) {
             std::string hint = it->is_string() ? did_you_mean(it->get<std::string>(), values) + " " : std::string();
-            issues.push_back({pointer + "/" + key, std::string("`") + key + "` of " + kind + " must be one of " + join(values, ", ") + ", got " + describe_json_value(*it) + ".", hint + def->description});
+            issues.push_back({pointer + "/" + key,
+                              std::string("`") + key + "` of " + kind + " must be one of " + join(values, ", ") +
+                                  ", got " + describe_json_value(*it) + ".",
+                              hint + def->description});
         }
     };
     auto boolean = [&](const char* key) {
         auto it = op.find(key);
-        if (it != op.end() && !it->is_boolean()) bad(key, std::string("`") + key + "` of " + kind + " must be true or false, got " + describe_json_value(*it) + ".");
+        if (it != op.end() && !it->is_boolean())
+            bad(key, std::string("`") + key + "` of " + kind + " must be true or false, got " +
+                         describe_json_value(*it) + ".");
     };
     auto colour = [&](const char* key, bool required) {
         auto it = op.find(key);
@@ -270,24 +335,30 @@ void check_op(bool effect, const Json& op, const std::string& pointer, std::vect
         if (it == op.end()) {
             if (required) issues.push_back({pointer, kind + " needs a `" + key + "`.", def->description});
         } else if (!json_to(*it, c, &err)) {
-            bad(key, kind + " `" + key + "`: " + err + " Colours are \"#rrggbb\", \"#rrggbbaa\", a name like \"white\" or [r, g, b] in 0..1.");
+            bad(key, kind + " `" + key + "`: " + err +
+                         " Colours are \"#rrggbb\", \"#rrggbbaa\", a name like \"white\" or [r, g, b] in 0..1.");
         }
     };
     auto palette = [&]() {
         auto it = op.find("palette");
         if (it == op.end()) return;
         if (it->is_string()) {
-            if (it->get<std::string>() != "style") bad("palette", "`palette` of " + kind + " must be \"style\" or a list of colours, got " + describe_json_value(*it) + ".");
+            if (it->get<std::string>() != "style")
+                bad("palette", "`palette` of " + kind + " must be \"style\" or a list of colours, got " +
+                                   describe_json_value(*it) + ".");
             return;
         }
         if (!it->is_array() || it->empty() || it->size() > 256) {
-            bad("palette", "`palette` of " + kind + " must be \"style\" or a list of 1 to 256 colours, got " + describe_json_value(*it) + ".");
+            bad("palette", "`palette` of " + kind + " must be \"style\" or a list of 1 to 256 colours, got " +
+                               describe_json_value(*it) + ".");
             return;
         }
         for (std::size_t i = 0; i < it->size(); ++i) {
             Color c;
             std::string err;
-            if (!json_to((*it)[i], c, &err)) issues.push_back({pointer + "/palette/" + std::to_string(i), kind + " palette colour: " + err, "Colours are \"#rrggbb\", a name like \"white\" or [r, g, b] in 0..1."});
+            if (!json_to((*it)[i], c, &err))
+                issues.push_back({pointer + "/palette/" + std::to_string(i), kind + " palette colour: " + err,
+                                  "Colours are \"#rrggbb\", a name like \"white\" or [r, g, b] in 0..1."});
         }
     };
     auto triple = [&](const char* key) {
@@ -296,7 +367,10 @@ void check_op(bool effect, const Json& op, const std::string& pointer, std::vect
         bool ok = is_array_of_numbers(*it, 3);
         if (ok)
             for (const Json& v : *it) ok = ok && v.get<float>() >= -1 && v.get<float>() <= 1;
-        if (!ok) bad(key, std::string("`") + key + "` of " + kind + " must be [red, green, blue], three numbers from -1 to 1, got " + describe_json_value(*it) + ".");
+        if (!ok)
+            bad(key, std::string("`") + key + "` of " + kind +
+                         " must be [red, green, blue], three numbers from -1 to 1, got " + describe_json_value(*it) +
+                         ".");
     };
 
     if (kind == "brightness") range("amount", -1, 1);
@@ -314,7 +388,8 @@ void check_op(bool effect, const Json& op, const std::string& pointer, std::vect
         const auto ib = op.find("inBlack"), iw = op.find("inWhite");
         const float lo = number_or(op, "inBlack", 0), hi = number_or(op, "inWhite", 1);
         if ((ib != op.end() || iw != op.end()) && lo >= hi)
-            bad(iw != op.end() ? "inWhite" : "inBlack", "levels needs `inBlack` below `inWhite`, got " + num(lo) + " and " + num(hi) + ".");
+            bad(iw != op.end() ? "inWhite" : "inBlack",
+                "levels needs `inBlack` below `inWhite`, got " + num(lo) + " and " + num(hi) + ".");
     }
     if (kind == "curves") {
         choice("channel", channels());
@@ -322,18 +397,21 @@ void check_op(bool effect, const Json& op, const std::string& pointer, std::vect
         if (it == op.end()) {
             issues.push_back({pointer, "curves needs `points`.", def->description});
         } else if (!it->is_array() || it->size() < 2 || it->size() > 32) {
-            bad("points", "`points` of curves must be a list of 2 to 32 [x, y] pairs, got " + describe_json_value(*it) + ".");
+            bad("points",
+                "`points` of curves must be a list of 2 to 32 [x, y] pairs, got " + describe_json_value(*it) + ".");
         } else {
             float last = -1;
             for (std::size_t i = 0; i < it->size(); ++i) {
                 const Json& p = (*it)[i];
                 const std::string at = "points/" + std::to_string(i);
-                if (!is_array_of_numbers(p, 2) || p[0].get<float>() < 0 || p[0].get<float>() > 1 || p[1].get<float>() < 0 || p[1].get<float>() > 1) {
+                if (!is_array_of_numbers(p, 2) || p[0].get<float>() < 0 || p[0].get<float>() > 1 ||
+                    p[1].get<float>() < 0 || p[1].get<float>() > 1) {
                     bad(at, "A point of curves must be [x, y] with both in 0..1, got " + describe_json_value(p) + ".");
                     break;
                 }
                 if (p[0].get<float>() <= last) {
-                    bad(at, "The x of the points of curves must increase; " + describe_json_value(p[0]) + " is not above " + num(last) + ".");
+                    bad(at, "The x of the points of curves must increase; " + describe_json_value(p[0]) +
+                                " is not above " + num(last) + ".");
                     break;
                 }
                 last = p[0].get<float>();
@@ -363,7 +441,8 @@ void check_op(bool effect, const Json& op, const std::string& pointer, std::vect
         if (it == op.end()) {
             issues.push_back({pointer, "gradientMap needs `stops`.", def->description});
         } else if (!it->is_array() || it->size() < 2 || it->size() > 64) {
-            bad("stops", "`stops` of gradientMap must be a list of 2 to 64 {\"at\", \"color\"} objects, got " + describe_json_value(*it) + ".");
+            bad("stops", "`stops` of gradientMap must be a list of 2 to 64 {\"at\", \"color\"} objects, got " +
+                             describe_json_value(*it) + ".");
         } else {
             float last = -1;
             for (std::size_t i = 0; i < it->size(); ++i) {
@@ -371,16 +450,20 @@ void check_op(bool effect, const Json& op, const std::string& pointer, std::vect
                 const std::string at = "stops/" + std::to_string(i);
                 Color c;
                 std::string err;
-                if (!st.is_object() || !st.contains("at") || !st["at"].is_number() || st["at"].get<float>() < 0 || st["at"].get<float>() > 1) {
-                    bad(at, "A stop of gradientMap must be {\"at\": 0..1, \"color\": ...}, got " + describe_json_value(st) + ".");
+                if (!st.is_object() || !st.contains("at") || !st["at"].is_number() || st["at"].get<float>() < 0 ||
+                    st["at"].get<float>() > 1) {
+                    bad(at, "A stop of gradientMap must be {\"at\": 0..1, \"color\": ...}, got " +
+                                describe_json_value(st) + ".");
                     break;
                 }
                 if (!st.contains("color") || !json_to(st["color"], c, &err)) {
-                    bad(at + "/color", "A stop of gradientMap needs a valid `color`" + (err.empty() ? std::string(".") : ": " + err));
+                    bad(at + "/color",
+                        "A stop of gradientMap needs a valid `color`" + (err.empty() ? std::string(".") : ": " + err));
                     break;
                 }
                 if (st["at"].get<float>() < last) {
-                    bad(at + "/at", "The `at` of the stops of gradientMap must not decrease; " + num(st["at"].get<float>()) + " follows " + num(last) + ".");
+                    bad(at + "/at", "The `at` of the stops of gradientMap must not decrease; " +
+                                        num(st["at"].get<float>()) + " follows " + num(last) + ".");
                     break;
                 }
                 last = st["at"].get<float>();
@@ -442,11 +525,13 @@ void check_op(bool effect, const Json& op, const std::string& pointer, std::vect
         if (it != op.end()) {
             const std::string file = it->is_string() ? it->get<std::string>() : std::string();
             if (!it->is_string() || to_lower(file).size() < 5 || to_lower(file).substr(file.size() - 4) != ".png") {
-                bad("normalMap", "`normalMap` of shade must be the project path of a PNG, got " + describe_json_value(*it) + ".");
+                bad("normalMap",
+                    "`normalMap` of shade must be the project path of a PNG, got " + describe_json_value(*it) + ".");
             } else if (!projectDir.empty()) {
                 std::error_code ec;
                 auto path = resolve_project_path(projectDir, file);
-                if (!path.ok() || !stdfs::is_regular_file(*path, ec)) bad("normalMap", "The normal map '" + file + "' does not exist in the project.");
+                if (!path.ok() || !stdfs::is_regular_file(*path, ec))
+                    bad("normalMap", "The normal map '" + file + "' does not exist in the project.");
             }
         }
     }
@@ -480,24 +565,46 @@ void hsv_to_rgb(float h, float s, float v, float& r, float& g, float& b) {
     const float c = v * s, x = c * (1.0f - std::fabs(std::fmod(h / 60.0f, 2.0f) - 1.0f)), m = v - c;
     float rr = 0, gg = 0, bb = 0;
     switch (int(h / 60.0f)) {
-        case 0: rr = c; gg = x; break;
-        case 1: rr = x; gg = c; break;
-        case 2: gg = c; bb = x; break;
-        case 3: gg = x; bb = c; break;
-        case 4: rr = x; bb = c; break;
-        default: rr = c; bb = x; break;
+        case 0:
+            rr = c;
+            gg = x;
+            break;
+        case 1:
+            rr = x;
+            gg = c;
+            break;
+        case 2:
+            gg = c;
+            bb = x;
+            break;
+        case 3:
+            gg = x;
+            bb = c;
+            break;
+        case 4:
+            rr = x;
+            bb = c;
+            break;
+        default:
+            rr = c;
+            bb = x;
+            break;
     }
-    r = rr + m; g = gg + m; b = bb + m;
+    r = rr + m;
+    g = gg + m;
+    b = bb + m;
 }
 
 float srgb_to_linear(float c) { return c <= 0.04045f ? c / 12.92f : std::pow((c + 0.055f) / 1.055f, 2.4f); }
 
 std::array<float, 3> to_oklab(const float* rgb) {
-    const float r = srgb_to_linear(clamp01(rgb[0])), g = srgb_to_linear(clamp01(rgb[1])), b = srgb_to_linear(clamp01(rgb[2]));
+    const float r = srgb_to_linear(clamp01(rgb[0])), g = srgb_to_linear(clamp01(rgb[1])),
+                b = srgb_to_linear(clamp01(rgb[2]));
     const float l = std::cbrt(0.4122214708f * r + 0.5363325363f * g + 0.0514459929f * b);
     const float m = std::cbrt(0.2119034982f * r + 0.6806995451f * g + 0.1073969566f * b);
     const float s = std::cbrt(0.0883024619f * r + 0.2817188376f * g + 0.6299787005f * b);
-    return {0.2104542553f * l + 0.7936177850f * m - 0.0040720468f * s, 1.9779984951f * l - 2.4285922050f * m + 0.4505937099f * s,
+    return {0.2104542553f * l + 0.7936177850f * m - 0.0040720468f * s,
+            1.9779984951f * l - 2.4285922050f * m + 0.4505937099f * s,
             0.0259040371f * l + 0.7827717662f * m - 0.8086757660f * s};
 }
 
@@ -560,8 +667,10 @@ void blur_raster(Raster& r, float sigma, bool box) {
         planes[3].v[i] = a;
     }
     for (Plane& p : planes) {
-        if (box) box_plane(p, int(std::lround(sigma)));
-        else blur_plane(p, sigma);
+        if (box)
+            box_plane(p, int(std::lround(sigma)));
+        else
+            blur_plane(p, sigma);
     }
     for (std::size_t i = 0; i < planes[0].v.size(); ++i) {
         const float a = planes[3].v[i];
@@ -593,9 +702,12 @@ std::vector<float> distance_squared(const std::vector<char>& feature, int w, int
             float s;
             while (true) {
                 const int p = v[std::size_t(k)];
-                s = ((f[std::size_t(q)] + float(q) * float(q)) - (f[std::size_t(p)] + float(p) * float(p))) / float(2 * q - 2 * p);
-                if (s <= z[std::size_t(k)] && k > 0) --k;
-                else break;
+                s = ((f[std::size_t(q)] + float(q) * float(q)) - (f[std::size_t(p)] + float(p) * float(p))) /
+                    float(2 * q - 2 * p);
+                if (s <= z[std::size_t(k)] && k > 0)
+                    --k;
+                else
+                    break;
             }
             ++k;
             v[std::size_t(k)] = q;
@@ -611,9 +723,13 @@ std::vector<float> distance_squared(const std::vector<char>& feature, int w, int
         for (int i = 0; i < len; ++i) put(i, out[std::size_t(i)]);
     };
     for (int x = 0; x < w; ++x)
-        pass(h, [&](int y) { return d[std::size_t(y) * w + x]; }, [&](int y, float val) { d[std::size_t(y) * w + x] = val; });
+        pass(
+            h, [&](int y) { return d[std::size_t(y) * w + x]; },
+            [&](int y, float val) { d[std::size_t(y) * w + x] = val; });
     for (int y = 0; y < h; ++y)
-        pass(w, [&](int x) { return d[std::size_t(y) * w + x]; }, [&](int x, float val) { d[std::size_t(y) * w + x] = val; });
+        pass(
+            w, [&](int x) { return d[std::size_t(y) * w + x]; },
+            [&](int x, float val) { d[std::size_t(y) * w + x] = val; });
     return d;
 }
 
@@ -666,7 +782,8 @@ std::vector<float> curve_lut(const Json& points) {
         }
         while (seg + 2 < n && x > xs[seg + 1]) ++seg;
         const float h = xs[seg + 1] - xs[seg], t = (x - xs[seg]) / h, t2 = t * t, t3 = t2 * t;
-        lut[std::size_t(i)] = clamp01((2 * t3 - 3 * t2 + 1) * ys[seg] + (t3 - 2 * t2 + t) * h * m[seg] + (-2 * t3 + 3 * t2) * ys[seg + 1] + (t3 - t2) * h * m[seg + 1]);
+        lut[std::size_t(i)] = clamp01((2 * t3 - 3 * t2 + 1) * ys[seg] + (t3 - 2 * t2 + t) * h * m[seg] +
+                                      (-2 * t3 + 3 * t2) * ys[seg + 1] + (t3 - t2) * h * m[seg + 1]);
     }
     return lut;
 }
@@ -688,12 +805,14 @@ struct Quantizer {
         if (useLab) {
             const auto p = to_oklab(in);
             for (std::size_t i = 0; i < lab.size(); ++i) {
-                const float dl = p[0] - lab[i][0], da = p[1] - lab[i][1], db = p[2] - lab[i][2], dd = dl * dl + da * da + db * db;
+                const float dl = p[0] - lab[i][0], da = p[1] - lab[i][1], db = p[2] - lab[i][2],
+                            dd = dl * dl + da * da + db * db;
                 if (dd < bestD) bestD = dd, best = i;
             }
         } else {
             for (std::size_t i = 0; i < rgb.size(); ++i) {
-                const float dr = clamp01(in[0]) - rgb[i][0], dg = clamp01(in[1]) - rgb[i][1], db = clamp01(in[2]) - rgb[i][2], dd = dr * dr + dg * dg + db * db;
+                const float dr = clamp01(in[0]) - rgb[i][0], dg = clamp01(in[1]) - rgb[i][1],
+                            db = clamp01(in[2]) - rgb[i][2], dd = dr * dr + dg * dg + db * db;
                 if (dd < bestD) bestD = dd, best = i;
             }
         }
@@ -737,7 +856,8 @@ bool make_quantizer(const Json& op, bool allowLevels, const OpEnv& env, Quantize
         const StyleGuide& style = env.style();
         if (!style.palette || style.palette->empty()) {
             env.fail("This operation maps to the style palette, but assets.json has no `style.palette`.",
-                     "Set a palette in the style (\"style\": {\"palette\": [\"#1a1c2c\", \"#5d275d\", ...]}), or give the colours here: \"palette\": [\"#000000\", \"#ffffff\"].");
+                     "Set a palette in the style (\"style\": {\"palette\": [\"#1a1c2c\", \"#5d275d\", ...]}), or give "
+                     "the colours here: \"palette\": [\"#000000\", \"#ffffff\"].");
             return false;
         }
         for (const auto& c : *style.palette) q.rgb.push_back({c[0] / 255.0f, c[1] / 255.0f, c[2] / 255.0f});
@@ -776,8 +896,10 @@ void apply_quantize(const Json& op, const std::string& method, bool allowLevels,
             int dx, dy;
             float w;
         };
-        static const std::vector<Tap> fs = {{1, 0, 7 / 16.0f}, {-1, 1, 3 / 16.0f}, {0, 1, 5 / 16.0f}, {1, 1, 1 / 16.0f}};
-        static const std::vector<Tap> atkinson = {{1, 0, 1 / 8.0f}, {2, 0, 1 / 8.0f}, {-1, 1, 1 / 8.0f}, {0, 1, 1 / 8.0f}, {1, 1, 1 / 8.0f}, {0, 2, 1 / 8.0f}};
+        static const std::vector<Tap> fs = {
+            {1, 0, 7 / 16.0f}, {-1, 1, 3 / 16.0f}, {0, 1, 5 / 16.0f}, {1, 1, 1 / 16.0f}};
+        static const std::vector<Tap> atkinson = {{1, 0, 1 / 8.0f}, {2, 0, 1 / 8.0f}, {-1, 1, 1 / 8.0f},
+                                                  {0, 1, 1 / 8.0f}, {1, 1, 1 / 8.0f}, {0, 2, 1 / 8.0f}};
         const auto& taps = method == "atkinson" ? atkinson : fs;
         std::vector<float> buf = r.px;
         for (int y = 0; y < r.h; ++y)
@@ -816,7 +938,8 @@ void apply_adjustments(const std::vector<Json>& list, Raster& r, const OpEnv& en
             for (std::size_t i = 0; i < r.px.size(); i += 4)
                 for (int c = 0; c < 3; ++c) r.px[i + c] = std::clamp(r.px[i + c] + amount, 0.0f, 1.0f);
         } else if (type == "levels") {
-            const float inB = number_or(op, "inBlack", 0), inW = number_or(op, "inWhite", 1), gamma = number_or(op, "gamma", 1);
+            const float inB = number_or(op, "inBlack", 0), inW = number_or(op, "inWhite", 1),
+                        gamma = number_or(op, "gamma", 1);
             const float outB = number_or(op, "outBlack", 0), outW = number_or(op, "outWhite", 1);
             const ChannelMask mask = channel_mask(op);
             for (std::size_t i = 0; i < count; ++i)
@@ -927,7 +1050,8 @@ void apply_adjustments(const std::vector<Json>& list, Raster& r, const OpEnv& en
 namespace {
 
 std::uint32_t hash_u32(std::uint32_t seed, std::int32_t x, std::int32_t y, std::uint32_t channel) {
-    std::uint32_t h = seed * 0x9E3779B1u ^ std::uint32_t(x) * 0x85EBCA6Bu ^ std::uint32_t(y) * 0xC2B2AE35u ^ channel * 0x27D4EB2Fu;
+    std::uint32_t h =
+        seed * 0x9E3779B1u ^ std::uint32_t(x) * 0x85EBCA6Bu ^ std::uint32_t(y) * 0xC2B2AE35u ^ channel * 0x27D4EB2Fu;
     h ^= h >> 16;
     h *= 0x85EBCA6Bu;
     h ^= h >> 13;
@@ -942,9 +1066,12 @@ void apply_outline(const Json& op, bool isStroke, Raster& r) {
     const std::string pos = string_or(op, "position", isStroke ? "center" : "outside");
     const bool smooth = bool_or(op, "smooth", false);
     float wo = 0, wi = 0;
-    if (pos == "outside") wo = w;
-    else if (pos == "inside") wi = w;
-    else wo = std::ceil(w / 2.0f), wi = w - wo;
+    if (pos == "outside")
+        wo = w;
+    else if (pos == "inside")
+        wi = w;
+    else
+        wo = std::ceil(w / 2.0f), wi = w - wo;
     // room for the stroke; an inside stroke gets one transparent row so the edge of the raster counts as the edge of the shape
     r = grown(r, wo > 0 ? int(std::ceil(wo)) + 1 : 1);
     const std::size_t count = std::size_t(r.w) * r.h;
@@ -995,7 +1122,8 @@ void apply_drop_shadow(const Json& op, Raster& r) {
 }
 
 void apply_outer_glow(const Json& op, Raster& r) {
-    const float sigma = number_or(op, "size", 4) / 2.0f, strength = number_or(op, "strength", 1), opacity = number_or(op, "opacity", 1);
+    const float sigma = number_or(op, "size", 4) / 2.0f, strength = number_or(op, "strength", 1),
+                opacity = number_or(op, "opacity", 1);
     const Color c = color_or(op, "color", Color(1, 1, 1, 1));
     r = grown(r, int(std::ceil(sigma * 3.0f)) + 1);
     Plane glow = alpha_plane(r);
@@ -1009,7 +1137,8 @@ void apply_outer_glow(const Json& op, Raster& r) {
 }
 
 void apply_inner_glow(const Json& op, Raster& r) {
-    const float sigma = number_or(op, "size", 4) / 2.0f, strength = number_or(op, "strength", 1), opacity = number_or(op, "opacity", 1);
+    const float sigma = number_or(op, "size", 4) / 2.0f, strength = number_or(op, "strength", 1),
+                opacity = number_or(op, "opacity", 1);
     const Color c = color_or(op, "color", Color(1, 1, 1, 1));
     const int pad = int(std::ceil(sigma * 3.0f)) + 1;
     // the transparency around the layer, on a bigger plane so that the edge of the raster does not glow
@@ -1029,7 +1158,8 @@ void apply_inner_glow(const Json& op, Raster& r) {
 }
 
 void apply_sharpen(const Json& op, Raster& r) {
-    const float sigma = number_or(op, "radius", 1), amount = number_or(op, "amount", 1), threshold = number_or(op, "threshold", 0);
+    const float sigma = number_or(op, "radius", 1), amount = number_or(op, "amount", 1),
+                threshold = number_or(op, "threshold", 0);
     Raster blurred = r;
     blur_raster(blurred, sigma, false);
     for (std::size_t i = 0; i < std::size_t(r.w) * r.h; ++i) {
@@ -1052,16 +1182,20 @@ void apply_noise(const Json& op, Raster& r) {
         for (int x = 0; x < r.w; ++x) {
             float* p = r.at(x, y);
             if (p[3] <= 0) continue;
-            for (int c = 0; c < 3; ++c) p[c] = clamp01(p[c] + amount * unit(hash_u32(seed, x + r.ox, y + r.oy, mono ? 0u : std::uint32_t(c))));
+            for (int c = 0; c < 3; ++c)
+                p[c] = clamp01(p[c] + amount * unit(hash_u32(seed, x + r.ox, y + r.oy, mono ? 0u : std::uint32_t(c))));
         }
 }
 
 void apply_shade(const Json& op, Raster& r, const OpEnv& env) {
-    const float strength = number_or(op, "strength", 3), intensity = number_or(op, "intensity", 1), amount = number_or(op, "amount", 1);
+    const float strength = number_or(op, "strength", 3), intensity = number_or(op, "intensity", 1),
+                amount = number_or(op, "amount", 1);
     const bool flipGreen = bool_or(op, "flipGreen", false);
     float degrees = 135.0f;
-    if (op.contains("lightDirection")) degrees = op["lightDirection"].get<float>();
-    else if (env.style().lightDirection) degrees = float(*env.style().lightDirection);
+    if (op.contains("lightDirection"))
+        degrees = op["lightDirection"].get<float>();
+    else if (env.style().lightDirection)
+        degrees = float(*env.style().lightDirection);
     const float theta = degrees * 3.14159265f / 180.0f, elev = number_or(op, "elevation", 45) * 3.14159265f / 180.0f;
     const float lx = std::cos(theta) * std::cos(elev), ly = std::sin(theta) * std::cos(elev), lz = std::sin(elev);
     const Image* map = op.contains("normalMap") ? &env.image(op["normalMap"].get<std::string>()) : nullptr;
@@ -1086,7 +1220,9 @@ void apply_shade(const Json& op, Raster& r, const OpEnv& env) {
                     }
                 }
             } else {
-                auto h = [&](int hx, int hy) { return height.at(std::clamp(hx, 0, r.w - 1), std::clamp(hy, 0, r.h - 1)); };
+                auto h = [&](int hx, int hy) {
+                    return height.at(std::clamp(hx, 0, r.w - 1), std::clamp(hy, 0, r.h - 1));
+                };
                 nx = -strength * (h(x + 1, y) - h(x - 1, y)) * 0.5f;
                 ny = strength * (h(x, y + 1) - h(x, y - 1)) * 0.5f;  // image rows run down, the light's y runs up
             }

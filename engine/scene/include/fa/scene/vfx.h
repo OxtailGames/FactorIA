@@ -24,48 +24,54 @@
 namespace fa {
 
 // ------------------------------------------------------------------------------------------------------------ limits --
-constexpr int kVfxMaxParts = 16;           // parts (emitters, lights, sounds, commands) of one effect
-constexpr int kVfxMaxEmitters = 8;         // of those, emitters
-constexpr int kVfxMaxCommands = 8;         // of those, commands
-constexpr double kVfxMaxDuration = 30.0;   // seconds: the longest an effect, or a part of it, may last
-constexpr double kVfxMaxLifespan = 30.0;   // seconds: the longest one particle of an emitter of an effect may be seen (lifetime with variance, plus trailTime); parse_vfx refuses more
-constexpr double kVfxMinLoop = 0.1;        // seconds: a looping effect shorter than this waits until it is this long before it restarts
+constexpr int kVfxMaxParts = 16;          // parts (emitters, lights, sounds, commands) of one effect
+constexpr int kVfxMaxEmitters = 8;        // of those, emitters
+constexpr int kVfxMaxCommands = 8;        // of those, commands
+constexpr double kVfxMaxDuration = 30.0;  // seconds: the longest an effect, or a part of it, may last
+constexpr double kVfxMaxLifespan =
+    30.0;  // seconds: the longest one particle of an emitter of an effect may be seen (lifetime with variance, plus trailTime); parse_vfx refuses more
+constexpr double kVfxMinLoop =
+    0.1;  // seconds: a looping effect shorter than this waits until it is this long before it restarts
 // seconds added to the time an emitter's particles need to die before its entity is removed (particles are stepped in
 // whole fixed steps)
 constexpr double kVfxDrainSlack = 0.1;
-constexpr int kVfxMaxPlaying = 64;         // Vfx playing, or still holding emitters and lights, at once: a play past this is dropped (and logged once)
-constexpr int kVfxMaxLiveParticles = 4000; // warning: the emitters of one effect may hold more live particles than this together
+constexpr int kVfxMaxPlaying =
+    64;  // Vfx playing, or still holding emitters and lights, at once: a play past this is dropped (and logged once)
+constexpr int kVfxMaxLiveParticles =
+    4000;  // warning: the emitters of one effect may hold more live particles than this together
 
 enum class VfxPartKind { Emitter, Light, Sound, Command };
 
 // One thing the effect does. Which fields are used depends on `kind`; the rest keep their defaults.
 struct VfxPart {
     VfxPartKind kind = VfxPartKind::Emitter;
-    std::string name;       // names the child entity an emitter or a light becomes ("sparks"); defaults to the kind and index
-    double at = 0.0;        // seconds after the effect starts
-    double duration = 0.0;  // emitter: how long it keeps emitting its `rate` (0: only its burst); light: how long it lasts
-    Vec3 offset{0, 0, 0};   // emitter and light: where, relative to the effect
+    std::string
+        name;         // names the child entity an emitter or a light becomes ("sparks"); defaults to the kind and index
+    double at = 0.0;  // seconds after the effect starts
+    double duration =
+        0.0;  // emitter: how long it keeps emitting its `rate` (0: only its burst); light: how long it lasts
+    Vec3 offset{0, 0, 0};  // emitter and light: where, relative to the effect
 
     Json emitter = Json::object();  // Emitter: the fields of a ParticleEmitter (a patch over the defaults)
     bool light3d = false;           // Light: a 3D Light instead of a Light2D
     Json light = Json::object();    // Light: the fields of the Light2D (or Light when light3d)
-    Curve fade;                     // Light: multiplies its intensity over its life, position 0..1; empty = a straight fade out
+    Curve fade;  // Light: multiplies its intensity over its life, position 0..1; empty = a straight fade out
 
-    std::string clip;               // Sound: the audio file
-    float volume = 1.0f;            // Sound
-    float pitch = 1.0f;             // Sound
-    std::string bus = "sfx";        // Sound: mixer bus
+    std::string clip;         // Sound: the audio file
+    float volume = 1.0f;      // Sound
+    float pitch = 1.0f;       // Sound
+    std::string bus = "sfx";  // Sound: mixer bus
 
-    std::string command;            // Command: the command to call, e.g. "feel.shake"
-    Json args = Json::object();     // Command: its arguments
+    std::string command;         // Command: the command to call, e.g. "feel.shake"
+    Json args = Json::object();  // Command: its arguments
 };
 
 struct VfxDoc {
-    std::string path;               // where it was read from
-    std::string description;        // the file's "doc"
-    double duration = 0.0;          // seconds until every part has started and ended (the file's "duration", or worked out)
+    std::string path;         // where it was read from
+    std::string description;  // the file's "doc"
+    double duration = 0.0;    // seconds until every part has started and ended (the file's "duration", or worked out)
     std::vector<VfxPart> parts;
-    std::int64_t mtime = 0;         // of the file when it was read (cache validity)
+    std::int64_t mtime = 0;  // of the file when it was read (cache validity)
 };
 
 // One thing wrong, or useless, in a document. `pointer` is a JSON pointer inside the file ("/parts/2/clip").
@@ -85,7 +91,8 @@ bool vfx_command_allowed(std::string_view command);
 
 // Checks a parsed JSON document. On an error the Error names the file, the pointer and the fix of the first problem (and says how
 // many more there are); `issues` receives every problem, warnings included, and is filled on success too.
-Result<std::shared_ptr<const VfxDoc>> parse_vfx(const Json& json, std::string_view file, std::vector<VfxIssue>* issues = nullptr);
+Result<std::shared_ptr<const VfxDoc>> parse_vfx(const Json& json, std::string_view file,
+                                                std::vector<VfxIssue>* issues = nullptr);
 
 // Reads a document through fa::fs. Cached per path, modification time and size: every Vfx that plays the same file shares one
 // VfxDoc, and a file that changed on disk is read again by the next call (hot reload: a play that has begun finishes the version it
@@ -98,8 +105,8 @@ Result<std::shared_ptr<const VfxDoc>> load_vfx(std::string_view path, std::vecto
 // the issues), read and parse; Compare = read the file and reuse the entry when the text hash is the same; Trust = reuse the entry without
 // reading. `nowNs` is the clock of fs::file_time_ns; an entry is given as `hasEntry` with the time and size it was made for.
 enum class VfxCacheUse { Parse, Compare, Trust };
-VfxCacheUse vfx_cache_use(std::int64_t mtime, std::int64_t size, std::int64_t nowNs, bool hasEntry, std::int64_t entryMtime, std::int64_t entrySize,
-                          bool wantIssues);
+VfxCacheUse vfx_cache_use(std::int64_t mtime, std::int64_t size, std::int64_t nowNs, bool hasEntry,
+                          std::int64_t entryMtime, std::int64_t entrySize, bool wantIssues);
 void clear_vfx_cache();  // forgets every cached document (tests)
 
 // The files a document names that `exists` says are not there (the clips of its sound parts), as errors with the JSON pointer and
@@ -140,8 +147,9 @@ struct VfxPlayOptions {
     Vec3 position{0, 0, 0};
     Entity parent = kNullEntity;  // not null: follows this entity, `position` is local to it
     float rotation = 0.0f;        // degrees around z (2D)
-    float scale = 1.0f;           // 2 = the same effect twice as large (see update_vfx); times and command arguments are not scaled
-    float speed = 1.0f;           // 1 = as written; 2 = twice as fast
+    float scale =
+        1.0f;  // 2 = the same effect twice as large (see update_vfx); times and command arguments are not scaled
+    float speed = 1.0f;  // 1 = as written; 2 = twice as fast
     bool loop = false;
 };
 Result<Entity> vfx_play(World& world, std::string_view effect, const VfxPlayOptions& options = {});

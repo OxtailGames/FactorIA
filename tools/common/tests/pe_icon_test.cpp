@@ -36,14 +36,17 @@ TEST_CASE("pe_icon: the BMP icon images are replaced in place, the signature is 
         const int sizes[] = {16, 32, 48};
         for (int i = 0; i < 3; ++i) {
             const Bytes want = bmp(blue, sizes[i]);
-            CHECK_MESSAGE(std::equal(want.begin(), want.end(), pe.bytes.begin() + std::ptrdiff_t(pe.blobOffset[i])), "image " << sizes[i]);
+            CHECK_MESSAGE(std::equal(want.begin(), want.end(), pe.bytes.begin() + std::ptrdiff_t(pe.blobOffset[i])),
+                          "image " << sizes[i]);
             CHECK_FALSE(std::equal(want.begin(), want.end(), before.begin() + std::ptrdiff_t(pe.blobOffset[i])));
         }
         // The PNG image, the icon group, the other resource type and the code are untouched.
         for (std::size_t i = 3; i < 6; ++i)
-            CHECK(std::equal(before.begin() + std::ptrdiff_t(pe.blobOffset[i]), before.begin() + std::ptrdiff_t(pe.blobOffset[i] + 30),
+            CHECK(std::equal(before.begin() + std::ptrdiff_t(pe.blobOffset[i]),
+                             before.begin() + std::ptrdiff_t(pe.blobOffset[i] + 30),
                              pe.bytes.begin() + std::ptrdiff_t(pe.blobOffset[i])));
-        CHECK(std::equal(before.begin() + std::ptrdiff_t(pe.textOffset), before.begin() + std::ptrdiff_t(pe.textOffset + pe.textSize),
+        CHECK(std::equal(before.begin() + std::ptrdiff_t(pe.textOffset),
+                         before.begin() + std::ptrdiff_t(pe.textOffset + pe.textSize),
                          pe.bytes.begin() + std::ptrdiff_t(pe.textOffset)));
 
         // The certificate table is gone: directory 4 cleared and the file ends where the table began.
@@ -70,7 +73,8 @@ TEST_CASE("pe_icon: the BMP icon images are replaced in place, the signature is 
     }
 }
 
-TEST_CASE("pe_icon: a table that does not end the file is cleared but not cut; an unsigned file only changes the icon and checksum") {
+TEST_CASE("pe_icon: a table that does not end the file is cleared but not cut; an unsigned file only changes the icon "
+          "and checksum") {
     const Image red = solid(64, 255, 0, 0), blue = solid(64, 0, 0, 255);
     {
         PeOptions o;
@@ -130,7 +134,8 @@ TEST_CASE("pe_icon: a player without the placeholder icon is left exactly as it 
     }
 }
 
-TEST_CASE("pe_icon: a file that is not a PE, or has a damaged resource table, is an error that teaches and changes nothing") {
+TEST_CASE(
+    "pe_icon: a file that is not a PE, or has a damaged resource table, is an error that teaches and changes nothing") {
     const Image blue = solid(64, 0, 0, 255);
     {
         Bytes script = {'#', '!', '/', 'b', 'i', 'n', '/', 's', 'h', '\n', 'e', 'x', 'i', 't', '\n'};
@@ -200,7 +205,9 @@ TEST_CASE("pe_version: the strings and numbers are written in place, padded with
     const Bytes before = pe.bytes;
     PeVersionInfo info;
     info.version = "1.2.3";
-    info.strings = {{"FileDescription", "Space Dodge"}, {"ProductVersion", "1.2.3"}, {"OriginalFilename", "space-dodge.exe"},
+    info.strings = {{"FileDescription", "Space Dodge"},
+                    {"ProductVersion", "1.2.3"},
+                    {"OriginalFilename", "space-dodge.exe"},
                     {"CompanyName", "not in the resource"}};
     auto r = patch_pe_version(pe.bytes, info);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
@@ -212,10 +219,12 @@ TEST_CASE("pe_version: the strings and numbers are written in place, padded with
     CHECK(version_string(pe.bytes, "FileDescription") == "Space Dodge");
     CHECK(version_string(pe.bytes, "ProductVersion") == "1.2.3");
     CHECK(version_string(pe.bytes, "OriginalFilename") == "space-dodge.exe");
-    CHECK(version_string(pe.bytes, "ProductName") == "FactorIA Player" + std::string(24, ' '));  // not asked for: as it was
+    CHECK(version_string(pe.bytes, "ProductName") ==
+          "FactorIA Player" + std::string(24, ' '));  // not asked for: as it was
     // VS_FIXEDFILEINFO: dwFileVersionMS/LS and dwProductVersionMS/LS (after the signature and the structure version).
     const Bytes signature = {0xBD, 0x04, 0xEF, 0xFE};
-    const std::size_t fixed = std::size_t(std::search(pe.bytes.begin(), pe.bytes.end(), signature.begin(), signature.end()) - pe.bytes.begin());
+    const std::size_t fixed = std::size_t(
+        std::search(pe.bytes.begin(), pe.bytes.end(), signature.begin(), signature.end()) - pe.bytes.begin());
     REQUIRE(fixed < pe.bytes.size());
     CHECK(get32(pe.bytes, fixed + 8) == 0x00010002u);
     CHECK(get32(pe.bytes, fixed + 12) == 0x00030000u);
@@ -223,7 +232,8 @@ TEST_CASE("pe_version: the strings and numbers are written in place, padded with
     CHECK(get32(pe.bytes, fixed + 20) == 0x00030000u);
     CHECK(get32(pe.bytes, pe.optOffset + 64) == reference_checksum(pe.bytes, pe.optOffset + 64));
     // The icon images are untouched.
-    CHECK(std::equal(before.begin() + std::ptrdiff_t(pe.blobOffset[0]), before.begin() + std::ptrdiff_t(pe.blobOffset[0] + 100),
+    CHECK(std::equal(before.begin() + std::ptrdiff_t(pe.blobOffset[0]),
+                     before.begin() + std::ptrdiff_t(pe.blobOffset[0] + 100),
                      pe.bytes.begin() + std::ptrdiff_t(pe.blobOffset[0])));
 }
 
@@ -269,11 +279,13 @@ TEST_CASE("pe_version: the built factoria_player.exe is a GUI program with the v
     Bytes exe(text.begin(), text.end());
     REQUIRE(exe.size() > 0x40);
     const std::size_t optionalHeader = get32(exe, 0x3C) + 24;
-    CHECK_MESSAGE((exe[optionalHeader + 68] | (exe[optionalHeader + 69] << 8)) == 2, "IMAGE_SUBSYSTEM_WINDOWS_GUI (3 = console)");
+    CHECK_MESSAGE((exe[optionalHeader + 68] | (exe[optionalHeader + 69] << 8)) == 2,
+                  "IMAGE_SUBSYSTEM_WINDOWS_GUI (3 = console)");
 
     PeVersionInfo info;
     info.version = "1.2.3";
-    for (const char* key : {"FileDescription", "ProductName", "FileVersion", "ProductVersion", "InternalName", "OriginalFilename"})
+    for (const char* key :
+         {"FileDescription", "ProductName", "FileVersion", "ProductVersion", "InternalName", "OriginalFilename"})
         info.strings[key] = "value of " + std::string(key);
     auto r = patch_pe_version(exe, info);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));

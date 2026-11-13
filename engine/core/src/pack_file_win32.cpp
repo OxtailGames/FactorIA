@@ -14,8 +14,9 @@
 namespace fa::detail {
 
 std::intptr_t pack_open(const std::filesystem::path& file) {
-    HANDLE h = CreateFileW(fs::os_path(file).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
-                           OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, nullptr);
+    HANDLE h =
+        CreateFileW(fs::os_path(file).c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                    nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL | FILE_FLAG_RANDOM_ACCESS, nullptr);
     return h == INVALID_HANDLE_VALUE ? -1 : reinterpret_cast<std::intptr_t>(h);
 }
 
@@ -48,7 +49,8 @@ bool pack_map(std::intptr_t native, std::uint64_t size, const std::uint8_t*& map
         (void)size;
         return false;
     } else {
-        if (native == -1 || size == 0 || size > std::uint64_t(std::numeric_limits<std::size_t>::max() / 2)) return false;
+        if (native == -1 || size == 0 || size > std::uint64_t(std::numeric_limits<std::size_t>::max() / 2))
+            return false;
         HANDLE section = CreateFileMappingW(reinterpret_cast<HANDLE>(native), nullptr, PAGE_READONLY, DWORD(size >> 32),
                                             DWORD(size & 0xffffffffu), nullptr);
         if (!section) return false;

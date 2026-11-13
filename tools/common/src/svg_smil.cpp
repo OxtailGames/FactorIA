@@ -56,10 +56,14 @@ struct Node {
 std::string escape_text(std::string_view s) {
     std::string out;
     for (char c : s) {
-        if (c == '&') out += "&amp;";
-        else if (c == '<') out += "&lt;";
-        else if (c == '>') out += "&gt;";
-        else out += c;
+        if (c == '&')
+            out += "&amp;";
+        else if (c == '<')
+            out += "&lt;";
+        else if (c == '>')
+            out += "&gt;";
+        else
+            out += c;
     }
     return out;
 }
@@ -92,15 +96,19 @@ public:
                 p_ = end + 3;
             } else if (starts("<?")) {
                 const std::size_t end = s_.find("?>", p_ + 2);
-                if (end == std::string::npos) return fail("a processing instruction is never closed", "End it with ?>.", p_);
+                if (end == std::string::npos)
+                    return fail("a processing instruction is never closed", "End it with ?>.", p_);
                 p_ = end + 2;
             } else if (starts("<!")) {  // <!DOCTYPE ...>, with an optional [internal subset]
                 int brackets = 0;
                 std::size_t q = p_ + 2;
                 for (; q < s_.size(); ++q) {
-                    if (s_[q] == '[') ++brackets;
-                    else if (s_[q] == ']') --brackets;
-                    else if (s_[q] == '>' && brackets <= 0) break;
+                    if (s_[q] == '[')
+                        ++brackets;
+                    else if (s_[q] == ']')
+                        --brackets;
+                    else if (s_[q] == '>' && brackets <= 0)
+                        break;
                 }
                 if (q >= s_.size()) return fail("a <!...> declaration is never closed", "End it with >.", p_);
                 p_ = q + 1;
@@ -109,11 +117,15 @@ public:
                 p_ += 2;
                 const std::string name = read_name();
                 while (p_ < s_.size() && is_space(s_[p_])) ++p_;
-                if (p_ >= s_.size() || s_[p_] != '>') return fail("the closing tag </" + name + " has no >", "Write </" + name + ">.", start);
+                if (p_ >= s_.size() || s_[p_] != '>')
+                    return fail("the closing tag </" + name + " has no >", "Write </" + name + ">.", start);
                 ++p_;
-                if (open.empty()) return fail("</" + name + "> closes an element that is not open", "Remove it, or add the opening tag.", start);
+                if (open.empty())
+                    return fail("</" + name + "> closes an element that is not open",
+                                "Remove it, or add the opening tag.", start);
                 if (open.back()->name != name)
-                    return fail("</" + name + "> does not match <" + open.back()->name + "> (opened at line " + std::to_string(open.back()->line) + ")",
+                    return fail("</" + name + "> does not match <" + open.back()->name + "> (opened at line " +
+                                    std::to_string(open.back()->line) + ")",
                                 "Close the elements in the order they were opened.", start);
                 open.pop_back();
             } else {
@@ -123,20 +135,28 @@ public:
                 const bool selfClosing = selfClosing_;
                 Node* raw = n.get();
                 if (open.empty()) {
-                    if (root) return fail("a second root element <" + n->name + ">", "An SVG has one <svg> root; put the rest inside it.", p_);
+                    if (root)
+                        return fail("a second root element <" + n->name + ">",
+                                    "An SVG has one <svg> root; put the rest inside it.", p_);
                     root = std::move(n);
                 } else {
                     raw->parent = open.back();
                     open.back()->kids.push_back({std::move(n), {}});
                 }
                 if (!selfClosing) {
-                    if (int(open.size()) >= kMaxDepth) return fail("elements are nested more than " + std::to_string(kMaxDepth) + " deep", "Flatten the groups.", p_);
+                    if (int(open.size()) >= kMaxDepth)
+                        return fail("elements are nested more than " + std::to_string(kMaxDepth) + " deep",
+                                    "Flatten the groups.", p_);
                     open.push_back(raw);
                 }
             }
         }
-        if (!open.empty()) return fail("<" + open.back()->name + "> (line " + std::to_string(open.back()->line) + ") is never closed", "Add </" + open.back()->name + ">.", s_.size());
-        if (!root) return fail("the text has no element", "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">.", 0);
+        if (!open.empty())
+            return fail("<" + open.back()->name + "> (line " + std::to_string(open.back()->line) + ") is never closed",
+                        "Add </" + open.back()->name + ">.", s_.size());
+        if (!root)
+            return fail("the text has no element",
+                        "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">.", 0);
         return root;
     }
 
@@ -158,7 +178,9 @@ private:
     }
 
     Error fail(const std::string& what, const std::string& hint, std::size_t pos) const {
-        return Error{std::format("The SVG is not well-formed XML (line {}, column {}): {}.", line_of(pos), column_of(pos), what), hint};
+        return Error{
+            std::format("The SVG is not well-formed XML (line {}, column {}): {}.", line_of(pos), column_of(pos), what),
+            hint};
     }
 
     std::string read_name() {
@@ -173,11 +195,13 @@ private:
         auto node = std::make_unique<Node>();
         node->line = line_of(start);
         node->name = read_name();
-        if (node->name.empty()) return fail("'<' is not followed by an element name", "Write &lt; for a literal <.", start);
+        if (node->name.empty())
+            return fail("'<' is not followed by an element name", "Write &lt; for a literal <.", start);
         selfClosing_ = false;
         for (;;) {
             while (p_ < s_.size() && is_space(s_[p_])) ++p_;
-            if (p_ >= s_.size()) return fail("<" + node->name + "> has no closing >", "End the tag with > or />.", start);
+            if (p_ >= s_.size())
+                return fail("<" + node->name + "> has no closing >", "End the tag with > or />.", start);
             if (s_[p_] == '>') {
                 ++p_;
                 return node;
@@ -189,17 +213,22 @@ private:
             }
             const std::size_t attrStart = p_;
             const std::string name = read_name();
-            if (name.empty()) return fail("unexpected '" + std::string(1, s_[p_]) + "' inside <" + node->name + ">", "Attributes are name=\"value\".", attrStart);
+            if (name.empty())
+                return fail("unexpected '" + std::string(1, s_[p_]) + "' inside <" + node->name + ">",
+                            "Attributes are name=\"value\".", attrStart);
             while (p_ < s_.size() && is_space(s_[p_])) ++p_;
             if (p_ >= s_.size() || s_[p_] != '=')
-                return fail("attribute '" + name + "' of <" + node->name + "> has no value", "Write " + name + "=\"...\".", attrStart);
+                return fail("attribute '" + name + "' of <" + node->name + "> has no value",
+                            "Write " + name + "=\"...\".", attrStart);
             ++p_;
             while (p_ < s_.size() && is_space(s_[p_])) ++p_;
             if (p_ >= s_.size() || (s_[p_] != '"' && s_[p_] != '\''))
                 return fail("the value of '" + name + "' is not in quotes", "Write " + name + "=\"...\".", attrStart);
             const char quote = s_[p_++];
             const std::size_t end = s_.find(quote, p_);
-            if (end == std::string::npos) return fail("the value of '" + name + "' is never closed", "End it with " + std::string(1, quote) + ".", attrStart);
+            if (end == std::string::npos)
+                return fail("the value of '" + name + "' is never closed", "End it with " + std::string(1, quote) + ".",
+                            attrStart);
             node->attrs.emplace_back(name, s_.substr(p_, end - p_));
             p_ = end + 1;
         }
@@ -220,7 +249,8 @@ std::vector<std::string> split_list(const std::string& s, char sep) {
     std::size_t start = 0;
     for (;;) {
         const std::size_t end = s.find(sep, start);
-        out.push_back(trimmed(std::string_view(s).substr(start, end == std::string::npos ? std::string::npos : end - start)));
+        out.push_back(
+            trimmed(std::string_view(s).substr(start, end == std::string::npos ? std::string::npos : end - start)));
         if (end == std::string::npos) break;
         start = end + 1;
     }
@@ -286,8 +316,9 @@ enum class ValKind { Opaque, Num, Color };
 struct Val {
     ValKind kind = ValKind::Opaque;
     std::string raw;
-    std::vector<double> nums;       // the numbers (Num), or r g b in 0..255 (Color)
-    std::vector<std::string> parts;  // Num: the text before the first number, between numbers, after the last (nums + 1)
+    std::vector<double> nums;  // the numbers (Num), or r g b in 0..255 (Color)
+    std::vector<std::string>
+        parts;  // Num: the text before the first number, between numbers, after the last (nums + 1)
 };
 
 bool scan_number(const std::string& s, std::size_t& i, double& v) {
@@ -327,9 +358,18 @@ Val parse_val(const std::string& text, bool colourAttr) {
             double n;
             bool ok = true;
             while (i < inner.size()) {
-                if (is_space(inner[i])) { ++i; continue; }
-                if (!scan_number(inner, i, n)) { ok = false; break; }
-                if (i < inner.size() && inner[i] == '%') { n = n * 255.0 / 100.0; ++i; }
+                if (is_space(inner[i])) {
+                    ++i;
+                    continue;
+                }
+                if (!scan_number(inner, i, n)) {
+                    ok = false;
+                    break;
+                }
+                if (i < inner.size() && inner[i] == '%') {
+                    n = n * 255.0 / 100.0;
+                    ++i;
+                }
                 ch.push_back(n);
             }
             if (ok && ch.size() == 3) {
@@ -379,7 +419,8 @@ std::string format_val(const Val& v) {
 }
 
 bool same_shape(const Val& a, const Val& b) {
-    return a.kind == b.kind && a.kind != ValKind::Opaque && a.nums.size() == b.nums.size() && (a.kind == ValKind::Color || a.parts == b.parts);
+    return a.kind == b.kind && a.kind != ValKind::Opaque && a.nums.size() == b.nums.size() &&
+           (a.kind == ValKind::Color || a.parts == b.parts);
 }
 
 // ---- cubic Bezier easing (keySplines) --------------------------------------------------------------------------
@@ -509,7 +550,8 @@ bool flatten_path(const std::string& d, Polyline& out, std::string& why) {
     for (;;) {
         skip();
         if (i >= d.size()) break;
-        if (std::isalpha(static_cast<unsigned char>(d[i]))) cmd = d[i++];
+        if (std::isalpha(static_cast<unsigned char>(d[i])))
+            cmd = d[i++];
         else if (cmd == 0) {
             why = "path data must start with M";
             return false;
@@ -534,9 +576,27 @@ bool flatten_path(const std::string& d, Polyline& out, std::string& why) {
                 cmd = rel ? 'l' : 'L';
                 break;
             }
-            case 'L': ok = need(2); if (ok) { cur = abs_pt(a[0], a[1]); out.add(cur); } break;
-            case 'H': ok = need(1); if (ok) { cur.x = rel ? cur.x + a[0] : a[0]; out.add(cur); } break;
-            case 'V': ok = need(1); if (ok) { cur.y = rel ? cur.y + a[0] : a[0]; out.add(cur); } break;
+            case 'L':
+                ok = need(2);
+                if (ok) {
+                    cur = abs_pt(a[0], a[1]);
+                    out.add(cur);
+                }
+                break;
+            case 'H':
+                ok = need(1);
+                if (ok) {
+                    cur.x = rel ? cur.x + a[0] : a[0];
+                    out.add(cur);
+                }
+                break;
+            case 'V':
+                ok = need(1);
+                if (ok) {
+                    cur.y = rel ? cur.y + a[0] : a[0];
+                    out.add(cur);
+                }
+                break;
             case 'C': {
                 ok = need(6);
                 if (!ok) break;
@@ -587,10 +647,11 @@ bool flatten_path(const std::string& d, Polyline& out, std::string& why) {
                 cur = e;
                 break;
             }
-            case 'Z': out.add(start); cur = start; break;
-            default:
-                why = std::string("unknown path command '") + cmd + "'";
-                return false;
+            case 'Z':
+                out.add(start);
+                cur = start;
+                break;
+            default: why = std::string("unknown path command '") + cmd + "'"; return false;
         }
         if (!ok) {
             why = std::string("the numbers of path command '") + cmd + "' are missing or malformed";
@@ -649,17 +710,19 @@ struct Anim {
 
 struct ActiveState {
     bool on = false;
-    double local = 0;       // seconds into the active interval
-    double beginTime = 0;   // when the instance began
-    bool atEnd = false;     // frozen after the end
+    double local = 0;      // seconds into the active interval
+    double beginTime = 0;  // when the instance began
+    bool atEnd = false;    // frozen after the end
 };
 
 bool is_animation_name(const std::string& n) {
-    return n == "animate" || n == "set" || n == "animateTransform" || n == "animateMotion" || n == "animateColor" || n == "discard";
+    return n == "animate" || n == "set" || n == "animateTransform" || n == "animateMotion" || n == "animateColor" ||
+           n == "discard";
 }
 
 bool is_colour_attr(const std::string& a) {
-    return a == "fill" || a == "stroke" || a == "stop-color" || a == "flood-color" || a == "lighting-color" || a == "color";
+    return a == "fill" || a == "stroke" || a == "stop-color" || a == "flood-color" || a == "lighting-color" ||
+           a == "color";
 }
 
 std::string describe(const Node* n) {
@@ -671,7 +734,8 @@ std::string describe(const Node* n) {
 std::string style_prop(const std::string& style, const std::string& prop) {
     for (const std::string& decl : split_list(style, ';')) {
         const std::size_t colon = decl.find(':');
-        if (colon != std::string::npos && trimmed(std::string_view(decl).substr(0, colon)) == prop) return trimmed(std::string_view(decl).substr(colon + 1));
+        if (colon != std::string::npos && trimmed(std::string_view(decl).substr(0, colon)) == prop)
+            return trimmed(std::string_view(decl).substr(colon + 1));
     }
     return {};
 }
@@ -721,12 +785,15 @@ struct SmilSvg::Impl {
             std::string css;
             for (const Child& c : n->kids) css += c.text;
             if (css.find("@keyframes") != std::string::npos || css.find("animation") != std::string::npos)
-                warn("<style>: CSS animations (@keyframes, animation:) are not sampled; write the motion with <animate>, <animateTransform> or <animateMotion>, or draw it with a code module (`source`).");
+                warn("<style>: CSS animations (@keyframes, animation:) are not sampled; write the motion with "
+                     "<animate>, <animateTransform> or <animateMotion>, or draw it with a code module (`source`).");
         } else if (name == "script") {
-            warn("<script>: scripts are not run; the animation must be SMIL (<animate>...) or a code module (`source`).");
+            warn("<script>: scripts are not run; the animation must be SMIL (<animate>...) or a code module "
+                 "(`source`).");
         }
         if (name != "style" && n->attr("style") && style_property(n, "animation").size())
-            warn(describe(n) + ": the CSS `animation` property is not sampled; use SMIL elements or a code module (`source`).");
+            warn(describe(n) +
+                 ": the CSS `animation` property is not sampled; use SMIL elements or a code module (`source`).");
         for (Child& c : n->kids)
             if (c.node) collect_anims(c.node.get());
     }
@@ -760,10 +827,14 @@ struct SmilSvg::Impl {
         for (const char* unsupported : {"min", "max", "restart"})
             if (n->attr(unsupported)) warn_anim(*a, std::string("`") + unsupported + "` is not sampled (ignored).");
 
-        if (name == "set") a->kind = Kind::Set;
-        else if (name == "animateTransform") a->kind = Kind::Transform;
-        else if (name == "animateMotion") a->kind = Kind::Motion;
-        else a->kind = Kind::Animate;
+        if (name == "set")
+            a->kind = Kind::Set;
+        else if (name == "animateTransform")
+            a->kind = Kind::Transform;
+        else if (name == "animateMotion")
+            a->kind = Kind::Motion;
+        else
+            a->kind = Kind::Animate;
         if (a->kind == Kind::Transform || a->kind == Kind::Motion) {
             a->attr = "transform";
         } else {
@@ -779,7 +850,8 @@ struct SmilSvg::Impl {
             a->tfType = trimmed(n->attr_or("type", "translate"));
             static const std::set<std::string> kTypes = {"translate", "scale", "rotate", "skewX", "skewY"};
             if (!kTypes.count(a->tfType)) {
-                warn_anim(*a, "type \"" + a->tfType + "\" is not one of translate, scale, rotate, skewX, skewY (ignored).");
+                warn_anim(*a,
+                          "type \"" + a->tfType + "\" is not one of translate, scale, rotate, skewX, skewY (ignored).");
                 return;
             }
         }
@@ -800,17 +872,23 @@ struct SmilSvg::Impl {
         if (dur != "indefinite" && !dur.empty()) {
             double v = 0;
             if (dur == "media" || !parse_clock(dur, v) || v <= 0)
-                warn_anim(a, "dur=\"" + dur + "\" is not a positive time like \"2s\" or \"500ms\"; the duration is treated as indefinite.");
+                warn_anim(
+                    a,
+                    "dur=\"" + dur +
+                        "\" is not a positive time like \"2s\" or \"500ms\"; the duration is treated as indefinite.");
             else
                 a.dur = v;
         }
         if (const std::string* rc = n->attr("repeatCount")) {
             a.hasRepeatCount = true;
             double v = 0;
-            if (trimmed(*rc) == "indefinite") a.repeatCount = kInf;
-            else if (parse_double(trimmed(*rc), v) && v > 0) a.repeatCount = v;
+            if (trimmed(*rc) == "indefinite")
+                a.repeatCount = kInf;
+            else if (parse_double(trimmed(*rc), v) && v > 0)
+                a.repeatCount = v;
             else {
-                warn_anim(a, "repeatCount=\"" + *rc + "\" is not a positive number or \"indefinite\" (it repeats once).");
+                warn_anim(a,
+                          "repeatCount=\"" + *rc + "\" is not a positive number or \"indefinite\" (it repeats once).");
                 a.hasRepeatCount = false;
             }
         }
@@ -853,10 +931,14 @@ struct SmilSvg::Impl {
             return true;
         }
         const std::string calc = trimmed(n->attr_or("calcMode"));
-        if (calc == "discrete") a.calc = Calc::Discrete;
-        else if (calc == "paced") a.calc = Calc::Paced;
-        else if (calc == "spline") a.calc = Calc::Spline;
-        else if (calc.empty() || calc == "linear") a.calc = a.kind == Kind::Motion && calc.empty() ? Calc::Paced : Calc::Linear;
+        if (calc == "discrete")
+            a.calc = Calc::Discrete;
+        else if (calc == "paced")
+            a.calc = Calc::Paced;
+        else if (calc == "spline")
+            a.calc = Calc::Spline;
+        else if (calc.empty() || calc == "linear")
+            a.calc = a.kind == Kind::Motion && calc.empty() ? Calc::Paced : Calc::Linear;
         else {
             warn_anim(a, "calcMode=\"" + calc + "\" is not discrete, linear, paced or spline (linear is used).");
             a.calc = Calc::Linear;
@@ -874,7 +956,8 @@ struct SmilSvg::Impl {
                 return false;
             }
         } else if (to) {
-            if (from) a.values = {*from, *to};
+            if (from)
+                a.values = {*from, *to};
             else {
                 a.values = {std::string(), *to};
                 a.fromUnderlying = true;
@@ -906,10 +989,12 @@ struct SmilSvg::Impl {
             ok = ok && times.size() == count && std::is_sorted(times.begin(), times.end());
             if (ok && a.calc != Calc::Discrete && count > 1) ok = times.front() == 0 && times.back() == 1;
             if (ok && a.calc == Calc::Discrete) ok = times.front() == 0;
-            if (ok) a.keyTimes = times;
+            if (ok)
+                a.keyTimes = times;
             else
-                warn_anim(a, std::format("keyTimes=\"{}\" does not fit its {} values (one per value, rising from 0{}); keyTimes are ignored.", *kt,
-                                         count, a.calc == Calc::Discrete ? "" : " to 1"));
+                warn_anim(a, std::format("keyTimes=\"{}\" does not fit its {} values (one per value, rising from 0{}); "
+                                         "keyTimes are ignored.",
+                                         *kt, count, a.calc == Calc::Discrete ? "" : " to 1"));
         }
         if (a.calc == Calc::Spline) {
             const std::string* ks = n->attr("keySplines");
@@ -923,8 +1008,14 @@ struct SmilSvg::Impl {
                     int got = 0;
                     double d;
                     while (i < s.size() && got < 5) {
-                        if (is_space(s[i])) { ++i; continue; }
-                        if (!scan_number(s, i, d)) { got = 99; break; }
+                        if (is_space(s[i])) {
+                            ++i;
+                            continue;
+                        }
+                        if (!scan_number(s, i, d)) {
+                            got = 99;
+                            break;
+                        }
                         if (got < 4) v[got] = d;
                         ++got;
                     }
@@ -937,8 +1028,10 @@ struct SmilSvg::Impl {
                 ok = ok && a.splines.size() + 1 == count;
             }
             if (!ok) {
-                warn_anim(a, "calcMode=\"spline\" needs keySplines with 4 numbers (x1 y1 x2 y2, x between 0 and 1) for each of the " +
-                                 std::to_string(count > 0 ? count - 1 : 0) + " intervals, separated by ';' (linear is used).");
+                warn_anim(a, "calcMode=\"spline\" needs keySplines with 4 numbers (x1 y1 x2 y2, x between 0 and 1) for "
+                             "each of the " +
+                                 std::to_string(count > 0 ? count - 1 : 0) +
+                                 " intervals, separated by ';' (linear is used).");
                 a.calc = Calc::Linear;
                 a.splines.clear();
             }
@@ -977,11 +1070,15 @@ struct SmilSvg::Impl {
             return false;
         }
         const std::string rot = trimmed(n->attr_or("rotate"));
-        if (rot == "auto") a.rotate = Rotate::Auto;
-        else if (rot == "auto-reverse") a.rotate = Rotate::AutoReverse;
+        if (rot == "auto")
+            a.rotate = Rotate::Auto;
+        else if (rot == "auto-reverse")
+            a.rotate = Rotate::AutoReverse;
         else if (!rot.empty()) {
-            if (parse_double(rot, a.rotateAngle)) a.rotate = Rotate::Fixed;
-            else warn_anim(a, "rotate=\"" + rot + "\" is not auto, auto-reverse or a number of degrees (ignored).");
+            if (parse_double(rot, a.rotateAngle))
+                a.rotate = Rotate::Fixed;
+            else
+                warn_anim(a, "rotate=\"" + rot + "\" is not auto, auto-reverse or a number of degrees (ignored).");
         }
         const std::size_t count = !a.path.pts.empty() ? 2 : a.values.size();
         if (const std::string* kp = n->attr("keyPoints")) {
@@ -1000,12 +1097,14 @@ struct SmilSvg::Impl {
                     ok = ok && parse_double(s, v) && v >= 0 && v <= 1;
                     times.push_back(ok ? v : 0);
                 }
-            ok = ok && kt && pts.size() == times.size() && pts.size() >= 2 && std::is_sorted(times.begin(), times.end());
+            ok =
+                ok && kt && pts.size() == times.size() && pts.size() >= 2 && std::is_sorted(times.begin(), times.end());
             if (ok) {
                 a.keyPoints = pts;
                 a.keyTimes = times;
             } else {
-                warn_anim(a, "keyPoints need a path and a keyTimes with the same number of entries, each 0 to 1 (ignored).");
+                warn_anim(
+                    a, "keyPoints need a path and a keyTimes with the same number of entries, each 0 to 1 (ignored).");
             }
         } else if (const std::string* kt = n->attr("keyTimes")) {
             std::vector<double> times;
@@ -1015,8 +1114,10 @@ struct SmilSvg::Impl {
                 ok = ok && parse_double(s, v) && v >= 0 && v <= 1;
                 times.push_back(ok ? v : 0);
             }
-            if (ok && times.size() == count && std::is_sorted(times.begin(), times.end())) a.keyTimes = times;
-            else warn_anim(a, "keyTimes do not fit the path or values (one per value, rising); they are ignored.");
+            if (ok && times.size() == count && std::is_sorted(times.begin(), times.end()))
+                a.keyTimes = times;
+            else
+                warn_anim(a, "keyTimes do not fit the path or values (one per value, rising); they are ignored.");
         }
         if (a.calc == Calc::Spline) {
             warn_anim(a, "calcMode=\"spline\" on a motion is sampled as linear.");
@@ -1056,12 +1157,15 @@ struct SmilSvg::Impl {
                     double offset = 0;
                     const std::string rest = trimmed(std::string_view(spec).substr(dot + len));
                     if (!rest.empty() && !((rest[0] == '+' || rest[0] == '-') && parse_clock(rest, offset))) {
-                        warn_anim(a, "cannot read the time \"" + spec + "\" (only offsets like \"1s\" and sync-bases like \"other.end+0.5s\" are sampled); it is ignored.");
+                        warn_anim(a, "cannot read the time \"" + spec +
+                                         "\" (only offsets like \"1s\" and sync-bases like \"other.end+0.5s\" are "
+                                         "sampled); it is ignored.");
                         continue;
                     }
                     auto it = animById.find(id);
                     if (it == animById.end()) {
-                        warn_anim(a, "time \"" + spec + "\" refers to '" + id + "', which is not an animation of this SVG (ignored).");
+                        warn_anim(a, "time \"" + spec + "\" refers to '" + id +
+                                         "', which is not an animation of this SVG (ignored).");
                         continue;
                     }
                     resolve(*it->second);
@@ -1075,7 +1179,9 @@ struct SmilSvg::Impl {
                     }
                     continue;
                 }
-                warn_anim(a, "the time \"" + spec + "\" depends on an event or the clock (click, repeat(n), wallclock...), which cannot be sampled; it is ignored. Use an offset such as begin=\"1s\".");
+                warn_anim(a, "the time \"" + spec +
+                                 "\" depends on an event or the clock (click, repeat(n), wallclock...), which cannot "
+                                 "be sampled; it is ignored. Use an offset such as begin=\"1s\".");
             }
             std::sort(out.begin(), out.end());
             out.erase(std::unique(out.begin(), out.end()), out.end());
@@ -1092,8 +1198,10 @@ struct SmilSvg::Impl {
         double e = b + a.activeDur;
         if (!a.endSpecs.empty()) {
             auto it = std::upper_bound(a.ends.begin(), a.ends.end(), b);
-            if (it != a.ends.end()) e = std::min(e, *it);
-            else if (a.ends.empty()) e = std::min(e, b + a.activeDur);  // an end that never comes (an event): no cut
+            if (it != a.ends.end())
+                e = std::min(e, *it);
+            else if (a.ends.empty())
+                e = std::min(e, b + a.activeDur);  // an end that never comes (an event): no cut
         }
         if (k + 1 < a.begins.size()) e = std::min(e, a.begins[k + 1]);
         return e;
@@ -1166,7 +1274,8 @@ struct SmilSvg::Impl {
     }
 
     // vectors: the numbers of each value (all the same length) when interpolable, else empty vectors of the right count.
-    static Interp interpolate(const Anim& a, const std::vector<std::vector<double>>& vectors, bool interpolable, double f) {
+    static Interp interpolate(const Anim& a, const std::vector<std::vector<double>>& vectors, bool interpolable,
+                              double f) {
         const std::size_t n = vectors.size();
         Interp r;
         if (n == 1) {
@@ -1180,7 +1289,8 @@ struct SmilSvg::Impl {
             std::vector<double> cum(n, 0.0);
             for (std::size_t i = 1; i < n; ++i) {
                 double d2 = 0;
-                for (std::size_t c = 0; c < vectors[i].size(); ++c) d2 += (vectors[i][c] - vectors[i - 1][c]) * (vectors[i][c] - vectors[i - 1][c]);
+                for (std::size_t c = 0; c < vectors[i].size(); ++c)
+                    d2 += (vectors[i][c] - vectors[i - 1][c]) * (vectors[i][c] - vectors[i - 1][c]);
                 total += std::sqrt(d2);
                 cum[i] = total;
             }
@@ -1203,13 +1313,16 @@ struct SmilSvg::Impl {
         locate(kt, f, k, u);
         if (a.calc == Calc::Spline && k < a.splines.size()) u = spline_ease(a.splines[k], u);
         r.nums.resize(vectors[k].size());
-        for (std::size_t c = 0; c < r.nums.size(); ++c) r.nums[c] = vectors[k][c] + (vectors[k + 1][c] - vectors[k][c]) * u;
+        for (std::size_t c = 0; c < r.nums.size(); ++c)
+            r.nums[c] = vectors[k][c] + (vectors[k + 1][c] - vectors[k][c]) * u;
         return r;
     }
 
     // What an attribute holds when the SVG does not set it (to-animations start from it).
     static std::string default_value(const std::string& attr) {
-        if (attr == "opacity" || attr == "fill-opacity" || attr == "stroke-opacity" || attr == "stop-opacity" || attr == "stroke-width" || attr == "stroke-miterlimit") return "1";
+        if (attr == "opacity" || attr == "fill-opacity" || attr == "stroke-opacity" || attr == "stop-opacity" ||
+            attr == "stroke-width" || attr == "stroke-miterlimit")
+            return "1";
         if (attr == "fill" || attr == "stop-color" || attr == "color") return "#000000";
         if (attr == "stroke") return "none";
         return "0";
@@ -1240,7 +1353,8 @@ struct SmilSvg::Impl {
             }
             vals.push_back(parse_val(text, colour));
         }
-        if (a.byOnly && vals.size() == 2) {  // by-animation: from 0 (in the shape of `by`) to by, added to the underlying value
+        if (a.byOnly &&
+            vals.size() == 2) {  // by-animation: from 0 (in the shape of `by`) to by, added to the underlying value
             vals[0] = vals[1];
             std::fill(vals[0].nums.begin(), vals[0].nums.end(), 0.0);
         }
@@ -1249,8 +1363,12 @@ struct SmilSvg::Impl {
         if (!interpolable && vals.size() > 1 && a.calc != Calc::Discrete) {
             bool allNum = true;
             for (const Val& v : vals) allNum = allNum && v.kind != ValKind::Opaque;
-            warn_anim(a, allNum ? "its values do not have the same structure (the same text around the numbers), so they change at their key times instead of blending."
-                                : "its values are not numbers or colours, so they change at their key times instead of blending.");
+            warn_anim(
+                a,
+                allNum
+                    ? "its values do not have the same structure (the same text around the numbers), so they change at "
+                      "their key times instead of blending."
+                    : "its values are not numbers or colours, so they change at their key times instead of blending.");
         }
         std::vector<std::vector<double>> vectors;
         for (const Val& v : vals) vectors.push_back(interpolable ? v.nums : std::vector<double>());
@@ -1264,7 +1382,8 @@ struct SmilSvg::Impl {
                 for (std::size_t c = 0; c < out.nums.size(); ++c) out.nums[c] += base.nums[c];
                 out.parts = base.parts;
             } else {
-                warn_anim(a, "additive=\"sum\" needs the attribute to hold numbers of the same shape as the animated value; the animated value replaces it.");
+                warn_anim(a, "additive=\"sum\" needs the attribute to hold numbers of the same shape as the animated "
+                             "value; the animated value replaces it.");
             }
         }
         return format_val(out);
@@ -1275,9 +1394,12 @@ struct SmilSvg::Impl {
         std::size_t i = 0;
         while (i < s.size()) {
             double v = 0;
-            if (is_space(s[i]) || s[i] == ',') ++i;
-            else if (scan_number(s, i, v)) out.push_back(v);
-            else ++i;
+            if (is_space(s[i]) || s[i] == ',')
+                ++i;
+            else if (scan_number(s, i, v))
+                out.push_back(v);
+            else
+                ++i;
         }
         return out;
     }
@@ -1367,16 +1489,20 @@ struct SmilSvg::Impl {
             }
         }
         std::string out = "translate(" + fmt_num(pos.x) + " " + fmt_num(pos.y) + ")";
-        if (a.rotate == Rotate::Auto) out += " rotate(" + fmt_num(angle * 180.0 / kPiD) + ")";
-        else if (a.rotate == Rotate::AutoReverse) out += " rotate(" + fmt_num(angle * 180.0 / kPiD + 180.0) + ")";
-        else if (a.rotate == Rotate::Fixed) out += " rotate(" + fmt_num(a.rotateAngle) + ")";
+        if (a.rotate == Rotate::Auto)
+            out += " rotate(" + fmt_num(angle * 180.0 / kPiD) + ")";
+        else if (a.rotate == Rotate::AutoReverse)
+            out += " rotate(" + fmt_num(angle * 180.0 / kPiD + 180.0) + ")";
+        else if (a.rotate == Rotate::Fixed)
+            out += " rotate(" + fmt_num(a.rotateAngle) + ")";
         return out;
     }
 
     // ---- writing ----
     using Overrides = std::unordered_map<const Node*, std::vector<std::pair<std::string, std::string>>>;
 
-    static void set_override(std::vector<std::pair<std::string, std::string>>& list, const std::string& name, const std::string& value) {
+    static void set_override(std::vector<std::pair<std::string, std::string>>& list, const std::string& name,
+                             const std::string& value) {
         for (auto& p : list)
             if (p.first == name) {
                 p.second = value;
@@ -1424,9 +1550,11 @@ struct SmilSvg::Impl {
                     }
                     if (a->kind == Kind::Motion && value.empty()) continue;
                     set_override(out, a->attr, value);
-                    if (const std::string* style = target->attr("style")) {  // a style="fill:red" would beat the animated attribute
+                    if (const std::string* style =
+                            target->attr("style")) {  // a style="fill:red" would beat the animated attribute
                         const std::string current = current_style(out, *style);
-                        if (!style_prop(current, a->attr).empty()) set_override(out, "style", without_style_property(current, a->attr));
+                        if (!style_prop(current, a->attr).empty())
+                            set_override(out, "style", without_style_property(current, a->attr));
                     }
                 }
             }
@@ -1436,7 +1564,8 @@ struct SmilSvg::Impl {
         return text;
     }
 
-    static std::string current_style(const std::vector<std::pair<std::string, std::string>>& out, const std::string& original) {
+    static std::string current_style(const std::vector<std::pair<std::string, std::string>>& out,
+                                     const std::string& original) {
         for (const auto& p : out)
             if (p.first == "style") return p.second;
         return original;
@@ -1470,8 +1599,10 @@ struct SmilSvg::Impl {
         }
         out += ">";
         for (const Child& c : n.kids) {
-            if (c.node) write(*c.node, overrides, out);
-            else out += c.text;
+            if (c.node)
+                write(*c.node, overrides, out);
+            else
+                out += c.text;
         }
         out += "</" + n.name + ">";
     }
@@ -1480,8 +1611,10 @@ struct SmilSvg::Impl {
         if (v.find('"') == std::string::npos) return v;
         std::string out;
         for (char c : v) {
-            if (c == '"') out += "&quot;";
-            else out += c;
+            if (c == '"')
+                out += "&quot;";
+            else
+                out += c;
         }
         return out;
     }
@@ -1506,7 +1639,8 @@ Result<SmilSvg> SmilSvg::parse(const std::string& svg) {
     if (!root.ok()) return root.error();
     if (local_name((*root)->name) != "svg")
         return Error{"The document's root element is <" + (*root)->name + ">, not <svg>.",
-                     "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" width=\"100\" height=\"100\">."};
+                     "Start with <svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\" width=\"100\" "
+                     "height=\"100\">."};
     SmilSvg out;
     out.impl_ = std::make_shared<Impl>();
     Impl& im = *out.impl_;
@@ -1516,7 +1650,8 @@ Result<SmilSvg> SmilSvg::parse(const std::string& svg) {
     for (auto& a : im.anims) im.resolve(*a);
     for (auto& a : im.anims)
         if (a->valid && a->begins.empty())
-            im.warn_anim(*a, "never begins (its begin is an event or indefinite, which cannot be sampled), so it has no effect. Use begin=\"0s\" or another offset.");
+            im.warn_anim(*a, "never begins (its begin is an event or indefinite, which cannot be sampled), so it has "
+                             "no effect. Use begin=\"0s\" or another offset.");
     return out;
 }
 

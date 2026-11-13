@@ -38,7 +38,8 @@ float signed_area2(Vec2 a, Vec2 b, Vec2 c) { return cross(b - a, c - a); }
 
 }  // namespace
 
-Result<bool> unwrap_parts(Work& w, const std::vector<std::vector<std::uint32_t>>& partTris, float texelsPerMeter, const std::string& seams) {
+Result<bool> unwrap_parts(Work& w, const std::vector<std::vector<std::uint32_t>>& partTris, float texelsPerMeter,
+                          const std::string& seams) {
     const ModelMesh& mesh = *w.mesh;
     const bool hasNormals = mesh.normals.size() == mesh.positions.size();
     struct Local {
@@ -83,13 +84,17 @@ Result<bool> unwrap_parts(Work& w, const std::vector<std::vector<std::uint32_t>>
         decl.epsilon = 1e-6f;
         const xatlas::AddMeshError err = xatlas::AddMesh(guard.atlas, decl, std::uint32_t(locals.size()));
         if (err != xatlas::AddMeshError::Success)
-            return make_error(std::format("part \"{}\" cannot be unwrapped: {}", w.names[L.part], xatlas::StringForEnum(err)),
-                              "Check the part's geometry with model.info; use a projection (box, cylinder, sphere, planar) for it in `uv`.");
+            return make_error(
+                std::format("part \"{}\" cannot be unwrapped: {}", w.names[L.part], xatlas::StringForEnum(err)),
+                "Check the part's geometry with model.info; use a projection (box, cylinder, sphere, planar) for it in "
+                "`uv`.");
     }
     if (locals.empty()) return true;
     xatlas::ChartOptions chart;
-    if (seams == "few") chart.maxCost = 4.0f;
-    else if (seams == "many") chart.maxCost = 1.0f;
+    if (seams == "few")
+        chart.maxCost = 4.0f;
+    else if (seams == "many")
+        chart.maxCost = 1.0f;
     xatlas::ComputeCharts(guard.atlas, chart);
     xatlas::PackOptions pack;
     pack.texelsPerUnit = texelsPerMeter;
@@ -100,7 +105,8 @@ Result<bool> unwrap_parts(Work& w, const std::vector<std::vector<std::uint32_t>>
     pack.rotateChartsToAxis = true;
     xatlas::PackCharts(guard.atlas, pack);
     if (guard.atlas->meshCount != locals.size())
-        return make_error("the unwrap returned " + std::to_string(guard.atlas->meshCount) + " meshes for " + std::to_string(locals.size()) + " parts",
+        return make_error("the unwrap returned " + std::to_string(guard.atlas->meshCount) + " meshes for " +
+                              std::to_string(locals.size()) + " parts",
                           "This is a bug in the UV maker: report it with the model document.");
 
     const float inv = 1.0f / texelsPerMeter;
@@ -111,7 +117,8 @@ Result<bool> unwrap_parts(Work& w, const std::vector<std::vector<std::uint32_t>>
         const xatlas::Mesh& out = guard.atlas->meshes[m];
         const std::vector<std::uint32_t>& tris = partTris[L.part];
         if (out.indexCount != L.idx.size())
-            return make_error("the unwrap of part \"" + w.names[L.part] + "\" returned " + std::to_string(out.indexCount / 3) + " triangles for " + std::to_string(tris.size()),
+            return make_error("the unwrap of part \"" + w.names[L.part] + "\" returned " +
+                                  std::to_string(out.indexCount / 3) + " triangles for " + std::to_string(tris.size()),
                               "This is a bug in the UV maker: report it with the model document.");
         // where each input vertex was placed, for the triangles xatlas ignored (no area): they borrow a neighbour's uv
         std::vector<char> hasUv(L.pos.size(), 0);
@@ -219,7 +226,8 @@ Result<PackResult> pack_atlas(Work& w, const PackRequest& request) {
         p.extent = hi;
         maxExtent = std::max({maxExtent, hi.x, hi.y});
         for (std::size_t f = 0; f < p.tris.size(); ++f)
-            texelArea += 0.5 * std::fabs(double(signed_area2(p.verts[p.idx[f * 3]], p.verts[p.idx[f * 3 + 1]], p.verts[p.idx[f * 3 + 2]])));
+            texelArea += 0.5 * std::fabs(double(signed_area2(p.verts[p.idx[f * 3]], p.verts[p.idx[f * 3 + 1]],
+                                                             p.verts[p.idx[f * 3 + 2]])));
     }
     PackResult result;
     result.charts = used;
@@ -240,7 +248,8 @@ Result<PackResult> pack_atlas(Work& w, const PackRequest& request) {
         decl.indexFormat = xatlas::IndexFormat::UInt32;
         const xatlas::AddMeshError err = xatlas::AddUvMesh(guard.atlas, decl);
         if (err != xatlas::AddMeshError::Success)
-            return make_error(std::string("the charts cannot be packed: ") + xatlas::StringForEnum(err), "This is a bug in the UV maker: report it with the model document.");
+            return make_error(std::string("the charts cannot be packed: ") + xatlas::StringForEnum(err),
+                              "This is a bug in the UV maker: report it with the model document.");
     }
     xatlas::ComputeCharts(guard.atlas);  // charts of a UV mesh are found by their shared vertices; nothing is cut
     xatlas::PackOptions pack;
@@ -259,13 +268,16 @@ Result<PackResult> pack_atlas(Work& w, const PackRequest& request) {
         // the smallest power of two the charts fit in at the asked density; past the biggest texture they are shrunk to it
         xatlas::PackCharts(guard.atlas, pack);
         size = std::max(kModelUvMinTextureSize, next_pow2(int(std::max(guard.atlas->width, guard.atlas->height))));
-        if (size > kModelUvMaxTextureSize) size = kModelUvMaxTextureSize;
-        else done = true;
+        if (size > kModelUvMaxTextureSize)
+            size = kModelUvMaxTextureSize;
+        else
+            done = true;
     }
     if (!done) {
         // a fixed square: a chart bigger than it, or all the charts together, set the density lower for everything
         const double room = double(size - 2 * request.padding - 2);
-        if (room < 1) return make_error("the texture is too small for its padding", "Raise `textureSize` or lower `padding`.");
+        if (room < 1)
+            return make_error("the texture is too small for its padding", "Raise `textureSize` or lower `padding`.");
         if (double(maxExtent) > room) shrink = room / double(maxExtent);
         const double need = texelArea * shrink * shrink / 0.62;
         if (need > double(size) * double(size)) shrink *= std::sqrt(double(size) * double(size) / need);
@@ -274,12 +286,16 @@ Result<PackResult> pack_atlas(Work& w, const PackRequest& request) {
             pack.texelsPerUnit = float(shrink);
             pack.resolution = std::uint32_t(size);
             xatlas::PackCharts(guard.atlas, pack);
-            if (guard.atlas->atlasCount <= 1) fits = true;
-            else shrink *= std::max(0.5, std::min(0.97, std::sqrt(1.0 / double(guard.atlas->atlasCount)) * 0.98));
+            if (guard.atlas->atlasCount <= 1)
+                fits = true;
+            else
+                shrink *= std::max(0.5, std::min(0.97, std::sqrt(1.0 / double(guard.atlas->atlasCount)) * 0.98));
         }
         if (!fits)
-            return make_error(std::format("the charts do not fit a {0}x{0} texture even at {1:.2f} of the asked density", size, shrink),
-                              "Raise `textureSize`, lower `texelsPerUnit`, or leave `textureSize` out to let it grow.");
+            return make_error(
+                std::format("the charts do not fit a {0}x{0} texture even at {1:.2f} of the asked density", size,
+                            shrink),
+                "Raise `textureSize`, lower `texelsPerUnit`, or leave `textureSize` out to let it grow.");
     }
     result.textureSize = size;
     result.shrink = shrink;
@@ -303,7 +319,8 @@ Result<PackResult> pack_atlas(Work& w, const PackRequest& request) {
             for (int k = 0; k < 3; ++k) {
                 const std::uint32_t v = p.idx[f * 3 + std::size_t(k)];
                 const xatlas::Vertex& vt = out.vertexArray[v];
-                const Vec2 texel = placed[v] ? Vec2{vt.uv[0], vt.uv[1]} : any;  // a vertex only ignored triangles use: any point of the chart
+                const Vec2 texel = placed[v] ? Vec2{vt.uv[0], vt.uv[1]}
+                                             : any;  // a vertex only ignored triangles use: any point of the chart
                 w.uv[p.tris[f] * 3 + std::size_t(k)] = texel * inv;
             }
     }
@@ -321,7 +338,8 @@ void tile_uvs(Work& w, const std::vector<float>& texelsPerMeter, int textureSize
 std::vector<std::int32_t> charts_by_uv(const Work& w, const std::vector<Vec2>& uv, std::int32_t& count) {
     std::vector<CornerKey> keys(w.triangle_count() * 3);
     for (std::size_t t = 0; t < w.triangle_count(); ++t)
-        for (int k = 0; k < 3; ++k) keys[t * 3 + std::size_t(k)] = uv_key(w.corner_weld(t, k), uv[t * 3 + std::size_t(k)]);
+        for (int k = 0; k < 3; ++k)
+            keys[t * 3 + std::size_t(k)] = uv_key(w.corner_weld(t, k), uv[t * 3 + std::size_t(k)]);
     return components(keys, w.triangle_count(), count);
 }
 

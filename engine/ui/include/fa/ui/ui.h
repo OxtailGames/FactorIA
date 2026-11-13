@@ -57,12 +57,11 @@ Entity ui_modal_panel(const World& world);
 // (then the built-in widget wins and the Interactable is ignored).
 bool ui_is_interactable(const World& world, Entity e);
 
-
 // A TextField the player focused or left with a gamepad, for the platform's own keyboard (the runtime hands it to a native
 // plugin: fa_plugin.h, FaTextInput). `rect` is in design pixels; the runtime converts it to window pixels.
 struct TextInputRequest {
-    bool focused = true;   // true: took the focus (or the pad's submit button was pressed on it again); false: lost it
-    Rect rect;             // the field's rectangle, design pixels (empty when the field is gone)
+    bool focused = true;  // true: took the focus (or the pad's submit button was pressed on it again); false: lost it
+    Rect rect;            // the field's rectangle, design pixels (empty when the field is gone)
     std::string text;
     std::int32_t maxLength = 0;
     bool multiline = false, password = false;  // no TextField has either yet
@@ -98,13 +97,13 @@ Vec2 ui_tooltip_place(Vec2 pointer, Vec2 size, Vec2 screen, float gap);
 
 // Builds the view of `text` for a pointer at `pointer` (screen pixels): measures, places and positions each line, in UI units
 // (`k` = the interface scale). shown is true unless `text` is empty.
-UiTooltipView ui_tooltip_layout(const UiTooltipText& text, const UiTooltipStyle& style, const VisualMeasure& measure, Vec2 pointer,
-                                Vec2 screenPx, float k);
+UiTooltipView ui_tooltip_layout(const UiTooltipText& text, const UiTooltipStyle& style, const VisualMeasure& measure,
+                                Vec2 pointer, Vec2 screenPx, float k);
 
 // Script hooks for the tooltips that are functions (ui.setTooltip / ui.setWorldTooltip). Both return the content (null = none).
 struct UiTooltipHooks {
     std::function<Json(Entity)> widget;  // asked for a widget registered with set_script_tooltip
-    std::function<Json(Vec2)> world;     // asked with the pointer when it rests on no widget, if set_world_tooltip(true)
+    std::function<Json(Vec2)> world;  // asked with the pointer when it rests on no widget, if set_world_tooltip(true)
 };
 
 // ---- drag and drop (docs/MENUS.md, "Drag and drop") -------------------------------------------------------------------------
@@ -243,19 +242,21 @@ public:
 
     // ui_widget_at() plus the Interactable widgets: a screen widget (or screen-space Interactable) wins over a world-space one under the
     // same point, which is seen through the camera that draws at `p`. `measure` sizes the visuals of the Interactables.
-    Entity widget_at(const World& world, Vec2 designSize, Vec2 p, const VisualMeasure& measure = {}, Entity ignore = kNullEntity) const;
+    Entity widget_at(const World& world, Vec2 designSize, Vec2 p, const VisualMeasure& measure = {},
+                     Entity ignore = kNullEntity) const;
     // Where the Interactable `e` is on the screen, in design pixels: the box around its hit area, seen through the camera that draws
     // it. nullopt for an inactive entity, one that is no Interactable, or one with no hit area (no size and no children with bounds).
     // `hiddenByCamera` (optional) is set to true when the entity is an Interactable in world space whose hit area exists but the camera
     // that draws at its centre does not draw it (Camera.showTags / hideTags): it takes no pointer through that camera.
-    std::optional<Rect> interactable_rect(const World& world, Entity e, Vec2 designSize, const VisualMeasure& measure = {},
-                                          bool* hiddenByCamera = nullptr) const;
+    std::optional<Rect> interactable_rect(const World& world, Entity e, Vec2 designSize,
+                                          const VisualMeasure& measure = {}, bool* hiddenByCamera = nullptr) const;
 
     // The hit area of the Interactable `e` as a quad of corners (design pixels, or page pixels when `project` is a page's), seen through
     // `project` and `mask` (the camera it belongs to). nullopt for an entity that is no Interactable, is inactive, has no hit area, or is
     // not drawn by `mask`. Does not use the main view's projection: this is how a page's camera sees the widget.
-    std::optional<std::array<Vec2, 4>> interactable_quad(const World& world, Entity e, Vec2 designSize, const VisualMeasure& measure,
-                                                         const UiProjectFn& project, const CameraMask& mask) const;
+    std::optional<std::array<Vec2, 4>> interactable_quad(const World& world, Entity e, Vec2 designSize,
+                                                         const VisualMeasure& measure, const UiProjectFn& project,
+                                                         const CameraMask& mask) const;
     // Where to click the Interactable `e` (also any other widget with a screen rectangle): the centre of its rectangle on the screen,
     // or, for a widget the main view does not show, a point of a mesh that shows the render target the widget is drawn on. When it
     // cannot be clicked, `problem` says why and the caller adds how to fix it. Same checks as interactable_rect.
@@ -288,7 +289,8 @@ public:
     void set_world_tooltip(bool on) { worldTooltip_ = on; }
     // Shows `content` now, near `at` (screen pixels), whatever the rest timer says; it stays until hide_tooltip(), until the pointer
     // moves more than the slop from where it was, or a scene load. Returns the problem when `content` is not a tooltip.
-    Result<void> show_tooltip(World& world, const Json& content, Vec2 at, Vec2 designSize, const VisualMeasure& measure);
+    Result<void> show_tooltip(World& world, const Json& content, Vec2 at, Vec2 designSize,
+                              const VisualMeasure& measure);
     void hide_tooltip(World& world);
     // Seconds of rest still needed before the tooltip under the pointer shows (0 once it shows), for tests.
     float tooltip_wait() const { return tooltipShown_ ? 0.0f : std::max(0.0f, tooltipDelay_ - tooltipRest_); }
@@ -340,17 +342,18 @@ private:
     std::unordered_set<u64> warnedFit_;  // fit panels already reported as larger than the screen
 
     Entity focus_, hover_, press_;
-    Entity hoverFocused_;                 // the hovered Interactable whose focusOnHover entry already moved the focus
-    Entity prevHover_;                    // the Interactable the pointer was over at the last update (ui.hover is sent on a change)
+    Entity hoverFocused_;  // the hovered Interactable whose focusOnHover entry already moved the focus
+    Entity prevHover_;     // the Interactable the pointer was over at the last update (ui.hover is sent on a change)
     UiProjectFn project_;
     UiMaskFn mask_;
     UiSurfaceFn surface_;
     UiPageAimFn pageAim_;
     CameraMask mask_at(const Vec2* pointer) const { return mask_ ? mask_(pointer) : CameraMask{}; }
-    UiSurfacePin pressSurface_;        // the page mesh the pressed Interactable sits on (mesh null: it is not on a page)
+    UiSurfacePin pressSurface_;  // the page mesh the pressed Interactable sits on (mesh null: it is not on a page)
     std::unordered_set<u64> warnedKnobs_;  // knobs / fills that are not children of their slider, already reported
-    bool focusCleared_ = false;   // set_focus(null) was called: autoFocus waits for a navigation press
-    bool pointerOn_ = false, pointerDown_ = false, pointerPrevDown_ = false, pointerOverUi_ = false, wheelConsumed_ = false;
+    bool focusCleared_ = false;            // set_focus(null) was called: autoFocus waits for a navigation press
+    bool pointerOn_ = false, pointerDown_ = false, pointerPrevDown_ = false, pointerOverUi_ = false,
+         wheelConsumed_ = false;
     Vec2 pointerPos_{};
     TextInputHandler textInput_;
     Clipboard* clipboard_ = nullptr;
@@ -358,7 +361,8 @@ private:
     Entity askedField_;     // the TextField the handler was asked about since it got the focus
     void release_platform_keyboard(const World* world);
     void drop_focus(World& world);  // lets go of the focus: the flag goes down, an Interactable sends ui.blur
-    bool keyboardRaised_ = false;  // the UI asked for the phone's keyboard (a TextField has focus, last input not a pad)
+    bool keyboardRaised_ =
+        false;                    // the UI asked for the phone's keyboard (a TextField has focus, last input not a pad)
     bool scrollToFocus_ = false;  // the focus changed: the next layout scrolls the focused widget into view
     float clock_ = 0.0f;          // the UI's own unscaled clock (caret blink)
     float caretStart_ = 0.0f;     // clock_ at the last edit or focus change: the caret is visible then
@@ -371,7 +375,8 @@ private:
     std::int32_t chartHoverSeries_ = -1, chartHoverIndex_ = -1;
 
     // CameraView pointer events (view.cpp): the view a press landed on, and where the pointer was at the last event.
-    void update_view_pointer(World& world, Input& input, Vec2 designSize, Vec2 mouse, bool down, bool pressed, bool released);
+    void update_view_pointer(World& world, Input& input, Vec2 designSize, Vec2 mouse, bool down, bool pressed,
+                             bool released);
     Entity viewDrag_;
     Vec2 viewLast_{};
 
@@ -386,11 +391,11 @@ private:
         bool accepts = false;
         bool started = false;  // dragStart not sent yet
     };
-    void update_drag(World& world, Vec2 designSize, Vec2 mouse, bool down, bool pressed, bool released, const VisualMeasure& measure,
-                     bool navCancel);
+    void update_drag(World& world, Vec2 designSize, Vec2 mouse, bool down, bool pressed, bool released,
+                     const VisualMeasure& measure, bool navCancel);
     void drag_emit(World& world, const char* name, const char* reason = nullptr);
     DragState drag_;
-    Entity dragCand_;   // a draggable widget the pointer pressed and has not yet moved far enough
+    Entity dragCand_;  // a draggable widget the pointer pressed and has not yet moved far enough
     Vec2 dragCandFrom_{};
     UiDropHooks dropHooks_;
     std::unordered_map<u64, UiDropMode> dropRules_;
@@ -401,8 +406,8 @@ private:
     bool lastDragAccepts_ = false;
 
     // tooltips (tooltip.cpp)
-    void update_tooltip(World& world, const Input& input, Vec2 designSize, float dt, const VisualMeasure& measure, Vec2 pointer,
-                        bool pointerDown);
+    void update_tooltip(World& world, const Input& input, Vec2 designSize, float dt, const VisualMeasure& measure,
+                        Vec2 pointer, bool pointerDown);
     Vec2 lastPointer_{};  // where the pointer was at the last update()
     Vec2 manualAt_{};     // where show_tooltip() was asked to put the tooltip
     const I18n* i18n_ = nullptr;

@@ -23,7 +23,9 @@ namespace {
 constexpr const char* kDoc = "assets/art/t.image.json";
 constexpr const char* kSet = "assets/art/ground.image.json";
 
-std::string error_of(const CommandResult& r) { return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string()); }
+std::string error_of(const CommandResult& r) {
+    return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string());
+}
 
 Json read_doc(const AssetsProject& p, const char* rel = kDoc) { return parse_json(read_all(p.file(rel)), rel).value(); }
 
@@ -37,7 +39,12 @@ Json palette2() { return Json::array({{{"name", "a"}, {"color", "#202020"}}, {{"
 
 // a canvas of w x h with an empty indexed layer "s" and tile mode on (`tile` as image.tile.set takes it)
 void make_tiled(const AssetsProject& p, int w, int h, Json tile = Json(true)) {
-    p.ok("image.create", {{"path", kDoc}, {"width", w}, {"height", h}, {"palette", palette2()}, {"layers", Json::array({{{"kind", "indexed"}, {"name", "s"}, {"width", w}, {"height", h}}})}});
+    p.ok("image.create",
+         {{"path", kDoc},
+          {"width", w},
+          {"height", h},
+          {"palette", palette2()},
+          {"layers", Json::array({{{"kind", "indexed"}, {"name", "s"}, {"width", w}, {"height", h}}})}});
     if (!tile.is_null()) {
         Json a = {{"path", kDoc}};
         if (tile.is_object()) a.update(tile);
@@ -98,15 +105,17 @@ TEST_CASE("check_tile_opposites: matching and mismatching sides, runs, tolerance
     CHECK(r.bad[0].a == 0);
 }
 
-TEST_CASE("check_tile_opposites: the automatic tolerance follows the smoothness of the picture unless the colours are exact") {
+TEST_CASE("check_tile_opposites: the automatic tolerance follows the smoothness of the picture unless the colours are "
+          "exact") {
     // a smooth horizontal gradient that does not wrap: the seam is the jump from the last to the first column
     Image grad = make_image(16, 4);
     for (int y = 0; y < 4; ++y)
-        for (int x = 0; x < 16; ++x) fill_rect(grad, x, y, 1, 1, {std::uint8_t(x * 8), std::uint8_t(x * 8), std::uint8_t(x * 8), 255});
+        for (int x = 0; x < 16; ++x)
+            fill_rect(grad, x, y, 1, 1, {std::uint8_t(x * 8), std::uint8_t(x * 8), std::uint8_t(x * 8), 255});
     const TileSeamReport soft = check_tile_opposites(grad, 16, 4, -1, false);
     CHECK(soft.toleranceAutomatic);
     CHECK(soft.tolerance > 0);
-    CHECK_FALSE(soft.seamless());   // 120 apart is a real seam even for a soft picture
+    CHECK_FALSE(soft.seamless());  // 120 apart is a real seam even for a soft picture
     CHECK(check_tile_opposites(grad, 16, 4, -1, true).tolerance == 0);
     CHECK_FALSE(check_tile_opposites(grad, 16, 4, -1, true).toleranceAutomatic == false);
     // a gradient that comes back (mirrored) is seamless
@@ -126,7 +135,7 @@ TEST_CASE("check_tile_set compares only the sides that touch in a map") {
     TileSeamReport r = check_tile_set(sheet, 4, 4, 2, {kAutoE, kAutoW}, false, 0, true);
     CHECK(r.seamless());
     CHECK(r.seamsChecked >= 1);
-    fill_rect(sheet, 4, 2, 1, 1, {200, 10, 10, 255});   // tile 1's left column differs on row 2
+    fill_rect(sheet, 4, 2, 1, 1, {200, 10, 10, 255});  // tile 1's left column differs on row 2
     r = check_tile_set(sheet, 4, 4, 2, {kAutoE, kAutoW}, false, 0, true);
     REQUIRE_FALSE(r.seamless());
     CHECK(r.bad[0].axis == "horizontal");
@@ -153,7 +162,7 @@ TEST_CASE("image.tile.set: the tile, a size that does not divide the canvas, and
     const CommandResult bad = p.call("image.tile.set", {{"path", kDoc}, {"width", 5}});
     REQUIRE_FALSE(bad.ok);
     CHECK(error_of(bad).find("divide") != std::string::npos);
-    CHECK(read_doc(p)["tile"]["width"] == 8);   // nothing was written
+    CHECK(read_doc(p)["tile"]["width"] == 8);  // nothing was written
     p.ok("image.tile.set", {{"path", kDoc}, {"enabled", false}});
     CHECK_FALSE(read_doc(p).contains("tile"));
     CHECK_FALSE(p.call("image.tile.set", {{"path", kDoc}, {"enabled", false}, {"width", 4}}).ok);
@@ -162,17 +171,20 @@ TEST_CASE("image.tile.set: the tile, a size that does not divide the canvas, and
 TEST_CASE("tile mode: image.pixel wraps pixels, runs and stamps around the tile") {
     AssetsProject p;
     make_tiled(p, 8, 4);
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"pixels", Json::array({Json::array({9, 0, 1}), Json::array({-1, 3, 1})})}});
+    p.ok("image.pixel",
+         {{"path", kDoc}, {"layer", "s"}, {"pixels", Json::array({Json::array({9, 0, 1}), Json::array({-1, 3, 1})})}});
     CHECK(sheet_rows(read_doc(p)) == ".1......|........|........|.......1|");
     // a run that leaves the right edge comes back in on the left
     p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"runs", Json::array({Json::array({6, 1, 4, 0})})}});
     CHECK(sheet_rows(read_doc(p)) == ".1......|00....00|........|.......1|");
     // a stamp too
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"stamp", {{"x", 6}, {"y", 2}, {"rows", Json::array({"111", "1.1"})}}}});
+    p.ok("image.pixel",
+         {{"path", kDoc}, {"layer", "s"}, {"stamp", {{"x", 6}, {"y", 2}, {"rows", Json::array({"111", "1.1"})}}}});
     CHECK(sheet_rows(read_doc(p)) == ".1......|00....00|1.....11|1.....11|");
     // without tile mode the same pixels fall outside the canvas
     p.ok("image.tile.set", {{"path", kDoc}, {"enabled", false}});
-    const Json r = p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"pixels", Json::array({Json::array({9, 0, 1})})}});
+    const Json r =
+        p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"pixels", Json::array({Json::array({9, 0, 1})})}});
     CHECK(has_warning(r, "outside"));
 }
 
@@ -180,41 +192,61 @@ TEST_CASE("tile mode: a shape wraps inside the cell that holds its first point; 
     AssetsProject p;
     make_tiled(p, 8, 4, {{"width", 4}, {"height", 4}});
     // a pixel just past the right edge of the first tile (x = 4 is the second tile): it is in the second tile's cell and wraps there
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"pixels", Json::array({Json::array({3, 0, 1}), Json::array({4, 1, 1}), Json::array({11, 2, 1}), Json::array({-1, 3, 1})})}});
+    p.ok("image.pixel", {{"path", kDoc},
+                         {"layer", "s"},
+                         {"pixels", Json::array({Json::array({3, 0, 1}), Json::array({4, 1, 1}),
+                                                 Json::array({11, 2, 1}), Json::array({-1, 3, 1})})}});
     // (3,0) is in cell 0; (4,1) is in cell 1; (11,2) is in cell 2 -> clamped to the last cell, wraps to x = 7; (-1,3) is in cell 0 -> x = 3
     CHECK(sheet_rows(read_doc(p)) == "...1....|....1...|.......1|...1....|");
     // a rectangle starting in cell 0 wraps around cell 0 only
-    p.ok("image.draw", {{"path", kDoc}, {"layer", "s"}, {"shapes", Json::array({Json::parse(R"({"type":"rect","x":2,"y":0,"width":3,"height":1,"fill":0,"color":0})")})}});
+    p.ok("image.draw",
+         {{"path", kDoc},
+          {"layer", "s"},
+          {"shapes",
+           Json::array({Json::parse(R"({"type":"rect","x":2,"y":0,"width":3,"height":1,"fill":0,"color":0})")})}});
     const std::string rows = sheet_rows(read_doc(p));
-    CHECK(rows.substr(0, 9) == "0.00....|");   // x 2, 3 and the wrapped 4 -> 0 of cell 0; cell 1 is untouched
+    CHECK(rows.substr(0, 9) == "0.00....|");  // x 2, 3 and the wrapped 4 -> 0 of cell 0; cell 1 is untouched
 }
 
 TEST_CASE("tile mode: image.draw lines and fills wrap, and a fill flows around the edges") {
     AssetsProject p;
     make_tiled(p, 8, 4);
-    p.ok("image.draw", {{"path", kDoc}, {"layer", "s"}, {"shapes", Json::array({Json::parse(R"({"type":"line","points":[[6,0],[9,0]],"color":1})")})}});
+    p.ok("image.draw", {{"path", kDoc},
+                        {"layer", "s"},
+                        {"shapes", Json::array({Json::parse(R"({"type":"line","points":[[6,0],[9,0]],"color":1})")})}});
     CHECK(sheet_rows(read_doc(p)) == "11....11|........|........|........|");
     // a wall of pixels in the middle column: the fill from the left side reaches the right side through the edge
-    p.ok("image.draw", {{"path", kDoc}, {"layer", "s"}, {"shapes", Json::array({Json::parse(R"({"type":"rect","x":3,"y":0,"width":1,"height":4,"fill":0,"color":0})"),
-                                                                              Json::parse(R"({"type":"fill","at":[1,2],"color":1})")})}});
+    p.ok("image.draw",
+         {{"path", kDoc},
+          {"layer", "s"},
+          {"shapes", Json::array({Json::parse(R"({"type":"rect","x":3,"y":0,"width":1,"height":4,"fill":0,"color":0})"),
+                                  Json::parse(R"({"type":"fill","at":[1,2],"color":1})")})}});
     // the fill started left of the wall: it spreads left, through the left edge to the right side, and stops at the wall
     CHECK(sheet_rows(read_doc(p)) == "11101111|11101111|11101111|11101111|");
 }
 
 TEST_CASE("tile mode: image.paint dabs wrap, and the move action wraps inside the tile") {
     AssetsProject p;
-    p.ok("image.create", {{"path", kDoc}, {"width", 8}, {"height", 8}, {"layers", Json::array({{{"kind", "fill"}, {"color", "#ffffff"}}})}});
+    p.ok("image.create", {{"path", kDoc},
+                          {"width", 8},
+                          {"height", 8},
+                          {"layers", Json::array({{{"kind", "fill"}, {"color", "#ffffff"}}})}});
     p.ok("image.tile.set", {{"path", kDoc}});
-    p.ok("image.paint", {{"path", kDoc}, {"layer", "ink"}, {"create", true}, {"strokes", Json::array({{{"points", {{0.5, 3.5}}}, {"size", 3}, {"color", "#ff0000"}}})}});
+    p.ok("image.paint", {{"path", kDoc},
+                         {"layer", "ink"},
+                         {"create", true},
+                         {"strokes", Json::array({{{"points", {{0.5, 3.5}}}, {"size", 3}, {"color", "#ff0000"}}})}});
     Image img = read_png(p.file("assets/art/t.png"));
     CHECK(get(img, 0, 3) == Rgba{255, 0, 0, 255});
-    CHECK(get(img, 7, 3) == Rgba{255, 0, 0, 255});    // the dab leaves the left edge and comes back on the right
+    CHECK(get(img, 7, 3) == Rgba{255, 0, 0, 255});  // the dab leaves the left edge and comes back on the right
     CHECK(get(img, 4, 3) == Rgba{255, 255, 255, 255});
     // move the selection 2 to the right: what leaves the right edge re-enters on the left
-    p.ok("image.edit", {{"path", kDoc}, {"selection", "all"}, {"layer", "ink"}, {"action", {{"type", "move"}, {"dx", 2}, {"dy", 0}}}});
+    p.ok(
+        "image.edit",
+        {{"path", kDoc}, {"selection", "all"}, {"layer", "ink"}, {"action", {{"type", "move"}, {"dx", 2}, {"dy", 0}}}});
     img = read_png(p.file("assets/art/t.png"));
-    CHECK(get(img, 1, 3) == Rgba{255, 0, 0, 255});    // x 7 -> 9 -> 1
-    CHECK(get(img, 2, 3) == Rgba{255, 0, 0, 255});    // x 0 -> 2
+    CHECK(get(img, 1, 3) == Rgba{255, 0, 0, 255});  // x 7 -> 9 -> 1
+    CHECK(get(img, 2, 3) == Rgba{255, 0, 0, 255});  // x 0 -> 2
     CHECK(get(img, 0, 3) == Rgba{255, 255, 255, 255});
     CHECK(get(img, 7, 3) == Rgba{255, 255, 255, 255});
 }
@@ -223,7 +255,8 @@ TEST_CASE("tile mode: pixel helpers see across the tile edges") {
     AssetsProject p;
     make_tiled(p, 6, 6);
     // a 2 x 2 block split by the right and left edges: columns 5 and 0
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"stamp", {{"x", 5}, {"y", 2}, {"rows", Json::array({"11", "11"})}}}});
+    p.ok("image.pixel",
+         {{"path", kDoc}, {"layer", "s"}, {"stamp", {{"x", 5}, {"y", 2}, {"rows", Json::array({"11", "11"})}}}});
     CHECK(sheet_rows(read_doc(p)) == "......|......|1....1|1....1|......|......|");
     // the outline of the block closes around it through the edge
     p.ok("image.pixel.outline", {{"path", kDoc}, {"layer", "s"}, {"color", "a"}});
@@ -252,18 +285,20 @@ Json colour_part(const char* hex) { return Json::object({{"color", hex}}); }
 
 // A set whose parts are flat colours: every quadrant of every tile shows one colour, so the mask -> part mapping can be read straight off the sheet.
 Json flat_args(const std::string& mode, int variations = 1, long long seed = 0) {
-    Json parts = {{"inside", colour_part("#00ff00")}, {"edge", colour_part("#0000ff")}, {"corner", colour_part("#ff0000")}};
+    Json parts = {
+        {"inside", colour_part("#00ff00")}, {"edge", colour_part("#0000ff")}, {"corner", colour_part("#ff0000")}};
     if (mode == "blob47") parts["innerCorner"] = colour_part("#ffff00");
-    return {{"path", kSet}, {"mode", mode}, {"tileWidth", 8}, {"tileHeight", 8}, {"variations", variations}, {"seed", seed}, {"parts", parts}};
+    return {{"path", kSet}, {"mode", mode},  {"tileWidth", 8}, {"tileHeight", 8}, {"variations", variations},
+            {"seed", seed}, {"parts", parts}};
 }
 
 // The part a quadrant must show for the neighbours (bits of fa/scene/autotile.h) next to it: the rule of docs/IMAGES.md, "Tiles".
 Rgba expected_quadrant(int mask, int vBit, int hBit, int dBit, bool blob) {
     const bool v = mask & vBit, h = mask & hBit;
-    if (!v && !h) return {255, 0, 0, 255};        // corner
-    if (!v || !h) return {0, 0, 255, 255};        // edge
-    if (blob && !(mask & dBit)) return {255, 255, 0, 255};   // innerCorner
-    return {0, 255, 0, 255};                      // inside
+    if (!v && !h) return {255, 0, 0, 255};                  // corner
+    if (!v || !h) return {0, 0, 255, 255};                  // edge
+    if (blob && !(mask & dBit)) return {255, 255, 0, 255};  // innerCorner
+    return {0, 255, 0, 255};                                // inside
 }
 
 }  // namespace
@@ -271,8 +306,8 @@ Rgba expected_quadrant(int mask, int vBit, int hBit, int dBit, bool blob) {
 TEST_CASE("image.tileset.build: the 47-tile set puts the right part in every quadrant of every tile") {
     AssetsProject p;
     const Json r = p.ok("image.tileset.build", flat_args("blob47"));
-    CHECK(r["width"] == 64);    // 8 columns of 8
-    CHECK(r["height"] == 48);   // 6 rows
+    CHECK(r["width"] == 64);   // 8 columns of 8
+    CHECK(r["height"] == 48);  // 6 rows
     CHECK(r["tileset"]["layout"]["tiles"] == 47);
     const Image sheet = read_png(p.file("assets/art/ground.png"));
     const auto& masks = autotile_masks(AutotileMode::Blob47);
@@ -286,13 +321,13 @@ TEST_CASE("image.tileset.build: the 47-tile set puts the right part in every qua
         CHECK(get(sheet, tx + 6, ty + 6) == expected_quadrant(mask, kAutoS, kAutoE, kAutoSE, true));
     }
     // the whole-neighbourhood tile is the inside colour everywhere; the lone tile is the corner colour everywhere
-    CHECK(get(sheet, 3, 3) == Rgba{255, 0, 0, 255});   // slot 0 = no neighbours
+    CHECK(get(sheet, 3, 3) == Rgba{255, 0, 0, 255});  // slot 0 = no neighbours
 }
 
 TEST_CASE("image.tileset.build: the 16-tile set has no inner corners") {
     AssetsProject p;
     const Json r = p.ok("image.tileset.build", flat_args("basic16"));
-    CHECK(r["width"] == 32);    // 4 columns of 8
+    CHECK(r["width"] == 32);  // 4 columns of 8
     CHECK(r["height"] == 32);
     const Image sheet = read_png(p.file("assets/art/ground.png"));
     const auto& masks = autotile_masks(AutotileMode::Basic16);
@@ -322,7 +357,8 @@ TEST_CASE("image.tileset.build: edges and corners are oriented by flipping the p
         cornerRows.push_back(y == 0 ? "01111111" : "11111111");
     }
     args["palette"] = Json::array({"#ff0000", "#00ff00"});
-    args["parts"] = {{"inside", {{"rows", insideRows}}}, {"edge", {{"rows", edgeRows}}}, {"corner", {{"rows", cornerRows}}}};
+    args["parts"] = {
+        {"inside", {{"rows", insideRows}}}, {"edge", {{"rows", edgeRows}}}, {"corner", {{"rows", cornerRows}}}};
     p.ok("image.tileset.build", args);
     const Image sheet = read_png(p.file("assets/art/ground.png"));
     const Rgba red{255, 0, 0, 255}, green{0, 255, 0, 255};
@@ -340,11 +376,11 @@ TEST_CASE("image.tileset.build: edges and corners are oriented by flipping the p
     REQUIRE(left >= 0);
     REQUIRE(right >= 0);
     auto at = [&](int slot, int x, int y) { return get(sheet, (slot % 4) * 8 + x, (slot / 4) * 8 + y); };
-    CHECK(at(top, 2, 0) == red);       // the edge as drawn: its red row on top
+    CHECK(at(top, 2, 0) == red);  // the edge as drawn: its red row on top
     CHECK(at(top, 2, 1) == green);
-    CHECK(at(bottom, 2, 7) == red);    // flipped: the red row at the bottom
+    CHECK(at(bottom, 2, 7) == red);  // flipped: the red row at the bottom
     CHECK(at(bottom, 2, 6) == green);
-    CHECK(at(left, 0, 3) == red);      // turned: the red column on the left
+    CHECK(at(left, 0, 3) == red);  // turned: the red column on the left
     CHECK(at(left, 1, 3) == green);
     CHECK(at(right, 7, 3) == red);
     CHECK(at(right, 6, 3) == green);
@@ -354,14 +390,15 @@ TEST_CASE("image.tileset.build: variations are chosen by the seed, deterministic
     AssetsProject a, b, c;
     auto make = [](AssetsProject& p, long long seed) {
         Json args = flat_args("basic16", 3, seed);
-        args["parts"]["inside"] = Json::array({colour_part("#00ff00"), colour_part("#00dd00"), colour_part("#00bb00"), colour_part("#009900")});
+        args["parts"]["inside"] = Json::array(
+            {colour_part("#00ff00"), colour_part("#00dd00"), colour_part("#00bb00"), colour_part("#009900")});
         args["parts"]["edge"] = Json::array({colour_part("#0000ff"), colour_part("#0000dd"), colour_part("#0000bb")});
         return p.ok("image.tileset.build", args);
     };
     const Json r = make(a, 7);
     make(b, 7);
     make(c, 8);
-    CHECK(r["tileset"]["layout"]["tiles"] == 48);    // 16 slots x 3 variations
+    CHECK(r["tileset"]["layout"]["tiles"] == 48);  // 16 slots x 3 variations
     CHECK(read_all(a.file("assets/art/ground.png")) == read_all(b.file("assets/art/ground.png")));
     CHECK(read_all(a.file("assets/art/ground.png")) != read_all(c.file("assets/art/ground.png")));
     const Image sheet = read_png(a.file("assets/art/ground.png"));
@@ -381,14 +418,15 @@ TEST_CASE("image.tileset.build: variations are chosen by the seed, deterministic
         const Rgba c4 = tile_at(full * 3 + v, 4, 4);
         insides.insert(c4.r << 24 | c4.g << 16 | c4.b << 8 | c4.a);
     }
-    CHECK(insides.size() >= 2);   // the other variations pick other variants
+    CHECK(insides.size() >= 2);  // the other variations pick other variants
     // the rules list the variations of every slot, in order
     const Json rules = read_doc(a, "assets/art/ground.terrains.json");
     CHECK(rules["terrains"][0]["seed"] == 7);
     CHECK(rules["terrains"][0]["tiles"][full] == Json::array({full * 3, full * 3 + 1, full * 3 + 2}));
 }
 
-TEST_CASE("image.tileset.build: running it again updates the document in place; null removes a part; rules are recorded for regeneration") {
+TEST_CASE("image.tileset.build: running it again updates the document in place; null removes a part; rules are "
+          "recorded for regeneration") {
     AssetsProject p;
     p.ok("image.tileset.build", flat_args("blob47"));
     Json doc = read_doc(p, kSet);
@@ -402,14 +440,14 @@ TEST_CASE("image.tileset.build: running it again updates the document in place; 
     CHECK(r["tileset"]["created"] == false);
     doc = read_doc(p, kSet);
     CHECK(doc["layers"].size() == 1);
-    CHECK(doc["layers"][0]["parts"]["edge"]["color"] == "#0000ff");   // untouched
+    CHECK(doc["layers"][0]["parts"]["edge"]["color"] == "#0000ff");  // untouched
     CHECK(doc["layers"][0]["parts"]["inside"]["color"] == "#123456");
     CHECK(read_png(p.file("assets/art/ground.png")).rgba != before.rgba);
     // a required part cannot be removed
     const CommandResult gone = p.call("image.tileset.build", {{"path", kSet}, {"parts", {{"corner", Json()}}}});
     REQUIRE_FALSE(gone.ok);
     CHECK(error_of(gone).find("corner") != std::string::npos);
-    CHECK(read_doc(p, kSet)["layers"][0]["parts"].contains("corner"));   // nothing was written
+    CHECK(read_doc(p, kSet)["layers"][0]["parts"].contains("corner"));  // nothing was written
     // an optional part can
     p.ok("image.tileset.build", {{"path", kSet}, {"parts", {{"edgeBottom", colour_part("#abcdef")}}}});
     CHECK(read_doc(p, kSet)["layers"][0]["parts"].contains("edgeBottom"));
@@ -447,13 +485,20 @@ TEST_CASE("image.tileset.build: a file that is not this layer's rules is not rep
     CHECK_FALSE(p.exists("assets/art/nowrite.terrains.json"));
 }
 
-TEST_CASE("image.tileset: parts that are PNG files make the bake stale when they change, and assets.regenerate makes the set again") {
+TEST_CASE("image.tileset: parts that are PNG files make the bake stale when they change, and assets.regenerate makes "
+          "the set again") {
     AssetsProject p;
     auto flat = [](Rgba c) { return make_image(8, 8, c); };
     write_png(p.file("assets/art/in.png"), flat({0, 255, 0, 255}));
     write_png(p.file("assets/art/ed.png"), flat({0, 0, 255, 255}));
     write_png(p.file("assets/art/co.png"), flat({255, 0, 0, 255}));
-    Json args = {{"path", kSet}, {"mode", "basic16"}, {"tileWidth", 8}, {"parts", {{"inside", {{"source", "assets/art/in.png"}}}, {"edge", "assets/art/ed.png"}, {"corner", {{"source", "assets/art/co.png"}}}}}};
+    Json args = {{"path", kSet},
+                 {"mode", "basic16"},
+                 {"tileWidth", 8},
+                 {"parts",
+                  {{"inside", {{"source", "assets/art/in.png"}}},
+                   {"edge", "assets/art/ed.png"},
+                   {"corner", {{"source", "assets/art/co.png"}}}}}};
     const Json r = p.ok("image.tileset.build", args);
     CHECK(has_text(r["inputs"], "assets/art/in.png"));
     CHECK(image_bake_status(p.dir, kSet).state == ImageBakeState::Fresh);
@@ -466,7 +511,8 @@ TEST_CASE("image.tileset: parts that are PNG files make the bake stale when they
     // slot 15 = all four neighbours: the inside
     const auto& masks = autotile_masks(AutotileMode::Basic16);
     for (int i = 0; i < 16; ++i)
-        if (masks[i] == (kAutoN | kAutoE | kAutoS | kAutoW)) CHECK(get(sheet, (i % 4) * 8 + 4, (i / 4) * 8 + 4) == Rgba{0, 128, 0, 255});
+        if (masks[i] == (kAutoN | kAutoE | kAutoS | kAutoW))
+            CHECK(get(sheet, (i % 4) * 8 + 4, (i / 4) * 8 + 4) == Rgba{0, 128, 0, 255});
     // the rules file is regenerated through its own recipe, after the document changes
     Json edited = read_doc(p, kSet);
     edited["layers"][0]["seed"] = 5;
@@ -489,13 +535,14 @@ TEST_CASE("image.tileset: project.validate accepts the set, its rules file and i
     for (const ValidationIssue& w : r.warnings) CHECK_MESSAGE(w.file.find("ground") == std::string::npos, w.message);
 }
 
-TEST_CASE("image.tileset.build and the document parser teach: missing parts, a wrong mode, an odd tile, a size that is not even") {
+TEST_CASE("image.tileset.build and the document parser teach: missing parts, a wrong mode, an odd tile, a size that is "
+          "not even") {
     AssetsProject p;
     Json noParts = {{"path", kSet}, {"mode", "blob47"}, {"tileWidth", 8}};
     CommandResult r = p.call("image.tileset.build", noParts);
     REQUIRE_FALSE(r.ok);
     CHECK(error_of(r).find("parts") != std::string::npos);
-    CHECK_FALSE(p.exists(kSet));   // a failed build writes nothing
+    CHECK_FALSE(p.exists(kSet));  // a failed build writes nothing
     Json missing = flat_args("blob47");
     missing["parts"].erase("innerCorner");
     r = p.call("image.tileset.build", missing);
@@ -505,7 +552,7 @@ TEST_CASE("image.tileset.build and the document parser teach: missing parts, a w
     mode["mode"] = "blob48";
     r = p.call("image.tileset.build", mode);
     REQUIRE_FALSE(r.ok);
-    CHECK(error_of(r).find("blob47") != std::string::npos);   // did you mean
+    CHECK(error_of(r).find("blob47") != std::string::npos);  // did you mean
     Json odd = flat_args("blob47");
     odd["tileWidth"] = 7;
     r = p.call("image.tileset.build", odd);
@@ -540,7 +587,8 @@ TEST_CASE("image.tileset.build and the document parser teach: missing parts, a w
     CHECK(error_of(r).find("columns") != std::string::npos);
 }
 
-TEST_CASE("image.tileset.check: seamless parts pass, a part that does not meet its neighbours fails with the tiles named, files of the wrong size are listed") {
+TEST_CASE("image.tileset.check: seamless parts pass, a part that does not meet its neighbours fails with the tiles "
+          "named, files of the wrong size are listed") {
     AssetsProject p;
     // an inside tile of one colour, an edge whose top row is a different colour, a corner that continues it
     const Json palette = Json::array({"#336633", "#99cc99", "#ff00ff"});
@@ -551,13 +599,14 @@ TEST_CASE("image.tileset.check: seamless parts pass, a part that does not meet i
         edgeRows.push_back(y < 2 ? "........" : (y == 2 ? "00000000" : "11111111"));
         cornerRows.push_back(y < 2 ? "........" : (y == 2 ? "..000000" : "..011111"));
     }
-    good["parts"] = {{"inside", {{"rows", insideRows}}}, {"edge", {{"rows", edgeRows}}}, {"corner", {{"rows", cornerRows}}}};
+    good["parts"] = {
+        {"inside", {{"rows", insideRows}}}, {"edge", {{"rows", edgeRows}}}, {"corner", {{"rows", cornerRows}}}};
     p.ok("image.tileset.build", good);
     Json r = p.ok("image.tileset.check", {{"path", kSet}});
     CHECK(r["ok"] == true);
     INFO(r["problems"].dump());
     CHECK(r["seamless"] == true);
-    CHECK(r["tolerance"] == 0);    // a palette: pixel art, the colours must be equal
+    CHECK(r["tolerance"] == 0);  // a palette: pixel art, the colours must be equal
     CHECK(p.exists(".factoria/previews/assets/art/ground.image.json.tilesetcheck.png"));
     CHECK(r.contains("$image"));
     // break the edge: its last pixel of the line is another colour, so the line breaks where two tiles touch
@@ -590,7 +639,8 @@ TEST_CASE("image.tileset.check: seamless parts pass, a part that does not meet i
     CHECK(error_of(none).find("image.tileset.build") != std::string::npos);
 }
 
-TEST_CASE("image.tileset.check: the joins inside a tile, where two quadrants of different parts meet, are compared too") {
+TEST_CASE(
+    "image.tileset.check: the joins inside a tile, where two quadrants of different parts meet, are compared too") {
     AssetsProject p;
     const Json palette = Json::array({"#336633", "#99cc99", "#ff00ff"});
     Json good = {{"path", kSet}, {"mode", "basic16"}, {"tileWidth", 8}, {"tileHeight", 8}, {"palette", palette}};
@@ -600,7 +650,8 @@ TEST_CASE("image.tileset.check: the joins inside a tile, where two quadrants of 
         edgeRows.push_back(y < 2 ? "........" : (y == 2 ? "00000000" : "11111111"));
         cornerRows.push_back(y < 2 ? "........" : (y == 2 ? "..000000" : "..011111"));
     }
-    good["parts"] = {{"inside", {{"rows", insideRows}}}, {"edge", {{"rows", edgeRows}}}, {"corner", {{"rows", cornerRows}}}};
+    good["parts"] = {
+        {"inside", {{"rows", insideRows}}}, {"edge", {{"rows", edgeRows}}}, {"corner", {{"rows", cornerRows}}}};
     p.ok("image.tileset.build", good);
     const Json fine = p.ok("image.tileset.check", {{"path", kSet}});
     INFO(fine["problems"].dump());
@@ -610,7 +661,8 @@ TEST_CASE("image.tileset.check: the joins inside a tile, where two quadrants of 
     int plain = 0;
     {
         const Image sheet = read_png(p.file("assets/art/ground.png"));
-        const TileSeamReport without = check_tile_set(sheet, 8, 8, 4, std::vector<int>(masks.begin(), masks.end()), false, 0, true);
+        const TileSeamReport without =
+            check_tile_set(sheet, 8, 8, 4, std::vector<int>(masks.begin(), masks.end()), false, 0, true);
         plain = without.seamsChecked;
     }
     CHECK(fine["seamsChecked"].get<int>() > plain);
@@ -629,7 +681,7 @@ TEST_CASE("image.tileset.check: the joins inside a tile, where two quadrants of 
     bool found = false;
     for (const Json& problem : r["problems"]) {
         const std::string axis = problem["axis"].get<std::string>();
-        CHECK((axis == "centreColumn" || axis == "centreRow"));   // no seam between two tiles breaks
+        CHECK((axis == "centreColumn" || axis == "centreRow"));  // no seam between two tiles breaks
         if (axis == "centreColumn" && problem["a"]["tile"] == tileES && problem["half"] == "top") {
             found = true;
             CHECK(problem["parts"] == "corner | edge");
@@ -647,13 +699,14 @@ TEST_CASE("image.tileset.check: the joins inside a tile, where two quadrants of 
     const int ox = (tileES % 4) * 8, oy = (tileES / 4) * 8;
     const Rgba on = get(preview, (ox + 4) * scale, (oy + 3) * scale + scale / 2);
     CHECK(on.r > on.g + 100);
-    const Rgba off = get(preview, (ox + 4) * scale, (oy + 1) * scale + scale / 2);   // a row that joins fine
+    const Rgba off = get(preview, (ox + 4) * scale, (oy + 1) * scale + scale / 2);  // a row that joins fine
     CHECK(off.r < off.g + 100);
     // the tolerance rules are those of the seams between tiles
     CHECK(p.ok("image.tileset.check", {{"path", kSet}, {"tolerance", 255}})["seamless"] == true);
 }
 
-TEST_CASE("image.tile.check: reports the seams with canvas coordinates, writes the preview, and uses the document's tile size") {
+TEST_CASE("image.tile.check: reports the seams with canvas coordinates, writes the preview, and uses the document's "
+          "tile size") {
     AssetsProject p;
     make_tiled(p, 8, 4, {{"width", 4}, {"height", 4}});
     // a dot at the right edge of the first tile with no partner at its left edge
@@ -662,7 +715,7 @@ TEST_CASE("image.tile.check: reports the seams with canvas coordinates, writes t
     CHECK(r["seamless"] == false);
     CHECK(r["tile"]["width"] == 4);
     CHECK(r["tile"]["columns"] == 2);
-    CHECK(r["tolerance"] == 0);    // a palette: exact
+    CHECK(r["tolerance"] == 0);  // a palette: exact
     REQUIRE(r["problems"].size() == 1);
     CHECK(r["problems"][0]["tile"] == 0);
     CHECK(r["problems"][0]["axis"] == "horizontal");
@@ -708,10 +761,12 @@ TEST_CASE("image.tileset.info: the parts of a mode, and the tiles of a tileset l
 
 TEST_CASE("image schema: the tile key and the tileset layer, as the code writes them, validate") {
     AssetsProject p;
-    auto schema = parse_json(read_all(std::filesystem::path(FA_REPO_ROOT) / "schemas" / "image.schema.json"), "image.schema.json");
+    auto schema = parse_json(read_all(std::filesystem::path(FA_REPO_ROOT) / "schemas" / "image.schema.json"),
+                             "image.schema.json");
     REQUIRE(schema.ok());
-    CHECK(std::find((*schema)["$defs"]["layer"]["properties"]["kind"]["enum"].begin(), (*schema)["$defs"]["layer"]["properties"]["kind"]["enum"].end(), Json("tileset")) !=
-          (*schema)["$defs"]["layer"]["properties"]["kind"]["enum"].end());
+    CHECK(std::find((*schema)["$defs"]["layer"]["properties"]["kind"]["enum"].begin(),
+                    (*schema)["$defs"]["layer"]["properties"]["kind"]["enum"].end(),
+                    Json("tileset")) != (*schema)["$defs"]["layer"]["properties"]["kind"]["enum"].end());
     Json args = flat_args("blob47", 2, 3);
     args["parts"]["edge"] = Json::array({colour_part("#0000ff"), colour_part("#0000dd")});
     p.ok("image.tileset.build", args);

@@ -144,7 +144,7 @@ Dbg::Entry::~Entry() {
 
 int Dbg::module_of_caller() {
     JSAtom a = JS_GetScriptOrModuleName(ctx, 1);  // level 0 is the native itself
-    if (a == 0) return 0;                          // JS_ATOM_NULL
+    if (a == 0) return 0;                         // JS_ATOM_NULL
     auto it = atomMid.find(a);
     if (it != atomMid.end()) {
         JS_FreeAtom(ctx, a);
@@ -536,9 +536,10 @@ Dbg::EvalOutcome Dbg::run_in(JSValueConst closure, const std::string& code) {
         JSValue exc = JS_GetException(ctx);
         if (timedOut) {
             out.errorName = "InternalError";
-            out.error = sys->debug_session_ended()
-                            ? std::string("the expression was stopped because the debug session ended")
-                            : std::format("the expression took too long (> {:g} s) and was stopped", sys->callbackLimit);
+            out.error =
+                sys->debug_session_ended()
+                    ? std::string("the expression was stopped because the debug session ended")
+                    : std::format("the expression took too long (> {:g} s) and was stopped", sys->callbackLimit);
         } else {
             out.errorName = JS_IsObject(exc) ? str_prop(ctx, exc, "name") : std::string();
             out.error = exception_summary(ctx, exc);
@@ -616,8 +617,10 @@ std::string Dbg::interpolate(JSValueConst closure, const std::string& message) {
         int depth = 1;
         size_t j = i + 1;
         for (; j < message.size() && depth > 0; ++j) {
-            if (message[j] == '{') ++depth;
-            else if (message[j] == '}') --depth;
+            if (message[j] == '{')
+                ++depth;
+            else if (message[j] == '}')
+                --depth;
         }
         if (depth != 0) {  // no closing brace: literal text
             out += message.substr(i);
@@ -805,10 +808,12 @@ public:
             return out;
         }
         // A scope: read each name through the frame's closure.
-        Fr* f = r.frame >= 0 && static_cast<size_t>(r.frame) < frames_.size() ? &frames_[static_cast<size_t>(r.frame)] : nullptr;
+        Fr* f = r.frame >= 0 && static_cast<size_t>(r.frame) < frames_.size() ? &frames_[static_cast<size_t>(r.frame)]
+                                                                              : nullptr;
         if (!f) return out;
         JSValue closure = r.moduleScope ? f->modClosure : f->closure;
-        const size_t end = count > 0 ? std::min(r.names.size(), static_cast<size_t>(start) + static_cast<size_t>(count)) : r.names.size();
+        const size_t end = count > 0 ? std::min(r.names.size(), static_cast<size_t>(start) + static_cast<size_t>(count))
+                                     : r.names.size();
         for (size_t i = static_cast<size_t>(start); i < end; ++i) {
             const std::string& name = r.names[i];
             if (JS_IsUndefined(closure)) {
@@ -838,11 +843,15 @@ public:
         JSValue closure = JS_UNDEFINED;
         if (frameId != 0) {
             Fr* f = frame(frameId);
-            if (!f) return Error{"no such frame: " + std::to_string(frameId), "Frame ids come from stack(); they are valid until the game resumes."};
+            if (!f)
+                return Error{"no such frame: " + std::to_string(frameId),
+                             "Frame ids come from stack(); they are valid until the game resumes."};
             closure = f->closure;
         }
         Dbg::EvalOutcome o = eval_expression(closure, std::string(expression));
-        if (!o.ok) return Error{o.error, "Names of the frame's scope (and \"factoria\" in the global scope) are in scope; `{a: 1}` is read as an object."};
+        if (!o.ok)
+            return Error{o.error, "Names of the frame's scope (and \"factoria\" in the global scope) are in scope; "
+                                  "`{a: 1}` is read as an object."};
         DebugValue dv = make_value("", o.value);
         JS_FreeValue(ctx_, o.value);
         return dv;
@@ -850,7 +859,8 @@ public:
 
     Result<DebugValue> set_variable(int ref, std::string_view name, std::string_view valueExpression) override {
         if (ref <= 0 || static_cast<size_t>(ref) > refs_.size())
-            return Error{"no such variables reference: " + std::to_string(ref), "References are valid until the game resumes."};
+            return Error{"no such variables reference: " + std::to_string(ref),
+                         "References are valid until the game resumes."};
         const Ref r = refs_[static_cast<size_t>(ref) - 1].copy(ctx_);
         struct Free {
             JSContext* c;
@@ -859,7 +869,9 @@ public:
         } freeObj{ctx_, r};
         JSValue topClosure = frames_.empty() ? JS_UNDEFINED : frames_[0].closure;
         Dbg::EvalOutcome v = eval_expression(topClosure, std::string(valueExpression));
-        if (!v.ok) return Error{"cannot evaluate the new value: " + v.error, "Write a JavaScript expression, e.g. 42 or \"text\" or this.speed * 2."};
+        if (!v.ok)
+            return Error{"cannot evaluate the new value: " + v.error,
+                         "Write a JavaScript expression, e.g. 42 or \"text\" or this.speed * 2."};
         const std::string key(name);
         if (r.isObject) {
             if (key == "[[Prototype]]") {
@@ -876,21 +888,24 @@ public:
                 JSValue exc = JS_GetException(ctx_);
                 std::string msg = exc_text(exc);
                 JS_FreeValue(ctx_, exc);
-                return Error{"cannot set '" + key + "': " + msg, "The property may be read-only or have a setter that threw."};
+                return Error{"cannot set '" + key + "': " + msg,
+                             "The property may be read-only or have a setter that threw."};
             }
             JSValue now = JS_GetPropertyStr(ctx_, r.obj, key.c_str());
             DebugValue dv = make_value(key, now);
             JS_FreeValue(ctx_, now);
             return dv;
         }
-        Fr* f = r.frame >= 0 && static_cast<size_t>(r.frame) < frames_.size() ? &frames_[static_cast<size_t>(r.frame)] : nullptr;
+        Fr* f = r.frame >= 0 && static_cast<size_t>(r.frame) < frames_.size() ? &frames_[static_cast<size_t>(r.frame)]
+                                                                              : nullptr;
         if (!f) {
             JS_FreeValue(ctx_, v.value);
             return Error{"the frame of this scope is gone", "Ask for the scopes again."};
         }
         if (!is_identifier(key)) {
             JS_FreeValue(ctx_, v.value);
-            return Error{"cannot assign '" + key + "': not a variable name", "Only declared variables can be changed here."};
+            return Error{"cannot assign '" + key + "': not a variable name",
+                         "Only declared variables can be changed here."};
         }
         JSValue closure = r.moduleScope ? f->modClosure : f->closure;
         JSValue global = JS_GetGlobalObject(ctx_);
@@ -903,8 +918,9 @@ public:
         JS_FreeValue(ctx_, global);
         if (!assigned.ok) {
             --d_.suppress;
-            return Error{"cannot assign '" + key + "': " + assigned.error,
-                         assigned.errorName == "TypeError" ? "A const cannot be reassigned." : "The variable must be in scope."};
+            return Error{"cannot assign '" + key + "': " + assigned.error, assigned.errorName == "TypeError"
+                                                                               ? "A const cannot be reassigned."
+                                                                               : "The variable must be in scope."};
         }
         JS_FreeValue(ctx_, assigned.value);
         Dbg::EvalOutcome now = d_.run_in(closure, key);
@@ -935,9 +951,13 @@ private:
         }
     };
 
-    Fr* frame(int id) { return id >= 1 && static_cast<size_t>(id) <= frames_.size() ? &frames_[static_cast<size_t>(id) - 1] : nullptr; }
+    Fr* frame(int id) {
+        return id >= 1 && static_cast<size_t>(id) <= frames_.size() ? &frames_[static_cast<size_t>(id) - 1] : nullptr;
+    }
     const ScriptDebugInfo* info_of(const Fr& f) const {
-        return f.mid > 0 && static_cast<size_t>(f.mid) < d_.modules.size() ? d_.modules[static_cast<size_t>(f.mid)].info.get() : nullptr;
+        return f.mid > 0 && static_cast<size_t>(f.mid) < d_.modules.size()
+                   ? d_.modules[static_cast<size_t>(f.mid)].info.get()
+                   : nullptr;
     }
     int new_ref(Ref r) {
         refs_.push_back(std::move(r));
@@ -950,7 +970,8 @@ private:
         return out;
     }
     std::string exc_text(JSValueConst exc) {
-        std::string name = JS_IsObject(exc) ? str_prop(ctx_, exc, "name") : "", msg = JS_IsObject(exc) ? str_prop(ctx_, exc, "message") : to_string(exc);
+        std::string name = JS_IsObject(exc) ? str_prop(ctx_, exc, "name") : "",
+                    msg = JS_IsObject(exc) ? str_prop(ctx_, exc, "message") : to_string(exc);
         return name.empty() ? msg : name + ": " + msg;
     }
     DebugValue make_value(const std::string& name, JSValueConst v) {
@@ -1004,7 +1025,8 @@ void Dbg::pause_at(DebugStop stop, const std::vector<JSValue>& recs, JSValueCons
     inPause = false;
     const auto paused = std::chrono::steady_clock::now() - t0;
     sys->guards = std::move(savedGuards);
-    for (auto& g : sys->guards) g.wallDeadline += paused;  // the CPU deadline needs no shift: the stopped thread spends no CPU
+    for (auto& g : sys->guards)
+        g.wallDeadline += paused;  // the CPU deadline needs no shift: the stopped thread spends no CPU
     sys->timedOut = savedTimedOut;
 
     if (terminating.load()) resume = DebugResume::Continue;

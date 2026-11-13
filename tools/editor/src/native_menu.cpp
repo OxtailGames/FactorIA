@@ -15,7 +15,9 @@ bool native_menu_wanted() {
 }
 
 #ifndef __APPLE__
-std::unique_ptr<NativeMenu> make_native_menu(const NativeAppMenuSpec&) { return nullptr; }  // native_menu_apple.mm has the real one
+std::unique_ptr<NativeMenu> make_native_menu(const NativeAppMenuSpec&) {
+    return nullptr;
+}  // native_menu_apple.mm has the real one
 #endif
 
 }  // namespace fa::editor

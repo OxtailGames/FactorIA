@@ -17,7 +17,7 @@ struct VideoInfo {
     double fps = 0;             // frames per second
     double duration = 0;        // seconds
     bool hasAudio = false;
-    int sampleRate = 0;         // Hz of the audio (0 without audio)
+    int sampleRate = 0;  // Hz of the audio (0 without audio)
 };
 
 // A video file played front to back by the time you give it. It never reads a clock: advance(dt) moves it forward,
@@ -47,8 +47,8 @@ public:
     // ended. Drops the audio decoded so far (audio_epoch() changes). Returns false when the file has no picture there.
     bool seek(double t);
 
-    double time() const { return time_; }        // position in the file, 0 .. duration
-    bool ended() const { return ended_; }         // reached the end (never while looping)
+    double time() const { return time_; }           // position in the file, 0 .. duration
+    bool ended() const { return ended_; }           // reached the end (never while looping)
     std::uint64_t loops() const { return loops_; }  // times advance() wrapped to the start
 
     // The current picture: width * height RGBA8, row 0 on top, alpha 255. picture_serial() changes when a different
@@ -74,13 +74,14 @@ private:
     VideoInfo info_;
     bool loop_ = false, ended_ = false;
     double time_ = 0;
-    double played_ = 0;  // seconds advanced since the audio epoch began (what the audio timeline runs against)
+    double played_ = 0;      // seconds advanced since the audio epoch began (what the audio timeline runs against)
     double epochStart_ = 0;  // file time at which the epoch began
     std::uint64_t loops_ = 0, pictureSerial_ = 0, audioEpoch_ = 1;
-    std::uint64_t audioProduced_ = 0;  // frames of the timeline of this epoch up to the end of audio_ (taken ones included)
-    std::vector<float> audio_;         // decoded, not yet taken (interleaved stereo)
-    std::uint64_t audioSkip_ = 0;      // frames to drop from the head of the next block
-    bool audioFresh_ = true;           // the next block is the first of the epoch
+    std::uint64_t audioProduced_ =
+        0;                         // frames of the timeline of this epoch up to the end of audio_ (taken ones included)
+    std::vector<float> audio_;     // decoded, not yet taken (interleaved stereo)
+    std::uint64_t audioSkip_ = 0;  // frames to drop from the head of the next block
+    bool audioFresh_ = true;       // the next block is the first of the epoch
 };
 
 }  // namespace fa

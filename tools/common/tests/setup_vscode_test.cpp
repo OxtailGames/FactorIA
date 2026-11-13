@@ -77,9 +77,11 @@ TEST_CASE("setup vscode: missing, then installed, with the version stamped and t
     CHECK_FALSE(r.report.changed);
 }
 
-TEST_CASE("setup vscode: also installs into Insiders, VSCodium and Cursor when they exist, and removes older versions") {
+TEST_CASE(
+    "setup vscode: also installs into Insiders, VSCodium and Cursor when they exist, and removes older versions") {
     VsWorld w;
-    for (const char* e : {".vscode-insiders", ".vscode-oss", ".cursor"}) stdfs::create_directories(w.home() / e / "extensions");
+    for (const char* e : {".vscode-insiders", ".vscode-oss", ".cursor"})
+        stdfs::create_directories(w.home() / e / "extensions");
     testing::write_all(w.ext(".vscode", "1.0.0") / "package.json", "{}");
     testing::write_all(w.ext(".cursor", "0.0.1") / "extension.js", "old");
     testing::write_all(w.home() / ".vscode" / "extensions" / "someone.else-1.0.0" / "package.json", "{}");
@@ -95,7 +97,8 @@ TEST_CASE("setup vscode: also installs into Insiders, VSCodium and Cursor when t
     }
     CHECK_FALSE(stdfs::exists(w.ext(".vscode", "1.0.0")));
     CHECK_FALSE(stdfs::exists(w.ext(".cursor", "0.0.1")));
-    CHECK(stdfs::exists(w.home() / ".vscode" / "extensions" / "someone.else-1.0.0"));  // other extensions are left alone
+    CHECK(
+        stdfs::exists(w.home() / ".vscode" / "extensions" / "someone.else-1.0.0"));  // other extensions are left alone
     CHECK(w.state() == "installed");
 
     // One editor lacking the copy makes the component partial.
@@ -195,7 +198,8 @@ TEST_CASE("setup vscode: the unknown-component error lists vscode") {
     CHECK(r.error.hint.find("vscode") != std::string::npos);
 }
 
-TEST_CASE("vscode extension: the embedded package.json declares the factoria debugger with the launch attributes of the design") {
+TEST_CASE("vscode extension: the embedded package.json declares the factoria debugger with the launch attributes of "
+          "the design") {
     const auto text = bundled_read("tools/vscode/package.json");
     REQUIRE(text);
     const Json pkg = Json::parse(*text);
@@ -208,7 +212,8 @@ TEST_CASE("vscode extension: the embedded package.json declares the factoria deb
     const Json& dbg = pkg["contributes"]["debuggers"][0];
     CHECK(dbg["type"] == "factoria");
     const Json& props = dbg["configurationAttributes"]["launch"]["properties"];
-    for (const char* key : {"mode", "project", "scene", "frames", "input", "tests", "filter", "stopOnEntry", "factoriaPath"}) {
+    for (const char* key :
+         {"mode", "project", "scene", "frames", "input", "tests", "filter", "stopOnEntry", "factoriaPath"}) {
         REQUIRE_MESSAGE(props.contains(key), key);
         CHECK_MESSAGE(!props[key].value("description", "").empty(), key);
     }

@@ -29,7 +29,7 @@ std::vector<std::string> list_songs(const std::string& projectDir);
 Json issues_json(const std::vector<SongIssue>& issues);
 
 struct Loaded {
-    std::string rel;       // empty for a song given inline
+    std::string rel;  // empty for a song given inline
     Json json;
     SongDoc doc;
 };
@@ -49,7 +49,8 @@ std::string structure_text(const SongDoc& doc);
 // The compact description of a song every music command returns: tempo, meter, key, bars, seconds, notes, tracks and sections.
 Json summary_json(const SongDoc& doc, const SongTimeline& timeline);
 // Adds the piano-roll picture (`$image`, `pianoRoll`) of the song to `result`; reads width, fromBar, bars, pictureOut from `a`.
-void add_piano_roll(const std::string& projectDir, const Json& a, const SongDoc& doc, const SongTimeline& timeline, Json& result, const char* command);
+void add_piano_roll(const std::string& projectDir, const Json& a, const SongDoc& doc, const SongTimeline& timeline,
+                    Json& result, const char* command);
 // Refuses a `pictureOut` the caller may not write (writeProject, inside the project) before the command does any work.
 // A `pictureOut` given while the picture is off (`picture` false, or absent where `pictureDefault` is false) is refused too.
 void check_picture_out(const std::string& projectDir, const Json& a, const char* command, bool pictureDefault = true);
@@ -65,11 +66,19 @@ inline Json obj(std::initializer_list<std::pair<const char*, Json>> props) {
     return p;
 }
 inline Json str(const char* what) { return Json::object({{"type", "string"}, {"description", what}}); }
-inline Json number(const char* what, double lo, double hi) { return Json::object({{"type", "number"}, {"minimum", lo}, {"maximum", hi}, {"description", what}}); }
-inline Json integer(const char* what, long lo, long hi) { return Json::object({{"type", "integer"}, {"minimum", lo}, {"maximum", hi}, {"description", what}}); }
-inline Json boolean(const char* what, bool def) { return Json::object({{"type", "boolean"}, {"default", def}, {"description", what}}); }
+inline Json number(const char* what, double lo, double hi) {
+    return Json::object({{"type", "number"}, {"minimum", lo}, {"maximum", hi}, {"description", what}});
+}
+inline Json integer(const char* what, long lo, long hi) {
+    return Json::object({{"type", "integer"}, {"minimum", lo}, {"maximum", hi}, {"description", what}});
+}
+inline Json boolean(const char* what, bool def) {
+    return Json::object({{"type", "boolean"}, {"default", def}, {"description", what}});
+}
 inline Json object_arg(const char* what) { return Json::object({{"type", "object"}, {"description", what}}); }
-inline Json strings(const char* what) { return Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}})}, {"description", what}}); }
+inline Json strings(const char* what) {
+    return Json::object({{"type", "array"}, {"items", Json::object({{"type", "string"}})}, {"description", what}});
+}
 
 // What a render of the song did (music.mix's `mix` block), and the loudness target a song asks of the style guide (nullopt unless its master
 // loudness is "style" and the style guide sets one).
@@ -80,7 +89,8 @@ std::optional<double> music_style_target(const std::string& projectDir, const So
 void register_music_render_commands(CommandRegistry& registry, const std::string& projectDir);
 void register_music_midi_commands(CommandRegistry& registry, const std::string& projectDir);
 // Imports the Standard MIDI File `source` (an absolute path) as the song `outRel` (see music.import_midi); the result of that command.
-Json import_midi_file(const std::string& projectDir, const std::filesystem::path& source, const std::string& sourceLabel, const Json& args, const std::string& outRel);
+Json import_midi_file(const std::string& projectDir, const std::filesystem::path& source,
+                      const std::string& sourceLabel, const Json& args, const std::string& outRel);
 
 void register_music_edit_commands(CommandRegistry& registry, const std::string& projectDir);
 

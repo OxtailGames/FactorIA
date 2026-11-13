@@ -14,23 +14,26 @@ namespace fa::localization_detail {
 
 // One text a scene or prefab file puts on screen: Text.text, Button.text, Toggle.label, Slider.label or TextField.placeholder.
 struct SceneText {
-    std::string file;      // "scenes/main.scene.json"
-    std::string pointer;   // of the text field: "/entities/2/components/Button/text"
-    std::string keyPointer;  // of the `key` field, whether or not it is written
-    std::string argsPointer;  // of the `keyArgs` field, whether or not it is written
-    std::string entity;      // the entity's id (or its pointer when it has none), for messages
+    std::string file;            // "scenes/main.scene.json"
+    std::string pointer;         // of the text field: "/entities/2/components/Button/text"
+    std::string keyPointer;      // of the `key` field, whether or not it is written
+    std::string argsPointer;     // of the `keyArgs` field, whether or not it is written
+    std::string entity;          // the entity's id (or its pointer when it has none), for messages
     Json args = Json::object();  // `keyArgs` as written in the file
-    bool argsKnown = true;   // false: an instance of a prefab that does not write keyArgs (they may be in the prefab file)
-    std::string component;   // "Button"
-    std::string field;       // "text"
-    std::string text;        // as written in the file: the text of the default language
-    std::string key;         // "" = a literal text, never translated
-    std::string font;        // the component's `font` ("" = the built-in DejaVu Sans)
-    bool fontKnown = true;   // false: an instance of a prefab that does not override `font` (its font is in the prefab file)
+    bool argsKnown =
+        true;  // false: an instance of a prefab that does not write keyArgs (they may be in the prefab file)
+    std::string component;  // "Button"
+    std::string field;      // "text"
+    std::string text;       // as written in the file: the text of the default language
+    std::string key;        // "" = a literal text, never translated
+    std::string font;       // the component's `font` ("" = the built-in DejaVu Sans)
+    bool fontKnown =
+        true;  // false: an instance of a prefab that does not override `font` (its font is in the prefab file)
 };
 
 // The texts of one entity's components (not its children). `entityPointer` is the pointer of the entity in `file`.
-void collect_scene_texts(const std::string& file, const std::string& entityPointer, const Json& entity, std::vector<SceneText>& out);
+void collect_scene_texts(const std::string& file, const std::string& entityPointer, const Json& entity,
+                         std::vector<SceneText>& out);
 
 // Runs the checks and appends their errors and warnings to `report`:
 //  - without a section: a warning when scenes use `key` or locales/ exists, and the glyph check of every text against its own font;
@@ -40,7 +43,8 @@ void collect_scene_texts(const std::string& file, const std::string& entityPoint
 // default table.
 // `settings` must come from a section without issues. `projectDir` is the project folder; the checks read the VFS, which this
 // call points at it for its duration.
-void check_localization_content(const std::string& projectDir, const LocalizationSettings& settings, const std::vector<SceneText>& texts,
+void check_localization_content(const std::string& projectDir, const LocalizationSettings& settings,
+                                const std::vector<SceneText>& texts,
                                 const std::vector<PlatformCatalog::TextKeyRef>& catalogKeys, ValidationReport& report);
 
 }  // namespace fa::localization_detail

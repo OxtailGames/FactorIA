@@ -114,10 +114,13 @@ TEST_CASE("audio.music_state: the player of the scene plays, and audio.music dri
     REQUIRE(r.ok);
     CHECK(r.result["players"][0]["mode"] == "live");
 
-    r = c.call("audio.music", Json::parse(R"({"entity":"theme","action":"setIntensity","intensity":1,"quantize":"none"})"));
+    r = c.call("audio.music",
+               Json::parse(R"({"entity":"theme","action":"setIntensity","intensity":1,"quantize":"none"})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["player"]["intensity"] == 1.0);
-    r = c.call("audio.music", Json::parse(R"({"entity":"theme","action":"goToSection","section":"outro","quantize":"bar","fade":0.1})"));
+    r = c.call(
+        "audio.music",
+        Json::parse(R"({"entity":"theme","action":"goToSection","section":"outro","quantize":"bar","fade":0.1})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["player"]["pending"] == 1);
     // The answer says where the jump lands; audio.music_state keeps saying so until it does.
@@ -164,15 +167,17 @@ TEST_CASE("audio.music: a call that cannot be made says why") {
     CHECK(r.error["hint"].get<std::string>().find("beat") != std::string::npos);
     r = c.call("audio.music", Json::parse(R"({"entity":"theme","action":"stop","quantise":"bar"})"));
     CHECK_FALSE(r.ok);  // a key the command does not declare
-    r = c.call("audio.music", Json::parse(R"({"entity":"theme","action":"crossfadeTo","song":"music/nope.song.json"})"));
+    r = c.call("audio.music",
+               Json::parse(R"({"entity":"theme","action":"crossfadeTo","song":"music/nope.song.json"})"));
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["message"].get<std::string>().find("does not exist") != std::string::npos);
     e.shutdown();
 }
 
-TEST_CASE("hot reload: a song edited on disk reaches the player that plays it (also in the editor's assets-only mode)") {
+TEST_CASE(
+    "hot reload: a song edited on disk reaches the player that plays it (also in the editor's assets-only mode)") {
     TempProject p("hotsong");
-    {   // songs live under assets/, which is what the watcher looks at
+    {  // songs live under assets/, which is what the watcher looks at
         std::string scene = kScene;
         const std::string from = "music/test.song.json";
         scene.replace(scene.find(from), from.size(), "assets/music/test.song.json");
@@ -196,13 +201,15 @@ TEST_CASE("hot reload: a song edited on disk reaches the player that plays it (a
     song["tempo"] = 90;
     const stdfs::path file = p.dir / "assets/music/test.song.json";
     std::ofstream(file, std::ios::binary) << song.dump();
-    stdfs::last_write_time(file, stdfs::file_time_type::clock::now() + std::chrono::seconds(30));  // never the same stamp twice
-    e.step(60 * 8);   // the watcher polls every 0.25 s; the crossfade waits for the next beat
+    stdfs::last_write_time(file, stdfs::file_time_type::clock::now() +
+                                     std::chrono::seconds(30));  // never the same stamp twice
+    e.step(60 * 8);  // the watcher polls every 0.25 s; the crossfade waits for the next beat
     CHECK(tempo() == doctest::Approx(90.0));
     e.shutdown();
 }
 
-TEST_CASE("game.setDevice reaches a MusicPlayer in mode auto: a song with stem files plays them on a desktop, a pretended phone and after game.setDevice()") {
+TEST_CASE("game.setDevice reaches a MusicPlayer in mode auto: a song with stem files plays them on a desktop, a "
+          "pretended phone and after game.setDevice()") {
     TempProject p("device");
     // The stems music.render would leave, and the assets.json entry that tells where they are.
     {
@@ -218,18 +225,43 @@ TEST_CASE("game.setDevice reaches a MusicPlayer in mode auto: a song with stem f
         for (const MusicStem& st : (*live)->stems) {
             const std::string file = "assets/music/test_" + st.name + ".wav";
             std::vector<std::uint8_t> b;
-            auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(std::uint8_t(v >> (8 * i))); };
-            auto u16 = [&](std::uint16_t v) { b.push_back(std::uint8_t(v)); b.push_back(std::uint8_t(v >> 8)); };
-            auto tag = [&](const char* t) { for (int i = 0; i < 4; ++i) b.push_back(std::uint8_t(t[i])); };
-            tag("RIFF"); u32(std::uint32_t(36 + st.pcm.size() * 2)); tag("WAVE"); tag("fmt "); u32(16); u16(1); u16(2); u32(kMusicRate);
-            u32(kMusicRate * 4); u16(4); u16(16); tag("data"); u32(std::uint32_t(st.pcm.size() * 2));
+            auto u32 = [&](std::uint32_t v) {
+                for (int i = 0; i < 4; ++i) b.push_back(std::uint8_t(v >> (8 * i)));
+            };
+            auto u16 = [&](std::uint16_t v) {
+                b.push_back(std::uint8_t(v));
+                b.push_back(std::uint8_t(v >> 8));
+            };
+            auto tag = [&](const char* t) {
+                for (int i = 0; i < 4; ++i) b.push_back(std::uint8_t(t[i]));
+            };
+            tag("RIFF");
+            u32(std::uint32_t(36 + st.pcm.size() * 2));
+            tag("WAVE");
+            tag("fmt ");
+            u32(16);
+            u16(1);
+            u16(2);
+            u32(kMusicRate);
+            u32(kMusicRate * 4);
+            u16(4);
+            u16(16);
+            tag("data");
+            u32(std::uint32_t(st.pcm.size() * 2));
             for (std::int16_t v : st.pcm) u16(std::uint16_t(std::int32_t(std::lround(double(v) * double(st.scale)))));
             stdfs::create_directories(p.dir / "assets/music");
-            std::ofstream(p.dir / file, std::ios::binary).write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
+            std::ofstream(p.dir / file, std::ios::binary)
+                .write(reinterpret_cast<const char*>(b.data()), std::streamsize(b.size()));
             stems.push_back(Json::object({{"path", file}, {"name", st.name}, {"intensity", st.threshold}}));
         }
-        Json assets = Json::object({{"format", "factoria.assets/1"},
-                                    {"assets", Json::object({{"assets/music/test.wav", Json::object({{"import", Json::object({{"music", Json::object({{"role", "mix"}, {"song", "music/test.song.json"}, {"stems", stems}})}})}})}})}});
+        Json assets = Json::object(
+            {{"format", "factoria.assets/1"},
+             {"assets",
+              Json::object(
+                  {{"assets/music/test.wav",
+                    Json::object({{"import", Json::object({{"music", Json::object({{"role", "mix"},
+                                                                                   {"song", "music/test.song.json"},
+                                                                                   {"stems", stems}})}})}})}})}});
         std::ofstream(p.dir / "assets.json", std::ios::binary) << assets.dump();
         fs::set_project_root(before);
     }

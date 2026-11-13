@@ -37,19 +37,20 @@ bool segments_cross(Vec2 p, Vec2 q, Vec2 r, Vec2 s) {
 // Does the direction p -> m lie inside the polygon's interior angle at p (between its neighbours, counter-clockwise polygon)?
 bool in_cone(Vec2 prev, Vec2 p, Vec2 next, Vec2 m) {
     if (area2(prev, p, next) >= 0) return area2(prev, p, m) > 0 && area2(p, next, m) > 0;  // convex corner
-    return !(area2(p, next, m) <= 0 && area2(prev, p, m) <= 0);                              // reflex corner
+    return !(area2(p, next, m) <= 0 && area2(prev, p, m) <= 0);                            // reflex corner
 }
 
 }  // namespace
 
-std::vector<std::uint32_t> triangulate_polygon(const std::vector<Vec2>& outer, const std::vector<std::vector<Vec2>>& holes) {
+std::vector<std::uint32_t> triangulate_polygon(const std::vector<Vec2>& outer,
+                                               const std::vector<std::vector<Vec2>>& holes) {
     std::vector<std::uint32_t> out;
     if (outer.size() < 3) return out;
     std::vector<Vec2> pts = outer;
     struct HoleRing {
         std::vector<std::uint32_t> ring;  // counter-clockwise outer, clockwise holes
         float maxX = 0;
-        std::uint32_t rightmost = 0;      // position in `ring` of the vertex with the largest x
+        std::uint32_t rightmost = 0;  // position in `ring` of the vertex with the largest x
     };
     std::vector<std::uint32_t> ring(outer.size());
     for (std::uint32_t i = 0; i < ring.size(); ++i) ring[i] = i;
@@ -67,7 +68,8 @@ std::vector<std::uint32_t> triangulate_polygon(const std::vector<Vec2>& outer, c
             if (pts[hr.ring[i]].x > hr.maxX) hr.maxX = pts[hr.ring[i]].x, hr.rightmost = i;
         pending.push_back(std::move(hr));
     }
-    std::stable_sort(pending.begin(), pending.end(), [](const HoleRing& a, const HoleRing& b) { return a.maxX > b.maxX; });
+    std::stable_sort(pending.begin(), pending.end(),
+                     [](const HoleRing& a, const HoleRing& b) { return a.maxX > b.maxX; });
 
     // Bridge each hole, the rightmost first, to the nearest vertex of the outline it can see.
     for (std::size_t hi = 0; hi < pending.size(); ++hi) {
@@ -95,7 +97,8 @@ std::vector<std::uint32_t> triangulate_polygon(const std::vector<Vec2>& outer, c
                 }
                 return true;
             }();
-            if ((visible && !bestVisible) || (visible == bestVisible && d < bestDist)) best = pi, bestDist = d, bestVisible = visible;
+            if ((visible && !bestVisible) || (visible == bestVisible && d < bestDist))
+                best = pi, bestDist = d, bestVisible = visible;
         }
         // ... P, M, the hole all the way round back to M, P again, ...
         std::vector<std::uint32_t> merged(ring.begin(), ring.begin() + std::ptrdiff_t(best) + 1);
@@ -316,14 +319,13 @@ ModelMesh model_text(const ModelTextOutline& outline, const ModelTextParams& p) 
                 pen = p3;
                 break;
             }
-            case ModelGlyphCmd::Close:
-                finish();
-                break;
+            case ModelGlyphCmd::Close: finish(); break;
         }
     }
     finish();
     for (auto& c : contours) clean_contour(c);
-    contours.erase(std::remove_if(contours.begin(), contours.end(), [](const auto& c) { return c.size() < 3; }), contours.end());
+    contours.erase(std::remove_if(contours.begin(), contours.end(), [](const auto& c) { return c.size() < 3; }),
+                   contours.end());
     if (contours.empty()) return {};
 
     // Nesting decides what is a hole: a contour inside an odd number of others cuts the smallest one around it.

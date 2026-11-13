@@ -41,10 +41,13 @@ struct Anim3DProject {
     Anim3DProject() {
         dir = fs::make_temp_dir("fa_anim3d_panel").value();
         register_asset_commands(registry, dir.string());
-        model = std::make_unique<Anim3DModel>(dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
+        model = std::make_unique<Anim3DModel>(
+            dir.string(), [this](const std::string& name, const Json& args) { return registry.call(name, args); });
         stdfs::create_directories(dir / "assets/models");
         std::ofstream(dir / "assets/models/hero.model.json") << person();
-        ok("rig.create", {{"path", "assets/models/hero.rig.json"}, {"model", "assets/models/hero.model.json"}, {"template", "humanoid"}});
+        ok("rig.create", {{"path", "assets/models/hero.rig.json"},
+                          {"model", "assets/models/hero.model.json"},
+                          {"template", "humanoid"}});
         ok("anim3d.generate", {{"rig", kRig}, {"kind", "walk"}, {"out", kClip}});
     }
     ~Anim3DProject() {
@@ -70,7 +73,6 @@ struct Anim3DProject {
     }
 };
 
-
 }  // namespace
 
 TEST_CASE("a 3D clip opens with its rig, lists the rig's bones with their key counts and samples a pose") {
@@ -93,7 +95,8 @@ TEST_CASE("a 3D clip opens with its rig, lists the rig's bones with their key co
     const Pose a = p.model->pose_at(0.0), b = p.model->pose_at(double(p.model->clip()->duration) * 0.25);
     bool differs = false;
     for (std::size_t i = 0; i < a.rotation.size(); ++i)
-        if (std::fabs(a.rotation[i].x - b.rotation[i].x) + std::fabs(a.rotation[i].w - b.rotation[i].w) > 1e-4) differs = true;
+        if (std::fabs(a.rotation[i].x - b.rotation[i].x) + std::fabs(a.rotation[i].w - b.rotation[i].w) > 1e-4)
+            differs = true;
     CHECK(differs);
     const MeshData mesh = p.model->skin(b);
     CHECK(mesh.positions.size() >= 3);
@@ -122,7 +125,8 @@ TEST_CASE("anim3d_file_is_3d tells 3D clips from 2D ones and from files that are
     CHECK_FALSE(anim3d_file_is_3d(p.dir.string(), "anim/absent.anim.json"));
 }
 
-TEST_CASE("keys: set, move, change the easing and delete are one command each, and the undo they return restores the file") {
+TEST_CASE(
+    "keys: set, move, change the easing and delete are one command each, and the undo they return restores the file") {
     Anim3DProject p;
     p.open();
     const std::string before = p.text();
@@ -194,7 +198,8 @@ TEST_CASE("a rotation key made from a gizmo pose reads back as the same pose") {
     const Quat& a = back.rotation[std::size_t(node)];
     const Quat& b = turned.rotation[std::size_t(node)];
     CHECK(std::fabs(std::fabs(a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w) - 1.0f) < 1e-3f);
-    CHECK(length(bone_head(rig, back, node) - headBefore) < 1e-4f);   // turning a bone moves its tail and children, not its own head
+    CHECK(length(bone_head(rig, back, node) - headBefore) <
+          1e-4f);  // turning a bone moves its tail and children, not its own head
 }
 
 TEST_CASE("an IK key poses the limb and keys the chain; the undo restores the clip") {
@@ -230,7 +235,8 @@ TEST_CASE("the live IK preview solves without writing anything") {
     const std::string before = p.text();
     Pose pose = p.model->pose_at(0.0);
     const Vec3 target = bone_head(rig, pose, foot) + Vec3{0.0f, 0.1f, 0.1f};
-    const auto res = ik3d_solve_once(rig.rig, pose, two_bone_solver(rig, limb, target, default_pole(rig, pose, limb)), 0.0f);
+    const auto res =
+        ik3d_solve_once(rig.rig, pose, two_bone_solver(rig, limb, target, default_pole(rig, pose, limb)), 0.0f);
     REQUIRE(res.ok());
     CHECK(length(bone_head(rig, pose, foot) - target) < 0.03f);
     CHECK(p.text() == before);
@@ -284,9 +290,9 @@ TEST_CASE("clip settings and the file changing on disk") {
     REQUIRE_MESSAGE(e.ok, e.error);
     CHECK(std::fabs(p.model->clip()->duration - 2.0f) < 1e-4f);
     CHECK_FALSE(p.model->clip()->loop);
-    CHECK_FALSE(p.model->poll());   // nothing changed behind its back
+    CHECK_FALSE(p.model->poll());  // nothing changed behind its back
     const std::uint64_t rev = p.model->revision();
-    p.ok("anim3d.set_clip", {{"path", kClip}, {"loop", true}});   // another tool wrote the file
+    p.ok("anim3d.set_clip", {{"path", kClip}, {"loop", true}});  // another tool wrote the file
     stdfs::last_write_time(p.dir / kClip, stdfs::last_write_time(p.dir / kClip) + std::chrono::seconds(5));
     CHECK(p.model->poll());
     CHECK(p.model->revision() > rev);
@@ -300,17 +306,19 @@ TEST_CASE("generate and retarget write new clips and report the undo that delete
     REQUIRE_MESSAGE(g.ok, g.error);
     CHECK(stdfs::exists(p.dir / "anim/hero_idle.anim.json"));
     const Anim3DEdit again = p.model->generate("idle", Json::object(), "anim/hero_idle.anim.json");
-    CHECK_FALSE(again.ok);   // the file exists
+    CHECK_FALSE(again.ok);  // the file exists
     const Anim3DEdit replaced = p.model->generate("idle", Json::object(), "anim/hero_idle.anim.json", true);
     CHECK(replaced.ok);
     const std::string first = p.text("anim/hero_idle.anim.json");
-    p.ok(replaced.undo["command"].get<std::string>(), replaced.undo["args"]);   // the replace brings the first document back
+    p.ok(replaced.undo["command"].get<std::string>(),
+         replaced.undo["args"]);  // the replace brings the first document back
     CHECK(p.text("anim/hero_idle.anim.json") == first);
-    p.ok(g.undo["command"].get<std::string>(), g.undo["args"]);   // the generation itself: the file goes
+    p.ok(g.undo["command"].get<std::string>(), g.undo["args"]);  // the generation itself: the file goes
     CHECK_FALSE(stdfs::exists(p.dir / "anim/hero_idle.anim.json"));
 }
 
-TEST_CASE("the ring maths: angles accumulate the short way, the ring point is on the ring and a click on it measures the same angle") {
+TEST_CASE("the ring maths: angles accumulate the short way, the ring point is on the ring and a click on it measures "
+          "the same angle") {
     CHECK(std::fabs(angle_delta(3.0, -3.0) - (2.0 * 3.14159265358979323846 - 6.0)) < 1e-9);
     CHECK(std::fabs(angle_delta(-3.0, 3.0) + (2.0 * 3.14159265358979323846 - 6.0)) < 1e-9);
     CHECK(std::fabs(angle_delta(0.1, 0.4) - 0.3) < 1e-9);

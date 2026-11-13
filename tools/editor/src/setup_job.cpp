@@ -14,9 +14,12 @@ namespace {
 
 std::string duration_text(double s) {
     char buf[32];
-    if (s < 1.0) std::snprintf(buf, sizeof buf, "%.0f ms", s * 1000.0);
-    else if (s < 60.0) std::snprintf(buf, sizeof buf, "%.1f s", s);
-    else std::snprintf(buf, sizeof buf, "%dm %02ds", int(s / 60.0), int(std::fmod(s, 60.0)));
+    if (s < 1.0)
+        std::snprintf(buf, sizeof buf, "%.0f ms", s * 1000.0);
+    else if (s < 60.0)
+        std::snprintf(buf, sizeof buf, "%.1f s", s);
+    else
+        std::snprintf(buf, sizeof buf, "%dm %02ds", int(s / 60.0), int(std::fmod(s, 60.0)));
     return buf;
 }
 
@@ -30,7 +33,8 @@ const char* os_label(const std::string& os) {
 const SetupComponent* find_component(const SetupStatus& status, const char* id) { return status.find(id); }
 
 bool has_path(const SetupComponent& c, const std::string& key) {
-    return std::any_of(c.paths.begin(), c.paths.end(), [&](const auto& p) { return p.first == key && !p.second.empty(); });
+    return std::any_of(c.paths.begin(), c.paths.end(),
+                       [&](const auto& p) { return p.first == key && !p.second.empty(); });
 }
 
 bool contains(const std::string& text, const char* what) { return text.find(what) != std::string::npos; }
@@ -50,14 +54,17 @@ SetupAction android_action(const SetupComponent& c, const std::string& home, boo
     a.key = "android";
     a.force = reinstall;
     a.label = reinstall ? "Reinstall" : "Install Android build tools";
-    a.tooltip = std::string(reinstall ? "Downloads everything again: " : "Downloads ") + "a JDK " + std::to_string(kSetupJdkMajor) +
-                " (Eclipse Temurin) and the Android SDK (command-line tools, platform-tools, platform 36, build-tools 35.0.0) into " +
+    a.tooltip = std::string(reinstall ? "Downloads everything again: " : "Downloads ") + "a JDK " +
+                std::to_string(kSetupJdkMajor) +
+                " (Eclipse Temurin) and the Android SDK (command-line tools, platform-tools, platform 36, build-tools "
+                "35.0.0) into " +
                 join_path(home, "android") + "." + size_sentence(c.installSizeMb) +
                 " You read and accept Google's Android SDK license first. Nothing else on the computer changes.";
     return a;
 }
 
-SetupAction players_action(const std::vector<std::string>& platforms, const std::string& home, bool reinstall, const std::string& label) {
+SetupAction players_action(const std::vector<std::string>& platforms, const std::string& home, bool reinstall,
+                           const std::string& label) {
     SetupAction a;
     a.component = "players";
     a.platforms = platforms;
@@ -66,8 +73,8 @@ SetupAction players_action(const std::vector<std::string>& platforms, const std:
     a.key = "players";
     for (const std::string& p : platforms) a.key += "-" + p;
     a.tooltip = "Downloads the " + setup_what("players", platforms) +
-                " of this FactorIA version from its GitHub release, checks them and keeps them in " + join_path(home, "players") +
-                ". Exports use them without any other step.";
+                " of this FactorIA version from its GitHub release, checks them and keeps them in " +
+                join_path(home, "players") + ". Exports use them without any other step.";
     return a;
 }
 
@@ -77,8 +84,9 @@ SetupAction cmake_action(const SetupComponent& c, const std::string& home, bool 
     a.key = "cmake";
     a.force = reinstall;
     a.label = reinstall ? "Reinstall" : "Install CMake";
-    a.tooltip = std::string("Downloads CMake ") + kSetupCmakeVersion + " from Kitware into " + join_path(home, "tools/cmake") + "." +
-                size_sentence(c.installSizeMb) + " The iOS export's build_ios.sh needs CMake " + kSetupCmakeMinimum + " or newer.";
+    a.tooltip = std::string("Downloads CMake ") + kSetupCmakeVersion + " from Kitware into " +
+                join_path(home, "tools/cmake") + "." + size_sentence(c.installSizeMb) +
+                " The iOS export's build_ios.sh needs CMake " + kSetupCmakeMinimum + " or newer.";
     return a;
 }
 
@@ -87,10 +95,13 @@ SetupAction xcode_action(const SetupComponent& c, bool short_label) {
     a.component = "xcode";
     a.key = "xcode";
     const bool missing = c.state == "missing";
-    a.label = missing ? (short_label ? "Open App Store" : "Open App Store (Xcode)") : (short_label ? "Show steps" : "Show Xcode steps");
-    a.tooltip = missing ? "Xcode comes from the App Store and needs your Apple ID, so a program cannot install it: this opens its page and "
+    a.label = missing ? (short_label ? "Open App Store" : "Open App Store (Xcode)")
+                      : (short_label ? "Show steps" : "Show Xcode steps");
+    a.tooltip = missing ? "Xcode comes from the App Store and needs your Apple ID, so a program cannot install it: "
+                          "this opens its page and "
                           "lists the steps to finish."
-                        : "Xcode is installed but not ready for iOS builds: lists what to do (some steps ask for your password, so FactorIA "
+                        : "Xcode is installed but not ready for iOS builds: lists what to do (some steps ask for your "
+                          "password, so FactorIA "
                           "does not run them).";
     return a;
 }
@@ -101,8 +112,10 @@ SetupAction vscode_action(const SetupComponent& c, bool reinstall) {
     a.key = "vscode";
     a.force = reinstall;
     a.label = reinstall ? "Reinstall" : "Install";
-    a.tooltip = "Copies the FactorIA extension (the script debugger: breakpoints and stepping on F5) into VS Code's extensions folder "
-                "and into VS Code Insiders, VSCodium and Cursor when they are installed. Nothing is downloaded. Restart VS Code afterwards.";
+    a.tooltip = "Copies the FactorIA extension (the script debugger: breakpoints and stepping on F5) into VS Code's "
+                "extensions folder "
+                "and into VS Code Insiders, VSCodium and Cursor when they are installed. Nothing is downloaded. "
+                "Restart VS Code afterwards.";
     return a;
 }
 
@@ -112,8 +125,9 @@ SetupAction launcher_action(const SetupComponent& c, bool reinstall) {
     a.key = "launcher";
     a.force = reinstall;
     a.label = c.state == "partial" ? "Update" : (reinstall ? "Reinstall" : "Install");
-    a.tooltip = "Writes an app that opens this FactorIA's editor with the FactorIA icon, to keep in the Dock or the app menu: "
-                "~/Applications/FactorIA.app on macOS, a .desktop entry on Linux. Nothing is downloaded.";
+    a.tooltip =
+        "Writes an app that opens this FactorIA's editor with the FactorIA icon, to keep in the Dock or the app menu: "
+        "~/Applications/FactorIA.app on macOS, a .desktop entry on Linux. Nothing is downloaded.";
     return a;
 }
 
@@ -151,13 +165,17 @@ std::string setup_what(const std::string& component, const std::vector<std::stri
     std::vector<std::string> desktops;
     bool mobile = false, web = false;
     for (const std::string& p : platforms) {
-        if (p == "mobile") mobile = true;
-        else if (p == "web") web = true;
-        else if (*os_label(p)) desktops.push_back(os_label(p));
+        if (p == "mobile")
+            mobile = true;
+        else if (p == "web")
+            web = true;
+        else if (*os_label(p))
+            desktops.push_back(os_label(p));
     }
     if (desktops.empty() && !mobile && !web) return "players for the other platforms";
     std::string text;
-    for (size_t i = 0; i < desktops.size(); ++i) text += (i == 0 ? "" : (i + 1 == desktops.size() ? " and " : ", ")) + desktops[i];
+    for (size_t i = 0; i < desktops.size(); ++i)
+        text += (i == 0 ? "" : (i + 1 == desktops.size() ? " and " : ", ")) + desktops[i];
     if (!desktops.empty()) text += desktops.size() == 1 ? " player" : " players";
     if (mobile) text += std::string(text.empty() ? "" : " and ") + "mobile libraries";
     if (web) text += std::string(text.empty() ? "" : " and ") + "web player";
@@ -166,7 +184,8 @@ std::string setup_what(const std::string& component, const std::vector<std::stri
 
 std::optional<int> parse_progress_percent(const std::string& line) {
     size_t end = line.size();
-    while (end > 0 && (line[end - 1] == ' ' || line[end - 1] == '\t' || line[end - 1] == '\r' || line[end - 1] == '\n')) --end;
+    while (end > 0 && (line[end - 1] == ' ' || line[end - 1] == '\t' || line[end - 1] == '\r' || line[end - 1] == '\n'))
+        --end;
     if (end > 0 && line[end - 1] == ')') --end;
     if (end == 0 || line[end - 1] != '%') return std::nullopt;
     --end;
@@ -200,8 +219,10 @@ std::optional<SetupAction> setup_action_for_component(const SetupComponent& c, c
     if (c.id == "players") {
         SetupAction a = players_action({}, home, installed, installed ? "Reinstall" : "Install");
         a.tooltip = std::string(installed ? "Downloads them again: " : "Downloads ") +
-                    "the factoria_player of the other desktop systems and the Android/iOS libraries from this FactorIA version's GitHub release, "
-                    "checks them and keeps them in " + join_path(home, "players") + "." + size_sentence(c.installSizeMb);
+                    "the factoria_player of the other desktop systems and the Android/iOS libraries from this FactorIA "
+                    "version's GitHub release, "
+                    "checks them and keeps them in " +
+                    join_path(home, "players") + "." + size_sentence(c.installSizeMb);
         return a;
     }
     if (c.id == "cmake") {
@@ -218,7 +239,8 @@ std::optional<SetupAction> setup_action_for_component(const SetupComponent& c, c
     return std::nullopt;
 }
 
-std::vector<SetupAction> setup_actions_for_row(const std::string& platform, const ExportStatus& row, const SetupStatus& status) {
+std::vector<SetupAction> setup_actions_for_row(const std::string& platform, const ExportStatus& row,
+                                               const SetupStatus& status) {
     std::vector<SetupAction> out;
     if (status.components.empty()) return out;
     const std::string& home = status.home;
@@ -231,23 +253,31 @@ std::vector<SetupAction> setup_actions_for_row(const std::string& platform, cons
             const SetupComponent* android = find_component(status, "android");
             // The toolchain is what the export cannot find: a JDK 17+ and an Android SDK. (Licenses or packages that are only
             // missing do not stop an export from starting, so they are no reason for a button here.)
-            if (android && android->canInstall && android->state != "installed" && !(has_path(*android, "jdk") && has_path(*android, "sdk")))
+            if (android && android->canInstall && android->state != "installed" &&
+                !(has_path(*android, "jdk") && has_path(*android, "sdk")))
                 out.push_back(android_action(*android, home, false));
-            if (noPrebuilt && mobile_missing()) out.push_back(players_action({"mobile"}, home, false, "Download mobile libraries"));
+            if (noPrebuilt && mobile_missing())
+                out.push_back(players_action({"mobile"}, home, false, "Download mobile libraries"));
         }
     } else if (platform == "windows" || platform == "linux" || platform == "macos") {
-        if (!row.ready && export_needs_player(platform) && players && players->canInstall && !has_path(*players, "player-" + platform))
-            out.push_back(players_action({platform}, home, false, std::string("Download ") + os_label(platform) + " player"));
+        if (!row.ready && export_needs_player(platform) && players && players->canInstall &&
+            !has_path(*players, "player-" + platform))
+            out.push_back(
+                players_action({platform}, home, false, std::string("Download ") + os_label(platform) + " player"));
     } else if (platform == "web") {
-        if (!row.ready && players && players->canInstall) out.push_back(players_action({"web"}, home, false, "Download web player"));
+        if (!row.ready && players && players->canInstall)
+            out.push_back(players_action({"web"}, home, false, "Download web player"));
     } else if (platform == "ios") {
-        if (noPrebuilt && mobile_missing()) out.push_back(players_action({"mobile"}, home, false, "Download mobile libraries"));
+        if (noPrebuilt && mobile_missing())
+            out.push_back(players_action({"mobile"}, home, false, "Download mobile libraries"));
         // build_ios.sh needs CMake and the Xcode project needs Xcode, ready export or not.
-        if (const SetupComponent* cmake = find_component(status, "cmake"); cmake && cmake->canInstall && cmake->state == "missing") {
+        if (const SetupComponent* cmake = find_component(status, "cmake");
+            cmake && cmake->canInstall && cmake->state == "missing") {
             out.push_back(cmake_action(*cmake, home, false));
             out.back().why = cmake->problems.empty() ? cmake->details : cmake->problems.front();
         }
-        if (const SetupComponent* xcode = find_component(status, "xcode"); xcode && xcode->canInstall && xcode->state != "installed") {
+        if (const SetupComponent* xcode = find_component(status, "xcode");
+            xcode && xcode->canInstall && xcode->state != "installed") {
             out.push_back(xcode_action(*xcode, false));
             out.back().why = xcode->details;
         }
@@ -277,7 +307,9 @@ SetupOutcome run_setup(const SetupInstallOptions& options, const SetupContext& c
     }
     out.cancelled = !out.ok && out.code == "cancelled";
     out.licenseRequired = !out.ok && out.code == "license_required";
-    out.seconds = out.report.seconds > 0 ? out.report.seconds : std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+    out.seconds = out.report.seconds > 0
+                      ? out.report.seconds
+                      : std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
     return out;
 }
 
@@ -286,8 +318,10 @@ std::string setup_summary(const SetupOutcome& o) {
     if (o.cancelled) return "Set up " + what + " cancelled";
     if (o.licenseRequired) return "Accept the Android SDK license to install " + what;
     if (!o.ok) return "Set up " + what + " failed: " + o.error;
-    if (o.options.component == "xcode") return o.report.nextSteps.empty() ? "Xcode is set up" : "Xcode: the next steps are in Set Up This Computer";
-    const bool anyInstalled = std::any_of(o.report.steps.begin(), o.report.steps.end(), [](const SetupStep& s) { return s.outcome == "installed"; });
+    if (o.options.component == "xcode")
+        return o.report.nextSteps.empty() ? "Xcode is set up" : "Xcode: the next steps are in Set Up This Computer";
+    const bool anyInstalled = std::any_of(o.report.steps.begin(), o.report.steps.end(),
+                                          [](const SetupStep& s) { return s.outcome == "installed"; });
     if (!anyInstalled) return what + " was already set up";
     return "Installed " + what + " in " + duration_text(o.seconds);
 }
@@ -318,7 +352,8 @@ std::string setup_report_text(const SetupOutcome& o) {
     }
     if (!o.report.nextSteps.empty()) {
         t += "\nNext steps:\n";
-        for (size_t i = 0; i < o.report.nextSteps.size(); ++i) t += std::to_string(i + 1) + ". " + o.report.nextSteps[i] + "\n";
+        for (size_t i = 0; i < o.report.nextSteps.size(); ++i)
+            t += std::to_string(i + 1) + ". " + o.report.nextSteps[i] + "\n";
     }
     return t;
 }
@@ -448,15 +483,18 @@ bool SetupLicenseLoad::poll() {
         licenses_ = android->licenses;
     } else {
         // Not fetched (the licenses are accepted already) or not fetchable (the problem says why): only the second is a failure.
-        const bool pending = std::any_of(android->problems.begin(), android->problems.end(),
-                                         [](const std::string& p) { return contains(p, "license is not accepted yet"); });
+        const bool pending = std::any_of(android->problems.begin(), android->problems.end(), [](const std::string& p) {
+            return contains(p, "license is not accepted yet");
+        });
         if (!pending) {
             state_ = State::NotNeeded;
         } else {
             state_ = State::Failed;
             for (const std::string& p : android->problems)
                 if (contains(p, "Could not fetch the license")) error_ = p;
-            if (error_.empty()) error_ = "The license text could not be fetched. It is also at https://developer.android.com/studio/terms.";
+            if (error_.empty())
+                error_ =
+                    "The license text could not be fetched. It is also at https://developer.android.com/studio/terms.";
         }
     }
     return true;

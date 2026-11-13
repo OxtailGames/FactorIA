@@ -40,13 +40,16 @@ namespace fa {
 inline constexpr const char* kReviewDir = ".factoria/review";
 inline constexpr const char* kReviewDropDir = ".factoria/review/dropped";
 inline constexpr const char* kReviewFormat = "factoria.review/1";
-inline constexpr int kReviewMaxItems = 48;      // items on one sheet (after a level's `seeds` are expanded)
-inline constexpr int kReviewListDefault = 20;   // sheets review_list returns without a limit
-inline constexpr int kReviewListMax = 200;      // and the most it ever returns
-inline constexpr int kReviewDroppedDays = 7;    // review_cleanup deletes the files a pick dropped this many days after the pick
-inline constexpr int kReviewOrphanMinutes = 60; // and the folders of a sheet whose manifest was never written, this long after their last change
-inline constexpr int kReviewCleanupMax = 200;   // sheets one review_cleanup changes (the oldest first; the next call goes on)
-inline constexpr int kReviewMetaMaxBytes = 4096; // the most a sheet's `meta` object may take written as JSON
+inline constexpr int kReviewMaxItems = 48;     // items on one sheet (after a level's `seeds` are expanded)
+inline constexpr int kReviewListDefault = 20;  // sheets review_list returns without a limit
+inline constexpr int kReviewListMax = 200;     // and the most it ever returns
+inline constexpr int kReviewDroppedDays =
+    7;  // review_cleanup deletes the files a pick dropped this many days after the pick
+inline constexpr int kReviewOrphanMinutes =
+    60;  // and the folders of a sheet whose manifest was never written, this long after their last change
+inline constexpr int kReviewCleanupMax =
+    200;  // sheets one review_cleanup changes (the oldest first; the next call goes on)
+inline constexpr int kReviewMetaMaxBytes = 4096;  // the most a sheet's `meta` object may take written as JSON
 // meta.kind of the sheets assets.generate_image makes with `count`: assets.pick answers them (it also moves the chosen file to its slot),
 // so review_pick without a step refuses them and names assets.pick.
 inline constexpr const char* kReviewAssetCandidatesKind = "assetCandidates";
@@ -60,8 +63,8 @@ struct ReviewOutcome {
 };
 
 struct ReviewThumb {
-    int n = 0;       // 1-based item number
-    Image picture;   // straight-alpha RGBA, already fitted into the thumbnail area
+    int n = 0;      // 1-based item number
+    Image picture;  // straight-alpha RGBA, already fitted into the thumbnail area
 };
 
 // Takes the next sheet id (sheet-0001, sheet-0002...) and creates its folder. value: {id, dir (project-relative)}. Under the lock,
@@ -103,9 +106,9 @@ struct ReviewPickStep {
 };
 
 struct ReviewPickOptions {
-    bool drop = true;   // move the files of the other candidates to the sheet's dropDir (false: only record the choice)
-    std::string note;   // free text kept with the choice (why)
-    std::string who;    // "user", "agent" or "mcp"; empty: taken from command_caller()
+    bool drop = true;  // move the files of the other candidates to the sheet's dropDir (false: only record the choice)
+    std::string note;  // free text kept with the choice (why)
+    std::string who;   // "user", "agent" or "mcp"; empty: taken from command_caller()
     ReviewPickStep step;  // the caller's own change, done with the pick or not at all
 };
 // Records that item `n` of the sheet was chosen, and (drop) moves the source files of the OTHER items marked `candidate` to
@@ -117,7 +120,8 @@ struct ReviewPickOptions {
 // kReviewAssetCandidatesKind when options.step is empty (assets.pick answers those). A file open in another program (a sharing
 // violation) is code "busy", any other move failure "failed". value: the choice (see
 // review.pick in docs/AI_GUIDE.md).
-ReviewOutcome review_pick(const std::string& projectDir, const std::string& sheet, long n, const ReviewPickOptions& options);
+ReviewOutcome review_pick(const std::string& projectDir, const std::string& sheet, long n,
+                          const ReviewPickOptions& options);
 
 // review.sheet itself, for a command that makes a sheet as part of its own work (assets.generate_image with `count`): `args` are the
 // arguments of review.sheet (validated the same way), value is its result ($image and nextSteps included). An argument error or any
@@ -144,9 +148,9 @@ std::string review_drop_file_name(int number, const std::string& source);
 std::string review_path_key(const std::string& rel);
 
 struct ReviewCleanupOptions {
-    int droppedDays = kReviewDroppedDays;   // 0: keep the dropped files for ever
+    int droppedDays = kReviewDroppedDays;      // 0: keep the dropped files for ever
     int orphanMinutes = kReviewOrphanMinutes;  // 0: leave the orphaned sheet folders
-    bool dryRun = false;                    // report what would be removed and remove nothing
+    bool dryRun = false;                       // report what would be removed and remove nothing
 };
 // Housekeeping under the review lock, never touching a chosen file or an unanswered sheet:
 //  - the files a pick MOVED to the drop folder are deleted `droppedDays` days after the pick (the engine clock against

@@ -27,7 +27,9 @@ double num(const Json& o, const char* cmd, const std::string& base, const char* 
     auto it = o.find(key);
     if (it == o.end() || it->is_null()) return def;
     if (!it->is_number() || it->get<double>() < lo || it->get<double>() > hi)
-        arg_error(cmd, base + "/" + key, std::format("`{}` must be a number from {} to {}, got {}.", key, lo, hi, describe_json_value(*it)), "");
+        arg_error(cmd, base + "/" + key,
+                  std::format("`{}` must be a number from {} to {}, got {}.", key, lo, hi, describe_json_value(*it)),
+                  "");
     return it->get<double>();
 }
 
@@ -38,23 +40,40 @@ Hsv rgb_to_hsv(double r, double g, double b) {  // 0..1
     const double mx = std::max({r, g, b}), mn = std::min({r, g, b}), d = mx - mn;
     double h = 0;
     if (d > 0) {
-        if (mx == r) h = std::fmod((g - b) / d, 6.0);
-        else if (mx == g) h = (b - r) / d + 2;
-        else h = (r - g) / d + 4;
+        if (mx == r)
+            h = std::fmod((g - b) / d, 6.0);
+        else if (mx == g)
+            h = (b - r) / d + 2;
+        else
+            h = (r - g) / d + 4;
         h *= 60;
         if (h < 0) h += 360;
     }
     return {h, mx > 0 ? d / mx : 0, mx};
 }
 void hsv_to_rgb(const Hsv& c, double& r, double& g, double& b) {
-    const double ch = c.v * c.s, hp = std::fmod(c.h, 360.0) / 60.0, x = ch * (1 - std::fabs(std::fmod(hp, 2.0) - 1)), m = c.v - ch;
+    const double ch = c.v * c.s, hp = std::fmod(c.h, 360.0) / 60.0, x = ch * (1 - std::fabs(std::fmod(hp, 2.0) - 1)),
+                 m = c.v - ch;
     double r1 = 0, g1 = 0, b1 = 0;
-    if (hp < 1) { r1 = ch; g1 = x; }
-    else if (hp < 2) { r1 = x; g1 = ch; }
-    else if (hp < 3) { g1 = ch; b1 = x; }
-    else if (hp < 4) { g1 = x; b1 = ch; }
-    else if (hp < 5) { r1 = x; b1 = ch; }
-    else { r1 = ch; b1 = x; }
+    if (hp < 1) {
+        r1 = ch;
+        g1 = x;
+    } else if (hp < 2) {
+        r1 = x;
+        g1 = ch;
+    } else if (hp < 3) {
+        g1 = ch;
+        b1 = x;
+    } else if (hp < 4) {
+        g1 = x;
+        b1 = ch;
+    } else if (hp < 5) {
+        r1 = x;
+        b1 = ch;
+    } else {
+        r1 = ch;
+        b1 = x;
+    }
     r = r1 + m;
     g = g1 + m;
     b = b1 + m;
@@ -63,17 +82,23 @@ void hsv_to_rgb(const Hsv& c, double& r, double& g, double& b) {
 float sel_at(const Mask& sel, int cx, int cy) { return sel.at(cx, cy) / 255.0f; }
 
 bool looks_like_index_path(const std::string& s) {
-    return !s.empty() && std::all_of(s.begin(), s.end(), [](char c) { return std::isdigit((unsigned char)c) || c == '/'; });
+    return !s.empty() &&
+           std::all_of(s.begin(), s.end(), [](char c) { return std::isdigit((unsigned char)c) || c == '/'; });
 }
 
-bool project_pixel_art(const std::string& projectDir) { return load_style_guide(projectDir).guide.pixelArt.value_or(false); }
+bool project_pixel_art(const std::string& projectDir) {
+    return load_style_guide(projectDir).guide.pixelArt.value_or(false);
+}
 
 // ---- image.edit ------------------------------------------------------------------------------------------------------------
 
 const std::vector<std::string> kActions = {"fill", "recolor", "move", "transform", "delete", "copy", "cut"};
 
 Json layer_summary(const LayerRef& r) {
-    return Json::object({{"index", r.indexPath}, {"pointer", r.pointer}, {"name", r.layer->value("name", std::string())}, {"kind", r.layer->value("kind", std::string())}});
+    return Json::object({{"index", r.indexPath},
+                         {"pointer", r.pointer},
+                         {"name", r.layer->value("name", std::string())},
+                         {"kind", r.layer->value("kind", std::string())}});
 }
 
 Json image_edit(const std::string& projectDir, const Json& a) {
@@ -83,11 +108,16 @@ Json image_edit(const std::string& projectDir, const Json& a) {
     FrameScope frameScope(projectDir, d.rel, d.json, a, cmd);
     const int W = d.json.value("width", 0), H = d.json.value("height", 0);
     if (!a.contains("selection") || !a["selection"].is_string())
-        arg_error(cmd, "/selection", "`selection` is required: the name of a selection made with image.select (or \"all\").",
-                  "Example: {\"selection\":\"sky\"}. Stored: " + (list_selections(projectDir, d.rel).empty() ? std::string("none yet") : join(list_selections(projectDir, d.rel), ", ")) + ".");
+        arg_error(cmd, "/selection",
+                  "`selection` is required: the name of a selection made with image.select (or \"all\").",
+                  "Example: {\"selection\":\"sky\"}. Stored: " +
+                      (list_selections(projectDir, d.rel).empty() ? std::string("none yet")
+                                                                  : join(list_selections(projectDir, d.rel), ", ")) +
+                      ".");
     const Mask sel = load_selection(projectDir, d.rel, a["selection"].get<std::string>(), W, H, cmd);
     if (!a.contains("layer") || a["layer"].is_null())
-        arg_error(cmd, "/layer", "`layer` is required: the layer whose pixels change.", "Example: \"layer\":\"hero\". " + describe_layers(d.json, 12));
+        arg_error(cmd, "/layer", "`layer` is required: the layer whose pixels change.",
+                  "Example: \"layer\":\"hero\". " + describe_layers(d.json, 12));
     LayerRef ref = find_layer(d.json, a["layer"], cmd);
     if (!a.contains("action") || !a["action"].is_object() || !a["action"].contains("type"))
         arg_error(cmd, "/action", "`action` is required: an object with `type`.",
@@ -96,7 +126,8 @@ Json image_edit(const std::string& projectDir, const Json& a) {
     std::string type = act["type"].is_string() ? act["type"].get<std::string>() : "";
     if (type == "recolour") type = "recolor";
     if (std::find(kActions.begin(), kActions.end(), type) == kActions.end())
-        arg_error(cmd, "/action/type", "unknown action '" + type + "'.", did_you_mean(type, kActions) + " Types: " + join(kActions, ", ") + ".");
+        arg_error(cmd, "/action/type", "unknown action '" + type + "'.",
+                  did_you_mean(type, kActions) + " Types: " + join(kActions, ", ") + ".");
     const std::optional<Image> before = render_document_json(projectDir, d.json);
     assets_detail::require_usable_manifest(projectDir);
     std::vector<std::string> warnings;
@@ -112,22 +143,36 @@ Json image_edit(const std::string& projectDir, const Json& a) {
         allowed({});
         Work w = open_work(projectDir, d.json, ref, cmd, false, true);
         ImagePatch p = image_patch_extract(w.img, w.ox, w.oy, sel);
-        if (p.img.empty()) arg_error(cmd, "/selection", "the selection covers no visible pixel of the layer, so there is nothing to copy.", "Select where the layer has pixels (image.select by \"layer\" selects its shape).");
-        for (const std::string& s : w.warnings) if (s.find("was a ") == std::string::npos) warnings.push_back(s);
-        const std::string name = nameArg.empty() ? unique_layer_name(d.json, ref.layer->value("name", std::string("layer")) + " copy") : nameArg;
-        if (const auto taken = layer_names(d.json); !nameArg.empty() && std::find(taken.begin(), taken.end(), name) != taken.end())
+        if (p.img.empty())
+            arg_error(cmd, "/selection",
+                      "the selection covers no visible pixel of the layer, so there is nothing to copy.",
+                      "Select where the layer has pixels (image.select by \"layer\" selects its shape).");
+        for (const std::string& s : w.warnings)
+            if (s.find("was a ") == std::string::npos) warnings.push_back(s);
+        const std::string name =
+            nameArg.empty() ? unique_layer_name(d.json, ref.layer->value("name", std::string("layer")) + " copy")
+                            : nameArg;
+        if (const auto taken = layer_names(d.json);
+            !nameArg.empty() && std::find(taken.begin(), taken.end(), name) != taken.end())
             arg_error(cmd, "/name", "a layer named '" + name + "' already exists.", "Pick another name.");
-        const std::string path = add_pixels_layer(projectDir, d.rel, d.json, &ref, name, p.img, p.x, p.y, cmd, w.kind == "provider");
+        const std::string path =
+            add_pixels_layer(projectDir, d.rel, d.json, &ref, name, p.img, p.x, p.y, cmd, w.kind == "provider");
         if (FrameScope* fs = FrameScope::current()) fs->confine_new_layer(d.json, path);
         extra["newLayer"] = Json::object({{"index", path}, {"name", name}});
     } else if (type == "cut") {
         allowed({});
         Work w = open_work(projectDir, d.json, ref, cmd, false, true);
         ImagePatch p = image_patch_extract(w.img, w.ox, w.oy, sel);
-        if (p.img.empty()) arg_error(cmd, "/selection", "the selection covers no visible pixel of the layer, so there is nothing to cut.", "Select where the layer has pixels (image.select by \"layer\" selects its shape).");
+        if (p.img.empty())
+            arg_error(cmd, "/selection",
+                      "the selection covers no visible pixel of the layer, so there is nothing to cut.",
+                      "Select where the layer has pixels (image.select by \"layer\" selects its shape).");
         image_patch_erase(w.img, w.ox, w.oy, sel);
-        const std::string name = nameArg.empty() ? unique_layer_name(d.json, ref.layer->value("name", std::string("layer")) + " cut") : nameArg;
-        if (const auto taken = layer_names(d.json); !nameArg.empty() && std::find(taken.begin(), taken.end(), name) != taken.end())
+        const std::string name =
+            nameArg.empty() ? unique_layer_name(d.json, ref.layer->value("name", std::string("layer")) + " cut")
+                            : nameArg;
+        if (const auto taken = layer_names(d.json);
+            !nameArg.empty() && std::find(taken.begin(), taken.end(), name) != taken.end())
             arg_error(cmd, "/name", "a layer named '" + name + "' already exists.", "Pick another name.");
         commit_work(projectDir, d.rel, d.json, ref, w, cmd);
         for (const std::string& s : w.warnings) warnings.push_back(s);
@@ -137,14 +182,18 @@ Json image_edit(const std::string& projectDir, const Json& a) {
         extra["newLayer"] = Json::object({{"index", path}, {"name", name}});
     } else if (type == "fill") {
         allowed({"color", "opacity"});
-        if (!act.contains("color")) arg_error(cmd, "/action/color", "a fill needs `color`.", "Example: {\"type\":\"fill\",\"color\":\"#ff0000\"}.");
+        if (!act.contains("color"))
+            arg_error(cmd, "/action/color", "a fill needs `color`.",
+                      "Example: {\"type\":\"fill\",\"color\":\"#ff0000\"}.");
         const Color col = colour_arg(cmd, act["color"], "/action/color");
         const double opacity = num(act, cmd, "/action", "opacity", 0, 1, 1) * col.a;
         Work w = open_work(projectDir, d.json, ref, cmd, true, true);
         for (int y = 0; y < w.img.height; ++y)
             for (int x = 0; x < w.img.width; ++x) {
                 const float s = sel_at(sel, w.ox + x, w.oy + y);
-                if (s > 0) image_over_pixel(&w.img.rgba[(std::size_t(y) * w.img.width + x) * 4], col.r * 255.0, col.g * 255.0, col.b * 255.0, s * opacity);
+                if (s > 0)
+                    image_over_pixel(&w.img.rgba[(std::size_t(y) * w.img.width + x) * 4], col.r * 255.0, col.g * 255.0,
+                                     col.b * 255.0, s * opacity);
             }
         commit_work(projectDir, d.rel, d.json, ref, w, cmd);
         for (const std::string& s : w.warnings) warnings.push_back(s);
@@ -158,15 +207,25 @@ Json image_edit(const std::string& projectDir, const Json& a) {
         allowed({"hueShift", "saturation", "value", "from", "to", "tolerance", "keepShading"});
         const bool replace = act.contains("from") || act.contains("to");
         const bool hsv = act.contains("hueShift") || act.contains("saturation") || act.contains("value");
-        if (replace && hsv) arg_error(cmd, "/action", "use either hueShift / saturation / value, or from + to, not both.", "Two calls do both.");
-        if (!replace && !hsv) arg_error(cmd, "/action", "a recolor needs `hueShift` (degrees), `saturation` / `value` (-1..1), or `from` and `to` colours.",
-                                         "Examples: {\"type\":\"recolor\",\"hueShift\":120} or {\"type\":\"recolor\",\"from\":\"#ff0000\",\"to\":\"#0000ff\",\"tolerance\":20}.");
-        const double hue = num(act, cmd, "/action", "hueShift", -360, 360, 0), sat = num(act, cmd, "/action", "saturation", -1, 1, 0), val = num(act, cmd, "/action", "value", -1, 1, 0);
+        if (replace && hsv)
+            arg_error(cmd, "/action", "use either hueShift / saturation / value, or from + to, not both.",
+                      "Two calls do both.");
+        if (!replace && !hsv)
+            arg_error(
+                cmd, "/action",
+                "a recolor needs `hueShift` (degrees), `saturation` / `value` (-1..1), or `from` and `to` colours.",
+                "Examples: {\"type\":\"recolor\",\"hueShift\":120} or "
+                "{\"type\":\"recolor\",\"from\":\"#ff0000\",\"to\":\"#0000ff\",\"tolerance\":20}.");
+        const double hue = num(act, cmd, "/action", "hueShift", -360, 360, 0),
+                     sat = num(act, cmd, "/action", "saturation", -1, 1, 0),
+                     val = num(act, cmd, "/action", "value", -1, 1, 0);
         const int tol = int(num(act, cmd, "/action", "tolerance", 0, 255, 16));
         const bool keep = act.contains("keepShading") && act["keepShading"] == true;
         Color from{}, to{};
         if (replace) {
-            if (!act.contains("from") || !act.contains("to")) arg_error(cmd, "/action", "a colour replace needs both `from` and `to`.", "Example: {\"type\":\"recolor\",\"from\":\"#ff0000\",\"to\":\"#0000ff\"}.");
+            if (!act.contains("from") || !act.contains("to"))
+                arg_error(cmd, "/action", "a colour replace needs both `from` and `to`.",
+                          "Example: {\"type\":\"recolor\",\"from\":\"#ff0000\",\"to\":\"#0000ff\"}.");
             from = colour_arg(cmd, act["from"], "/action/from");
             to = colour_arg(cmd, act["to"], "/action/to");
         }
@@ -179,7 +238,9 @@ Json image_edit(const std::string& projectDir, const Json& a) {
                 double r = p[0], g = p[1], b = p[2];
                 double nr = r, ng = g, nb = b;
                 if (replace) {
-                    const int dist = std::max({std::abs(p[0] - int(std::lround(from.r * 255))), std::abs(p[1] - int(std::lround(from.g * 255))), std::abs(p[2] - int(std::lround(from.b * 255)))});
+                    const int dist = std::max({std::abs(p[0] - int(std::lround(from.r * 255))),
+                                               std::abs(p[1] - int(std::lround(from.g * 255))),
+                                               std::abs(p[2] - int(std::lround(from.b * 255)))});
                     if (dist > tol) continue;
                     nr = to.r * 255;
                     ng = to.g * 255;
@@ -207,9 +268,14 @@ Json image_edit(const std::string& projectDir, const Json& a) {
         for (const std::string& s : w.warnings) warnings.push_back(s);
     } else if (type == "move") {
         allowed({"dx", "dy", "copy", "moveSelection"});
-        const double dx = num(act, cmd, "/action", "dx", -4096, 4096, 0), dy = num(act, cmd, "/action", "dy", -4096, 4096, 0);
-        if (dx != std::floor(dx) || dy != std::floor(dy)) arg_error(cmd, "/action", "`dx` and `dy` are whole pixels.", "Use transform for a fractional move... or round them.");
-        if (dx == 0 && dy == 0) arg_error(cmd, "/action", "a move needs `dx` and/or `dy` (pixels; positive is right and down).", "Example: {\"type\":\"move\",\"dx\":8,\"dy\":-4}.");
+        const double dx = num(act, cmd, "/action", "dx", -4096, 4096, 0),
+                     dy = num(act, cmd, "/action", "dy", -4096, 4096, 0);
+        if (dx != std::floor(dx) || dy != std::floor(dy))
+            arg_error(cmd, "/action", "`dx` and `dy` are whole pixels.",
+                      "Use transform for a fractional move... or round them.");
+        if (dx == 0 && dy == 0)
+            arg_error(cmd, "/action", "a move needs `dx` and/or `dy` (pixels; positive is right and down).",
+                      "Example: {\"type\":\"move\",\"dx\":8,\"dy\":-4}.");
         Work w = open_work(projectDir, d.json, ref, cmd, true, true);
         ImagePatch p = image_patch_extract(w.img, w.ox, w.oy, sel);
         if (!act.contains("copy") || act["copy"] != true) image_patch_erase(w.img, w.ox, w.oy, sel);
@@ -217,15 +283,20 @@ Json image_edit(const std::string& projectDir, const Json& a) {
         p.x += int(dx);
         p.y += int(dy);
         const TileGrid tiles = tile_grid_of(d.json);
-        const std::size_t dropped = tiles.on ? image_patch_draw_wrapped(w.img, w.ox, w.oy, p, fromX, fromY, tiles) : image_patch_draw(w.img, w.ox, w.oy, p);
-        if (dropped) warnings.push_back(std::format("{} moved pixels fell outside the {} and were dropped.", dropped, w.fixedRect ? "layer's box (a layer with masks keeps its box)" : "canvas"));
+        const std::size_t dropped = tiles.on ? image_patch_draw_wrapped(w.img, w.ox, w.oy, p, fromX, fromY, tiles)
+                                             : image_patch_draw(w.img, w.ox, w.oy, p);
+        if (dropped)
+            warnings.push_back(std::format("{} moved pixels fell outside the {} and were dropped.", dropped,
+                                           w.fixedRect ? "layer's box (a layer with masks keeps its box)" : "canvas"));
         commit_work(projectDir, d.rel, d.json, ref, w, cmd);
         for (const std::string& s : w.warnings) warnings.push_back(s);
         if (!act.contains("moveSelection") || act["moveSelection"] != false) {
             Mask moved(W, H);
             for (int y = 0; y < H; ++y)
                 for (int x = 0; x < W; ++x)
-                    moved.ref(x, y) = tiles.on ? sel.at(tiles.wrap_x(x - int(dx), tiles.cell_x(x)), tiles.wrap_y(y - int(dy), tiles.cell_y(y))) : sel.at(x - int(dx), y - int(dy));
+                    moved.ref(x, y) = tiles.on ? sel.at(tiles.wrap_x(x - int(dx), tiles.cell_x(x)),
+                                                        tiles.wrap_y(y - int(dy), tiles.cell_y(y)))
+                                               : sel.at(x - int(dx), y - int(dy));
             if (a["selection"].get<std::string>() != "all") {
                 save_selection(projectDir, d.rel, a["selection"].get<std::string>(), moved);
                 extra["selectionMoved"] = true;
@@ -237,25 +308,42 @@ Json image_edit(const std::string& projectDir, const Json& a) {
         if (act.contains("scale")) {
             const Json& sc = act["scale"];
             auto ok = [](const Json& v) { return v.is_number() && v.get<double>() >= 0.01 && v.get<double>() <= 32; };
-            if (ok(sc)) sx = sy = sc.get<double>();
-            else if (sc.is_array() && sc.size() == 2 && ok(sc[0]) && ok(sc[1])) { sx = sc[0].get<double>(); sy = sc[1].get<double>(); }
-            else arg_error(cmd, "/action/scale", "`scale` is a number from 0.01 to 32, or [sx, sy], got " + describe_json_value(sc) + ".", "Example: \"scale\":2.");
+            if (ok(sc))
+                sx = sy = sc.get<double>();
+            else if (sc.is_array() && sc.size() == 2 && ok(sc[0]) && ok(sc[1])) {
+                sx = sc[0].get<double>();
+                sy = sc[1].get<double>();
+            } else
+                arg_error(cmd, "/action/scale",
+                          "`scale` is a number from 0.01 to 32, or [sx, sy], got " + describe_json_value(sc) + ".",
+                          "Example: \"scale\":2.");
         }
         const double rot = num(act, cmd, "/action", "rotate", -3600, 3600, 0);
-        const bool fh = act.contains("flipH") && act["flipH"] == true, fv = act.contains("flipV") && act["flipV"] == true;
+        const bool fh = act.contains("flipH") && act["flipH"] == true,
+                   fv = act.contains("flipV") && act["flipV"] == true;
         if (sx == 1 && sy == 1 && rot == 0 && !fh && !fv)
-            arg_error(cmd, "/action", "a transform needs `scale`, `rotate` (degrees, clockwise), `flipH` or `flipV`.", "Example: {\"type\":\"transform\",\"scale\":2,\"filter\":\"nearest\"}.");
-        std::string filter = act.contains("filter") && act["filter"].is_string() ? act["filter"].get<std::string>() : "";
+            arg_error(cmd, "/action", "a transform needs `scale`, `rotate` (degrees, clockwise), `flipH` or `flipV`.",
+                      "Example: {\"type\":\"transform\",\"scale\":2,\"filter\":\"nearest\"}.");
+        std::string filter =
+            act.contains("filter") && act["filter"].is_string() ? act["filter"].get<std::string>() : "";
         if (filter.empty()) filter = project_pixel_art(projectDir) ? "nearest" : "bilinear";
-        if (filter != "nearest" && filter != "bilinear") arg_error(cmd, "/action/filter", "unknown filter '" + filter + "'.", did_you_mean(filter, std::vector<std::string>{"nearest", "bilinear"}) + " nearest keeps hard pixels (pixel art), bilinear smooths.");
+        if (filter != "nearest" && filter != "bilinear")
+            arg_error(cmd, "/action/filter", "unknown filter '" + filter + "'.",
+                      did_you_mean(filter, std::vector<std::string>{"nearest", "bilinear"}) +
+                          " nearest keeps hard pixels (pixel art), bilinear smooths.");
         Work w = open_work(projectDir, d.json, ref, cmd, true, true);
         ImagePatch p = image_patch_extract(w.img, w.ox, w.oy, sel);
-        if (p.img.empty()) arg_error(cmd, "/selection", "the selection covers no visible pixel of the layer, so there is nothing to transform.", "Select where the layer has pixels.");
+        if (p.img.empty())
+            arg_error(cmd, "/selection",
+                      "the selection covers no visible pixel of the layer, so there is nothing to transform.",
+                      "Select where the layer has pixels.");
         double pvx = p.x + p.img.width / 2.0, pvy = p.y + p.img.height / 2.0;
         if (act.contains("pivot")) {
             const Json& pv = act["pivot"];
             if (!pv.is_array() || pv.size() != 2 || !pv[0].is_number() || !pv[1].is_number())
-                arg_error(cmd, "/action/pivot", "expected [x, y] in canvas pixels, got " + describe_json_value(pv) + ".", "Example: \"pivot\":[16, 16]. Default: the middle of the selected pixels.");
+                arg_error(cmd, "/action/pivot",
+                          "expected [x, y] in canvas pixels, got " + describe_json_value(pv) + ".",
+                          "Example: \"pivot\":[16, 16]. Default: the middle of the selected pixels.");
             pvx = pv[0].get<double>();
             pvy = pv[1].get<double>();
         }
@@ -274,8 +362,11 @@ Json image_edit(const std::string& projectDir, const Json& a) {
         const ImagePatch& t = *tr;
         const std::size_t dropped = image_patch_draw(w.img, w.ox, w.oy, t);
         if (tile_grid_of(d.json).on)
-            warnings.push_back("Tile mode is on but a transform does not wrap around the tile edges: check the seams with image.tile.check afterwards.");
-        if (dropped) warnings.push_back(std::format("{} transformed pixels fell outside the {} and were dropped.", dropped, w.fixedRect ? "layer's box (a layer with masks keeps its box)" : "canvas"));
+            warnings.push_back("Tile mode is on but a transform does not wrap around the tile edges: check the seams "
+                               "with image.tile.check afterwards.");
+        if (dropped)
+            warnings.push_back(std::format("{} transformed pixels fell outside the {} and were dropped.", dropped,
+                                           w.fixedRect ? "layer's box (a layer with masks keeps its box)" : "canvas"));
         commit_work(projectDir, d.rel, d.json, ref, w, cmd);
         for (const std::string& s : w.warnings) warnings.push_back(s);
         extra["filter"] = filter;
@@ -284,10 +375,12 @@ Json image_edit(const std::string& projectDir, const Json& a) {
     Json out = commit_document(projectDir, d.rel, d.json, before, arg_bool(a, "bake", true), extra, warnings, cmd);
     if (!out["changed"].get<bool>()) {
         Json w = out.contains("warnings") ? out["warnings"] : Json::array();
-        w.push_back("The picture did not change: the selection may be empty, or lie where the layer has no pixels or is hidden.");
+        w.push_back("The picture did not change: the selection may be empty, or lie where the layer has no pixels or "
+                    "is hidden.");
         out["warnings"] = w;
     }
-    out["nextSteps"] = Json::array({"Look at the picture in this result; undo is the document's history in your VCS: the PNG of a pixels layer was edited in place."});
+    out["nextSteps"] = Json::array({"Look at the picture in this result; undo is the document's history in your VCS: "
+                                    "the PNG of a pixels layer was edited in place."});
     return out;
 }
 
@@ -300,11 +393,14 @@ Json image_paint(const std::string& projectDir, const Json& a) {
     FrameScope frameScope(projectDir, d.rel, d.json, a, cmd);
     const int W = d.json.value("width", 0), H = d.json.value("height", 0);
     if (!a.contains("layer") || a["layer"].is_null())
-        arg_error(cmd, "/layer", "`layer` is required: the layer to paint on (a name or index path).", "Example: \"layer\":\"paint\" with \"create\":true to make it. " + describe_layers(d.json, 12));
+        arg_error(cmd, "/layer", "`layer` is required: the layer to paint on (a name or index path).",
+                  "Example: \"layer\":\"paint\" with \"create\":true to make it. " + describe_layers(d.json, 12));
     if (!a.contains("strokes") || !a["strokes"].is_array() || a["strokes"].empty())
-        arg_error(cmd, "/strokes", "`strokes` is required: a list of strokes {points, size, color, hardness?, opacity?, erase?}.",
+        arg_error(cmd, "/strokes",
+                  "`strokes` is required: a list of strokes {points, size, color, hardness?, opacity?, erase?}.",
                   "Example: [{\"points\":[[4,4],[40,4]],\"size\":3,\"color\":\"#ff0000\"}].");
-    if (a["strokes"].size() > 1000) arg_error(cmd, "/strokes", "at most 1000 strokes per call.", "Split them over several calls.");
+    if (a["strokes"].size() > 1000)
+        arg_error(cmd, "/strokes", "at most 1000 strokes per call.", "Split them over several calls.");
     Mask sel;
     const bool hasSel = a.contains("selection") && a["selection"].is_string();
     if (hasSel) sel = load_selection(projectDir, d.rel, a["selection"].get<std::string>(), W, H, cmd);
@@ -316,7 +412,8 @@ Json image_paint(const std::string& projectDir, const Json& a) {
     LayerRef ref;
     const bool create = arg_bool(a, "create", false);
     if (!try_find_layer(d.json, a["layer"], cmd, "layer", ref)) {
-        if (create && a["layer"].is_string() && !a["layer"].get<std::string>().empty() && !looks_like_index_path(a["layer"].get<std::string>())) {
+        if (create && a["layer"].is_string() && !a["layer"].get<std::string>().empty() &&
+            !looks_like_index_path(a["layer"].get<std::string>())) {
             const std::string name = a["layer"].get<std::string>();
             Image empty;
             empty.width = W;
@@ -330,7 +427,8 @@ Json image_paint(const std::string& projectDir, const Json& a) {
             try {
                 find_layer(d.json, a["layer"], cmd);
             } catch (const CommandError& e) {
-                throw CommandError(e.code, e.what(), e.hint + " To paint on a new layer, pass \"create\":true with a layer name.");
+                throw CommandError(e.code, e.what(),
+                                   e.hint + " To paint on a new layer, pass \"create\":true with a layer name.");
             }
         }
     }
@@ -342,16 +440,22 @@ Json image_paint(const std::string& projectDir, const Json& a) {
     for (std::size_t si = 0; si < a["strokes"].size(); ++si) {
         const Json& st = a["strokes"][si];
         const std::string base = "/strokes/" + std::to_string(si);
-        if (!st.is_object()) arg_error(cmd, base, "a stroke is an object {points, size, color, ...}.", "Example: {\"points\":[[4,4],[40,4]],\"size\":3,\"color\":\"#ff0000\"}.");
+        if (!st.is_object())
+            arg_error(cmd, base, "a stroke is an object {points, size, color, ...}.",
+                      "Example: {\"points\":[[4,4],[40,4]],\"size\":3,\"color\":\"#ff0000\"}.");
         check_arg_keys(cmd, st, base, {"points", "size", "hardness", "color", "opacity", "erase", "spacing"});
         if (!st.contains("points") || !st["points"].is_array() || st["points"].empty())
-            arg_error(cmd, base + "/points", "`points` is required: [[x, y], ...] in canvas pixels (one point is a dab).", "Example: \"points\":[[4,4],[40,4]].");
-        if (st["points"].size() > 20000) arg_error(cmd, base + "/points", "at most 20000 points per stroke.", "Split the stroke.");
+            arg_error(cmd, base + "/points",
+                      "`points` is required: [[x, y], ...] in canvas pixels (one point is a dab).",
+                      "Example: \"points\":[[4,4],[40,4]].");
+        if (st["points"].size() > 20000)
+            arg_error(cmd, base + "/points", "at most 20000 points per stroke.", "Split the stroke.");
         std::vector<std::pair<double, double>> pts;
         for (std::size_t k = 0; k < st["points"].size(); ++k) {
             const Json& pt = st["points"][k];
             if (!pt.is_array() || pt.size() != 2 || !pt[0].is_number() || !pt[1].is_number())
-                arg_error(cmd, base + "/points/" + std::to_string(k), "a point is [x, y], got " + describe_json_value(pt) + ".", "Example: [12, 30].");
+                arg_error(cmd, base + "/points/" + std::to_string(k),
+                          "a point is [x, y], got " + describe_json_value(pt) + ".", "Example: [12, 30].");
             pts.emplace_back(pt[0].get<double>(), pt[1].get<double>());
         }
         const double size = num(st, cmd, base, "size", 0.5, 512, 4);
@@ -361,7 +465,9 @@ Json image_paint(const std::string& projectDir, const Json& a) {
         const bool erase = st.contains("erase") && st["erase"] == true;
         Color col{0, 0, 0, 1};
         if (!erase) {
-            if (!st.contains("color")) arg_error(cmd, base + "/color", "a stroke needs `color` (or `erase: true`).", "Example: \"color\":\"#ff0000\".");
+            if (!st.contains("color"))
+                arg_error(cmd, base + "/color", "a stroke needs `color` (or `erase: true`).",
+                          "Example: \"color\":\"#ff0000\".");
             col = colour_arg(cmd, st["color"], base + "/color");
         }
         ImageBrush brush;
@@ -380,7 +486,8 @@ Json image_paint(const std::string& projectDir, const Json& a) {
     Json out = commit_document(projectDir, d.rel, d.json, before, arg_bool(a, "bake", true), extra, warnings, cmd);
     if (!out["changed"].get<bool>()) {
         Json wr = out.contains("warnings") ? out["warnings"] : Json::array();
-        wr.push_back("The picture did not change: the strokes may lie outside the canvas, outside the selection, or under an opaque layer above.");
+        wr.push_back("The picture did not change: the strokes may lie outside the canvas, outside the selection, or "
+                     "under an opaque layer above.");
         out["warnings"] = wr;
     }
     return out;
@@ -394,7 +501,8 @@ void register_pixel_commands(CommandRegistry& registry, const std::string& proje
         info.name = "image.edit";
         info.category = "assets";
         info.readOnly = false;
-        info.summary = "Change the selected pixels of one layer of an image document: fill, recolor, move, transform (scale, rotate, flip), delete, copy or cut to a new layer.";
+        info.summary = "Change the selected pixels of one layer of an image document: fill, recolor, move, transform "
+                       "(scale, rotate, flip), delete, copy or cut to a new layer.";
         info.description =
             "Applies `action` to the pixels of `layer` inside the stored `selection` (made with "
             "image.select; \"all\" is the whole canvas). Actions: fill {color, opacity?}; recolor {hueShift "
@@ -406,8 +514,7 @@ void register_pixel_commands(CommandRegistry& registry, const std::string& proje
             "pixelArt, else bilinear); delete (the selected pixels become transparent); copy and cut {name?} "
             "(the selected pixels become a new pixels layer above `layer`; cut also clears them). POLICY FOR "
             "OTHER LAYER KINDS: a pixels layer's PNG is edited in place (an AI-generated image keeps that "
-            "mark, the edit is added to its provenance)."
-            FA_COMMAND_DETAILS
+            "mark, the edit is added to its provenance)." FA_COMMAND_DETAILS
             "A shape, gradient, text or other non-pixel layer is first rasterized: it becomes a pixels layer "
             "(its masks, adjustments and effects are baked into the pixels, its blend, opacity and "
             "visibility stay) with a new PNG in <document>.layers/ and a warning says so. Groups and "
@@ -415,8 +522,11 @@ void register_pixel_commands(CommandRegistry& registry, const std::string& proje
             "its own pixels), so pixels moved outside it are dropped (a warning counts them); other layers "
             "grow to hold what you move into the canvas. Result: the baked document plus `region` "
             "{x,y,width,height} of the changed pixels, `changed` and the picture as `$image`. Example: "
-            "{\"path\":\"assets/art/hero.image.json\",\"selection\":\"cape\",\"layer\":\"hero\",\"action\":{\"type\":\"recolor\",\"hueShift\":120}}";
-        info.inputSchema = Json::parse(R"({"type":"object","required":["path","selection","layer","action"],"properties":{
+            "{\"path\":\"assets/art/"
+            "hero.image.json\",\"selection\":\"cape\",\"layer\":\"hero\",\"action\":{\"type\":\"recolor\",\"hueShift\":"
+            "120}}";
+        info.inputSchema =
+            Json::parse(R"({"type":"object","required":["path","selection","layer","action"],"properties":{
           "path":{"type":"string","description":"The image document, project-relative, ending in .image.json."},
           "selection":{"type":"string","description":"The stored selection to act on (image.select), or \"all\"."},
           "layer":{"description":"The layer to change: its name or an index path like \"1/0\"."},
@@ -451,7 +561,8 @@ void register_pixel_commands(CommandRegistry& registry, const std::string& proje
         info.name = "image.paint";
         info.category = "assets";
         info.readOnly = false;
-        info.summary = "Paint round-brush strokes onto a pixels layer of an image document (deterministic stamping), creating the layer's PNG when asked.";
+        info.summary = "Paint round-brush strokes onto a pixels layer of an image document (deterministic stamping), "
+                       "creating the layer's PNG when asked.";
         info.description =
             "Each stroke {points [[x,y],...], size, color, hardness?, opacity?, erase?, spacing?} stamps a "
             "round brush of diameter `size` along the polyline: one stamp at the first point, then one every "
@@ -465,10 +576,10 @@ void register_pixel_commands(CommandRegistry& registry, const std::string& proje
             "A non-pixel layer is rasterized first, as in image.edit (a warning says so). `selection` limits "
             "the painting to a stored selection. Coordinates are canvas pixels; the layer grows to hold what "
             "is painted (a layer with masks keeps its box). Result: the baked document, `region`, `changed`, "
-            "`stamps` and the picture as `$image`."
-            FA_COMMAND_DETAILS
-            "Example: "
-            "{\"path\":\"assets/art/hero.image.json\",\"layer\":\"paint\",\"create\":true,\"strokes\":[{\"points\":[[4,4],[40,20]],\"size\":3,\"color\":\"#ff0000\"}]}";
+            "`stamps` and the picture as `$image`." FA_COMMAND_DETAILS "Example: "
+            "{\"path\":\"assets/art/"
+            "hero.image.json\",\"layer\":\"paint\",\"create\":true,\"strokes\":[{\"points\":[[4,4],[40,20]],\"size\":3,"
+            "\"color\":\"#ff0000\"}]}";
         info.inputSchema = Json::parse(R"({"type":"object","required":["path","layer","strokes"],"properties":{
           "path":{"type":"string","description":"The image document, project-relative, ending in .image.json."},
           "layer":{"description":"The layer to paint on: its name or an index path like \"1/0\"."},

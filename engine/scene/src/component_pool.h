@@ -30,7 +30,7 @@ public:
     void* add(Entity e);
     void* get(Entity e) const;  // nullptr if `e` has none (or the handle is stale)
     bool has(Entity e) const { return get(e) != nullptr; }
-    bool remove(Entity e);      // false if there was nothing to remove
+    bool remove(Entity e);  // false if there was nothing to remove
     void clear();
 
     // Snapshot of owners in insertion order.
@@ -41,7 +41,7 @@ private:
     static constexpr std::uint32_t kNone = UINT32_MAX;
 
     struct OrderEntry {
-        Entity entity;       // null = tombstone
+        Entity entity;  // null = tombstone
         std::uint32_t slot;
     };
 

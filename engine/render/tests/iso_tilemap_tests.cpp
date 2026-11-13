@@ -57,7 +57,8 @@ bool near_color(const Color& a, const Color& b, float tol = 0.03f) {
 TEST_CASE("isometric tilemap: tiles are drawn back to front, a tile covers the edge of the ones behind it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    const Color red = Color::hex(0xe02020), green = Color::hex(0x20e020), blue = Color::hex(0x2020e0), yellow = Color::hex(0xe0e020);
+    const Color red = Color::hex(0xe02020), green = Color::hex(0x20e020), blue = Color::hex(0x2020e0),
+                yellow = Color::hex(0xe0e020);
     const std::string tileset = write_iso_tileset({red, green, blue, yellow});
     World w;
     camera_with_zoom(w, {0, -50, 0}, 1.0f);
@@ -70,13 +71,13 @@ TEST_CASE("isometric tilemap: tiles are drawn back to front, a tile covers the e
     Image img = g.render(w);
     // World (x, y) with the camera at (0, -50) is pixel (160 + x, 90 - (y + 50)).
     auto px = [&](float x, float y) { return img.pixel(int(160 + x), int(90 - (y + 50))); };
-    CHECK(near_color(px(-10, -10), red));       // only cell (0, 0) reaches there
-    CHECK(near_color(px(-25, -37), blue));      // (0, 0) and (0, 1) overlap: row 1 is drawn after row 0
-    CHECK(near_color(px(25, -37), green));      // (0, 0) and (1, 0) overlap: column 1 is drawn after column 0
-    CHECK(near_color(px(25, -62), yellow));     // (1, 0) and (1, 1)
-    CHECK(near_color(px(-25, -62), yellow));    // (0, 1) and (1, 1)
-    CHECK(near_color(px(0, -90), yellow));      // the front corner
-    CHECK(near_color(px(0, 20), Color::black())); // above the map
+    CHECK(near_color(px(-10, -10), red));          // only cell (0, 0) reaches there
+    CHECK(near_color(px(-25, -37), blue));         // (0, 0) and (0, 1) overlap: row 1 is drawn after row 0
+    CHECK(near_color(px(25, -37), green));         // (0, 0) and (1, 0) overlap: column 1 is drawn after column 0
+    CHECK(near_color(px(25, -62), yellow));        // (1, 0) and (1, 1)
+    CHECK(near_color(px(-25, -62), yellow));       // (0, 1) and (1, 1)
+    CHECK(near_color(px(0, -90), yellow));         // the front corner
+    CHECK(near_color(px(0, 20), Color::black()));  // above the map
     CHECK(g.renderer.stats().drawCalls <= 2);
 
     // Painting a tile with the same value in another place changes only that place.
@@ -170,10 +171,10 @@ TEST_CASE("isometric tilemap: Light2D shadows follow the diamond cells") {
     }
     Image img = g.render(w);
     auto at = [&](float x, float y) { return img.pixel(int(160 + x), int(90 - y)).r; };
-    CHECK(at(-60, -5) > 0.4f);       // in front of the diamond
-    CHECK(at(60, -5) < 0.02f);       // behind the diamond's centre: shadowed
-    CHECK(at(0, 40) > 0.3f);         // above the diamond: its top vertex is at y = 20, the ray passes over it
-    CHECK(at(0, -50) > 0.3f);        // far below the diamond's bottom vertex (y = -30)
+    CHECK(at(-60, -5) > 0.4f);  // in front of the diamond
+    CHECK(at(60, -5) < 0.02f);  // behind the diamond's centre: shadowed
+    CHECK(at(0, 40) > 0.3f);    // above the diamond: its top vertex is at y = 20, the ray passes over it
+    CHECK(at(0, -50) > 0.3f);   // far below the diamond's bottom vertex (y = -30)
     CHECK(g.renderer.stats().lights2dShadowed == 1);
     // The same data as an orthogonal map blocks a square instead: x = 60 is inside it (the shadow starts where the light leaves
     // the occluder), and the shadow is cast beyond x = 100.

@@ -38,7 +38,10 @@ bool is_file(const stdfs::path& p) {
 std::string display_command(const std::vector<std::string>& argv) {
     std::string out;
     for (const std::string& a : argv) {
-        const bool plain = !a.empty() && a.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-./:=@+,\\") == std::string::npos;
+        const bool plain =
+            !a.empty() &&
+            a.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-./:=@+,\\") ==
+                std::string::npos;
         out += (out.empty() ? "" : " ") + (plain ? a : export_detail::sh_quote(a));
     }
     return out;
@@ -71,7 +74,8 @@ Result<std::string> read_machine_pfx(const std::string& configPath) {
     auto text = tooling_detail::read_file(stdfs::path(configPath));
     if (!text) return err("sign.windows: cannot read " + configPath, "Check that the file is readable, or delete it.");
     auto parsed = parse_json(*text, configPath);
-    if (!parsed.ok()) return err("sign.windows: " + parsed.error().message, "Fix the JSON of " + configPath + " (or delete it).");
+    if (!parsed.ok())
+        return err("sign.windows: " + parsed.error().message, "Fix the JSON of " + configPath + " (or delete it).");
     if (!parsed->is_object()) return std::string();
     auto sign = parsed->find("sign");
     if (sign == parsed->end() || !sign->is_object()) return std::string();
@@ -80,8 +84,11 @@ Result<std::string> read_machine_pfx(const std::string& configPath) {
     auto pfx = windows->find("pfx");
     if (pfx == windows->end() || pfx->is_null()) return std::string();
     if (!pfx->is_string())
-        return err("sign.windows: " + configPath + "#/sign/windows/pfx: expected a string, got " + describe_json_value(*pfx),
-                   "Write {\"sign\": {\"windows\": {\"pfx\": \"C:/keys/my-code-signing.pfx\"}}}. The password does not go here: set " + std::string(kPasswordVar) + ".");
+        return err("sign.windows: " + configPath + "#/sign/windows/pfx: expected a string, got " +
+                       describe_json_value(*pfx),
+                   "Write {\"sign\": {\"windows\": {\"pfx\": \"C:/keys/my-code-signing.pfx\"}}}. The password does not "
+                   "go here: set " +
+                       std::string(kPasswordVar) + ".");
     return pfx->get<std::string>();
 }
 
@@ -102,7 +109,8 @@ std::string windows_sdk_signtool(const ExportEnvLookup& env) {
         }
         if (is_file(root / "x64" / "signtool.exe")) found.push_back(root / "x64" / "signtool.exe");
     }
-    std::sort(found.begin(), found.end(), [](const stdfs::path& a, const stdfs::path& b) { return generic(a) > generic(b); });
+    std::sort(found.begin(), found.end(),
+              [](const stdfs::path& a, const stdfs::path& b) { return generic(a) > generic(b); });
     return found.empty() ? std::string() : generic(found.front());
 }
 
@@ -114,16 +122,19 @@ Result<MachineToolFound> find_signing_tool(bool windows, const ExportEnvLookup& 
         tool.envVar = "FACTORIA_SIGNTOOL";
         tool.configKey = "signtool";
         tool.exeNames = {"signtool"};
-        tool.download = "https://developer.microsoft.com/windows/downloads/windows-sdk/ (install the 'Windows SDK Signing Tools for Desktop Apps' component)";
+        tool.download = "https://developer.microsoft.com/windows/downloads/windows-sdk/ (install the 'Windows SDK "
+                        "Signing Tools for Desktop Apps' component)";
         if (env(tool.envVar).empty()) {
-            if (const std::string sdk = windows_sdk_signtool(env); !sdk.empty()) return MachineToolFound{sdk, "Windows SDK"};
+            if (const std::string sdk = windows_sdk_signtool(env); !sdk.empty())
+                return MachineToolFound{sdk, "Windows SDK"};
         }
     } else {
         tool.tool = "osslsigncode";
         tool.envVar = "FACTORIA_OSSLSIGNCODE";
         tool.configKey = "osslsigncode";
         tool.exeNames = {"osslsigncode"};
-        tool.download = "https://github.com/mtrojnar/osslsigncode (brew install osslsigncode; apt install osslsigncode)";
+        tool.download =
+            "https://github.com/mtrojnar/osslsigncode (brew install osslsigncode; apt install osslsigncode)";
     }
     return find_machine_tool(tool, env, configPath);
 }
@@ -139,7 +150,8 @@ std::pair<int, int> osslsigncode_version(const std::string& text) {
 // ---- the manifest and the certificate subject ------------------------------------------------------------------------------
 
 std::string xml_unescape(std::string s) {
-    for (const auto& [from, to] : std::vector<std::pair<const char*, const char*>>{{"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""}, {"&apos;", "'"}, {"&amp;", "&"}})
+    for (const auto& [from, to] : std::vector<std::pair<const char*, const char*>>{
+             {"&lt;", "<"}, {"&gt;", ">"}, {"&quot;", "\""}, {"&apos;", "'"}, {"&amp;", "&"}})
         s = replace_all(std::move(s), from, to);
     return s;
 }
@@ -148,12 +160,17 @@ std::string xml_unescape(std::string s) {
 Result<std::string> manifest_publisher(const stdfs::path& msix) {
     auto xml = export_detail::zip_read_entry(msix, "AppxManifest.xml");
     if (!xml.ok())
-        return err("sign.windows: " + xml.error().message, "Pass the .msix that `project.export --platform windows --format msix` wrote (an MSIX is a zip with AppxManifest.xml inside).");
+        return err("sign.windows: " + xml.error().message,
+                   "Pass the .msix that `project.export --platform windows --format msix` wrote (an MSIX is a zip with "
+                   "AppxManifest.xml inside).");
     const std::size_t id = xml->find("<Identity");
     const std::size_t at = id == std::string::npos ? id : xml->find("Publisher=\"", id);
-    if (at == std::string::npos) return err("sign.windows: " + generic(msix) + ": AppxManifest.xml has no <Identity Publisher=\"...\">", "Export the package again.");
+    if (at == std::string::npos)
+        return err("sign.windows: " + generic(msix) + ": AppxManifest.xml has no <Identity Publisher=\"...\">",
+                   "Export the package again.");
     const std::size_t from = at + 11, to = xml->find('"', from);
-    if (to == std::string::npos) return err("sign.windows: " + generic(msix) + ": AppxManifest.xml is damaged", "Export the package again.");
+    if (to == std::string::npos)
+        return err("sign.windows: " + generic(msix) + ": AppxManifest.xml is damaged", "Export the package again.");
     return xml_unescape(xml->substr(from, to - from));
 }
 
@@ -178,7 +195,9 @@ std::vector<std::string> distinguished_name_parts(const std::string& dn) {
     if (!trim(cur).empty()) parts.push_back(to_lower(std::string(trim(cur))));
     for (std::string& p : parts) {  // "cn = x" -> "cn=x"
         const std::size_t eq = p.find('=');
-        if (eq != std::string::npos) p = std::string(trim(std::string_view(p).substr(0, eq))) + "=" + std::string(trim(std::string_view(p).substr(eq + 1)));
+        if (eq != std::string::npos)
+            p = std::string(trim(std::string_view(p).substr(0, eq))) + "=" +
+                std::string(trim(std::string_view(p).substr(eq + 1)));
     }
     std::sort(parts.begin(), parts.end());
     return parts;
@@ -188,16 +207,17 @@ std::vector<std::string> distinguished_name_parts(const std::string& dn) {
 
 struct Step {
     std::vector<std::string> argv;
-    std::vector<std::string> shown;       // the command line the report shows (secrets replaced)
+    std::vector<std::string> shown;  // the command line the report shows (secrets replaced)
     std::map<std::string, std::string> env;
     std::string stdinText;
-    bool stdinSecret = false;             // stdinText carries a password
-    double timeoutSeconds = 0;            // 0 = none
+    bool stdinSecret = false;   // stdinText carries a password
+    double timeoutSeconds = 0;  // 0 = none
 };
 
 class Runner {
 public:
-    Runner(const SignWindowsOptions& o, SignWindowsReport& report, std::vector<std::string> secrets) : o_(o), report_(report), secrets_(std::move(secrets)) {}
+    Runner(const SignWindowsOptions& o, SignWindowsReport& report, std::vector<std::string> secrets)
+        : o_(o), report_(report), secrets_(std::move(secrets)) {}
 
     Result<ProcessResult> go(const std::string& title, Step step, bool record = true) {
         SignStep rec;
@@ -225,23 +245,29 @@ public:
         auto run = o_.run ? o_.run(po) : run_process(po);
         if (!run.ok()) {
             if (record) report_.steps.push_back(std::move(rec));
-            return err("sign.windows: " + title + ": cannot start " + step.argv[0] + ": " + scrub(run.error().message, secrets_),
-                       run.error().hint.empty() ? "Check the path of the tool (FACTORIA_SIGNTOOL / FACTORIA_OSSLSIGNCODE)." : run.error().hint);
+            return err("sign.windows: " + title + ": cannot start " + step.argv[0] + ": " +
+                           scrub(run.error().message, secrets_),
+                       run.error().hint.empty()
+                           ? "Check the path of the tool (FACTORIA_SIGNTOOL / FACTORIA_OSSLSIGNCODE)."
+                           : run.error().hint);
         }
         rec.ran = true;
         rec.exitCode = run->exitCode;
         if (record) report_.steps.push_back(std::move(rec));
         run->stdoutText = scrub(std::move(run->stdoutText), secrets_);
         run->stderrText = scrub(std::move(run->stderrText), secrets_);
-        if (run->cancelled || is_cancelled(o_.cancel)) return err("sign.windows: cancelled during " + title, "Run it again; signing a package twice is safe.");
+        if (run->cancelled || is_cancelled(o_.cancel))
+            return err("sign.windows: cancelled during " + title, "Run it again; signing a package twice is safe.");
         if (run->timedOut) return err("sign.windows: " + title + " did not finish in time", "Run it again.");
         return run;
     }
 
-    Error failed(const std::string& title, const std::vector<std::string>& shown, const ProcessResult& r, const std::string& hint) const {
-        const std::string said = last_lines(r.stderrText.empty() ? r.stdoutText : r.stderrText + "\n" + r.stdoutText, 6);
-        return err("sign.windows: " + title + " failed (" + display_command(shown) + " exited with code " + std::to_string(r.exitCode) + ")" +
-                       (said.empty() ? std::string(".") : ". It said: " + said),
+    Error failed(const std::string& title, const std::vector<std::string>& shown, const ProcessResult& r,
+                 const std::string& hint) const {
+        const std::string said =
+            last_lines(r.stderrText.empty() ? r.stdoutText : r.stderrText + "\n" + r.stdoutText, 6);
+        return err("sign.windows: " + title + " failed (" + display_command(shown) + " exited with code " +
+                       std::to_string(r.exitCode) + ")" + (said.empty() ? std::string(".") : ". It said: " + said),
                    hint);
     }
 
@@ -264,17 +290,33 @@ std::string utf16le_base64(const std::string& utf8) {
         const unsigned char c = static_cast<unsigned char>(utf8[i]);
         unsigned cp = c;
         std::size_t extra = 0;
-        if (c >= 0xf0 && c < 0xf8) { cp = c & 0x07u; extra = 3; }
-        else if (c >= 0xe0 && c < 0xf0) { cp = c & 0x0fu; extra = 2; }
-        else if (c >= 0xc0 && c < 0xe0) { cp = c & 0x1fu; extra = 1; }
-        else if (c >= 0x80) { put(0xfffd); ++i; continue; }
+        if (c >= 0xf0 && c < 0xf8) {
+            cp = c & 0x07u;
+            extra = 3;
+        } else if (c >= 0xe0 && c < 0xf0) {
+            cp = c & 0x0fu;
+            extra = 2;
+        } else if (c >= 0xc0 && c < 0xe0) {
+            cp = c & 0x1fu;
+            extra = 1;
+        } else if (c >= 0x80) {
+            put(0xfffd);
+            ++i;
+            continue;
+        }
         bool good = i + extra < utf8.size();  // the whole sequence is there
         for (std::size_t k = 1; good && k <= extra; ++k) {
             const unsigned char cc = static_cast<unsigned char>(utf8[i + k]);
-            if ((cc & 0xc0) != 0x80) good = false;
-            else cp = (cp << 6) | (cc & 0x3fu);
+            if ((cc & 0xc0) != 0x80)
+                good = false;
+            else
+                cp = (cp << 6) | (cc & 0x3fu);
         }
-        if (!good) { put(0xfffd); ++i; continue; }
+        if (!good) {
+            put(0xfffd);
+            ++i;
+            continue;
+        }
         i += extra + 1;
         if (cp >= 0x10000) {
             cp -= 0x10000;
@@ -293,10 +335,14 @@ std::string ps_quote(const std::string& s) { return detail::powershell_quote(s);
 // part to `cer` and prints THUMBPRINT=<hex>. The private key stays in the user's certificate store.
 std::string test_certificate_script(const std::string& publisher, const std::string& cer) {
     return "$ErrorActionPreference = 'Stop'; $subject = " + ps_quote(publisher) +
-           "; $c = Get-ChildItem Cert:\\CurrentUser\\My | Where-Object { $_.Subject -eq $subject -and $_.FriendlyName -eq 'FactorIA test certificate' -and $_.NotAfter -gt (Get-Date).AddDays(7) } | Select-Object -First 1; "
-           "if (-not $c) { $c = New-SelfSignedCertificate -Type Custom -Subject $subject -KeyUsage DigitalSignature -FriendlyName 'FactorIA test certificate' "
-           "-CertStoreLocation 'Cert:\\CurrentUser\\My' -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', '2.5.29.19={text}') }; "
-           "Export-Certificate -Cert $c -FilePath " + ps_quote(cer) + " | Out-Null; Write-Output ('THUMBPRINT=' + $c.Thumbprint)";
+           "; $c = Get-ChildItem Cert:\\CurrentUser\\My | Where-Object { $_.Subject -eq $subject -and $_.FriendlyName "
+           "-eq 'FactorIA test certificate' -and $_.NotAfter -gt (Get-Date).AddDays(7) } | Select-Object -First 1; "
+           "if (-not $c) { $c = New-SelfSignedCertificate -Type Custom -Subject $subject -KeyUsage DigitalSignature "
+           "-FriendlyName 'FactorIA test certificate' "
+           "-CertStoreLocation 'Cert:\\CurrentUser\\My' -TextExtension @('2.5.29.37={text}1.3.6.1.5.5.7.3.3', "
+           "'2.5.29.19={text}') }; "
+           "Export-Certificate -Cert $c -FilePath " +
+           ps_quote(cer) + " | Out-Null; Write-Output ('THUMBPRINT=' + $c.Thumbprint)";
 }
 
 // Scripts that make the .pfx usable by signtool WITHOUT the password reaching a command line: they read it from the environment
@@ -350,13 +396,17 @@ std::string pfx_thumbprint_script(const std::string& pfx, bool withPassword) {
 std::string with_store_mutex(const std::string& body) {
     // A mutex that an elevated PowerShell of the same user created and holds denies the creation with full rights: open it with the
     // rights the wait and the release need.
-    return "$mn = '" + std::string(kStoreMutexPrefix) + "' + [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; "
+    return "$mn = '" + std::string(kStoreMutexPrefix) +
+           "' + [System.Security.Principal.WindowsIdentity]::GetCurrent().User.Value; "
            "try { $m = New-Object System.Threading.Mutex($false, $mn) } catch { "
            "try { $m = [System.Threading.Mutex]::OpenExisting($mn, 'Synchronize, Modify') } catch { "
-           "throw 'Cannot open the lock that keeps sign.windows runs apart (another PowerShell of this user, started as administrator, may hold it): close it and run again.' } }; "
-           "try { try { $got = $m.WaitOne(120000) } catch { $got = $_.Exception.ToString() -like '*AbandonedMutexException*' }; "
-           "if (-not $got) { throw 'Another sign.windows run is changing the certificate store (waited 2 minutes).' }; " + body +
-           " } finally { try { $m.ReleaseMutex() } catch { } }";
+           "throw 'Cannot open the lock that keeps sign.windows runs apart (another PowerShell of this user, started "
+           "as administrator, may hold it): close it and run again.' } }; "
+           "try { try { $got = $m.WaitOne(120000) } catch { $got = $_.Exception.ToString() -like "
+           "'*AbandonedMutexException*' }; "
+           "if (-not $got) { throw 'Another sign.windows run is changing the certificate store (waited 2 minutes).' "
+           "}; " +
+           body + " } finally { try { $m.ReleaseMutex() } catch { } }";
 }
 
 // Step 2. `thumbprint` is the one step 1 printed. A certificate of that thumbprint that is in the store without its private key is
@@ -367,9 +417,11 @@ std::string import_pfx_script(const std::string& pfx, bool withPassword, const s
     // $drop deletes the key container a certificate of the collection has on disk (CAPI or CNG), then lets go of the certificate.
     s += "$drop = { param($c) try { "
          "$k = [System.Security.Cryptography.X509Certificates.RSACertificateExtensions]::GetRSAPrivateKey($c); "
-         "if ($k -is [System.Security.Cryptography.RSACryptoServiceProvider]) { $k.PersistKeyInCsp = $false; $k.Clear() } "
+         "if ($k -is [System.Security.Cryptography.RSACryptoServiceProvider]) { $k.PersistKeyInCsp = $false; "
+         "$k.Clear() } "
          "elseif ($k -is [System.Security.Cryptography.RSACng]) { $k.Key.Delete() } "
-         "else { $e = [System.Security.Cryptography.X509Certificates.ECDsaCertificateExtensions]::GetECDsaPrivateKey($c); "
+         "else { $e = "
+         "[System.Security.Cryptography.X509Certificates.ECDsaCertificateExtensions]::GetECDsaPrivateKey($c); "
          "if ($e -is [System.Security.Cryptography.ECDsaCng]) { $e.Key.Delete() } } "
          "} catch { }; try { $c.Reset() } catch { } }; ";
     s += with_store_mutex(
@@ -380,7 +432,8 @@ std::string import_pfx_script(const std::string& pfx, bool withPassword, const s
         "if ($had) { Write-Output 'IMPORTED=0' } else { "
         "$x = $null; "
         "try { "
-        "$col.Import($pfx, $pw, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]'PersistKeySet, UserKeySet'); "
+        "$col.Import($pfx, $pw, [System.Security.Cryptography.X509Certificates.X509KeyStorageFlags]'PersistKeySet, "
+        "UserKeySet'); "
         "$x = @($col | Where-Object { $_.Thumbprint -eq $t -and $_.HasPrivateKey }) | Select-Object -First 1; "
         "$store.Add($x) "
         "} catch { foreach ($c in $col) { if ($c.HasPrivateKey) { & $drop $c } }; throw }; "  // not added: no key of this file may stay
@@ -458,7 +511,8 @@ Json SignWindowsReport::to_json() const {
     if (!testCertificateFile.empty()) j["testCertificateFile"] = testCertificateFile;
     Json st = Json::array();
     for (const SignStep& s : steps) {
-        Json e = Json::object({{"title", s.title}, {"command", s.command}, {"commandLine", display_command(s.command)}, {"ran", s.ran}});
+        Json e = Json::object(
+            {{"title", s.title}, {"command", s.command}, {"commandLine", display_command(s.command)}, {"ran", s.ran}});
         if (!s.env.empty()) e["env"] = s.env;
         if (s.stdinSecret) e["stdinSecret"] = true;
         if (s.ran) e["exitCode"] = s.exitCode;
@@ -483,9 +537,13 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
     rep.tool = onWindows ? "signtool" : "osslsigncode";
 
     if (options.testCertificate && !onWindows)
-        return err(who + "`testCertificate` needs Windows (it makes the certificate with PowerShell and keeps it in the Windows certificate store); this computer is " + host,
-                   "Make a code-signing .pfx yourself (docs/EXPORTING.md, \"Trying the package on your PC\") and pass it as `pfx` with the password in " + std::string(kPasswordVar) +
-                       ", or run sign.windows on the PC that will install the package.");
+        return err(who +
+                       "`testCertificate` needs Windows (it makes the certificate with PowerShell and keeps it in the "
+                       "Windows certificate store); this computer is " +
+                       host,
+                   "Make a code-signing .pfx yourself (docs/EXPORTING.md, \"Trying the package on your PC\") and pass "
+                   "it as `pfx` with the password in " +
+                       std::string(kPasswordVar) + ", or run sign.windows on the PC that will install the package.");
 
     // ---- what to sign
     std::error_code ec;
@@ -516,19 +574,28 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
     bool signMsix = !msix.empty() && (msixAsked || is_file(msix) || !options.exe);
     if (signMsix && !is_file(msix)) {
         return err(who + "there is no package at " + generic(msix),
-                   "Export it first: project.export {\"platform\":\"windows\",\"format\":\"msix\"} writes build/export/<game-slug>-windows.msix. Or pass `msix` (or `out`) to say where it is.");
+                   "Export it first: project.export {\"platform\":\"windows\",\"format\":\"msix\"} writes "
+                   "build/export/<game-slug>-windows.msix. Or pass `msix` (or `out`) to say where it is.");
     }
-    if (signMsix && !ends_with(to_lower(msix.filename().string()), ".msix") && !ends_with(to_lower(msix.filename().string()), ".appx"))
-        return err(who + "'" + generic(msix) + "' is not an MSIX package (its name does not end in .msix)", "Pass the .msix that project.export wrote.");
+    if (signMsix && !ends_with(to_lower(msix.filename().string()), ".msix") &&
+        !ends_with(to_lower(msix.filename().string()), ".appx"))
+        return err(who + "'" + generic(msix) + "' is not an MSIX package (its name does not end in .msix)",
+                   "Pass the .msix that project.export wrote.");
     stdfs::path exe;
     if (options.exe) {
-        if (slug.empty()) return err(who + "`exe` needs the game folder (factoria.json) to find the exe", "Run it on a game folder, or sign the exe with signtool yourself.");
+        if (slug.empty())
+            return err(who + "`exe` needs the game folder (factoria.json) to find the exe",
+                       "Run it on a game folder, or sign the exe with signtool yourself.");
         exe = outParent / (slug + "-windows") / export_detail::desktop_exe_name(slug, "windows");
         if (!is_file(exe))
-            return err(who + "there is no exe at " + generic(exe), "Export the game for Windows first: project.export {\"platform\":\"windows\"}. Or leave `exe` out to sign only the package.");
+            return err(who + "there is no exe at " + generic(exe),
+                       "Export the game for Windows first: project.export {\"platform\":\"windows\"}. Or leave `exe` "
+                       "out to sign only the package.");
     }
     if (!signMsix && exe.empty())
-        return err(who + "nothing to sign: there is no package to find", "Pass `msix` (the .msix to sign) or run it on a game folder after `project.export {\"platform\":\"windows\",\"format\":\"msix\"}`.");
+        return err(who + "nothing to sign: there is no package to find",
+                   "Pass `msix` (the .msix to sign) or run it on a game folder after `project.export "
+                   "{\"platform\":\"windows\",\"format\":\"msix\"}`.");
     if (signMsix) rep.msix = generic(msix);
     if (!exe.empty()) rep.exe = generic(exe);
     if (signMsix) {
@@ -538,10 +605,14 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
     }
 
     // ---- the certificate
-    const std::string configPath = options.toolConfigPath.empty() ? machine_export_config_path(env) : options.toolConfigPath;
+    const std::string configPath =
+        options.toolConfigPath.empty() ? machine_export_config_path(env) : options.toolConfigPath;
     std::string pfx, password;
     if (options.testCertificate) {
-        if (!signMsix) return err(who + "`testCertificate` makes a certificate for the package's Publisher, and there is no package", "Pass `msix`, or export the package first.");
+        if (!signMsix)
+            return err(who +
+                           "`testCertificate` makes a certificate for the package's Publisher, and there is no package",
+                       "Pass `msix`, or export the package first.");
         rep.certificate = "test certificate (self-signed, subject " + rep.publisher + ")";
         rep.certificateFrom = "testCertificate";
     } else {
@@ -561,15 +632,22 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
         }
         if (pfx.empty())
             return err(who + "no certificate: say which .pfx signs the package",
-                       "Pass `pfx` (a code-signing certificate file), set FACTORIA_WINDOWS_PFX, or write {\"sign\": {\"windows\": {\"pfx\": \"C:/keys/code-signing.pfx\"}}} in " + configPath +
-                           "; the password goes in " + kPasswordVar + " only. To just try the package on your own PC, pass \"testCertificate\": true (Windows). "
-                           "A package for the Microsoft Store needs no signing at all: upload the .msix as it is, the Store signs it.");
+                       "Pass `pfx` (a code-signing certificate file), set FACTORIA_WINDOWS_PFX, or write {\"sign\": "
+                       "{\"windows\": {\"pfx\": \"C:/keys/code-signing.pfx\"}}} in " +
+                           configPath + "; the password goes in " + kPasswordVar +
+                           " only. To just try the package on your own PC, pass \"testCertificate\": true (Windows). "
+                           "A package for the Microsoft Store needs no signing at all: upload the .msix as it is, the "
+                           "Store signs it.");
         pfx = generic(stdfs::absolute(stdfs::path(pfx), ec));
-        if (!is_file(pfx)) return err(who + "the certificate file " + pfx + " does not exist", "Check the path of the .pfx (" + rep.certificateFrom + ").");
+        if (!is_file(pfx))
+            return err(who + "the certificate file " + pfx + " does not exist",
+                       "Check the path of the .pfx (" + rep.certificateFrom + ").");
         rep.certificate = "pfx " + pfx;
         password = env(kPasswordVar);
         if (password.empty())
-            rep.warnings.push_back(std::string(kPasswordVar) + " is not set: the .pfx is used without a password. If it has one, signing fails: set the variable (the password is never read from anywhere else).");
+            rep.warnings.push_back(std::string(kPasswordVar) +
+                                   " is not set: the .pfx is used without a password. If it has one, signing fails: "
+                                   "set the variable (the password is never read from anywhere else).");
     }
     const std::vector<std::string> secrets = {password};
 
@@ -594,23 +672,33 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
         auto r = runner.go("Check the osslsigncode version", v, false);
         if (!r.ok()) return r.error();
         const auto [major, minor] = osslsigncode_version(r->stdoutText + " " + r->stderrText);
-        if (major == 0) rep.warnings.push_back("could not read the version of " + toolPath + "; MSIX signing needs osslsigncode 2.9 or newer.");
+        if (major == 0)
+            rep.warnings.push_back("could not read the version of " + toolPath +
+                                   "; MSIX signing needs osslsigncode 2.9 or newer.");
         else if (major < 2 || (major == 2 && minor < 9))
-            return err(who + toolPath + " is osslsigncode " + std::to_string(major) + "." + std::to_string(minor) + ", which cannot sign MSIX packages correctly (APPX signing arrived in 2.7 and its zip order was fixed in 2.9)",
-                       "Install a newer one: brew install osslsigncode, or build it from https://github.com/mtrojnar/osslsigncode. FACTORIA_OSSLSIGNCODE points at the one to use.");
+            return err(who + toolPath + " is osslsigncode " + std::to_string(major) + "." + std::to_string(minor) +
+                           ", which cannot sign MSIX packages correctly (APPX signing arrived in 2.7 and its zip order "
+                           "was fixed in 2.9)",
+                       "Install a newer one: brew install osslsigncode, or build it from "
+                       "https://github.com/mtrojnar/osslsigncode. FACTORIA_OSSLSIGNCODE points at the one to use.");
     }
 
     // ---- the certificate must be the one the manifest names (Windows refuses to install a package signed by someone else)
     if (signMsix && !pfx.empty()) {
         std::string openssl;
-        if (auto found = find_machine_tool({"sign.windows", "openssl", "FACTORIA_OPENSSL", "openssl", {"openssl"}, "https://www.openssl.org/"}, env, configPath); found.ok())
+        if (auto found = find_machine_tool(
+                {"sign.windows", "openssl", "FACTORIA_OPENSSL", "openssl", {"openssl"}, "https://www.openssl.org/"},
+                env, configPath);
+            found.ok())
             openssl = found->path;
         if (openssl.empty()) {
-            rep.warnings.push_back("openssl was not found, so the subject of the certificate was not compared with the Publisher of the package (" + rep.publisher +
-                                   "). Windows installs the package only when they are equal.");
+            rep.warnings.push_back("openssl was not found, so the subject of the certificate was not compared with the "
+                                   "Publisher of the package (" +
+                                   rep.publisher + "). Windows installs the package only when they are equal.");
         } else if (!options.dryRun) {
             Step s1;
-            s1.argv = {openssl, "pkcs12", "-in", pfx, "-nokeys", "-clcerts", "-passin", std::string("env:") + kPasswordVar};
+            s1.argv = {openssl,   "pkcs12",   "-in",     pfx,
+                       "-nokeys", "-clcerts", "-passin", std::string("env:") + kPasswordVar};
             s1.env[kPasswordVar] = password;
             auto r1 = runner.go("Read the certificate subject", s1, false);
             std::string subject;
@@ -620,14 +708,20 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
                 s2.stdinText = r1->stdoutText;
                 if (auto r2 = runner.go("Read the certificate subject", s2, false); r2.ok() && r2->exitCode == 0) {
                     subject = std::string(trim(r2->stdoutText));
-                    if (starts_with(subject, "subject=")) subject = std::string(trim(std::string_view(subject).substr(8)));
+                    if (starts_with(subject, "subject="))
+                        subject = std::string(trim(std::string_view(subject).substr(8)));
                 }
             }
             if (subject.empty()) {
-                rep.warnings.push_back("could not read the subject of " + pfx + " with openssl (wrong password, or an old .pfx format); it was not compared with the Publisher of the package.");
+                rep.warnings.push_back("could not read the subject of " + pfx +
+                                       " with openssl (wrong password, or an old .pfx format); it was not compared "
+                                       "with the Publisher of the package.");
             } else if (distinguished_name_parts(subject) != distinguished_name_parts(rep.publisher)) {
-                return err(who + "the certificate's subject (" + subject + ") is not the Publisher of the package (" + rep.publisher + "): Windows would refuse to install it",
-                           "Sign with the certificate whose subject is the Publisher, or change export.windows.msix.publisher in factoria.json to the certificate's subject and export the package again.");
+                return err(
+                    who + "the certificate's subject (" + subject + ") is not the Publisher of the package (" +
+                        rep.publisher + "): Windows would refuse to install it",
+                    "Sign with the certificate whose subject is the Publisher, or change export.windows.msix.publisher "
+                    "in factoria.json to the certificate's subject and export the package again.");
             }
         }
     }
@@ -656,12 +750,16 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
         const std::string title = "Remove the imported certificate from the user certificate store";
         const std::string script = remove_certificate_script(thumbprint);
         Step s;
-        s.argv = {"powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", utf16le_base64(script)};
+        s.argv = {"powershell.exe", "-NoProfile",      "-NonInteractive",     "-ExecutionPolicy",
+                  "Bypass",         "-EncodedCommand", utf16le_base64(script)};
         s.shown = {"powershell.exe", "-NoProfile", "-Command", script};
-        s.timeoutSeconds = 150;  // the script waits 120 s for the mutex at most; a hung PowerShell must not hold the run for ever
+        s.timeoutSeconds =
+            150;  // the script waits 120 s for the mutex at most; a hung PowerShell must not hold the run for ever
         auto r = cleaner.go(title, s);
         if (!r.ok() || r->exitCode != 0) {
-            const std::string msg = "The certificate " + thumbprint + " imported for signing could not be removed from the user certificate store: remove it by hand (certmgr.msc > Personal > Certificates).";
+            const std::string msg = "The certificate " + thumbprint +
+                                    " imported for signing could not be removed from the user certificate store: "
+                                    "remove it by hand (certmgr.msc > Personal > Certificates).";
             rep.warnings.push_back(msg);
             cleanupWarning = msg;
             if (options.progress) options.progress(msg);
@@ -681,12 +779,14 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
         // The PowerShell step for `script`; the password, when there is one, only in the environment variable of that process.
         const auto powershell_step = [&](const std::string& script) {
             Step st;
-            st.argv = {"powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", utf16le_base64(script)};
+            st.argv = {"powershell.exe", "-NoProfile",      "-NonInteractive",     "-ExecutionPolicy",
+                       "Bypass",         "-EncodedCommand", utf16le_base64(script)};
             st.shown = {"powershell.exe", "-NoProfile", "-Command", script};
             if (!password.empty()) st.env[kPasswordVar] = password;
             return st;
         };
-        const std::string pfxHint = "Check that " + std::string(kPasswordVar) + " is the password of " + pfx + " and that the file is a .pfx (PKCS#12) with a private key.";
+        const std::string pfxHint = "Check that " + std::string(kPasswordVar) + " is the password of " + pfx +
+                                    " and that the file is a .pfx (PKCS#12) with a private key.";
 
         {  // 1. the thumbprint and whether the store has the certificate already: imports nothing
             const std::string title = "Read the thumbprint of the certificate in the .pfx (imports nothing)";
@@ -701,9 +801,11 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
                 thumbprint = script_output_value(r->stdoutText, "THUMBPRINT");
                 if (!is_thumbprint(thumbprint)) {
                     thumbprint.clear();
-                    return err(who + "the step that reads the .pfx did not print the thumbprint of its certificate", "Run the command of the step by hand to see why.");
+                    return err(who + "the step that reads the .pfx did not print the thumbprint of its certificate",
+                               "Run the command of the step by hand to see why.");
                 }
-                removalPending = script_output_value(r->stdoutText, "PRESENT") != "1";  // ours to remove, unless it was there with its key
+                removalPending = script_output_value(r->stdoutText, "PRESENT") !=
+                                 "1";  // ours to remove, unless it was there with its key
             }
         }
         // 2. the import, unless the store has the certificate with its key already (then there is nothing to load: loading the file would
@@ -717,8 +819,10 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
             if (r->exitCode != 0) return runner.failed(title, s.shown, *r, pfxHint);
             if (!options.dryRun) {
                 const std::string imported = script_output_value(r->stdoutText, "IMPORTED");
-                if (imported == "0") removalPending = false;  // it was in the store after all (another run put it there): not ours
-                else if (imported == "1") removalPending = true;
+                if (imported == "0")
+                    removalPending = false;  // it was in the store after all (another run put it there): not ours
+                else if (imported == "1")
+                    removalPending = true;
             }
         }
     }
@@ -726,17 +830,23 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
         cer = msix.parent_path() / (msix.stem().string() + "-test-certificate.cer");
         const std::string script = test_certificate_script(rep.publisher, generic(cer));
         Step s;
-        s.argv = {"powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-EncodedCommand", utf16le_base64(script)};
+        s.argv = {"powershell.exe", "-NoProfile",      "-NonInteractive",     "-ExecutionPolicy",
+                  "Bypass",         "-EncodedCommand", utf16le_base64(script)};
         s.shown = {"powershell.exe", "-NoProfile", "-Command", script};
         const std::string title = "Create the test certificate";
         auto r = runner.go(title, s);
         if (!r.ok()) return r.error();
-        if (r->exitCode != 0) return runner.failed(title, s.shown, *r, "Run PowerShell as the same user and check that New-SelfSignedCertificate works (the PKI module comes with Windows 10 and 11).");
+        if (r->exitCode != 0)
+            return runner.failed(title, s.shown, *r,
+                                 "Run PowerShell as the same user and check that New-SelfSignedCertificate works (the "
+                                 "PKI module comes with Windows 10 and 11).");
         if (options.dryRun) {
             thumbprint = "<thumbprint>";
         } else {
             thumbprint = script_output_value(r->stdoutText, "THUMBPRINT");
-            if (!is_thumbprint(thumbprint)) return err(who + "the test certificate step did not print a thumbprint", "Run the command of the step by hand to see why.");
+            if (!is_thumbprint(thumbprint))
+                return err(who + "the test certificate step did not print a thumbprint",
+                           "Run the command of the step by hand to see why.");
         }
         rep.testCertificateFile = generic(cer);
     }
@@ -746,7 +856,8 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
         Step s;
         if (onWindows) {
             // The certificate is in the user's store (imported above, or made by testCertificate): no password on the command line.
-            s.argv = {toolPath, "sign", "/fd", "SHA256", "/sha1", thumbprint, "/s", "My", "/tr", stamp, "/td", "SHA256", generic(file)};
+            s.argv = {toolPath, "sign", "/fd", "SHA256", "/sha1",  thumbprint,   "/s",
+                      "My",     "/tr",  stamp, "/td",    "SHA256", generic(file)};
             s.shown = s.argv;
         } else {
             const stdfs::path tmp = file.parent_path() / (file.filename().string() + ".signed");
@@ -768,16 +879,20 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
             if (r->exitCode == 0) {
                 std::error_code mv;
                 stdfs::rename(os_path(tmp), os_path(file), mv);
-                if (mv) return err(who + "cannot replace " + generic(file) + " with the signed copy: " + mv.message(), "Check that the folder is writable; the signed copy is " + generic(tmp) + ".");
+                if (mv)
+                    return err(who + "cannot replace " + generic(file) + " with the signed copy: " + mv.message(),
+                               "Check that the folder is writable; the signed copy is " + generic(tmp) + ".");
             } else {
                 std::error_code rm;
                 stdfs::remove(os_path(tmp), rm);
             }
         }
         if (r->exitCode != 0)
-            return runner.failed(title, s.shown, *r,
-                                 "Check that the certificate is a code-signing one (Extended Key Usage 'Code Signing'), that " + std::string(kPasswordVar) +
-                                     " is its password, and that the time-stamp server " + stamp + " is reachable (timestampUrl).");
+            return runner.failed(
+                title, s.shown, *r,
+                "Check that the certificate is a code-signing one (Extended Key Usage 'Code Signing'), that " +
+                    std::string(kPasswordVar) + " is its password, and that the time-stamp server " + stamp +
+                    " is reachable (timestampUrl).");
         return {};
     };
 
@@ -788,22 +903,31 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
     if (!exe.empty()) {
         if (auto r = sign_one(exe, "exe"); !r.ok()) return r.error();
         rep.signedExe = true;
-        if (signMsix) rep.warnings.push_back("The exe inside the package is the one that was exported: signing the exe here does not change the package. Sign the exe, then pack it into an MSIX with another tool, if you need both.");
+        if (signMsix)
+            rep.warnings.push_back(
+                "The exe inside the package is the one that was exported: signing the exe here does not change the "
+                "package. Sign the exe, then pack it into an MSIX with another tool, if you need both.");
     }
 
     remove_imported();  // the certificate imported for this run leaves the store (the guard does it on every error return)
 
     // ---- what to do next
     if (options.testCertificate) {
-        rep.nextSteps.push_back("To try the package on this PC, trust the test certificate once. In PowerShell run as Administrator: Import-Certificate -FilePath '" + generic(cer) +
-                                "' -CertStoreLocation Cert:\\LocalMachine\\TrustedPeople");
-        rep.nextSteps.push_back("Then install it (no administrator needed): Add-AppxPackage -Path '" + rep.msix + "'. Remove it later with Get-AppxPackage *" + "<your package name>" +
+        rep.nextSteps.push_back("To try the package on this PC, trust the test certificate once. In PowerShell run as "
+                                "Administrator: Import-Certificate -FilePath '" +
+                                generic(cer) + "' -CertStoreLocation Cert:\\LocalMachine\\TrustedPeople");
+        rep.nextSteps.push_back("Then install it (no administrator needed): Add-AppxPackage -Path '" + rep.msix +
+                                "'. Remove it later with Get-AppxPackage *" + "<your package name>" +
                                 "* | Remove-AppxPackage, and delete the certificate in certmgr.msc.");
-        rep.nextSteps.push_back("A test certificate is for your own PC only. Do not upload this package to the Microsoft Store; upload the unsigned package (export it again).");
+        rep.nextSteps.push_back("A test certificate is for your own PC only. Do not upload this package to the "
+                                "Microsoft Store; upload the unsigned package (export it again).");
     } else if (signMsix) {
-        rep.nextSteps.push_back("Install the signed package on a PC that trusts the certificate: Add-AppxPackage -Path '" + rep.msix + "'. A certificate from a public CA already is trusted; a self-signed one needs "
-                                "Import-Certificate ... -CertStoreLocation Cert:\\LocalMachine\\TrustedPeople first (as Administrator).");
-        rep.nextSteps.push_back("For the Microsoft Store do not sign: upload the unsigned package (project.export again); Microsoft signs it. publish.microsoft uploads it.");
+        rep.nextSteps.push_back(
+            "Install the signed package on a PC that trusts the certificate: Add-AppxPackage -Path '" + rep.msix +
+            "'. A certificate from a public CA already is trusted; a self-signed one needs "
+            "Import-Certificate ... -CertStoreLocation Cert:\\LocalMachine\\TrustedPeople first (as Administrator).");
+        rep.nextSteps.push_back("For the Microsoft Store do not sign: upload the unsigned package (project.export "
+                                "again); Microsoft signs it. publish.microsoft uploads it.");
     }
     if (options.dryRun) rep.nextSteps.push_back("This was a dry run: nothing was signed. Run it again without dryRun.");
     return rep;
@@ -811,7 +935,8 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
 
 Result<SignWindowsReport> sign_windows(const SignWindowsOptions& options) {
     std::string cleanupWarning;
-    auto result = sign_windows_impl(options, cleanupWarning);  // the certificate imported for the run is removed before it returns
+    auto result = sign_windows_impl(
+        options, cleanupWarning);  // the certificate imported for the run is removed before it returns
     if (result.ok() || cleanupWarning.empty()) return result;
     Error e = result.error();
     e.hint += (e.hint.empty() ? "" : " ") + cleanupWarning;
@@ -825,7 +950,8 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
     info.name = "sign.windows";
     info.category = "sign";
     info.readOnly = false;
-    info.summary = "Sign the Windows MSIX package (and the exe) with a code-signing certificate, to install it outside the Microsoft Store.";
+    info.summary = "Sign the Windows MSIX package (and the exe) with a code-signing certificate, to install it outside "
+                   "the Microsoft Store.";
     info.description =
         "Signs <out>/<game-slug>-windows.msix (what `project.export "
         "{\"platform\":\"windows\",\"format\":\"msix\"}` writes) in place, and with `exe` the game's .exe of "
@@ -835,11 +961,11 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
         "sign.windows.pfx of ~/.factoria/export.json; its password ONLY in FACTORIA_WINDOWS_PFX_PASSWORD "
         "(never an argument of any program, a file of the game, a result or a log: on Windows the .pfx is "
         "imported into the user's certificate store for the run and removed afterwards, also after a failure "
-        "or a cancel, signtool signs by thumbprint; two runs at once with one .pfx can take the certificate from each other; "
+        "or a cancel, signtool signs by thumbprint; two runs at once with one .pfx can take the certificate from each "
+        "other; "
         "osslsigncode reads the password on stdin). The subject of the certificate must "
         "equal the Publisher of the package (checked with openssl when it is installed). Examples: "
-        "{\"dryRun\":true}, {\"pfx\":\"C:/keys/code-signing.pfx\"}, {\"testCertificate\":true}."
-        FA_COMMAND_DETAILS
+        "{\"dryRun\":true}, {\"pfx\":\"C:/keys/code-signing.pfx\"}, {\"testCertificate\":true}." FA_COMMAND_DETAILS
         "`testCertificate: true` (Windows) instead creates a self-signed certificate for the package's "
         "Publisher in your user certificate store, signs with it and saves the public part as "
         "<slug>-windows-test-certificate.cer: trust it once (Import-Certificate ... -CertStoreLocation "
@@ -850,8 +976,10 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
         "(`timestampUrl`, default http://timestamp.digicert.com). `dryRun: true` checks everything and "
         "returns the exact command lines in steps[] on any computer. Returns {msix, exe, publisher, "
         "certificate, certificateFrom, tool, toolPath, timestampUrl, dryRun, signedMsix, signedExe, "
-        "testCertificateFile, steps[{title, command, commandLine, ran, exitCode, env, stdinSecret}] (env lists the NAMES of the "
-        "environment variables a step sets, never values; stdinSecret marks a step whose password goes on its standard input), "
+        "testCertificateFile, steps[{title, command, commandLine, ran, exitCode, env, stdinSecret}] (env lists the "
+        "NAMES of the "
+        "environment variables a step sets, never values; stdinSecret marks a step whose password goes on its standard "
+        "input), "
         "warnings[], nextSteps[]}. "
         "Signing again after every export is needed: the next project.export replaces the package.";
     info.inputSchema = Json::parse(R"({
@@ -870,19 +998,24 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
         o.projectDir = projectDir;
         auto inside = [&](const std::string& rel, const char* what) {
             auto dir = resolve_project_path(projectDir, rel);
-            if (!dir) throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message, dir.error().hint);
+            if (!dir)
+                throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message,
+                                   dir.error().hint);
             return dir->string();
         };
         // The msix and the export folder are written: resolve_write_path keeps an agent inside the project, lets the
         // command-line user give any folder, and refuses .git and .factoria.
         auto writable = [&](const std::string& rel, const char* what) {
             auto dir = resolve_write_path(projectDir, rel);
-            if (!dir) throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message, dir.error().hint);
+            if (!dir)
+                throw CommandError("invalid_argument", std::string(what) + ": " + dir.error().message,
+                                   dir.error().hint);
             return dir->string();
         };
         if (std::string v = tooling_detail::arg_string(args, "msix", false); !v.empty()) o.msix = writable(v, "msix");
         if (std::string v = tooling_detail::arg_string(args, "out", false); !v.empty()) o.outDir = writable(v, "out");
-        if (std::string v = tooling_detail::arg_string(args, "pfx", false); !v.empty()) o.pfx = stdfs::path(v).is_absolute() ? v : inside(v, "pfx");
+        if (std::string v = tooling_detail::arg_string(args, "pfx", false); !v.empty())
+            o.pfx = stdfs::path(v).is_absolute() ? v : inside(v, "pfx");
         o.exe = tooling_detail::arg_bool(args, "exe", false);
         o.testCertificate = tooling_detail::arg_bool(args, "testCertificate", false);
         o.timestampUrl = tooling_detail::arg_string(args, "timestampUrl", false);
@@ -893,8 +1026,8 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
         return r->to_json();
     });
     // runs signtool, which signs the exported files in place and asks a timestamp server.
-    declare_command_capabilities(registry, {
-        {"sign.windows", CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Process, Capability::Network}}});
+    declare_command_capabilities(registry, {{"sign.windows", CapabilitySet{Capability::Read, Capability::WriteProject,
+                                                                           Capability::Process, Capability::Network}}});
 }
 
 }  // namespace fa

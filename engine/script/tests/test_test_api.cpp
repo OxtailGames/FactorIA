@@ -157,8 +157,10 @@ test("bad options teach", () => {
 
 TEST_CASE("test api: scene.load from a test is deferred to the next frame, game.load is immediate") {
     TestHost h("testapi_sceneload");
-    h.file("scenes/a.scene.json", R"({ "format": "factoria.scene/1", "entities": [ { "id": "a", "components": {} } ] })");
-    h.file("scenes/b.scene.json", R"({ "format": "factoria.scene/1", "entities": [ { "id": "b", "components": {} } ] })");
+    h.file("scenes/a.scene.json",
+           R"({ "format": "factoria.scene/1", "entities": [ { "id": "a", "components": {} } ] })");
+    h.file("scenes/b.scene.json",
+           R"({ "format": "factoria.scene/1", "entities": [ { "id": "b", "components": {} } ] })");
     h.file("tests/t.test.js", R"JS(
 import { test, expect, game } from "factoria:test";
 import { scene } from "factoria";
@@ -186,10 +188,25 @@ namespace {
 std::string silent_wav() {
     const std::uint32_t n = 4410;
     std::string b;
-    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff)); };
-    auto u16 = [&](std::uint16_t v) { b.push_back(char(v & 0xff)); b.push_back(char(v >> 8)); };
-    b += "RIFF"; u32(36 + n * 2); b += "WAVEfmt "; u32(16); u16(1); u16(1); u32(44100); u32(88200); u16(2); u16(16);
-    b += "data"; u32(n * 2);
+    auto u32 = [&](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff));
+    };
+    auto u16 = [&](std::uint16_t v) {
+        b.push_back(char(v & 0xff));
+        b.push_back(char(v >> 8));
+    };
+    b += "RIFF";
+    u32(36 + n * 2);
+    b += "WAVEfmt ";
+    u32(16);
+    u16(1);
+    u16(1);
+    u32(44100);
+    u32(88200);
+    u16(2);
+    u16(16);
+    b += "data";
+    u32(n * 2);
     b.append(std::size_t(n) * 2, '\0');
     return b;
 }

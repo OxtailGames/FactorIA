@@ -101,7 +101,9 @@ std::vector<AssetSite>& AssetSources::list(SiteCategory c) {
     }
 }
 
-const std::vector<AssetSite>& AssetSources::list(SiteCategory c) const { return const_cast<AssetSources*>(this)->list(c); }
+const std::vector<AssetSite>& AssetSources::list(SiteCategory c) const {
+    return const_cast<AssetSources*>(this)->list(c);
+}
 
 bool AssetSources::empty() const {
     return images.empty() && models.empty() && audio.empty() && fonts.empty() && other.empty();
@@ -125,7 +127,9 @@ std::string asset_site_host(std::string_view in) {
     if (const auto at = s.rfind('@'); at != std::string::npos) s.erase(0, at + 1);
     if (const auto colon = s.rfind(':'); colon != std::string::npos) {
         const std::string port = s.substr(colon + 1);
-        if (!port.empty() && !std::all_of(port.begin(), port.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); })) return {};
+        if (!port.empty() &&
+            !std::all_of(port.begin(), port.end(), [](char c) { return std::isdigit(static_cast<unsigned char>(c)); }))
+            return {};
         s.erase(colon);
     }
     while (!s.empty() && s.back() == '.') s.pop_back();
@@ -160,7 +164,9 @@ std::vector<std::string> asset_source_hosts(const AssetSources& sources) {
 namespace {
 
 std::string default_asset_base_url(ProviderKind k) {
-    return k == ProviderKind::ElevenLabs ? "https://api.elevenlabs.io" : k == ProviderKind::Meshy ? "https://api.meshy.ai" : std::string();
+    return k == ProviderKind::ElevenLabs ? "https://api.elevenlabs.io"
+           : k == ProviderKind::Meshy    ? "https://api.meshy.ai"
+                                         : std::string();
 }
 
 }  // namespace
@@ -179,7 +185,8 @@ bool provider_makes(ProviderKind k, MediaKind m) {
 // A user-typed name in an error message: control characters (a tab, a newline) shown as ? so the message stays on one line.
 static std::string printable_text(std::string_view s) {
     std::string out(s);
-    for (char& c : out) if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f) c = '?';
+    for (char& c : out)
+        if (static_cast<unsigned char>(c) < 0x20 || c == 0x7f) c = '?';
     return out;
 }
 
@@ -187,7 +194,10 @@ static bool parse_kind(std::string_view s, ProviderKind& out) {
     for (auto k : {ProviderKind::Anthropic, ProviderKind::OpenAICompatible, ProviderKind::ClaudeCode,
                    ProviderKind::Codex, ProviderKind::GenericCli, ProviderKind::ElevenLabs, ProviderKind::Meshy,
                    ProviderKind::Fake, ProviderKind::AssetCommand}) {
-        if (s == provider_kind_name(k)) { out = k; return true; }
+        if (s == provider_kind_name(k)) {
+            out = k;
+            return true;
+        }
     }
     return false;
 }
@@ -200,7 +210,8 @@ EnvLookup system_env() {
 }
 
 bool is_known_role(std::string_view role) {
-    for (const char* r : kAllRoles) if (role == r) return true;
+    for (const char* r : kAllRoles)
+        if (role == r) return true;
     return false;
 }
 bool is_review_role(std::string_view role) { return role == kRoleArtCritic || role == kRoleReviewer; }
@@ -216,14 +227,20 @@ public:
     std::string hint(const CapabilityDenial& denial) const override {
         const std::string name = role_display_name(role_);
         const std::string command = denial.command.name;
-        const std::string given = "The " + name + " role has " + denial.granted.to_string() + " here, and '" + command + "' needs " +
-                                  denial.command.capabilities.to_string() + ". ";
+        const std::string given = "The " + name + " role has " + denial.granted.to_string() + " here, and '" + command +
+                                  "' needs " + denial.command.capabilities.to_string() + ". ";
         if (is_review_role(role_)) {
-            return given + "It only looks at the game and plays it, so it never changes the project. Say in your report what should "
-                           "change, or ask the user to run `factoria call " + command + "` in a terminal (which has every capability); "
-                           "a builder role (the orchestrator, the worker) makes the change.";
+            return given +
+                   "It only looks at the game and plays it, so it never changes the project. Say in your report what "
+                   "should "
+                   "change, or ask the user to run `factoria call " +
+                   command +
+                   "` in a terminal (which has every capability); "
+                   "a builder role (the orchestrator, the worker) makes the change.";
         }
-        return given + "Writing outside the project (writeAnywhere) and publishing stay with the user: ask them to run `factoria call " +
+        return given +
+               "Writing outside the project (writeAnywhere) and publishing stay with the user: ask them to run "
+               "`factoria call " +
                command + "` themselves in a terminal (which has every capability).";
     }
 
@@ -308,11 +325,13 @@ RoleConfig AiConfig::effective_role(std::string_view name) const {
 }
 std::vector<std::string> AiConfig::disabled_delegable_roles() const {
     std::vector<std::string> out;
-    for (const char* r : kAllRoles) if (is_delegable_role(r) && !role_enabled(r)) out.push_back(r);
+    for (const char* r : kAllRoles)
+        if (is_delegable_role(r) && !role_enabled(r)) out.push_back(r);
     return out;
 }
 bool AiConfig::can_delegate_to_anyone() const {
-    for (const char* r : kAllRoles) if (is_delegable_role(r) && role_enabled(r)) return true;
+    for (const char* r : kAllRoles)
+        if (is_delegable_role(r) && role_enabled(r)) return true;
     return false;
 }
 
@@ -350,7 +369,8 @@ constexpr Preset kPresets[] = {
 };
 
 const Preset* find_preset(std::string_view n) {
-    for (const auto& p : kPresets) if (n == p.name) return &p;
+    for (const auto& p : kPresets)
+        if (n == p.name) return &p;
     return nullptr;
 }
 
@@ -384,7 +404,8 @@ constexpr RoleDefault kAnthropicRoles[] = {
 };
 
 const RoleDefault* find_role_default(std::string_view role) {
-    for (const auto& d : kAnthropicRoles) if (role == d.role) return &d;
+    for (const auto& d : kAnthropicRoles)
+        if (role == d.role) return &d;
     return nullptr;
 }
 
@@ -421,11 +442,12 @@ std::vector<std::string> default_cli_argv(ProviderKind kind) {
             // template); these templates pass no prompt argument, so nothing in a prompt is ever read as an option.
             // The permission flag (`--permission-mode <mode>`, `--sandbox <mode>`) is not here: apply_permission_mode adds it from
             // the provider's "permissionMode" (cli_agent.h).
-            return {"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose", "--model",
-                    "{model}", "--resume", "{session}", "--mcp-config", "{mcp_config}", "--allowedTools", "mcp__factoria"};
+            return {"-p",           "--output-format", "stream-json",    "--input-format", "stream-json",
+                    "--verbose",    "--model",         "{model}",        "--resume",       "{session}",
+                    "--mcp-config", "{mcp_config}",    "--allowedTools", "mcp__factoria"};
         case ProviderKind::Codex:
-            return {"exec", "--json", "-m", "{model}", "-c", "mcp_servers.factoria.command={factoria_json}",
-                    "-c", "mcp_servers.factoria.args=[\"mcp\",\"--project\",{project_json}]",
+            return {"exec", "--json", "-m", "{model}", "-c", "mcp_servers.factoria.command={factoria_json}", "-c",
+                    "mcp_servers.factoria.args=[\"mcp\",\"--project\",{project_json}]",
                     // Codex gives up on an MCP tool call after 60 s by default; an ai_run call runs for minutes.
                     "-c", "mcp_servers.factoria.tool_timeout_sec=" + std::to_string(kCodexMcpToolTimeoutSec), "-"};
         default: return {};
@@ -438,19 +460,46 @@ std::vector<PermissionMode> permission_modes(ProviderKind kind) {
     switch (kind) {
         case ProviderKind::ClaudeCode:
             return {
-                {"manual", "Reads files and uses the FactorIA tools only. Every file edit and shell command would need a yes that nobody can give in a background run, so it is refused.", false},
+                {"manual",
+                 "Reads files and uses the FactorIA tools only. Every file edit and shell command would need a yes "
+                 "that nobody can give in a background run, so it is refused.",
+                 false},
                 {"plan", "Reads and plans only: no file is edited and no command runs.", false},
-                {"dontAsk", "Never asks: uses what is already allowed (the FactorIA tools, the sites you listed) and refuses everything else, including edits.", false},
-                {"acceptEdits", "Edits and creates files in the project without asking. Other shell commands and tools that are not already allowed are refused. The default.", false},
-                {"auto", "A safety check approves the actions it judges safe (edits, ordinary commands) and blocks the rest. Less strict than acceptEdits.", false},
-                {"bypassPermissions", "DANGEROUS: no permission checks at all. It edits or deletes any file it can reach, runs any shell command and uses the network without asking.", true},
+                {"dontAsk",
+                 "Never asks: uses what is already allowed (the FactorIA tools, the sites you listed) and refuses "
+                 "everything else, including edits.",
+                 false},
+                {"acceptEdits",
+                 "Edits and creates files in the project without asking. Other shell commands and tools that are not "
+                 "already allowed are refused. The default.",
+                 false},
+                {"auto",
+                 "A safety check approves the actions it judges safe (edits, ordinary commands) and blocks the rest. "
+                 "Less strict than acceptEdits.",
+                 false},
+                {"bypassPermissions",
+                 "DANGEROUS: no permission checks at all. It edits or deletes any file it can reach, runs any shell "
+                 "command and uses the network without asking.",
+                 true},
             };
         case ProviderKind::Codex:
             return {
-                {"read-only", "Reads files; its shell cannot write anything or use the network. The FactorIA tools still work (they run in FactorIA, not in the sandbox).", false},
-                {"default", "No flag: Codex uses its own configuration (~/.codex/config.toml), which is a read-only sandbox without one. The default.", false},
-                {"workspace-write", "Its shell may edit files in the project folder and temporary folders; no network, nothing outside those folders.", false},
-                {"danger-full-access", "DANGEROUS: no sandbox. Its shell edits or deletes any file you can, runs any command and uses the network.", true},
+                {"read-only",
+                 "Reads files; its shell cannot write anything or use the network. The FactorIA tools still work (they "
+                 "run in FactorIA, not in the sandbox).",
+                 false},
+                {"default",
+                 "No flag: Codex uses its own configuration (~/.codex/config.toml), which is a read-only sandbox "
+                 "without one. The default.",
+                 false},
+                {"workspace-write",
+                 "Its shell may edit files in the project folder and temporary folders; no network, nothing outside "
+                 "those folders.",
+                 false},
+                {"danger-full-access",
+                 "DANGEROUS: no sandbox. Its shell edits or deletes any file you can, runs any command and uses the "
+                 "network.",
+                 true},
             };
         default: return {};
     }
@@ -489,7 +538,8 @@ std::map<std::string, RoleConfig> default_roles_for(const AiConfig& cfg) {
         }
         roles[d.role] = r;
     }
-    for (const auto& d : kAnthropicRoles) if (*d.base) derive_extra_role(roles, cfg, d);
+    for (const auto& d : kAnthropicRoles)
+        if (*d.base) derive_extra_role(roles, cfg, d);
     return roles;
 }
 
@@ -503,30 +553,39 @@ static AssetPricing builtin_asset_pricing(std::string_view provider) {
         p.image["1024x1024"] = {{"low", 0.011}, {"medium", 0.042}, {"high", 0.167}, {"auto", 0.167}};
         p.image["1024x1536"] = {{"low", 0.016}, {"medium", 0.063}, {"high", 0.25}, {"auto", 0.25}};
         p.image["1536x1024"] = {{"low", 0.016}, {"medium", 0.063}, {"high", 0.25}, {"auto", 0.25}};
-        p.voicePer1000Chars = 0.015;  // gpt-4o-mini-tts: priced per token; OpenAI's own rule of thumb is about 0.015 USD per minute of speech
+        p.voicePer1000Chars =
+            0.015;  // gpt-4o-mini-tts: priced per token; OpenAI's own rule of thumb is about 0.015 USD per minute of speech
         p.checked = "2026-11-06";
         p.source = "https://developers.openai.com/api/docs/models/gpt-image-1";
-        p.note = "Images: the per-picture table of the gpt-image-1 model page, for the sizes the provider draws. Newer image models "
-                 "(gpt-image-2.5...) are priced per token: set assetPricing.image for the model you route to. Voice: about 0.015 USD per "
-                 "minute of speech (about 1000 characters) for gpt-4o-mini-tts, derived from its token price, not read from a table.";
+        p.note = "Images: the per-picture table of the gpt-image-1 model page, for the sizes the provider draws. Newer "
+                 "image models "
+                 "(gpt-image-2.5...) are priced per token: set assetPricing.image for the model you route to. Voice: "
+                 "about 0.015 USD per "
+                 "minute of speech (about 1000 characters) for gpt-4o-mini-tts, derived from its token price, not read "
+                 "from a table.";
         p.model = "gpt-image-1";
         p.unverified = {"voice"};
     } else if (provider == "elevenlabs") {
-        p.voicePer1000Chars = 0.08;     // Text to Speech, Multilingual v2
-        p.soundPerSecond = 0.12 / 60;   // Sound Effects 0.12 USD per minute
-        p.musicPerSecond = 0.15 / 60;   // Music 0.15 USD per minute
+        p.voicePer1000Chars = 0.08;    // Text to Speech, Multilingual v2
+        p.soundPerSecond = 0.12 / 60;  // Sound Effects 0.12 USD per minute
+        p.musicPerSecond = 0.15 / 60;  // Music 0.15 USD per minute
         p.checked = "2026-11-06";
         p.source = "https://elevenlabs.io/pricing/api";
-        p.note = "API prices of the pay-as-you-go page: voice 0.08 USD per 1000 characters (Multilingual v2; Flash and Turbo models cost less), sound effects "
-                 "0.12 USD per minute, music 0.15 USD per minute. The figures were read off that page through a tool that summarizes it and were not "
-                 "confirmed by hand, so they are marked unverified: check them on the page. Your plan's credits can make it cheaper or dearer.";
+        p.note = "API prices of the pay-as-you-go page: voice 0.08 USD per 1000 characters (Multilingual v2; Flash and "
+                 "Turbo models cost less), sound effects "
+                 "0.12 USD per minute, music 0.15 USD per minute. The figures were read off that page through a tool "
+                 "that summarizes it and were not "
+                 "confirmed by hand, so they are marked unverified: check them on the page. Your plan's credits can "
+                 "make it cheaper or dearer.";
         p.unverified = {"voice", "sound", "music"};
     } else if (provider == "meshy") {
         p.model3d = 0.40;
         p.checked = "2026-11-06";
         p.source = "https://docs.meshy.ai/en/api/pricing";
-        p.note = "A text-to-3D preview costs 20 API credits on meshy-6 and the latest model (5 on the lite models). Meshy does not publish a price per "
-                 "API credit: 0.02 USD is the Pro plan's price (19 EUR for 1000 credits), so treat the figure as a rough guide and "
+        p.note = "A text-to-3D preview costs 20 API credits on meshy-6 and the latest model (5 on the lite models). "
+                 "Meshy does not publish a price per "
+                 "API credit: 0.02 USD is the Pro plan's price (19 EUR for 1000 credits), so treat the figure as a "
+                 "rough guide and "
                  "set assetPricing.model3d to your own price.";
         p.unverified = {"model3d"};
     }
@@ -633,7 +692,8 @@ static AssetPricing read_asset_pricing(const Json& j) {
     p.note = str(j, "note");
     p.model = str(j, "model");
     if (const Json* u = child(j, "unverified"); u && u->is_array()) {
-        for (const Json& k : *u) if (k.is_string()) p.unverified.push_back(k.get<std::string>());
+        for (const Json& k : *u)
+            if (k.is_string()) p.unverified.push_back(k.get<std::string>());
     }
     return p;
 }
@@ -688,12 +748,16 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             const Json& pj = it.value();
             ProviderConfig c;
             bool existing = false;
-            if (auto f = cfg.providers.find(name); f != cfg.providers.end()) { c = f->second; existing = true; }
+            if (auto f = cfg.providers.find(name); f != cfg.providers.end()) {
+                c = f->second;
+                existing = true;
+            }
             c.name = name;
             if (auto t = str(pj, "type"); !t.empty()) {
                 ProviderKind k;
                 if (!parse_kind(t, k)) {
-                    return make_error(std::string(sourceName) + ": /providers/" + name + "/type: unknown type '" + t + "'");
+                    return make_error(std::string(sourceName) + ": /providers/" + name + "/type: unknown type '" + t +
+                                      "'");
                 }
                 if (existing && k != c.kind) {
                     // Re-typing a built-in: start from a clean provider.
@@ -703,9 +767,10 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
                 }
                 c.kind = k;
             } else if (!existing) {
-                return make_error(
-                    std::string(sourceName) + ": /providers/" + name + ": custom provider needs a \"type\"",
-                    "Add \"type\": \"openai-compatible\" (APIs), \"claude-code\", \"codex\" or \"generic-cli\" (CLI agents).");
+                return make_error(std::string(sourceName) + ": /providers/" + name +
+                                      ": custom provider needs a \"type\"",
+                                  "Add \"type\": \"openai-compatible\" (APIs), \"claude-code\", \"codex\" or "
+                                  "\"generic-cli\" (CLI agents).");
             }
             if (auto p = str(pj, "preset"); !p.empty()) {
                 c.preset = p;
@@ -743,9 +808,10 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
                 const Json& pm = pj["permissionMode"];
                 const auto modes = permission_modes(c.kind);
                 if (modes.empty()) {
-                    return make_error(at + ": only claude-code and codex providers have a permission mode (this one is " +
-                                          provider_kind_name(c.kind) + ")",
-                                      "Remove the key. A generic-cli provider sets its own flags in \"argv\".");
+                    return make_error(
+                        at + ": only claude-code and codex providers have a permission mode (this one is " +
+                            provider_kind_name(c.kind) + ")",
+                        "Remove the key. A generic-cli provider sets its own flags in \"argv\".");
                 }
                 std::vector<std::string> values;
                 for (const PermissionMode& m : modes) values.push_back(m.value);
@@ -758,10 +824,13 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
                 }
                 const std::string mode = pm.get<std::string>();
                 if (std::find(values.begin(), values.end(), mode) == values.end()) {
-                    return make_error(at + ": '" + printable_text(mode) + "' is not a permission mode of " + provider_kind_name(c.kind),
-                                      fa::did_you_mean(mode, values) + " Choose one of: " + list + ". docs/AI_PROVIDERS.md, \"Permission mode\".");
+                    return make_error(at + ": '" + printable_text(mode) + "' is not a permission mode of " +
+                                          provider_kind_name(c.kind),
+                                      fa::did_you_mean(mode, values) + " Choose one of: " + list +
+                                          ". docs/AI_PROVIDERS.md, \"Permission mode\".");
                 }
-                c.permissionMode = mode;  // as written: a provider with its own argv gets the flag only when the file names a mode
+                c.permissionMode =
+                    mode;  // as written: a provider with its own argv gets the flag only when the file names a mode
             }
             if (const Json* e = child(pj, "env")) {
                 for (auto ei = e->begin(); ei != e->end(); ++ei) c.env[ei.key()] = ei.value().get<std::string>();
@@ -778,20 +847,23 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             if (pj.contains("factoriaCommand")) c.factoriaCommand = str(pj, "factoriaCommand");
             if (pj.contains("license")) c.license = str(pj, "license");
             if (const Json* pr = child(pj, "pricing")) read_pricing(*pr, c.pricing);
-            if (const Json* ap = child(pj, "assetPricing"); ap && ap->is_object()) c.assetPricing = read_asset_pricing(*ap);  // replaces the whole table
+            if (const Json* ap = child(pj, "assetPricing"); ap && ap->is_object())
+                c.assetPricing = read_asset_pricing(*ap);  // replaces the whole table
             c.maxRetries = static_cast<int>(num(pj, "maxRetries", c.maxRetries));
             c.timeoutSeconds = num(pj, "timeoutSeconds", c.timeoutSeconds);
             if (is_cli_kind(c.kind) && c.command.empty()) {
                 c.command = default_cli_command(c.kind);
                 if (c.command.empty()) {
-                    return make_error(std::string(sourceName) + ": /providers/" + name + "/command: required for generic-cli",
-                                      "Set \"command\" and \"argv\" (placeholders {prompt} {model} {project} {mcp_config}).");
+                    return make_error(
+                        std::string(sourceName) + ": /providers/" + name + "/command: required for generic-cli",
+                        "Set \"command\" and \"argv\" (placeholders {prompt} {model} {project} {mcp_config}).");
                 }
             }
             if (c.kind == ProviderKind::AssetCommand && c.command.empty()) {
-                return make_error(std::string(sourceName) + ": /providers/" + name + "/command: required for asset-command",
-                                  "Set \"command\" and \"argv\" (placeholders {prompt} {output} {width} {height} {seconds} "
-                                  "{kind} {model} {seed}).");
+                return make_error(
+                    std::string(sourceName) + ": /providers/" + name + "/command: required for asset-command",
+                    "Set \"command\" and \"argv\" (placeholders {prompt} {output} {width} {height} {seconds} "
+                    "{kind} {model} {seed}).");
             }
             if (c.baseUrl.empty()) c.baseUrl = default_asset_base_url(c.kind);
             if (c.kind == ProviderKind::OpenAICompatible && c.baseUrl.empty()) {
@@ -804,14 +876,16 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
     if (!cfg.provider(cfg.defaultProvider)) {
         std::vector<std::string> names;
         for (const auto& [n, _] : cfg.providers) names.push_back(n);
-        return make_error(std::string(sourceName) + ": /defaultProvider: unknown provider '" + cfg.defaultProvider + "'",
+        return make_error(std::string(sourceName) + ": /defaultProvider: unknown provider '" + cfg.defaultProvider +
+                              "'",
                           fa::did_you_mean(cfg.defaultProvider, names));
     }
 
     if (is_asset_only_kind(cfg.provider(cfg.defaultProvider)->kind)) {
-        return make_error(std::string(sourceName) + ": /defaultProvider: '" + cfg.defaultProvider + "' only generates assets",
-                          "defaultProvider runs the agent roles: use a chat provider (anthropic, claude-code, openai...). "
-                          "Asset providers go under \"assets\".");
+        return make_error(
+            std::string(sourceName) + ": /defaultProvider: '" + cfg.defaultProvider + "' only generates assets",
+            "defaultProvider runs the agent roles: use a chat provider (anthropic, claude-code, openai...). "
+            "Asset providers go under \"assets\".");
     }
     if (const Json* assets = child(j, "assets")) {
         for (auto it = assets->begin(); it != assets->end(); ++it) {
@@ -828,9 +902,11 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             const ProviderConfig* p = cfg.provider(r.provider);
             std::vector<std::string> names;
             for (const auto& [n, pc] : cfg.providers) names.push_back(n);
-            if (!p) return make_error(at + "unknown provider '" + r.provider + "'", fa::did_you_mean(r.provider, names));
+            if (!p)
+                return make_error(at + "unknown provider '" + r.provider + "'", fa::did_you_mean(r.provider, names));
             if (!provider_makes(p->kind, *kind)) {
-                return make_error(at + "'" + r.provider + "' (" + provider_kind_name(p->kind) + ") cannot generate " + it.key(),
+                return make_error(at + "'" + r.provider + "' (" + provider_kind_name(p->kind) + ") cannot generate " +
+                                      it.key(),
                                   "Providers that can: " + providers_that_make(cfg, *kind) + ".");
             }
             cfg.assets[it.key()] = std::move(r);
@@ -848,10 +924,12 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
                 site.url = entry.is_string() ? entry.get<std::string>() : str(entry, "url");
                 site.note = entry.is_object() ? str(entry, "note") : std::string();
                 if (asset_site_host(site.url).empty()) {
-                    return make_error(std::string(sourceName) + ": /assetSources/" + site_category_key(c) + "/" + std::to_string(index) +
-                                          (entry.is_string() ? "" : "/url") + ": '" + site.url + "' is not a web address",
-                                      "Write a domain such as opengameart.org, or an address such as https://kenney.nl/assets "
-                                      "(no spaces; put a comment in \"note\").");
+                    return make_error(
+                        std::string(sourceName) + ": /assetSources/" + site_category_key(c) + "/" +
+                            std::to_string(index) + (entry.is_string() ? "" : "/url") + ": '" + site.url +
+                            "' is not a web address",
+                        "Write a domain such as opengameart.org, or an address such as https://kenney.nl/assets "
+                        "(no spaces; put a comment in \"note\").");
                 }
                 cfg.assetSources.list(c).push_back(std::move(site));
                 ++index;
@@ -868,8 +946,9 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             if (s.enabled && s.type == "http" && s.url.rfind("http://", 0) == 0 && secret) {
                 const std::string host = asset_site_host(s.url);
                 if (host != "localhost" && host != "127.0.0.1" && host != "[::1]" && host != "::1") {
-                    cfg.warnings.push_back(std::string(sourceName) + ": /mcpServers/" + s.name + "/url uses plain http://, so " +
-                                           "its headers and key travel unencrypted. Use https:// if the server offers it.");
+                    cfg.warnings.push_back(
+                        std::string(sourceName) + ": /mcpServers/" + s.name + "/url uses plain http://, so " +
+                        "its headers and key travel unencrypted. Use https:// if the server offers it.");
                 }
             }
         }
@@ -894,14 +973,16 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
         if (!p) {
             std::vector<std::string> names;
             for (const auto& [n, _] : cfg.providers) names.push_back(n);
-            return make_error(std::string(sourceName) + ": /roles/" + name + "/provider: unknown provider '" + r.provider + "'",
+            return make_error(std::string(sourceName) + ": /roles/" + name + "/provider: unknown provider '" +
+                                  r.provider + "'",
                               fa::did_you_mean(r.provider, names));
         }
         if (is_asset_only_kind(p->kind)) {
-            return make_error(std::string(sourceName) + ": /roles/" + name + "/provider: '" + r.provider +
-                                  "' only generates assets, it cannot play a role",
-                              "Roles need a chat provider (anthropic, claude-code, openai...). Asset providers go under "
-                              "\"assets\".");
+            return make_error(
+                std::string(sourceName) + ": /roles/" + name + "/provider: '" + r.provider +
+                    "' only generates assets, it cannot play a role",
+                "Roles need a chat provider (anthropic, claude-code, openai...). Asset providers go under "
+                "\"assets\".");
         }
         // Provider changed => model/effort defaults come from the new provider.
         if (setProvider) {
@@ -909,35 +990,42 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             r.effort.clear();
         }
         const RoleDefault* rd = find_role_default(name);
-        if (rj.contains("model")) r.model = str(rj, "model");
-        else if (r.model.empty()) r.model = p->kind == ProviderKind::Anthropic && rd ? rd->model : p->defaultModel;
-        if (rj.contains("effort")) r.effort = str(rj, "effort");
-        else if (r.effort.empty() && p->kind == ProviderKind::Anthropic && rd) r.effort = rd->effort;
+        if (rj.contains("model"))
+            r.model = str(rj, "model");
+        else if (r.model.empty())
+            r.model = p->kind == ProviderKind::Anthropic && rd ? rd->model : p->defaultModel;
+        if (rj.contains("effort"))
+            r.effort = str(rj, "effort");
+        else if (r.effort.empty() && p->kind == ProviderKind::Anthropic && rd)
+            r.effort = rd->effort;
         if (rj.contains("maxTokens")) r.maxTokens = static_cast<int>(num(rj, "maxTokens"));
         if (rj.contains("maxContextTokens")) r.maxContextTokens = static_cast<u64>(num(rj, "maxContextTokens"));
         if (rj.contains("enabled")) r.enabled = flag(rj, "enabled", true);
         if (const Json* groups = child(rj, "toolGroups")) {
             if (!groups->is_array()) {
-                return make_error(std::string(sourceName) + ": /roles/" + name + "/toolGroups: must be an array of strings",
-                                  "Name command categories or commands, e.g. \"toolGroups\": [\"assets\", \"anim\"]; [] loads none "
-                                  "and [\"all\"] loads every command in full.");
+                return make_error(
+                    std::string(sourceName) + ": /roles/" + name + "/toolGroups: must be an array of strings",
+                    "Name command categories or commands, e.g. \"toolGroups\": [\"assets\", \"anim\"]; [] loads none "
+                    "and [\"all\"] loads every command in full.");
             }
             std::vector<std::string> list;
             for (std::size_t i = 0; i < groups->size(); ++i) {
                 const Json& g = (*groups)[i];
                 if (!g.is_string() || g.get<std::string>().empty()) {
-                    return make_error(std::string(sourceName) + ": /roles/" + name + "/toolGroups/" + std::to_string(i) +
-                                          ": must be a non-empty string",
-                                      "Name a command category (assets, anim, ui, publish...), a command (assets.draw_icon) or \"all\".");
+                    return make_error(std::string(sourceName) + ": /roles/" + name + "/toolGroups/" +
+                                          std::to_string(i) + ": must be a non-empty string",
+                                      "Name a command category (assets, anim, ui, publish...), a command "
+                                      "(assets.draw_icon) or \"all\".");
                 }
                 list.push_back(g.get<std::string>());
             }
             r.toolGroups = std::move(list);
         }
         if (name == kRoleOrchestrator && !r.enabled) {
-            return make_error(std::string(sourceName) + ": /roles/orchestrator/enabled: the orchestrator cannot be turned off",
-                              "The orchestrator is the agent that talks to you and does the work of every role that is off. "
-                              "Remove \"enabled\" from roles.orchestrator, or turn off worker, fast, artist or audio instead.");
+            return make_error(
+                std::string(sourceName) + ": /roles/orchestrator/enabled: the orchestrator cannot be turned off",
+                "The orchestrator is the agent that talks to you and does the work of every role that is off. "
+                "Remove \"enabled\" from roles.orchestrator, or turn off worker, fast, artist or audio instead.");
         }
         cfg.roles[name] = std::move(r);
         return {};
@@ -955,7 +1043,8 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             }
         }
     } else {
-        for (const auto& d : kAnthropicRoles) if (*d.base) derive_extra_role(cfg.roles, cfg, d);
+        for (const auto& d : kAnthropicRoles)
+            if (*d.base) derive_extra_role(cfg.roles, cfg, d);
     }
     if (const Json* l = child(j, "limits")) {
         cfg.limits.maxTurns = static_cast<int>(num(*l, "maxTurns", cfg.limits.maxTurns));
@@ -969,10 +1058,11 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
         }
         cfg.limits.askAboveUsd = num(*l, "askAboveUsd", cfg.limits.askAboveUsd);
         if (cfg.limits.maxConcurrentRuns < 1 || cfg.limits.maxConcurrentRuns > kMaxConcurrentRunsCap) {
-            cfg.warnings.push_back(std::string(sourceName) + ": limits.maxConcurrentRuns is " + std::to_string(cfg.limits.maxConcurrentRuns) +
-                                   "; the editor runs between 1 and " + std::to_string(kMaxConcurrentRunsCap) +
-                                   " chats at once, so " +
-                                   std::to_string(std::clamp(cfg.limits.maxConcurrentRuns, 1, kMaxConcurrentRunsCap)) + " is used.");
+            cfg.warnings.push_back(std::string(sourceName) + ": limits.maxConcurrentRuns is " +
+                                   std::to_string(cfg.limits.maxConcurrentRuns) + "; the editor runs between 1 and " +
+                                   std::to_string(kMaxConcurrentRunsCap) + " chats at once, so " +
+                                   std::to_string(std::clamp(cfg.limits.maxConcurrentRuns, 1, kMaxConcurrentRunsCap)) +
+                                   " is used.");
             cfg.limits.maxConcurrentRuns = std::clamp(cfg.limits.maxConcurrentRuns, 1, kMaxConcurrentRunsCap);
         }
     }
@@ -992,7 +1082,8 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
             cfg.savers.loopGuardJudge = str(*sv, "loopGuardJudge");
             if (!cfg.savers.loopGuardJudge.empty() && !is_known_role(cfg.savers.loopGuardJudge)) {
                 const std::vector<std::string> names(std::begin(kAllRoles), std::end(kAllRoles));
-                return make_error(std::string(sourceName) + ": /savers/loopGuardJudge: no role named '" + cfg.savers.loopGuardJudge + "'",
+                return make_error(std::string(sourceName) + ": /savers/loopGuardJudge: no role named '" +
+                                      cfg.savers.loopGuardJudge + "'",
                                   fa::did_you_mean(cfg.savers.loopGuardJudge, names));
             }
         }
@@ -1006,8 +1097,9 @@ Result<AiConfig> parse_config(const Json& j, std::string_view sourceName) {
 
 Result<std::vector<std::string>> parse_env_names(const Json& array, std::string_view at) {
     if (!array.is_array()) {
-        return make_error(std::string(at) + ": must be an array of environment variable names",
-                          "For example [\"AWS_PROFILE\", \"AWS_*\"]: a name ending in * stands for every variable with that start.");
+        return make_error(
+            std::string(at) + ": must be an array of environment variable names",
+            "For example [\"AWS_PROFILE\", \"AWS_*\"]: a name ending in * stands for every variable with that start.");
     }
     std::vector<std::string> out;
     std::size_t index = 0;
@@ -1017,13 +1109,17 @@ Result<std::vector<std::string>> parse_env_names(const Json& array, std::string_
                          std::any_of(name.begin(), name.end(), [](unsigned char c) { return std::isspace(c) != 0; }) ||
                          (name.find('*') != std::string::npos && name.find('*') != name.size() - 1);
         if (bad) {
-            return make_error(std::string(at) + "/" + std::to_string(index) + ": '" + printable_text(name) + "' is not an environment variable name",
-                              "Write the name only (no =, no spaces or other whitespace), for example \"AWS_PROFILE\"; a * is allowed at the end only.");
+            return make_error(std::string(at) + "/" + std::to_string(index) + ": '" + printable_text(name) +
+                                  "' is not an environment variable name",
+                              "Write the name only (no =, no spaces or other whitespace), for example \"AWS_PROFILE\"; "
+                              "a * is allowed at the end only.");
         }
         if (name == "*") {
-            return make_error(std::string(at) + "/" + std::to_string(index) + ": '*' alone would let the program inherit every variable, "
-                                  "including the keys of other providers and signing passwords",
-                              "Name the variables the program needs, for example \"AWS_PROFILE\", or a prefix such as \"AWS_*\".");
+            return make_error(
+                std::string(at) + "/" + std::to_string(index) +
+                    ": '*' alone would let the program inherit every variable, "
+                    "including the keys of other providers and signing passwords",
+                "Name the variables the program needs, for example \"AWS_PROFILE\", or a prefix such as \"AWS_*\".");
         }
         if (std::find(out.begin(), out.end(), name) == out.end()) out.push_back(name);
         ++index;
@@ -1067,7 +1163,8 @@ Json savers_to_json(const Savers& savers) {
     if (savers.projectFacts != def.projectFacts) out["projectFacts"] = savers.projectFacts;
     if (savers.retrospective != def.retrospective) out["retrospective"] = savers.retrospective;
     if (savers.retrospectiveSteps != def.retrospectiveSteps) out["retrospectiveSteps"] = savers.retrospectiveSteps;
-    if (savers.retrospectiveCostUsd != def.retrospectiveCostUsd) out["retrospectiveCostUsd"] = savers.retrospectiveCostUsd;
+    if (savers.retrospectiveCostUsd != def.retrospectiveCostUsd)
+        out["retrospectiveCostUsd"] = savers.retrospectiveCostUsd;
     return out;
 }
 
@@ -1082,16 +1179,20 @@ Result<void> save_savers(const Savers& savers, std::string_view path) {
         auto parsed = fa::parse_json(*text, path);
         if (!parsed) return parsed.error();
         if (!parsed->is_object()) {
-            return make_error("AI config '" + std::string(path) + "' is not a JSON object", "Fix or delete the file, then save the settings again.");
+            return make_error("AI config '" + std::string(path) + "' is not a JSON object",
+                              "Fix or delete the file, then save the settings again.");
         }
         j = std::move(*parsed);
     }
     if (!savers.loopGuardJudge.empty() && !is_known_role(savers.loopGuardJudge)) {
         const std::vector<std::string> names(std::begin(kAllRoles), std::end(kAllRoles));
-        return make_error("No role named '" + savers.loopGuardJudge + "' for the loop guard's judge", fa::did_you_mean(savers.loopGuardJudge, names));
+        return make_error("No role named '" + savers.loopGuardJudge + "' for the loop guard's judge",
+                          fa::did_you_mean(savers.loopGuardJudge, names));
     }
-    if (Json sj = savers_to_json(savers); sj.empty()) j.erase("savers");
-    else j["savers"] = std::move(sj);
+    if (Json sj = savers_to_json(savers); sj.empty())
+        j.erase("savers");
+    else
+        j["savers"] = std::move(sj);
     return write_private_file(path, dump_json(j));
 }
 
@@ -1115,7 +1216,8 @@ Result<void> save_asset_limits(const Limits& limits, std::string_view path) {
         auto parsed = fa::parse_json(*text, path);
         if (!parsed) return parsed.error();
         if (!parsed->is_object()) {
-            return make_error("AI config '" + std::string(path) + "' is not a JSON object", "Fix or delete the file, then save the settings again.");
+            return make_error("AI config '" + std::string(path) + "' is not a JSON object",
+                              "Fix or delete the file, then save the settings again.");
         }
         j = std::move(*parsed);
     }
@@ -1123,12 +1225,18 @@ Result<void> save_asset_limits(const Limits& limits, std::string_view path) {
     Json cost = Json::object();
     if (limits.maxAssetCostPerRunUsd > 0) cost["perRun"] = limits.maxAssetCostPerRunUsd;
     if (limits.maxAssetCostPerDayUsd > 0) cost["perDay"] = limits.maxAssetCostPerDayUsd;
-    if (cost.empty()) lim.erase("maxAssetCostUsd");
-    else lim["maxAssetCostUsd"] = std::move(cost);
-    if (limits.askAboveUsd == Limits{}.askAboveUsd) lim.erase("askAboveUsd");
-    else lim["askAboveUsd"] = limits.askAboveUsd;
-    if (lim.empty()) j.erase("limits");
-    else j["limits"] = std::move(lim);
+    if (cost.empty())
+        lim.erase("maxAssetCostUsd");
+    else
+        lim["maxAssetCostUsd"] = std::move(cost);
+    if (limits.askAboveUsd == Limits{}.askAboveUsd)
+        lim.erase("askAboveUsd");
+    else
+        lim["askAboveUsd"] = limits.askAboveUsd;
+    if (lim.empty())
+        j.erase("limits");
+    else
+        j["limits"] = std::move(lim);
     return write_private_file(path, dump_json(j));
 }
 
@@ -1196,7 +1304,8 @@ Json config_to_json(const AiConfig& cfg, bool redactKeys) {
         }
         out["assets"] = assets;
     }
-    if (Json sources = asset_sources_to_json(cfg.assetSources); !sources.empty()) out["assetSources"] = std::move(sources);
+    if (Json sources = asset_sources_to_json(cfg.assetSources); !sources.empty())
+        out["assetSources"] = std::move(sources);
     if (!cfg.toolServers.empty()) {
         Json servers = Json::object();
         for (const ToolServer& s : cfg.toolServers) servers[s.name] = tool_server_to_json(s, redactKeys);
@@ -1239,7 +1348,8 @@ Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::str
         auto parsed = fa::parse_json(*text, path);
         if (!parsed) return parsed.error();
         if (!parsed->is_object()) {
-            return make_error("AI config '" + std::string(path) + "' is not a JSON object", "Fix or delete the file, then save the roles again.");
+            return make_error("AI config '" + std::string(path) + "' is not a JSON object",
+                              "Fix or delete the file, then save the roles again.");
         }
         j = std::move(*parsed);
     }
@@ -1249,14 +1359,21 @@ Result<void> save_roles(const std::map<std::string, RoleConfig>& roles, std::str
         Json& rj = out[name];
         if (!rj.is_object()) rj = Json::object();
         rj["provider"] = r.provider;
-        for (const auto& [key, value] : {std::pair<const char*, const std::string&>{"model", r.model}, {"effort", r.effort}}) {
-            if (value.empty()) rj.erase(key);
-            else rj[key] = value;
+        for (const auto& [key, value] :
+             {std::pair<const char*, const std::string&>{"model", r.model}, {"effort", r.effort}}) {
+            if (value.empty())
+                rj.erase(key);
+            else
+                rj[key] = value;
         }
-        if (r.maxContextTokens > 0) rj["maxContextTokens"] = r.maxContextTokens;
-        else rj.erase("maxContextTokens");
-        if (r.enabled || name == kRoleOrchestrator) rj.erase("enabled");
-        else rj["enabled"] = false;
+        if (r.maxContextTokens > 0)
+            rj["maxContextTokens"] = r.maxContextTokens;
+        else
+            rj.erase("maxContextTokens");
+        if (r.enabled || name == kRoleOrchestrator)
+            rj.erase("enabled");
+        else
+            rj["enabled"] = false;
         if (r.toolGroups) rj["toolGroups"] = *r.toolGroups;  // unset: whatever the file says stays
     }
     return fs::write_text(path, dump_json(j));
@@ -1279,9 +1396,12 @@ std::vector<std::string> split_args(std::string_view line) {
     for (std::size_t i = 0; i < line.size(); ++i) {
         const char c = line[i];
         if (quoted) {
-            if (c == '\\' && i + 1 < line.size() && (line[i + 1] == '"' || line[i + 1] == '\\')) cur += line[++i];
-            else if (c == '"') quoted = false;
-            else cur += c;
+            if (c == '\\' && i + 1 < line.size() && (line[i + 1] == '"' || line[i + 1] == '\\'))
+                cur += line[++i];
+            else if (c == '"')
+                quoted = false;
+            else
+                cur += c;
         } else if (c == '"') {
             quoted = inWord = true;
         } else if (std::isspace(static_cast<unsigned char>(c))) {
@@ -1344,11 +1464,15 @@ Result<void> save_asset_settings(const AssetSettings& settings, std::string_view
             if (!it->second.voice.empty()) rj["voice"] = it->second.voice;
             assets[media_kind_name(k)] = std::move(rj);
         }
-        if (assets.empty()) j.erase("assets");
-        else j["assets"] = std::move(assets);
+        if (assets.empty())
+            j.erase("assets");
+        else
+            j["assets"] = std::move(assets);
     }
-    if (Json sources = asset_sources_to_json(settings.sources); sources.empty()) j.erase("assetSources");
-    else j["assetSources"] = std::move(sources);
+    if (Json sources = asset_sources_to_json(settings.sources); sources.empty())
+        j.erase("assetSources");
+    else
+        j["assetSources"] = std::move(sources);
     // The providers the routes use: only the fields the caller names.
     for (const auto& [name, edit] : settings.providers) {
         if (!j.contains("providers") || !j["providers"].is_object()) j["providers"] = Json::object();
@@ -1357,16 +1481,22 @@ Result<void> save_asset_settings(const AssetSettings& settings, std::string_view
         if (!pj.is_object()) pj = Json::object();
         if (!edit.type.empty() && !pj.contains("type")) pj["type"] = edit.type;
         if (edit.apiKey) {
-            if (edit.apiKey->empty()) pj.erase("apiKey");
-            else pj["apiKey"] = *edit.apiKey;
+            if (edit.apiKey->empty())
+                pj.erase("apiKey");
+            else
+                pj["apiKey"] = *edit.apiKey;
         }
         if (edit.command) {
-            if (edit.command->empty()) pj.erase("command");
-            else pj["command"] = *edit.command;
+            if (edit.command->empty())
+                pj.erase("command");
+            else
+                pj["command"] = *edit.command;
         }
         if (edit.argv) {
-            if (edit.argv->empty()) pj.erase("argv");
-            else pj["argv"] = *edit.argv;
+            if (edit.argv->empty())
+                pj.erase("argv");
+            else
+                pj["argv"] = *edit.argv;
         }
         if (pj.empty()) provs.erase(name);
         if (provs.empty()) j.erase("providers");
@@ -1376,8 +1506,9 @@ Result<void> save_asset_settings(const AssetSettings& settings, std::string_view
 
 Result<void> save_provider_permission_mode(std::string_view provider, std::string_view mode, std::string_view path) {
     if (provider.empty()) {
-        return make_error("The provider name is empty, so no permission mode was saved",
-                          "Name the provider (\"claude-code\", \"codex\"): ai.settings.get lists them under permissionModes.");
+        return make_error(
+            "The provider name is empty, so no permission mode was saved",
+            "Name the provider (\"claude-code\", \"codex\"): ai.settings.get lists them under permissionModes.");
     }
     util::AiFileLock lock(path);  // the read-modify-write below must not interleave with another process's save
     if (!lock.held()) return lock.error();
@@ -1400,7 +1531,8 @@ Result<void> save_provider_permission_mode(std::string_view provider, std::strin
     if (auto current = parse_config(j, path); current && !current->provider(name)) {
         std::vector<std::string> names;
         for (const auto& [n, p] : current->providers) names.push_back(n);
-        return make_error("No provider named '" + printable_text(name) + "' in " + std::string(path) + ", so its permission mode was not saved",
+        return make_error("No provider named '" + printable_text(name) + "' in " + std::string(path) +
+                              ", so its permission mode was not saved",
                           fa::did_you_mean(name, names) + " Providers: " + fa::join(names, ", ") + ".");
     }
     if (!j.contains("providers") || !j["providers"].is_object()) j["providers"] = Json::object();
@@ -1477,9 +1609,7 @@ ResolvedKey resolve_api_key(const ProviderConfig& p, const EnvLookup& env) {
 // Key scanning
 
 namespace {
-bool is_key_char(char c) {
-    return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-';
-}
+bool is_key_char(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-'; }
 struct KeyPrefix {
     const char* prefix;
     std::size_t minTail;
@@ -1497,7 +1627,10 @@ bool looks_like_api_key(std::string_view text) {
             bool boundary = pos == 0 || !is_key_char(text[pos - 1]);
             std::size_t tail = 0;
             std::size_t i = pos + pre.size();
-            while (i < text.size() && is_key_char(text[i])) { ++i; ++tail; }
+            while (i < text.size() && is_key_char(text[i])) {
+                ++i;
+                ++tail;
+            }
             if (boundary && tail >= kp.minTail) return true;
             pos += pre.size();
         }
@@ -1532,9 +1665,10 @@ std::vector<std::string> scan_project_for_keys(const std::string& projectDir, st
             ++lineNo;
             if (line.find('\0') != std::string::npos) break;  // binary
             if (looks_like_api_key(line)) {
-                out.push_back(fsys::relative(entry.path(), root, ec).generic_string() + ":" + std::to_string(lineNo) +
-                              ": looks like an API key. Keys must live in ~/.factoria/ai.json or environment variables, "
-                              "never in the project.");
+                out.push_back(
+                    fsys::relative(entry.path(), root, ec).generic_string() + ":" + std::to_string(lineNo) +
+                    ": looks like an API key. Keys must live in ~/.factoria/ai.json or environment variables, "
+                    "never in the project.");
                 break;
             }
         }

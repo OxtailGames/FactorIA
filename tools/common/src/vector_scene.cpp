@@ -93,7 +93,8 @@ int VecScene::pick_in_context(int item, int context) const {
     if (item < 0 || item >= int(items.size())) return -1;
     if (context >= 0 && !is_descendant(item, context)) context = -1;
     int cur = item;
-    while (items[std::size_t(cur)].parent != context && items[std::size_t(cur)].parent >= 0) cur = items[std::size_t(cur)].parent;
+    while (items[std::size_t(cur)].parent != context && items[std::size_t(cur)].parent >= 0)
+        cur = items[std::size_t(cur)].parent;
     return cur;
 }
 
@@ -172,12 +173,14 @@ Result<VecScene> vector_scene(const std::string& svg) {
                     }
                     it.nodeCount = vec::node_count(dp);
                     it.curves = vec::has_curves(dp);
-                    it.closed = !dp.empty() && std::all_of(dp.begin(), dp.end(), [](const SubPath& s) { return s.closed; });
+                    it.closed =
+                        !dp.empty() && std::all_of(dp.begin(), dp.end(), [](const SubPath& s) { return s.closed; });
                     const vec::Rect b = vec::path_bounds(dp);
                     if (!b.empty()) {
                         it.bounds = to_rect(b);
                         it.hasBounds = true;
-                        const double half = !it.stroke.empty() && paint_visible(it.stroke) ? it.strokeWidth * m.scale() * 0.5 : 0;
+                        const double half =
+                            !it.stroke.empty() && paint_visible(it.stroke) ? it.strokeWidth * m.scale() * 0.5 : 0;
                         it.visualBounds = {b.x0 - half, b.y0 - half, b.x1 + half, b.y1 + half};
                     }
                 }
@@ -214,7 +217,8 @@ int vector_hit_test(const VecScene& scene, VecPoint p, double tolerance, bool sk
         if (it.hidden || it.hiddenByAncestor) continue;
         if (skipLocked && (it.locked || it.lockedByAncestor)) continue;
         const VecRect vb = it.visualBounds;
-        if (p.x < vb.x0 - tolerance || p.x > vb.x1 + tolerance || p.y < vb.y0 - tolerance || p.y > vb.y1 + tolerance) continue;
+        if (p.x < vb.x0 - tolerance || p.x > vb.x1 + tolerance || p.y < vb.y0 - tolerance || p.y > vb.y1 + tolerance)
+            continue;
         const bool filled = it.fill.empty() || paint_visible(it.fill);
         const bool stroked = !it.stroke.empty() && paint_visible(it.stroke);
         if (!filled && !stroked) continue;
@@ -247,15 +251,18 @@ std::vector<int> vector_shapes_in_rect(const VecScene& scene, const VecRect& box
     return out;
 }
 
-Result<Image> vector_rasterize(const std::string& svg, const VecRect* region, int width, int height, std::vector<std::string>* warnings) {
+Result<Image> vector_rasterize(const std::string& svg, const VecRect* region, int width, int height,
+                               std::vector<std::string>* warnings) {
     if (width < 1 || height < 1 || width > 16384 || height > 16384)
-        return Error{std::format("The picture size {}x{} is outside 1 to 16384 pixels.", width, height), "Ask for the size of the part of the screen that shows the drawing."};
+        return Error{std::format("The picture size {}x{} is outside 1 to 16384 pixels.", width, height),
+                     "Ask for the size of the part of the screen that shows the drawing."};
     try {
         std::string text = svg;
         if (region) {
             SvgDoc doc = SvgDoc::parse(svg, "the SVG");
             VecRect r = *region;
-            if (!(r.width() > 0) || !(r.height() > 0)) return Error{"The region to draw is empty.", "Give a region with a width and a height above 0."};
+            if (!(r.width() > 0) || !(r.height() > 0))
+                return Error{"The region to draw is empty.", "Give a region with a width and a height above 0."};
             XNode* root = doc.root();
             root->set_attr("viewBox", std::format("{:.9g} {:.9g} {:.9g} {:.9g}", r.x0, r.y0, r.width(), r.height()));
             root->set_attr("width", std::to_string(width));

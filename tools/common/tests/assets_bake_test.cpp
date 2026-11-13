@@ -44,7 +44,9 @@ bool no_gpu(const CommandResult& r) {
     return true;
 }
 
-std::string message(const CommandResult& r) { return r.error.value("message", std::string()) + " " + r.error.value("hint", std::string()); }
+std::string message(const CommandResult& r) {
+    return r.error.value("message", std::string()) + " " + r.error.value("hint", std::string());
+}
 
 const char* kCirclePrefab = R"({"format":"factoria.prefab/1","entity":{"id":"orb","components":{
   "Transform":{},"Shape2D":{"shape":"circle","size":[20,20],"color":[1,0.5,0,1]},
@@ -80,11 +82,13 @@ int opaque_pixels(const Image& img, int x0, int y0, int w, int h) {
 
 }  // namespace
 
-TEST_CASE("assets.bake_sheet: a Shape2D with a tween bakes the same pixels twice, and records its sheet, provenance and recipe") {
+TEST_CASE("assets.bake_sheet: a Shape2D with a tween bakes the same pixels twice, and records its sheet, provenance "
+          "and recipe") {
     BakeProject p;
     p.put("prefabs/orb.prefab.json", kCirclePrefab);
     p.put("scripts/pulse.js", kPulseScript);
-    const Json args = Json{{"path", "assets/fx/orb.png"}, {"prefab", "prefabs/orb.prefab.json"}, {"frames", 8}, {"fps", 8}};
+    const Json args =
+        Json{{"path", "assets/fx/orb.png"}, {"prefab", "prefabs/orb.prefab.json"}, {"frames", 8}, {"fps", 8}};
     CommandResult a = p.reg.call("assets.bake_sheet", args);
     if (no_gpu(a)) return;
     REQUIRE_MESSAGE(a.ok, a.error.dump());
@@ -136,7 +140,9 @@ TEST_CASE("assets.bake_sheet: antialiased edges have the colour of the shape, no
     BakeProject p;
     p.put("prefabs/disc.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"disc","components":{
         "Transform":{},"Shape2D":{"shape":"circle","size":[24,24],"color":[1,0.5,0,0.8]}}}})");
-    CommandResult r = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/disc.png"}, {"prefab", "prefabs/disc.prefab.json"}, {"frames", 1}, {"scale", 4.7}});
+    CommandResult r = p.reg.call(
+        "assets.bake_sheet",
+        Json{{"path", "assets/fx/disc.png"}, {"prefab", "prefabs/disc.prefab.json"}, {"frames", 1}, {"scale", 4.7}});
     if (no_gpu(r)) return;
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const Image img = read_png(p.file("assets/fx/disc.png"));
@@ -159,11 +165,17 @@ TEST_CASE("assets.bake_sheet: antialiased edges have the colour of the shape, no
     CHECK(std::abs(int(get(img, img.width / 2, img.height / 2).a) - 204) <= 3);
 }
 
-TEST_CASE("assets.bake_sheet: the cell covers the whole burst of particles, and the origin is the same pixel in every frame") {
+TEST_CASE("assets.bake_sheet: the cell covers the whole burst of particles, and the origin is the same pixel in every "
+          "frame") {
     BakeProject p;
     p.put("prefabs/burst.prefab.json", kBurstPrefab);
-    CommandResult r = p.reg.call("assets.bake_sheet",
-                                 Json{{"path", "assets/fx/burst.png"}, {"prefab", "prefabs/burst.prefab.json"}, {"frames", 8}, {"fps", 8}, {"columns", 4}, {"margin", 3}, {"padding", 0}});
+    CommandResult r = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/burst.png"},
+                                                           {"prefab", "prefabs/burst.prefab.json"},
+                                                           {"frames", 8},
+                                                           {"fps", 8},
+                                                           {"columns", 4},
+                                                           {"margin", 3},
+                                                           {"padding", 0}});
     if (no_gpu(r)) return;
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const Image img = read_png(p.file("assets/fx/burst.png"));
@@ -193,8 +205,15 @@ TEST_CASE("assets.bake_sheet: clips start through a call to the behaviour, each 
     BakeProject p;
     p.put("prefabs/boom.prefab.json", kBoomPrefab);
     p.put("scripts/boom.js", kBoomScript);
-    const Json clips = Json::array({Json{{"name", "idle"}, {"frames", 4}}, Json{{"name", "explode"}, {"call", "explode"}, {"args", Json::array({50})}, {"frames", 6}, {"loop", false}}});
-    CommandResult r = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/boom.png"}, {"prefab", "prefabs/boom.prefab.json"}, {"fps", 10}, {"clips", clips}, {"columns", 5}, {"padding", 0}});
+    const Json clips = Json::array(
+        {Json{{"name", "idle"}, {"frames", 4}},
+         Json{{"name", "explode"}, {"call", "explode"}, {"args", Json::array({50})}, {"frames", 6}, {"loop", false}}});
+    CommandResult r = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/boom.png"},
+                                                           {"prefab", "prefabs/boom.prefab.json"},
+                                                           {"fps", 10},
+                                                           {"clips", clips},
+                                                           {"columns", 5},
+                                                           {"padding", 0}});
     if (no_gpu(r)) return;
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["frames"] == 10);
@@ -220,7 +239,9 @@ TEST_CASE("assets.bake_sheet: clips start through a call to the behaviour, each 
 
     // a clip with a misspelled call: the error names the prefab, the clip, the method and the ones that exist
     const Json bad = Json::array({Json{{"name", "explode"}, {"call", "explod"}, {"frames", 2}}});
-    CommandResult e = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/bad.png"}, {"prefab", "prefabs/boom.prefab.json"}, {"clips", bad}});
+    CommandResult e =
+        p.reg.call("assets.bake_sheet",
+                   Json{{"path", "assets/fx/bad.png"}, {"prefab", "prefabs/boom.prefab.json"}, {"clips", bad}});
     REQUIRE_FALSE(e.ok);
     CHECK(message(e).find("prefabs/boom.prefab.json") != std::string::npos);
     CHECK(message(e).find("explod") != std::string::npos);
@@ -235,7 +256,8 @@ TEST_CASE("assets.bake_sheet: a script that throws fails the bake and the error 
 export default class Pulse extends Behaviour {
   onStart() { throw new Error("pulse exploded"); }
 })");
-    CommandResult r = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/orb.png"}, {"prefab", "prefabs/orb.prefab.json"}});
+    CommandResult r =
+        p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/orb.png"}, {"prefab", "prefabs/orb.prefab.json"}});
     if (no_gpu(r)) return;
     REQUIRE_FALSE(r.ok);
     const std::string m = message(r);
@@ -251,8 +273,15 @@ TEST_CASE("assets.bake_sheet: an entity of a scene, a fixed cell with a pivot, a
         {"id":"camera","components":{"Transform":{},"Camera":{}}},
         {"id":"holder","children":[{"id":"gem","components":{"Transform":{"position":[300,-200,0]},
             "Shape2D":{"shape":"diamond","size":[30,40],"color":[0.2,0.9,1,1]}}}]}]})");
-    CommandResult r = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/gem.png"}, {"scene", "scenes/level.scene.json"}, {"entity", "gem"}, {"frames", 2},
-                                                           {"frameWidth", 64}, {"frameHeight", 64}, {"pivot", Json::array({0.5, 0.5})}, {"scale", 1}, {"background", "#102030"}});
+    CommandResult r = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/gem.png"},
+                                                           {"scene", "scenes/level.scene.json"},
+                                                           {"entity", "gem"},
+                                                           {"frames", 2},
+                                                           {"frameWidth", 64},
+                                                           {"frameHeight", 64},
+                                                           {"pivot", Json::array({0.5, 0.5})},
+                                                           {"scale", 1},
+                                                           {"background", "#102030"}});
     if (no_gpu(r)) return;
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["frameWidth"] == 64);
@@ -271,15 +300,22 @@ TEST_CASE("assets.bake_sheet: an entity of a scene, a fixed cell with a pivot, a
     CHECK(get(img, 0, 0) == Rgba{16, 32, 48, 255});          // and in the gutter around it
 
     // the same gem does not fit a cell of 20 x 20 at scale 1: the error says what the cell needs
-    CommandResult small = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/gem2.png"}, {"scene", "scenes/level.scene.json"}, {"entity", "gem"},
-                                                               {"frameWidth", 20}, {"frameHeight", 20}, {"scale", 1}});
+    CommandResult small = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/gem2.png"},
+                                                               {"scene", "scenes/level.scene.json"},
+                                                               {"entity", "gem"},
+                                                               {"frameWidth", 20},
+                                                               {"frameHeight", 20},
+                                                               {"scale", 1}});
     REQUIRE_FALSE(small.ok);
     CHECK(message(small).find("frameHeight") != std::string::npos);
     CHECK(message(small).find("scale") != std::string::npos);
 
     // without a scale the animation is scaled down to fit
-    CommandResult fitted = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/gem3.png"}, {"scene", "scenes/level.scene.json"}, {"entity", "gem"},
-                                                                {"frameWidth", 20}, {"frameHeight", 20}});
+    CommandResult fitted = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/gem3.png"},
+                                                                {"scene", "scenes/level.scene.json"},
+                                                                {"entity", "gem"},
+                                                                {"frameWidth", 20},
+                                                                {"frameHeight", 20}});
     REQUIRE_MESSAGE(fitted.ok, fitted.error.dump());
     CHECK(fitted.result["frameWidth"] == 20);
     CHECK(fitted.result["scale"].get<double>() < 0.6);
@@ -290,31 +326,41 @@ TEST_CASE("assets.bake_sheet: arguments are checked with errors that teach (no G
     BakeProject p;
     p.put("prefabs/orb.prefab.json", kCirclePrefab);
     p.put("scripts/pulse.js", kPulseScript);
-    CommandResult unknown = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/a.png"}, {"prefab", "prefabs/orb.prefab.json"}, {"frame", 4}});
+    CommandResult unknown = p.reg.call(
+        "assets.bake_sheet", Json{{"path", "assets/fx/a.png"}, {"prefab", "prefabs/orb.prefab.json"}, {"frame", 4}});
     REQUIRE_FALSE(unknown.ok);
     CHECK(message(unknown).find("frames") != std::string::npos);  // did you mean
-    CommandResult both = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/a.png"}, {"prefab", "prefabs/orb.prefab.json"}, {"scene", "scenes/x.scene.json"}});
+    CommandResult both = p.reg.call(
+        "assets.bake_sheet",
+        Json{{"path", "assets/fx/a.png"}, {"prefab", "prefabs/orb.prefab.json"}, {"scene", "scenes/x.scene.json"}});
     REQUIRE_FALSE(both.ok);
-    CommandResult noEntity = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/a.png"}, {"scene", "scenes/x.scene.json"}});
+    CommandResult noEntity =
+        p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/a.png"}, {"scene", "scenes/x.scene.json"}});
     REQUIRE_FALSE(noEntity.ok);
     CHECK(message(noEntity).find("entity") != std::string::npos);
     CommandResult none = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/a.png"}});
     REQUIRE_FALSE(none.ok);
-    CommandResult notPng = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/a.jpg"}, {"prefab", "prefabs/orb.prefab.json"}});
+    CommandResult notPng =
+        p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/a.jpg"}, {"prefab", "prefabs/orb.prefab.json"}});
     REQUIRE_FALSE(notPng.ok);
     CHECK(message(notPng).find(".png") != std::string::npos);
-    CommandResult missing = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/a.png"}, {"prefab", "prefabs/nope.prefab.json"}});
+    CommandResult missing =
+        p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/a.png"}, {"prefab", "prefabs/nope.prefab.json"}});
     REQUIRE_FALSE(missing.ok);
     CHECK(message(missing).find("prefabs/nope.prefab.json") != std::string::npos);
-    CommandResult fast = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/a.png"}, {"prefab", "prefabs/orb.prefab.json"}, {"fps", 200}});
+    CommandResult fast = p.reg.call(
+        "assets.bake_sheet", Json{{"path", "assets/fx/a.png"}, {"prefab", "prefabs/orb.prefab.json"}, {"fps", 200}});
     if (no_gpu(fast)) return;
     REQUIRE_FALSE(fast.ok);
     CHECK(message(fast).find("fps") != std::string::npos);
     write_all(p.file("assets/fx/exists.png"), "x");
-    CommandResult exists = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/exists.png"}, {"prefab", "prefabs/orb.prefab.json"}});
+    CommandResult exists =
+        p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/exists.png"}, {"prefab", "prefabs/orb.prefab.json"}});
     REQUIRE_FALSE(exists.ok);
     CHECK(message(exists).find("overwrite") != std::string::npos);
-    CommandResult noId = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/a.png"}, {"scene", "prefabs/orb.prefab.json"}, {"entity", "orb"}});
+    CommandResult noId =
+        p.reg.call("assets.bake_sheet",
+                   Json{{"path", "assets/fx/a.png"}, {"scene", "prefabs/orb.prefab.json"}, {"entity", "orb"}});
     REQUIRE_FALSE(noId.ok);
 }
 
@@ -322,8 +368,14 @@ TEST_CASE("assets.bake_sheet: a baked sheet is previewed by clip name and plays 
     BakeProject p;
     p.put("prefabs/boom.prefab.json", kBoomPrefab);
     p.put("scripts/boom.js", kBoomScript);
-    const Json clips = Json::array({Json{{"name", "idle"}, {"frames", 4}}, Json{{"name", "explode"}, {"call", "explode"}, {"args", Json::array({50})}, {"frames", 6}, {"loop", false}}});
-    CommandResult r = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/boom.png"}, {"prefab", "prefabs/boom.prefab.json"}, {"fps", 10}, {"clips", clips}, {"columns", 5}});
+    const Json clips = Json::array(
+        {Json{{"name", "idle"}, {"frames", 4}},
+         Json{{"name", "explode"}, {"call", "explode"}, {"args", Json::array({50})}, {"frames", 6}, {"loop", false}}});
+    CommandResult r = p.reg.call("assets.bake_sheet", Json{{"path", "assets/fx/boom.png"},
+                                                           {"prefab", "prefabs/boom.prefab.json"},
+                                                           {"fps", 10},
+                                                           {"clips", clips},
+                                                           {"columns", 5}});
     if (no_gpu(r)) return;
     REQUIRE_MESSAGE(r.ok, r.error.dump());
 
@@ -377,8 +429,14 @@ TEST_CASE("assets.bake_sheet: a clip of the Animator is baked by name, from time
     p.put("prefabs/walker.prefab.json", kWalkerPrefab);
     p.put("anim/swing.anim.json", kSwingClip);
     p.put("anim/once.anim.json", kOnceClip);
-    const Json clips = Json::array({Json{{"name", "swing"}, {"clip", "swing"}}, Json{{"name", "once"}, {"clip", "once"}, {"fps", 20}}});
-    const Json args = Json{{"path", "assets/walker.png"}, {"prefab", "prefabs/walker.prefab.json"}, {"fps", 10}, {"clips", clips}, {"padding", 0}, {"columns", 4}};
+    const Json clips = Json::array(
+        {Json{{"name", "swing"}, {"clip", "swing"}}, Json{{"name", "once"}, {"clip", "once"}, {"fps", 20}}});
+    const Json args = Json{{"path", "assets/walker.png"},
+                           {"prefab", "prefabs/walker.prefab.json"},
+                           {"fps", 10},
+                           {"clips", clips},
+                           {"padding", 0},
+                           {"columns", 4}};
     CommandResult r = p.reg.call("assets.bake_sheet", args);
     if (no_gpu(r)) return;
     REQUIRE_MESSAGE(r.ok, r.error.dump());
@@ -443,22 +501,33 @@ TEST_CASE("assets.bake_sheet: the clip entries teach (unknown clip, no Animator,
     p.put("anim/once.anim.json", kOnceClip);
 
     // rejected before anything is drawn
-    CommandResult both = p.reg.call("assets.bake_sheet", Json{{"path", "assets/a.png"}, {"prefab", "prefabs/walker.prefab.json"},
-                                                              {"clips", Json::array({Json{{"name", "x"}, {"clip", "swing"}, {"call", "go"}}})}});
+    CommandResult both = p.reg.call(
+        "assets.bake_sheet", Json{{"path", "assets/a.png"},
+                                  {"prefab", "prefabs/walker.prefab.json"},
+                                  {"clips", Json::array({Json{{"name", "x"}, {"clip", "swing"}, {"call", "go"}}})}});
     REQUIRE_FALSE(both.ok);
     CHECK(message(both).find("call") != std::string::npos);
     CHECK(message(both).find("clip") != std::string::npos);
-    CommandResult notString = p.reg.call("assets.bake_sheet", Json{{"path", "assets/a.png"}, {"prefab", "prefabs/walker.prefab.json"}, {"clips", Json::array({Json{{"name", "x"}, {"clip", 3}}})}});
+    CommandResult notString =
+        p.reg.call("assets.bake_sheet", Json{{"path", "assets/a.png"},
+                                             {"prefab", "prefabs/walker.prefab.json"},
+                                             {"clips", Json::array({Json{{"name", "x"}, {"clip", 3}}})}});
     REQUIRE_FALSE(notString.ok);
 
-    CommandResult typo = p.reg.call("assets.bake_sheet", Json{{"path", "assets/a.png"}, {"prefab", "prefabs/walker.prefab.json"}, {"clips", Json::array({Json{{"name", "x"}, {"clip", "swin"}}})}});
+    CommandResult typo =
+        p.reg.call("assets.bake_sheet", Json{{"path", "assets/a.png"},
+                                             {"prefab", "prefabs/walker.prefab.json"},
+                                             {"clips", Json::array({Json{{"name", "x"}, {"clip", "swin"}}})}});
     if (no_gpu(typo)) return;
     REQUIRE_FALSE(typo.ok);
     CHECK(message(typo).find("swin") != std::string::npos);
     CHECK(message(typo).find("Did you mean 'swing'") != std::string::npos);
     CHECK(message(typo).find("swing, once, idle") != std::string::npos);
 
-    CommandResult none = p.reg.call("assets.bake_sheet", Json{{"path", "assets/a.png"}, {"prefab", "prefabs/orb.prefab.json"}, {"clips", Json::array({Json{{"name", "x"}, {"clip", "swing"}}})}});
+    CommandResult none =
+        p.reg.call("assets.bake_sheet", Json{{"path", "assets/a.png"},
+                                             {"prefab", "prefabs/orb.prefab.json"},
+                                             {"clips", Json::array({Json{{"name", "x"}, {"clip", "swing"}}})}});
     REQUIRE_FALSE(none.ok);
     CHECK(message(none).find("no Animator") != std::string::npos);
     CHECK(message(none).find("Add an Animator") != std::string::npos);
@@ -467,12 +536,16 @@ TEST_CASE("assets.bake_sheet: the clip entries teach (unknown clip, no Animator,
 
 TEST_CASE("assets.bake_sheet: a clip of a glTF Animator is baked by name too") {
     BakeProject p;
-    p.put("assets/models/rig.gltf", read_all(stdfs::path(FA_REPO_ROOT) / "engine/render/tests/data/skinned_two_bone.gltf"));
+    p.put("assets/models/rig.gltf",
+          read_all(stdfs::path(FA_REPO_ROOT) / "engine/render/tests/data/skinned_two_bone.gltf"));
     p.put("prefabs/rig.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"rig","components":{
       "Transform":{"scale":[60,60,60]},"MeshRenderer":{"mesh":"assets/models/rig.gltf","color":[1,0.6,0.2,1]},
       "Animator":{"clip":"Slide"}}}})");
-    const Json clips = Json::array({Json{{"name", "bend"}, {"clip", "Bend"}}, Json{{"name", "slide"}, {"clip", "Slide"}, {"frames", 3}, {"loop", false}}});
-    CommandResult r = p.reg.call("assets.bake_sheet", Json{{"path", "assets/rig.png"}, {"prefab", "prefabs/rig.prefab.json"}, {"fps", 8}, {"clips", clips}});
+    const Json clips = Json::array({Json{{"name", "bend"}, {"clip", "Bend"}},
+                                    Json{{"name", "slide"}, {"clip", "Slide"}, {"frames", 3}, {"loop", false}}});
+    CommandResult r = p.reg.call(
+        "assets.bake_sheet",
+        Json{{"path", "assets/rig.png"}, {"prefab", "prefabs/rig.prefab.json"}, {"fps", 8}, {"clips", clips}});
     if (no_gpu(r)) return;
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const Json& sheet = r.result["sheet"];
@@ -484,7 +557,10 @@ TEST_CASE("assets.bake_sheet: a clip of a glTF Animator is baked by name too") {
     CHECK(sheet["clips"][1]["loop"] == false);
     CHECK_FALSE(has_warning(r.result, "'bend'"));  // the tip rotates, so the frames differ
 
-    CommandResult typo = p.reg.call("assets.bake_sheet", Json{{"path", "assets/rig2.png"}, {"prefab", "prefabs/rig.prefab.json"}, {"clips", Json::array({Json{{"name", "x"}, {"clip", "Bent"}}})}});
+    CommandResult typo =
+        p.reg.call("assets.bake_sheet", Json{{"path", "assets/rig2.png"},
+                                             {"prefab", "prefabs/rig.prefab.json"},
+                                             {"clips", Json::array({Json{{"name", "x"}, {"clip", "Bent"}}})}});
     REQUIRE_FALSE(typo.ok);
     CHECK(message(typo).find("Did you mean 'Bend'") != std::string::npos);
 }

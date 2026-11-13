@@ -127,10 +127,15 @@ TEST_CASE("skin3d.set: the edit is appended to the document, survives a re-bake 
 
 TEST_CASE("skin3d edits: add, smooth, normalize, limit, a selection and dryRun") {
     Person s;
-    const Json add = s.p.ok("skin3d.add", {{"path", kRig}, {"bone", "spine_2"}, {"amount", 0.3}, {"part", "torso"}, {"bake", false}});
+    const Json add = s.p.ok("skin3d.add",
+                            {{"path", kRig}, {"bone", "spine_2"}, {"amount", 0.3}, {"part", "torso"}, {"bake", false}});
     CHECK(add["bake"]["state"] == "stale");
     CHECK(add["index"] == 0);
-    const Json sel = s.p.ok("skin3d.smooth", {{"path", kRig}, {"iterations", 2}, {"select", {{"by", "box"}, {"min", {-0.3, 1.0, -0.2}}, {"max", {0.3, 1.6, 0.2}}}}, {"bake", false}});
+    const Json sel =
+        s.p.ok("skin3d.smooth", {{"path", kRig},
+                                 {"iterations", 2},
+                                 {"select", {{"by", "box"}, {"min", {-0.3, 1.0, -0.2}}, {"max", {0.3, 1.6, 0.2}}}},
+                                 {"bake", false}});
     CHECK(sel["index"] == 1);
     s.p.ok("skin3d.normalize", {{"path", kRig}, {"threshold", 0.05}, {"bake", false}});
     const Json lim = s.p.ok("skin3d.limit", {{"path", kRig}, {"max", 2}, {"part", Json::array({"head", "neck"})}});
@@ -176,7 +181,8 @@ TEST_CASE("skin3d.auto: a method for the whole rig or one part, the settings, an
     CHECK(s.doc()["skin"]["parts"]["head"]["method"] == "rigid");
     CHECK(s.doc()["skin"]["parts"]["head"]["bone"] == "head");
     bool headRigid = false;
-    for (const Json& part : rigid["quality"]["parts"]) headRigid = headRigid || (part["part"] == "head" && part["method"] == "rigid");
+    for (const Json& part : rigid["quality"]["parts"])
+        headRigid = headRigid || (part["part"] == "head" && part["method"] == "rigid");
     CHECK(headRigid);
     SkeletonAsset sk = skeleton_of(s.glb());
     CHECK(weight_of(sk, joint_named(sk, "head")).peak == doctest::Approx(1.0f));
@@ -209,15 +215,16 @@ TEST_CASE("skin3d edits: a bone or part that does not exist teaches and writes n
     const CommandResult part = s.p.call("skin3d.set", {{"path", kRig}, {"bone", "head"}, {"part", "hed"}});
     REQUIRE_FALSE(part.ok);
     CHECK(part.error.dump().find("head") != std::string::npos);
-    CHECK_FALSE(s.p.call("skin3d.set", {{"path", kRig}}).ok);                                     // bone is required
-    CHECK_FALSE(s.p.call("skin3d.set", {{"path", kRig}, {"bone", "head"}, {"weight", 2}}).ok);    // out of range
+    CHECK_FALSE(s.p.call("skin3d.set", {{"path", kRig}}).ok);                                   // bone is required
+    CHECK_FALSE(s.p.call("skin3d.set", {{"path", kRig}, {"bone", "head"}, {"weight", 2}}).ok);  // out of range
     CHECK_FALSE(s.p.call("skin3d.mirror", {{"path", kRig}, {"from", "x"}}).ok);
-    CHECK_FALSE(s.p.call("skin3d.set", {{"path", kRig}, {"bone", "head"}, {"colour", 1}}).ok);    // unknown argument
-    CHECK_FALSE(s.p.call("skin3d.clear", {{"path", kRig}, {"index", 3}}).ok);                     // no such edit
+    CHECK_FALSE(s.p.call("skin3d.set", {{"path", kRig}, {"bone", "head"}, {"colour", 1}}).ok);  // unknown argument
+    CHECK_FALSE(s.p.call("skin3d.clear", {{"path", kRig}, {"index", 3}}).ok);                   // no such edit
     CHECK(read_all(s.p.file(kRig)) == text);
 }
 
-TEST_CASE("skin3d.preview: a heat map of one bone, one colour per bone and a posed row; nothing in the project changes") {
+TEST_CASE(
+    "skin3d.preview: a heat map of one bone, one colour per bone and a posed row; nothing in the project changes") {
     Person s;
     const std::string text = read_all(s.p.file(kRig)), glb = s.glb();
     const Json heat = s.p.ok("skin3d.preview", {{"path", kRig}, {"bone", "arm_lower_l"}});
@@ -244,18 +251,32 @@ TEST_CASE("skin3d.preview: a heat map of one bone, one colour per bone and a pos
     CHECK(bones["views"].size() == 2);
     CHECK(read_png(bones["$image"]["path"].get<std::string>()).width > 0);
 
-    const Json posed = s.p.ok("skin3d.preview", {{"path", kRig}, {"bone", "arm_lower_l"}, {"pose", {{"arm_lower_l", 70}}}, {"views", 1}, {"cell", 200}});
+    const Json posed =
+        s.p.ok("skin3d.preview",
+               {{"path", kRig}, {"bone", "arm_lower_l"}, {"pose", {{"arm_lower_l", 70}}}, {"views", 1}, {"cell", 200}});
     CHECK(posed["picture"]["rows"] == 2);
     CHECK(posed["pose"][0]["bone"] == "arm_lower_l");
     CHECK(posed["pose"][0]["degrees"] == 70);
-    const Json listPose = s.p.ok("skin3d.preview", {{"path", kRig}, {"pose", Json::array({{{"bone", "shin_l"}, {"degrees", -40}, {"axis", {1, 0, 0}}}})}, {"views", 1}, {"cell", 160}});
+    const Json listPose =
+        s.p.ok("skin3d.preview", {{"path", kRig},
+                                  {"pose", Json::array({{{"bone", "shin_l"}, {"degrees", -40}, {"axis", {1, 0, 0}}}})},
+                                  {"views", 1},
+                                  {"cell", 160}});
     CHECK(listPose["picture"]["rows"] == 2);
 
-    const Json kept = s.p.ok("skin3d.preview", {{"path", kRig}, {"bone", "head"}, {"out", "docs/review/head.png"}, {"cell", 120}, {"views", 1}});
+    const Json kept =
+        s.p.ok("skin3d.preview",
+               {{"path", kRig}, {"bone", "head"}, {"out", "docs/review/head.png"}, {"cell", 120}, {"views", 1}});
     CHECK(kept["written"] == "docs/review/head.png");
     CHECK(s.p.exists("docs/review/head.png"));
-    CHECK_FALSE(s.p.call("skin3d.preview", {{"path", kRig}, {"bone", "head"}, {"out", "docs/review/head.png"}}).ok);  // exists
-    CHECK(s.p.ok("skin3d.preview", {{"path", kRig}, {"bone", "head"}, {"out", "docs/review/head.png"}, {"overwrite", true}, {"cell", 120}, {"views", 1}})["written"] == "docs/review/head.png");
+    CHECK_FALSE(
+        s.p.call("skin3d.preview", {{"path", kRig}, {"bone", "head"}, {"out", "docs/review/head.png"}}).ok);  // exists
+    CHECK(s.p.ok("skin3d.preview", {{"path", kRig},
+                                    {"bone", "head"},
+                                    {"out", "docs/review/head.png"},
+                                    {"overwrite", true},
+                                    {"cell", 120},
+                                    {"views", 1}})["written"] == "docs/review/head.png");
 
     CHECK(read_all(s.p.file(kRig)) == text);
     CHECK(s.glb() == glb);

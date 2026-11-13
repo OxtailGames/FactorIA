@@ -61,15 +61,18 @@ Trimmed trimmed(const Image& in, int x, int y) {
     t.img.height = y1 - y0 + 1;
     t.img.rgba.resize(std::size_t(t.img.width) * t.img.height * 4);
     for (int py = 0; py < t.img.height; ++py)
-        std::copy_n(&in.rgba[(std::size_t(py + y0) * in.width + x0) * 4], std::size_t(t.img.width) * 4, &t.img.rgba[std::size_t(py) * t.img.width * 4]);
+        std::copy_n(&in.rgba[(std::size_t(py + y0) * in.width + x0) * 4], std::size_t(t.img.width) * 4,
+                    &t.img.rgba[std::size_t(py) * t.img.width * 4]);
     t.x = x + x0;
     t.y = y + y0;
     return t;
 }
 
 void set_or_erase(Json& j, const char* key, int value) {
-    if (value == 0) j.erase(key);
-    else j[key] = value;
+    if (value == 0)
+        j.erase(key);
+    else
+        j[key] = value;
 }
 
 void collect_timeline(const Json& list, const std::string& base, int frames, std::vector<TimelineLayer>& out) {
@@ -149,7 +152,8 @@ std::vector<CelData> layer_cels(const Json& layer, int frames) {
             if (indexed) {
                 const Json& rows = (*cel)["rows"];
                 if (rows.is_array())
-                    for (const Json& row : rows) c.rows.push_back(row.is_string() ? row.get<std::string>() : std::string());
+                    for (const Json& row : rows)
+                        c.rows.push_back(row.is_string() ? row.get<std::string>() : std::string());
                 c.empty = c.rows.empty();
             } else {
                 c.source = cel->value("source", std::string());
@@ -167,11 +171,15 @@ void write_layer_cels(Json& layer, const std::vector<CelData>& t, const std::str
     const bool indexed = layer.value("kind", std::string()) == "indexed";
     const CelData& b = t.at(0);
     if (indexed) {
-        if (b.empty || b.rows.empty()) layer.erase("rows");
-        else layer["rows"] = b.rows;
+        if (b.empty || b.rows.empty())
+            layer.erase("rows");
+        else
+            layer["rows"] = b.rows;
     } else {
-        if (b.empty || b.source.empty()) layer.erase("source");
-        else layer["source"] = b.source;
+        if (b.empty || b.source.empty())
+            layer.erase("source");
+        else
+            layer["source"] = b.source;
     }
     set_or_erase(layer, "x", b.x);
     set_or_erase(layer, "y", b.y);
@@ -194,8 +202,10 @@ void write_layer_cels(Json& layer, const std::vector<CelData>& t, const std::str
         if (link >= 0) {
             cel["link"] = link;
         } else {
-            if (indexed) cel["rows"] = c.rows;
-            else cel["source"] = c.source;
+            if (indexed)
+                cel["rows"] = c.rows;
+            else
+                cel["source"] = c.source;
             if (c.x != b.x) cel["x"] = c.x;
             if (c.y != b.y) cel["y"] = c.y;
             if (c.opacity != 1.0f) cel["opacity"] = c.opacity;
@@ -228,13 +238,18 @@ void normalize_animation(Json& doc) {
 
 int frame_number(const char* command, const Json& value, const std::string& pointer, int count, const char* what) {
     if (!value.is_number_integer())
-        arg_error(command, pointer, std::format("`{}` must be a whole frame number, got {}.", what, describe_json_value(value)),
+        arg_error(command, pointer,
+                  std::format("`{}` must be a whole frame number, got {}.", what, describe_json_value(value)),
                   count > 1 ? std::format("Frames count from 0: this document has {} (0 to {}).", count, count - 1)
                             : "This document has one frame (0); add more with image.frame.add.");
     const long long v = value.get<long long>();
     if (v < 0 || v >= count)
-        arg_error(command, pointer, std::format("there is no frame {}: the document has {} frame{} ({}).", v, count, count == 1 ? "" : "s", count == 1 ? std::string("only frame 0") : std::format("0 to {}", count - 1)),
-                  count == 1 ? "Make it an animation with image.frame.add, or leave `frame` out." : "Frames count from 0; image.info lists them.");
+        arg_error(command, pointer,
+                  std::format("there is no frame {}: the document has {} frame{} ({}).", v, count,
+                              count == 1 ? "" : "s",
+                              count == 1 ? std::string("only frame 0") : std::format("0 to {}", count - 1)),
+                  count == 1 ? "Make it an animation with image.frame.add, or leave `frame` out."
+                             : "Frames count from 0; image.info lists them.");
     return int(v);
 }
 
@@ -246,27 +261,39 @@ ImageOnionSkin onion_arg(const char* command, const Json& v) {
     ImageOnionSkin o;
     if (v.is_boolean()) return o;
     if (!v.is_object())
-        arg_error(command, "/onion", "`onion` is true, or an object like {\"before\":2,\"after\":1,\"opacity\":0.4}, got " + describe_json_value(v) + ".",
+        arg_error(command, "/onion",
+                  "`onion` is true, or an object like {\"before\":2,\"after\":1,\"opacity\":0.4}, got " +
+                      describe_json_value(v) + ".",
                   "It draws the neighbouring frames, tinted, under the frame in the picture the command returns.");
-    assets_detail::check_arg_keys(command, v, "/onion", {"before", "after", "opacity", "beforeColor", "afterColor", "loop"});
+    assets_detail::check_arg_keys(command, v, "/onion",
+                                  {"before", "after", "opacity", "beforeColor", "afterColor", "loop"});
     auto count = [&](const char* key, int& out) {
         auto it = v.find(key);
         if (it == v.end()) return;
         if (!it->is_number_integer() || it->get<int>() < 0 || it->get<int>() > 8)
-            arg_error(command, std::string("/onion/") + key, std::string("`") + key + "` is how many frames to show, a whole number from 0 to 8, got " + describe_json_value(*it) + ".", "Example: 1.");
+            arg_error(command, std::string("/onion/") + key,
+                      std::string("`") + key + "` is how many frames to show, a whole number from 0 to 8, got " +
+                          describe_json_value(*it) + ".",
+                      "Example: 1.");
         out = it->get<int>();
     };
     count("before", o.before);
     count("after", o.after);
     if (auto it = v.find("opacity"); it != v.end()) {
         if (!it->is_number() || it->get<double>() < 0 || it->get<double>() > 1)
-            arg_error(command, "/onion/opacity", "`opacity` is a number from 0 to 1, got " + describe_json_value(*it) + ".", "The nearest ghost frame; the next ones are 1/2, 1/3 as strong. Default 0.4.");
+            arg_error(command, "/onion/opacity",
+                      "`opacity` is a number from 0 to 1, got " + describe_json_value(*it) + ".",
+                      "The nearest ghost frame; the next ones are 1/2, 1/3 as strong. Default 0.4.");
         o.opacity = float(it->get<double>());
     }
-    if (v.contains("beforeColor")) o.beforeColor = assets_detail::colour_arg(command, v["beforeColor"], "/onion/beforeColor");
-    if (v.contains("afterColor")) o.afterColor = assets_detail::colour_arg(command, v["afterColor"], "/onion/afterColor");
+    if (v.contains("beforeColor"))
+        o.beforeColor = assets_detail::colour_arg(command, v["beforeColor"], "/onion/beforeColor");
+    if (v.contains("afterColor"))
+        o.afterColor = assets_detail::colour_arg(command, v["afterColor"], "/onion/afterColor");
     if (auto it = v.find("loop"); it != v.end()) {
-        if (!it->is_boolean()) arg_error(command, "/onion/loop", "`loop` is true or false, got " + describe_json_value(*it) + ".", "true makes the frame before 0 the last one.");
+        if (!it->is_boolean())
+            arg_error(command, "/onion/loop", "`loop` is true or false, got " + describe_json_value(*it) + ".",
+                      "true makes the frame before 0 the last one.");
         o.loop = it->get<bool>();
     }
     return o;
@@ -274,7 +301,8 @@ ImageOnionSkin onion_arg(const char* command, const Json& v) {
 
 }  // namespace
 
-FrameScope::FrameScope(const std::string& projectDir, const std::string& rel, Json& doc, const Json& args, const char* command)
+FrameScope::FrameScope(const std::string& projectDir, const std::string& rel, Json& doc, const Json& args,
+                       const char* command)
     : projectDir_(projectDir), rel_(rel), command_(command), doc_(&doc) {
     frames_ = json_frame_count(doc);
     if (auto it = args.find("frame"); it != args.end() && !it->is_null()) {
@@ -318,13 +346,16 @@ void FrameScope::open_layer(const Json& doc, const LayerRef& ref) {
     Json& L = *ref.layer;
     L.erase("cels");
     if (o.indexed) {
-        if (cel.empty || cel.rows.empty()) L.erase("rows");
-        else L["rows"] = cel.rows;
+        if (cel.empty || cel.rows.empty())
+            L.erase("rows");
+        else
+            L["rows"] = cel.rows;
         set_or_erase(L, "x", cel.x);
         set_or_erase(L, "y", cel.y);
     } else {
         const int W = doc.value("width", 1), H = doc.value("height", 1);
-        const std::string name = L.value("name", std::string()).empty() ? std::string("layer") : L.value("name", std::string());
+        const std::string name =
+            L.value("name", std::string()).empty() ? std::string("layer") : L.value("name", std::string());
         o.clone = layer_png_path(projectDir_, rel_, name + " frame " + std::to_string(frame_), doc);
         auto dest = resolve_project_path(projectDir_, o.clone);
         if (!dest.ok()) fail("invalid_argument", dest.error().message, dest.error().hint);
@@ -335,7 +366,8 @@ void FrameScope::open_layer(const Json& doc, const LayerRef& ref) {
             blank.height = std::max(1, H);
             blank.rgba.assign(std::size_t(blank.width) * blank.height * 4, 0);
             const auto png = encode_png(blank);
-            if (!tooling_detail::write_file(*dest, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
+            if (!tooling_detail::write_file(
+                    *dest, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &err))
                 fail("failed", "Cannot write '" + o.clone + "': " + err, "Check that the folder is writable.");
             L["source"] = o.clone;
             L.erase("x");
@@ -343,8 +375,13 @@ void FrameScope::open_layer(const Json& doc, const LayerRef& ref) {
         } else {
             auto from = resolve_project_path(projectDir_, cel.source);
             auto bytes = from.ok() ? tooling_detail::read_file(*from) : std::nullopt;
-            if (!bytes) fail("failed", "Layer " + ref.indexPath + " shows '" + cel.source + "' in frame " + std::to_string(frame_) + ", which cannot be read.", "Check the file, or replace the cel's `source`.");
-            if (!tooling_detail::write_file(*dest, *bytes, &err)) fail("failed", "Cannot write '" + o.clone + "': " + err, "Check that the folder is writable.");
+            if (!bytes)
+                fail("failed",
+                     "Layer " + ref.indexPath + " shows '" + cel.source + "' in frame " + std::to_string(frame_) +
+                         ", which cannot be read.",
+                     "Check the file, or replace the cel's `source`.");
+            if (!tooling_detail::write_file(*dest, *bytes, &err))
+                fail("failed", "Cannot write '" + o.clone + "': " + err, "Check that the folder is writable.");
             L["source"] = o.clone;
             set_or_erase(L, "x", cel.x);
             set_or_erase(L, "y", cel.y);
@@ -390,11 +427,12 @@ Json FrameScope::folded(const Json& doc) {
         try {
             found = &out.at(Json::json_pointer(o.pointer));
         } catch (const std::exception&) {
-            continue;   // the layer is gone
+            continue;  // the layer is gone
         }
         Json& L = *found;
         const std::string kind = L.value("kind", std::string());
-        if (kind != (o.indexed ? "indexed" : "pixels")) continue;   // the command turned it into something else: it keeps what it made
+        if (kind != (o.indexed ? "indexed" : "pixels"))
+            continue;  // the command turned it into something else: it keeps what it made
         const CelData& was = o.original[std::size_t(frame_)];
         CelData now;
         now.x = json_int(L, "x", 0);
@@ -416,7 +454,8 @@ Json FrameScope::folded(const Json& doc) {
             } else {
                 const auto old = read_png_rel(projectDir_, was.source);
                 const Trimmed ot = old ? trimmed(*old, was.x, was.y) : Trimmed();
-                unchanged = !t.empty && !ot.empty && t.x == ot.x && t.y == ot.y && t.img.width == ot.img.width && t.img.height == ot.img.height && t.img.rgba == ot.img.rgba;
+                unchanged = !t.empty && !ot.empty && t.x == ot.x && t.y == ot.y && t.img.width == ot.img.width &&
+                            t.img.height == ot.img.height && t.img.rgba == ot.img.rgba;
             }
         }
         std::vector<CelData> table = o.original;
@@ -437,7 +476,12 @@ void FrameScope::record_files(const std::string& command) {
     assets_detail::ProjectRootGuard root(projectDir_);
     for (const Opened& o : opened_) {
         if (!o.kept || o.clone.empty()) continue;
-        Json prov = Json::object({{"origin", "generated"}, {"ai", false}, {"kind", "image"}, {"provider", "factoria " + command}, {"source", rel_}, {"date", assets::today()}});
+        Json prov = Json::object({{"origin", "generated"},
+                                  {"ai", false},
+                                  {"kind", "image"},
+                                  {"provider", "factoria " + command},
+                                  {"source", rel_},
+                                  {"date", assets::today()}});
         (void)assets::update_entry(o.clone, [&](Json& e) { e["provenance"] = prov; });
     }
 }
@@ -447,7 +491,8 @@ void FrameScope::record_files(const std::string& command) {
 namespace {
 
 void collect_strings(const Json& j, std::set<std::string>& out) {
-    if (j.is_string()) out.insert(fs::normalize(j.get<std::string>()));
+    if (j.is_string())
+        out.insert(fs::normalize(j.get<std::string>()));
     else if (j.is_array())
         for (const Json& v : j) collect_strings(v, out);
     else if (j.is_object())
@@ -456,7 +501,8 @@ void collect_strings(const Json& j, std::set<std::string>& out) {
 
 }  // namespace
 
-std::vector<std::string> prune_orphan_cels(const std::string& projectDir, const std::string& rel, const Json& oldDoc, const Json& newDoc) {
+std::vector<std::string> prune_orphan_cels(const std::string& projectDir, const std::string& rel, const Json& oldDoc,
+                                           const Json& newDoc) {
     std::vector<std::string> removed;
     if (!json_animated(oldDoc) && !json_animated(newDoc)) return removed;
     if (rel.size() <= std::string(kImageDocSuffix).size()) return removed;
@@ -466,7 +512,9 @@ std::vector<std::string> prune_orphan_cels(const std::string& projectDir, const 
     collect_strings(newDoc, after);
     std::vector<std::string> candidates;
     for (const std::string& s : before) {
-        if (s.size() <= dir.size() + 4 || s.compare(0, dir.size(), dir) != 0 || s.find('/', dir.size()) != std::string::npos) continue;
+        if (s.size() <= dir.size() + 4 || s.compare(0, dir.size(), dir) != 0 ||
+            s.find('/', dir.size()) != std::string::npos)
+            continue;
         if (s.compare(s.size() - 4, 4, ".png") != 0 || after.count(s)) continue;
         candidates.push_back(s);
     }
@@ -498,22 +546,36 @@ std::vector<std::string> prune_orphan_cels(const std::string& projectDir, const 
 
 void add_frame_support(CommandInfo& info, const char* what, bool withOnion, const char* tail) {
     Json props = Json::object(
-        {{"frame", Json::object({{"type", "integer"}, {"minimum", 0},
-                                 {"description", std::string("Which frame of an animated document ") + what + " (0 = the first; default 0). A document with one frame has only frame 0. "
-                                                 "In a frame after the first the layer's cel is copied on write: the other frames keep what they show."}})},
-         {"onion", Json::object({{"description", "Preview only: ghost the neighbouring frames, tinted, under the frame in the returned picture. true, or {\"before\":1,\"after\":1,\"opacity\":0.4,"
-                                                 "\"beforeColor\":\"#ff4040\",\"afterColor\":\"#4080ff\",\"loop\":false}. Frames before are tinted red, frames after blue; "
-                                                 "the second frame away is half as strong, the third a third. Does not change the document or the bake."}})}});
+        {{"frame",
+          Json::object({{"type", "integer"},
+                        {"minimum", 0},
+                        {"description", std::string("Which frame of an animated document ") + what +
+                                            " (0 = the first; default 0). A document with one frame has only frame 0. "
+                                            "In a frame after the first the layer's cel is copied on write: the other "
+                                            "frames keep what they show."}})},
+         {"onion",
+          Json::object({{"description", "Preview only: ghost the neighbouring frames, tinted, under the frame in the "
+                                        "returned picture. true, or {\"before\":1,\"after\":1,\"opacity\":0.4,"
+                                        "\"beforeColor\":\"#ff4040\",\"afterColor\":\"#4080ff\",\"loop\":false}. "
+                                        "Frames before are tinted red, frames after blue; "
+                                        "the second frame away is half as strong, the third a third. Does not change "
+                                        "the document or the bake."}})}});
     if (!info.inputSchema.is_object()) info.inputSchema = Json::object();
     if (!info.inputSchema.contains("properties")) info.inputSchema["properties"] = Json::object();
     if (!withOnion) props.erase("onion");
     for (auto it = props.begin(); it != props.end(); ++it) info.inputSchema["properties"][it.key()] = it.value();
     std::string rest;
-    if (withOnion) rest = ": the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts the neighbouring frames in the returned picture. "
-                          "A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you give it and in every frame when you do not. "
-                          "A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.";
-    else rest = std::string(": ") + (tail ? tail : "the picture of that frame is written") + ".";
-    info.description += std::string(" Frames: in an animated document (docs.read IMAGES, \"Frames and tags\") `frame` (default 0) is the frame ") + what + rest;
+    if (withOnion)
+        rest = ": the layer's cel for that frame is changed and the other frames keep what they show; `onion` ghosts "
+               "the neighbouring frames in the returned picture. "
+               "A layer this command creates (`create: true`, or `image.edit` copy/cut) shows only in `frame` when you "
+               "give it and in every frame when you do not. "
+               "A cel picture the edit leaves unread is deleted in the same save and listed in `removedFiles`.";
+    else
+        rest = std::string(": ") + (tail ? tail : "the picture of that frame is written") + ".";
+    info.description += std::string(" Frames: in an animated document (docs.read IMAGES, \"Frames and tags\") `frame` "
+                                    "(default 0) is the frame ") +
+                        what + rest;
 }
 
 void add_frame_keys(std::vector<std::string>& keys) {
@@ -521,7 +583,8 @@ void add_frame_keys(std::vector<std::string>& keys) {
     keys.push_back("onion");
 }
 
-std::optional<Image> render_frame_json(const std::string& projectDir, const Json& doc, int frame, const std::optional<ImageOnionSkin>& onion) {
+std::optional<Image> render_frame_json(const std::string& projectDir, const Json& doc, int frame,
+                                       const std::optional<ImageOnionSkin>& onion) {
     auto parsed = parse_image_document(doc, "document", projectDir);
     if (!parsed.ok()) return std::nullopt;
     ImageRenderOptions options;
@@ -533,23 +596,28 @@ std::optional<Image> render_frame_json(const std::string& projectDir, const Json
     return std::move(render->image);
 }
 
-Json frame_preview(const std::string& projectDir, const std::string& rel, const Json& doc, int frame, const std::optional<ImageOnionSkin>& onion, int scale) {
+Json frame_preview(const std::string& projectDir, const std::string& rel, const Json& doc, int frame,
+                   const std::optional<ImageOnionSkin>& onion, int scale) {
     auto picture = render_frame_json(projectDir, doc, frame, onion);
     if (!picture) return Json();
     if (scale <= 0) scale = std::clamp(512 / std::max(1, std::max(picture->width, picture->height)), 1, 32);
-    if (std::size_t(picture->width) * scale > 4096 || std::size_t(picture->height) * scale > 4096) scale = std::max(1, 4096 / std::max(picture->width, picture->height));
+    if (std::size_t(picture->width) * scale > 4096 || std::size_t(picture->height) * scale > 4096)
+        scale = std::max(1, 4096 / std::max(picture->width, picture->height));
     Image big;
     big.width = picture->width * scale;
     big.height = picture->height * scale;
     big.rgba.resize(std::size_t(big.width) * big.height * 4);
     for (int y = 0; y < big.height; ++y)
         for (int x = 0; x < big.width; ++x)
-            std::copy_n(&picture->rgba[(std::size_t(y / scale) * picture->width + x / scale) * 4], 4, &big.rgba[(std::size_t(y) * big.width + x) * 4]);
+            std::copy_n(&picture->rgba[(std::size_t(y / scale) * picture->width + x / scale) * 4], 4,
+                        &big.rgba[(std::size_t(y) * big.width + x) * 4]);
     const std::string previewRel = ".factoria/previews/" + rel + ".png";
     auto path = resolve_project_path(projectDir, previewRel);
     if (!path.ok()) return Json();
     const auto png = encode_png(big);
-    if (!tooling_detail::write_file(*path, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), nullptr)) return Json();
+    if (!tooling_detail::write_file(*path, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()),
+                                    nullptr))
+        return Json();
     return Json::object({{"path", path->string()}, {"mimeType", "image/png"}});
 }
 

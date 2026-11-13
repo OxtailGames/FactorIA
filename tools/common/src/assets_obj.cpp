@@ -22,7 +22,7 @@ namespace {
 struct Material {
     std::string name;
     float color[4] = {1, 1, 1, 1};
-    std::string texture;  // map_Kd as written
+    std::string texture;      // map_Kd as written
     stdfs::path textureFile;  // where it was found ("" = not found)
 };
 
@@ -104,10 +104,13 @@ Result<std::array<int, 3>> face_vertex(const Parser& p, std::string_view word, i
         char* stop = nullptr;
         const long value = std::strtol(part.data(), &stop, 10);
         if (stop != part.data() + part.size() || value == 0)
-            return line_error(p, line, "'" + std::string(word) + "' is not a valid face vertex.", "Faces are written f v/vt/vn v/vt/vn v/vt/vn, with 1-based indices.");
+            return line_error(p, line, "'" + std::string(word) + "' is not a valid face vertex.",
+                              "Faces are written f v/vt/vn v/vt/vn v/vt/vn, with 1-based indices.");
         const long resolved = value > 0 ? value - 1 : long(counts[k]) + value;
         if (resolved < 0 || resolved >= long(counts[k]))
-            return line_error(p, line, std::format("a face uses {} {}, but only {} {}s are defined before it.", names[k], value, counts[k], names[k]));
+            return line_error(p, line,
+                              std::format("a face uses {} {}, but only {} {}s are defined before it.", names[k], value,
+                                          counts[k], names[k]));
         idx[k] = int(resolved);
     }
     return idx;
@@ -136,7 +139,8 @@ std::uint32_t add_vertex(Parser& p, Primitive& prim, const std::array<int, 3>& i
     prim.normal.insert(prim.normal.end(), {n.x, n.y, n.z});
     if (idx[1] >= 0) {
         prim.hasUv = true;
-        prim.uv.insert(prim.uv.end(), {p.uvs[std::size_t(idx[1])].x, 1.0f - p.uvs[std::size_t(idx[1])].y});  // OBJ's v goes up, glTF's down
+        prim.uv.insert(prim.uv.end(), {p.uvs[std::size_t(idx[1])].x,
+                                       1.0f - p.uvs[std::size_t(idx[1])].y});  // OBJ's v goes up, glTF's down
     } else {
         prim.uv.insert(prim.uv.end(), {0.0f, 0.0f});
     }
@@ -164,9 +168,10 @@ Result<void> add_face(Parser& p, const std::vector<std::string_view>& w, int lin
     for (std::size_t i = 1; i + 1 < corners.size(); ++i) {  // a fan: right for the convex polygons OBJ files hold
         const std::array<int, 3>* tri[3] = {&corners[0], &corners[i], &corners[i + 1]};
         const bool flat = (*tri[0])[2] < 0 || (*tri[1])[2] < 0 || (*tri[2])[2] < 0;
-        const Vec normal = flat ? face_normal(p.positions[std::size_t((*tri[0])[0])], p.positions[std::size_t((*tri[1])[0])],
-                                              p.positions[std::size_t((*tri[2])[0])])
-                                : Vec{};
+        const Vec normal =
+            flat ? face_normal(p.positions[std::size_t((*tri[0])[0])], p.positions[std::size_t((*tri[1])[0])],
+                               p.positions[std::size_t((*tri[2])[0])])
+                 : Vec{};
         if (flat) ++p.unique;
         for (const auto* corner : tri) prim.index.push_back(add_vertex(p, prim, *corner, normal, flat));
     }
@@ -175,9 +180,9 @@ Result<void> add_face(Parser& p, const std::vector<std::string_view>& w, int lin
 
 // "map_Kd -s 1 1 1 wood.png" -> "wood.png": the options before the file name are skipped with their arguments.
 std::string texture_name(std::string_view line) {
-    static const std::map<std::string_view, int> optionArgs = {{"-blendu", 1}, {"-blendv", 1}, {"-cc", 1},  {"-clamp", 1},
-                                                               {"-bm", 1},     {"-imfchan", 1}, {"-texres", 1}, {"-type", 1},
-                                                               {"-mm", 2},     {"-o", 3},       {"-s", 3},      {"-t", 3}};
+    static const std::map<std::string_view, int> optionArgs = {
+        {"-blendu", 1}, {"-blendv", 1}, {"-cc", 1}, {"-clamp", 1}, {"-bm", 1}, {"-imfchan", 1},
+        {"-texres", 1}, {"-type", 1},   {"-mm", 2}, {"-o", 3},     {"-s", 3},  {"-t", 3}};
     const auto w = words(line);
     std::size_t i = 1;
     while (i < w.size() && optionArgs.count(w[i])) {
@@ -248,9 +253,11 @@ Result<ImportOutput> import_obj(const ImportRequest& request) {
             Vec value;
             float* parts[3] = {&value.x, &value.y, &value.z};
             const std::size_t need = key == "vt" ? 1 : 3;
-            if (w.size() <= need) return line_error(p, lineNo, "'" + std::string(key) + "' needs " + std::to_string(need) + " numbers.");
+            if (w.size() <= need)
+                return line_error(p, lineNo, "'" + std::string(key) + "' needs " + std::to_string(need) + " numbers.");
             for (std::size_t k = 0; k < std::min<std::size_t>(3, w.size() - 1); ++k)
-                if (!number(w[k + 1], *parts[k])) return line_error(p, lineNo, "'" + std::string(w[k + 1]) + "' is not a number.");
+                if (!number(w[k + 1], *parts[k]))
+                    return line_error(p, lineNo, "'" + std::string(w[k + 1]) + "' is not a number.");
             (key == "v" ? p.positions : key == "vn" ? p.normals : p.uvs).push_back(value);
         } else if (key == "f") {
             if (auto r = add_face(p, w, lineNo); !r.ok()) return r.error();
@@ -270,10 +277,13 @@ Result<ImportOutput> import_obj(const ImportRequest& request) {
                     break;
                 }
             }
-            if (!found) p.warnings.push_back("The material library '" + names + "' is not next to the OBJ, so the materials are missing (white).");
+            if (!found)
+                p.warnings.push_back("The material library '" + names +
+                                     "' is not next to the OBJ, so the materials are missing (white).");
         } else if (key == "usemtl") {
             const std::string name = rest_of(line);
-            const auto it = std::find_if(p.materials.begin(), p.materials.end(), [&](const Material& m) { return m.name == name; });
+            const auto it =
+                std::find_if(p.materials.begin(), p.materials.end(), [&](const Material& m) { return m.name == name; });
             p.currentMaterial = it == p.materials.end() ? -1 : int(it - p.materials.begin());
             if (it == p.materials.end() && p.missingMaterials.insert(name).second)
                 p.warnings.push_back("Material '" + name + "' is not defined in any .mtl: its faces are white.");
@@ -281,28 +291,39 @@ Result<ImportOutput> import_obj(const ImportRequest& request) {
             ++p.ignoredLines;
         }
     }
-    p.objects.erase(std::remove_if(p.objects.begin(), p.objects.end(), [](const Object& o) { return o.primitives.empty(); }), p.objects.end());
+    p.objects.erase(
+        std::remove_if(p.objects.begin(), p.objects.end(), [](const Object& o) { return o.primitives.empty(); }),
+        p.objects.end());
     if (p.objects.empty())
         return make_error("'" + p.file + "' has no faces (" + std::to_string(p.positions.size()) + " vertices).",
-                          "Only polygon faces (f lines) are imported, not points or lines. Export the mesh with faces (triangulated or not).");
-    if (p.ignoredLines > 0) p.warnings.push_back(std::to_string(p.ignoredLines) + " point and line elements were skipped (only faces are imported).");
+                          "Only polygon faces (f lines) are imported, not points or lines. Export the mesh with faces "
+                          "(triangulated or not).");
+    if (p.ignoredLines > 0)
+        p.warnings.push_back(std::to_string(p.ignoredLines) +
+                             " point and line elements were skipped (only faces are imported).");
 
     // ---- glTF ----
     std::vector<std::uint8_t> buffer;
-    Json views = Json::array(), accessors = Json::array(), meshes = Json::array(), nodes = Json::array(), sceneNodes = Json::array();
+    Json views = Json::array(), accessors = Json::array(), meshes = Json::array(), nodes = Json::array(),
+         sceneNodes = Json::array();
     auto add_view = [&](const void* data, std::size_t bytes, int target) {
         while (buffer.size() % 4 != 0) buffer.push_back(0);
-        views.push_back(Json::object({{"buffer", 0}, {"byteOffset", buffer.size()}, {"byteLength", bytes}, {"target", target}}));
-        buffer.insert(buffer.end(), static_cast<const std::uint8_t*>(data), static_cast<const std::uint8_t*>(data) + bytes);
+        views.push_back(
+            Json::object({{"buffer", 0}, {"byteOffset", buffer.size()}, {"byteLength", bytes}, {"target", target}}));
+        buffer.insert(buffer.end(), static_cast<const std::uint8_t*>(data),
+                      static_cast<const std::uint8_t*>(data) + bytes);
         return int(views.size()) - 1;
     };
     std::vector<int> gltfMaterial(p.materials.size(), -1);  // OBJ material -> glTF material, in order of first use
     Json gltfMaterials = Json::array(), textures = Json::array(), images = Json::array();
-    std::map<stdfs::path, int> textureIndex;  // texture file -> glTF texture (-1: unreadable), so a texture is written once
+    std::map<stdfs::path, int>
+        textureIndex;  // texture file -> glTF texture (-1: unreadable), so a texture is written once
     std::set<std::string> usedNames;
     const std::string destDir = fs::parent(request.dest);
-    float lo[3] = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(), std::numeric_limits<float>::max()};
-    float hi[3] = {std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest()};
+    float lo[3] = {std::numeric_limits<float>::max(), std::numeric_limits<float>::max(),
+                   std::numeric_limits<float>::max()};
+    float hi[3] = {std::numeric_limits<float>::lowest(), std::numeric_limits<float>::lowest(),
+                   std::numeric_limits<float>::lowest()};
     std::size_t vertices = 0, triangles = 0;
 
     // The glTF texture of a material's map_Kd: the file is copied next to the glTF (PNG and JPEG as they are, other formats
@@ -311,22 +332,27 @@ Result<ImportOutput> import_obj(const ImportRequest& request) {
         if (m.texture.empty()) return -1;
         const std::string what = "Texture '" + m.texture + "' of material '" + m.name + "'";
         if (m.textureFile.empty()) {
-            out.warnings.push_back(what + " was not found next to the OBJ or its .mtl: the material keeps its color only.");
+            out.warnings.push_back(what +
+                                   " was not found next to the OBJ or its .mtl: the material keeps its color only.");
             return -1;
         }
         if (auto it = textureIndex.find(m.textureFile); it != textureIndex.end()) return it->second;
         int index = -1;
         const auto bytes = tooling_detail::read_file(m.textureFile);
-        auto image = bytes ? decode_image(reinterpret_cast<const std::uint8_t*>(bytes->data()), bytes->size()) : Result<Image>(make_error("cannot read the file"));
+        auto image = bytes ? decode_image(reinterpret_cast<const std::uint8_t*>(bytes->data()), bytes->size())
+                           : Result<Image>(make_error("cannot read the file"));
         if (!image.ok()) {
-            out.warnings.push_back(what + " cannot be read (" + image.error().message + "): the material keeps its color only.");
+            out.warnings.push_back(what + " cannot be read (" + image.error().message +
+                                   "): the material keeps its color only.");
         } else {
             const std::string ext = to_lower(m.textureFile.extension().string());
             const bool keep = ext == ".png" || ext == ".jpg" || ext == ".jpeg";
             const std::string stem = safe_file_name(m.textureFile.stem().string(), "texture");
             std::string name = stem + (keep ? ext : ".png");
-            for (int n = 2; !usedNames.insert(name).second; ++n) name = stem + "_" + std::to_string(n) + (keep ? ext : ".png");
-            out.files.push_back({destDir + "/" + name, keep ? std::vector<std::uint8_t>(bytes->begin(), bytes->end()) : encode_png(*image)});
+            for (int n = 2; !usedNames.insert(name).second; ++n)
+                name = stem + "_" + std::to_string(n) + (keep ? ext : ".png");
+            out.files.push_back({destDir + "/" + name,
+                                 keep ? std::vector<std::uint8_t>(bytes->begin(), bytes->end()) : encode_png(*image)});
             images.push_back(Json::object({{"uri", name}}));
             textures.push_back(Json::object({{"source", int(images.size()) - 1}}));
             index = int(textures.size()) - 1;
@@ -338,9 +364,12 @@ Result<ImportOutput> import_obj(const ImportRequest& request) {
         if (obj < 0) return -1;
         if (gltfMaterial[std::size_t(obj)] >= 0) return gltfMaterial[std::size_t(obj)];
         const Material& m = p.materials[std::size_t(obj)];
-        Json pbr = Json::object({{"baseColorFactor", Json::array({r6(m.color[0]), r6(m.color[1]), r6(m.color[2]), r6(m.color[3])})},
-                                 {"metallicFactor", 0.0}, {"roughnessFactor", 1.0}});
-        if (const int texture = texture_for(m); texture >= 0) pbr["baseColorTexture"] = Json::object({{"index", texture}});
+        Json pbr = Json::object(
+            {{"baseColorFactor", Json::array({r6(m.color[0]), r6(m.color[1]), r6(m.color[2]), r6(m.color[3])})},
+             {"metallicFactor", 0.0},
+             {"roughnessFactor", 1.0}});
+        if (const int texture = texture_for(m); texture >= 0)
+            pbr["baseColorTexture"] = Json::object({{"index", texture}});
         Json material = Json::object({{"name", m.name}, {"pbrMetallicRoughness", pbr}});
         if (m.color[3] < 1) material["alphaMode"] = "BLEND";
         gltfMaterials.push_back(material);
@@ -351,7 +380,8 @@ Result<ImportOutput> import_obj(const ImportRequest& request) {
         Json primitives = Json::array();
         for (const Primitive& prim : object.primitives) {
             const std::size_t count = prim.position.size() / 3;
-            float pmin[3] = {prim.position[0], prim.position[1], prim.position[2]}, pmax[3] = {pmin[0], pmin[1], pmin[2]};
+            float pmin[3] = {prim.position[0], prim.position[1], prim.position[2]},
+                  pmax[3] = {pmin[0], pmin[1], pmin[2]};
             for (std::size_t i = 0; i < count; ++i)
                 for (int k = 0; k < 3; ++k) {
                     pmin[k] = std::min(pmin[k], prim.position[i * 3 + std::size_t(k)]);
@@ -367,7 +397,8 @@ Result<ImportOutput> import_obj(const ImportRequest& request) {
             a["max"] = Json::array({r6(pmax[0]), r6(pmax[1]), r6(pmax[2])});
             accessors.push_back(a);
             attributes["POSITION"] = int(accessors.size()) - 1;
-            accessors.push_back(accessor(add_view(prim.normal.data(), prim.normal.size() * 4, 34962), 5126, count, "VEC3"));
+            accessors.push_back(
+                accessor(add_view(prim.normal.data(), prim.normal.size() * 4, 34962), 5126, count, "VEC3"));
             attributes["NORMAL"] = int(accessors.size()) - 1;
             if (prim.hasUv) {
                 accessors.push_back(accessor(add_view(prim.uv.data(), prim.uv.size() * 4, 34962), 5126, count, "VEC2"));
@@ -384,7 +415,8 @@ Result<ImportOutput> import_obj(const ImportRequest& request) {
                 indexType = 5125;
             }
             accessors.push_back(accessor(indexView, indexType, prim.index.size(), "SCALAR"));
-            Json primitive = Json::object({{"attributes", attributes}, {"indices", int(accessors.size()) - 1}, {"mode", 4}});
+            Json primitive =
+                Json::object({{"attributes", attributes}, {"indices", int(accessors.size()) - 1}, {"mode", 4}});
             if (const int m = material_index(prim.material); m >= 0) primitive["material"] = m;
             primitives.push_back(primitive);
             vertices += count;
@@ -395,9 +427,12 @@ Result<ImportOutput> import_obj(const ImportRequest& request) {
         sceneNodes.push_back(int(nodes.size()) - 1);
     }
 
-    Json gltf = Json::object({{"asset", Json::object({{"version", "2.0"}, {"generator", "FactorIA assets.import (OBJ)"}})},
-                              {"scene", 0}, {"scenes", Json::array({Json::object({{"nodes", sceneNodes}})})},
-                              {"nodes", nodes}, {"meshes", meshes}});
+    Json gltf =
+        Json::object({{"asset", Json::object({{"version", "2.0"}, {"generator", "FactorIA assets.import (OBJ)"}})},
+                      {"scene", 0},
+                      {"scenes", Json::array({Json::object({{"nodes", sceneNodes}})})},
+                      {"nodes", nodes},
+                      {"meshes", meshes}});
     if (!gltfMaterials.empty()) gltf["materials"] = gltfMaterials;
     if (!images.empty()) {
         gltf["images"] = images;
@@ -405,18 +440,26 @@ Result<ImportOutput> import_obj(const ImportRequest& request) {
     }
     gltf["accessors"] = accessors;
     gltf["bufferViews"] = views;
-    gltf["buffers"] = Json::array({Json::object({{"byteLength", buffer.size()},
-                                                 {"uri", "data:application/octet-stream;base64," + base64_encode(buffer.data(), buffer.size())}})});
+    gltf["buffers"] = Json::array({Json::object(
+        {{"byteLength", buffer.size()},
+         {"uri", "data:application/octet-stream;base64," + base64_encode(buffer.data(), buffer.size())}})});
     const std::string json = dump_json(gltf);
     out.files.insert(out.files.begin(), OutFile{request.dest, std::vector<std::uint8_t>(json.begin(), json.end())});
     out.warnings.insert(out.warnings.begin(), p.warnings.begin(), p.warnings.end());
-    out.details = Json::object({{"objects", p.objects.size()}, {"vertices", vertices}, {"triangles", triangles},
-                                {"materials", gltfMaterials.size()}, {"textures", textures.size()},
-                                {"boundsMin", Json::array({r6(lo[0]), r6(lo[1]), r6(lo[2])})}, {"boundsMax", Json::array({r6(hi[0]), r6(hi[1]), r6(hi[2])})},
+    out.details = Json::object({{"objects", p.objects.size()},
+                                {"vertices", vertices},
+                                {"triangles", triangles},
+                                {"materials", gltfMaterials.size()},
+                                {"textures", textures.size()},
+                                {"boundsMin", Json::array({r6(lo[0]), r6(lo[1]), r6(lo[2])})},
+                                {"boundsMax", Json::array({r6(hi[0]), r6(hi[1]), r6(hi[2])})},
                                 {"size", Json::array({r6(hi[0] - lo[0]), r6(hi[1] - lo[1]), r6(hi[2] - lo[2])})}});
-    out.nextSteps = {"Show it: a MeshRenderer with \"mesh\": \"" + request.dest + "\" (unless unlit it needs a light). Its size is in `details.size` "
-                     "in the OBJ's own units; scale the entity if that is not what you want (OBJ has no unit, 1 = 1 meter in the engine).",
-                     "OBJ files have no smoothing groups here: faces without normals are flat shaded. Check it with game.screenshot."};
+    out.nextSteps = {"Show it: a MeshRenderer with \"mesh\": \"" + request.dest +
+                         "\" (unless unlit it needs a light). Its size is in `details.size` "
+                         "in the OBJ's own units; scale the entity if that is not what you want (OBJ has no unit, 1 = "
+                         "1 meter in the engine).",
+                     "OBJ files have no smoothing groups here: faces without normals are flat shaded. Check it with "
+                     "game.screenshot."};
     return out;
 }
 

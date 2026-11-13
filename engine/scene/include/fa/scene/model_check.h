@@ -27,38 +27,42 @@ inline constexpr double kModelReferenceHeight = 1.8;  // the reference figure be
 
 struct ModelCheckOptions {
     std::vector<std::string> platforms;  // the budgets to check (desktop, mobile, web); empty = all of them
-    std::vector<std::size_t> lodTriangles;  // triangles of LOD1.. (made by the caller from the document's gameReady): a platform an LOD fits is told so
-    double expectedHeight = 0;           // metres; the model's height (Y) should be about this (0 = no expectation)
-    double tolerance = 0.25;             // fraction of expectedHeight the height may differ by
-    std::size_t maxSamples = 6;          // sample positions listed per finding
-    std::vector<std::string> ignore;     // finding codes not to report (an open surface that is meant to be open)
+    std::vector<std::size_t>
+        lodTriangles;  // triangles of LOD1.. (made by the caller from the document's gameReady): a platform an LOD fits is told so
+    double expectedHeight = 0;        // metres; the model's height (Y) should be about this (0 = no expectation)
+    double tolerance = 0.25;          // fraction of expectedHeight the height may differ by
+    std::size_t maxSamples = 6;       // sample positions listed per finding
+    std::vector<std::string> ignore;  // finding codes not to report (an open surface that is meant to be open)
 };
 
 struct ModelFinding {
-    std::string code;      // see the list above
-    std::string severity;  // "error" (fix before shipping), "warning" (probably wrong), "info" (worth knowing)
-    std::string message;   // what is wrong and where
-    std::string hint;      // how to fix it
-    std::size_t count = 0; // triangles or edges involved (0 for whole-model findings)
-    std::vector<std::string> parts;  // the parts they belong to ("" = no part, named "(no part)" in messages), in submesh order
-    Vec3 bmin{}, bmax{};   // bounds of what the finding is about (only when `count` > 0)
+    std::string code;       // see the list above
+    std::string severity;   // "error" (fix before shipping), "warning" (probably wrong), "info" (worth knowing)
+    std::string message;    // what is wrong and where
+    std::string hint;       // how to fix it
+    std::size_t count = 0;  // triangles or edges involved (0 for whole-model findings)
+    std::vector<std::string>
+        parts;            // the parts they belong to ("" = no part, named "(no part)" in messages), in submesh order
+    Vec3 bmin{}, bmax{};  // bounds of what the finding is about (only when `count` > 0)
     std::vector<Vec3> samples;  // up to maxSamples positions on it, in model space
-    std::string platform;  // budget findings: the platform
+    std::string platform;       // budget findings: the platform
 };
 
 struct ModelCheckScale {
-    Vec3 size{};                 // bounding box extents, metres
+    Vec3 size{};  // bounding box extents, metres
     Vec3 bmin{}, bmax{};
-    double height = 0;           // size.y
-    double versusFigure = 0;     // height / 1.8
-    double volume = 0;           // m3, the sum of the closed pieces (0 when none)
+    double height = 0;        // size.y
+    double versusFigure = 0;  // height / 1.8
+    double volume = 0;        // m3, the sum of the closed pieces (0 when none)
 };
 
 struct ModelCheckReport {
-    std::vector<ModelFinding> findings;  // errors first, then warnings, then info; each group in the order of the list above
+    std::vector<ModelFinding>
+        findings;  // errors first, then warnings, then info; each group in the order of the list above
     ModelCheckScale scale;
     std::size_t triangles = 0, vertices = 0, submeshes = 0;
-    std::size_t openEdges = 0, nonManifoldEdges = 0, inconsistentEdges = 0, degenerateTriangles = 0, flippedNormalTriangles = 0, pieces = 0, insideOutPieces = 0;
+    std::size_t openEdges = 0, nonManifoldEdges = 0, inconsistentEdges = 0, degenerateTriangles = 0,
+                flippedNormalTriangles = 0, pieces = 0, insideOutPieces = 0;
     std::size_t errors = 0, warnings = 0, infos = 0;
     bool ok() const { return errors == 0; }
 };

@@ -29,7 +29,9 @@ using export_detail::os_path;
 
 Error err(std::string message, std::string hint = {}) { return Error{std::move(message), std::move(hint)}; }
 
-bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool has(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 // Every line of `text` indented by `n` spaces (blank lines stay blank).
 std::string indent(const std::string& text, int n) {
@@ -92,7 +94,9 @@ std::string pack_step(const std::vector<std::string>& platforms, const std::stri
     std::string list;
     for (const std::string& p : platforms) list += (list.empty() ? "" : " ") + p;
     std::string s = "mkdir -p dist\n"
-                    "for platform in " + list + "; do\n"
+                    "for platform in " +
+                    list +
+                    "; do\n"
                     "  folder=\"$(ls -d build/export/*-\"$platform\")\"\n"
                     "  name=\"$(basename \"$folder\")\"\n";
     if (has(platforms, "windows"))
@@ -110,8 +114,12 @@ std::string pack_step(const std::vector<std::string>& platforms, const std::stri
 std::string upload_step(const std::string& name, const std::string& prefix) {
     return "      - uses: actions/upload-artifact@v4\n"
            "        with:\n"
-           "          name: " + name + "\n"
-           "          path: " + prefix + "dist/*\n"
+           "          name: " +
+           name +
+           "\n"
+           "          path: " +
+           prefix +
+           "dist/*\n"
            "          if-no-files-found: error\n";
 }
 
@@ -125,15 +133,16 @@ std::string find_game_root_warning(const stdfs::path& projectDir) {
 
 }  // namespace
 
-std::string ci_workflow_yaml(const std::string& version, const std::string& repo, const std::vector<std::string>& platforms,
-                             const std::string& workingDirectory) {
+std::string ci_workflow_yaml(const std::string& version, const std::string& repo,
+                             const std::vector<std::string>& platforms, const std::string& workingDirectory) {
     const bool linux_ = has(platforms, "linux"), windows = has(platforms, "windows"), macos = has(platforms, "macos");
     std::vector<std::string> checked;  // the exports the Ubuntu job makes
     if (linux_) checked.push_back("linux");
     if (windows) checked.push_back("windows");
     const std::string prefix = workingDirectory == "." ? std::string() : workingDirectory + "/";
 
-    std::string y = R"(# FactorIA checks for this game. Written by project.new_ci_workflow (factoria call project.new_ci_workflow).
+    std::string y =
+        R"(# FactorIA checks for this game. Written by project.new_ci_workflow (factoria call project.new_ci_workflow).
 #
 # On every push to main or master and on every pull request:
 #   check   installs FactorIA, validates the project, runs its tests headless (Mesa software rendering under Xvfb)@CHECK_EXPORTS@
@@ -187,7 +196,9 @@ jobs:
     }
     if (!checked.empty()) {
         y += "\n" + pack_step(checked, "Pack the exports");
-        y += "\n" + upload_step(linux_ && windows ? "exports-linux-windows" : (linux_ ? "export-linux" : "export-windows"), prefix);
+        y += "\n" +
+             upload_step(linux_ && windows ? "exports-linux-windows" : (linux_ ? "export-linux" : "export-windows"),
+                         prefix);
     }
     if (macos) {
         y += "\n  macos:\n"
@@ -197,8 +208,10 @@ jobs:
              "    steps:\n"
              "      - uses: actions/checkout@v4\n\n";
         y += install_step("FactorIA-macos-universal.tar.gz");
-        y += "\n      # The export seals the app ad hoc (it runs on this Mac). To sign it with your Developer ID and notarize it, import the\n"
-             "      # certificate into a keychain here and run `factoria call sign.macos` (docs/EXPORTING.md, \"Signing and notarizing for macOS\").\n"
+        y += "\n      # The export seals the app ad hoc (it runs on this Mac). To sign it with your Developer ID and "
+             "notarize it, import the\n"
+             "      # certificate into a keychain here and run `factoria call sign.macos` (docs/EXPORTING.md, "
+             "\"Signing and notarizing for macOS\").\n"
              "      - name: Export for macOS\n        run: factoria export --platform macos\n";
         y += "\n" + pack_step({"macos"}, "Pack the export");
         y += "\n" + upload_step("export-macos", prefix);
@@ -213,10 +226,14 @@ jobs:
     }
     y = replace_all(std::move(y), "@CHECK_EXPORTS@", checkExports);
     y = replace_all(std::move(y), "@CHECK_NAME@", checkName);
-    y = replace_all(std::move(y), "@MACOS_COMMENT@", macos ? "#   macos   exports the game for macOS on a macOS runner (the app is sealed ad hoc there)\n" : "");
+    y = replace_all(
+        std::move(y), "@MACOS_COMMENT@",
+        macos ? "#   macos   exports the game for macOS on a macOS runner (the app is sealed ad hoc there)\n" : "");
     y = replace_all(std::move(y), "@REPO@", repo);
     y = replace_all(std::move(y), "@VERSION@", version);
-    y = replace_all(std::move(y), "@DEFAULTS@", workingDirectory == "." ? "" : "\ndefaults:\n  run:\n    working-directory: \"" + workingDirectory + "\"\n");
+    y = replace_all(
+        std::move(y), "@DEFAULTS@",
+        workingDirectory == "." ? "" : "\ndefaults:\n  run:\n    working-directory: \"" + workingDirectory + "\"\n");
     return y;
 }
 
@@ -236,11 +253,14 @@ Json CiWorkflowReport::to_json() const {
 
 Result<CiWorkflowReport> write_ci_workflow(const CiWorkflowOptions& o) {
     const std::string who = "project.new_ci_workflow: ";
-    if (o.projectDir.empty()) return err(who + "no project directory given", "pass the folder that contains factoria.json");
+    if (o.projectDir.empty())
+        return err(who + "no project directory given", "pass the folder that contains factoria.json");
     std::error_code ec;
     const stdfs::path dir = stdfs::weakly_canonical(o.projectDir, ec);
     if (!stdfs::exists(os_path(dir / "factoria.json"), ec))
-        return err(who + generic(dir / "factoria.json") + " not found", "run it on a game folder (the one containing factoria.json); create a game with `factoria new <dir>`");
+        return err(
+            who + generic(dir / "factoria.json") + " not found",
+            "run it on a game folder (the one containing factoria.json); create a game with `factoria new <dir>`");
 
     // ---- platforms
     std::vector<std::string> platforms;
@@ -248,8 +268,11 @@ Result<CiWorkflowReport> write_ci_workflow(const CiWorkflowOptions& o) {
         const std::string p = name.empty() ? std::string() : normalize_export_platform(name);
         if (p == "android" || p == "ios")
             return err(who + "'" + name + "' is not exported by this workflow",
-                       "The workflow exports the desktop platforms (linux, windows, macos). A mobile export needs the Android SDK or Xcode: add a job of your own (docs/EXPORTING.md).");
-        if (p.empty()) return err(who + "unknown platform '" + name + "'", did_you_mean(name, std::vector<std::string>{"linux", "windows", "macos"}));
+                       "The workflow exports the desktop platforms (linux, windows, macos). A mobile export needs the "
+                       "Android SDK or Xcode: add a job of your own (docs/EXPORTING.md).");
+        if (p.empty())
+            return err(who + "unknown platform '" + name + "'",
+                       did_you_mean(name, std::vector<std::string>{"linux", "windows", "macos"}));
         if (!has(platforms, p)) platforms.push_back(p);
     }
     if (platforms.empty()) platforms = {"linux", "windows", "macos"};
@@ -273,9 +296,13 @@ Result<CiWorkflowReport> write_ci_workflow(const CiWorkflowOptions& o) {
         const std::string inside = generic(resolved->lexically_relative(base));
         if (!relEc && !inside.empty() && inside.rfind("..", 0) != 0) relNormal = inside;
     }
-    if (!starts_with(relNormal, ".github/workflows/") || !(ends_with(relNormal, ".yml") || ends_with(relNormal, ".yaml")) || relNormal.find('/', 18) != std::string::npos)
-        return err(who + "path '" + rel + "' is not a workflow file: GitHub runs only .github/workflows/<name>.yml (or .yaml) of the repository",
-                   "Use the default (.github/workflows/factoria.yml) or another file name in that folder.");
+    if (!starts_with(relNormal, ".github/workflows/") ||
+        !(ends_with(relNormal, ".yml") || ends_with(relNormal, ".yaml")) ||
+        relNormal.find('/', 18) != std::string::npos)
+        return err(
+            who + "path '" + rel +
+                "' is not a workflow file: GitHub runs only .github/workflows/<name>.yml (or .yaml) of the repository",
+            "Use the default (.github/workflows/factoria.yml) or another file name in that folder.");
 
     // ---- the game's folder in the repository
     std::string wd = o.workingDirectory.empty() ? "." : o.workingDirectory;
@@ -285,7 +312,8 @@ Result<CiWorkflowReport> write_ci_workflow(const CiWorkflowOptions& o) {
         static const std::regex safe("^[A-Za-z0-9._ -]+(/[A-Za-z0-9._ -]+)*$");
         if (!std::regex_match(wd, safe) || starts_with(wd, "/") || wd.find("..") != std::string::npos)
             return err(who + "workingDirectory '" + o.workingDirectory + "' is not a folder inside the repository",
-                       "Use the game's folder relative to the repository root, e.g. games/my-game: letters, digits, space . _ - and / only, no \"..\".");
+                       "Use the game's folder relative to the repository root, e.g. games/my-game: letters, digits, "
+                       "space . _ - and / only, no \"..\".");
     }
 
     // ---- the FactorIA version
@@ -297,21 +325,29 @@ Result<CiWorkflowReport> write_ci_workflow(const CiWorkflowOptions& o) {
     const bool release = !updateRepo.empty();
     rep.repo = release ? updateRepo : std::string(kSetupReleaseRepo);
     static const std::regex repoName("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$");
-    if (!std::regex_match(rep.repo, repoName)) return err(who + "the release repository '" + rep.repo + "' is not owner/name", "This is a bug in this build of FactorIA; report it.");
+    if (!std::regex_match(rep.repo, repoName))
+        return err(who + "the release repository '" + rep.repo + "' is not owner/name",
+                   "This is a bug in this build of FactorIA; report it.");
     if (!o.version.empty()) {
         static const std::regex semver("^[0-9]+\\.[0-9]+\\.[0-9]+([-+.][A-Za-z0-9.]+)?$");
         if (o.version != "latest" && !std::regex_match(o.version, semver))
-            return err(who + "version '" + o.version + "' is not a FactorIA release", "Use \"latest\" or a version such as 0.1.6 (github.com/" + rep.repo + "/releases lists them).");
+            return err(who + "version '" + o.version + "' is not a FactorIA release",
+                       "Use \"latest\" or a version such as 0.1.6 (github.com/" + rep.repo + "/releases lists them).");
         rep.version = o.version;
     } else if (release) {
         rep.version = engineVersion;
     } else {
         rep.version = "latest";
-        rep.warnings.push_back("This factoria (" + engineVersion + ") is a build from source and has no release of its own, so the workflow downloads the newest FactorIA release (FACTORIA_VERSION: \"latest\"). "
-                               "Pin a version by passing `version` (e.g. \"0.1.6\") or editing FACTORIA_VERSION in the file.");
+        rep.warnings.push_back(
+            "This factoria (" + engineVersion +
+            ") is a build from source and has no release of its own, so the workflow downloads the newest FactorIA "
+            "release (FACTORIA_VERSION: \"latest\"). "
+            "Pin a version by passing `version` (e.g. \"0.1.6\") or editing FACTORIA_VERSION in the file.");
     }
     if (rep.version != "latest" && !o.version.empty() && release && rep.version != engineVersion)
-        rep.warnings.push_back("The workflow downloads FactorIA " + rep.version + " but the factoria that wrote it is " + engineVersion + ": the game is checked and exported with another version than the one you edit it with.");
+        rep.warnings.push_back(
+            "The workflow downloads FactorIA " + rep.version + " but the factoria that wrote it is " + engineVersion +
+            ": the game is checked and exported with another version than the one you edit it with.");
 
     // ---- the file
     rep.workflow = ci_workflow_yaml(rep.version, rep.repo, platforms, wd);
@@ -321,7 +357,8 @@ Result<CiWorkflowReport> write_ci_workflow(const CiWorkflowOptions& o) {
     const bool identical = existing && *existing == rep.workflow;
     if (exists && !identical && !o.overwrite && !o.dryRun)
         return err(who + rep.path + " already exists and differs from what would be written; it is left as it is",
-                   "Pass overwrite: true to replace it, pass another file name in `path`, or run it with dryRun: true to see the new text first.");
+                   "Pass overwrite: true to replace it, pass another file name in `path`, or run it with dryRun: true "
+                   "to see the new text first.");
     if (exists && !identical && !o.overwrite && o.dryRun)
         rep.warnings.push_back(rep.path + " already exists and differs: writing needs overwrite: true.");
     if (!o.dryRun && !identical) {
@@ -333,11 +370,18 @@ Result<CiWorkflowReport> write_ci_workflow(const CiWorkflowOptions& o) {
 
     // ---- warnings and next steps
     if (const std::string repoRoot = find_game_root_warning(dir); !repoRoot.empty())
-        rep.warnings.push_back("This project is inside the git repository at " + repoRoot + ", and GitHub runs workflows only from " + repoRoot + "/.github/workflows/. Move the file there and "
-                               "pass workingDirectory (the game's folder relative to " + repoRoot + ") when you write it.");
+        rep.warnings.push_back("This project is inside the git repository at " + repoRoot +
+                               ", and GitHub runs workflows only from " + repoRoot +
+                               "/.github/workflows/. Move the file there and "
+                               "pass workingDirectory (the game's folder relative to " +
+                               repoRoot + ") when you write it.");
     if (!o.dryRun || identical) {
-        rep.nextSteps.push_back("Commit " + relNormal + " and push: the workflow runs on GitHub (Actions tab) on every push to main or master and on pull requests; the exports are its artifacts.");
-        rep.nextSteps.push_back("The game must be in the repository as factoria.json at " + std::string(wd == "." ? "its root" : wd) + "; build/, .factoria/ and the editor's caches belong in .gitignore.");
+        rep.nextSteps.push_back("Commit " + relNormal +
+                                " and push: the workflow runs on GitHub (Actions tab) on every push to main or master "
+                                "and on pull requests; the exports are its artifacts.");
+        rep.nextSteps.push_back("The game must be in the repository as factoria.json at " +
+                                std::string(wd == "." ? "its root" : wd) +
+                                "; build/, .factoria/ and the editor's caches belong in .gitignore.");
     } else {
         rep.nextSteps.push_back("This was a dry run: call it again without dryRun to write " + relNormal + ".");
     }
@@ -350,15 +394,22 @@ void register_ci_workflow_commands(CommandRegistry& registry, const std::string&
     info.category = "project";
     info.readOnly = false;
     info.summary = "Write a GitHub Actions workflow that validates, tests and exports the game on every push.";
-    info.description =
-        "Writes .github/workflows/factoria.yml into the game's folder. On every push to main or master and every pull request it installs FactorIA on an Ubuntu 24.04 runner (the "
-        "release package of the SAME version as this factoria, checked against the SHA-256 GitHub lists; a build from source has no release of its own, so it follows the newest one and "
-        "warns), installs the OpenGL/X11/Xvfb libraries, runs `factoria validate` and `factoria test` under xvfb-run, downloads the other players (`factoria setup players`), exports the "
-        "game for Linux and Windows, and on a macOS runner for macOS, and uploads the exports as workflow artifacts (tar.gz; the Windows one is a zip). It never overwrites a file that "
-        "differs unless `overwrite` is true (an identical file is left alone). Project templates do not carry the file: call this when the game goes on GitHub. A game in a subfolder of "
-        "the repository: GitHub reads workflows only from the repository root, so write it with `workingDirectory` set to that folder and move the file to <repo>/.github/workflows/. "
-        "Returns {path, written, dryRun, version, repo, platforms[], workflow (the YAML), warnings[], nextSteps[]}. Details: docs_read {\"name\":\"exporting\"}, \"CI for your game\". "
-        "Examples: {}, {\"platforms\":[\"linux\",\"windows\"],\"dryRun\":true}, {\"workingDirectory\":\"games/my-game\",\"overwrite\":true}.";
+    info.description = "Writes .github/workflows/factoria.yml into the game's folder. On every push to main or master "
+                       "and every pull request it installs FactorIA on an Ubuntu 24.04 runner (the "
+                       "release package of the SAME version as this factoria, checked against the SHA-256 GitHub "
+                       "lists; a build from source has no release of its own, so it follows the newest one and "
+                       "warns), installs the OpenGL/X11/Xvfb libraries, runs `factoria validate` and `factoria test` "
+                       "under xvfb-run, downloads the other players (`factoria setup players`), exports the "
+                       "game for Linux and Windows, and on a macOS runner for macOS, and uploads the exports as "
+                       "workflow artifacts (tar.gz; the Windows one is a zip). It never overwrites a file that "
+                       "differs unless `overwrite` is true (an identical file is left alone). Project templates do not "
+                       "carry the file: call this when the game goes on GitHub. A game in a subfolder of "
+                       "the repository: GitHub reads workflows only from the repository root, so write it with "
+                       "`workingDirectory` set to that folder and move the file to <repo>/.github/workflows/. "
+                       "Returns {path, written, dryRun, version, repo, platforms[], workflow (the YAML), warnings[], "
+                       "nextSteps[]}. Details: docs_read {\"name\":\"exporting\"}, \"CI for your game\". "
+                       "Examples: {}, {\"platforms\":[\"linux\",\"windows\"],\"dryRun\":true}, "
+                       "{\"workingDirectory\":\"games/my-game\",\"overwrite\":true}.";
     info.inputSchema = Json::parse(R"({
       "type":"object",
       "properties":{
@@ -384,8 +435,7 @@ void register_ci_workflow_commands(CommandRegistry& registry, const std::string&
         if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
         return r->to_json();
     });
-    declare_command_capabilities(registry, {
-        {"project.new_ci_workflow", capability_sets::writes_project()}});
+    declare_command_capabilities(registry, {{"project.new_ci_workflow", capability_sets::writes_project()}});
 }
 
 }  // namespace fa

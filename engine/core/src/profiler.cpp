@@ -11,9 +11,9 @@
 namespace fa {
 
 const char* prof_system_name(ProfSystem s) {
-    static const char* names[kProfSystemCount] = {"platform",      "physics", "scriptsFixedUpdate", "animation",
-                                                  "scriptsEvents", "ui",      "scriptsUpdate",      "audio",
-                                                  "scriptsLateUpdate", "localization", "render",     "endOfFrame"};
+    static const char* names[kProfSystemCount] = {
+        "platform",      "physics", "scriptsFixedUpdate", "animation",    "scriptsEvents", "ui",
+        "scriptsUpdate", "audio",   "scriptsLateUpdate",  "localization", "render",        "endOfFrame"};
     const int i = int(s);
     return i >= 0 && i < kProfSystemCount ? names[i] : "unknown";
 }
@@ -56,7 +56,8 @@ void Profiler::end_frame() {
     const int poolLanes = jobs::lane_count();
     for (int lane = 0; lane < jobs::kMaxLanes; ++lane) {
         const bool has = std::size_t(lane) < recorded.size() && recorded[std::size_t(lane)].jobs > 0;
-        if (lane >= poolLanes && !has) continue;  // every thread of the pool, idle or not; others only when they ran jobs
+        if (lane >= poolLanes && !has)
+            continue;  // every thread of the pool, idle or not; others only when they ran jobs
         ProfLane l = has ? std::move(recorded[std::size_t(lane)]) : ProfLane{};
         l.name = jobs::lane_name(lane);
         std::sort(l.samples.begin(), l.samples.end(), [](const ProfJobSample& a, const ProfJobSample& b) {
@@ -190,8 +191,12 @@ double r3(double v) { return std::round(v * 1000.0) / 1000.0; }
 double r1(double v) { return std::round(v * 10.0) / 10.0; }
 double mb(std::uint64_t b) { return std::round(double(b) / (1024.0 * 1024.0) * 100.0) / 100.0; }
 Json mem_json(const ProfMemory& m) {
-    return Json::object({{"processMB", mb(m.processBytes)}, {"jsHeapMB", mb(m.jsHeapBytes)}, {"textureMB", mb(m.textureBytes)},
-                         {"audioDecodedMB", mb(m.audioDecodedBytes)}, {"musicMB", mb(m.musicBytes)}, {"entities", m.entities}});
+    return Json::object({{"processMB", mb(m.processBytes)},
+                         {"jsHeapMB", mb(m.jsHeapBytes)},
+                         {"textureMB", mb(m.textureBytes)},
+                         {"audioDecodedMB", mb(m.audioDecodedBytes)},
+                         {"musicMB", mb(m.musicBytes)},
+                         {"entities", m.entities}});
 }
 }  // namespace
 
@@ -204,7 +209,8 @@ Json ProfileSummary::to_json() const {
     Json sys = Json::object();
     for (int i = 0; i < kProfSystemCount; ++i) {
         const Acc& a = systems_[std::size_t(i)];
-        sys[prof_system_name(ProfSystem(i))] = Json::object({{"avgMs", r3(a.sum / n)}, {"p95Ms", r3(a.p95())}, {"maxMs", r3(a.max)}});
+        sys[prof_system_name(ProfSystem(i))] =
+            Json::object({{"avgMs", r3(a.sum / n)}, {"p95Ms", r3(a.p95())}, {"maxMs", r3(a.max)}});
     }
     out["systems"] = sys;
     std::vector<const ClassAcc*> list;
@@ -216,7 +222,10 @@ Json ProfileSummary::to_json() const {
     Json cls = Json::array();
     for (std::size_t i = 0; i < list.size() && i < kMaxClasses; ++i) {
         const ClassAcc& c = *list[i];
-        cls.push_back(Json::object({{"class", c.className}, {"path", c.path}, {"avgMs", r3(c.sumMs / n)}, {"maxMs", r3(c.maxMs)},
+        cls.push_back(Json::object({{"class", c.className},
+                                    {"path", c.path},
+                                    {"avgMs", r3(c.sumMs / n)},
+                                    {"maxMs", r3(c.maxMs)},
                                     {"callsPerFrame", r3(double(c.calls) / n)}}));
     }
     out["behaviours"] = cls;
@@ -229,12 +238,16 @@ Json ProfileSummary::to_json() const {
         });
         Json laneJobs = Json::array();
         for (std::size_t i = 0; i < names.size() && i < kMaxLaneJobs; ++i)
-            laneJobs.push_back(Json::object({{"name", *names[i].first}, {"avgMs", r3(names[i].second->sumMs / n)},
-                                         {"maxMs", r3(names[i].second->maxMs)},
-                                         {"callsPerFrame", r3(double(names[i].second->count) / n)}}));
+            laneJobs.push_back(Json::object({{"name", *names[i].first},
+                                             {"avgMs", r3(names[i].second->sumMs / n)},
+                                             {"maxMs", r3(names[i].second->maxMs)},
+                                             {"callsPerFrame", r3(double(names[i].second->count) / n)}}));
         const double busy = frame_.sum > 0 ? std::min(100.0, l.sumMs / frame_.sum * 100.0) : 0.0;
-        threads.push_back(Json::object({{"name", l.name}, {"jobMsAvg", r3(l.sumMs / n)}, {"jobMsMax", r3(l.maxMs)},
-                                        {"busyPct", r1(busy)}, {"jobsPerFrame", r3(double(l.jobs) / n)},
+        threads.push_back(Json::object({{"name", l.name},
+                                        {"jobMsAvg", r3(l.sumMs / n)},
+                                        {"jobMsMax", r3(l.maxMs)},
+                                        {"busyPct", r1(busy)},
+                                        {"jobsPerFrame", r3(double(l.jobs) / n)},
                                         {"jobs", laneJobs}}));
     }
     out["threads"] = threads;
@@ -250,8 +263,10 @@ Json ProfileSummary::to_json() const {
         gpu["p95Ms"] = nullptr;
         gpu["maxMs"] = nullptr;
         gpu["samples"] = 0;
-        gpu["reason"] = gpuSupported_ ? "no GPU time came back (results arrive a few frames late: the run was too short or drew nothing)"
-                                      : gpuReason_;
+        gpu["reason"] =
+            gpuSupported_
+                ? "no GPU time came back (results arrive a few frames late: the run was too short or drew nothing)"
+                : gpuReason_;
     }
     out["gpu"] = gpu;
     Json mem = Json::object();

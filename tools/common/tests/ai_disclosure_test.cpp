@@ -24,17 +24,20 @@ const char* kManifest = R"({
   }
 })";
 
-const std::vector<std::string> kFiles = {"assets/hero.png", "assets/tiles.png", "assets/sfx/door.mp3", "assets/music/theme.mp3",
-                                         "assets/voice/hi.mp3", "assets/crate.glb", "assets/step.wav", "assets/bought.png",
-                                         "assets/levels.png", "assets/orphan.ogg", "assets/notes.txt", "scripts/main.js", "assets.json"};
+const std::vector<std::string> kFiles = {
+    "assets/hero.png",  "assets/tiles.png", "assets/sfx/door.mp3", "assets/music/theme.mp3", "assets/voice/hi.mp3",
+    "assets/crate.glb", "assets/step.wav",  "assets/bought.png",   "assets/levels.png",      "assets/orphan.ogg",
+    "assets/notes.txt", "scripts/main.js",  "assets.json"};
 
 }  // namespace
 
 TEST_CASE("has_ai_content: any record with ai true") {
     CHECK(has_ai_content(Json::parse(kManifest)));
     CHECK_FALSE(has_ai_content(Json::parse(R"({"format":"factoria.assets/1"})")));
-    CHECK_FALSE(has_ai_content(Json::parse(R"({"assets":{"assets/a.png":{"provenance":{"origin":"original","ai":false,"date":"2026-10-01"}}}})")));
-    CHECK_FALSE(has_ai_content(Json::parse(R"({"assets":{"assets/a.png":{"provenance":{"origin":"original","date":"2026-10-01"}}}})")));
+    CHECK_FALSE(has_ai_content(Json::parse(
+        R"({"assets":{"assets/a.png":{"provenance":{"origin":"original","ai":false,"date":"2026-10-01"}}}})")));
+    CHECK_FALSE(has_ai_content(
+        Json::parse(R"({"assets":{"assets/a.png":{"provenance":{"origin":"original","date":"2026-10-01"}}}})")));
     CHECK_FALSE(has_ai_content(Json()));
 }
 
@@ -46,7 +49,8 @@ TEST_CASE("ai_content_disclosure: categories with counts, providers and models")
     CHECK(md.find("| Music | 1 | elevenlabs |") != std::string::npos);
     CHECK(md.find("| Voice | 1 | elevenlabs |") != std::string::npos);
     CHECK(md.find("| 3D models | 1 | meshy |") != std::string::npos);
-    CHECK(md.find("| Audio (sound effect, music or voice not recorded) | 1 | suno |") != std::string::npos);  // no kind, a .wav
+    CHECK(md.find("| Audio (sound effect, music or voice not recorded) | 1 | suno |") !=
+          std::string::npos);  // no kind, a .wav
     CHECK(md.find("- `assets/hero.png`: Art and images, openai (gpt-image-1), 2026-10-01") != std::string::npos);
     CHECK(md.find("assets/bought.png") == std::string::npos);  // made without AI
     CHECK(md.find("assets/gone.png") == std::string::npos);
@@ -64,10 +68,12 @@ TEST_CASE("ai_content_disclosure: the files without a provenance record are list
     CHECK(tail.find("- `assets/orphan.ogg`") != std::string::npos);
     CHECK(tail.find("notes.txt") == std::string::npos);  // not an art, sound or model file
     CHECK(tail.find("main.js") == std::string::npos);
-    CHECK(assets_without_provenance(Json::parse(kManifest), kFiles) == std::vector<std::string>{"assets/levels.png", "assets/orphan.ogg"});
+    CHECK(assets_without_provenance(Json::parse(kManifest), kFiles) ==
+          std::vector<std::string>{"assets/levels.png", "assets/orphan.ogg"});
 
-    const std::string clean = ai_content_disclosure(Json::parse(R"({"assets":{"assets/a.png":{"provenance":{"origin":"original","date":"2026-10-01"}}}})"),
-                                                    {"assets/a.png"});
+    const std::string clean = ai_content_disclosure(
+        Json::parse(R"({"assets":{"assets/a.png":{"provenance":{"origin":"original","date":"2026-10-01"}}}})"),
+        {"assets/a.png"});
     CHECK(clean.find("None of the assets is recorded as made with AI.") != std::string::npos);
     CHECK(clean.find("Every art, sound and model file under assets/ has a provenance record.") != std::string::npos);
     CHECK(clean.find("## Terms recorded") == std::string::npos);

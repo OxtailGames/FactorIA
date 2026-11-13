@@ -37,11 +37,15 @@ std::size_t utf8_length(std::string_view text) {
 
 void utf8_append(std::string& out, char32_t cp) {
     if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) cp = kReplacementChar;
-    if (cp < 0x80) out += char(cp);
-    else if (cp < 0x800) out += {char(0xC0 | (cp >> 6)), char(0x80 | (cp & 0x3F))};
-    else if (cp < 0x10000) out += {char(0xE0 | (cp >> 12)), char(0x80 | ((cp >> 6) & 0x3F)), char(0x80 | (cp & 0x3F))};
-    else out += {char(0xF0 | (cp >> 18)), char(0x80 | ((cp >> 12) & 0x3F)), char(0x80 | ((cp >> 6) & 0x3F)),
-                 char(0x80 | (cp & 0x3F))};
+    if (cp < 0x80)
+        out += char(cp);
+    else if (cp < 0x800)
+        out += {char(0xC0 | (cp >> 6)), char(0x80 | (cp & 0x3F))};
+    else if (cp < 0x10000)
+        out += {char(0xE0 | (cp >> 12)), char(0x80 | ((cp >> 6) & 0x3F)), char(0x80 | (cp & 0x3F))};
+    else
+        out += {char(0xF0 | (cp >> 18)), char(0x80 | ((cp >> 12) & 0x3F)), char(0x80 | ((cp >> 6) & 0x3F)),
+                char(0x80 | (cp & 0x3F))};
 }
 
 std::string utf8_encode(char32_t cp) {
@@ -54,8 +58,10 @@ std::u16string utf8_to_utf16(std::string_view text) {
     std::u16string out;
     for (std::size_t i = 0; i < text.size();) {
         const char32_t cp = utf8_next(text, i);
-        if (cp < 0x10000) out += char16_t(cp);
-        else out += {char16_t(0xD800 + ((cp - 0x10000) >> 10)), char16_t(0xDC00 + (cp & 0x3FF))};
+        if (cp < 0x10000)
+            out += char16_t(cp);
+        else
+            out += {char16_t(0xD800 + ((cp - 0x10000) >> 10)), char16_t(0xDC00 + (cp & 0x3FF))};
     }
     return out;
 }

@@ -95,7 +95,10 @@ TEST_CASE("Collider3D.enabled: a disabled floor lets a body fall through") {
     world.add<Collider3D>(ball).shape = ColliderShape3D::Sphere;
     world.add<RigidBody3D>(ball).type = BodyType::Dynamic;
     world.get<Collider3D>(floor)->enabled = false;
-    for (int i = 0; i < 120; ++i) { physics.step(world, 1.0f / 60.0f); world.flush(); }
+    for (int i = 0; i < 120; ++i) {
+        physics.step(world, 1.0f / 60.0f);
+        world.flush();
+    }
     CHECK(world.get<Transform>(ball)->position.y < -2.0f);
 }
 

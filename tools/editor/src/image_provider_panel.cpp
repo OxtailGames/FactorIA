@@ -17,8 +17,8 @@ namespace fa::editor {
 
 namespace {
 
-constexpr const char* kOfflineRoute =
-    "Offline and free: assets.generate_texture, assets.rasterize_svg, or a svg / gradient / procedural layer (image.layer.add, docs IMAGES).";
+constexpr const char* kOfflineRoute = "Offline and free: assets.generate_texture, assets.rasterize_svg, or a svg / "
+                                      "gradient / procedural layer (image.layer.add, docs IMAGES).";
 
 }  // namespace
 
@@ -39,15 +39,18 @@ void Editor::image_provider_refresh() {
     u.noInpaint.clear();
     auto target = ai::resolve_asset_target(cfg, ai::MediaKind::Image);
     if (!target) {
-        u.noGenerate = "No image provider is configured. Add one in AI Settings (ai.json, docs/AI_PROVIDERS.md, \"Asset providers\"). ";
+        u.noGenerate = "No image provider is configured. Add one in AI Settings (ai.json, docs/AI_PROVIDERS.md, "
+                       "\"Asset providers\"). ";
         u.noGenerate += kOfflineRoute;
         u.noInpaint = u.noGenerate;
         return;
     }
     if (!ai::asset_can_inpaint(*target->provider))
         u.noInpaint = "The image provider '" + target->provider->name +
-                      "' cannot repaint part of a picture. Use the openai provider, or an asset-command whose argv has {input} and {mask} "
-                      "(docs/AI_PROVIDERS.md). " + kOfflineRoute;
+                      "' cannot repaint part of a picture. Use the openai provider, or an asset-command whose argv has "
+                      "{input} and {mask} "
+                      "(docs/AI_PROVIDERS.md). " +
+                      kOfflineRoute;
 }
 
 namespace {
@@ -55,8 +58,11 @@ namespace {
 // The price of a call as one sentence for the popup. The money is only ever an estimate from the provider's price list.
 std::string estimate_sentence(const ai::AssetEstimate& e, const std::string& provider) {
     if (e.free) return "Free: " + e.basis;
-    if (!e.usd) return "The price is not known" + (e.basis.empty() ? std::string() : " (" + e.basis + ")") + ". Set it in AI Settings or ai.json (assetPricing).";
-    return "About " + ai::format_usd(*e.usd) + " with " + provider + " (" + e.basis + "), an estimate from the provider's price list" +
+    if (!e.usd)
+        return "The price is not known" + (e.basis.empty() ? std::string() : " (" + e.basis + ")") +
+               ". Set it in AI Settings or ai.json (assetPricing).";
+    return "About " + ai::format_usd(*e.usd) + " with " + provider + " (" + e.basis +
+           "), an estimate from the provider's price list" +
            (e.checked.empty() ? std::string() : " checked " + e.checked) + ", not an invoice.";
 }
 
@@ -72,14 +78,14 @@ void Editor::image_provider_estimate(ImageModel& m) {
     ImageUi& u = image_;
     u.providerEstimate.clear();
     u.providerEstimateError.clear();
-    u.estimate.reset();   // joins an earlier one
+    u.estimate.reset();  // joins an earlier one
     Json args = Json::object({{"prompt", "estimate"}});
     if (m.has_selection()) args["selection"] = ImageModel::kSelectionName;
     if (m.animated() || m.frame_count() > 1) args["frame"] = m.frame();
     args["path"] = m.path();
     ai::ImageEditEnv env;
     env.projectDir = projectDir_;
-    Result<ai::AiConfig> cfg = ai_project_config(true);   // read here: the thread must not call back into the editor
+    Result<ai::AiConfig> cfg = ai_project_config(true);  // read here: the thread must not call back into the editor
     env.load = [cfg]() -> Result<ai::AiConfig> { return cfg; };
     auto est = std::make_unique<ImageProviderEstimate>();
     est->doc = m.path();
@@ -107,7 +113,7 @@ void Editor::image_provider_estimate_poll(ImageModel& m) {
     ImageUi& u = image_;
     if (!u.estimate || !u.estimate->done.load()) return;
     if (u.estimate->thread.joinable()) u.estimate->thread.join();
-    if (m.is_open() && m.path() == u.estimate->doc) {   // a result of another document is not this one's price
+    if (m.is_open() && m.path() == u.estimate->doc) {  // a result of another document is not this one's price
         u.providerEstimate = u.estimate->text;
         u.providerEstimateError = u.estimate->error;
     }
@@ -138,14 +144,16 @@ void Editor::image_provider_start(ImageModel& m) {
     // the cross-process lock of the day total, so it runs on this thread and not on the UI thread.
     job->thread = std::thread([shared = job->shared, env, inpaint, args] {
         try {
-            const ai::AssetRunScope run(kImagePanelRun);   // the panel's own run (spending total), not the process's shared one
+            const ai::AssetRunScope run(
+                kImagePanelRun);  // the panel's own run (spending total), not the process's shared one
             shared->plan.emplace(ai::plan_image_edit(env, inpaint, args));
             shared->planned = true;
             const ai::ImageEditPlan& plan = *shared->plan;
             // userApproved: this click is the person's yes, whatever approver the registries of the AI runs have installed
             ai::AssetCostGuard guard = ai::begin_image_edit_cost(plan, env, false, &shared->cancel, true);
             if (!guard.go()) {
-                shared->result.emplace(make_error("The call needs your approval and was not made.", "Click Make it again."));
+                shared->result.emplace(
+                    make_error("The call needs your approval and was not made.", "Click Make it again."));
             } else {
                 auto made = ai::run_image_edit(plan, ai::ProviderRuntime{}, &shared->cancel);
                 if (made) guard.commit();
@@ -156,9 +164,13 @@ void Editor::image_provider_start(ImageModel& m) {
         } catch (const CommandError& e) {
             shared->result.emplace(make_error(e.what(), e.hint));
         } catch (const std::exception& e) {
-            shared->result.emplace(make_error(std::string("The request failed: ") + e.what(), "Try again; if it keeps failing, check the provider with ai.providers (action doctor)."));
+            shared->result.emplace(
+                make_error(std::string("The request failed: ") + e.what(),
+                           "Try again; if it keeps failing, check the provider with ai.providers (action doctor)."));
         } catch (...) {
-            shared->result.emplace(make_error("The request failed for a reason that was not reported.", "Try again; if it keeps failing, check the provider with ai.providers (action doctor)."));
+            shared->result.emplace(
+                make_error("The request failed for a reason that was not reported.",
+                           "Try again; if it keeps failing, check the provider with ai.providers (action doctor)."));
         }
         shared->done = true;
     });
@@ -175,14 +187,15 @@ void Editor::image_provider_poll(ImageModel& m) {
     std::unique_ptr<ImageProviderJob> own = std::move(u.job);
     const std::string what = own->inpaint ? "Inpaint" : "Generated layer";
     if (!own->shared->result->ok()) {
-        const Error& e = own->shared->result->error();   // (a request that could not be planned fails here too)
+        const Error& e = own->shared->result->error();  // (a request that could not be planned fails here too)
         u.providerError = what + " failed: " + e.message + (e.hint.empty() ? std::string() : "\n" + e.hint);
         notify(what + " failed: " + e.message, 2);
         return;
     }
     if (!m.is_open() || m.path() != own->doc) {
         notify(what + " for " + own->doc + " arrived, but " + (m.is_open() ? m.path() : std::string("no image")) +
-                   " is open now: nothing was added. Open " + own->doc + " and ask again.", 1);
+                   " is open now: nothing was added. Open " + own->doc + " and ask again.",
+               1);
         return;
     }
     ai::ImageEditEnv env;
@@ -190,7 +203,8 @@ void Editor::image_provider_poll(ImageModel& m) {
     try {
         const ai::ImageEditPlan& plan = *own->shared->plan;
         ai::ImageEditStored stored = ai::store_image_edit(env, plan, **own->shared->result);
-        const ImageEditOutcome out = m.add_provider_layer(what + " (" + plan.layerName + ")", std::move(stored.addArgs));
+        const ImageEditOutcome out =
+            m.add_provider_layer(what + " (" + plan.layerName + ")", std::move(stored.addArgs));
         image_edited(out);
         if (out.ok) {
             std::string msg = "Added the provider layer '" + plan.layerName + "'.";
@@ -216,7 +230,8 @@ void Editor::draw_image_provider(ImageModel& m) {
     auto action = [&](const char* label, const char* id, bool inpaint, const std::string& problem, bool needSelection) {
         std::string why = problem;
         if (why.empty() && needSelection && !m.has_selection())
-            why = "Select the part to repaint first (the Rect, Ellipse, Polygon or Wand tool): the picture is made for the selection and masked by it.";
+            why = "Select the part to repaint first (the Rect, Ellipse, Polygon or Wand tool): the picture is made for "
+                  "the selection and masked by it.";
         if (why.empty() && busy) why = "A picture is being made; wait for it or cancel it.";
         ImGui::BeginDisabled(!editable || !why.empty());
         if (ImGui::SmallButton(label)) {
@@ -228,9 +243,12 @@ void Editor::draw_image_provider(ImageModel& m) {
         at_track(id);
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("%s", why.empty() ? (inpaint ? "Repaint the selection with the image provider (image.inpaint). The result is a new provider layer masked by the selection."
-                                                           : "Add a picture made by the image provider as a new layer (image.generate_layer), masked by the selection if there is one.")
-                                                 : why.c_str());
+            ImGui::SetTooltip("%s", why.empty()
+                                        ? (inpaint ? "Repaint the selection with the image provider (image.inpaint). "
+                                                     "The result is a new provider layer masked by the selection."
+                                                   : "Add a picture made by the image provider as a new layer "
+                                                     "(image.generate_layer), masked by the selection if there is one.")
+                                        : why.c_str());
     };
     action("Inpaint selection...", "img:provider:inpaint", true, u.noInpaint, true);
     ImGui::SameLine();
@@ -242,10 +260,12 @@ void Editor::draw_image_provider(ImageModel& m) {
     }
     ImGui::SetNextWindowSize(ImVec2(420, 0), ImGuiCond_Appearing);
     if (ImGui::BeginPopupModal("##imgprovider", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
-        ImGui::TextUnformatted(u.providerInpaint ? "Inpaint the selection (image.inpaint)" : "Generate a layer (image.generate_layer)");
-        ImGui::TextWrapped("%s", u.providerInpaint
-                                     ? "The picture and the selection go to the provider; what comes back is a new provider layer masked by the selection."
-                                     : "The provider makes a picture; it becomes a new provider layer (masked by the selection, if there is one).");
+        ImGui::TextUnformatted(u.providerInpaint ? "Inpaint the selection (image.inpaint)"
+                                                 : "Generate a layer (image.generate_layer)");
+        ImGui::TextWrapped("%s", u.providerInpaint ? "The picture and the selection go to the provider; what comes "
+                                                     "back is a new provider layer masked by the selection."
+                                                   : "The provider makes a picture; it becomes a new provider layer "
+                                                     "(masked by the selection, if there is one).");
         image_provider_estimate_poll(m);
         if (u.estimate) {
             ImGui::TextDisabled("Working out the price...");
@@ -267,16 +287,19 @@ void Editor::draw_image_provider(ImageModel& m) {
             if (u.providerError.empty()) ImGui::CloseCurrentPopup();
         }
         at_track("img:provider:go");
-        ImGui::SetItemTooltip("Make the picture. When the estimate above is not free, this click is your approval of that cost.");
+        ImGui::SetItemTooltip(
+            "Make the picture. When the estimate above is not free, this click is your approval of that cost.");
         ImGui::EndDisabled();
         ImGui::SameLine();
         if (ImGui::Button("Close")) ImGui::CloseCurrentPopup();
         ImGui::EndPopup();
     }
     if (u.job) {
-        const std::string layer = u.job->shared->planned.load() ? " for '" + u.job->shared->plan->layerName + "'" : std::string();
+        const std::string layer =
+            u.job->shared->planned.load() ? " for '" + u.job->shared->plan->layerName + "'" : std::string();
         ImGui::TextDisabled("%s", std::format("{}{} ({} s)...", u.job->inpaint ? "Inpainting" : "Generating", layer,
-                                              int(ImGui::GetTime() - u.job->startedAt)).c_str());
+                                              int(ImGui::GetTime() - u.job->startedAt))
+                                      .c_str());
         ImGui::SameLine();
         if (ImGui::SmallButton("Cancel")) u.job->shared->cancel = true;
         at_track("img:provider:cancel");

@@ -37,7 +37,11 @@ void feed(Sha256& h, float v) {
     h.update(&bits, sizeof bits);
 }
 void feed(Sha256& h, std::int64_t v) { h.update(&v, sizeof v); }
-void feed(Sha256& h, Vec3 v) { feed(h, v.x); feed(h, v.y); feed(h, v.z); }
+void feed(Sha256& h, Vec3 v) {
+    feed(h, v.x);
+    feed(h, v.y);
+    feed(h, v.z);
+}
 
 // `seen` counts what the hash covered, so a scene that stops doing anything cannot pass with a hash of nothing.
 std::string particles_hash(std::int64_t* seen = nullptr) {
@@ -68,8 +72,9 @@ std::string particles_hash(std::int64_t* seen = nullptr) {
     em.shapeSize = {24.0f, 24.0f, 24.0f};
     em.trail = ParticleTrail::Particle;
     em.trailTime = 0.4f;
-    em.subEmitters = Json::object({{"death", Json::object({{"count", 3},
-                                                           {"emitter", Json::object({{"lifetime", 0.5}, {"speed", 60}, {"rate", 0}})}})}});
+    em.subEmitters = Json::object(
+        {{"death",
+          Json::object({{"count", 3}, {"emitter", Json::object({{"lifetime", 0.5}, {"speed", 60}, {"rate", 0}})}})}});
 
     ParticleSim sim;
     sim.seed(0x5eed1234u);
@@ -79,7 +84,8 @@ std::string particles_hash(std::int64_t* seen = nullptr) {
     const float dt = 1.0f / 60.0f;
     for (int step = 0; step < 300; ++step) {
         if (step == 100) sim.queue_burst(25);
-        env.emitter = Mat4::translate({10.0f + 0.5f * float(step), 20, 30});  // a moving emitter: inherited velocity, world space
+        env.emitter =
+            Mat4::translate({10.0f + 0.5f * float(step), 20, 30});  // a moving emitter: inherited velocity, world space
         sim.step(em, env, dt);
         if (step % 5 == 4) {
             feed(h, std::int64_t(sim.particles.size()));
@@ -152,7 +158,10 @@ std::string feel_hash(std::int64_t* seen = nullptr) {
             feed(h, std::int64_t(flash ? 1 : 0));
             if (flash) {
                 ++flashes;
-                feed(h, flash->r); feed(h, flash->g); feed(h, flash->b); feed(h, flash->a);
+                feed(h, flash->r);
+                feed(h, flash->g);
+                feed(h, flash->b);
+                feed(h, flash->a);
             }
             feed(h, w.get<Transform>(e)->position);
         }
@@ -164,9 +173,11 @@ std::string feel_hash(std::int64_t* seen = nullptr) {
 void check(const char* name, const std::string& got, const char* expected) {
     std::printf("FA_DET_HASH platform=%s %s=%s expected=%s\n", FA_PLATFORM_NAME, name, got.c_str(), expected);
     std::fflush(stdout);
-    INFO("The " << name << " replay hash on " << FA_PLATFORM_NAME << " is " << got << ", expected " << expected
-                << ". Only this platform differs: a determinism bug (a libm call, an unordered iteration, floating-point contraction). "
-                   "Every platform differs: the simulation changed on purpose, update kExpected in test_det_replay.cpp.");
+    INFO("The "
+         << name << " replay hash on " << FA_PLATFORM_NAME << " is " << got << ", expected " << expected
+         << ". Only this platform differs: a determinism bug (a libm call, an unordered iteration, floating-point "
+            "contraction). "
+            "Every platform differs: the simulation changed on purpose, update kExpected in test_det_replay.cpp.");
     CHECK(got == expected);
 }
 

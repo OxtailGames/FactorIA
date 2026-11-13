@@ -66,9 +66,10 @@ TEST_CASE("camera tags: a render-target camera with showTags draws only the enti
     game_camera(w);
     Camera& page = target_camera(w, "page", {1000, 0, 0}, 64, 32);
     page.showTags = Json::array({"page"});
-    shape(w, "red", {1000 - 22, 11, 0}, {20, 10}, kRed, {"page"});      // top-left of the page, tagged
-    shape(w, "green", {1000 + 22, -11, 0}, {20, 10}, kGreen);           // bottom-right, no tag: not drawn into the page
-    sprite_showing(w, "screen", {0, 0, 0}, {128, 64}, "target:page");   // covers x 96..224, y 58..122 of the 320 x 180 screen
+    shape(w, "red", {1000 - 22, 11, 0}, {20, 10}, kRed, {"page"});  // top-left of the page, tagged
+    shape(w, "green", {1000 + 22, -11, 0}, {20, 10}, kGreen);       // bottom-right, no tag: not drawn into the page
+    sprite_showing(w, "screen", {0, 0, 0}, {128, 64},
+                   "target:page");  // covers x 96..224, y 58..122 of the 320 x 180 screen
     Image img = g.render(w);
     CHECK(near(img.pixel(110, 66), kRed));
     CHECK(near(img.pixel(210, 114), kPage));
@@ -82,13 +83,14 @@ TEST_CASE("camera tags: a child follows its parent's tag, for showTags and for h
     Camera& cam = game_camera(w);
     cam.hideTags = Json::array({"hidden"});
     Entity hidden = shape(w, "hidden-parent", {-60, 0, 0}, {20, 20}, kRed, {"hidden"});
-    Entity child = shape(w, "child", {0, 0, 0}, {20, 20}, kRed);  // a child at its parent's position + (30, 0): no tag of its own
+    Entity child =
+        shape(w, "child", {0, 0, 0}, {20, 20}, kRed);  // a child at its parent's position + (30, 0): no tag of its own
     w.set_parent(child, hidden);
     w.get<Transform>(child)->position = {30, 0, 0};
     shape(w, "visible", {60, 0, 0}, {20, 20}, kGreen);
     Image img = g.render(w);
     CHECK(near(img.pixel(160 - 60, 90), kBlack));  // the tagged parent
-    CHECK(near(img.pixel(160 - 30, 90), kBlack));   // its child
+    CHECK(near(img.pixel(160 - 30, 90), kBlack));  // its child
     CHECK(near(img.pixel(160 + 60, 90), kGreen));
 
     // Now the same scene with showTags on the parent: parent and child are drawn, the untagged shape is not.
@@ -105,7 +107,7 @@ TEST_CASE("camera tags: the same world seen by two cameras, each with its own ma
     REQUIRE(g.ok);
     World w;
     Camera& game = game_camera(w);
-    game.hideTags = Json::array({"page"});  // the screen leaves the page's content out...
+    game.hideTags = Json::array({"page"});                       // the screen leaves the page's content out...
     Camera& page = target_camera(w, "page", {0, 0, 0}, 64, 32);  // ...which the page camera draws at the same place
     page.showTags = Json::array({"page"});
     shape(w, "red", {-22, 11, 0}, {20, 10}, kRed, {"page"});
@@ -143,8 +145,9 @@ TEST_CASE("camera tags: Text and Sprite in world space follow the mask, screen-s
     World w;
     Camera& cam = game_camera(w);
     cam.hideTags = Json::array({"hidden"});
-    Entity hudBox = shape(w, "hud", {160, 90, 0}, {40, 40}, kRed, {"hidden"});  // screen space: design pixels from the top-left
-    w.get<Shape2D>(hudBox)->space = RenderSpace::Screen;  // a screen-space visual keeps its rules
+    Entity hudBox =
+        shape(w, "hud", {160, 90, 0}, {40, 40}, kRed, {"hidden"});  // screen space: design pixels from the top-left
+    w.get<Shape2D>(hudBox)->space = RenderSpace::Screen;            // a screen-space visual keeps its rules
     Image img = g.render(w);
     CHECK(near(img.pixel(160, 90), kRed));
 }

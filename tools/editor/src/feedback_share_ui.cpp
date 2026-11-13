@@ -17,7 +17,8 @@ namespace fa::editor {
 
 namespace {
 
-const ImVec4 kRed(1, 0.45f, 0.4f, 1), kGreen(0.45f, 0.85f, 0.5f, 1), kAmber(1, 0.75f, 0.3f, 1), kGrey(0.62f, 0.65f, 0.72f, 1);
+const ImVec4 kRed(1, 0.45f, 0.4f, 1), kGreen(0.45f, 0.85f, 0.5f, 1), kAmber(1, 0.75f, 0.3f, 1),
+    kGrey(0.62f, 0.65f, 0.72f, 1);
 
 ImVec4 share_color(ShareKind k) {
     switch (k) {
@@ -76,12 +77,20 @@ void Editor::share_choose_mode(ShareMode mode) {
     }
     share_.mode = effective_share_mode(load_share_settings(share_env()), projectDir_);
     share_.consentOpen = false;
-    share_.tickAt = -10;      // the next tick queues what the mode allows
-    share_.flushAt = -100;    // ...and sends it at once
+    share_.tickAt = -10;    // the next tick queues what the mode allows
+    share_.flushAt = -100;  // ...and sends it at once
     share_.settingsPolled = -10;
     switch (mode) {
-        case ShareMode::Always: notify("Feedback sharing: always. Entries with a share text go to the engine developers as they are written.", 0); break;
-        case ShareMode::Ask: notify("Feedback sharing: you are asked before anything is sent (Send feedback in the Engine Feedback panel).", 0); break;
+        case ShareMode::Always:
+            notify(
+                "Feedback sharing: always. Entries with a share text go to the engine developers as they are written.",
+                0);
+            break;
+        case ShareMode::Ask:
+            notify(
+                "Feedback sharing: you are asked before anything is sent (Send feedback in the Engine Feedback panel).",
+                0);
+            break;
         case ShareMode::Never:
             // A batch whose request is already on its way cannot be called back; the next one is not made.
             notify(std::string("Feedback sharing is off. Nothing more leaves this computer.") +
@@ -112,16 +121,22 @@ void Editor::share_choose_project_mode(std::optional<ShareMode> mode) {
     if (!mode) {
         std::string text = "Feedback sharing for " + name + " follows your default again.";
         // Removing the choice is not a yes: what waited for an answer while the project asked keeps waiting.
-        const std::size_t waiting = engine_ ? share_waiting(share_env(), fs::join(projectDir_, engine_->project().feedbackFile)).size() : 0;
+        const std::size_t waiting =
+            engine_ ? share_waiting(share_env(), fs::join(projectDir_, engine_->project().feedbackFile)).size() : 0;
         if (waiting > 0 && share_.mode == ShareMode::Always)
             text += " " + std::to_string(waiting) + (waiting == 1 ? " entry still waits" : " entries still wait") +
-                    " for your confirmation (Send feedback); " + (waiting == 1 ? "it is" : "they are") + " not sent until you say yes.";
-        else if (share_.mode == ShareMode::Never) text += " Nothing more leaves this computer." + running;
+                    " for your confirmation (Send feedback); " + (waiting == 1 ? "it is" : "they are") +
+                    " not sent until you say yes.";
+        else if (share_.mode == ShareMode::Never)
+            text += " Nothing more leaves this computer." + running;
         notify(text, 0);
-    }
-    else if (*mode == ShareMode::Never) notify("Feedback sharing is off for " + name + ". Nothing more of this project leaves this computer." + running, 0);
-    else if (*mode == ShareMode::Ask) notify("Feedback sharing for " + name + ": you are asked before anything is sent.", 0);
-    else notify("Feedback sharing for " + name + ": always.", 0);
+    } else if (*mode == ShareMode::Never)
+        notify("Feedback sharing is off for " + name + ". Nothing more of this project leaves this computer." + running,
+               0);
+    else if (*mode == ShareMode::Ask)
+        notify("Feedback sharing for " + name + ": you are asked before anything is sent.", 0);
+    else
+        notify("Feedback sharing for " + name + ": always.", 0);
     const bool after = share_.sendAfterConsent;
     share_.sendAfterConsent = false;
     if (after && (share_.mode == ShareMode::Always || share_.mode == ShareMode::Ask)) open_send_window();
@@ -193,14 +208,15 @@ void Editor::share_start_sign_in() {
             [&s] { return s.signInCancel.load(); });
         {
             std::lock_guard<std::mutex> lock(s.mu);
-            if (r) s.signedInAs = r->login.empty() ? std::string("GitHub") : r->login;
-            else if (!s.signInCancel) s.signInError = r.error().to_string();
+            if (r)
+                s.signedInAs = r->login.empty() ? std::string("GitHub") : r->login;
+            else if (!s.signInCancel)
+                s.signInError = r.error().to_string();
             s.haveCode = false;
         }
         s.signInRunning = false;
     });
 }
-
 
 // The AI check of the texts of the Send window: ai.review_feedback with a candidate `share`, one entry after the other on one thread.
 // The command is the real one, registered on a copy of the engine's command list whose handlers are never called (the review only
@@ -212,7 +228,9 @@ void Editor::share_start_ai_checks() {
     s.sendAiStart = false;
     std::vector<ShareUi::AiJob> jobs;
     jobs.swap(s.aiJobs);
-    jobs.erase(std::remove_if(jobs.begin(), jobs.end(), [&](const ShareUi::AiJob& j) { return j.session != s.sendSession; }), jobs.end());
+    jobs.erase(
+        std::remove_if(jobs.begin(), jobs.end(), [&](const ShareUi::AiJob& j) { return j.session != s.sendSession; }),
+        jobs.end());
     if (jobs.empty()) return;
     if (s.aiThread.joinable()) s.aiThread.join();
     auto reg = std::make_shared<CommandRegistry>();
@@ -245,17 +263,19 @@ void Editor::share_start_ai_checks() {
     s.aiThread = std::thread([&s, reg, jobs] {
         for (const ShareUi::AiJob& job : jobs) {
             if (s.sendLive.load() != job.session) break;  // the window was closed: nobody wants the rest
-            const CommandResult res = reg->call("ai.review_feedback", Json::object({{"id", job.id}, {"share", job.text.to_json()}}));
+            const CommandResult res =
+                reg->call("ai.review_feedback", Json::object({{"id", job.id}, {"share", job.text.to_json()}}));
             const bool noModel = !res.ok && res.error.value("code", std::string()) == "no_model";
             {
                 std::lock_guard<std::mutex> lock(s.mu);
                 ShareUi::AiDone d;
                 d.session = job.session;
                 d.id = job.id;
-                d.result = res.ok ? res.result
-                                  : Json::object({{"error", res.error.value("message", std::string("the check failed"))},
-                                                  {"hint", res.error.value("hint", std::string())},
-                                                  {"code", res.error.value("code", std::string())}});
+                d.result = res.ok
+                               ? res.result
+                               : Json::object({{"error", res.error.value("message", std::string("the check failed"))},
+                                               {"hint", res.error.value("hint", std::string())},
+                                               {"code", res.error.value("code", std::string())}});
                 s.aiDone.push_back(std::move(d));
             }
             if (noModel) break;  // no AI is set up: every other row would say the same
@@ -272,7 +292,8 @@ bool apply_ai_answer(ShareUi::SendRowUi& r, const Json& answer, const EngineName
     if (answer.contains("error")) {
         if (answer.value("code", std::string()) == "no_model") return false;
         r.review = ShareUi::SendReview::Error;
-        r.reviewNote = "The AI check could not run: " + answer.value("error", std::string()) + " " + answer.value("hint", std::string());
+        r.reviewNote = "The AI check could not run: " + answer.value("error", std::string()) + " " +
+                       answer.value("hint", std::string());
         return true;
     }
     if (!answer.value("pass", false)) {
@@ -297,7 +318,8 @@ bool apply_ai_answer(ShareUi::SendRowUi& r, const Json& answer, const EngineName
                 r.rewritten = true;
                 r.reviewNote = "Checked by AI: the text was rewritten in engine terms.";
             } else {
-                r.reviewNote = "Checked by AI. Its rewrite could not be used (" + problem + "), so the text is as it was.";
+                r.reviewNote =
+                    "Checked by AI. Its rewrite could not be used (" + problem + "), so the text is as it was.";
             }
         }
     }
@@ -321,7 +343,8 @@ void Editor::feedback_share_tick() {
             flushSent = s.flushSent;
             flushMessage = s.flushMessage;
             // The window that asked for this flush is still the one showing: it reports the outcome row by row.
-            flushForWindow = s.flushSession != 0 && s.flushSession == s.sendSession && s.sendOpen && s.sendPhase == ShareUi::SendPhase::Sending;
+            flushForWindow = s.flushSession != 0 && s.flushSession == s.sendSession && s.sendOpen &&
+                             s.sendPhase == ShareUi::SendPhase::Sending;
         }
         flushBusy = s.flushNew;
         if (!s.signedInAs.empty()) {
@@ -338,11 +361,13 @@ void Editor::feedback_share_tick() {
     }
     if (verdictsNew && (verdicts.declined > 0 || verdicts.restored > 0)) {
         if (verdicts.declined > 0)
-            notify(std::to_string(verdicts.declined) + (verdicts.declined == 1 ? " feedback entry was" : " feedback entries were") +
+            notify(std::to_string(verdicts.declined) +
+                       (verdicts.declined == 1 ? " feedback entry was" : " feedback entries were") +
                        " rejected by the engine developers. Tick \"closed\" in Engine Feedback to read why.",
                    1);
         if (verdicts.restored > 0)
-            notify(std::to_string(verdicts.restored) + (verdicts.restored == 1 ? " rejected feedback entry is" : " rejected feedback entries are") +
+            notify(std::to_string(verdicts.restored) +
+                       (verdicts.restored == 1 ? " rejected feedback entry is" : " rejected feedback entries are") +
                        " open again: the engine developers took the rejection back.",
                    0);
         feedbackMtime_ = INT64_MIN;
@@ -363,7 +388,8 @@ void Editor::feedback_share_tick() {
         const EngineNames names = collect_engine_names(&engine_->commands());
         const ProjectNames project = collect_project_names(projectDir_);
         for (const ShareUi::AiDone& d : answers) {
-            if (d.session != s.sendSession || !s.sendOpen || s.sendPhase != ShareUi::SendPhase::Choose) continue;  // not this window's
+            if (d.session != s.sendSession || !s.sendOpen || s.sendPhase != ShareUi::SendPhase::Choose)
+                continue;  // not this window's
             for (ShareUi::SendRowUi& r : s.sendRows) {
                 if (r.row.id != d.id) continue;
                 if (!apply_ai_answer(r, d.result, names, project)) {
@@ -382,7 +408,8 @@ void Editor::feedback_share_tick() {
     }
     if (time_ - s.tickAt < 1.0) return;
     s.tickAt = time_;
-    const ShareKeyCacheScope folderFacts(s.folderCache);  // the per-item stat calls of the outbox are not repeated every second
+    const ShareKeyCacheScope folderFacts(
+        s.folderCache);                   // the per-item stat calls of the outbox are not repeated every second
     const ShareEnv env = ui_share_env();  // a busy lock is waited for 0.3 s at most: the tick tries again in a second
     const ShareSettings settings = load_share_settings(env);
     s.mode = effective_share_mode(settings, projectDir_);  // this project's own choice, else the default
@@ -408,11 +435,15 @@ void Editor::feedback_share_tick() {
                     doc = *r;
                     // An open entry that says the engine lacks something it has (the check before filing, run again here for the
                     // ones written without it) is rejected with the reason; a person can reopen it, and then it stays open.
-                    if (auto rejected = reject_claimed_feedback_file(file, &engine_->commands()); rejected && !rejected->empty()) {
-                        if (auto again = load_feedback(file); again && again->contains("entries") && (*again)["entries"].is_array()) doc = *again;
+                    if (auto rejected = reject_claimed_feedback_file(file, &engine_->commands());
+                        rejected && !rejected->empty()) {
+                        if (auto again = load_feedback(file);
+                            again && again->contains("entries") && (*again)["entries"].is_array())
+                            doc = *again;
                         std::string ids;
                         for (const std::string& id : *rejected) ids += (ids.empty() ? "" : ", ") + id;
-                        notify("Rejected " + ids + ": the engine already has what " + std::string(rejected->size() == 1 ? "it says" : "they say") +
+                        notify("Rejected " + ids + ": the engine already has what " +
+                                   std::string(rejected->size() == 1 ? "it says" : "they say") +
                                    " is missing. The reason is in the Engine Feedback panel (tick \"closed\").",
                                1);
                         feedbackMtime_ = INT64_MIN;
@@ -424,9 +455,12 @@ void Editor::feedback_share_tick() {
                     for (const Json& e : doc["entries"])
                         if (e.value("status", std::string("open")) != "open") anyClosed = true;
                     if (anyClosed) {
-                        const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread does not wait seconds for a lock another program holds
+                        const ShareWaitCap shortWait(
+                            ui_lock_wait_sec());  // the UI thread does not wait seconds for a lock another program holds
                         if (auto moved = archive_closed_feedback_file(file); moved && moved->moved > 0) {
-                            if (auto again = load_feedback(file); again && again->contains("entries") && (*again)["entries"].is_array()) doc = *again;
+                            if (auto again = load_feedback(file);
+                                again && again->contains("entries") && (*again)["entries"].is_array())
+                                doc = *again;
                             stamp = fs::modified_time(engine_->project().feedbackFile);
                             s.docStamp = stamp;
                             feedbackMtime_ = INT64_MIN;
@@ -452,7 +486,8 @@ void Editor::feedback_share_tick() {
 
     // First time: a project with feedback entries and no answer yet. Where sharing is not available nothing could be sent, so
     // nothing is asked either (File > Feedback Settings says why).
-    if (s.mode == ShareMode::Unset && s.entryCount > 0 && !s.consentLater && !s.consentOpen && docLoaded && s.sharingAvailable) {
+    if (s.mode == ShareMode::Unset && s.entryCount > 0 && !s.consentLater && !s.consentOpen && docLoaded &&
+        s.sharingAvailable) {
         s.consentOpen = true;
         share_fill_consent_preview(file, doc);
     }
@@ -495,22 +530,26 @@ void Editor::feedback_share_tick() {
         for (const OutboxItem& it : s.waiting)
             if (s.notified.insert(it.key).second) ++fresh;
         if (fresh > 0 && !s.sendOpen) {
-            notify_action(std::to_string(s.waiting.size()) + (s.waiting.size() == 1 ? " feedback entry waits" : " feedback entries wait") +
-                              " for your answer before anything is sent.",
-                          "Review", [this] { open_send_window(); }, "share:notify");
+            notify_action(
+                std::to_string(s.waiting.size()) +
+                    (s.waiting.size() == 1 ? " feedback entry waits" : " feedback entries wait") +
+                    " for your answer before anything is sent.",
+                "Review", [this] { open_send_window(); }, "share:notify");
         }
     } else {
         s.waiting.clear();
     }
 
     // always / ask: send what is due (the confirmed ones, in ask mode), at most one flush every few seconds.
-    if ((s.mode == ShareMode::Always || s.mode == ShareMode::Ask) && !s.flushRunning && time_ - s.flushAt > 5.0 && share_has_due(env))
+    if ((s.mode == ShareMode::Always || s.mode == ShareMode::Ask) && !s.flushRunning && time_ - s.flushAt > 5.0 &&
+        share_has_due(env))
         share_start_flush(false);
 
     // always / ask: what the engine developers decided about the reports already sent (a rejection comes back with its reason),
     // asked at the start and about every half hour, only when this project has a feedback file.
-    if (haveProject && (s.mode == ShareMode::Always || s.mode == ShareMode::Ask) && s.sharingAvailable && !s.verdictRunning && !s.flushRunning &&
-        time_ - s.verdictAt > 1800.0 && fs::exists(engine_->project().feedbackFile))
+    if (haveProject && (s.mode == ShareMode::Always || s.mode == ShareMode::Ask) && s.sharingAvailable &&
+        !s.verdictRunning && !s.flushRunning && time_ - s.verdictAt > 1800.0 &&
+        fs::exists(engine_->project().feedbackFile))
         share_start_verdicts(file);
 }
 
@@ -538,28 +577,33 @@ void Editor::draw_share_consent() {
     const char* id = "Share feedback with the engine developers?###share-consent";
     if (!ImGui::IsPopupOpen(id)) ImGui::OpenPopup(id);
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) return;
+    if (!ImGui::BeginPopupModal(id, nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings))
+        return;
     const float wrap = 680;
     ImGui::PushTextWrapPos(wrap);
-    ImGui::TextUnformatted("FactorIA can tell the engine developers what the engine lacked when you made your game, so the next "
-                           "version fixes it. Nothing is sent until you choose here.");
+    ImGui::TextUnformatted(
+        "FactorIA can tell the engine developers what the engine lacked when you made your game, so the next "
+        "version fixes it. Nothing is sent until you choose here.");
     ImGui::Spacing();
     ImGui::TextColored(kGreen, "What is sent");
-    ImGui::TextUnformatted("For each entry you send: a title and a description written in engine terms (you read them in the Send "
-                           "feedback window before they leave). Also its category, "
-                           "severity and effort, whether a person or an AI wrote it, whether it was reviewed, the engine version, "
-                           "your operating system, and a random installation id made on this computer (it is tied to no game and "
-                           "to no name).");
+    ImGui::TextUnformatted(
+        "For each entry you send: a title and a description written in engine terms (you read them in the Send "
+        "feedback window before they leave). Also its category, "
+        "severity and effort, whether a person or an AI wrote it, whether it was reviewed, the engine version, "
+        "your operating system, and a random installation id made on this computer (it is tied to no game and "
+        "to no name).");
     ImGui::Spacing();
     ImGui::TextColored(kAmber, "What is never sent");
-    ImGui::TextUnformatted("The name of your game, its files, paths, scene, entity or script names, your code and assets, the text "
-                           "an entry keeps for you (its own title, description, workaround and notes), your name and your e-mail. "
-                           "A program also cuts project names, paths, quoted text, addresses and e-mail addresses out of the share "
-                           "text before it leaves. Signing in with GitHub is optional and shares only your login.");
+    ImGui::TextUnformatted(
+        "The name of your game, its files, paths, scene, entity or script names, your code and assets, the text "
+        "an entry keeps for you (its own title, description, workaround and notes), your name and your e-mail. "
+        "A program also cuts project names, paths, quoted text, addresses and e-mail addresses out of the share "
+        "text before it leaves. Signing in with GitHub is optional and shares only your login.");
     ImGui::Spacing();
     if (s.consentPreview.empty()) {
-        ImGui::TextDisabled("None of your entries could be sent now, so there is nothing to show. The Send feedback window lists "
-                            "what would leave this computer, and you choose what to send.");
+        ImGui::TextDisabled(
+            "None of your entries could be sent now, so there is nothing to show. The Send feedback window lists "
+            "what would leave this computer, and you choose what to send.");
     } else {
         ImGui::Text("The next report, exactly as it would leave this computer (%d %s):", s.consentEntries,
                     s.consentEntries == 1 ? "entry" : "entries");
@@ -576,12 +620,14 @@ void Editor::draw_share_consent() {
     ImGui::Separator();
     if (ImGui::Button("Always", ImVec2(150, 0))) share_choose_mode(ShareMode::Always);
     at_track("share:consent:always");
-    ImGui::SetItemTooltip("Entries that carry a share text go to the engine developers in the background. Send feedback sends the others, "
+    ImGui::SetItemTooltip("Entries that carry a share text go to the engine developers in the background. Send "
+                          "feedback sends the others, "
                           "after you read them.");
     ImGui::SameLine();
     if (ImGui::Button("Ask me each time", ImVec2(150, 0))) share_choose_mode(ShareMode::Ask);
     at_track("share:consent:ask");
-    ImGui::SetItemTooltip("Nothing leaves until you press Send in Send feedback, where you read each text and choose what goes.");
+    ImGui::SetItemTooltip(
+        "Nothing leaves until you press Send in Send feedback, where you read each text and choose what goes.");
     ImGui::SameLine();
     if (ImGui::Button("Never", ImVec2(150, 0))) share_choose_mode(ShareMode::Never);
     at_track("share:consent:never");
@@ -594,14 +640,14 @@ void Editor::draw_share_consent() {
         ImGui::CloseCurrentPopup();
     }
     at_track("share:consent:later");
-    ImGui::SetItemTooltip("Close this without choosing. Nothing is sent, and it is asked again the next time the editor starts.");
+    ImGui::SetItemTooltip(
+        "Close this without choosing. Nothing is sent, and it is asked again the next time the editor starts.");
     if (!s.consentOpen) {
         s.sendAfterConsent = false;  // Decide later: no Send window
         ImGui::CloseCurrentPopup();
     }
     ImGui::EndPopup();
 }
-
 
 // ------------------------------------------------------------------------------------------------- the Send feedback window
 
@@ -732,8 +778,12 @@ void Editor::send_window_finished(int sent, const std::string& message) {
     for (ShareUi::SendRowUi& r : s.sendRows) {
         if (r.resultKind != "queued") continue;
         const Json* e = entry_in(doc, r.row.id);
-        const std::string status = e && e->contains("shared") && (*e)["shared"].is_object() ? (*e)["shared"].value("status", std::string()) : std::string();
-        const std::string reason = e && e->contains("shared") && (*e)["shared"].is_object() ? (*e)["shared"].value("reason", std::string()) : std::string();
+        const std::string status = e && e->contains("shared") && (*e)["shared"].is_object()
+                                       ? (*e)["shared"].value("status", std::string())
+                                       : std::string();
+        const std::string reason = e && e->contains("shared") && (*e)["shared"].is_object()
+                                       ? (*e)["shared"].value("reason", std::string())
+                                       : std::string();
         if (status == "sent") {
             r.resultKind = "sent";
             r.result = "Sent. Thank you.";
@@ -743,12 +793,14 @@ void Editor::send_window_finished(int sent, const std::string& message) {
             r.result = "The server did not accept it: " + reason;
         } else {
             r.resultKind = "waiting";
-            r.result = "Not sent yet" + (message.empty() ? std::string() : ": " + message) + ". It stays in the outbox and goes when the server answers.";
+            r.result = "Not sent yet" + (message.empty() ? std::string() : ": " + message) +
+                       ". It stays in the outbox and goes when the server answers.";
             ++left;
         }
     }
     s.sendPhase = ShareUi::SendPhase::Done;
-    s.sendMessage = ok > 0 ? "Sent " + std::to_string(ok) + (ok == 1 ? " entry" : " entries") + " to the engine developers." +
+    s.sendMessage = ok > 0 ? "Sent " + std::to_string(ok) + (ok == 1 ? " entry" : " entries") +
+                                 " to the engine developers." +
                                  (left > 0 ? " " + std::to_string(left) + " could not be sent yet." : std::string())
                            : (left > 0 ? "Nothing could be sent yet." : "Nothing was sent.");
     (void)sent;
@@ -765,7 +817,8 @@ void Editor::draw_send_window() {
     s.sendFocus = false;
     const ImVec2 display = ImGui::GetIO().DisplaySize;
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-    ImGui::SetNextWindowSize(ImVec2(std::min(760.0f, display.x - 40.0f), std::min(560.0f, display.y - 60.0f)), ImGuiCond_Appearing);
+    ImGui::SetNextWindowSize(ImVec2(std::min(760.0f, display.x - 40.0f), std::min(560.0f, display.y - 60.0f)),
+                             ImGuiCond_Appearing);
     bool open = true;
     if (!ImGui::BeginPopupModal(id, &open, ImGuiWindowFlags_NoSavedSettings)) {
         if (!ImGui::IsPopupOpen(id)) s.sendOpen = false;  // closed some other way
@@ -777,8 +830,9 @@ void Editor::draw_send_window() {
         ImGui::TextDisabled("Nothing to send: every open entry was sent already or was refused by the server.");
         at_track("send:empty");
     } else if (choosing) {
-        ImGui::TextUnformatted("These entries would be sent. Each text is exactly what leaves this computer: the names of your game are "
-                               "already cut out. Uncheck what you do not want to send; Cancel sends nothing.");
+        ImGui::TextUnformatted(
+            "These entries would be sent. Each text is exactly what leaves this computer: the names of your game are "
+            "already cut out. Uncheck what you do not want to send; Cancel sends nothing.");
     }
     ImGui::PopTextWrapPos();
 
@@ -802,7 +856,8 @@ void Editor::draw_send_window() {
         ImGui::EndDisabled();
         if (!usable) r.checked = false;
         ImGui::SameLine();
-        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1, 1), "%s", usable ? r.row.fields.title.c_str() : r.entry.value("title", std::string()).c_str());
+        ImGui::TextColored(ImVec4(0.6f, 0.8f, 1, 1), "%s",
+                           usable ? r.row.fields.title.c_str() : r.entry.value("title", std::string()).c_str());
         at_track("send:title:" + r.row.id);
         ImGui::SameLine();
         ImGui::TextDisabled("%s  [%s, %s]%s", r.row.id.c_str(), r.row.category.c_str(), r.row.severity.c_str(),
@@ -822,19 +877,25 @@ void Editor::draw_send_window() {
             at_track("send:text:" + r.row.id);
             field("suggestion", r.row.fields.suggestion);
             field("workaround", r.row.fields.workaround);
-            if (!r.row.removed.empty()) ImGui::TextDisabled("The sanitizer took out: %s.", removals_text(r.row.removed).c_str());
+            if (!r.row.removed.empty())
+                ImGui::TextDisabled("The sanitizer took out: %s.", removals_text(r.row.removed).c_str());
         }
         if (!r.row.note.empty()) ImGui::TextDisabled("%s", r.row.note.c_str());
         if (r.review == ShareUi::SendReview::Queued) {
             ImGui::TextColored(kAmber, "checking with AI...");
             at_track("send:reviewing:" + r.row.id);
         } else if (!r.reviewNote.empty()) {
-            ImGui::TextColored(r.review == ShareUi::SendReview::Passed ? kGreen : r.review == ShareUi::SendReview::Failed ? kRed : kAmber, "%s",
-                               r.reviewNote.c_str());
+            ImGui::TextColored(r.review == ShareUi::SendReview::Passed   ? kGreen
+                               : r.review == ShareUi::SendReview::Failed ? kRed
+                                                                         : kAmber,
+                               "%s", r.reviewNote.c_str());
             at_track("send:review:" + r.row.id);
         }
         if (!r.result.empty()) {
-            ImGui::TextColored(r.resultKind == "sent" ? kGreen : r.resultKind == "queued" || r.resultKind == "waiting" || r.resultKind == "skipped" ? kAmber : kRed,
+            ImGui::TextColored(r.resultKind == "sent" ? kGreen
+                               : r.resultKind == "queued" || r.resultKind == "waiting" || r.resultKind == "skipped"
+                                   ? kAmber
+                                   : kRed,
                                "%s", r.result.c_str());
             at_track("send:result:" + r.row.id);
         }
@@ -857,7 +918,9 @@ void Editor::draw_send_window() {
         if (ImGui::Button("Send", ImVec2(110, 0))) send_window_apply();
         at_track("send:ok", canSend);
         ImGui::EndDisabled();
-        if (!canSend) ImGui::SetItemTooltip("%s", checking ? "Wait for the AI check of the checked entries, or uncheck them." : "Check at least one entry.");
+        if (!canSend)
+            ImGui::SetItemTooltip("%s", checking ? "Wait for the AI check of the checked entries, or uncheck them."
+                                                 : "Check at least one entry.");
         ImGui::SameLine();
         if (ImGui::Button("Cancel", ImVec2(110, 0))) open = false;
         at_track("send:cancel");
@@ -904,13 +967,16 @@ void Editor::draw_share_settings_window() {
         return;
     }
     ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled("Tell the engine developers what the engine lacked. You send feedback with Send feedback in the Engine Feedback "
-                        "panel; only a short text in engine terms leaves this computer, after a program cut the names of your game out of it.");
+    ImGui::TextDisabled("Tell the engine developers what the engine lacked. You send feedback with Send feedback in "
+                        "the Engine Feedback "
+                        "panel; only a short text in engine terms leaves this computer, after a program cut the names "
+                        "of your game out of it.");
     ImGui::PopTextWrapPos();
     const bool available = s.status.value("available", false);
     if (!available) {
         ImGui::PushTextWrapPos(0);
-        ImGui::TextColored(kRed, "%s", s.status.value("howToFix", std::string("Sharing is not available in this build.")).c_str());
+        ImGui::TextColored(kRed, "%s",
+                           s.status.value("howToFix", std::string("Sharing is not available in this build.")).c_str());
         ImGui::PopTextWrapPos();
         at_track("share:settings:unavailable");
     }
@@ -926,13 +992,19 @@ void Editor::draw_share_settings_window() {
         const char* name;
         const char* tip;
     };
-    const Choice choices[] = {
-        {ShareMode::Always, "Always", "Entries that carry a share text (an AI writes one when it reports) go to the engine developers in the background. "
-         "Send feedback sends the others, after you read them."},
-        {ShareMode::Ask, "Ask me each time", "Nothing leaves until you press Send in Send feedback (a notification opens it), where you read each text and choose what goes."},
-        {ShareMode::Never, "Never", "Nothing leaves this computer, and Send feedback is off. What waits in the outbox of the projects that follow this default is dropped."}};
+    const Choice choices[] = {{ShareMode::Always, "Always",
+                               "Entries that carry a share text (an AI writes one when it reports) go to the engine "
+                               "developers in the background. "
+                               "Send feedback sends the others, after you read them."},
+                              {ShareMode::Ask, "Ask me each time",
+                               "Nothing leaves until you press Send in Send feedback (a notification opens it), where "
+                               "you read each text and choose what goes."},
+                              {ShareMode::Never, "Never",
+                               "Nothing leaves this computer, and Send feedback is off. What waits in the outbox of "
+                               "the projects that follow this default is dropped."}};
     for (const Choice& c : choices) {
-        if (ImGui::RadioButton(c.name, s.settings.mode == c.mode) && s.settings.mode != c.mode) share_choose_mode(c.mode);
+        if (ImGui::RadioButton(c.name, s.settings.mode == c.mode) && s.settings.mode != c.mode)
+            share_choose_mode(c.mode);
         at_track(std::string("share:settings:mode:") + share_mode_name(c.mode));
         ImGui::SetItemTooltip("%s", c.tip);
     }
@@ -943,8 +1015,9 @@ void Editor::draw_share_settings_window() {
         ImGui::SeparatorText(title.c_str());
         at_track("share:settings:project");
         ImGui::PushTextWrapPos(0);
-        ImGui::TextDisabled("This project can have its own choice (never for a game under NDA). It is kept in your own settings file, "
-                            "not in the project, and belongs to this folder: moving the folder drops it back to the default.");
+        ImGui::TextDisabled(
+            "This project can have its own choice (never for a game under NDA). It is kept in your own settings file, "
+            "not in the project, and belongs to this folder: moving the folder drops it back to the default.");
         ImGui::PopTextWrapPos();
         const std::optional<ShareMode> own = share_project_mode(s.settings, projectDir_);
         struct ProjectChoice {
@@ -969,15 +1042,19 @@ void Editor::draw_share_settings_window() {
 
     ImGui::SeparatorText("Installation id");
     ImGui::PushTextWrapPos(0);
-    ImGui::TextDisabled("A random number that lets the developers count reports once. It is tied to no game and no name.");
+    ImGui::TextDisabled(
+        "A random number that lets the developers count reports once. It is tied to no game and no name.");
     ImGui::PopTextWrapPos();
-    ImGui::TextUnformatted(s.settings.installId.empty() ? "(made with the first report)" : s.settings.installId.c_str());
+    ImGui::TextUnformatted(s.settings.installId.empty() ? "(made with the first report)"
+                                                        : s.settings.installId.c_str());
     at_track("share:settings:installid");
     ImGui::SameLine();
     ImGui::BeginDisabled(s.settings.installId.empty());
     if (ImGui::SmallButton("Reset id")) {
-        if (auto r = update_share_settings(env, [](ShareSettings& st) { st.installId.clear(); }); !r) s.settingsMessage = r.error().to_string();
-        else if (auto id = ensure_install_id(env); id) s.settingsMessage = "New installation id made.";
+        if (auto r = update_share_settings(env, [](ShareSettings& st) { st.installId.clear(); }); !r)
+            s.settingsMessage = r.error().to_string();
+        else if (auto id = ensure_install_id(env); id)
+            s.settingsMessage = "New installation id made.";
         s.settingsPolled = -10;
     }
     at_track("share:settings:resetid");
@@ -990,7 +1067,8 @@ void Editor::draw_share_settings_window() {
     DeviceCode code;
     std::string signInError;
     {
-        std::lock_guard<std::mutex> lock(s.mu);  // copied: the drawing below calls functions that take the lock themselves
+        std::lock_guard<std::mutex> lock(
+            s.mu);  // copied: the drawing below calls functions that take the lock themselves
         haveCode = s.haveCode;
         code = s.code;
         signInError = s.signInError;
@@ -999,7 +1077,8 @@ void Editor::draw_share_settings_window() {
         if (s.signInRunning) {
             if (haveCode) {
                 ImGui::PushTextWrapPos(0);
-                ImGui::TextUnformatted("Open the address below, enter this code and authorize FactorIA. This window finishes by itself.");
+                ImGui::TextUnformatted(
+                    "Open the address below, enter this code and authorize FactorIA. This window finishes by itself.");
                 ImGui::PopTextWrapPos();
                 ImGui::Text("Code:");
                 ImGui::SameLine();
@@ -1008,8 +1087,10 @@ void Editor::draw_share_settings_window() {
                 ImGui::Text("Address: %s", code.verificationUri.c_str());
                 at_track("share:settings:url");
                 if (ImGui::Button("Open in browser")) {
-                    if (autotest_) s.settingsMessage = "(autotest) would open " + code.verificationUri;
-                    else if (std::string why = open_url(code.verificationUri); !why.empty()) s.settingsMessage = why;
+                    if (autotest_)
+                        s.settingsMessage = "(autotest) would open " + code.verificationUri;
+                    else if (std::string why = open_url(code.verificationUri); !why.empty())
+                        s.settingsMessage = why;
                 }
                 at_track("share:settings:open");
                 ImGui::SameLine();
@@ -1019,24 +1100,30 @@ void Editor::draw_share_settings_window() {
             if (ImGui::Button("Cancel")) s.signInCancel = true;
             at_track("share:settings:cancel");
         } else if (signedIn) {
-            ImGui::Text("Signed in as %s. Your reports carry your GitHub login.", s.status.value("login", std::string("GitHub")).c_str());
+            ImGui::Text("Signed in as %s. Your reports carry your GitHub login.",
+                        s.status.value("login", std::string("GitHub")).c_str());
             at_track("share:settings:login");
             if (ImGui::Button("Sign out")) {
-                if (auto r = share_sign_out(env); !r) s.settingsMessage = r.error().to_string();
-                else s.settingsMessage = "Signed out. New reports are anonymous.";
+                if (auto r = share_sign_out(env); !r)
+                    s.settingsMessage = r.error().to_string();
+                else
+                    s.settingsMessage = "Signed out. New reports are anonymous.";
                 s.settingsPolled = -10;
             }
             at_track("share:settings:signout");
         } else {
             ImGui::PushTextWrapPos(0);
-            ImGui::TextDisabled("Not signed in: reports are anonymous. Signing in lets the developers thank you and ask what you meant.");
+            ImGui::TextDisabled("Not signed in: reports are anonymous. Signing in lets the developers thank you and "
+                                "ask what you meant.");
             ImGui::PopTextWrapPos();
             const bool canSignIn = available && !env.githubClientId.empty();
             ImGui::BeginDisabled(!canSignIn);
             if (ImGui::Button("Sign in with GitHub")) share_start_sign_in();
             at_track("share:settings:signin");
             ImGui::EndDisabled();
-            if (!canSignIn) ImGui::SetItemTooltip("%s", available ? "This build has no GitHub sign-in." : "Sharing is not available in this build.");
+            if (!canSignIn)
+                ImGui::SetItemTooltip("%s", available ? "This build has no GitHub sign-in."
+                                                      : "Sharing is not available in this build.");
         }
         if (!signInError.empty()) {
             ImGui::PushTextWrapPos(0);
@@ -1052,7 +1139,8 @@ void Editor::draw_share_settings_window() {
     at_track("share:settings:outbox");
     if (outbox.value("blocked", 0) > 0) {
         ImGui::PushTextWrapPos(0);
-        ImGui::TextColored(kAmber, "%d not sent: their project's sharing is never (or not chosen yet).", outbox.value("blocked", 0));
+        ImGui::TextColored(kAmber, "%d not sent: their project's sharing is never (or not chosen yet).",
+                           outbox.value("blocked", 0));
         ImGui::PopTextWrapPos();
         at_track("share:settings:blocked");
     }
@@ -1064,20 +1152,23 @@ void Editor::draw_share_settings_window() {
     if (outbox.contains("failed") && outbox["failed"].is_array()) {
         for (const Json& f : outbox["failed"]) {
             ImGui::PushTextWrapPos(0);
-            ImGui::TextColored(kAmber, "%s failed %d time(s); next try in %d s. %s", f.value("id", std::string()).c_str(),
-                               f.value("attempts", 0), f.value("retryInSeconds", 0), f.value("error", std::string()).c_str());
+            ImGui::TextColored(kAmber, "%s failed %d time(s); next try in %d s. %s",
+                               f.value("id", std::string()).c_str(), f.value("attempts", 0),
+                               f.value("retryInSeconds", 0), f.value("error", std::string()).c_str());
             ImGui::PopTextWrapPos();
         }
     }
     if (s.status.contains("lastSend") && s.status["lastSend"].is_object()) {
         const Json& l = s.status["lastSend"];
         ImGui::PushTextWrapPos(0);
-        ImGui::TextDisabled("Last attempt: %s. %s", l.value("outcome", std::string()).c_str(), l.value("message", std::string()).c_str());
+        ImGui::TextDisabled("Last attempt: %s. %s", l.value("outcome", std::string()).c_str(),
+                            l.value("message", std::string()).c_str());
         ImGui::PopTextWrapPos();
     }
     {
         const ShareMode applied = effective_share_mode(s.settings, projectDir_);
-        const bool canSend = available && (applied == ShareMode::Always || applied == ShareMode::Ask) && queued > 0 && !s.flushRunning;
+        const bool canSend =
+            available && (applied == ShareMode::Always || applied == ShareMode::Ask) && queued > 0 && !s.flushRunning;
         ImGui::BeginDisabled(!canSend);
         if (ImGui::Button("Send now")) share_start_flush(true);
         at_track("share:settings:sendnow");

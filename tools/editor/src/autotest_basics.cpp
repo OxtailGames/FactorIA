@@ -50,7 +50,8 @@ void Editor::at_section_T(AtScript& at) {
         for (const auto& e : stdfs::directory_iterator(projectDir_ + "/.factoria/screenshots", ec))
             if (e.path().extension() == ".png") found = true;
         at_check(found, "the toolbar Screenshot button saves a PNG into the project's .factoria/screenshots");
-        at_check(at_visible("toast:screenshot-reveal"), std::string("the screenshot toast offers Show in ") + file_manager_name());
+        at_check(at_visible("toast:screenshot-reveal"),
+                 std::string("the screenshot toast offers Show in ") + file_manager_name());
         toasts_.clear();
     });
 }
@@ -78,7 +79,8 @@ void Editor::at_section_A(AtScript& at) {
         if (n >= 2) {
             const AudioPlay& good = audioLog_.plays[n - 2];
             const AudioPlay& bad = audioLog_.plays[n - 1];
-            at_check(good.path == "assets/blip.wav" && good.ok && good.bus == "ui", "a successful play shows its clip and bus");
+            at_check(good.path == "assets/blip.wav" && good.ok && good.bus == "ui",
+                     "a successful play shows its clip and bus");
             at_check(bad.path == "assets/missing.wav" && !bad.ok, "a clip that failed to load is flagged ok: false");
         }
         pendingFocus_ = "Audio";
@@ -89,7 +91,8 @@ void Editor::at_section_A(AtScript& at) {
         run_console_line("> audio.play('assets/blip.wav')");
     });
     step(6, [this] {
-        at_check(audioLog_.plays.size() == atAudioBase_ + 3 && audioLog_.after > atAudioAfter_, "only the new play is added (the poll asks for plays after the last seq)");
+        at_check(audioLog_.plays.size() == atAudioBase_ + 3 && audioLog_.after > atAudioAfter_,
+                 "only the new play is added (the poll asks for plays after the last seq)");
         audioLog_.filter = "missing";
         size_t visible = 0;
         for (const AudioPlay& p : audioLog_.plays) visible += audio_play_visible(p, audioLog_) ? 1 : 0;
@@ -125,7 +128,9 @@ void Editor::at_section_A2(AtScript& at) {
                    "export default class AutotestSpinner extends Behaviour {\n"
                    "  onUpdate(dt) { let x = 0; for (let i = 0; i < 4000; i++) x += Math.sqrt(i); this.sum = x; }\n"
                    "}\n");
-        run_console_line("scene.set_component {\"id\":\"player\",\"component\":\"Script\",\"fields\":{\"path\":\"scripts/autotest_spinner.js\"}}");
+        run_console_line(
+            "scene.set_component "
+            "{\"id\":\"player\",\"component\":\"Script\",\"fields\":{\"path\":\"scripts/autotest_spinner.js\"}}");
     });
     click("menu:view");
     step(3, [] {});
@@ -186,18 +191,23 @@ void Editor::at_section_B(AtScript& at) {
                                        {"fields", Json::object({{"position", Json::array({-305, -250, 0})}})}})
                              .dump());
         at_check(dirty(), "an unsaved edit before a console import");
-        run_console_line("scene.import_ascii {\"rows\":[\"...\",\"###\"],\"legend\":{\"#\":0},\"entity\":\"map3\",\"path\":\"" + scenePath_ + "\"}");
+        run_console_line(
+            "scene.import_ascii {\"rows\":[\"...\",\"###\"],\"legend\":{\"#\":0},\"entity\":\"map3\",\"path\":\"" +
+            scenePath_ + "\"}");
     });
     step(3, [this] {
         at_check(!world().find_by_id("map3").is_null(), "a console import into the open scene reloads it");
         at_check(!dirty() && undo_depth() == 1, "...and nothing is lost: the unsaved edit is one Ctrl+Z away");
         undo();
-        at_check(world().find_by_id("map3").is_null() && dirty(), "Ctrl+Z restores the scene as it was before the import");
+        at_check(world().find_by_id("map3").is_null() && dirty(),
+                 "Ctrl+Z restores the scene as it was before the import");
         redo();
         at_check(!world().find_by_id("map3").is_null(), "Ctrl+Y brings the imported level back");
         undo();
-        run_console_line("scene.import_ascii {\"rows\":[\"#\"],\"legend\":{\"#\":0},\"path\":\"scenes/other_level.scene.json\"}");
-        at_check(dirty() && world().find_by_id("map3").is_null(), "an import into another file does not touch the open scene or its unsaved changes");
+        run_console_line(
+            "scene.import_ascii {\"rows\":[\"#\"],\"legend\":{\"#\":0},\"path\":\"scenes/other_level.scene.json\"}");
+        at_check(dirty() && world().find_by_id("map3").is_null(),
+                 "an import into another file does not touch the open scene or its unsaved changes");
         at_check(fs::exists("scenes/other_level.scene.json"), "...it just writes the file");
     });
 }
@@ -255,7 +265,8 @@ void Editor::at_section_C(AtScript& at) {
         Renderer* r = engine_->renderer();
         World& w = world();
         auto design = [&](float x, float y) { return r->world_to_screen(Vec3{x, y, 0}); };
-        const Entity tri = w.find_by_id("test_triangle"), dia = w.find_by_id("test_diamond"), hud = w.find_by_id("test_hud");
+        const Entity tri = w.find_by_id("test_triangle"), dia = w.find_by_id("test_diamond"),
+                     hud = w.find_by_id("test_hud");
         // Rotated triangle (pivot [0.5, 0.3333], turned 90 degrees): world x -260..-170, y 120..180 around its origin (-200, 150).
         at_check(pick_at(design(-255, 150)) == tri, "pick: inside the rotated triangle's oriented box");
         at_check(pick_at(design(-200, 205)) != tri, "pick: outside the oriented box, though inside the unrotated one");
@@ -273,9 +284,12 @@ void Editor::at_section_C(AtScript& at) {
         const Entity worldText = w.find_by_id("test_text");
         const Vec2 ts = r->measure_text("World text", 28);
         at_check(ts.x > 100 && ts.y > 20, "the renderer measures the text");
-        at_check(pick_at(design(-120 + ts.x * 0.5f, 300 - ts.y * 0.5f)) == worldText, "pick: inside the measured Text box");
-        at_check(pick_at(design(-120 + ts.x + 12, 300 - ts.y * 0.5f)) != worldText, "pick: just past the measured end of the Text");
-        at_check(pick_at(design(-120 + ts.x * 0.5f, 300 + 8)) != worldText, "pick: above the Text (pivot is the top-left corner)");
+        at_check(pick_at(design(-120 + ts.x * 0.5f, 300 - ts.y * 0.5f)) == worldText,
+                 "pick: inside the measured Text box");
+        at_check(pick_at(design(-120 + ts.x + 12, 300 - ts.y * 0.5f)) != worldText,
+                 "pick: just past the measured end of the Text");
+        at_check(pick_at(design(-120 + ts.x * 0.5f, 300 + 8)) != worldText,
+                 "pick: above the Text (pivot is the top-left corner)");
         // Screen space: a panel anchored top-right (x 1160..1260, y 20..60 on the 1280 x 720 screen).
         at_check(pick_at(Vec2{1200, 40}) == hud, "pick: a screen-space shape with an anchor");
         at_check(pick_at(Vec2{1100, 40}) != hud, "pick: left of the anchored panel");
@@ -285,7 +299,8 @@ void Editor::at_section_C(AtScript& at) {
         at_check(tb.screenSpace, "the HUD text is a screen-space entity");
         at_check(pick_at(Vec2{40, 40}) == text, "pick: the screen-space HUD text under the cursor");
         // The engine's entity.bounds() (script) and the editor's footprint agree.
-        auto r2 = engine_->commands().call("script.eval", Json::object({{"code", "world.find('test_diamond').bounds().toArray()"}}));
+        auto r2 = engine_->commands().call("script.eval",
+                                           Json::object({{"code", "world.find('test_diamond').bounds().toArray()"}}));
         const std::optional<Rect> eb = entity_world_rect(w, dia, visual_measure());
         const Json v = r2.ok ? r2.result.value("value", Json()) : Json();
         bool same = eb && v.is_array() && v.size() == 4;
@@ -320,16 +335,19 @@ void Editor::at_section_D(AtScript& at) {
     });
     step(4, [this] {
         // Bloom OFF reference.
-        atPostFrame_.push_back([this] { at_check(capture_window(atShotBefore_), "captured the window without bloom"); });
+        atPostFrame_.push_back(
+            [this] { at_check(capture_window(atShotBefore_), "captured the window without bloom"); });
     });
     step(3, [this] {
         // The command the AI uses; the values are inside the documented ranges (threshold 0..1, intensity 0..10, radius 1..128).
         const CommandResult r = engine_->commands().call(
             "scene.set_component",
-            Json::parse(R"({"id":"camera","component":"Camera","fields":{"bloom":true,"bloomThreshold":0.8,"bloomIntensity":1.6,"bloomRadius":40}})"));
+            Json::parse(
+                R"({"id":"camera","component":"Camera","fields":{"bloom":true,"bloomThreshold":0.8,"bloomIntensity":1.6,"bloomRadius":40}})"));
         at_check(r.ok, "scene.set_component: Camera.bloom on");
         Entity cam = world().find_by_id("camera");
-        at_check(!cam.is_null() && std::fabs(world().get<Camera>(cam)->bloomRadius - 40.0f) < 0.001f, "the Camera bloom fields were written");
+        at_check(!cam.is_null() && std::fabs(world().get<Camera>(cam)->bloomRadius - 40.0f) < 0.001f,
+                 "the Camera bloom fields were written");
     });
     step(5, [this] {
         atPostFrame_.push_back([this] {
@@ -349,7 +367,9 @@ void Editor::at_section_D(AtScript& at) {
                 for (int y = int(cy - radius * 2.4f); y <= int(cy + radius * 2.4f); ++y)
                     for (int x = int(cx - radius * 2.4f); x <= int(cx + radius * 2.4f); ++x) {
                         const float dist = std::hypot(float(x) - cx, float(y) - cy);
-                        if (dist < radius * 1.2f || dist > radius * 2.2f || x < 0 || y < 0 || x >= img.width || y >= img.height) continue;
+                        if (dist < radius * 1.2f || dist > radius * 2.2f || x < 0 || y < 0 || x >= img.width ||
+                            y >= img.height)
+                            continue;
                         const std::uint8_t* px = &img.rgba[(size_t(y) * size_t(img.width) + size_t(x)) * 4];
                         sum += px[0] + px[1] + px[2];
                         ++n;
@@ -358,7 +378,9 @@ void Editor::at_section_D(AtScript& at) {
             };
             const double before = ring_sum(atShotBefore_), now = ring_sum(after);
             FA_INFO("autotest", "bloom ring brightness: off {:.1f}, on {:.1f}", before, now);
-            at_check(now > before + 6.0, "Camera.bloom is visible in the editor viewport (the glow brightens the area around the bright shape)");
+            at_check(
+                now > before + 6.0,
+                "Camera.bloom is visible in the editor viewport (the glow brightens the area around the bright shape)");
         });
     });
     snap("editor_bloom.png");
@@ -393,9 +415,11 @@ void Editor::at_section_F(AtScript& at) {
         step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), 1); });
         step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), 1); });
     };
-    static const char* kLong = "Make a 3D tower game: the player throws balls at towers of crates, three levels, each tower "
-                               "taller than the last, a score for every crate that falls off, and a restart button at the end.";
-    step(2, [this] { chat_.current().input = kLong; });  // before the click: an active box keeps its own copy of the text
+    static const char* kLong =
+        "Make a 3D tower game: the player throws balls at towers of crates, three levels, each tower "
+        "taller than the last, a score for every crate that falls off, and a restart button at the end.";
+    step(2,
+         [this] { chat_.current().input = kLong; });  // before the click: an active box keeps its own copy of the text
     click("ai:input");
     snap("editor_ai_input_wrap.png");  // the long message wraps inside the box
     rclick("ai:input");
@@ -425,7 +449,8 @@ void Editor::at_section_F(AtScript& at) {
     click("textmenu:Copy");
     step(2, [this] {
         const char* clip = ImGui::GetClipboardText();
-        at_check(clip && std::string(clip) == "Copy this reply.", "an assistant message can be selected and copied (right-click > Select all, Copy)");
+        at_check(clip && std::string(clip) == "Copy this reply.",
+                 "an assistant message can be selected and copied (right-click > Select all, Copy)");
         chat_.current().items.pop_back();
     });
 
@@ -448,7 +473,8 @@ void Editor::at_section_F(AtScript& at) {
     });
     step(3, [this, transcript] {
         ImGuiWindow* w = transcript();
-        at_check(w && w->ScrollMax.y > 0 && w->Scroll.y >= w->ScrollMax.y - 4, "the AI transcript scrolls to the bottom");
+        at_check(w && w->ScrollMax.y > 0 && w->Scroll.y >= w->ScrollMax.y - 4,
+                 "the AI transcript scrolls to the bottom");
         if (w) ImGui::SetScrollY(w, 0);  // the user scrolls up to read
     });
     step(3, [this] {
@@ -493,9 +519,11 @@ void Editor::at_section_F(AtScript& at) {
     snap("editor_ai_input_tall.png");
     step(2, [this, items0, transcript] {
         const float def = ImGui::GetTextLineHeight() * 3.4f + 8;
-        at_check(aiInputH_ > def + 40, "dragging the grip up makes the AI message box taller (" + std::to_string(aiInputH_) + ")");
+        at_check(aiInputH_ > def + 40,
+                 "dragging the grip up makes the AI message box taller (" + std::to_string(aiInputH_) + ")");
         ImGuiWindow* w = transcript();
-        at_check(w && w->Scroll.y >= w->ScrollMax.y - 4, "a transcript at the bottom stays at the bottom while the box grows");
+        at_check(w && w->Scroll.y >= w->ScrollMax.y - 4,
+                 "a transcript at the bottom stays at the bottom while the box grows");
         aiInputH_ = 0;
         chat_.current().items.resize(*items0);
         focus_window("###Viewport");
@@ -551,14 +579,17 @@ void Editor::at_section_H(AtScript& at) {
             const ExportTarget& t = export_targets()[i];
             const ExportStatus& st = exportStatus_[i];
             if (st.ready) continue;
-            at_check(!st.error.empty() && !st.hint.empty(), std::string(t.label) + " is not ready and says why and how to fix it");
+            at_check(!st.error.empty() && !st.hint.empty(),
+                     std::string(t.label) + " is not ready and says why and how to fix it");
             if (export_needs_player(t.platform))
                 at_check(st.error.find("cannot export for") != std::string::npos,
                          std::string(t.label) + " needs a player built for it (" + st.error + ")");
         }
         const ExportStatus* st = host_status();
-        if (st && !st->ready) {  // a build tree without factoria_player: export with a stand-in, the window is what is tested
-            atLog_.push_back("NOTE no factoria_player for this machine (" + st->error + "): exporting with a stand-in player");
+        if (st &&
+            !st->ready) {  // a build tree without factoria_player: export with a stand-in, the window is what is tested
+            atLog_.push_back("NOTE no factoria_player for this machine (" + st->error +
+                             "): exporting with a stand-in player");
             const std::string fake = atOutDir_ + "/stand-in-player/factoria_player";
             write_file(fake, "#!/bin/sh\nexit 0\n");
             exportSettings_.players[normalize_export_platform("")] = fake;
@@ -582,10 +613,12 @@ void Editor::at_section_H(AtScript& at) {
         const stdfs::path parent = stdfs::weakly_canonical(stdfs::path(projectDir_) / "build" / "export", ec);
         at_check(out.parent_path() == parent && out.filename().string() == "autotest-platformer-" + host,
                  "the export went to <project>/build/export/<game>-<platform> (" + o.report.outputDir + ")");
-        at_check(stdfs::exists(out / o.report.notices), "the license notices are where the report says (" + o.report.notices + ")");
+        at_check(stdfs::exists(out / o.report.notices),
+                 "the license notices are where the report says (" + o.report.notices + ")");
         at_check(!o.report.nextSteps.empty(), "the report lists the next steps");
         at_check(at_visible("export:reveal"), std::string("the report offers Show in ") + file_manager_name());
-        at_check(export_report_text(o).find(o.report.outputDir) != std::string::npos, "Copy report includes the output folder");
+        at_check(export_report_text(o).find(o.report.outputDir) != std::string::npos,
+                 "Copy report includes the output folder");
     });
     snap("editor_export_report.png");
     step(2, [this] { showExport_ = false; });
@@ -615,7 +648,10 @@ void Editor::at_section_I(AtScript& at) {
         at_check(save_png(icon, project_file("assets/icon.png")).ok(), "a game icon was written to assets/icon.png");
     });
     click("menu:export");
-    step(4, [this] { at_check(at_visible("export:settings:android"), "the Export window has a Settings... button on the Android row"); });
+    step(4, [this] {
+        at_check(at_visible("export:settings:android"),
+                 "the Export window has a Settings... button on the Android row");
+    });
     // On a smaller screen (the macOS runner's 1024x642) the Android row can be out of view: above it after section H (the
     // window stays scrolled down to the report it showed), below it when this section runs alone. Scroll to it.
     scroll_until("export:settings:android", 6, Vec2{700, 400}, 560);
@@ -624,8 +660,10 @@ void Editor::at_section_I(AtScript& at) {
         at_check(showPlatformSettings_, "the Android row's Settings... button opens the Platform settings window");
         at_check(platformTab_ == SettingsTab::Android, "...on the Android tab");
         at_check(platformSettings_.loaded() && !platformSettings_.dirty(), "...with nothing to save yet");
-        at_check(platformSettings_.info.name == "Autotest Platformer", "it shows the game's own name (" + platformSettings_.info.name + ")");
-        at_check(platformSettings_.parseErrors.empty() && platformSettings_.fileError.empty(), "the project's export settings read without errors");
+        at_check(platformSettings_.info.name == "Autotest Platformer",
+                 "it shows the game's own name (" + platformSettings_.info.name + ")");
+        at_check(platformSettings_.parseErrors.empty() && platformSettings_.fileError.empty(),
+                 "the project's export settings read without errors");
         // What a person types in the fields.
         PlatformSettings& ps = platformSettings_;
         ps.project.icon = "assets/icon.png";
@@ -636,7 +674,8 @@ void Editor::at_section_I(AtScript& at) {
         ps.project.ios.teamId = "ABCDE12345";
         at_check(ps.dirty(), "typing in a field makes the settings dirty");
         at_check(ps.validate().errors.empty(), "the edits are valid");
-        at_check(ps.validate().warning_for("/export/android/signing/alias") != nullptr, "a keystore without an alias is a warning next to the alias field");
+        at_check(ps.validate().warning_for("/export/android/signing/alias") != nullptr,
+                 "a keystore without an alias is a warning next to the alias field");
     });
     snap("editor_platform_android.png");
     scroll_until("platform:keystore-create", -6, Vec2{800, 420}, 560);
@@ -644,7 +683,8 @@ void Editor::at_section_I(AtScript& at) {
     click("platform:keystore-create");
     step(4, [this] {
         at_check(keystoreOpen_, "Create keystore... opens its window");
-        at_check(!keystoreForm_.path.empty() && keystoreForm_.alias == "upload", "...with a keystore path and the alias upload filled in");
+        at_check(!keystoreForm_.path.empty() && keystoreForm_.alias == "upload",
+                 "...with a keystore path and the alias upload filled in");
     });
     snap("editor_platform_keystore.png");
     click("platform:keystore-cancel");
@@ -669,23 +709,29 @@ void Editor::at_section_I(AtScript& at) {
     step(2, [this] {
         set_android_format("aab");
         auto saved = load_export_settings(projectDir_);
-        at_check(saved.ok() && saved->android.format == "aab", "the Export window's format menu saves export.android.format in factoria.json");
+        at_check(saved.ok() && saved->android.format == "aab",
+                 "the Export window's format menu saves export.android.format in factoria.json");
         at_check(saved.ok() && saved->android.versionCode == 0, "...and nothing else of the pending edits");
-        at_check(platformSettings_.project.android.format == "aab" && platformSettings_.project.android.versionCode == 12,
+        at_check(platformSettings_.project.android.format == "aab" &&
+                     platformSettings_.project.android.versionCode == 12,
                  "...while the Platform settings window keeps its other edits");
         at_check(platformSettings_.dirty(), "...which are still unsaved");
-        at_check(!platformSettings_.project_file_changed(), "factoria.json written by the editor itself is not reported as changed behind its back");
+        at_check(!platformSettings_.project_file_changed(),
+                 "factoria.json written by the editor itself is not reported as changed behind its back");
     });
     // The same for the Windows format (folder | MSIX): saved at once, the pending edits stay.
     step(2, [this] {
         set_windows_format("msix");
         auto saved = load_export_settings(projectDir_);
-        at_check(saved.ok() && saved->windows.format == "msix", "the Export window's Windows format menu saves export.windows.format in factoria.json");
+        at_check(saved.ok() && saved->windows.format == "msix",
+                 "the Export window's Windows format menu saves export.windows.format in factoria.json");
         at_check(saved.ok() && saved->android.versionCode == 0, "...and nothing else of the pending edits");
-        at_check(platformSettings_.project.windows.format == "msix" && platformSettings_.project.android.versionCode == 12,
+        at_check(platformSettings_.project.windows.format == "msix" &&
+                     platformSettings_.project.android.versionCode == 12,
                  "...while the Platform settings window keeps its other edits");
         at_check(platformSettings_.dirty(), "...which are still unsaved");
-        at_check(!platformSettings_.project_file_changed(), "factoria.json written by the editor itself is not reported as changed behind its back");
+        at_check(!platformSettings_.project_file_changed(),
+                 "factoria.json written by the editor itself is not reported as changed behind its back");
         platformSettings_.project.windows.msix.identityName = "12345Autotest.Platformer";
         platformSettings_.project.windows.msix.publisher = "CN=0123ABCD-4567-89EF-0123-456789ABCDEF";
         platformSettings_.project.windows.msix.publisherDisplayName = "Autotest Studio";
@@ -699,17 +745,24 @@ void Editor::at_section_I(AtScript& at) {
         at_check(saved.ok(), "factoria.json still reads after Save");
         if (saved.ok()) {
             at_check(saved->icon == "assets/icon.png", "Save wrote the game icon");
-            at_check(saved->android.versionCode == 12 && saved->android.format == "aab", "Save wrote the Android settings");
-            at_check(saved->windows.format == "msix" && saved->windows.msix.identityName == "12345Autotest.Platformer" &&
+            at_check(saved->android.versionCode == 12 && saved->android.format == "aab",
+                     "Save wrote the Android settings");
+            at_check(saved->windows.format == "msix" &&
+                         saved->windows.msix.identityName == "12345Autotest.Platformer" &&
                          saved->windows.msix.publisherDisplayName == "Autotest Studio",
                      "Save wrote the Windows MSIX settings");
-            at_check(saved->android.permissions == std::vector<std::string>{"android.permission.VIBRATE"}, "Save wrote the permissions");
-            at_check(saved->android.signing.keystore == "keys/upload.keystore" && saved->android.signing.alias == "upload", "Save wrote the signing key");
-            at_check(saved->macos.copyright == "Copyright 2026 Autotest" && saved->ios.teamId == "ABCDE12345", "Save wrote the macOS and iOS settings");
+            at_check(saved->android.permissions == std::vector<std::string>{"android.permission.VIBRATE"},
+                     "Save wrote the permissions");
+            at_check(saved->android.signing.keystore == "keys/upload.keystore" &&
+                         saved->android.signing.alias == "upload",
+                     "Save wrote the signing key");
+            at_check(saved->macos.copyright == "Copyright 2026 Autotest" && saved->ios.teamId == "ABCDE12345",
+                     "Save wrote the macOS and iOS settings");
         }
         auto project = load_project(projectDir_);
         at_check(project.ok() && project->name == "Autotest Platformer", "Save kept the game's own keys");
-        at_check(!std::filesystem::exists(machineFile), "Save did not write this computer's file (nothing of it was edited)");
+        at_check(!std::filesystem::exists(machineFile),
+                 "Save did not write this computer's file (nothing of it was edited)");
     });
 
     // Closing with unsaved changes asks first.
@@ -729,8 +782,10 @@ void Editor::at_section_I(AtScript& at) {
     step(3, [] {});
     click("menu:platform-settings");
     step(4, [this] {
-        at_check(showPlatformSettings_ && platformTab_ == SettingsTab::General, "File > Platform Settings... opens the window on General");
-        at_check(platformSettings_.loaded() && !platformSettings_.dirty() && platformSettings_.project.icon == "assets/icon.png",
+        at_check(showPlatformSettings_ && platformTab_ == SettingsTab::General,
+                 "File > Platform Settings... opens the window on General");
+        at_check(platformSettings_.loaded() && !platformSettings_.dirty() &&
+                     platformSettings_.project.icon == "assets/icon.png",
                  "...with what was saved");
     });
     snap("editor_platform_reopened.png");
@@ -780,10 +835,12 @@ void Editor::at_section_J(AtScript& at) {
             exportStatus_[i].hint = "injected-autotest";
             if (platform == otherOs) {
                 exportStatus_[i].ready = false;
-                exportStatus_[i].error = "export: cannot export for " + platform + " without a player binary built for " + platform;
+                exportStatus_[i].error =
+                    "export: cannot export for " + platform + " without a player binary built for " + platform;
             } else if (platform == "android") {
                 exportStatus_[i].ready = false;
-                exportStatus_[i].error = "export: cannot build the Android app on this computer: No JDK 17 or newer was found.";
+                exportStatus_[i].error =
+                    "export: cannot build the Android app on this computer: No JDK 17 or newer was found.";
             }
         }
         exportChecked_ = time_ + 100000.0;
@@ -793,7 +850,8 @@ void Editor::at_section_J(AtScript& at) {
         std::vector<std::string> out;
         for (size_t i = 0; i < export_targets().size() && i < exportStatus_.size(); ++i)
             if (platform == export_targets()[i].platform)
-                for (const SetupAction& a : setup_actions_for_row(platform, exportStatus_[i], setupStatus_.status())) out.push_back(a.label);
+                for (const SetupAction& a : setup_actions_for_row(platform, exportStatus_[i], setupStatus_.status()))
+                    out.push_back(a.label);
         return out;
     };
 
@@ -811,12 +869,16 @@ void Editor::at_section_J(AtScript& at) {
         const SetupStatus& st = setupStatus_.status();
         std::string ids;
         for (const SetupComponent& c : st.components) ids += c.id + " ";
-        at_check(ids == "android players cmake xcode appimage shaders vscode ffmpeg webplayer launcher ", "the window lists the ten components, in order (" + ids + ")");
-        at_check(st.home == (std::filesystem::path(atOutDir_) / "factoria_home").string(), "...installing into the autotest's own FACTORIA_HOME (" + st.home + ")");
+        at_check(ids == "android players cmake xcode appimage shaders vscode ffmpeg webplayer launcher ",
+                 "the window lists the ten components, in order (" + ids + ")");
+        at_check(st.home == (std::filesystem::path(atOutDir_) / "factoria_home").string(),
+                 "...installing into the autotest's own FACTORIA_HOME (" + st.home + ")");
         for (const SetupComponent& c : st.components)
             if (setup_action_for_component(c, st.home))
-                at_check(at_visible("setup:install:" + c.id) && at_enabled("setup:install:" + c.id), "the " + c.id + " component has an Install button");
-        at_check(at_visible("setup:install:android") && at_visible("setup:install:players"), "Android and players can always be installed");
+                at_check(at_visible("setup:install:" + c.id) && at_enabled("setup:install:" + c.id),
+                         "the " + c.id + " component has an Install button");
+        at_check(at_visible("setup:install:android") && at_visible("setup:install:players"),
+                 "Android and players can always be installed");
         at_check(at_visible("setup:refresh"), "the window can check the computer again");
         at_check(!setupJob_.running() && !setupLast_, "nothing is installed until a button is pressed");
     });
@@ -830,15 +892,23 @@ void Editor::at_section_J(AtScript& at) {
         exportFocus_ = true;
     });
     step(4, [this, otherOs, ownOs, action_labels] {
-        at_check(at_visible("setup:export:android:android"), "the Android row that cannot find a JDK and SDK has a Set up button");
-        at_check(action_labels("android") == std::vector<std::string>{"Install Android build tools"}, "...Install Android build tools");
+        at_check(at_visible("setup:export:android:android"),
+                 "the Android row that cannot find a JDK and SDK has a Set up button");
+        at_check(action_labels("android") == std::vector<std::string>{"Install Android build tools"},
+                 "...Install Android build tools");
         const std::string os = otherOs == "macos" ? "macOS" : (otherOs == "windows" ? "Windows" : "Linux");
-        at_check(at_visible("setup:export:" + otherOs + ":players-" + otherOs), "the row that needs another OS's player has a Set up button");
-        at_check(action_labels(otherOs) == std::vector<std::string>{"Download " + os + " player"}, "...Download " + os + " player");
-        at_check(at_visible("setup:export:ios:cmake") && at_visible("setup:export:ios:xcode"), "the iOS row, ready, still offers CMake and Xcode");
-        at_check((action_labels("ios") == std::vector<std::string>{"Install CMake", "Open App Store (Xcode)"}), "...Install CMake and Open App Store (Xcode)");
-        at_check(!at_visible("setup:export:" + ownOs + ":players-" + ownOs), "a row that is ready has no download button");
-        at_check(at_enabled("setup:export:android:android") && at_enabled("setup:export:ios:cmake"), "the Set up buttons can be pressed");
+        at_check(at_visible("setup:export:" + otherOs + ":players-" + otherOs),
+                 "the row that needs another OS's player has a Set up button");
+        at_check(action_labels(otherOs) == std::vector<std::string>{"Download " + os + " player"},
+                 "...Download " + os + " player");
+        at_check(at_visible("setup:export:ios:cmake") && at_visible("setup:export:ios:xcode"),
+                 "the iOS row, ready, still offers CMake and Xcode");
+        at_check((action_labels("ios") == std::vector<std::string>{"Install CMake", "Open App Store (Xcode)"}),
+                 "...Install CMake and Open App Store (Xcode)");
+        at_check(!at_visible("setup:export:" + ownOs + ":players-" + ownOs),
+                 "a row that is ready has no download button");
+        at_check(at_enabled("setup:export:android:android") && at_enabled("setup:export:ios:cmake"),
+                 "the Set up buttons can be pressed");
     });
     snap("editor_setup_export.png");
 
@@ -851,13 +921,18 @@ void Editor::at_section_J(AtScript& at) {
     });
     step(1, [this] {
         atWaitCount_ = 0;
-        atWaitUntil_ = [this] { return setupStatus_.has() && !setupStatus_.refreshing() && setupStatus_.status().host != "injected-autotest"; };
+        atWaitUntil_ = [this] {
+            return setupStatus_.has() && !setupStatus_.refreshing() &&
+                   setupStatus_.status().host != "injected-autotest";
+        };
     });
     step(4, [this, otherOs] {
         at_check(showSetup_, "pressing a Set up button opens the Set Up window");
         at_check(setupLast_.has_value() && !setupLast_->ok && !setupLast_->cancelled,
-                 "the setup ran (setup_install) and failed where the autotest cannot download: " + (setupLast_ ? setupLast_->error : std::string("no result")));
-        at_check(setupLast_ && setupLast_->options.component == "players" && setupLast_->options.platforms == std::vector<std::string>{otherOs},
+                 "the setup ran (setup_install) and failed where the autotest cannot download: " +
+                     (setupLast_ ? setupLast_->error : std::string("no result")));
+        at_check(setupLast_ && setupLast_->options.component == "players" &&
+                     setupLast_->options.platforms == std::vector<std::string>{otherOs},
                  "...it was the player of that platform");
         at_check(setupStatus_.status().host != "injected-autotest", "when it finished the status was read again");
         bool rechecked = !exportStatus_.empty();
@@ -884,14 +959,18 @@ void Editor::at_section_J(AtScript& at) {
         atWaitUntil_ = [this] { return setupLicense_.state() == SetupLicenseLoad::State::Failed; };
     });
     step(4, [this] {
-        at_check(setupLicenseOpen_ && at_visible("setup:license-retry"), "Install Android build tools opens the license dialog first; a license that cannot be loaded offers Try again");
-        at_check(!at_visible("setup:license-accept") || !at_enabled("setup:license-accept"), "...and cannot be accepted");
+        at_check(setupLicenseOpen_ && at_visible("setup:license-retry"),
+                 "Install Android build tools opens the license dialog first; a license that cannot be loaded offers "
+                 "Try again");
+        at_check(!at_visible("setup:license-accept") || !at_enabled("setup:license-accept"),
+                 "...and cannot be accepted");
         at_check(!setupJob_.running(), "...and nothing is installed meanwhile");
     });
     snap("editor_setup_license_failed.png");
     click("setup:license-decline");
     step(4, [this] {
-        at_check(!setupLicenseOpen_ && !setupJob_.running() && !setupLast_.has_value(), "Decline closes the dialog and installs nothing");
+        at_check(!setupLicenseOpen_ && !setupJob_.running() && !setupLast_.has_value(),
+                 "Decline closes the dialog and installs nothing");
     });
 
     // With the text: shown in full, "I accept" waits for the checkbox.
@@ -901,15 +980,19 @@ void Editor::at_section_J(AtScript& at) {
         lic.title = "Android Software Development Kit License Agreement";
         lic.text = "Terms and Conditions\n\n";
         for (int i = 1; i <= 24; ++i)
-            lic.text += std::to_string(i) + ". This is paragraph " + std::to_string(i) + " of the test license. It is long enough to wrap onto a second "
-                        "line in the box, so the box has to scroll to show all of the text before anyone agrees to it.\n\n";
+            lic.text +=
+                std::to_string(i) + ". This is paragraph " + std::to_string(i) +
+                " of the test license. It is long enough to wrap onto a second "
+                "line in the box, so the box has to scroll to show all of the text before anyone agrees to it.\n\n";
         lic.text += "The end of the license.";
         setupLicense_.set(SetupLicenseLoad::State::Ready, {lic});
     });
     click("setup:export:android:android");
     step(4, [this] {
-        at_check(setupLicenseOpen_ && at_visible("setup:license-text"), "the license dialog shows the license text in a box of its own");
-        at_check(at_visible("setup:license-accept") && !at_enabled("setup:license-accept"), "I accept is disabled until the checkbox is ticked");
+        at_check(setupLicenseOpen_ && at_visible("setup:license-text"),
+                 "the license dialog shows the license text in a box of its own");
+        at_check(at_visible("setup:license-accept") && !at_enabled("setup:license-accept"),
+                 "I accept is disabled until the checkbox is ticked");
         at_check(at_enabled("setup:license-check") && !setupLicenseTick_, "...the checkbox is there, not ticked");
         at_check(at_visible("setup:license-decline"), "...next to Decline");
     });
@@ -923,11 +1006,13 @@ void Editor::at_section_J(AtScript& at) {
     snap("editor_setup_license_ticked.png");
     click("setup:license-check");
     step(3, [this] {
-        at_check(!setupLicenseTick_ && !at_enabled("setup:license-accept"), "unticking the checkbox disables I accept again");
+        at_check(!setupLicenseTick_ && !at_enabled("setup:license-accept"),
+                 "unticking the checkbox disables I accept again");
     });
     click("setup:license-decline");
     step(4, [this] {
-        at_check(!setupLicenseOpen_ && !setupJob_.running() && !setupLast_.has_value(), "Decline closes the dialog and installs nothing");
+        at_check(!setupLicenseOpen_ && !setupJob_.running() && !setupLast_.has_value(),
+                 "Decline closes the dialog and installs nothing");
         showExport_ = false;
     });
 
@@ -936,8 +1021,11 @@ void Editor::at_section_J(AtScript& at) {
         inject_setup();
         open_platform_settings(SettingsTab::General);
     });
-    step(4, [this] { at_check(at_visible("setup:open-general"), "Platform settings > General has a Set Up This Computer... button"); });
-    scroll_until("setup:open-general", -6, Vec2{512, 320}, 560);  // at the end of the tab: below the fold on a small display
+    step(4, [this] {
+        at_check(at_visible("setup:open-general"), "Platform settings > General has a Set Up This Computer... button");
+    });
+    scroll_until("setup:open-general", -6, Vec2{512, 320},
+                 560);  // at the end of the tab: below the fold on a small display
     click("setup:open-general");
     step(4, [this, inject_setup] {
         at_check(showSetup_, "...that opens the Set Up window");
@@ -947,14 +1035,19 @@ void Editor::at_section_J(AtScript& at) {
         inject_setup();
         open_platform_settings(SettingsTab::Android);
     });
-    step(4, [this] { at_check(at_visible("setup:tab:android:android"), "the Android tab offers Install Android build tools next to the JDK and SDK status"); });
+    step(4, [this] {
+        at_check(at_visible("setup:tab:android:android"),
+                 "the Android tab offers Install Android build tools next to the JDK and SDK status");
+    });
     step(2, [this, otherOs] { open_platform_settings(*settings_tab_for_platform(otherOs)); });
     step(4, [this, otherOs] {
-        at_check(at_visible("setup:tab:" + otherOs + ":players-" + otherOs), "the " + otherOs + " tab offers to download its player");
+        at_check(at_visible("setup:tab:" + otherOs + ":players-" + otherOs),
+                 "the " + otherOs + " tab offers to download its player");
         open_platform_settings(SettingsTab::Ios);
     });
     step(4, [this] {
-        at_check(at_visible("setup:tab:ios:cmake") && at_visible("setup:tab:ios:xcode"), "the iOS tab offers CMake and Xcode");
+        at_check(at_visible("setup:tab:ios:cmake") && at_visible("setup:tab:ios:xcode"),
+                 "the iOS tab offers CMake and Xcode");
     });
     snap("editor_setup_ios_tab.png");
     step(2, [this] {

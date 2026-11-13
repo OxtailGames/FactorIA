@@ -51,9 +51,7 @@ struct LogCapture {
     }
 };
 
-Json scene_with(const Json& entities) {
-    return Json::object({{"format", "factoria.scene/1"}, {"entities", entities}});
-}
+Json scene_with(const Json& entities) { return Json::object({{"format", "factoria.scene/1"}, {"entities", entities}}); }
 }  // namespace
 
 TEST_CASE("behaviour lifecycle order and props") {
@@ -71,7 +69,13 @@ export default class A extends Behaviour {
   onDestroy() { globalThis.__log.push("destroy"); }
 }
 )");
-    h.file("scenes/main.scene.json", scene_with(Json::array({Json::object({{"id", "p"}, {"components", Json::object({{"Script", Json::object({{"path", "scripts/a.js"}, {"props", Json::object({{"speed", 9}})}})}})}})})).dump());
+    h.file("scenes/main.scene.json",
+           scene_with(Json::array({Json::object(
+                          {{"id", "p"},
+                           {"components",
+                            Json::object({{"Script", Json::object({{"path", "scripts/a.js"},
+                                                                   {"props", Json::object({{"speed", 9}})}})}})}})}))
+               .dump());
     REQUIRE(h.start());
     CHECK(h.load_scene_now("scenes/main.scene.json").empty());
     h.step_frames(2);
@@ -91,7 +95,13 @@ TEST_CASE("component views, live vectors, enums, destroyed entities") {
     Entity e = h.w.create("Thing", "thing");
     h.w.add<Sprite>(e);
     h.w.add<RigidBody2D>(e);
-    auto ev = [&](const char* code) { auto r = h.scripts.eval(code); if (!r.ok()) { FAIL(r.error().to_string()); } return *r; };
+    auto ev = [&](const char* code) {
+        auto r = h.scripts.eval(code);
+        if (!r.ok()) {
+            FAIL(r.error().to_string());
+        }
+        return *r;
+    };
     ev("world.find('thing').position.x = 5; world.find('thing').get('Sprite').color.a = 0.5");
     CHECK(h.w.get<Transform>(e)->position.x == 5.0f);
     CHECK(h.w.get<Sprite>(e)->color.a == 0.5f);
@@ -115,7 +125,8 @@ TEST_CASE("component views, live vectors, enums, destroyed entities") {
     ev("world.find('thing').get('Camera').fov = 90");
     bad = h.scripts.eval("world.find('thing').get('Camera').fov = 500");
     CHECK(!bad.ok());
-    CHECK(bad.error().message.find("Camera.fov: Field 'fov': value 500 is outside the allowed range 1..179") != std::string::npos);
+    CHECK(bad.error().message.find("Camera.fov: Field 'fov': value 500 is outside the allowed range 1..179") !=
+          std::string::npos);
     CHECK(h.w.get<Camera>(e)->fov == 90.0f);
     // id goes through set_id
     ev("world.find('thing').id = 'renamed'");
@@ -208,9 +219,12 @@ export default class B extends Behaviour {
 }
 )");
     Json ents = Json::array();
-    ents.push_back(Json::parse(R"({"id":"ground","components":{"Transform":{"position":[0,-100,0]},"Collider2D":{"size":[1000,20]}}})"));
-    ents.push_back(Json::parse(R"({"id":"ball","components":{"Transform":{"position":[0,0,0]},"RigidBody2D":{},"Collider2D":{"size":[20,20]},"Script":{"path":"scripts/b.js"}}})"));
-    ents.push_back(Json::parse(R"({"id":"zone","components":{"Transform":{"position":[0,-60,0]},"Collider2D":{"size":[100,10],"isTrigger":true}}})"));
+    ents.push_back(Json::parse(
+        R"({"id":"ground","components":{"Transform":{"position":[0,-100,0]},"Collider2D":{"size":[1000,20]}}})"));
+    ents.push_back(Json::parse(
+        R"({"id":"ball","components":{"Transform":{"position":[0,0,0]},"RigidBody2D":{},"Collider2D":{"size":[20,20]},"Script":{"path":"scripts/b.js"}}})"));
+    ents.push_back(Json::parse(
+        R"({"id":"zone","components":{"Transform":{"position":[0,-60,0]},"Collider2D":{"size":[100,10],"isTrigger":true}}})"));
     h.file("scenes/main.scene.json", scene_with(ents).dump());
     REQUIRE(h.start());
     REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
@@ -239,8 +253,10 @@ export default class B extends Behaviour {
 
 TEST_CASE("errors are recorded once, runaway scripts are stopped") {
     TestHost h("errs");
-    h.file("scripts/e.js", "import { Behaviour } from 'factoria';\nexport default class E extends Behaviour {\n  onUpdate() { this.nothing.x = 1; }\n}\n");
-    h.file("scripts/loop.js", "import { Behaviour } from 'factoria';\nexport default class L extends Behaviour {\n  onUpdate() { while (true) {} }\n}\n");
+    h.file("scripts/e.js", "import { Behaviour } from 'factoria';\nexport default class E extends Behaviour {\n  "
+                           "onUpdate() { this.nothing.x = 1; }\n}\n");
+    h.file("scripts/loop.js", "import { Behaviour } from 'factoria';\nexport default class L extends Behaviour {\n  "
+                              "onUpdate() { while (true) {} }\n}\n");
     Json ents = Json::array();
     ents.push_back(Json::parse(R"({"id":"a","components":{"Script":{"path":"scripts/e.js"}}})"));
     ents.push_back(Json::parse(R"({"id":"b","components":{"Script":{"path":"scripts/loop.js"}}})"));
@@ -250,20 +266,33 @@ TEST_CASE("errors are recorded once, runaway scripts are stopped") {
     h.step_frames(3);
     int tooLong = 0, typeErr = 0;
     for (auto& e : h.scripts.errors()) {
-        if (e.message.find("took too long") != std::string::npos) { ++tooLong; CHECK(e.file == "scripts/loop.js"); }
-        if (e.message.find("TypeError") != std::string::npos) { ++typeErr; CHECK(e.file == "scripts/e.js"); CHECK(e.line == 3); CHECK(e.entityId == "a"); }
+        if (e.message.find("took too long") != std::string::npos) {
+            ++tooLong;
+            CHECK(e.file == "scripts/loop.js");
+        }
+        if (e.message.find("TypeError") != std::string::npos) {
+            ++typeErr;
+            CHECK(e.file == "scripts/e.js");
+            CHECK(e.line == 3);
+            CHECK(e.entityId == "a");
+        }
     }
     CHECK(tooLong == 1);
     CHECK(typeErr == 1);
 }
 
-TEST_CASE("JS tools: `capabilities` is declared, defaults follow readOnly, a typo is a script error with a suggestion") {
+TEST_CASE(
+    "JS tools: `capabilities` is declared, defaults follow readOnly, a typo is a script error with a suggestion") {
     TestHost h("toolcaps");
-    h.file("tools/mem.js", "export default { name: 'mem', summary: 's', capabilities: ['read', 'state'], run() { return 1; } };");
-    h.file("tools/net.js", "export default { name: 'net', summary: 's', capabilities: ['read', 'network'], run() { return 1; } };");
+    h.file("tools/mem.js",
+           "export default { name: 'mem', summary: 's', capabilities: ['read', 'state'], run() { return 1; } };");
+    h.file("tools/net.js",
+           "export default { name: 'net', summary: 's', capabilities: ['read', 'network'], run() { return 1; } };");
     h.file("tools/ro.js", "export default { name: 'ro', summary: 's', readOnly: true, run() { return 1; } };");
     h.file("tools/plain.js", "export default { name: 'plain', summary: 's', run() { return 1; } };");
-    h.file("tools/typo.js", "export default { name: 'typo', summary: 's', capabilities: ['read', 'writeProjct'], run() { return 1; } };");
+    h.file(
+        "tools/typo.js",
+        "export default { name: 'typo', summary: 's', capabilities: ['read', 'writeProjct'], run() { return 1; } };");
     REQUIRE(h.start());
     const CommandInfo* mem = h.cmds.info("project.mem");
     REQUIRE(mem != nullptr);
@@ -273,7 +302,8 @@ TEST_CASE("JS tools: `capabilities` is declared, defaults follow readOnly, a typ
     CHECK(h.cmds.info("project.net")->capabilities == CapabilitySet{Capability::Read, Capability::Network});
     CHECK(h.cmds.info("project.ro")->capabilities == CapabilitySet{Capability::Read});
     CHECK_FALSE(h.cmds.info("project.ro")->capabilitiesDeclared);
-    CHECK(h.cmds.info("project.plain")->capabilities == CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject});
+    CHECK(h.cmds.info("project.plain")->capabilities ==
+          CapabilitySet{Capability::Read, Capability::State, Capability::WriteProject});
     // A tool that needs network is refused to a game script's caller; the in-memory one is not.
     {
         CommandCapabilityScope scope(capability_sets::game_player());
@@ -284,19 +314,27 @@ TEST_CASE("JS tools: `capabilities` is declared, defaults follow readOnly, a typ
     CHECK_FALSE(h.cmds.has("project.typo"));
     bool taught = false;
     for (auto& e : h.scripts.errors())
-        if (e.file == "tools/typo.js" && e.message.find("/capabilities/1") != std::string::npos && e.message.find("writeProject") != std::string::npos) taught = true;
+        if (e.file == "tools/typo.js" && e.message.find("/capabilities/1") != std::string::npos &&
+            e.message.find("writeProject") != std::string::npos)
+            taught = true;
     CHECK(taught);
 }
 
 TEST_CASE("JS tools, hot reload, rng determinism, eval, runner failures") {
     TestHost h("tools");
-    h.cmds.add({"project.test", "builtin", "", Json::object({{"type", "object"}, {"properties", Json::object()}}), true, "project"},
+    h.cmds.add({"project.test", "builtin", "", Json::object({{"type", "object"}, {"properties", Json::object()}}), true,
+                "project"},
                [](const Json&) { return Json::object(); });
-    h.file("tools/hello.js", "export default { name: 'hello', summary: 's', input: {type:'object', properties:{n:{type:'integer', default: 2}}}, run({n}) { return { twice: n * 2 }; } };");
+    h.file("tools/hello.js", "export default { name: 'hello', summary: 's', input: {type:'object', "
+                             "properties:{n:{type:'integer', default: 2}}}, run({n}) { return { twice: n * 2 }; } };");
     h.file("tools/test.js", "export default { name: 'test', summary: 's', run() { return 1; } };");
-    h.file("scripts/c.js", "import { Behaviour } from 'factoria';\nexport default class C extends Behaviour { v = 1; onStart() { globalThis.V = this.v; } }\n");
-    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"c","components":{"Script":{"path":"scripts/c.js"}}})")})).dump());
-    h.file("tests/t.test.js", "import { test, expect } from 'factoria:test';\ntest('ok', () => { expect(1).toBe(1); });\ntest('bad', () => {\n  expect(2).toBe(3);\n});\ntest.skip('s', () => {});\n");
+    h.file("scripts/c.js", "import { Behaviour } from 'factoria';\nexport default class C extends Behaviour { v = 1; "
+                           "onStart() { globalThis.V = this.v; } }\n");
+    h.file(
+        "scenes/main.scene.json",
+        scene_with(Json::array({Json::parse(R"({"id":"c","components":{"Script":{"path":"scripts/c.js"}}})")})).dump());
+    h.file("tests/t.test.js", "import { test, expect } from 'factoria:test';\ntest('ok', () => { expect(1).toBe(1); "
+                              "});\ntest('bad', () => {\n  expect(2).toBe(3);\n});\ntest.skip('s', () => {});\n");
     int notified = 0;
     h.scripts.set_tools_changed_callback([&] { ++notified; });
     REQUIRE(h.start());
@@ -305,7 +343,8 @@ TEST_CASE("JS tools, hot reload, rng determinism, eval, runner failures") {
     CHECK(r.result["twice"] == 4);
     CHECK(h.cmds.info("project.test")->summary == "builtin");  // builtin not replaced
     bool collided = false;
-    for (auto& e : h.scripts.errors()) if (e.message.find("collides") != std::string::npos) collided = true;
+    for (auto& e : h.scripts.errors())
+        if (e.message.find("collides") != std::string::npos) collided = true;
     CHECK(collided);
     h.file("tools/hello.js", "export default { name: 'hello', summary: 's', run() { return { v: 'new' }; } };");
     h.scripts.reload_module("tools/hello.js");
@@ -314,7 +353,8 @@ TEST_CASE("JS tools, hot reload, rng determinism, eval, runner failures") {
     h.load_scene_now("scenes/main.scene.json");
     h.step_frames(1);
     CHECK(h.scripts.eval("V")->get<int>() == 1);
-    h.file("scripts/c.js", "import { Behaviour } from 'factoria';\nexport default class C extends Behaviour { v = 5; onStart() { globalThis.V = this.v; } }\n");
+    h.file("scripts/c.js", "import { Behaviour } from 'factoria';\nexport default class C extends Behaviour { v = 5; "
+                           "onStart() { globalThis.V = this.v; } }\n");
     h.scripts.reload_module("scripts/c.js");
     CHECK(h.scripts.eval("V")->get<int>() == 5);
     // runner
@@ -381,7 +421,8 @@ export default class Foo extends Behaviour {
 
 TEST_CASE("vectors: arrays, plain objects and Vec2/Vec3 are accepted everywhere") {
     TestHost h("vecs");
-    h.file("prefabs/thing.prefab.json", R"({"format":"factoria.prefab/1","entity":{"name":"Thing","components":{"Transform":{}}}})");
+    h.file("prefabs/thing.prefab.json",
+           R"({"format":"factoria.prefab/1","entity":{"name":"Thing","components":{"Transform":{}}}})");
     REQUIRE(h.start());
     ev_ok(h, "world.spawn({id:'a', components:{Transform:{position:[3,4]}}})");
     ev_ok(h, "world.spawn({id:'b', components:{Transform:{position:vec2(5,6)}}})");
@@ -416,8 +457,10 @@ TEST_CASE("vectors: arrays, plain objects and Vec2/Vec3 are accepted everywhere"
     CHECK(ev_ok(h, "physics.raycast({x:0,y:0}, vec2(0,-300))?.entity.id") == "wall");
     CHECK(ev_ok(h, "physics.overlapCircle([0, -100], 5).length") == 1);
     CHECK(ev_ok(h, "physics.overlapBox([-10, -110, 20, 20]).length") == 1);
-    ev_ok(h, "camera.worldToScreen([0, 0]); camera.screenToWorld([100, 100]); debug.line([0,0],{x:1,y:1}); debug.circle([0,0],3); debug.rect([0,0,1,1]); debug.text([1,1],'x')");
-    ev_ok(h, "world.spawn({id:'rb', components:{RigidBody2D:{}}}); physics.setVelocity(world.find('rb'), [3, 4]); physics.applyImpulse(world.find('rb'), {x:1,y:0})");
+    ev_ok(h, "camera.worldToScreen([0, 0]); camera.screenToWorld([100, 100]); debug.line([0,0],{x:1,y:1}); "
+             "debug.circle([0,0],3); debug.rect([0,0,1,1]); debug.text([1,1],'x')");
+    ev_ok(h, "world.spawn({id:'rb', components:{RigidBody2D:{}}}); physics.setVelocity(world.find('rb'), [3, 4]); "
+             "physics.applyImpulse(world.find('rb'), {x:1,y:0})");
     CHECK(h.w.get<RigidBody2D>(h.w.find("rb"))->velocity.y == 4.0f);
     // bad input throws an Error naming the accepted forms
     std::string m = ev_err(h, "physics.raycast('x', [0, 0])");
@@ -433,8 +476,13 @@ TEST_CASE("vectors: arrays, plain objects and Vec2/Vec3 are accepted everywhere"
 TEST_CASE("behaviours exist synchronously after spawn, spawnPrefab and scene load") {
     TestHost h("syncbeh");
     h.file("scripts/foo.js", kBeh);
-    h.file("prefabs/foo.prefab.json", R"({"format":"factoria.prefab/1","entity":{"name":"Foo","components":{"Script":{"path":"scripts/foo.js","props":{"speed":2,"tag":"prefab"}}}}})");
-    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"s","components":{"Script":{"path":"scripts/foo.js","props":{"speed":7}}}})")})).dump());
+    h.file(
+        "prefabs/foo.prefab.json",
+        R"({"format":"factoria.prefab/1","entity":{"name":"Foo","components":{"Script":{"path":"scripts/foo.js","props":{"speed":2,"tag":"prefab"}}}}})");
+    h.file("scenes/main.scene.json",
+           scene_with(Json::array({Json::parse(
+                          R"({"id":"s","components":{"Script":{"path":"scripts/foo.js","props":{"speed":7}}}})")}))
+               .dump());
     REQUIRE(h.start());
     REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
     CHECK(ev_ok(h, "world.find('s').behaviour.speed") == 7);
@@ -444,7 +492,8 @@ TEST_CASE("behaviours exist synchronously after spawn, spawnPrefab and scene loa
     ev_ok(h, "globalThis.p = world.spawnPrefab('prefabs/foo.prefab.json', {props: {speed: 5}})");
     CHECK(ev_ok(h, "p.behaviour.speed") == 5);
     CHECK(ev_ok(h, "p.behaviour.tag") == "prefab");  // prefab props kept, merged with options.props
-    ev_ok(h, "world.spawnPrefab('prefabs/foo.prefab.json', {overrides: {components: {Script: {props: {speed: 9}}}}}).id");
+    ev_ok(h,
+          "world.spawnPrefab('prefabs/foo.prefab.json', {overrides: {components: {Script: {props: {speed: 9}}}}}).id");
     h.step_frames(1);
     std::string log = ev_ok(h, "globalThis.__ev.join(',')").get<std::string>();
     CHECK(log.find("start:7") != std::string::npos);
@@ -453,7 +502,8 @@ TEST_CASE("behaviours exist synchronously after spawn, spawnPrefab and scene loa
     CHECK(log.find("start:7,") < log.find("update"));
     CHECK(h.scripts.errors().empty());
     // entity.add("Script") constructs too
-    ev_ok(h, "const q = world.spawn({id:'q'}); q.add('Script', {path:'scripts/foo.js', props:{speed:11}}); globalThis.q = q");
+    ev_ok(h, "const q = world.spawn({id:'q'}); q.add('Script', {path:'scripts/foo.js', props:{speed:11}}); "
+             "globalThis.q = q");
     CHECK(ev_ok(h, "q.behaviour.speed") == 11);
 }
 
@@ -463,13 +513,14 @@ TEST_CASE("glob import of JSON data: sorted, keyed by file name, hot reload, tea
     h.file("data/t/a.json", "{\"n\": 1}");
     h.file("data/t/c.txt", "ignored");
     h.file("data/t/sub/d.json", "{\"n\": 4}");
-    h.file("scripts/main.js",
-           "import { Behaviour } from 'factoria';\nimport tables from '../data/t/*.json';\n"
-           "globalThis.G = [Object.keys(tables), Object.values(tables).map((t) => t.n)];\n"
-           "export default class M extends Behaviour {}\n");
+    h.file("scripts/main.js", "import { Behaviour } from 'factoria';\nimport tables from '../data/t/*.json';\n"
+                              "globalThis.G = [Object.keys(tables), Object.values(tables).map((t) => t.n)];\n"
+                              "export default class M extends Behaviour {}\n");
     h.file("scripts/bad1.js", "import x from '../data/*/a.json';\nexport default x;\n");
     h.file("scripts/bad2.js", "import x from '../data/t/*.txt';\nexport default x;\n");
-    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"m","components":{"Script":{"path":"scripts/main.js"}}})")})).dump());
+    h.file("scenes/main.scene.json",
+           scene_with(Json::array({Json::parse(R"({"id":"m","components":{"Script":{"path":"scripts/main.js"}}})")}))
+               .dump());
     REQUIRE(h.start());
     REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
     CHECK(h.scripts.errors().empty());
@@ -488,14 +539,20 @@ TEST_CASE("glob import of JSON data: sorted, keyed by file name, hot reload, tea
 TEST_CASE("relative imports, ../ and JSON modules") {
     TestHost h("imports");
     h.file("lib/util.js", "export const twice = (n) => n * 2;\n");
-    h.file("scripts/sub/helper.js", "import { twice } from '../../lib/util.js';\nimport data from './data.json';\nimport sib from '../sibling.js';\nexport const v = twice(data.n) + sib;\n");
+    h.file("scripts/sub/helper.js",
+           "import { twice } from '../../lib/util.js';\nimport data from './data.json';\nimport sib from "
+           "'../sibling.js';\nexport const v = twice(data.n) + sib;\n");
     h.file("scripts/sub/data.json", "{\"n\": 21}");
     h.file("scripts/sibling.js", "export default 100;\n");
-    h.file("scripts/main.js", "import { Behaviour } from 'factoria';\nimport { v } from './sub/helper.js';\nimport { twice } from '../lib/util.js';\nglobalThis.V = [v, twice(1)];\nexport default class M extends Behaviour {}\n");
+    h.file("scripts/main.js",
+           "import { Behaviour } from 'factoria';\nimport { v } from './sub/helper.js';\nimport { twice } from "
+           "'../lib/util.js';\nglobalThis.V = [v, twice(1)];\nexport default class M extends Behaviour {}\n");
     h.file("scripts/bad.js", "import x from '../../outside.js';\nexport default x;\n");
     h.file("scripts/badjson.json", "{ nope");
     h.file("scripts/usesbad.js", "import d from './badjson.json';\nexport default d;\n");
-    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"m","components":{"Script":{"path":"scripts/main.js"}}})")})).dump());
+    h.file("scenes/main.scene.json",
+           scene_with(Json::array({Json::parse(R"({"id":"m","components":{"Script":{"path":"scripts/main.js"}}})")}))
+               .dump());
     REQUIRE(h.start());
     CHECK(h.scripts.check_syntax("scripts/main.js").ok());  // "../" must not be rejected by the syntax check
     CHECK(h.scripts.check_syntax("scripts/sub/helper.js").ok());
@@ -513,7 +570,8 @@ TEST_CASE("relative imports, ../ and JSON modules") {
     auto bj = h.scripts.check_props("scripts/usesbad.js", Json::object({{"a", 1}}));
     REQUIRE(!bj.empty());
     CHECK(bj[0].find("badjson.json") != std::string::npos);
-    CHECK(bj[0].find("badjson.json:1:4: invalid JSON") != std::string::npos);  // the .json's own position, not the importer's
+    CHECK(bj[0].find("badjson.json:1:4: invalid JSON") !=
+          std::string::npos);  // the .json's own position, not the importer's
 
     // check_syntax blames the data file: its path, line and column, and a hint from the JSON parser.
     std::string broken;
@@ -553,16 +611,23 @@ TEST_CASE("rng.seed reseeds the world rng deterministically") {
 TEST_CASE("tests: fresh modules, empty memory storage and session per test file; real save untouched") {
     TestHost h("isolation");
     h.file("scripts/state.js", "export const state = { n: 0 };\n");
-    h.file("tests/a.test.js", "import { test, expect } from 'factoria:test';\nimport { storage, session } from 'factoria';\nimport { state } from '../scripts/state.js';\n"
-                              "test('first', () => { expect(state.n).toBe(0); state.n = 5; session.score = 9; expect(storage.get('k')).toBeUndefined(); storage.set('k', 1); });\n"
-                              "test('second sees the same file state', () => { expect(state.n).toBe(5); expect(storage.get('k')).toBe(1); });\n");
-    h.file("tests/b.test.js", "import { test, expect } from 'factoria:test';\nimport { storage, session } from 'factoria';\nimport { state } from '../scripts/state.js';\n"
+    h.file("tests/a.test.js", "import { test, expect } from 'factoria:test';\nimport { storage, session } from "
+                              "'factoria';\nimport { state } from '../scripts/state.js';\n"
+                              "test('first', () => { expect(state.n).toBe(0); state.n = 5; session.score = 9; "
+                              "expect(storage.get('k')).toBeUndefined(); storage.set('k', 1); });\n"
+                              "test('second sees the same file state', () => { expect(state.n).toBe(5); "
+                              "expect(storage.get('k')).toBe(1); });\n");
+    h.file("tests/b.test.js", "import { test, expect } from 'factoria:test';\nimport { storage, session } from "
+                              "'factoria';\nimport { state } from '../scripts/state.js';\n"
                               "test('fresh module instance', () => { expect(state.n).toBe(0); });\n"
-                              "test('fresh storage and session', () => { expect(storage.get('k')).toBeUndefined(); expect(session.score).toBeUndefined(); });\n");
+                              "test('fresh storage and session', () => { expect(storage.get('k')).toBeUndefined(); "
+                              "expect(session.score).toBeUndefined(); });\n");
     // a pre-existing real save must be neither read nor modified
     std::filesystem::create_directories(h.root / "save");
     std::ofstream(h.root / "save" / "storage.json") << R"({"real": 1})";
-    h.file("tests/c.test.js", "import { test, expect } from 'factoria:test';\nimport { storage } from 'factoria';\ntest('save file is not visible', () => { expect(storage.get('real')).toBeUndefined(); storage.set('leak', 1); });\n");
+    h.file("tests/c.test.js",
+           "import { test, expect } from 'factoria:test';\nimport { storage } from 'factoria';\ntest('save file is not "
+           "visible', () => { expect(storage.get('real')).toBeUndefined(); storage.set('leak', 1); });\n");
     REQUIRE(h.start());
     TestReport rep = h.scripts.run_tests({"tests/a.test.js", "tests/b.test.js", "tests/c.test.js"});
     MESSAGE(rep.summary());
@@ -616,10 +681,13 @@ TEST_CASE("tests: game.setStorageText drives the damaged-save path") {
     h.file("tests/save.test.js",
            "import { test, expect, game } from 'factoria:test';\nimport { storage } from 'factoria';\n"
            "test('fresh storage is not corrupt', () => { expect(storage.corrupt).toBe(false); });\n"
-           "test('damaged text', () => { game.setStorageText('{\"slot1\": {'); expect(storage.corrupt).toBe(true); expect(storage.keys().length).toBe(0); "
+           "test('damaged text', () => { game.setStorageText('{\"slot1\": {'); expect(storage.corrupt).toBe(true); "
+           "expect(storage.keys().length).toBe(0); "
            "storage.set('a', 1); expect(storage.get('a')).toBe(1); });\n"
-           "test('valid text', () => { game.setStorageText('{\"best\": 7}'); expect(storage.corrupt).toBe(false); expect(storage.get('best')).toBe(7); });\n"
-           "test('null empties it', () => { game.setStorageText(null); expect(storage.get('best')).toBeUndefined(); });\n");
+           "test('valid text', () => { game.setStorageText('{\"best\": 7}'); expect(storage.corrupt).toBe(false); "
+           "expect(storage.get('best')).toBe(7); });\n"
+           "test('null empties it', () => { game.setStorageText(null); expect(storage.get('best')).toBeUndefined(); "
+           "});\n");
     std::filesystem::create_directories(h.root / "save");
     std::ofstream(h.root / "save" / "storage.json") << R"({"real": 1})";
     REQUIRE(h.start());
@@ -685,7 +753,8 @@ TEST_CASE("storage: an old storage.json is split into key files and set aside") 
     TestHost h("splitsave");
     const auto save = h.root / "save";
     std::filesystem::create_directories(save);
-    std::ofstream(save / "storage.json", std::ios::binary) << R"({"coins": 12, "slot1": {"lvl": 3}, "factoria.remoteConfig": {"values": {}}})";
+    std::ofstream(save / "storage.json", std::ios::binary)
+        << R"({"coins": 12, "slot1": {"lvl": 3}, "factoria.remoteConfig": {"values": {}}})";
     REQUIRE(h.start());
     CHECK(ev_ok(h, "storage.get('coins')") == 12);
     CHECK(ev_ok(h, "storage.get('slot1').lvl") == 3);
@@ -720,7 +789,8 @@ TEST_CASE("storage: a damaged key file is kept and the other keys load; a leftov
 TEST_CASE("storage: a compressed value round-trips and takes fewer bytes") {
     TestHost h("zstore");
     REQUIRE(h.start());
-    const std::string make = "const big = { town: Array.from({length: 400}, (_, i) => ({ id: 'villager_' + i, job: 'baker', hp: 10, pos: [i % 20, 3] })) };";
+    const std::string make = "const big = { town: Array.from({length: 400}, (_, i) => ({ id: 'villager_' + i, job: "
+                             "'baker', hp: 10, pos: [i % 20, 3] })) };";
     ev_ok(h, (make + " storage.set('plain', big); storage.set('packed', big, {compress: true});").c_str());
     const double plain = ev_ok(h, "storage.size('plain')").get<double>();
     const double packed = ev_ok(h, "storage.size('packed')").get<double>();
@@ -773,8 +843,12 @@ TEST_CASE("storage: setAsync writes the file off the frame and resolves") {
 
 TEST_CASE("session persists across scene loads; module state too") {
     TestHost h("session");
-    h.file("scripts/s.js", "import { Behaviour, session } from 'factoria';\nlet loads = 0;\nexport default class S extends Behaviour { constructor() { super(); loads++; session.lives = (session.lives ?? 3) - 1; session.loads = loads; } }\n");
-    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"s","components":{"Script":{"path":"scripts/s.js"}}})")})).dump());
+    h.file("scripts/s.js",
+           "import { Behaviour, session } from 'factoria';\nlet loads = 0;\nexport default class S extends Behaviour { "
+           "constructor() { super(); loads++; session.lives = (session.lives ?? 3) - 1; session.loads = loads; } }\n");
+    h.file(
+        "scenes/main.scene.json",
+        scene_with(Json::array({Json::parse(R"({"id":"s","components":{"Script":{"path":"scripts/s.js"}}})")})).dump());
     REQUIRE(h.start());
     REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
     REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
@@ -795,9 +869,11 @@ TEST_CASE("destroyed entities free their ids for JS spawn in the same frame") {
 
 TEST_CASE("tools: ToolError carries hint and data, other errors are 'failed'") {
     TestHost h("toolerr");
-    h.file("tools/chk.js", "import { ToolError } from 'factoria';\nexport default { name: 'chk', summary: 's', input: { type: 'object', properties: { mode: { type: 'string' } } }, run({mode}) {\n"
-                           " if (mode === 'tool') throw new ToolError('bad level', 'edit levels.json', { errors: [1, 2] });\n"
-                           " if (mode === 'plain') throw new Error('boom');\n return { ok: true }; } };\n");
+    h.file("tools/chk.js",
+           "import { ToolError } from 'factoria';\nexport default { name: 'chk', summary: 's', input: { type: "
+           "'object', properties: { mode: { type: 'string' } } }, run({mode}) {\n"
+           " if (mode === 'tool') throw new ToolError('bad level', 'edit levels.json', { errors: [1, 2] });\n"
+           " if (mode === 'plain') throw new Error('boom');\n return { ok: true }; } };\n");
     REQUIRE(h.start());
     auto r = h.cmds.call("project.chk", Json::object({{"mode", "tool"}}));
     REQUIRE(!r.ok);
@@ -806,11 +882,13 @@ TEST_CASE("tools: ToolError carries hint and data, other errors are 'failed'") {
     CHECK(r.error["hint"] == "edit levels.json");
     CHECK(h.scripts.errors().empty());  // an expected failure is not a script bug
     // fa.call rethrows it in a script with code, hint AND data (a plain failure has no data)
-    Json caught = ev_ok(h, "(() => { try { fa.call('project.chk', { mode: 'tool' }); } catch (e) { return { code: e.code, hint: e.hint, data: e.data }; } })()");
+    Json caught = ev_ok(h, "(() => { try { fa.call('project.chk', { mode: 'tool' }); } catch (e) { return { code: "
+                           "e.code, hint: e.hint, data: e.data }; } })()");
     CHECK(caught["code"] == "tool_error");
     CHECK(caught["hint"] == "edit levels.json");
     CHECK(caught["data"]["errors"] == Json::array({1, 2}));
-    caught = ev_ok(h, "(() => { try { fa.call('project.chk', { mode: 'plain' }); } catch (e) { return { code: e.code, hasData: 'data' in e }; } })()");
+    caught = ev_ok(h, "(() => { try { fa.call('project.chk', { mode: 'plain' }); } catch (e) { return { code: e.code, "
+                      "hasData: 'data' in e }; } })()");
     CHECK(caught["code"] == "failed");
     CHECK(caught["hasData"] == false);
     r = h.cmds.call("project.chk", Json::object({{"mode", "plain"}}));
@@ -830,14 +908,18 @@ TEST_CASE("particles, ui.measureText and raycast options without a renderer") {
     Json wrapped = ev_ok(h, "ui.measureText('abcdefgh', { fontSize: 10, maxWidth: 30 })");
     CHECK(wrapped["height"].get<double>() > m["height"].get<double>());
     // markup: tags take no room, an icon counts as two characters, bold is the same without a renderer
-    CHECK(ev_ok(h, "ui.measureText('[b]ab[/b][c:red]cd[/c]', { fontSize: 10, markup: true }).width").get<double>() == doctest::Approx(24.0));
-    CHECK(ev_ok(h, "ui.measureText('a[icon:x]', { fontSize: 10, markup: true }).width").get<double>() == doctest::Approx(18.0));
-    CHECK(ev_ok(h, "ui.measureText('[b]ab[/b]', { fontSize: 10 }).width").get<double>() > 24.0 * 1.5);  // markup off: they are characters
+    CHECK(ev_ok(h, "ui.measureText('[b]ab[/b][c:red]cd[/c]', { fontSize: 10, markup: true }).width").get<double>() ==
+          doctest::Approx(24.0));
+    CHECK(ev_ok(h, "ui.measureText('a[icon:x]', { fontSize: 10, markup: true }).width").get<double>() ==
+          doctest::Approx(18.0));
+    CHECK(ev_ok(h, "ui.measureText('[b]ab[/b]', { fontSize: 10 }).width").get<double>() >
+          24.0 * 1.5);  // markup off: they are characters
     CHECK(ev_ok(h, "ui.markupProblems('[b]x[/b] [c:red]y[/c]')").empty());
     CHECK(ev_ok(h, "ui.markupProblems('[oops] [b]x')").size() == 2);
     // raycast: the caster's own collider is skipped with `ignore`, and a ray starting inside a collider skips it
     ev_ok(h, "world.spawn({id:'ground', components:{Transform:{position:[0,-100]}, Collider2D:{size:[1000,20]}}})");
-    ev_ok(h, "world.spawn({id:'ball', components:{Transform:{position:[0,0]}, RigidBody2D:{type:'static'}, Collider2D:{size:[20,20]}}})");
+    ev_ok(h, "world.spawn({id:'ball', components:{Transform:{position:[0,0]}, RigidBody2D:{type:'static'}, "
+             "Collider2D:{size:[20,20]}}})");
     h.step_frames(1);
     CHECK(ev_ok(h, "physics.raycast([0, 0], [0, -300], { ignore: world.find('ball') }).entity.id") == "ground");
     CHECK(ev_ok(h, "physics.raycast([0, 0], [0, -300], { ignore: 'ball' }).entity.id") == "ground");
@@ -846,7 +928,8 @@ TEST_CASE("particles, ui.measureText and raycast options without a renderer") {
     CHECK(ev_ok(h, "world.find('ball').isGrounded()") == false);
 }
 
-TEST_CASE("ui.textScale: remembered, range-checked with a teaching error, scales screen measurements and not world ones") {
+TEST_CASE(
+    "ui.textScale: remembered, range-checked with a teaching error, scales screen measurements and not world ones") {
     TestHost h("textscale");
     REQUIRE(h.start());
     CHECK(ev_ok(h, "ui.textScale").get<double>() == doctest::Approx(1.0));
@@ -854,10 +937,14 @@ TEST_CASE("ui.textScale: remembered, range-checked with a teaching error, scales
     CHECK(ev_ok(h, "ui.textScale").get<double>() == doctest::Approx(2.0));
     // no renderer here: the 0.6 em approximation follows the option for screen-space text only
     CHECK(ev_ok(h, "ui.measureText('abcd', { fontSize: 10 }).width").get<double>() == doctest::Approx(48.0));
-    CHECK(ev_ok(h, "ui.measureText('abcd', { fontSize: 10, space: 'screen' }).width").get<double>() == doctest::Approx(48.0));
-    CHECK(ev_ok(h, "ui.measureText('abcd', { fontSize: 10, space: 'world' }).width").get<double>() == doctest::Approx(24.0));
-    ev_ok(h, "world.spawn({id: 'wt', components: {Transform: {position: [0, 0]}, Text: {text: 'abcd', fontSize: 10}}})");
-    CHECK(ev_ok(h, "world.find('wt').bounds().w").get<double>() == doctest::Approx(24.0));  // world-space Text is never scaled
+    CHECK(ev_ok(h, "ui.measureText('abcd', { fontSize: 10, space: 'screen' }).width").get<double>() ==
+          doctest::Approx(48.0));
+    CHECK(ev_ok(h, "ui.measureText('abcd', { fontSize: 10, space: 'world' }).width").get<double>() ==
+          doctest::Approx(24.0));
+    ev_ok(h,
+          "world.spawn({id: 'wt', components: {Transform: {position: [0, 0]}, Text: {text: 'abcd', fontSize: 10}}})");
+    CHECK(ev_ok(h, "world.find('wt').bounds().w").get<double>() ==
+          doctest::Approx(24.0));  // world-space Text is never scaled
     // a value outside 0.5 .. 3 throws, says what is accepted and what to do, and changes nothing
     for (const char* bad : {"ui.textScale = 5", "ui.textScale = 0.1", "ui.textScale = 'big'", "ui.textScale = NaN"}) {
         INFO(bad);
@@ -876,7 +963,8 @@ TEST_CASE("ui.textScale: remembered, range-checked with a teaching error, scales
 TEST_CASE("ui.textScale: every test file starts at 1, and the game's value comes back after the run") {
     TestHost h("textscaletests");
     h.file("tests/a.test.js", "import { test, expect } from 'factoria:test';\nimport { ui } from 'factoria';\n"
-                              "test('starts at 1, then changes', () => { expect(ui.textScale).toBe(1); ui.textScale = 2.5; expect(ui.textScale).toBe(2.5); });\n");
+                              "test('starts at 1, then changes', () => { expect(ui.textScale).toBe(1); ui.textScale = "
+                              "2.5; expect(ui.textScale).toBe(2.5); });\n");
     h.file("tests/b.test.js", "import { test, expect } from 'factoria:test';\nimport { ui } from 'factoria';\n"
                               "test('a fresh file starts at 1 again', () => { expect(ui.textScale).toBe(1); });\n");
     REQUIRE(h.start());
@@ -891,33 +979,51 @@ TEST_CASE("ui.textScale: every test file starts at 1, and the game's value comes
 TEST_CASE("physics.shapeCast sweeps a 2D shape, honours the raycast options and teaches on bad shapes") {
     TestHost h("shapecast");
     REQUIRE(h.start());
-    ev_ok(h, "world.spawn({id:'ground', components:{Transform:{position:[0,-100]}, Collider2D:{size:[1000,20]}}})");  // top at -90
-    ev_ok(h, "world.spawn({id:'ball', components:{Transform:{position:[0,0]}, RigidBody2D:{type:'static'}, Collider2D:{size:[20,20]}}})");
-    ev_ok(h, "world.spawn({id:'trig', components:{Transform:{position:[200,-60]}, Collider2D:{size:[20,20], isTrigger:true}}})");
+    ev_ok(
+        h,
+        "world.spawn({id:'ground', components:{Transform:{position:[0,-100]}, Collider2D:{size:[1000,20]}}})");  // top at -90
+    ev_ok(h, "world.spawn({id:'ball', components:{Transform:{position:[0,0]}, RigidBody2D:{type:'static'}, "
+             "Collider2D:{size:[20,20]}}})");
+    ev_ok(h, "world.spawn({id:'trig', components:{Transform:{position:[200,-60]}, Collider2D:{size:[20,20], "
+             "isTrigger:true}}})");
     h.step_frames(1);  // bodies are created on the first physics step
 
     // a circle and a box land on the ground: the result has the same shape as a raycast hit
     CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).entity.id") == "ground");
-    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).distance").get<double>() ==
-          doctest::Approx(182.0).epsilon(0.005));
-    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).point.y").get<double>() ==
-          doctest::Approx(-90.0).epsilon(0.01));
-    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).normal.y").get<double>() ==
-          doctest::Approx(1.0).epsilon(0.01));
-    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: vec2(16, 24) }, vec2(100, 100), {x: 100, y: -300}).distance")
-              .get<double>() == doctest::Approx(178.0).epsilon(0.005));  // half height 12
-    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'BOX', size: [16, 24] }, [100, 100], [100, -300]).entity.id") == "ground");
+    CHECK(
+        ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).distance").get<double>() ==
+        doctest::Approx(182.0).epsilon(0.005));
+    CHECK(
+        ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).point.y").get<double>() ==
+        doctest::Approx(-90.0).epsilon(0.01));
+    CHECK(
+        ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, -300]).normal.y").get<double>() ==
+        doctest::Approx(1.0).epsilon(0.01));
+    CHECK(
+        ev_ok(h, "physics.shapeCast({ shape: 'box', size: vec2(16, 24) }, vec2(100, 100), {x: 100, y: -300}).distance")
+            .get<double>() == doctest::Approx(178.0).epsilon(0.005));  // half height 12
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'BOX', size: [16, 24] }, [100, 100], [100, -300]).entity.id") ==
+          "ground");
     // nothing in the way
     CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, 50])").is_null());
     CHECK(ev_ok(h, "physics.shapeCast({ shape: 'circle', radius: 8 }, [100, 100], [100, 100])").is_null());
     // a collider overlapping the start is skipped (ball), the ground is hit; ignore and mask work as for raycast
     CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300]).entity.id") == "ground");
-    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300], { ignore: 'ball' }).entity.id") == "ground");
-    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300], { ignore: world.find('ground') })").is_null());
+    CHECK(
+        ev_ok(h,
+              "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300], { ignore: 'ball' }).entity.id") ==
+        "ground");
+    CHECK(
+        ev_ok(
+            h,
+            "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300], { ignore: world.find('ground') })")
+            .is_null());
     CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [0, 0], [0, -300], { mask: 0 })").is_null());
     // triggers are skipped unless ignoreTriggers is false
-    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [200, 100], [200, -300]).entity.id") == "ground");
-    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [200, 100], [200, -300], { ignoreTriggers: false }).entity.id") == "trig");
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [200, 100], [200, -300]).entity.id") ==
+          "ground");
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [10, 10] }, [200, 100], [200, -300], { ignoreTriggers: "
+                   "false }).entity.id") == "trig");
 
     // 3D: nothing in the way is null
     CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, 5, 0])").is_null());
@@ -925,14 +1031,16 @@ TEST_CASE("physics.shapeCast sweeps a 2D shape, honours the raycast options and 
     // 3D hits: a sphere and a box land on a floor whose top is at y = 0.5
     ev_ok(h, "world.spawn({id:'floor3', components:{Transform:{position:[0,0,0]}, Collider3D:{size:[10,1,10]}}})");
     h.step_frames(1);
-    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, -5, 0]).entity.id") == "floor3");
-    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, -5, 0]).distance").get<double>() ==
-          doctest::Approx(9.0).epsilon(0.001));
-    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, -5, 0]).normal.y").get<double>() ==
-          doctest::Approx(1.0).epsilon(0.001));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, -5, 0]).entity.id") ==
+          "floor3");
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, -5, 0]).distance")
+              .get<double>() == doctest::Approx(9.0).epsilon(0.001));
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'sphere', radius: 0.5 }, [0, 10, 0], [0, -5, 0]).normal.y")
+              .get<double>() == doctest::Approx(1.0).epsilon(0.001));
     CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [1, 2, 1] }, vec3(0, 10, 0), vec3(0, -5, 0)).distance")
               .get<double>() == doctest::Approx(8.5).epsilon(0.001));
-    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [1, 2, 1] }, [0, 10, 0], [0, -5, 0], { ignore: 'floor3' })").is_null());
+    CHECK(ev_ok(h, "physics.shapeCast({ shape: 'box', size: [1, 2, 1] }, [0, 10, 0], [0, -5, 0], { ignore: 'floor3' })")
+              .is_null());
 
     // bad shapes throw an Error that says what is wrong and how to fix it
     auto has = [](const std::string& s, const char* part) { return s.find(part) != std::string::npos; };
@@ -957,7 +1065,8 @@ TEST_CASE("physics.shapeCast sweeps a 2D shape, honours the raycast options and 
     m = ev_err(h, "physics.shapeCast('box', [0, 0], [1, 1])");
     CHECK(has(m, "must be an object"));
     CHECK(has(ev_err(h, "physics.shapeCast({ shape: 'circle', radius: 1 }, 'x', [0, 0])"), "[x, y"));
-    CHECK(ev_err(h, "physics.shapeCast({ shape: 'circle', radius: 0 }, [0, 0], [1, 1])").find("positive") != std::string::npos);
+    CHECK(ev_err(h, "physics.shapeCast({ shape: 'circle', radius: 0 }, [0, 0], [1, 1])").find("positive") !=
+          std::string::npos);
 }
 
 TEST_CASE("physics.moveCharacter walks a CharacterController3D, reads its fields and teaches when it is missing") {
@@ -965,13 +1074,17 @@ TEST_CASE("physics.moveCharacter walks a CharacterController3D, reads its fields
     REQUIRE(h.start());
     ev_ok(h, "world.spawn({id:'floor', components:{Transform:{position:[0,-0.5,0]}, Collider3D:{size:[40,1,40]}}})");
     ev_ok(h, "world.spawn({id:'wall', components:{Transform:{position:[3,2,0]}, Collider3D:{size:[1,4,20]}}})");
-    ev_ok(h, "world.spawn({id:'hero', components:{Transform:{position:[0,1,0]}, CharacterController3D:{radius:0.4, height:1.8}}})");
-    ev_ok(h, "world.spawn({id:'rod', components:{Transform:{position:[0,5,0]}, Collider3D:{shape:'capsule', radius:0.2, height:1}, RigidBody3D:{}}})");
+    ev_ok(h, "world.spawn({id:'hero', components:{Transform:{position:[0,1,0]}, CharacterController3D:{radius:0.4, "
+             "height:1.8}}})");
+    ev_ok(h, "world.spawn({id:'rod', components:{Transform:{position:[0,5,0]}, Collider3D:{shape:'capsule', "
+             "radius:0.2, height:1}, RigidBody3D:{}}})");
     h.step_frames(1);
     CHECK(ev_ok(h, "physics.moveCharacter(world.find('hero'), [0, -0.5, 0]).isGrounded") == true);
     CHECK(ev_ok(h, "physics.moveCharacter(world.find('hero'), [0, -0.5, 0]).ground.id") == "floor");
-    CHECK(ev_ok(h, "physics.moveCharacter(world.find('hero'), [0, -0.5, 0]).groundNormal.y").get<double>() == doctest::Approx(1.0).epsilon(0.01));
-    CHECK(ev_ok(h, "physics.moveCharacter('hero', [1, 0, 0]).moved.x").get<double>() == doctest::Approx(1.0).epsilon(0.01));
+    CHECK(ev_ok(h, "physics.moveCharacter(world.find('hero'), [0, -0.5, 0]).groundNormal.y").get<double>() ==
+          doctest::Approx(1.0).epsilon(0.01));
+    CHECK(ev_ok(h, "physics.moveCharacter('hero', [1, 0, 0]).moved.x").get<double>() ==
+          doctest::Approx(1.0).epsilon(0.01));
     CHECK(ev_ok(h, "world.find('hero').get('CharacterController3D').isGrounded") == true);
     CHECK(ev_ok(h, "physics.moveCharacter('hero', [5, 0, 0]).hitWall") == true);  // the wall stops it
     CHECK(ev_ok(h, "world.find('hero').position.x").get<double>() < 2.2);
@@ -983,7 +1096,8 @@ TEST_CASE("physics.moveCharacter walks a CharacterController3D, reads its fields
     CHECK(ev_ok(h, "world.find('rod').get('Collider3D').shape") == "capsule");
     CHECK(ev_ok(h, "world.find('rod').get('Collider3D').height").get<double>() == doctest::Approx(1.0));
     // a joint names its partner by entity id and reports its angle
-    ev_ok(h, "world.spawn({id:'hinge', components:{Transform:{position:[0,8,0]}, Collider3D:{size:[1,1,1]}, RigidBody3D:{}, Joint3D:{type:'hinge', connected:'floor', autoAnchor:true}}})");
+    ev_ok(h, "world.spawn({id:'hinge', components:{Transform:{position:[0,8,0]}, Collider3D:{size:[1,1,1]}, "
+             "RigidBody3D:{}, Joint3D:{type:'hinge', connected:'floor', autoAnchor:true}}})");
     h.step_frames(2);
     CHECK(ev_ok(h, "world.find('hinge').get('Joint3D').type") == "hinge");
     CHECK(ev_ok(h, "world.find('hinge').get('Joint3D').connected.id") == "floor");
@@ -994,7 +1108,8 @@ TEST_CASE("setting an entity's position from JS on a body that fell asleep telep
     TestHost h("sleepteleport");
     REQUIRE(h.start());
     ev_ok(h, "world.spawn({id:'ground', components:{Transform:{position:[0,-200]}, Collider2D:{size:[2000,40]}}})");
-    ev_ok(h, "world.spawn({id:'player', components:{Transform:{position:[0,-100]}, RigidBody2D:{}, Collider2D:{size:[32,32]}}})");
+    ev_ok(h, "world.spawn({id:'player', components:{Transform:{position:[0,-100]}, RigidBody2D:{}, "
+             "Collider2D:{size:[32,32]}}})");
     auto player_awake = [&] {  // Box2D's view of the body
         for (const Json& j : h.ph.debug_state(h.w))
             if (j.value("entity", std::string()) == "player") return j["awake"].get<bool>();
@@ -1009,10 +1124,11 @@ TEST_CASE("setting an entity's position from JS on a body that fell asleep telep
     // What a game does to respawn or nudge the player: write the entity's position.
     ev_ok(h, "const p = world.find('player'); p.position = [p.position.x, p.position.y + 28]");
     h.step_frames(1);
-    CHECK(player_awake());  // the write woke the body
+    CHECK(player_awake());                                          // the write woke the body
     CHECK(ev_ok(h, "world.find('player').isGrounded()") == false);  // no stale ground contact
     h.step_frames(90);
-    CHECK(ev_ok(h, "world.find('player').position.y").get<double>() == doctest::Approx(rest).epsilon(0.02));  // fell back
+    CHECK(ev_ok(h, "world.find('player').position.y").get<double>() ==
+          doctest::Approx(rest).epsilon(0.02));  // fell back
     CHECK(ev_ok(h, "world.find('player').isGrounded()") == true);
 
     // The same from a behaviour's onUpdate, as a respawn would: teleport a body that is asleep.
@@ -1022,7 +1138,8 @@ export default class Respawn extends Behaviour {
   onUpdate() { if (globalThis.__respawn) { globalThis.__respawn = false; this.entity.position = [300, 60]; } }
 }
 )");
-    ev_ok(h, "world.spawn({id:'p2', components:{Transform:{position:[300,-100]}, RigidBody2D:{}, Collider2D:{size:[32,32]}, Script:{path:'scripts/respawn.js'}}})");
+    ev_ok(h, "world.spawn({id:'p2', components:{Transform:{position:[300,-100]}, RigidBody2D:{}, "
+             "Collider2D:{size:[32,32]}, Script:{path:'scripts/respawn.js'}}})");
     auto p2_awake = [&] {
         for (const Json& j : h.ph.debug_state(h.w))
             if (j.value("entity", std::string()) == "p2") return j["awake"].get<bool>();
@@ -1104,12 +1221,24 @@ test("the first finger drives the mouse like a device, so game.touch needs no ga
     CHECK(rep.ok());
     // the default ScriptHost implementation reports "not supported"
     struct Bare : ScriptHost {
-        World w; Input in; Audio au; Physics ph; CommandRegistry c;
-        World& world() override { return w; } Input& input() override { return in; } Audio& audio() override { return au; }
-        Physics& physics() override { return ph; } Renderer* renderer() override { return nullptr; } CommandRegistry& commands() override { return c; }
-        Json project_settings() const override { return Json::object(); } double fixed_dt() const override { return 0.016; }
-        void request_scene_change(std::string_view) override {} void request_quit() override {} void step_frames(int) override {}
-        std::string load_scene_now(std::string_view) override { return ""; } bool screenshot(std::string_view, std::string*) override { return false; }
+        World w;
+        Input in;
+        Audio au;
+        Physics ph;
+        CommandRegistry c;
+        World& world() override { return w; }
+        Input& input() override { return in; }
+        Audio& audio() override { return au; }
+        Physics& physics() override { return ph; }
+        Renderer* renderer() override { return nullptr; }
+        CommandRegistry& commands() override { return c; }
+        Json project_settings() const override { return Json::object(); }
+        double fixed_dt() const override { return 0.016; }
+        void request_scene_change(std::string_view) override {}
+        void request_quit() override {}
+        void step_frames(int) override {}
+        std::string load_scene_now(std::string_view) override { return ""; }
+        bool screenshot(std::string_view, std::string*) override { return false; }
     } bare;
     CHECK(bare.load_scene_json_now(Json::object(), "x").find("not supported") != std::string::npos);
 }
@@ -1118,9 +1247,11 @@ TEST_CASE("typescript declarations cover the new APIs") {
     TestHost h("dts");
     REQUIRE(h.start());
     std::string dts = h.scripts.typescript_declarations();
-    for (const char* needle : {"export const session", "class ToolError extends Error", "seed(n: number): void", "burst(entity", "measureText(",
-                               "interface RaycastOptions", "ignore?:", "emitBurst(", "isTouching(", "loadJson(scene", "touchStart(", "SpawnOptions", "props?: Record<string, any>",
-                               "textureSize(path: string): { width: number; height: number }", "export const assets: AssetsAPI"}) {
+    for (const char* needle :
+         {"export const session", "class ToolError extends Error", "seed(n: number): void", "burst(entity",
+          "measureText(", "interface RaycastOptions", "ignore?:", "emitBurst(", "isTouching(", "loadJson(scene",
+          "touchStart(", "SpawnOptions", "props?: Record<string, any>",
+          "textureSize(path: string): { width: number; height: number }", "export const assets: AssetsAPI"}) {
         CAPTURE(needle);
         CHECK(dts.find(needle) != std::string::npos);
     }
@@ -1132,15 +1263,22 @@ TEST_CASE("unknown Script.props warn once naming the entity") {
     h.file("scripts/foo.js", kBeh);
     REQUIRE(h.start());
     LogCapture capture([](const LogEntry& e) { return e.level == LogLevel::Warn; });
-    ev_ok(h, "world.spawn({id:'bad_1', components:{Script:{path:'scripts/foo.js', props:{sped: 3}}}}); world.spawn({id:'bad_2', components:{Script:{path:'scripts/foo.js', props:{sped: 4}}}})");
+    ev_ok(h, "world.spawn({id:'bad_1', components:{Script:{path:'scripts/foo.js', props:{sped: 3}}}}); "
+             "world.spawn({id:'bad_2', components:{Script:{path:'scripts/foo.js', props:{sped: 4}}}})");
     const std::vector<std::string> msgs = capture.take();
     CHECK(ev_ok(h, "world.find('bad_1').behaviour.sped") == 3);
     int n = 0;
-    for (auto& m : msgs) if (m.find("sped") != std::string::npos) { ++n; CHECK(m.find("bad_1") != std::string::npos); CHECK(m.find("did you mean 'speed'") != std::string::npos); }
+    for (auto& m : msgs)
+        if (m.find("sped") != std::string::npos) {
+            ++n;
+            CHECK(m.find("bad_1") != std::string::npos);
+            CHECK(m.find("did you mean 'speed'") != std::string::npos);
+        }
     CHECK(n == 1);
 }
 
-TEST_CASE("behaviour methods that look like misspelled hooks warn once per class and method; helpers and hooks do not") {
+TEST_CASE(
+    "behaviour methods that look like misspelled hooks warn once per class and method; helpers and hooks do not") {
     TestHost h("hooktypos");
     h.file("scripts/probe.js", R"(
 import { Behaviour } from "factoria";
@@ -1173,9 +1311,11 @@ export default class Good extends Behaviour {
     h.step_frames(1);
     const std::vector<std::string> msgs = capture.take();
 
-    const std::pair<const char*, const char*> expected[] = {
-        {"'start()'", "'onStart()'"}, {"'update()'", "'onUpdate()'"}, {"'onupdate()'", "'onUpdate()'"},
-        {"'onStrat()'", "'onStart()'"}, {"'fixedUpdate()'", "'onFixedUpdate()'"}};
+    const std::pair<const char*, const char*> expected[] = {{"'start()'", "'onStart()'"},
+                                                            {"'update()'", "'onUpdate()'"},
+                                                            {"'onupdate()'", "'onUpdate()'"},
+                                                            {"'onStrat()'", "'onStart()'"},
+                                                            {"'fixedUpdate()'", "'onFixedUpdate()'"}};
     for (auto [method, hook] : expected) {
         CAPTURE(method);
         int n = 0;
@@ -1199,10 +1339,25 @@ namespace {
 std::string tiny_wav() {
     const std::uint32_t n = 4410;
     std::string b;
-    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff)); };
-    auto u16 = [&](std::uint16_t v) { b.push_back(char(v & 0xff)); b.push_back(char(v >> 8)); };
-    b += "RIFF"; u32(36 + n * 2); b += "WAVEfmt "; u32(16); u16(1); u16(1); u32(44100); u32(88200); u16(2); u16(16);
-    b += "data"; u32(n * 2);
+    auto u32 = [&](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) b.push_back(char((v >> (8 * i)) & 0xff));
+    };
+    auto u16 = [&](std::uint16_t v) {
+        b.push_back(char(v & 0xff));
+        b.push_back(char(v >> 8));
+    };
+    b += "RIFF";
+    u32(36 + n * 2);
+    b += "WAVEfmt ";
+    u32(16);
+    u16(1);
+    u16(1);
+    u32(44100);
+    u32(88200);
+    u16(2);
+    u16(16);
+    b += "data";
+    u32(n * 2);
     b.append(std::size_t(n) * 2, '\0');
     return b;
 }
@@ -1451,19 +1606,22 @@ TEST_CASE("rng.create: a seed gives a fixed sequence (mulberry32 is stable acros
     REQUIRE(h.start());
     // Reference values of mulberry32: these must never change, stored seeds depend on them.
     // The generators are created once per call, so each line starts a fresh sequence.
-    CHECK(ev_ok(h, "(() => { const g = rng.create(0); return Array.from({ length: 5 }, () => Math.round(g.float() * 4294967296)); })()") ==
-          Json::parse("[1144304738, 1416247, 958946056, 627933444, 2007157716]"));
-    CHECK(ev_ok(h, "(() => { const g = rng.create(1); return Array.from({ length: 5 }, () => Math.round(g.float() * 4294967296)); })()") ==
-          Json::parse("[2693262067, 11749833, 2265367787, 4213581821, 4159151403]"));
-    CHECK(ev_ok(h, "(() => { const g = rng.create(12345); return Array.from({ length: 5 }, () => Math.round(g.float() * 4294967296)); })()") ==
-          Json::parse("[4207900869, 1317490944, 2079646450, 3513001552, 2187978186]"));
+    CHECK(ev_ok(h, "(() => { const g = rng.create(0); return Array.from({ length: 5 }, () => Math.round(g.float() * "
+                   "4294967296)); })()") == Json::parse("[1144304738, 1416247, 958946056, 627933444, 2007157716]"));
+    CHECK(ev_ok(h, "(() => { const g = rng.create(1); return Array.from({ length: 5 }, () => Math.round(g.float() * "
+                   "4294967296)); })()") == Json::parse("[2693262067, 11749833, 2265367787, 4213581821, 4159151403]"));
+    CHECK(ev_ok(h,
+                "(() => { const g = rng.create(12345); return Array.from({ length: 5 }, () => Math.round(g.float() "
+                "* 4294967296)); })()") == Json::parse("[4207900869, 1317490944, 2079646450, 3513001552, 2187978186]"));
     // The seed is reduced to 32 bits like `seed >>> 0`: the integer part, modulo 2^32.
-    CHECK(ev_ok(h, "(() => { const g = rng.create(-1); return Array.from({ length: 5 }, () => Math.round(g.float() * 4294967296)); })()") ==
-          Json::parse("[3850105811, 813802916, 3073704848, 4054706436, 3630262831]"));
-    CHECK(ev_ok(h, "rng.create(4294967297).float() === rng.create(1).float() && rng.create(1.9).float() === rng.create(1).float()") == true);
+    CHECK(ev_ok(h, "(() => { const g = rng.create(-1); return Array.from({ length: 5 }, () => Math.round(g.float() * "
+                   "4294967296)); })()") == Json::parse("[3850105811, 813802916, 3073704848, 4054706436, 3630262831]"));
+    CHECK(ev_ok(h, "rng.create(4294967297).float() === rng.create(1).float() && rng.create(1.9).float() === "
+                   "rng.create(1).float()") == true);
     // The same algorithm in C++ (an independent implementation) for many steps.
     std::uint32_t a = 777;
-    Json js = ev_ok(h, "(() => { const g = rng.create(777); return Array.from({ length: 200 }, () => Math.round(g.float() * 4294967296)); })()");
+    Json js = ev_ok(h, "(() => { const g = rng.create(777); return Array.from({ length: 200 }, () => "
+                       "Math.round(g.float() * 4294967296)); })()");
     REQUIRE(js.size() == 200);
     for (std::size_t i = 0; i < js.size(); ++i) {
         a += 0x6d2b79f5u;
@@ -1478,37 +1636,55 @@ TEST_CASE("rng.create: methods, draw counts and errors") {
     TestHost h("rngcreate_methods");
     REQUIRE(h.start());
     // Same seed, same sequence; different seed, different sequence; seed(n) restarts.
-    CHECK(ev_ok(h, "(() => { const a = rng.create(9), b = rng.create(9); return [0, 1, 2, 3, 4].every(() => a.float() === b.float()); })()") == true);
+    CHECK(ev_ok(h, "(() => { const a = rng.create(9), b = rng.create(9); return [0, 1, 2, 3, 4].every(() => a.float() "
+                   "=== b.float()); })()") == true);
     CHECK(ev_ok(h, "rng.create(9).float() !== rng.create(10).float()") == true);
-    CHECK(ev_ok(h, "(() => { const g = rng.create(5); const first = [g.float(), g.float()]; g.float(); g.seed(5); return g.float() === first[0] && g.float() === first[1]; })()") == true);
+    CHECK(ev_ok(h, "(() => { const g = rng.create(5); const first = [g.float(), g.float()]; g.float(); g.seed(5); "
+                   "return g.float() === first[0] && g.float() === first[1]; })()") == true);
     // Derived methods (fixed values for seed 1 / 7 / 3).
-    CHECK(ev_ok(h, "(() => { const g = rng.create(1); return Array.from({ length: 8 }, () => g.int(1, 6)); })()") == Json::parse("[4, 1, 4, 6, 6, 2, 4, 5]"));
+    CHECK(ev_ok(h, "(() => { const g = rng.create(1); return Array.from({ length: 8 }, () => g.int(1, 6)); })()") ==
+          Json::parse("[4, 1, 4, 6, 6, 2, 4, 5]"));
     CHECK(ev_ok(h, "rng.create(7).shuffle([1, 2, 3, 4, 5, 6])") == Json::parse("[5, 2, 3, 4, 6, 1]"));
-    CHECK(ev_ok(h, "(() => { const g = rng.create(7); return Array.from({ length: 5 }, () => g.pick(['a', 'b', 'c', 'd', 'e'])).join(''); })()") == "aaedc");
-    CHECK(ev_ok(h, "(() => { const g = rng.create(3); return Array.from({ length: 8 }, () => (g.chance(0.5) ? 1 : 0)).join(''); })()") == "01110111");
-    Json r = ev_ok(h, "(() => { const g = rng.create(1); return [g.range(10, 20), g.range(10, 20), g.range(10, 20)]; })()");
+    CHECK(ev_ok(h, "(() => { const g = rng.create(7); return Array.from({ length: 5 }, () => g.pick(['a', 'b', 'c', "
+                   "'d', 'e'])).join(''); })()") == "aaedc");
+    CHECK(ev_ok(h, "(() => { const g = rng.create(3); return Array.from({ length: 8 }, () => (g.chance(0.5) ? 1 : "
+                   "0)).join(''); })()") == "01110111");
+    Json r =
+        ev_ok(h, "(() => { const g = rng.create(1); return [g.range(10, 20), g.range(10, 20), g.range(10, 20)]; })()");
     CHECK(r[0].get<double>() == doctest::Approx(16.270739405881613));
     CHECK(r[1].get<double>() == doctest::Approx(10.027357211802155));
     CHECK(r[2].get<double>() == doctest::Approx(15.274470399599522));
     // Ranges: int is inclusive on both ends, float stays in [0, 1), the input of shuffle is not modified.
-    CHECK(ev_ok(h, "(() => { const g = rng.create(2); const seen = new Set(); for (let i = 0; i < 400; i++) seen.add(g.int(-2, 2)); return [...seen].sort((p, q) => p - q).join(','); })()") == "-2,-1,0,1,2");
-    CHECK(ev_ok(h, "(() => { const g = rng.create(4); for (let i = 0; i < 1000; i++) { const f = g.float(); if (f < 0 || f >= 1) return false; } return true; })()") == true);
-    CHECK(ev_ok(h, "(() => { const src = [1, 2, 3, 4]; const out = rng.create(1).shuffle(src); return src.join('') === '1234' && out.length === 4 && [...out].sort().join('') === '1234'; })()") == true);
+    CHECK(ev_ok(h, "(() => { const g = rng.create(2); const seen = new Set(); for (let i = 0; i < 400; i++) "
+                   "seen.add(g.int(-2, 2)); return [...seen].sort((p, q) => p - q).join(','); })()") == "-2,-1,0,1,2");
+    CHECK(ev_ok(h, "(() => { const g = rng.create(4); for (let i = 0; i < 1000; i++) { const f = g.float(); if (f < 0 "
+                   "|| f >= 1) return false; } return true; })()") == true);
+    CHECK(ev_ok(h, "(() => { const src = [1, 2, 3, 4]; const out = rng.create(1).shuffle(src); return src.join('') === "
+                   "'1234' && out.length === 4 && [...out].sort().join('') === '1234'; })()") == true);
     CHECK(ev_ok(h, "rng.create(1).pick([]) === undefined") == true);
     // Every call draws a fixed number of steps, whatever its arguments: int(5, 5) still draws, an empty pick does not,
     // pick draws once and shuffle draws length - 1 times.
-    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.int(5, 5); s.float(); return g.float() === s.float(); })()") == true);
-    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.pick([]); return g.float() === s.float(); })()") == true);
-    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.pick([1, 2, 3]); s.float(); return g.float() === s.float(); })()") == true);
-    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.shuffle([1, 2, 3, 4]); s.float(); s.float(); s.float(); return g.float() === s.float(); })()") == true);
-    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.chance(); g.range(0, 1); s.float(); s.float(); return g.float() === s.float(); })()") == true);
+    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.int(5, 5); s.float(); return g.float() === "
+                   "s.float(); })()") == true);
+    CHECK(
+        ev_ok(
+            h,
+            "(() => { const g = rng.create(1), s = rng.create(1); g.pick([]); return g.float() === s.float(); })()") ==
+        true);
+    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.pick([1, 2, 3]); s.float(); return "
+                   "g.float() === s.float(); })()") == true);
+    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.shuffle([1, 2, 3, 4]); s.float(); "
+                   "s.float(); s.float(); return g.float() === s.float(); })()") == true);
+    CHECK(ev_ok(h, "(() => { const g = rng.create(1), s = rng.create(1); g.chance(); g.range(0, 1); s.float(); "
+                   "s.float(); return g.float() === s.float(); })()") == true);
     // Errors say what to pass.
     for (const char* bad : {"rng.create()", "rng.create('7')", "rng.create(NaN)", "rng.create(Infinity)"}) {
         CAPTURE(bad);
         std::string e = ev_err(h, bad);
         CHECK(e.find("rng.create(seed) expects a finite number") != std::string::npos);
     }
-    CHECK(ev_err(h, "rng.create(1).int(1)").find("generator.int(min, max) expects two finite numbers") != std::string::npos);
+    CHECK(ev_err(h, "rng.create(1).int(1)").find("generator.int(min, max) expects two finite numbers") !=
+          std::string::npos);
     CHECK(ev_err(h, "rng.create(1).range('a', 2)").find("generator.range(min, max)") != std::string::npos);
     CHECK(ev_err(h, "rng.create(1).seed('x')").find("generator.seed(n) expects a finite number") != std::string::npos);
 }
@@ -1517,13 +1693,15 @@ TEST_CASE("rng.create: state reads and sets the stream, so a saved game resumes 
     TestHost h("rngcreate_state");
     REQUIRE(h.start());
     // A generator resumed from a saved state draws the same numbers as the one that kept going.
-    CHECK(ev_ok(h, "(() => { const a = rng.create(99); a.float(); a.int(1, 6); const saved = a.state;"
-                    "const next = [a.float(), a.float(), a.int(1, 100)];"
-                    "const b = rng.create(0); b.state = saved;"
-                    "return JSON.stringify([b.float(), b.float(), b.int(1, 100)]) === JSON.stringify(next); })()") == true);
+    CHECK(ev_ok(h,
+                "(() => { const a = rng.create(99); a.float(); a.int(1, 6); const saved = a.state;"
+                "const next = [a.float(), a.float(), a.int(1, 100)];"
+                "const b = rng.create(0); b.state = saved;"
+                "return JSON.stringify([b.float(), b.float(), b.int(1, 100)]) === JSON.stringify(next); })()") == true);
     // The state is the 32-bit seed advanced by one step per draw, and rng.create(state) continues from it too.
     CHECK(ev_ok(h, "(() => { const a = rng.create(5); a.float(); return a.state; })()") == 5u + 0x6d2b79f5u);
-    CHECK(ev_ok(h, "(() => { const a = rng.create(5); a.float(); const b = rng.create(a.state); return a.float() === b.float() && b.state === a.state; })()") == true);
+    CHECK(ev_ok(h, "(() => { const a = rng.create(5); a.float(); const b = rng.create(a.state); return a.float() === "
+                   "b.float() && b.state === a.state; })()") == true);
     CHECK(ev_ok(h, "rng.create(7).state") == 7);
     // Wrong values throw and leave the state alone.
     for (const char* bad : {"-1", "1.5", "4294967296", "'7'", "NaN"}) {
@@ -1601,11 +1779,14 @@ TEST_CASE("rng.create: generators never touch the world RNG, Math.random or each
     // The state of the C++ world RNG is untouched by creating and using generators.
     h.w.rng().reseed(1234);
     const std::uint64_t before = h.w.rng().state();
-    ev_ok(h, "(() => { const g = rng.create(3); for (let i = 0; i < 100; i++) g.float(); g.seed(4); g.shuffle([1, 2, 3]); })()");
+    ev_ok(h, "(() => { const g = rng.create(3); for (let i = 0; i < 100; i++) g.float(); g.seed(4); g.shuffle([1, 2, "
+             "3]); })()");
     CHECK(h.w.rng().state() == before);
     // Reseeding the world RNG does not move a generator, and generators do not share state.
-    CHECK(ev_ok(h, "(() => { const g = rng.create(3), r = rng.create(3); g.float(); rng.seed(1); rng.float(); r.float(); return g.float() === r.float(); })()") == true);
-    CHECK(ev_ok(h, "(() => { const a = rng.create(3), b = rng.create(3); a.float(); a.float(); return b.float() === rng.create(3).float(); })()") == true);
+    CHECK(ev_ok(h, "(() => { const g = rng.create(3), r = rng.create(3); g.float(); rng.seed(1); rng.float(); "
+                   "r.float(); return g.float() === r.float(); })()") == true);
+    CHECK(ev_ok(h, "(() => { const a = rng.create(3), b = rng.create(3); a.float(); a.float(); return b.float() === "
+                   "rng.create(3).float(); })()") == true);
 }
 
 // ======================================================================================================================
@@ -1614,7 +1795,9 @@ TEST_CASE("rng.create: generators never touch the world RNG, Math.random or each
 namespace {
 // bounds() of entity `id` as { x, y, w, h } (or null).
 Json bounds_json(TestHost& h, const std::string& id) {
-    return ev_ok(h, ("(() => { const b = world.find('" + id + "').bounds(); return b === null ? null : { x: b.x, y: b.y, w: b.w, h: b.h }; })()").c_str());
+    return ev_ok(h, ("(() => { const b = world.find('" + id +
+                     "').bounds(); return b === null ? null : { x: b.x, y: b.y, w: b.w, h: b.h }; })()")
+                        .c_str());
 }
 void check_rect(const Json& b, double x, double y, double w, double hh) {
     REQUIRE(b.is_object());
@@ -1629,15 +1812,18 @@ TEST_CASE("entity.bounds: Tilemap size x tileSize from its top-left corner, rows
     TestHost h("bounds_tilemap");
     REQUIRE(h.start());
     // Rows form: 3 rows of 4, tiles 32 x 16, top-left corner at (100, 300): spans x 100..228, y 252..300.
-    ev_ok(h, "world.spawn({id: 'rows', components: {Transform: {position: [100, 300]}, Tilemap: {tileSize: [32, 16], tiles: [[0, 0, -1, 0], [-1, 1, 1, 1], [2, 2, 2, 2]]}}})");
+    ev_ok(h, "world.spawn({id: 'rows', components: {Transform: {position: [100, 300]}, Tilemap: {tileSize: [32, 16], "
+             "tiles: [[0, 0, -1, 0], [-1, 1, 1, 1], [2, 2, 2, 2]]}}})");
     check_rect(bounds_json(h, "rows"), 100, 252, 128, 48);
     // Flat form: width and height fields.
-    ev_ok(h, "world.spawn({id: 'flat', components: {Transform: {position: [-50, 20]}, Tilemap: {tileSize: [10, 8], width: 5, height: 2, tiles: [0,0,0,0,0, 1,1,1,1,1]}}})");
+    ev_ok(h, "world.spawn({id: 'flat', components: {Transform: {position: [-50, 20]}, Tilemap: {tileSize: [10, 8], "
+             "width: 5, height: 2, tiles: [0,0,0,0,0, 1,1,1,1,1]}}})");
     check_rect(bounds_json(h, "flat"), -50, 4, 50, 16);
     // A flat list without width is ONE row; with only a height it is tiles / height columns (tilemap_size decides, as in the renderer).
     ev_ok(h, "world.spawn({id: 'oneRow', components: {Tilemap: {tileSize: [16, 16], tiles: [0, 1, 2, 3]}}})");
     check_rect(bounds_json(h, "oneRow"), 0, -16, 64, 16);
-    ev_ok(h, "world.spawn({id: 'byHeight', components: {Tilemap: {tileSize: [16, 16], height: 2, tiles: [0, 1, 2, 3, 4, 5]}}})");
+    ev_ok(h, "world.spawn({id: 'byHeight', components: {Tilemap: {tileSize: [16, 16], height: 2, tiles: [0, 1, 2, 3, "
+             "4, 5]}}})");
     check_rect(bounds_json(h, "byHeight"), 0, -32, 48, 32);
     {
         const Tilemap* tm = h.w.get<Tilemap>(h.w.find("byHeight"));
@@ -1647,28 +1833,37 @@ TEST_CASE("entity.bounds: Tilemap size x tileSize from its top-left corner, rows
         CHECK(sz.height == 2);
     }
     // Sky Hopper layout: 60 x 16 tiles of 32 px, top-left corner at (0, 512) (anchor bottom-left at the origin).
-    ev_ok(h, "world.spawn({id: 'level', components: {Transform: {position: [0, 512]}, Tilemap: {tileSize: [32, 32], width: 60, height: 16, tiles: new Array(960).fill(-1)}}})");
+    ev_ok(h, "world.spawn({id: 'level', components: {Transform: {position: [0, 512]}, Tilemap: {tileSize: [32, 32], "
+             "width: 60, height: 16, tiles: new Array(960).fill(-1)}}})");
     check_rect(bounds_json(h, "level"), 0, 0, 1920, 512);
     // Scale, parent and rotation are applied: a scaled map, a child of a scaled parent, and a map rotated by 90 degrees.
-    ev_ok(h, "world.spawn({id: 'scaled', components: {Transform: {position: [10, 10], scale: 2}, Tilemap: {tileSize: [8, 8], tiles: [[0, 0], [0, 0]]}}})");
+    ev_ok(h, "world.spawn({id: 'scaled', components: {Transform: {position: [10, 10], scale: 2}, Tilemap: {tileSize: "
+             "[8, 8], tiles: [[0, 0], [0, 0]]}}})");
     check_rect(bounds_json(h, "scaled"), 10, -22, 32, 32);
-    ev_ok(h, "world.spawn({id: 'parent', components: {Transform: {position: [100, 100], scale: 3}}}); world.spawn({id: 'kid', components: {Transform: {position: [1, 0]}, Tilemap: {tileSize: [2, 2], tiles: [[0, 0]]}}}, {parent: 'parent'})");
+    ev_ok(h, "world.spawn({id: 'parent', components: {Transform: {position: [100, 100], scale: 3}}}); world.spawn({id: "
+             "'kid', components: {Transform: {position: [1, 0]}, Tilemap: {tileSize: [2, 2], tiles: [[0, 0]]}}}, "
+             "{parent: 'parent'})");
     check_rect(bounds_json(h, "kid"), 103, 94, 12, 6);
-    ev_ok(h, "world.spawn({id: 'turned', components: {Transform: {position: [0, 0], rotation: 90}, Tilemap: {tileSize: [10, 10], tiles: [[0, 0, 0], [0, 0, 0]]}}})");
-    check_rect(bounds_json(h, "turned"), 0, 0, 20, 30);  // local x 0..30, y -20..0  ->  (x, y) = (-y, x): x 0..20, y 0..30
+    ev_ok(h, "world.spawn({id: 'turned', components: {Transform: {position: [0, 0], rotation: 90}, Tilemap: {tileSize: "
+             "[10, 10], tiles: [[0, 0, 0], [0, 0, 0]]}}})");
+    check_rect(bounds_json(h, "turned"), 0, 0, 20,
+               30);  // local x 0..30, y -20..0  ->  (x, y) = (-y, x): x 0..20, y 0..30
     // No bounds: an empty map, an entity without 2D visual.
-    ev_ok(h, "world.spawn({id: 'empty', components: {Tilemap: {tileSize: [16, 16]}}}); world.spawn({id: 'plain', components: {Transform: {position: [5, 5]}}})");
+    ev_ok(h, "world.spawn({id: 'empty', components: {Tilemap: {tileSize: [16, 16]}}}); world.spawn({id: 'plain', "
+             "components: {Transform: {position: [5, 5]}}})");
     CHECK(bounds_json(h, "empty").is_null());
     CHECK(bounds_json(h, "plain").is_null());
     // The result is a Rect: usable with Rect.contains and physics.overlapBox.
-    CHECK(ev_ok(h, "(() => { const b = world.find('level').bounds(); return b.contains({x: 5, y: 5}) && !b.contains({x: -1, y: 5}) && b.toArray().join() === '0,0,1920,512'; })()") == true);
+    CHECK(ev_ok(h, "(() => { const b = world.find('level').bounds(); return b.contains({x: 5, y: 5}) && "
+                   "!b.contains({x: -1, y: 5}) && b.toArray().join() === '0,0,1920,512'; })()") == true);
     CHECK(ev_ok(h, "Array.isArray(physics.overlapBox(world.find('level').bounds()))") == true);
 }
 
 TEST_CASE("entity.tilemap: getTile and setTile read and write one tile in place") {
     TestHost h("tilemap_settile");
     REQUIRE(h.start());
-    ev_ok(h, "world.spawn({id: 'flat', components: {Tilemap: {tileSize: [16, 16], width: 3, height: 2, tiles: [0, 1, 2, 3, -1, 5]}}})");
+    ev_ok(h, "world.spawn({id: 'flat', components: {Tilemap: {tileSize: [16, 16], width: 3, height: 2, tiles: [0, 1, "
+             "2, 3, -1, 5]}}})");
     ev_ok(h, "world.spawn({id: 'rows', components: {Tilemap: {tileSize: [16, 16], tiles: [[0, 1], [2, 3]]}}})");
     CHECK(ev_ok(h, "world.find('flat').tilemap.width") == 3);
     CHECK(ev_ok(h, "world.find('flat').tilemap.height") == 2);
@@ -1704,23 +1899,31 @@ TEST_CASE("entity.bounds: Sprite size, pivot, texture size, region, animator and
     ev_ok(h, "world.spawn({id: 'centre', components: {Transform: {position: [100, 50]}, Sprite: {size: [64, 32]}}})");
     check_rect(bounds_json(h, "centre"), 68, 34, 64, 32);
     // pivot (0, 0) = bottom-left: the position is the bottom-left corner; pivot (1, 1) = top-right; (0.25, 0.75) in between.
-    ev_ok(h, "world.spawn({id: 'bl', components: {Transform: {position: [100, 50]}, Sprite: {size: [64, 32], pivot: [0, 0]}}})");
+    ev_ok(h, "world.spawn({id: 'bl', components: {Transform: {position: [100, 50]}, Sprite: {size: [64, 32], pivot: "
+             "[0, 0]}}})");
     check_rect(bounds_json(h, "bl"), 100, 50, 64, 32);
-    ev_ok(h, "world.spawn({id: 'tr', components: {Transform: {position: [100, 50]}, Sprite: {size: [64, 32], pivot: [1, 1]}}})");
+    ev_ok(h, "world.spawn({id: 'tr', components: {Transform: {position: [100, 50]}, Sprite: {size: [64, 32], pivot: "
+             "[1, 1]}}})");
     check_rect(bounds_json(h, "tr"), 36, 18, 64, 32);
-    ev_ok(h, "world.spawn({id: 'mid', components: {Transform: {position: [0, 0]}, Sprite: {size: [40, 40], pivot: [0.25, 0.75]}}})");
+    ev_ok(h, "world.spawn({id: 'mid', components: {Transform: {position: [0, 0]}, Sprite: {size: [40, 40], pivot: "
+             "[0.25, 0.75]}}})");
     check_rect(bounds_json(h, "mid"), -10, -30, 40, 40);
     // Flips only mirror the picture; the box stays.
-    ev_ok(h, "world.spawn({id: 'flip', components: {Transform: {position: [100, 50]}, Sprite: {size: [64, 32], pivot: [0, 0], flipX: true, flipY: true}}})");
+    ev_ok(h, "world.spawn({id: 'flip', components: {Transform: {position: [100, 50]}, Sprite: {size: [64, 32], pivot: "
+             "[0, 0], flipX: true, flipY: true}}})");
     check_rect(bounds_json(h, "flip"), 100, 50, 64, 32);
     // No size: the whole texture (40 x 20), one axis given, a region, a SpriteAnimator frame, a plain colour quad, a missing texture.
     ev_ok(h, "world.spawn({id: 'tex', components: {Sprite: {texture: 'assets/tex.png', pivot: [0, 0]}}})");
     check_rect(bounds_json(h, "tex"), 0, 0, 40, 20);
-    ev_ok(h, "world.spawn({id: 'texw', components: {Sprite: {texture: 'assets/tex.png', size: [100, 0], pivot: [0, 0]}}})");
+    ev_ok(
+        h,
+        "world.spawn({id: 'texw', components: {Sprite: {texture: 'assets/tex.png', size: [100, 0], pivot: [0, 0]}}})");
     check_rect(bounds_json(h, "texw"), 0, 0, 100, 20);
-    ev_ok(h, "world.spawn({id: 'region', components: {Sprite: {texture: 'assets/tex.png', region: [0, 0, 10, 5], pivot: [0, 0]}}})");
+    ev_ok(h, "world.spawn({id: 'region', components: {Sprite: {texture: 'assets/tex.png', region: [0, 0, 10, 5], "
+             "pivot: [0, 0]}}})");
     check_rect(bounds_json(h, "region"), 0, 0, 10, 5);
-    ev_ok(h, "world.spawn({id: 'anim', components: {Sprite: {texture: 'assets/tex.png', pivot: [0, 0]}, SpriteAnimator: {columns: 4, rows: 2}}})");
+    ev_ok(h, "world.spawn({id: 'anim', components: {Sprite: {texture: 'assets/tex.png', pivot: [0, 0]}, "
+             "SpriteAnimator: {columns: 4, rows: 2}}})");
     check_rect(bounds_json(h, "anim"), 0, 0, 10, 10);
     ev_ok(h, "world.spawn({id: 'quad', components: {Sprite: {pivot: [0, 0]}}})");
     check_rect(bounds_json(h, "quad"), 0, 0, 32, 32);
@@ -1731,17 +1934,21 @@ TEST_CASE("entity.bounds: Sprite size, pivot, texture size, region, animator and
     img.height = 6;
     img.rgba.assign(static_cast<std::size_t>(img.width) * img.height * 4, 255);
     REQUIRE(save_png(img, "assets/tex.png").ok());
-    std::filesystem::last_write_time(h.root / "assets/tex.png", std::filesystem::file_time_type::clock::now() + std::chrono::seconds(30));
+    std::filesystem::last_write_time(h.root / "assets/tex.png",
+                                     std::filesystem::file_time_type::clock::now() + std::chrono::seconds(30));
     check_rect(bounds_json(h, "tex"), 0, 0, 8, 6);
     // Scale, rotation and a parent move the box: 64 x 32 centred at the origin, scale 2 -> 128 x 64; rotated 90 -> 32 x 64.
-    ev_ok(h, "world.spawn({id: 'scaled', components: {Transform: {position: [10, 20], scale: 2}, Sprite: {size: [64, 32]}}})");
+    ev_ok(h, "world.spawn({id: 'scaled', components: {Transform: {position: [10, 20], scale: 2}, Sprite: {size: [64, "
+             "32]}}})");
     check_rect(bounds_json(h, "scaled"), -54, -12, 128, 64);
-    ev_ok(h, "world.spawn({id: 'turned', components: {Transform: {position: [10, 20], rotation: 90}, Sprite: {size: [64, 32]}}})");
+    ev_ok(h, "world.spawn({id: 'turned', components: {Transform: {position: [10, 20], rotation: 90}, Sprite: {size: "
+             "[64, 32]}}})");
     check_rect(bounds_json(h, "turned"), -6, -12, 32, 64);
     ev_ok(h, "world.spawn({id: 'diag', components: {Transform: {rotation: 45}, Sprite: {size: [20, 20]}}})");
     check_rect(bounds_json(h, "diag"), -14.142136, -14.142136, 28.284271, 28.284271);
     // Screen-space sprites are not in the world: null.
-    ev_ok(h, "world.spawn({id: 'hud', components: {Transform: {position: [24, 16]}, Sprite: {size: [64, 32], space: 'screen'}}})");
+    ev_ok(h, "world.spawn({id: 'hud', components: {Transform: {position: [24, 16]}, Sprite: {size: [64, 32], space: "
+             "'screen'}}})");
     CHECK(bounds_json(h, "hud").is_null());
 }
 
@@ -1759,19 +1966,24 @@ TEST_CASE("assets.textureSize: a file's pixel size, 32 x 32 when missing, the si
     // The missing-texture checker is 32 x 32, like the renderer's.
     CHECK(size("assets/nope.png") == Json::object({{"width", 32}, {"height", 32}}));
     // entity.bounds() of a Sprite with size [0, 0] is the same size.
-    ev_ok(h, "world.spawn({id: 'tex', components: {Sprite: {texture: 'assets/tex.png', size: [0, 0], pivot: [0, 0]}}})");
-    ev_ok(h, "world.spawn({id: 'gone', components: {Sprite: {texture: 'assets/nope.png', size: [0, 0], pivot: [0, 0]}}})");
+    ev_ok(h,
+          "world.spawn({id: 'tex', components: {Sprite: {texture: 'assets/tex.png', size: [0, 0], pivot: [0, 0]}}})");
+    ev_ok(h,
+          "world.spawn({id: 'gone', components: {Sprite: {texture: 'assets/nope.png', size: [0, 0], pivot: [0, 0]}}})");
     for (const char* id : {"tex", "gone"}) {
         CAPTURE(id);
-        CHECK(ev_ok(h, (std::string("(() => { const b = world.find('") + id + "').bounds(); const s = assets.textureSize(world.find('" + id +
-                           "').get('Sprite').texture); return b.w === s.width && b.h === s.height; })()").c_str()) == true);
+        CHECK(ev_ok(h, (std::string("(() => { const b = world.find('") + id +
+                        "').bounds(); const s = assets.textureSize(world.find('" + id +
+                        "').get('Sprite').texture); return b.w === s.width && b.h === s.height; })()")
+                           .c_str()) == true);
     }
     // A texture that changes on disk is read again.
     img.width = 8;
     img.height = 6;
     img.rgba.assign(static_cast<std::size_t>(img.width) * img.height * 4, 255);
     REQUIRE(save_png(img, "assets/tex.png").ok());
-    std::filesystem::last_write_time(h.root / "assets/tex.png", std::filesystem::file_time_type::clock::now() + std::chrono::seconds(30));
+    std::filesystem::last_write_time(h.root / "assets/tex.png",
+                                     std::filesystem::file_time_type::clock::now() + std::chrono::seconds(30));
     CHECK(size("assets/tex.png") == Json::object({{"width", 8}, {"height", 6}}));
     // A path that is not a string teaches the call.
     std::string err = ev_err(h, "assets.textureSize()");
@@ -1784,51 +1996,69 @@ TEST_CASE("entity.bounds: Shape2D, Text, unions and destroyed entities") {
     TestHost h("bounds_shape");
     REQUIRE(h.start());
     // Rectangle and triangle: size and pivot.
-    ev_ok(h, "world.spawn({id: 'rect', components: {Transform: {position: [10, 20]}, Shape2D: {shape: 'rectangle', size: [20, 10], pivot: [0, 0]}}})");
+    ev_ok(h, "world.spawn({id: 'rect', components: {Transform: {position: [10, 20]}, Shape2D: {shape: 'rectangle', "
+             "size: [20, 10], pivot: [0, 0]}}})");
     check_rect(bounds_json(h, "rect"), 10, 20, 20, 10);
-    ev_ok(h, "world.spawn({id: 'tri', components: {Transform: {position: [0, 0]}, Shape2D: {shape: 'triangle', size: [20, 10]}}})");
+    ev_ok(h, "world.spawn({id: 'tri', components: {Transform: {position: [0, 0]}, Shape2D: {shape: 'triangle', size: "
+             "[20, 10]}}})");
     check_rect(bounds_json(h, "tri"), -10, -5, 20, 10);
     // Circle: the pivot refers to the bounding square of diameter size.x.
-    ev_ok(h, "world.spawn({id: 'circle', components: {Transform: {position: [0, 0]}, Shape2D: {shape: 'circle', size: [20, 20]}}})");
+    ev_ok(h, "world.spawn({id: 'circle', components: {Transform: {position: [0, 0]}, Shape2D: {shape: 'circle', size: "
+             "[20, 20]}}})");
     check_rect(bounds_json(h, "circle"), -10, -10, 20, 20);
-    ev_ok(h, "world.spawn({id: 'circleBl', components: {Transform: {position: [5, 5]}, Shape2D: {shape: 'circle', size: [20, 99], pivot: [0, 0]}}})");
+    ev_ok(h, "world.spawn({id: 'circleBl', components: {Transform: {position: [5, 5]}, Shape2D: {shape: 'circle', "
+             "size: [20, 99], pivot: [0, 0]}}})");
     check_rect(bounds_json(h, "circleBl"), 5, 5, 20, 20);
     // Line: from the origin to `size`, thickness 2 -> the box around the stroked segment.
-    ev_ok(h, "world.spawn({id: 'line', components: {Transform: {position: [0, 0]}, Shape2D: {shape: 'line', size: [30, 40], thickness: 2}}})");
+    ev_ok(h, "world.spawn({id: 'line', components: {Transform: {position: [0, 0]}, Shape2D: {shape: 'line', size: [30, "
+             "40], thickness: 2}}})");
     check_rect(bounds_json(h, "line"), -0.8, -0.6, 31.6, 41.2);
-    ev_ok(h, "world.spawn({id: 'flatLine', components: {Transform: {position: [0, 10]}, Shape2D: {shape: 'line', size: [50, 0], thickness: 4}}})");
+    ev_ok(h, "world.spawn({id: 'flatLine', components: {Transform: {position: [0, 10]}, Shape2D: {shape: 'line', size: "
+             "[50, 0], thickness: 4}}})");
     check_rect(bounds_json(h, "flatLine"), 0, 8, 50, 4);
     ev_ok(h, "world.spawn({id: 'noLine', components: {Shape2D: {shape: 'line', size: [0, 0]}}})");
     CHECK(bounds_json(h, "noLine").is_null());
     // Rotation: the box around the rotated rectangle.
     // Diamond: unrotated it fills its size box; rotated 45 degrees, the AABB of its 4 tips (not of the rotated box).
-    ev_ok(h, "world.spawn({id: 'dia', components: {Transform: {position: [0, 0]}, Shape2D: {shape: 'diamond', size: [20, 20]}}})");
+    ev_ok(h, "world.spawn({id: 'dia', components: {Transform: {position: [0, 0]}, Shape2D: {shape: 'diamond', size: "
+             "[20, 20]}}})");
     check_rect(bounds_json(h, "dia"), -10, -10, 20, 20);
-    ev_ok(h, "world.spawn({id: 'diaRot', components: {Transform: {position: [0, 0], rotation: 45}, Shape2D: {shape: 'diamond', size: [20, 20]}}})");
+    ev_ok(h, "world.spawn({id: 'diaRot', components: {Transform: {position: [0, 0], rotation: 45}, Shape2D: {shape: "
+             "'diamond', size: [20, 20]}}})");
     check_rect(bounds_json(h, "diaRot"), -7.0710678, -7.0710678, 14.1421356, 14.1421356);
-    ev_ok(h, "world.spawn({id: 'rot', components: {Transform: {position: [0, 0], rotation: 90}, Shape2D: {shape: 'rectangle', size: [40, 20]}}})");
+    ev_ok(h, "world.spawn({id: 'rot', components: {Transform: {position: [0, 0], rotation: 90}, Shape2D: {shape: "
+             "'rectangle', size: [40, 20]}}})");
     check_rect(bounds_json(h, "rot"), -10, -20, 20, 40);
     // Screen-space shapes: null.
     ev_ok(h, "world.spawn({id: 'panel', components: {Shape2D: {size: [100, 40], space: 'screen'}}})");
     CHECK(bounds_json(h, "panel").is_null());
     // Text (no renderer here: the same 0.6 em approximation as ui.measureText). 'abcd' at 10: 24 x 12. The default pivot (0, 1)
     // is the top-left corner; pivot (0.5, 0.5) centres the box; a wrapped text is taller.
-    ev_ok(h, "world.spawn({id: 'text', components: {Transform: {position: [5, 5]}, Text: {text: 'abcd', fontSize: 10}}})");
+    ev_ok(h,
+          "world.spawn({id: 'text', components: {Transform: {position: [5, 5]}, Text: {text: 'abcd', fontSize: 10}}})");
     check_rect(bounds_json(h, "text"), 5, -7, 24, 12);
-    ev_ok(h, "world.spawn({id: 'textMid', components: {Transform: {position: [0, 0]}, Text: {text: 'abcd', fontSize: 10, pivot: [0.5, 0.5]}}})");
+    ev_ok(h, "world.spawn({id: 'textMid', components: {Transform: {position: [0, 0]}, Text: {text: 'abcd', fontSize: "
+             "10, pivot: [0.5, 0.5]}}})");
     check_rect(bounds_json(h, "textMid"), -12, -6, 24, 12);
     ev_ok(h, "world.spawn({id: 'textWrap', components: {Text: {text: 'abcdefgh', fontSize: 10, maxWidth: 30}}})");
     CHECK(bounds_json(h, "textWrap")["h"].get<double>() > 12.0);
-    ev_ok(h, "world.spawn({id: 'textHud', components: {Text: {text: 'abcd', space: 'screen'}}}); world.spawn({id: 'textEmpty', components: {Text: {text: ''}}})");
+    ev_ok(h, "world.spawn({id: 'textHud', components: {Text: {text: 'abcd', space: 'screen'}}}); world.spawn({id: "
+             "'textEmpty', components: {Text: {text: ''}}})");
     CHECK(bounds_json(h, "textHud").is_null());
     CHECK(bounds_json(h, "textEmpty").is_null());
     // An entity with several visuals gets the union of their boxes; a screen-space one does not count.
-    ev_ok(h, "world.spawn({id: 'both', components: {Transform: {position: [0, 0]}, Sprite: {size: [10, 10], pivot: [0, 0]}, Shape2D: {size: [10, 10], pivot: [1, 1]}}})");
+    ev_ok(h, "world.spawn({id: 'both', components: {Transform: {position: [0, 0]}, Sprite: {size: [10, 10], pivot: [0, "
+             "0]}, Shape2D: {size: [10, 10], pivot: [1, 1]}}})");
     check_rect(bounds_json(h, "both"), -10, -10, 20, 20);
-    ev_ok(h, "world.spawn({id: 'mixed', components: {Transform: {position: [0, 0]}, Sprite: {size: [10, 10], pivot: [0, 0]}, Text: {text: 'abcd', space: 'screen'}}})");
+    ev_ok(h, "world.spawn({id: 'mixed', components: {Transform: {position: [0, 0]}, Sprite: {size: [10, 10], pivot: "
+             "[0, 0]}, Text: {text: 'abcd', space: 'screen'}}})");
     check_rect(bounds_json(h, "mixed"), 0, 0, 10, 10);
     // Inactive entities and zero alpha still have bounds; children are not included.
-    ev_ok(h, "world.spawn({id: 'hidden', active: false, components: {Sprite: {size: [10, 10], pivot: [0, 0], color: [1, 1, 1, 0]}}}); world.spawn({id: 'holder', components: {Sprite: {size: [4, 4], pivot: [0, 0]}}}); world.spawn({id: 'far', components: {Transform: {position: [500, 500]}, Sprite: {size: [4, 4]}}}, {parent: 'holder'})");
+    ev_ok(
+        h,
+        "world.spawn({id: 'hidden', active: false, components: {Sprite: {size: [10, 10], pivot: [0, 0], color: [1, 1, "
+        "1, 0]}}}); world.spawn({id: 'holder', components: {Sprite: {size: [4, 4], pivot: [0, 0]}}}); world.spawn({id: "
+        "'far', components: {Transform: {position: [500, 500]}, Sprite: {size: [4, 4]}}}, {parent: 'holder'})");
     check_rect(bounds_json(h, "hidden"), 0, 0, 10, 10);
     check_rect(bounds_json(h, "holder"), 0, 0, 4, 4);
     // A destroyed entity throws the usual friendly error.
@@ -1841,7 +2071,8 @@ TEST_CASE("typescript declarations: rng.create, Rng and Entity.bounds") {
     TestHost h("dts_bounds");
     REQUIRE(h.start());
     std::string dts = h.scripts.typescript_declarations();
-    for (const char* needle : {"create(seed: number): Rng;", "export interface Rng {", "bounds(): Rect | null;", "BOTTOM-LEFT"}) {
+    for (const char* needle :
+         {"create(seed: number): Rng;", "export interface Rng {", "bounds(): Rect | null;", "BOTTOM-LEFT"}) {
         CAPTURE(needle);
         CHECK(dts.find(needle) != std::string::npos);
     }
@@ -2001,9 +2232,11 @@ TEST_CASE("typescript declarations: gamepad input and the gamepad test API") {
     TestHost h("dts_gamepad");
     REQUIRE(h.start());
     std::string dts = h.scripts.typescript_declarations();
-    for (const char* needle : {"export type GamepadButton =", "\"DpadLeft\"", "export interface GamepadAPI {", "gamepad(index?: number): GamepadAPI;",
-                               "value(action: string): number;", "deadzone: number;", "export interface TestGamepad {",
-                               "gamepad(index?: number): TestGamepad;", "GamepadButton, GamepadAxis } from \"factoria\""}) {
+    for (const char* needle :
+         {"export type GamepadButton =", "\"DpadLeft\"", "export interface GamepadAPI {",
+          "gamepad(index?: number): GamepadAPI;", "value(action: string): number;", "deadzone: number;",
+          "export interface TestGamepad {", "gamepad(index?: number): TestGamepad;",
+          "GamepadButton, GamepadAxis } from \"factoria\""}) {
         CAPTURE(needle);
         CHECK(dts.find(needle) != std::string::npos);
     }
@@ -2011,11 +2244,11 @@ TEST_CASE("typescript declarations: gamepad input and the gamepad test API") {
 
 TEST_CASE("tests: toMatchObject, and a TypeError 'not a function' shows the source line with a caret") {
     TestHost h("matchobj");
-    h.file("tests/m.test.js",
-           "import { test, expect } from 'factoria:test';\n"
-           "test('subset', () => { expect({ a: 1, b: { c: 2, d: 3 }, l: [{ n: 1, x: 0 }] }).toMatchObject({ b: { c: 2 }, l: [{ n: 1 }] }); });\n"
-           "test('not a subset', () => { expect({ a: 1 }).toMatchObject({ a: 2 }); });\n"
-           "test('missing call', () => {\n  const o = {};\n  o.missing(3);\n});\n");
+    h.file("tests/m.test.js", "import { test, expect } from 'factoria:test';\n"
+                              "test('subset', () => { expect({ a: 1, b: { c: 2, d: 3 }, l: [{ n: 1, x: 0 }] "
+                              "}).toMatchObject({ b: { c: 2 }, l: [{ n: 1 }] }); });\n"
+                              "test('not a subset', () => { expect({ a: 1 }).toMatchObject({ a: 2 }); });\n"
+                              "test('missing call', () => {\n  const o = {};\n  o.missing(3);\n});\n");
     REQUIRE(h.start());
     TestReport rep = h.scripts.run_tests({"tests/m.test.js"});
     REQUIRE(rep.cases.size() == 3);
@@ -2024,7 +2257,7 @@ TEST_CASE("tests: toMatchObject, and a TypeError 'not a function' shows the sour
     CHECK(rep.cases[1].message.find("toMatchObject") != std::string::npos);
     CHECK(!rep.cases[2].passed);
     CHECK(rep.cases[2].message.find("o.missing(3);\n") != std::string::npos);  // the source line
-    CHECK(rep.cases[2].message.find("^") != std::string::npos);                 // and the caret under it
+    CHECK(rep.cases[2].message.find("^") != std::string::npos);                // and the caret under it
 }
 
 TEST_CASE("scripts place a child among its siblings and override a prefab's children") {
@@ -2044,10 +2277,12 @@ TEST_CASE("scripts place a child among its siblings and override a prefab's chil
     ev_ok(h, "world.find('b').setParent('p', false, 2)");
     CHECK(order() == "c,a,b");
     CHECK(ev_err(h, "world.find('b').setParent('p', false, 3)").find("0 to 2") != std::string::npos);
-    CHECK(ev_err(h, "world.spawn({id:'z'}, {parent: world.find('p'), index: 9})").find("past the end") != std::string::npos);
+    CHECK(ev_err(h, "world.spawn({id:'z'}, {parent: world.find('p'), index: 9})").find("past the end") !=
+          std::string::npos);
     CHECK(ev_err(h, "world.spawn({id:'z'}, {index: 0})").find("needs a parent") != std::string::npos);
     CHECK(order() == "c,a,b");
-    ev_ok(h, "world.spawnPrefab('prefabs/panel.prefab.json', {parent: world.find('p'), index: 1, childOverrides: {title: {components: {Sprite: {layer: 8}}}}})");
+    ev_ok(h, "world.spawnPrefab('prefabs/panel.prefab.json', {parent: world.find('p'), index: 1, childOverrides: "
+             "{title: {components: {Sprite: {layer: 8}}}}})");
     CHECK(order() == "c,panel,a,b");
     CHECK(ev_ok(h, "world.find('title').get('Sprite').layer") == 8);
     std::string m = ev_err(h, "world.spawnPrefab('prefabs/panel.prefab.json', {childOverrides: {titel: {}}})");
@@ -2057,7 +2292,8 @@ TEST_CASE("scripts place a child among its siblings and override a prefab's chil
 TEST_CASE("scripts cannot spawn under a parent that is being destroyed, and setParent says why") {
     TestHost h("spawn_pending_parent");
     h.file("prefabs/panel.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"panel"}})");
-    h.file("scenes/main.scene.json", scene_with(Json::array({Json::parse(R"({"id":"p"})"), Json::parse(R"({"id":"q"})")})).dump());
+    h.file("scenes/main.scene.json",
+           scene_with(Json::array({Json::parse(R"({"id":"p"})"), Json::parse(R"({"id":"q"})")})).dump());
     REQUIRE(h.start());
     REQUIRE(h.load_scene_now("scenes/main.scene.json").empty());
     // find() stops returning a destroyed entity at once, so each script keeps its handle.
@@ -2077,8 +2313,10 @@ TEST_CASE("camera: split screen cameras, at(), and conversions that take a camer
     TestHost h("splitcam");
     REQUIRE(h.start());
     // 1280x720 screen: left half seen by camL at the origin, right half by camR at x = 1000 (listed first on purpose).
-    ev_ok(h, "world.spawn({id:'camR', components:{Transform:{position:[1000,0]}, Camera:{viewport:[0.5,0,0.5,1], depth:1}}})");
-    ev_ok(h, "world.spawn({id:'camL', components:{Transform:{position:[0,0]}, Camera:{viewport:[0,0,0.5,1], depth:0}}})");
+    ev_ok(h, "world.spawn({id:'camR', components:{Transform:{position:[1000,0]}, Camera:{viewport:[0.5,0,0.5,1], "
+             "depth:1}}})");
+    ev_ok(h,
+          "world.spawn({id:'camL', components:{Transform:{position:[0,0]}, Camera:{viewport:[0,0,0.5,1], depth:0}}})");
     CHECK(ev_ok(h, "camera.main.id") == "camL");
     CHECK(ev_ok(h, "camera.all.map(c => c.id).join(',')") == "camL,camR");
     CHECK(ev_ok(h, "camera.at([100, 100]).id") == "camL");
@@ -2086,8 +2324,9 @@ TEST_CASE("camera: split screen cameras, at(), and conversions that take a camer
     // The centre of each half is the centre of its camera; the conversion picks the camera under the point.
     CHECK(ev_ok(h, "camera.screenToWorld([320, 360]).x") == 0);
     CHECK(ev_ok(h, "camera.screenToWorld([960, 360]).x") == 1000);
-    CHECK(ev_ok(h, "camera.screenToWorld([960, 360], 0, camera.all[0]).x") == 640);  // the same point through the other camera
-    CHECK(ev_ok(h, "camera.screenToWorld([960, 360], camera.all[0]).x") == 640);     // the camera as the second argument
+    CHECK(ev_ok(h, "camera.screenToWorld([960, 360], 0, camera.all[0]).x") ==
+          640);  // the same point through the other camera
+    CHECK(ev_ok(h, "camera.screenToWorld([960, 360], camera.all[0]).x") == 640);  // the camera as the second argument
     CHECK(ev_ok(h, "camera.worldToScreen([1000, 0], camera.all[1]).x") == 960);
     CHECK(ev_ok(h, "camera.worldToScreen([1000, 0], 'camR').y") == 360);
     CHECK(ev_ok(h, "camera.worldToScreen([0, 0]).x") == 320);  // the first camera by default
@@ -2140,8 +2379,9 @@ TEST_CASE("world.spawn: a reference that never appears is a warning, the spawn w
 TEST_CASE("a project tool edited on disk runs its new code at the next call, and says which version ran") {
     TestHost h("toolstale");
     h.file("scripts/lib.js", "export const label = () => 'lib1';\n");
-    h.file("tools/stale.js", "import { label } from '../scripts/lib.js';\n"
-                             "export default { name: 'stale', summary: 's', run() { return { tool: 'v1', lib: label() }; } };\n");
+    h.file("tools/stale.js",
+           "import { label } from '../scripts/lib.js';\n"
+           "export default { name: 'stale', summary: 's', run() { return { tool: 'v1', lib: label() }; } };\n");
     REQUIRE(h.start());
     auto settle = [] { std::this_thread::sleep_for(std::chrono::milliseconds(30)); };  // a later modification time
     auto r1 = h.cmds.call("project.stale");
@@ -2161,8 +2401,9 @@ TEST_CASE("a project tool edited on disk runs its new code at the next call, and
 
     // The tool file itself changes: new behaviour and another hash.
     settle();
-    h.file("tools/stale.js", "import { label } from '../scripts/lib.js';\n"
-                             "export default { name: 'stale', summary: 's', run() { return { tool: 'v2', lib: label() }; } };\n");
+    h.file("tools/stale.js",
+           "import { label } from '../scripts/lib.js';\n"
+           "export default { name: 'stale', summary: 's', run() { return { tool: 'v2', lib: label() }; } };\n");
     auto r3 = h.cmds.call("project.stale");
     REQUIRE(r3.ok);
     CHECK(r3.result["tool"] == "v2");
@@ -2179,8 +2420,15 @@ TEST_CASE("Camera.showTags / hideTags: a script assigns a whole array, tags adde
     Entity cam = h.w.create("Cam", "cam");
     h.w.add<Camera>(cam);
     Entity page = h.w.create("Page", "page");
-    auto ev = [&](const char* code) { auto r = h.scripts.eval(code); if (!r.ok()) { FAIL(r.error().to_string()); } return *r; };
-    ev("world.find('cam').get('Camera').showTags = ['left']; world.find('cam').get('Camera').hideTags = ['ui', 'debug']");
+    auto ev = [&](const char* code) {
+        auto r = h.scripts.eval(code);
+        if (!r.ok()) {
+            FAIL(r.error().to_string());
+        }
+        return *r;
+    };
+    ev("world.find('cam').get('Camera').showTags = ['left']; world.find('cam').get('Camera').hideTags = ['ui', "
+       "'debug']");
     CHECK(h.w.get<Camera>(cam)->showTags == Json::array({"left"}));
     CHECK(h.w.get<Camera>(cam)->hideTags == Json::array({"ui", "debug"}));
     CHECK(ev("JSON.stringify(world.find('cam').get('Camera').showTags)").get<std::string>() == "[\"left\"]");

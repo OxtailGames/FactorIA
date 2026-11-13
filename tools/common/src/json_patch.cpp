@@ -35,8 +35,10 @@ std::size_t skip_ws(const std::string& t, std::size_t i) {
 // One past the closing quote of the string starting at `i` (t[i] == '"'); npos when it never closes.
 std::size_t skip_string(const std::string& t, std::size_t i) {
     for (++i; i < t.size(); ++i) {
-        if (t[i] == '\\') ++i;
-        else if (t[i] == '"') return i + 1;
+        if (t[i] == '\\')
+            ++i;
+        else if (t[i] == '"')
+            return i + 1;
     }
     return std::string::npos;
 }
@@ -182,8 +184,8 @@ std::string render_value(const Json& value, const Style& style, std::size_t dept
 std::string quoted(const std::string& key) { return Json(key).dump(-1, ' ', false, Json::error_handler_t::replace); }
 
 // Replaces the value of `key` in `obj`, or appends the member after the last one.
-std::string set_member(const std::string& t, const ObjectScan& obj, const Style& style, std::size_t depth, const std::string& key,
-                       const std::string& valueText) {
+std::string set_member(const std::string& t, const ObjectScan& obj, const Style& style, std::size_t depth,
+                       const std::string& key, const std::string& valueText) {
     std::string out = t;
     if (const Member* m = find_member(obj, key)) {
         out.replace(m->valueStart, m->valueEnd - m->valueStart, valueText);
@@ -192,7 +194,8 @@ std::string set_member(const std::string& t, const ObjectScan& obj, const Style&
     const std::string member = quoted(key) + ": " + valueText;
     if (obj.members.empty()) {
         out.replace(obj.open + 1, obj.close - obj.open - 1,
-                    style.newline + repeat(style.indent, depth + 1) + member + style.newline + repeat(style.indent, depth));
+                    style.newline + repeat(style.indent, depth + 1) + member + style.newline +
+                        repeat(style.indent, depth));
         return out;
     }
     const Member& last = obj.members.back();
@@ -200,7 +203,8 @@ std::string set_member(const std::string& t, const ObjectScan& obj, const Style&
     std::size_t b = last.keyStart;
     while (b > 0 && is_ws(t[b - 1])) --b;
     std::string sep = t.substr(b, last.keyStart - b);
-    if (const auto nl = sep.find('\n'); nl != std::string::npos) sep.erase(0, nl > 0 && sep[nl - 1] == '\r' ? nl - 1 : nl);  // not the old line's trailing blanks
+    if (const auto nl = sep.find('\n'); nl != std::string::npos)
+        sep.erase(0, nl > 0 && sep[nl - 1] == '\r' ? nl - 1 : nl);  // not the old line's trailing blanks
     out.insert(last.valueEnd, "," + (sep.empty() ? std::string(" ") : sep) + member);
     return out;
 }
@@ -234,16 +238,19 @@ struct Failure {
 };
 
 // Applies one op inside the object whose '{' is at `start` (nesting `depth`), for path[index..].
-std::optional<Failure> apply_at(std::string& t, std::size_t start, std::size_t depth, const Style& style, const JsonPatchOp& op,
-                                std::size_t index) {
+std::optional<Failure> apply_at(std::string& t, std::size_t start, std::size_t depth, const Style& style,
+                                const JsonPatchOp& op, std::size_t index) {
     ObjectScan obj;
-    if (!scan_object(t, start, obj)) return Failure{"cannot locate the keys to patch", "Fix the JSON syntax of the file."};
+    if (!scan_object(t, start, obj))
+        return Failure{"cannot locate the keys to patch", "Fix the JSON syntax of the file."};
     const std::string& key = op.path[index];
     const bool last = index + 1 == op.path.size();
     const Member* m = find_member(obj, key);
     if (last) {
-        if (!op.value) t = remove_member(t, obj, key);
-        else t = set_member(t, obj, style, depth, key, render_value(*op.value, style, depth));
+        if (!op.value)
+            t = remove_member(t, obj, key);
+        else
+            t = set_member(t, obj, style, depth, key, render_value(*op.value, style, depth));
         return std::nullopt;
     }
     if (m && t[m->valueStart] == '{') return apply_at(t, m->valueStart, depth + 1, style, op, index + 1);
@@ -253,21 +260,27 @@ std::optional<Failure> apply_at(std::string& t, std::size_t start, std::size_t d
         return Failure{at + " is not an object, so " + "/" + op.path.back() + " cannot be put inside it",
                        "Change that value to an object (or remove it) by hand first."};
     }
-    if (!m && op.value) t = set_member(t, obj, style, depth, key, render_value(nest(op.path, index + 1, *op.value), style, depth));
+    if (!m && op.value)
+        t = set_member(t, obj, style, depth, key, render_value(nest(op.path, index + 1, *op.value), style, depth));
     return std::nullopt;  // removing something that is not there
 }
 
 }  // namespace
 
-Result<std::string> patch_json_text(const std::string& text, const std::vector<JsonPatchOp>& ops, const std::string& file) {
+Result<std::string> patch_json_text(const std::string& text, const std::vector<JsonPatchOp>& ops,
+                                    const std::string& file) {
     auto parsed = parse_json(text, file);
-    if (!parsed.ok()) return make_error(parsed.error().message, "Fix the JSON syntax of " + file + " first; nothing is patched over a broken file.");
+    if (!parsed.ok())
+        return make_error(parsed.error().message,
+                          "Fix the JSON syntax of " + file + " first; nothing is patched over a broken file.");
     if (!parsed->is_object())
-        return make_error(file + ": expected a JSON object, got " + describe_json_value(*parsed), "The file must start with { and end with }.");
+        return make_error(file + ": expected a JSON object, got " + describe_json_value(*parsed),
+                          "The file must start with { and end with }.");
     ObjectScan root;
     std::size_t rootStart = 0;
     if (!scan_root(text, root, rootStart))
-        return make_error(file + ": cannot locate the top-level keys to patch.", "Fix the JSON syntax of " + file + ".");
+        return make_error(file + ": cannot locate the top-level keys to patch.",
+                          "Fix the JSON syntax of " + file + ".");
     const Style style = detect_style(text, root);
 
     std::string out = text;
@@ -275,8 +288,10 @@ Result<std::string> patch_json_text(const std::string& text, const std::vector<J
         if (op.path.empty()) return make_error("a JSON patch needs a key path", "This is an engine bug; report it.");
         std::size_t start = 0;
         ObjectScan current;
-        if (!scan_root(out, current, start)) return make_error(file + ": internal error while patching the file", "Report this as an engine bug.");
-        if (auto fail = apply_at(out, start, 0, style, op, 0)) return make_error(file + ": " + fail->message, fail->hint);
+        if (!scan_root(out, current, start))
+            return make_error(file + ": internal error while patching the file", "Report this as an engine bug.");
+        if (auto fail = apply_at(out, start, 0, style, op, 0))
+            return make_error(file + ": " + fail->message, fail->hint);
     }
 
     // Never produce a file that would not parse.

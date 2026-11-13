@@ -27,10 +27,10 @@ struct SkelNode {
     // From the node's `extras` (a rig.bake .glb writes them, docs/RIGGING.md): which bone of a template this is, and where
     // it points at rest. `role` is "" for a node that is not a rig bone.
     std::string role;
-    int roleIndex = 0;        // 1-based among the bones of the role and side; 0 = the only one
-    std::string side;         // "", "l" or "r"
-    Vec3 axis{0, 0, 0};       // unit vector from the bone's head to its tail in the model's rest pose; (0,0,0) = not stored
-    float length = 0.0f;      // distance from the head to the tail at rest; 0 = not stored
+    int roleIndex = 0;    // 1-based among the bones of the role and side; 0 = the only one
+    std::string side;     // "", "l" or "r"
+    Vec3 axis{0, 0, 0};   // unit vector from the bone's head to its tail in the model's rest pose; (0,0,0) = not stored
+    float length = 0.0f;  // distance from the head to the tail at rest; 0 = not stored
 };
 
 // A skin: joints are node indices; inverseBind[i] belongs to joints[i] (identity when the file has none).
@@ -57,9 +57,9 @@ struct AnimChannel {
 // A game event a clip sends when its time passes `time` (the clip files of anim3d.h carry them; glTF animations have none).
 struct AnimClipEvent {
     float time = 0.0f;
-    std::string name;                  // "" = the event only runs its `feel` actions
+    std::string name;  // "" = the event only runs its `feel` actions
     Json data = Json::object();
-    std::vector<Json> feel;            // game feel actions (feel.h), already checked
+    std::vector<Json> feel;  // game feel actions (feel.h), already checked
 };
 
 struct AnimClip {
@@ -67,7 +67,7 @@ struct AnimClip {
     float duration = 0.0f;  // the largest key time over all channels (a clip file may make it longer)
     std::vector<AnimChannel> channels;
     std::vector<AnimClipEvent> events;  // ascending in time
-    int loop = -1;                      // -1 = the Animator's `loop` decides, 0 = plays once, 1 = repeats (a clip file's `loop`)
+    int loop = -1;  // -1 = the Animator's `loop` decides, 0 = plays once, 1 = repeats (a clip file's `loop`)
 };
 
 // Local transform of every node of a SkeletonAsset (same indices as SkeletonAsset::nodes).

@@ -53,21 +53,20 @@ constexpr int kSendFlags = 0;
 #endif
 
 // 10/8, 172.16/12, 192.168/16 (host byte order).
-bool is_private_v4(std::uint32_t a) {
-    return (a >> 24) == 10 || (a >> 20) == 0xAC1 || (a >> 16) == 0xC0A8;
-}
+bool is_private_v4(std::uint32_t a) { return (a >> 24) == 10 || (a >> 20) == 0xAC1 || (a >> 16) == 0xC0A8; }
 
 std::string v4_text(std::uint32_t a) {
-    return std::to_string(a >> 24) + "." + std::to_string((a >> 16) & 255) + "." + std::to_string((a >> 8) & 255) + "." +
-           std::to_string(a & 255);
+    return std::to_string(a >> 24) + "." + std::to_string((a >> 16) & 255) + "." + std::to_string((a >> 8) & 255) +
+           "." + std::to_string(a & 255);
 }
 
 // Lower is better: Wi-Fi and Ethernet before virtual adapters (VPN, Docker, VM bridges, which a phone cannot reach).
 int interface_rank(const std::string& name) {
     std::string n;
     for (char c : name) n += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-    for (const char* virt : {"docker", "vbox", "virtualbox", "vmware", "vmnet", "veth", "br-", "bridge", "utun", "tun", "tap", "vethernet",
-                             "hyper-v", "wsl", "zerotier", "tailscale", "loopback", "awdl", "llw", "anpi", "gif", "stf"})
+    for (const char* virt : {"docker",   "vbox", "virtualbox", "vmware",    "vmnet",   "veth", "br-",      "bridge",
+                             "utun",     "tun",  "tap",        "vethernet", "hyper-v", "wsl",  "zerotier", "tailscale",
+                             "loopback", "awdl", "llw",        "anpi",      "gif",     "stf"})
         if (n.find(virt) != std::string::npos) return 3;
     for (const char* wifi : {"wi-fi", "wifi", "wlan", "wireless"})
         if (n.find(wifi) != std::string::npos) return 0;
@@ -111,7 +110,8 @@ void shutdown_socket(Socket s) {
 
 bool send_all(Socket s, std::string_view data) {
     while (!data.empty()) {
-        const auto n = ::send(native(s), data.data(), static_cast<IoLen>(std::min<std::size_t>(data.size(), 1 << 20)), kSendFlags);
+        const auto n =
+            ::send(native(s), data.data(), static_cast<IoLen>(std::min<std::size_t>(data.size(), 1 << 20)), kSendFlags);
 #ifndef _WIN32
         if (n < 0 && errno == EINTR) continue;  // a signal arrived: not an error
 #endif
@@ -152,7 +152,8 @@ void linger_close(Socket s, int maxMs, std::size_t maxBytes, int idleMs) {
 bool secure_random(void* buffer, std::size_t size) {
     if (size == 0) return true;
 #if defined(_WIN32)
-    return BCryptGenRandom(nullptr, static_cast<PUCHAR>(buffer), static_cast<ULONG>(size), BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0;
+    return BCryptGenRandom(nullptr, static_cast<PUCHAR>(buffer), static_cast<ULONG>(size),
+                           BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0;
 #elif defined(__APPLE__)
     arc4random_buf(buffer, size);
     return true;
@@ -178,7 +179,8 @@ bool secure_random(void* buffer, std::size_t size) {
 bool constant_time_equal(std::string_view a, std::string_view b) {
     if (a.size() != b.size()) return false;  // the length of a token is not a secret
     unsigned char diff = 0;
-    for (std::size_t i = 0; i < a.size(); ++i) diff |= static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i]);
+    for (std::size_t i = 0; i < a.size(); ++i)
+        diff |= static_cast<unsigned char>(a[i]) ^ static_cast<unsigned char>(b[i]);
     return diff == 0;
 }
 
@@ -213,7 +215,8 @@ Result<Listener> listen_tcp(bool allInterfaces, int backlog) {
     auto fail = [](Socket s, const std::string& what) -> Result<Listener> {
         close_socket(s);
         return make_error("Cannot listen for connections: " + what + " failed.",
-                          "Another program may be blocking connections (firewall, security software). Allow the program, then try again.");
+                          "Another program may be blocking connections (firewall, security software). Allow the "
+                          "program, then try again.");
     };
     const Socket s = static_cast<Socket>(::socket(AF_INET, SOCK_STREAM, IPPROTO_TCP));
     if (s == kNoSocket) return fail(kNoSocket, "socket()");
@@ -225,7 +228,8 @@ Result<Listener> listen_tcp(bool allInterfaces, int backlog) {
     {
         // Without it another program can bind the same port on a more specific address and receive our connections.
         const BOOL exclusive = TRUE;
-        ::setsockopt(native(s), SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&exclusive), sizeof exclusive);
+        ::setsockopt(native(s), SOL_SOCKET, SO_EXCLUSIVEADDRUSE, reinterpret_cast<const char*>(&exclusive),
+                     sizeof exclusive);
     }
 #endif
     if (::bind(native(s), reinterpret_cast<sockaddr*>(&addr), sizeof addr) != 0) return fail(s, "bind()");
@@ -310,7 +314,8 @@ Accepted accept_pending(Socket listener, Socket& out) {
 #else
         const int e = errno;
         if (e == EINTR) continue;
-        if (e == EAGAIN || e == EWOULDBLOCK || e == ECONNABORTED || e == EPROTO || e == ECONNRESET) return Accepted::Nothing;
+        if (e == EAGAIN || e == EWOULDBLOCK || e == ECONNABORTED || e == EPROTO || e == ECONNRESET)
+            return Accepted::Nothing;
 #endif
         return Accepted::Failed;
     }
@@ -345,7 +350,8 @@ std::vector<std::string> lan_addresses() {
     for (int attempt = 0; attempt < 3 && rc == ERROR_BUFFER_OVERFLOW; ++attempt) {
         buffer.assign(size ? size : 15000, 0);
         size = static_cast<ULONG>(buffer.size());
-        rc = GetAdaptersAddresses(AF_INET, flags, nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()), &size);
+        rc = GetAdaptersAddresses(AF_INET, flags, nullptr, reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()),
+                                  &size);
     }
     if (rc != NO_ERROR) return {};
     for (auto* a = reinterpret_cast<IP_ADAPTER_ADDRESSES*>(buffer.data()); a; a = a->Next) {
@@ -356,7 +362,9 @@ std::vector<std::string> lan_addresses() {
             if (!u->Address.lpSockaddr || u->Address.lpSockaddr->sa_family != AF_INET) continue;
             const auto* in = reinterpret_cast<const sockaddr_in*>(u->Address.lpSockaddr);
             const std::uint32_t host = ntohl(in->sin_addr.s_addr);
-            if (is_private_v4(host)) found.push_back({interface_rank(name) + (a->IfType == IF_TYPE_IEEE80211 ? -1 : 0), name, v4_text(host)});
+            if (is_private_v4(host))
+                found.push_back(
+                    {interface_rank(name) + (a->IfType == IF_TYPE_IEEE80211 ? -1 : 0), name, v4_text(host)});
         }
     }
 #else
@@ -367,7 +375,9 @@ std::vector<std::string> lan_addresses() {
         if (!(a->ifa_flags & IFF_UP) || (a->ifa_flags & IFF_LOOPBACK)) continue;
         const auto* in = reinterpret_cast<const sockaddr_in*>(a->ifa_addr);
         const std::uint32_t host = ntohl(in->sin_addr.s_addr);
-        if (is_private_v4(host)) found.push_back({interface_rank(a->ifa_name ? a->ifa_name : ""), a->ifa_name ? a->ifa_name : "", v4_text(host)});
+        if (is_private_v4(host))
+            found.push_back(
+                {interface_rank(a->ifa_name ? a->ifa_name : ""), a->ifa_name ? a->ifa_name : "", v4_text(host)});
     }
     ::freeifaddrs(list);
 #endif

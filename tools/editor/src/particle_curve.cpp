@@ -89,8 +89,10 @@ std::vector<float> curve_grid_values(float lo, float hi) {
     if (span > 4.0) {
         step = std::pow(10.0, std::floor(std::log10(span / 4.0)));
         const double n = span / step;
-        if (n >= 20.0) step *= 5.0;
-        else if (n >= 10.0) step *= 2.0;
+        if (n >= 20.0)
+            step *= 5.0;
+        else if (n >= 10.0)
+            step *= 2.0;
     }
     const double first = std::ceil(double(lo) / step);
     for (int i = 0; i < kCurveGridMaxLines; ++i) {

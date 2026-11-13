@@ -49,9 +49,12 @@ struct Ctx {
 std::string escape_token(const std::string& s) {
     std::string out;
     for (char c : s) {
-        if (c == '~') out += "~0";
-        else if (c == '/') out += "~1";
-        else out += c;
+        if (c == '~')
+            out += "~0";
+        else if (c == '/')
+            out += "~1";
+        else
+            out += c;
     }
     return out;
 }
@@ -88,7 +91,8 @@ std::vector<std::string> schema_types(const Json& schema) {
     std::vector<std::string> out;
     auto it = schema.find("type");
     if (it == schema.end()) return out;
-    if (it->is_string()) out.push_back(it->get<std::string>());
+    if (it->is_string())
+        out.push_back(it->get<std::string>());
     else if (it->is_array())
         for (const Json& t : *it)
             if (t.is_string()) out.push_back(t.get<std::string>());
@@ -205,8 +209,10 @@ void validate_object(Ctx& ctx, const Json& schema, const Json& value, const std:
     const Json* additional = nullptr;
     bool additionalAllowed = true;
     if (auto it = schema.find("additionalProperties"); it != schema.end()) {
-        if (it->is_boolean()) additionalAllowed = it->get<bool>();
-        else if (it->is_object()) additional = &*it;
+        if (it->is_boolean())
+            additionalAllowed = it->get<bool>();
+        else if (it->is_object())
+            additional = &*it;
     }
     for (auto it = value.begin(); it != value.end(); ++it) {
         std::string childPtr = ptr + "/" + escape_token(it.key());
@@ -229,8 +235,14 @@ void validate_at(Ctx& ctx, const Json& schemaIn, const Json& value, const std::s
         if (!schemaIn.get<bool>()) add(errors, ptr, "no value is allowed here");
         return;
     }
-    if (!schemaIn.is_object() || ++ctx.depth > 64) { --ctx.depth; return; }
-    struct DepthGuard { Ctx& c; ~DepthGuard() { --c.depth; } } guard{ctx};
+    if (!schemaIn.is_object() || ++ctx.depth > 64) {
+        --ctx.depth;
+        return;
+    }
+    struct DepthGuard {
+        Ctx& c;
+        ~DepthGuard() { --c.depth; }
+    } guard{ctx};
 
     const Json* schemaPtr = resolve_ref(ctx, schemaIn);
     if (!schemaPtr) {
@@ -262,8 +274,12 @@ void validate_at(Ctx& ctx, const Json& schemaIn, const Json& value, const std::s
             std::vector<std::string> allowed;
             bool allStrings = true;
             for (const Json& e : *it) {
-                if (e.is_string()) allowed.push_back(e.get<std::string>());
-                else { allStrings = false; allowed.push_back(e.dump()); }
+                if (e.is_string())
+                    allowed.push_back(e.get<std::string>());
+                else {
+                    allStrings = false;
+                    allowed.push_back(e.dump());
+                }
             }
             std::string hint = value.is_string() && allStrings ? did_you_mean(value.get<std::string>(), allowed, 20)
                                                                : "Allowed values: " + join(allowed, ", ") + ".";
@@ -274,15 +290,19 @@ void validate_at(Ctx& ctx, const Json& schemaIn, const Json& value, const std::s
     if (value.is_number()) {
         double v = value.get<double>();
         if (auto it = schema.find("minimum"); it != schema.end() && it->is_number() && v < it->get<double>())
-            add(errors, ptr, "value " + value.dump() + " is below the minimum " + it->dump(), "Use a value >= " + it->dump() + ".");
+            add(errors, ptr, "value " + value.dump() + " is below the minimum " + it->dump(),
+                "Use a value >= " + it->dump() + ".");
         if (auto it = schema.find("maximum"); it != schema.end() && it->is_number() && v > it->get<double>())
-            add(errors, ptr, "value " + value.dump() + " is above the maximum " + it->dump(), "Use a value <= " + it->dump() + ".");
+            add(errors, ptr, "value " + value.dump() + " is above the maximum " + it->dump(),
+                "Use a value <= " + it->dump() + ".");
     }
 
     if (value.is_string()) {
         const std::string& s = value.get_ref<const std::string&>();
-        if (auto it = schema.find("minLength"); it != schema.end() && it->is_number_unsigned() && s.size() < it->get<std::size_t>())
-            add(errors, ptr, "string is too short (minimum length " + it->dump() + ")", "Provide at least " + it->dump() + " characters.");
+        if (auto it = schema.find("minLength");
+            it != schema.end() && it->is_number_unsigned() && s.size() < it->get<std::size_t>())
+            add(errors, ptr, "string is too short (minimum length " + it->dump() + ")",
+                "Provide at least " + it->dump() + " characters.");
         if (auto it = schema.find("pattern"); it != schema.end() && it->is_string()) {
             const std::string& pattern = it->get_ref<const std::string&>();
             if (auto re = compiled_pattern(pattern)) {
@@ -295,10 +315,14 @@ void validate_at(Ctx& ctx, const Json& schemaIn, const Json& value, const std::s
                     tooComplex = true;
                 }
                 if (tooComplex)
-                    add(errors, ptr, "string " + describe_json_value(value) + " is too long or too complex to check against the pattern " + it->dump(),
-                        "Use a shorter value (" + std::to_string(s.size()) + " characters here), or simplify the pattern in the schema.");
+                    add(errors, ptr,
+                        "string " + describe_json_value(value) +
+                            " is too long or too complex to check against the pattern " + it->dump(),
+                        "Use a shorter value (" + std::to_string(s.size()) +
+                            " characters here), or simplify the pattern in the schema.");
                 else if (!matches)
-                    add(errors, ptr, "string " + describe_json_value(value) + " does not match the pattern " + it->dump(),
+                    add(errors, ptr,
+                        "string " + describe_json_value(value) + " does not match the pattern " + it->dump(),
                         "Use a value matching /" + pattern + "/.");
             } else {
                 add(errors, ptr, "schema error: invalid pattern " + it->dump(),
@@ -308,14 +332,17 @@ void validate_at(Ctx& ctx, const Json& schemaIn, const Json& value, const std::s
     }
 
     if (value.is_array()) {
-        if (auto it = schema.find("minItems"); it != schema.end() && it->is_number_unsigned() && value.size() < it->get<std::size_t>())
+        if (auto it = schema.find("minItems");
+            it != schema.end() && it->is_number_unsigned() && value.size() < it->get<std::size_t>())
             add(errors, ptr, "array has " + std::to_string(value.size()) + " items, minimum is " + it->dump(),
                 "Provide at least " + it->dump() + " items.");
-        if (auto it = schema.find("maxItems"); it != schema.end() && it->is_number_unsigned() && value.size() > it->get<std::size_t>())
+        if (auto it = schema.find("maxItems");
+            it != schema.end() && it->is_number_unsigned() && value.size() > it->get<std::size_t>())
             add(errors, ptr, "array has " + std::to_string(value.size()) + " items, maximum is " + it->dump(),
                 "Provide at most " + it->dump() + " items.");
         if (auto it = schema.find("items"); it != schema.end() && (it->is_object() || it->is_boolean()))
-            for (std::size_t i = 0; i < value.size(); ++i) validate_at(ctx, *it, value[i], ptr + "/" + std::to_string(i), errors);
+            for (std::size_t i = 0; i < value.size(); ++i)
+                validate_at(ctx, *it, value[i], ptr + "/" + std::to_string(i), errors);
     }
 
     if (value.is_object()) validate_object(ctx, schema, value, ptr, errors);
@@ -352,7 +379,8 @@ std::vector<SchemaError> check_schema_patterns(const Json& schema) {
     struct Node {
         const Json* json;
         std::string ptr;
-        bool names;  // an object whose keys are names of properties or definitions (each value is a schema), not keywords
+        bool
+            names;  // an object whose keys are names of properties or definitions (each value is a schema), not keywords
     };
     std::vector<SchemaError> errors;
     std::vector<Node> todo{{&schema, "", false}};
@@ -372,15 +400,19 @@ std::vector<SchemaError> check_schema_patterns(const Json& schema) {
                 const std::string& key = it.key();
                 if (key == "pattern" && it->is_string()) {
                     if (!compiled_pattern(it->get_ref<const std::string&>()))
-                        errors.push_back({childPtr, "invalid pattern " + it->dump() + " (not an ECMAScript regular expression)",
-                                          "Fix the regular expression in the schema; every string checked against it would be rejected."});
+                        errors.push_back({childPtr,
+                                          "invalid pattern " + it->dump() + " (not an ECMAScript regular expression)",
+                                          "Fix the regular expression in the schema; every string checked against it "
+                                          "would be rejected."});
                 } else if (key != "default" && key != "enum" && key != "const" && key != "examples") {
-                    const bool nameMap = it->is_object() && (key == "properties" || key == "$defs" || key == "definitions" || key == "patternProperties");
+                    const bool nameMap = it->is_object() && (key == "properties" || key == "$defs" ||
+                                                             key == "definitions" || key == "patternProperties");
                     todo.push_back({&*it, std::move(childPtr), nameMap});
                 }
             }
         } else if (n.json->is_array()) {
-            for (std::size_t i = 0; i < n.json->size(); ++i) todo.push_back({&(*n.json)[i], n.ptr + "/" + std::to_string(i), false});
+            for (std::size_t i = 0; i < n.json->size(); ++i)
+                todo.push_back({&(*n.json)[i], n.ptr + "/" + std::to_string(i), false});
         }
     }
     return errors;
@@ -406,11 +438,13 @@ void close_in_place(Json& schema, int depth) {
         for (auto it = props->begin(); it != props->end(); ++it) close_in_place(it.value(), depth + 1);
     if (hasProps && !schema.contains("additionalProperties")) schema["additionalProperties"] = false;
     if (auto it = schema.find("items"); it != schema.end()) {
-        if (it->is_object()) close_in_place(*it, depth + 1);
+        if (it->is_object())
+            close_in_place(*it, depth + 1);
         else if (it->is_array())
             for (Json& e : *it) close_in_place(e, depth + 1);
     }
-    if (auto it = schema.find("additionalProperties"); it != schema.end() && it->is_object()) close_in_place(*it, depth + 1);
+    if (auto it = schema.find("additionalProperties"); it != schema.end() && it->is_object())
+        close_in_place(*it, depth + 1);
     for (const char* key : {"anyOf", "oneOf"}) {
         if (auto it = schema.find(key); it != schema.end() && it->is_array())
             for (Json& e : *it) close_in_place(e, depth + 1);

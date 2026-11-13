@@ -15,7 +15,8 @@ namespace {
 struct TempProject {
     fsys::path dir;
     TempProject() {
-        dir = fsys::temp_directory_path() / ("fa_dap_doctest_" + std::to_string(reinterpret_cast<std::uintptr_t>(this)));
+        dir =
+            fsys::temp_directory_path() / ("fa_dap_doctest_" + std::to_string(reinterpret_cast<std::uintptr_t>(this)));
         fsys::remove_all(dir);
         fsys::create_directories(dir / "scripts");
         std::ofstream(dir / "factoria.json") << "{}";
@@ -75,7 +76,8 @@ TEST_CASE("dap framing: partial reads, one byte at a time") {
 }
 
 TEST_CASE("dap framing: several messages in one buffer, then a split header") {
-    std::string wire = dap_encode(Json::object({{"n", 1}})) + dap_encode(Json::object({{"n", 2}})) + dap_encode(Json::object({{"n", 3}}));
+    std::string wire = dap_encode(Json::object({{"n", 1}})) + dap_encode(Json::object({{"n", 2}})) +
+                       dap_encode(Json::object({{"n", 3}}));
     DapFrameReader r;
     std::size_t cut = wire.size() - 5;
     auto first = r.feed(std::string_view(wire).substr(0, cut));
@@ -114,10 +116,22 @@ TEST_CASE("dap framing: bad headers and bodies are reported and skipped") {
 
 TEST_CASE("dap launch: defaults, VS Code keys and every declared attribute are accepted") {
     TempProject p;
-    Json a = Json::object({{"type", "factoria"}, {"request", "launch"}, {"name", "x"}, {"mode", "headless"}, {"project", p.dir.string()},
-                           {"frames", 12}, {"stopOnEntry", true}, {"factoriaPath", "/x/factoria"}, {"noDebug", false},
-                           {"__sessionId", "1"}, {"__configurationTarget", 5}, {"presentation", Json::object()}, {"preLaunchTask", "b"},
-                           {"postDebugTask", "c"}, {"internalConsoleOptions", "neverOpen"}, {"debugServer", 4711},
+    Json a = Json::object({{"type", "factoria"},
+                           {"request", "launch"},
+                           {"name", "x"},
+                           {"mode", "headless"},
+                           {"project", p.dir.string()},
+                           {"frames", 12},
+                           {"stopOnEntry", true},
+                           {"factoriaPath", "/x/factoria"},
+                           {"noDebug", false},
+                           {"__sessionId", "1"},
+                           {"__configurationTarget", 5},
+                           {"presentation", Json::object()},
+                           {"preLaunchTask", "b"},
+                           {"postDebugTask", "c"},
+                           {"internalConsoleOptions", "neverOpen"},
+                           {"debugServer", 4711},
                            {"suppressMultipleSessionWarning", true}});
     auto r = parse_dap_launch(a, ".");
     REQUIRE(r.ok());
@@ -155,7 +169,8 @@ TEST_CASE("dap launch: errors teach") {
     REQUIRE_FALSE(notProject.ok());
     CHECK(notProject.error().message.find("not a FactorIA project") != std::string::npos);
 
-    auto input = parse_dap_launch(Json::object({{"mode", "headless"}, {"input", "missing.json"}, {"project", proj}}), ".");
+    auto input =
+        parse_dap_launch(Json::object({{"mode", "headless"}, {"input", "missing.json"}, {"project", proj}}), ".");
     REQUIRE_FALSE(input.ok());
     CHECK(input.error().message.find("Looked in") != std::string::npos);
 }
@@ -197,7 +212,9 @@ TEST_CASE("dap server: paths map to project-relative modules; outside the projec
     s.handle_message(request(1, "initialize"));
     // setBreakpoints before launch is answered when the launch is handled
     const std::string a = (p.dir / "scripts" / "a.js").string();
-    s.handle_message(request(2, "setBreakpoints", Json::object({{"source", Json::object({{"path", a}})}, {"breakpoints", Json::array({Json::object({{"line", 3}})})}})));
+    s.handle_message(request(2, "setBreakpoints",
+                             Json::object({{"source", Json::object({{"path", a}})},
+                                           {"breakpoints", Json::array({Json::object({{"line", 3}})})}})));
     CHECK(cap.response(2) == nullptr);
     s.handle_message(request(3, "launch", Json::object({{"mode", "headless"}, {"project", p.dir.string()}})));
     REQUIRE(cap.response(3));
@@ -219,8 +236,9 @@ TEST_CASE("dap server: paths map to project-relative modules; outside the projec
 #endif
     CHECK(fsys::path(s.absolute_path("scripts/a.js")).filename() == "a.js");
 
-    s.handle_message(request(4, "setBreakpoints", Json::object({{"source", Json::object({{"path", (p.dir / "notes.txt").string()}})},
-                                                                 {"breakpoints", Json::array({Json::object({{"line", 1}})})}})));
+    s.handle_message(request(4, "setBreakpoints",
+                             Json::object({{"source", Json::object({{"path", (p.dir / "notes.txt").string()}})},
+                                           {"breakpoints", Json::array({Json::object({{"line", 1}})})}})));
     const Json* out = cap.response(4);
     REQUIRE(out);
     CHECK((*out)["body"]["breakpoints"][0]["verified"] == false);

@@ -27,7 +27,8 @@ int g_inits = 0;
 
 void probe_add(FaCall* call, const char* args, void*) {
     double a = 0, b = 0;
-    if (std::sscanf(args, " [ %lf , %lf", &a, &b) != 2) return g_api->fail(call, "add(a, b) takes two numbers", "plugins.probe.add(1, 2)");
+    if (std::sscanf(args, " [ %lf , %lf", &a, &b) != 2)
+        return g_api->fail(call, "add(a, b) takes two numbers", "plugins.probe.add(1, 2)");
     char out[64];
     std::snprintf(out, sizeof out, "%.17g", a + b);
     g_api->reply(call, out);
@@ -44,8 +45,13 @@ FA_PLUGIN_INIT(probe) {
     ++g_inits;
     FaFunctionDesc add = {"add", "add(a, b): the sum of two numbers.", probe_add, nullptr};
     FaFunctionDesc bad = {"badJson", "Answers with text that is not JSON.", probe_bad_json, nullptr};
-    FaCommandDesc info = {"probe.info", "Describe the probe plugin.", "Returns {platform, args}.",
-                          R"({"type":"object","properties":{"n":{"type":"integer","default":7}}})", 1, probe_info, nullptr};
+    FaCommandDesc info = {"probe.info",
+                          "Describe the probe plugin.",
+                          "Returns {platform, args}.",
+                          R"({"type":"object","properties":{"n":{"type":"integer","default":7}}})",
+                          1,
+                          probe_info,
+                          nullptr};
     // Refused registrations: the plugin goes on, without them.
     FaCommandDesc wrongPrefix = {"other.info", "Not this plugin's.", nullptr, nullptr, 1, probe_info, nullptr};
     FaCommandDesc noSummary = {"probe.quiet", nullptr, nullptr, nullptr, 1, probe_info, nullptr};
@@ -64,7 +70,8 @@ FA_PLUGIN_INIT(probe) {
     CHECK(api->set_command_capabilities(api, "probe.fetch", R"(["read","network"])") == 0);
     CHECK(api->set_command_capabilities(api, "probe.fetch", R"(["read","netwrok"])") != 0);
     CHECK(api->set_command_capabilities(api, "probe.nothing", R"(["read"])") != 0);
-    CHECK(api->set_command_capabilities(api, "probe.fetch", "[]") != 0);  // a command needs at least read; it keeps {read, network}
+    CHECK(api->set_command_capabilities(api, "probe.fetch", "[]") !=
+          0);                                  // a command needs at least read; it keeps {read, network}
     CHECK(api->add_function(api, &add) != 0);  // twice
     api->log(api, 1, "probe ready");
     return 0;
@@ -80,8 +87,10 @@ struct Game {
     explicit Game(const std::string& plugins, const std::string& entities = "") {
         dir = fs::make_temp_dir("fa_plugins_test").value();
         stdfs::create_directories(dir / "scenes");
-        std::ofstream(dir / "factoria.json") << R"({"format":"factoria.project/1","name":"Plugins","plugins":)" << plugins << "}";
-        std::ofstream(dir / "scenes/main.scene.json") << R"({"format":"factoria.scene/1","entities":[)" << entities << "]}";
+        std::ofstream(dir / "factoria.json")
+            << R"({"format":"factoria.project/1","name":"Plugins","plugins":)" << plugins << "}";
+        std::ofstream(dir / "scenes/main.scene.json")
+            << R"({"format":"factoria.scene/1","entities":[)" << entities << "]}";
     }
     ~Game() {
         std::error_code ec;
@@ -106,7 +115,8 @@ struct KeyboardLog {
 
 int keyboard_handler(const FaTextInput* in, void*) {
     char line[256];
-    std::snprintf(line, sizeof line, "%d %g %g %g %g %s %d", in->focused, in->x, in->y, in->width, in->height, in->text, in->max_length);
+    std::snprintf(line, sizeof line, "%d %g %g %g %g %s %d", in->focused, in->x, in->y, in->width, in->height, in->text,
+                  in->max_length);
     g_keyboard.asked.push_back(line);
     return g_keyboard.take ? 1 : 0;
 }
@@ -201,8 +211,10 @@ TEST_CASE("plugins: a plugin's functions and commands reach scripts and the comm
     fa_register_static_plugin("probe", fa_plugin_init);  // FA_PLUGIN_INIT(probe) defines fa_plugin_init (not static)
     fa_register_static_plugin("broken", failing_init);
     const std::string other = std::string(runtime_platform()) == "android" ? "ios" : "android";
-    Game game(R"({"probe": {"path": "native/probe"}, "broken": {"path": "native/broken"}, "missing": {"path": "nowhere"},
-                  "elsewhere": {"path": "x", "platforms": [")" + other + R"("]}})");
+    Game game(
+        R"({"probe": {"path": "native/probe"}, "broken": {"path": "native/broken"}, "missing": {"path": "nowhere"},
+                  "elsewhere": {"path": "x", "platforms": [")" +
+        other + R"("]}})");
     Engine engine;
     std::string err;
     REQUIRE(engine.init(game.cfg(), nullptr, &err));
@@ -215,7 +227,9 @@ TEST_CASE("plugins: a plugin's functions and commands reach scripts and the comm
     // A failure is an exception with the plugin's message and hint.
     r = eval("plugins.probe.add('x')");
     REQUIRE_FALSE(r.ok());
-    CHECK(r.error().message.find("plugins.probe.add failed: add(a, b) takes two numbers (hint: plugins.probe.add(1, 2))") != std::string::npos);
+    CHECK(r.error().message.find(
+              "plugins.probe.add failed: add(a, b) takes two numbers (hint: plugins.probe.add(1, 2))") !=
+          std::string::npos);
     r = eval("plugins.probe.badJson()");
     REQUIRE_FALSE(r.ok());
     CHECK(r.error().message.find("not JSON") != std::string::npos);
@@ -321,7 +335,8 @@ TEST_CASE("plugins: factoria.json errors name the field and say how to fix it") 
     CHECK(platform_names().back() == "web");
 
     CHECK_FALSE(ok->plugins[0].optional);
-    auto opt = load(R"({"a": {"path": "a", "optional": true}, "b": {"path": "b", "optional": false}, "c": {"path": "c"}})");
+    auto opt =
+        load(R"({"a": {"path": "a", "optional": true}, "b": {"path": "b", "optional": false}, "c": {"path": "c"}})");
     REQUIRE(opt.ok());
     CHECK(opt->plugins[0].optional);
     CHECK_FALSE(opt->plugins[1].optional);

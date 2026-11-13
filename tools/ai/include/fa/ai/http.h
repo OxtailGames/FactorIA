@@ -19,7 +19,7 @@ struct HttpRequest {
     std::string url;
     std::vector<std::pair<std::string, std::string>> headers;
     std::string body;
-    double timeoutSeconds = 600;        // whole transfer
+    double timeoutSeconds = 600;  // whole transfer
     double connectTimeoutSeconds = 30;
     const CancelFlag* cancel = nullptr;
     // Streaming: called with raw body chunks of a SUCCESSFUL (2xx) response as
@@ -29,10 +29,10 @@ struct HttpRequest {
 };
 
 struct HttpResponse {
-    int status = 0;          // 0 = transport failure (see `error`)
+    int status = 0;                              // 0 = transport failure (see `error`)
     std::map<std::string, std::string> headers;  // lowercase names
     std::string body;
-    std::string error;       // transport error text ("Could not resolve host...")
+    std::string error;  // transport error text ("Could not resolve host...")
     bool cancelled = false;
     bool ok() const { return status >= 200 && status < 300; }
     std::string header(std::string_view lowerName) const;

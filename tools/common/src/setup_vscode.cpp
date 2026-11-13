@@ -123,7 +123,8 @@ std::string register_extension(const stdfs::path& extDir, const stdfs::path& fol
     Json list = read_registry(extDir, exists);
     if (!exists) return {};
     if (list.is_discarded())
-        return (extDir / "extensions.json").string() + " is not a JSON array, so VS Code's list of extensions was left alone: "
+        return (extDir / "extensions.json").string() +
+               " is not a JSON array, so VS Code's list of extensions was left alone: "
                "restart VS Code once, delete that file, and run `factoria setup vscode` again.";
     Json out = Json::array();
     for (const Json& e : list)
@@ -133,9 +134,10 @@ std::string register_extension(const stdfs::path& extDir, const stdfs::path& fol
     entry["version"] = version;
     entry["location"] = Json::object({{"$mid", 1}, {"path", uri_path(folder)}, {"scheme", "file"}});
     entry["relativeLocation"] = folder.filename().string();
-    entry["metadata"] = Json::object(
-        {{"installedTimestamp", std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count()},
-         {"source", "vsix"}});
+    entry["metadata"] = Json::object({{"installedTimestamp", std::chrono::duration_cast<std::chrono::milliseconds>(
+                                                                 std::chrono::system_clock::now().time_since_epoch())
+                                                                 .count()},
+                                      {"source", "vsix"}});
     out.push_back(entry);
     std::string err;
     if (!write_atomic(extDir / "extensions.json", out.dump(2), &err)) return err;
@@ -189,7 +191,8 @@ SetupComponent vscode_status(const SetupContext& ctx) {
     const std::vector<const EditorTarget*> targets = active_targets(home);
     if (targets.empty()) {
         c.state = "missing";
-        c.details = "Cannot find the user's home folder (HOME or USERPROFILE is not set), so there is nowhere to put the extension.";
+        c.details = "Cannot find the user's home folder (HOME or USERPROFILE is not set), so there is nowhere to put "
+                    "the extension.";
         c.problems.push_back("Set HOME (USERPROFILE on Windows) and run `factoria setup vscode`.");
         return c;
     }
@@ -198,7 +201,8 @@ SetupComponent vscode_status(const SetupContext& ctx) {
         const stdfs::path folder = extensions_dir(home, *t) / extension_folder_name(ctx);
         const std::string s = copy_state(ctx, extensions_dir(home, *t), folder);
         if (s == "missing") {
-            c.problems.push_back(t->label + " does not have the FactorIA extension " + ctx.version() + " (" + folder.string() + ").");
+            c.problems.push_back(t->label + " does not have the FactorIA extension " + ctx.version() + " (" +
+                                 folder.string() + ").");
             continue;
         }
         ++installed;
@@ -208,15 +212,20 @@ SetupComponent vscode_status(const SetupContext& ctx) {
     if (installed == int(targets.size()) && stale == 0) {
         c.state = "installed";
         c.problems.clear();
-        c.details = "The FactorIA extension " + ctx.version() + " is in the extensions folder of " + std::to_string(targets.size()) +
-                    " editor" + (targets.size() == 1 ? "" : "s") + ". Press F5 in a project folder (docs/DEBUGGING.md).";
+        c.details = "The FactorIA extension " + ctx.version() + " is in the extensions folder of " +
+                    std::to_string(targets.size()) + " editor" + (targets.size() == 1 ? "" : "s") +
+                    ". Press F5 in a project folder (docs/DEBUGGING.md).";
         return c;
     }
     c.state = installed == 0 ? "missing" : "partial";
-    if (stale > 0) c.problems.push_back("The extension records another factoria than this one: install again so F5 starts this one.");
-    c.details = "The install copies the FactorIA extension " + ctx.version() + " (built into factoria, nothing is downloaded) to " +
-                (extensions_dir(home, editor_targets()[0]) / extension_folder_name(ctx)).string() +
-                " and to the other VS Code based editors found, then removes older versions. Restart VS Code afterwards.";
+    if (stale > 0)
+        c.problems.push_back(
+            "The extension records another factoria than this one: install again so F5 starts this one.");
+    c.details =
+        "The install copies the FactorIA extension " + ctx.version() +
+        " (built into factoria, nothing is downloaded) to " +
+        (extensions_dir(home, editor_targets()[0]) / extension_folder_name(ctx)).string() +
+        " and to the other VS Code based editors found, then removes older versions. Restart VS Code afterwards.";
     return c;
 }
 
@@ -224,8 +233,9 @@ SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& o
     Installer in(ctx, "vscode");
     const stdfs::path home = user_home(ctx);
     if (home.empty())
-        return in.fail("failed", make_error("Cannot find the user's home folder: HOME (USERPROFILE on Windows) is not set.",
-                                            "Set it to the folder that holds .vscode/ and run `factoria setup vscode` again."));
+        return in.fail("failed",
+                       make_error("Cannot find the user's home folder: HOME (USERPROFILE on Windows) is not set.",
+                                  "Set it to the folder that holds .vscode/ and run `factoria setup vscode` again."));
 
     // The embedded extension.
     std::vector<std::pair<std::string, std::string>> files;  // name -> content
@@ -240,7 +250,8 @@ SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& o
             hasPackage = true;
             Json j = Json::parse(data, nullptr, false);
             if (j.is_discarded() || !j.is_object())
-                return in.fail("failed", make_error("The embedded tools/vscode/package.json is not valid JSON.", "This is a bug in this build of factoria."));
+                return in.fail("failed", make_error("The embedded tools/vscode/package.json is not valid JSON.",
+                                                    "This is a bug in this build of factoria."));
             j["version"] = ctx.version();
             data = j.dump(2) + "\n";
         } else if (name == "extension.js") {
@@ -248,8 +259,11 @@ SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& o
         }
     }
     if (!hasPackage || !hasMain)
-        return in.fail("failed", make_error("This build of factoria does not carry the VS Code extension (tools/vscode/package.json and extension.js).",
-                                            "Use an official download of FactorIA, or build from a checkout that has tools/vscode/."));
+        return in.fail(
+            "failed",
+            make_error("This build of factoria does not carry the VS Code extension (tools/vscode/package.json and "
+                       "extension.js).",
+                       "Use an official download of FactorIA, or build from a checkout that has tools/vscode/."));
 
     const stdfs::path exe = factoria_exe(ctx);
     const bool exeExists = is_file(exe);
@@ -261,10 +275,12 @@ SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& o
     }
     if (exeExists) {
         std::string err;
-        if (!tooling_detail::write_file(staged / kPathFile, exe.string() + "\n", &err)) return in.fail("failed", make_error(err));
+        if (!tooling_detail::write_file(staged / kPathFile, exe.string() + "\n", &err))
+            return in.fail("failed", make_error(err));
     } else {
         in.report.warnings.push_back("There is no factoria next to " + exe_dir(ctx).string() +
-                                     ", so the extension was not told where it is: it will run `factoria` from the PATH (or set \"factoriaPath\" in launch.json).");
+                                     ", so the extension was not told where it is: it will run `factoria` from the "
+                                     "PATH (or set \"factoriaPath\" in launch.json).");
     }
 
     for (const EditorTarget* t : active_targets(home)) {
@@ -290,7 +306,8 @@ SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& o
             if (auto f = replace_dir(incoming, dest)) return in.fail(*f);
             s.outcome = "installed";
             s.detail = "extension " + ctx.version() + " copied";
-            if (const std::string e = register_extension(extDir, dest, ctx.version()); !e.empty()) in.report.warnings.push_back(e);
+            if (const std::string e = register_extension(extDir, dest, ctx.version()); !e.empty())
+                in.report.warnings.push_back(e);
         }
         // Older versions are no longer used (and VS Code would load the newest of them otherwise).
         std::vector<stdfs::path> old;
@@ -301,15 +318,18 @@ SetupResult vscode_install(const SetupContext& ctx, const SetupInstallOptions& o
         for (const stdfs::path& p : old) {
             std::error_code rm;
             stdfs::remove_all(p, rm);
-            if (!rm) s.detail += "; removed " + p.filename().string();
-            else in.report.warnings.push_back("Could not remove the old extension " + p.string() + ": " + rm.message());
+            if (!rm)
+                s.detail += "; removed " + p.filename().string();
+            else
+                in.report.warnings.push_back("Could not remove the old extension " + p.string() + ": " + rm.message());
         }
         clean_obsolete(extDir);
         s.seconds = stepTimer.seconds();
         in.add_step(s);
         if (t->always) in.report.paths.emplace_back("extension", dest.string());
     }
-    in.report.nextSteps.push_back("Restart VS Code (or run \"Developer: Reload Window\"), open a project folder and press F5. docs/DEBUGGING.md has the details.");
+    in.report.nextSteps.push_back("Restart VS Code (or run \"Developer: Reload Window\"), open a project folder and "
+                                  "press F5. docs/DEBUGGING.md has the details.");
     return in.finish();
 }
 

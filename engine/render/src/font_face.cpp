@@ -38,13 +38,15 @@ bool FontFace::has_glyph(std::uint32_t cp) const {
 // that reads a font file's content, whether the file came from the project, from the built-in set or from memory.
 namespace {
 std::unique_ptr<FontFace> finish_font_face(std::unique_ptr<FontFace> f) {
-    const int offset = f->data && f->size >= 16 ? stbtt_GetFontOffsetForIndex(f->data, 0) : -1;  // -1: not a font file at all (and stb would read before it)
+    const int offset = f->data && f->size >= 16 ? stbtt_GetFontOffsetForIndex(f->data, 0)
+                                                : -1;  // -1: not a font file at all (and stb would read before it)
     if (offset >= 0) {
         FontCheck check = check_font_bytes(f->data, f->size, offset);
         f->unsafeGlyphs = std::move(check.unsafeGlyphs);
         if (!check.problem.empty()) {
             f->error = std::format("'{}' is damaged: {}", f->key, check.problem);
-            f->hint = "Get the font file again from where you downloaded it, or re-save it with a font editor (FontForge, fontTools).";
+            f->hint = "Get the font file again from where you downloaded it, or re-save it with a font editor "
+                      "(FontForge, fontTools).";
             return f;
         }
     }
@@ -53,8 +55,8 @@ std::unique_ptr<FontFace> finish_font_face(std::unique_ptr<FontFace> f) {
         f->hint = "Only .ttf (and TrueType-flavoured .otf) files are supported; convert other formats.";
         return f;
     }
-    f->blob = hb_blob_create(reinterpret_cast<const char*>(f->data), static_cast<unsigned>(f->size), HB_MEMORY_MODE_READONLY,
-                             nullptr, nullptr);
+    f->blob = hb_blob_create(reinterpret_cast<const char*>(f->data), static_cast<unsigned>(f->size),
+                             HB_MEMORY_MODE_READONLY, nullptr, nullptr);
     f->hbFace = hb_face_create(f->blob, 0);
     if (hb_face_get_glyph_count(f->hbFace) == 0) {
         f->error = std::format("'{}' is not a usable font (HarfBuzz finds no glyphs in it)", f->key);
@@ -73,7 +75,8 @@ std::unique_ptr<FontFace> load_font_face(const std::string& keyIn) {
     auto f = std::make_unique<FontFace>();
     f->key = keyIn.empty() ? "builtin" : keyIn;
     const std::string& font = f->key;
-    AssetLoadScope trace("font", font);  // the load trace's read and parse time (fa/core/load_trace.h); free without one
+    AssetLoadScope trace("font",
+                         font);  // the load trace's read and parse time (fa/core/load_trace.h); free without one
     auto init_builtin = [&](const char* name) {
         for (const auto& file : fa_render_fonts::files()) {
             if (file.path == name) {
@@ -93,7 +96,8 @@ std::unique_ptr<FontFace> load_font_face(const std::string& keyIn) {
         wantBold = v == "bold" || v == "bolditalic";
         wantItalic = v == "italic" || v == "bolditalic";
     }
-    const BuiltinFont* builtin = font == "builtin" || font.rfind("builtin:", 0) == 0 ? find_builtin_font(familyName) : nullptr;
+    const BuiltinFont* builtin =
+        font == "builtin" || font.rfind("builtin:", 0) == 0 ? find_builtin_font(familyName) : nullptr;
     if (builtin && builtin->embedded) {
         init_builtin(builtin->name == "builtin" ? "DejaVuSans.ttf" : "PressStart2P-Regular.ttf");
     } else if (builtin) {
@@ -101,7 +105,8 @@ std::unique_ptr<FontFace> load_font_face(const std::string& keyIn) {
         if (file.empty()) {
             f->error = std::format("font '{}' has no such face", font);
             f->hint = std::format("{} has {}; use '{}' instead.", builtin->family,
-                                  builtin->hasBold || builtin->hasItalic ? "some faces only" : "one face only", builtin->name);
+                                  builtin->hasBold || builtin->hasItalic ? "some faces only" : "one face only",
+                                  builtin->name);
             return f;
         }
         // The developer tools hold the files; a player finds them where the export put them.
@@ -110,9 +115,12 @@ std::unique_ptr<FontFace> load_font_face(const std::string& keyIn) {
         } else if (auto disk = fs::read_bytes(std::string(kBuiltinFontDir) + "/" + file)) {
             f->ownedData = std::move(*disk);
         } else {
-            f->error = std::format("font '{}' ({}) is not in this build: {}/{} was not found", builtin->name, builtin->family, kBuiltinFontDir, file);
-            f->hint = "An exported game carries the built-in fonts it names in builtin-fonts/: export again with `factoria export`. "
-                      "The name must appear literally in a scene, prefab, script or factoria.json (the export looks for it there).";
+            f->error = std::format("font '{}' ({}) is not in this build: {}/{} was not found", builtin->name,
+                                   builtin->family, kBuiltinFontDir, file);
+            f->hint = "An exported game carries the built-in fonts it names in builtin-fonts/: export again with "
+                      "`factoria export`. "
+                      "The name must appear literally in a scene, prefab, script or factoria.json (the export looks "
+                      "for it there).";
             return f;
         }
         f->data = f->ownedData.data();
@@ -120,15 +128,17 @@ std::unique_ptr<FontFace> load_font_face(const std::string& keyIn) {
     } else if (font.rfind("builtin:", 0) == 0) {
         f->error = std::format("unknown built-in font '{}'", font);
         f->hint = "The built-in fonts are " + builtin_font_list() + ". " +
-                  (closest_match(familyName, builtin_names()).empty() ? std::string()
-                                                                      : "Did you mean '" + closest_match(familyName, builtin_names()) + "'? ") +
+                  (closest_match(familyName, builtin_names()).empty()
+                       ? std::string()
+                       : "Did you mean '" + closest_match(familyName, builtin_names()) + "'? ") +
                   "Or use a .ttf path inside the project, e.g. assets/fonts/MyFont.ttf.";
         return f;
     } else {
         auto bytes = fs::read_bytes(font);
         if (!bytes) {
             f->error = std::format("font '{}' not found: {}", font, bytes.error().message);
-            f->hint = "Use \"\" (DejaVu Sans), a built-in font (" + builtin_font_list() + ") or a .ttf path inside the project, e.g. assets/fonts/MyFont.ttf.";
+            f->hint = "Use \"\" (DejaVu Sans), a built-in font (" + builtin_font_list() +
+                      ") or a .ttf path inside the project, e.g. assets/fonts/MyFont.ttf.";
             return f;
         }
         f->ownedData = std::move(*bytes);
@@ -153,18 +163,22 @@ std::u32string decode_text(std::string_view utf8) {
     std::u32string out;
     for (std::size_t i = 0; i < utf8.size();) {
         const char32_t cp = utf8_next(utf8, i);
-        if (cp == '\n' || cp == 0x85 || cp == 0x2028 || cp == 0x2029) out.push_back('\n');
-        else if (cp == '\t') out.append(4, U' ');
-        else if (cp < 0x20 || (cp >= 0x7F && cp < 0xA0)) continue;  // '\r' and the other controls draw nothing
-        else out.push_back(cp);
+        if (cp == '\n' || cp == 0x85 || cp == 0x2028 || cp == 0x2029)
+            out.push_back('\n');
+        else if (cp == '\t')
+            out.append(4, U' ');
+        else if (cp < 0x20 || (cp >= 0x7F && cp < 0xA0))
+            continue;  // '\r' and the other controls draw nothing
+        else
+            out.push_back(cp);
     }
     return out;
 }
 
 bool is_visible(char32_t cp) {
     return cp > 32 && !(cp >= 0x7F && cp < 0xA0) && cp != 0xAD && cp != 0x34F && !(cp >= 0x200B && cp <= 0x200F) &&
-           !(cp >= 0x2028 && cp <= 0x202E) && !(cp >= 0x2060 && cp <= 0x206F) && !(cp >= 0xFE00 && cp <= 0xFE0F) && cp != 0xFEFF &&
-           !(cp >= 0xE0100 && cp <= 0xE01EF);
+           !(cp >= 0x2028 && cp <= 0x202E) && !(cp >= 0x2060 && cp <= 0x206F) && !(cp >= 0xFE00 && cp <= 0xFE0F) &&
+           cp != 0xFEFF && !(cp >= 0xE0100 && cp <= 0xE01EF);
 }
 
 std::u32string_view composed_parts(char32_t cp) {

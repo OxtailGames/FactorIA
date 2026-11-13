@@ -47,9 +47,12 @@ std::uint32_t be32(const std::vector<std::uint8_t>& v, std::size_t o) {
     return (std::uint32_t(v[o]) << 24) | (std::uint32_t(v[o + 1]) << 16) | (std::uint32_t(v[o + 2]) << 8) | v[o + 3];
 }
 std::uint32_t le32(const std::vector<std::uint8_t>& v, std::size_t o) {
-    return std::uint32_t(v[o]) | (std::uint32_t(v[o + 1]) << 8) | (std::uint32_t(v[o + 2]) << 16) | (std::uint32_t(v[o + 3]) << 24);
+    return std::uint32_t(v[o]) | (std::uint32_t(v[o + 1]) << 8) | (std::uint32_t(v[o + 2]) << 16) |
+           (std::uint32_t(v[o + 3]) << 24);
 }
-std::uint32_t le16(const std::vector<std::uint8_t>& v, std::size_t o) { return std::uint32_t(v[o]) | (std::uint32_t(v[o + 1]) << 8); }
+std::uint32_t le16(const std::vector<std::uint8_t>& v, std::size_t o) {
+    return std::uint32_t(v[o]) | (std::uint32_t(v[o + 1]) << 8);
+}
 
 }  // namespace
 
@@ -100,7 +103,8 @@ TEST_CASE("icons: load_icon_image errors say what to do") {
 
     auto missing = load_icon_image(tmp.str(), "assets/icn.png", "/icon");
     REQUIRE_FALSE(missing.ok());
-    CHECK(missing.error().message.find("factoria.json#/icon: the icon file 'assets/icn.png' does not exist") != std::string::npos);
+    CHECK(missing.error().message.find("factoria.json#/icon: the icon file 'assets/icn.png' does not exist") !=
+          std::string::npos);
     CHECK(missing.error().hint.find("Did you mean 'assets/icon.png'?") != std::string::npos);
 
     auto nowhere = load_icon_image(tmp.str(), "nothing/icon.png", "/export/android/icon");
@@ -138,9 +142,9 @@ TEST_CASE("icons: make_icns writes every size as a PNG entry") {
     CHECK(std::string(icns.begin(), icns.begin() + 4) == "icns");
     CHECK(be32(icns, 4) == icns.size());  // total length includes the 8 header bytes
 
-    const std::vector<std::pair<std::string, int>> expected = {{"icp4", 16},  {"icp5", 32},   {"icp6", 64},   {"ic07", 128},
-                                                               {"ic08", 256}, {"ic09", 512},  {"ic10", 1024}, {"ic11", 32},
-                                                               {"ic12", 64},  {"ic13", 256},  {"ic14", 512}};
+    const std::vector<std::pair<std::string, int>> expected = {
+        {"icp4", 16},   {"icp5", 32}, {"icp6", 64}, {"ic07", 128}, {"ic08", 256}, {"ic09", 512},
+        {"ic10", 1024}, {"ic11", 32}, {"ic12", 64}, {"ic13", 256}, {"ic14", 512}};
     std::size_t at = 8;
     for (const auto& [type, size] : expected) {
         INFO("entry ", type);
@@ -176,12 +180,12 @@ TEST_CASE("icons: icon_bmp_entry has the layout of an RT_ICON image") {
         const std::vector<std::uint8_t> e = icon_bmp_entry(make_icon(300, 300, /*frame=*/true), s);
         const std::size_t mask = std::size_t((s + 31) / 32) * 4 * std::size_t(s);
         CHECK(e.size() == 40 + std::size_t(s) * s * 4 + mask);
-        CHECK(le32(e, 0) == 40);                      // BITMAPINFOHEADER
-        CHECK(le32(e, 4) == std::uint32_t(s));        // width
-        CHECK(le32(e, 8) == std::uint32_t(s) * 2);    // height counts the mask
-        CHECK(le16(e, 12) == 1);                      // planes
-        CHECK(le16(e, 14) == 32);                     // bits per pixel
-        CHECK(le32(e, 16) == 0);                      // BI_RGB
+        CHECK(le32(e, 0) == 40);                    // BITMAPINFOHEADER
+        CHECK(le32(e, 4) == std::uint32_t(s));      // width
+        CHECK(le32(e, 8) == std::uint32_t(s) * 2);  // height counts the mask
+        CHECK(le16(e, 12) == 1);                    // planes
+        CHECK(le16(e, 14) == 32);                   // bits per pixel
+        CHECK(le32(e, 16) == 0);                    // BI_RGB
         CHECK(le32(e, 20) == s * s * 4 + mask);
     }
     // the sizes the player's placeholder uses
@@ -197,7 +201,10 @@ TEST_CASE("icons: icon_bmp_entry pixels are bottom-up BGRA and the AND mask mark
     for (int y = 1; y < 16; ++y)
         for (int x = 0; x < 16; ++x) {
             std::uint8_t* p = &img.rgba[(std::size_t(y) * 16 + x) * 4];
-            p[0] = 255; p[1] = 128; p[2] = 0; p[3] = 255;
+            p[0] = 255;
+            p[1] = 128;
+            p[2] = 0;
+            p[3] = 255;
         }
     const std::vector<std::uint8_t> e = icon_bmp_entry(img, 16);
     // The first stored row is the BOTTOM row of the image: opaque orange as B, G, R, A.
@@ -248,8 +255,13 @@ TEST_CASE("icons: write_android_icons writes mipmaps, round icons and the adapti
     const std::string res = tmp.sub("app/src/main/res");
     REQUIRE(write_android_icons(res, make_icon(1024, 1024), AdaptiveIcon{}).ok());
 
-    struct D { const char* name; int legacy; int layer; };
-    for (D d : {D{"mdpi", 48, 108}, D{"hdpi", 72, 162}, D{"xhdpi", 96, 216}, D{"xxhdpi", 144, 324}, D{"xxxhdpi", 192, 432}}) {
+    struct D {
+        const char* name;
+        int legacy;
+        int layer;
+    };
+    for (D d :
+         {D{"mdpi", 48, 108}, D{"hdpi", 72, 162}, D{"xhdpi", 96, 216}, D{"xxhdpi", 144, 324}, D{"xxxhdpi", 192, 432}}) {
         INFO("density ", d.name);
         const std::string dir = res + "/mipmap-" + d.name;
         Image legacy = read_png(dir + "/ic_launcher.png");
@@ -258,7 +270,7 @@ TEST_CASE("icons: write_android_icons writes mipmaps, round icons and the adapti
         CHECK(px(legacy, 0, 0)[3] == 255);  // full-bleed square
         Image round = read_png(dir + "/ic_launcher_round.png");
         CHECK(round.width == d.legacy);
-        CHECK(px(round, 0, 0)[3] == 0);                       // corners cut away
+        CHECK(px(round, 0, 0)[3] == 0);  // corners cut away
         CHECK(px(round, d.legacy / 2, d.legacy / 2)[3] == 255);
         Image fg = read_png(dir + "/ic_launcher_foreground.png");
         CHECK(fg.width == d.layer);
@@ -277,7 +289,8 @@ TEST_CASE("icons: write_android_icons writes mipmaps, round icons and the adapti
     CHECK(px(fg, 216 + 134, 216)[3] == 0);
 
     const std::string xml = testing::read_all(res + "/mipmap-anydpi-v26/ic_launcher.xml");
-    CHECK(xml.find("<adaptive-icon xmlns:android=\"http://schemas.android.com/apk/res/android\">") != std::string::npos);
+    CHECK(xml.find("<adaptive-icon xmlns:android=\"http://schemas.android.com/apk/res/android\">") !=
+          std::string::npos);
     CHECK(xml.find("<background android:drawable=\"@color/ic_launcher_background\"/>") != std::string::npos);
     CHECK(xml.find("<foreground android:drawable=\"@mipmap/ic_launcher_foreground\"/>") != std::string::npos);
     CHECK(xml.find("monochrome") == std::string::npos);
@@ -389,8 +402,8 @@ TEST_CASE("icons: write_ios_app_icon writes an opaque 1024 icon without an alpha
     bool opaque = true;
     for (std::size_t i = 0; i < std::size_t(1024) * 1024; ++i) opaque = opaque && png.rgba[i * 4 + 3] == 255;
     CHECK(opaque);
-    CHECK(px(png, 100, 100)[0] == 255);   // the picture
-    CHECK(px(png, 512, 512)[1] == 255);   // the transparent hole shows the background (green)
+    CHECK(px(png, 100, 100)[0] == 255);  // the picture
+    CHECK(px(png, 512, 512)[1] == 255);  // the transparent hole shows the background (green)
     CHECK(px(png, 512, 512)[0] == 0);
 }
 

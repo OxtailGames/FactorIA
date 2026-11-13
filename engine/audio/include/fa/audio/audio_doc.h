@@ -35,7 +35,8 @@ using AudioDocIssue = SfxIssue;
 // One field of a step, as the catalog lists it (and as the parser checks it).
 struct AudioFieldInfo {
     std::string key;
-    std::string type;       // "number", "integer", "boolean", "string" (a choice when `choices` is not empty), "bands" or "path"
+    std::string
+        type;  // "number", "integer", "boolean", "string" (a choice when `choices` is not empty), "bands" or "path"
     std::string doc;
     bool required = false;
     std::optional<double> min, max;
@@ -44,7 +45,7 @@ struct AudioFieldInfo {
 };
 struct AudioStepInfo {
     std::string type;
-    std::string doc;        // what the step does, one paragraph
+    std::string doc;  // what the step does, one paragraph
     std::vector<AudioFieldInfo> fields;
 };
 // Every step type the format knows, in the order the docs describe them.
@@ -58,21 +59,22 @@ bool audio_step_is_effect(std::string_view type);
 // when `note` is given, transposed to that note) or another audio document.
 struct AudioSourceRef {
     std::string path;
-    std::uint64_t seed = 0;       // sfx patches: added to the patch's seed
-    std::optional<double> hz;     // sfx patches: transpose so the patch's root pitch becomes this
-    std::string note;             // the note as written, for messages
+    std::uint64_t seed = 0;    // sfx patches: added to the patch's seed
+    std::optional<double> hz;  // sfx patches: transpose so the patch's root pitch becomes this
+    std::string note;          // the note as written, for messages
 };
 
 struct AudioStep {
     std::string type;
-    Json params;                  // every field of the step with its default filled in; validated
+    Json params;  // every field of the step with its default filled in; validated
 };
 
 struct AudioOutput {
-    std::string format = "wav";   // "wav" (16-bit PCM) or "ogg" (the engine's Vorbis encoder)
+    std::string format = "wav";       // "wav" (16-bit PCM) or "ogg" (the engine's Vorbis encoder)
     std::string channels = "source";  // "source": as many as the source has; "mono": mixed down to one
-    double quality = 0.5;         // ogg: 0..1
-    std::string path;             // where bake writes (project-relative); empty = next to the document, with the format's extension
+    double quality = 0.5;             // ogg: 0..1
+    std::string
+        path;  // where bake writes (project-relative); empty = next to the document, with the format's extension
 };
 
 struct AudioDoc {
@@ -85,13 +87,15 @@ struct AudioDoc {
 
 // Reads a document. Every problem found is listed in `issues` (not only the first), each with its JSON pointer, what is wrong and
 // the fix, and "did you mean" for names. `file` only names the document in the message of the error that is returned for the first.
-Result<AudioDoc> parse_audio_doc(const Json& json, std::string_view file = {}, std::vector<AudioDocIssue>* issues = nullptr);
+Result<AudioDoc> parse_audio_doc(const Json& json, std::string_view file = {},
+                                 std::vector<AudioDocIssue>* issues = nullptr);
 // parse_audio_doc of a file read through the VFS (project-relative).
 Result<AudioDoc> load_audio_doc(std::string_view path, std::vector<AudioDocIssue>* issues = nullptr);
 
 // Reads one step on its own (the object of `steps[i]`), with `pointer` as the base of the issues' JSON pointers. Every problem is added to
 // `issues`; the error returned is the first one. Used by the song document for the effects of a track.
-Result<AudioStep> parse_audio_step(const Json& json, std::string_view pointer, std::vector<AudioDocIssue>* issues = nullptr);
+Result<AudioStep> parse_audio_step(const Json& json, std::string_view pointer,
+                                   std::vector<AudioDocIssue>* issues = nullptr);
 // Runs an effect step (audio_step_is_effect) over the channels in place, without changing their length: a reverb or delay tail is cut
 // where the buffer ends, so leave room for it. `rate` in Hz. An enabled:false step does nothing.
 void audio_apply_effect(std::vector<std::vector<double>>& channels, int rate, const AudioStep& step);
@@ -105,19 +109,20 @@ struct AudioLoop {
 // what each step did.
 struct AudioStepReport {
     std::string type;
-    double seconds = 0.0;         // length after the step
-    double peakDb = -200.0;       // sample peak after the step
-    bool skipped = false;         // the step has "enabled": false
+    double seconds = 0.0;    // length after the step
+    double peakDb = -200.0;  // sample peak after the step
+    bool skipped = false;    // the step has "enabled": false
 };
 struct AudioClip {
     int sampleRate = 44100;
     int channels = 1;
-    std::vector<float> samples;   // frames * channels
-    double lufs = -70.0;          // integrated loudness (BS.1770; mono is played on both sides), -70 for silence
-    double peakDb = -200.0;       // sample peak in dBFS
+    std::vector<float> samples;  // frames * channels
+    double lufs = -70.0;         // integrated loudness (BS.1770; mono is played on both sides), -70 for silence
+    double peakDb = -200.0;      // sample peak in dBFS
     std::optional<AudioLoop> loop;
     std::vector<AudioStepReport> steps;
-    std::vector<std::string> inputs;  // every project file the render read (sources, patches, nested documents), the document itself excluded
+    std::vector<std::string>
+        inputs;  // every project file the render read (sources, patches, nested documents), the document itself excluded
     std::size_t frames() const { return channels > 0 ? samples.size() / std::size_t(channels) : 0; }
     double seconds() const { return sampleRate > 0 ? double(frames()) / double(sampleRate) : 0.0; }
     std::vector<float> mono() const;  // the channels averaged
@@ -130,7 +135,8 @@ struct AudioRenderOptions {
 
 // Applies the chain. `file` names the document in messages and guards against a document that layers itself. Reads the source and
 // every layer through the VFS (project-relative). Failures (a missing file, a sound longer than kAudioDocMaxSeconds, a cycle) teach.
-Result<AudioClip> render_audio_doc(const AudioDoc& doc, std::string_view file = {}, const AudioRenderOptions& options = {});
+Result<AudioClip> render_audio_doc(const AudioDoc& doc, std::string_view file = {},
+                                   const AudioRenderOptions& options = {});
 
 // A 16-bit PCM WAV of the clip (1 or 2 channels), with a `smpl` chunk holding the loop points when it has any.
 std::vector<std::uint8_t> audio_wav_bytes(const AudioClip& clip);

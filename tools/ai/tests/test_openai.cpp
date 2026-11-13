@@ -82,9 +82,11 @@ TEST_CASE("openai response parsing") {
     REQUIRE(rb);
     CHECK_FALSE(rb->message.toolCalls[0].inputError.empty());
 
-    Json len = Json::parse(R"({"choices":[{"message":{"role":"assistant","content":"abc"},"finish_reason":"length"}]})");
+    Json len =
+        Json::parse(R"({"choices":[{"message":{"role":"assistant","content":"abc"},"finish_reason":"length"}]})");
     CHECK(openai::parse_response(len)->stopReason == StopReason::MaxTokens);
-    Json filt = Json::parse(R"({"choices":[{"message":{"role":"assistant","content":""},"finish_reason":"content_filter"}]})");
+    Json filt =
+        Json::parse(R"({"choices":[{"message":{"role":"assistant","content":""},"finish_reason":"content_filter"}]})");
     CHECK(openai::parse_response(filt)->stopReason == StopReason::Refusal);
 }
 
@@ -113,8 +115,10 @@ TEST_CASE("openai SSE stream equals non-streaming result") {
 TEST_CASE("openai provider: URL, bearer header, missing key, local presets need none") {
     ProviderConfig cfg = default_config().providers["openrouter"];
     CHECK(openai::chat_completions_url(cfg) == "https://openrouter.ai/api/v1/chat/completions");
-    CHECK(openai::chat_completions_url(default_config().providers["ollama"]) == "http://localhost:11434/v1/chat/completions");
-    CHECK(openai::chat_completions_url(default_config().providers["lmstudio"]) == "http://localhost:1234/v1/chat/completions");
+    CHECK(openai::chat_completions_url(default_config().providers["ollama"]) ==
+          "http://localhost:11434/v1/chat/completions");
+    CHECK(openai::chat_completions_url(default_config().providers["lmstudio"]) ==
+          "http://localhost:1234/v1/chat/completions");
     CHECK(openai::chat_completions_url(default_config().providers["gemini"]) ==
           "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions");
 
@@ -133,7 +137,8 @@ TEST_CASE("openai provider: URL, bearer header, missing key, local presets need 
     auto resp = p->chat(req_with_tools(), {}, nullptr);
     REQUIRE(resp);
     std::string auth;
-    for (auto& [k, v] : seen.headers) if (k == "Authorization") auth = v;
+    for (auto& [k, v] : seen.headers)
+        if (k == "Authorization") auth = v;
     CHECK(auth == "Bearer or-key");
 
     rt.env = fake_env({});
@@ -147,7 +152,8 @@ TEST_CASE("openai provider: URL, bearer header, missing key, local presets need 
     for (auto& [k, v] : seen.headers) CHECK(k != "Authorization");
 }
 
-TEST_CASE("openai request: pictures attached to the user message are image_url data URLs (Gemini, Ollama and the other compatible endpoints too)") {
+TEST_CASE("openai request: pictures attached to the user message are image_url data URLs (Gemini, Ollama and the other "
+          "compatible endpoints too)") {
     for (const char* preset : {"openai", "gemini", "ollama"}) {
         ProviderConfig cfg = default_config().providers[preset];
         ChatRequest r = req_with_tools();

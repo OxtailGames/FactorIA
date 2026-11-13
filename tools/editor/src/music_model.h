@@ -39,23 +39,23 @@ using MusicSourcePtr = std::shared_ptr<const MusicSource>;
 
 struct MusicStep {
     int id = 0;
-    std::string rel;     // the song the panel had open
+    std::string rel;  // the song the panel had open
     std::string label;
     MusicBlob before, after;
 };
 
 struct MusicEditOutcome {
     bool ok = true;
-    std::string error;   // what went wrong, with the command's hint
-    int step = 0;        // the undo step it recorded (0 = the edit changed nothing on disk)
-    Json result;         // the command's result
+    std::string error;  // what went wrong, with the command's hint
+    int step = 0;       // the undo step it recorded (0 = the edit changed nothing on disk)
+    Json result;        // the command's result
 };
 
 // ---- drum grids ---------------------------------------------------------------------------------------------------------------------
 // A drum pattern as rows of steps: one text per lane, one character per step ('x' hit, 'X' accent, 'o' ghost note, '.' rest).
 struct MusicDrumGrid {
-    std::vector<std::pair<std::string, std::string>> lanes;   // lane name -> steps (spaces and bar lines taken out)
-    std::string step = "16";                                  // the note value of a step: "4", "8", "16", "32", "8t", "16t"
+    std::vector<std::pair<std::string, std::string>> lanes;  // lane name -> steps (spaces and bar lines taken out)
+    std::string step = "16";  // the note value of a step: "4", "8", "16", "32", "8t", "16t"
     int bars = 1;
     int steps_per_bar(const SongMeter& meter) const;
     int total_steps(const SongMeter& meter) const { return steps_per_bar(meter) * bars; }
@@ -83,10 +83,12 @@ public:
     MusicModel& operator=(const MusicModel&) = delete;
 
     // ---- the document ---------------------------------------------------------------------------------------------
-    bool open(const std::string& rel);   // *.song.json; false: error() says why
+    bool open(const std::string& rel);  // *.song.json; false: error() says why
     void close();
     bool is_open() const { return open_; }
-    bool valid() const { return valid_; }            // the file is a valid song (it may be open and broken: error() has the reason)
+    bool valid() const {
+        return valid_;
+    }  // the file is a valid song (it may be open and broken: error() has the reason)
     const std::string& path() const { return rel_; }
     std::string title() const;
     const std::string& error() const { return error_; }
@@ -110,7 +112,8 @@ public:
     std::vector<std::string> drum_tracks() const;
     // Where `frame` of the song (kMusicRate per second, as the player counts) is inside `pattern` of `track`, in ticks from its start; nullopt
     // when the track plays another pattern there, is muted in that section or the frame is outside the music.
-    std::optional<double> pattern_tick(const MusicMap& map, double frame, const std::string& track, const std::string& pattern) const;
+    std::optional<double> pattern_tick(const MusicMap& map, double frame, const std::string& track,
+                                       const std::string& pattern) const;
     // A name for a new pattern/track/section that no other uses: "pattern", "pattern2", ...
     std::string free_name(const std::string& base, const std::vector<std::string>& used) const;
 
@@ -118,12 +121,15 @@ public:
     // Any music.edit ops.
     MusicEditOutcome edit(const std::string& label, const Json& ops);
     // The notes of a pitched pattern (created when missing; `bars` 0: as long as the pattern is, or the notes need).
-    MusicEditOutcome set_notes(const std::string& track, const std::string& pattern, const std::vector<SongRollNote>& notes, int bars = 0, const std::string& label = "Edit notes");
-    MusicEditOutcome set_grid(const std::string& track, const std::string& pattern, const MusicDrumGrid& grid, const std::string& label = "Edit drums");
+    MusicEditOutcome set_notes(const std::string& track, const std::string& pattern,
+                               const std::vector<SongRollNote>& notes, int bars = 0,
+                               const std::string& label = "Edit notes");
+    MusicEditOutcome set_grid(const std::string& track, const std::string& pattern, const MusicDrumGrid& grid,
+                              const std::string& label = "Edit drums");
     MusicEditOutcome add_pattern(const std::string& track, const std::string& pattern, int bars, bool drums);
     MusicEditOutcome remove_pattern(const std::string& track, const std::string& pattern);
     MusicEditOutcome set_track(const std::string& track, const Json& fields, const std::string& label = "");
-    MusicEditOutcome set_mixer(const Json& fields, const std::string& label = "");   // {buses: {...}, master: {...}}
+    MusicEditOutcome set_mixer(const Json& fields, const std::string& label = "");  // {buses: {...}, master: {...}}
     MusicEditOutcome set_song(const Json& fields, const std::string& label = "");
     MusicEditOutcome set_section(const std::string& section, const Json& fields, const std::string& label = "");
     MusicEditOutcome set_layers(const Json& layers);
@@ -148,9 +154,9 @@ public:
     void set_debounce_ticks(int n) { debounce_ = n; }
     // Renders what is wanted, blocking, until nothing is pending (tests, and the autotest's "wait for the render").
     void settle();
-    bool busy() const;                         // a render is running or about to start
+    bool busy() const;  // a render is running or about to start
     void request_render();
-    MusicSourcePtr source() const { return src_; }     // the last finished render (null before the first)
+    MusicSourcePtr source() const { return src_; }  // the last finished render (null before the first)
     bool source_is_fresh() const { return src_ && srcRev_ == docRev_; }
     const std::string& render_error() const { return renderError_; }
     int render_count() const { return renders_; }

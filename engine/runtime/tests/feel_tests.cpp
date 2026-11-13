@@ -104,8 +104,8 @@ struct Game {
 
 TEST_CASE("feel commands: documented, closed, and an unknown option is refused with a hint") {
     Game g("commands");
-    for (const char* name : {"feel.shake", "feel.hitStop", "feel.flash", "feel.knockback", "feel.squash", "feel.cancel", "feel.settings",
-                             "feel.spawn", "feel.sound", "feel.state"}) {
+    for (const char* name : {"feel.shake", "feel.hitStop", "feel.flash", "feel.knockback", "feel.squash", "feel.cancel",
+                             "feel.settings", "feel.spawn", "feel.sound", "feel.state"}) {
         INFO(name);
         const CommandInfo* info = g.e.commands().info(name);
         REQUIRE(info != nullptr);
@@ -123,7 +123,8 @@ TEST_CASE("feel commands: documented, closed, and an unknown option is refused w
     CHECK_FALSE(r.ok);
 }
 
-TEST_CASE("hit-stop: freezes gameplay in real time, UI-time code and time.scale keep going, overlapping calls do not add up") {
+TEST_CASE("hit-stop: freezes gameplay in real time, UI-time code and time.scale keep going, overlapping calls do not "
+          "add up") {
     Game g("hitstop");
     g.e.step(5);
     const double y0 = g.num("world.find('ball').position.y");
@@ -131,17 +132,17 @@ TEST_CASE("hit-stop: freezes gameplay in real time, UI-time code and time.scale 
     const double menuUpdates = g.num("world.find('menu').behaviour.updates");
     g.run("time.hitStop(0.2)");
     g.e.step(3);
-    CHECK(g.num("world.find('ball').position.y") == y0);                          // physics frozen
-    CHECK(g.num("world.find('game').behaviour.updates") == gameUpdates);          // gameplay onUpdate stopped
-    CHECK(g.num("world.find('menu').behaviour.updates") == menuUpdates + 3);      // runWhilePaused keeps going
+    CHECK(g.num("world.find('ball').position.y") == y0);                             // physics frozen
+    CHECK(g.num("world.find('game').behaviour.updates") == gameUpdates);             // gameplay onUpdate stopped
+    CHECK(g.num("world.find('menu').behaviour.updates") == menuUpdates + 3);         // runWhilePaused keeps going
     CHECK(g.num("world.find('menu').behaviour.dt") == doctest::Approx(1.0 / 60.0));  // with the real dt
-    CHECK(g.num("world.find('menu').behaviour.timeDt") == 0);                     // time.dt is the effective step
-    CHECK(g.num("time.scale") == 1);                                              // the user's scale is untouched
+    CHECK(g.num("world.find('menu').behaviour.timeDt") == 0);                        // time.dt is the effective step
+    CHECK(g.num("time.scale") == 1);                                                 // the user's scale is untouched
     CHECK(g.num("game.paused ? 1 : 0") == 0);
     CHECK(g.num("time.hitStopRemaining") > 0.0);
     g.e.step(20);  // 0.2 s of real time is 12 frames at 60 Hz
     CHECK(g.num("time.hitStopRemaining") == 0);
-    CHECK(g.num("world.find('ball').position.y") < y0);                           // running again
+    CHECK(g.num("world.find('ball').position.y") < y0);  // running again
     CHECK(g.num("world.find('game').behaviour.updates") > gameUpdates);
 
     // Calls overlap: the longest wins (not the sum), a shorter one inside it changes nothing.
@@ -196,10 +197,10 @@ TEST_CASE("shake: smooth, deterministic from the RNG, decays to nothing and neve
     double maxStep = 0, peak = 0;
     for (std::size_t i = 1; i < a.size(); ++i) maxStep = std::max(maxStep, std::fabs(a[i] - a[i - 1]));
     for (double v : a) peak = std::max(peak, std::fabs(v));
-    CHECK(peak > 0.5);                       // it moves (maxOffset is 4.5 units for an orthoSize of 90)
-    CHECK(peak <= 4.5 * 0.64 + 1e-3);        // never above maxOffset * trauma^2
-    CHECK(maxStep < peak * 1.5 + 1.0);       // smooth noise, not white noise
-    CHECK(a.size() <= 32);                   // 0.5 s = 30 frames: it died out
+    CHECK(peak > 0.5);                  // it moves (maxOffset is 4.5 units for an orthoSize of 90)
+    CHECK(peak <= 4.5 * 0.64 + 1e-3);   // never above maxOffset * trauma^2
+    CHECK(maxStep < peak * 1.5 + 1.0);  // smooth noise, not white noise
+    CHECK(a.size() <= 32);              // 0.5 s = 30 frames: it died out
 }
 
 TEST_CASE("shake: hit-stop does not stop it, trauma stacks to the cap and time.scale 0 holds it") {
@@ -229,14 +230,15 @@ TEST_CASE("squash: keeps the volume, springs back and leaves the exact scale") {
         Json c = g.entry("crate");
         if (c.is_null() || !c.contains("pose")) continue;
         const Json s = c["pose"]["scale"];
-        CHECK(s[0].get<double>() * s[1].get<double>() == doctest::Approx(1.0).epsilon(1e-4));  // x * y stays constant in 2D
+        CHECK(s[0].get<double>() * s[1].get<double>() ==
+              doctest::Approx(1.0).epsilon(1e-4));  // x * y stays constant in 2D
         minY = std::min(minY, s[1].get<double>());
         maxY = std::max(maxY, s[1].get<double>());
         CHECK(g.num("world.find('crate').transform.scale.x") == 2);  // the entity's own scale is never written
         CHECK(g.num("world.find('crate').transform.scale.y") == 3);
     }
-    CHECK(minY < 0.8);  // it squashed ...
-    CHECK(maxY > 1.0);  // ... and overshot the other way on the spring back
+    CHECK(minY < 0.8);                  // it squashed ...
+    CHECK(maxY > 1.0);                  // ... and overshot the other way on the spring back
     CHECK(g.entry("crate").is_null());  // nothing left: the record and the pose are gone
     CHECK(g.num("world.find('crate').transform.scale.x") == 2);
     CHECK(g.num("world.find('crate').transform.scale.y") == 3);
@@ -253,7 +255,8 @@ TEST_CASE("flash: restores the colour, fades, and a cancel ends it at once") {
     CHECK(f["flash"]["fade"] == true);
     g.e.step(4);
     CHECK(g.entry("crate")["flash"]["remaining"].get<double>() < 0.2);
-    CHECK(g.num("world.find('crate').get('Sprite').color.r") == doctest::Approx(0x33 / 255.0).epsilon(0.01));  // own colour kept
+    CHECK(g.num("world.find('crate').get('Sprite').color.r") ==
+          doctest::Approx(0x33 / 255.0).epsilon(0.01));  // own colour kept
     g.e.step(20);
     CHECK(g.entry("crate").is_null());
     CHECK(g.num("world.find('crate').get('Sprite').color.r") == doctest::Approx(0x33 / 255.0).epsilon(0.01));
@@ -265,7 +268,8 @@ TEST_CASE("flash: restores the colour, fades, and a cancel ends it at once") {
     CHECK(g.entry("crate").is_null());
 }
 
-TEST_CASE("knockback: an impulse on a dynamic body, a decaying slide without one, and isKnockedBack for the lock time") {
+TEST_CASE(
+    "knockback: an impulse on a dynamic body, a decaying slide without one, and isKnockedBack for the lock time") {
     Game g("knockback");
     g.e.step(1);
     // With a body: the velocity changes, the lock flag follows lockTime.
@@ -297,7 +301,8 @@ TEST_CASE("knockback: an impulse on a dynamic body, a decaying slide without one
     CHECK_FALSE(g.e.scripts().eval("world.find('crate').knockback([0, 0])").ok());
 }
 
-TEST_CASE("accessibility: reduceMotion shrinks shake and squash and shortens hit-stop, reducedEffects softens the flash") {
+TEST_CASE(
+    "accessibility: reduceMotion shrinks shake and squash and shortens hit-stop, reducedEffects softens the flash") {
     Game g("a11y");
     g.e.step(1);
     CHECK(g.num("feel.reduceMotion ? 1 : 0") == 0);
@@ -347,7 +352,8 @@ TEST_CASE("feel commands run the effects, and a scene load drops them but keeps 
 
 TEST_CASE("feel.spawn and feel.sound: queued for the frame, a spawn appears at the entity and ends with its lifetime") {
     Game g("spawn_sound");
-    g.p.write("prefabs/spark.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
+    g.p.write("prefabs/spark.prefab.json",
+              R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
     g.e.step(1);
     g.call("feel.spawn", R"({"entity":"crate","prefab":"prefabs/spark.prefab.json","offset":[1,2],"lifetime":0.2})");
     CHECK(g.state()["queued"]["spawns"] == 1);
@@ -372,7 +378,8 @@ TEST_CASE("feel.spawn and feel.sound: queued for the frame, a spawn appears at t
 
 TEST_CASE("feel.spawn: the lifetime runs on the game clock, so a hit-stop holds it") {
     Game g("spawn_hitstop");
-    g.p.write("prefabs/spark.prefab.json", R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
+    g.p.write("prefabs/spark.prefab.json",
+              R"({"format":"factoria.prefab/1","entity":{"id":"spark","components":{"Transform":{}}}})");
     g.e.step(1);
     g.call("feel.spawn", R"({"entity":"crate","prefab":"prefabs/spark.prefab.json","lifetime":0.3})");
     g.e.step(1);

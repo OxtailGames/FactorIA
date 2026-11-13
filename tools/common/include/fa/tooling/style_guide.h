@@ -18,9 +18,9 @@ namespace fa {
 
 // style.outline: the line around a sprite's silhouette.
 struct StyleOutline {
-    Color color;                // the colour of the line
-    std::string colorText;      // as written ("#000000", "black")
-    double width = 1.0;         // thickness in texture pixels
+    Color color;            // the colour of the line
+    std::string colorText;  // as written ("#000000", "black")
+    double width = 1.0;     // thickness in texture pixels
 };
 
 // style.value / style.saturation: an allowed range in 0..1; either end may be left out.
@@ -32,7 +32,7 @@ struct StyleRange {
 // style.audio: loudness targets per mixer bus, read by assets.check_mix.
 struct StyleAudio {
     std::map<std::string, double> loudnessLufs;  // bus name -> integrated loudness the sounds on that bus aim at (LUFS)
-    double toleranceLu = 3.0;                    // how far a sound may be from its bus target before the check warns (LU)
+    double toleranceLu = 3.0;  // how far a sound may be from its bus target before the check warns (LU)
 };
 
 // One style.ignore entry that skips only some rules for a path.
@@ -42,20 +42,23 @@ struct StyleIgnoreRule {
 };
 
 struct StyleGuide {
-    std::string prompt;                      // appended to every image prompt
-    std::vector<std::string> references;     // project-relative images sent with every image request
-    std::optional<Palette> palette;          // the colours of the style (also the palette lock of assets.generate_image)
+    std::string prompt;                   // appended to every image prompt
+    std::vector<std::string> references;  // project-relative images sent with every image request
+    std::optional<Palette> palette;       // the colours of the style (also the palette lock of assets.generate_image)
     std::optional<StyleOutline> outline;
-    std::optional<double> lightDirection;    // degrees: direction TOWARDS the light, counter-clockwise from +x (right), [0, 360)
-    std::string lightDirectionName;          // the name it was written as ("upper-left"), empty when written as degrees
-    std::optional<double> texelsPerUnit;     // texture pixels per world unit
+    std::optional<double>
+        lightDirection;  // degrees: direction TOWARDS the light, counter-clockwise from +x (right), [0, 360)
+    std::string lightDirectionName;       // the name it was written as ("upper-left"), empty when written as degrees
+    std::optional<double> texelsPerUnit;  // texture pixels per world unit
     std::optional<bool> pixelArt;
-    std::optional<StyleRange> value;         // brightness (HSV value) of the asset's darkest and lightest pixels
-    std::optional<StyleRange> saturation;    // mean HSV saturation of the asset's visible pixels
+    std::optional<StyleRange> value;       // brightness (HSV value) of the asset's darkest and lightest pixels
+    std::optional<StyleRange> saturation;  // mean HSV saturation of the asset's visible pixels
     std::optional<StyleAudio> audio;
-    std::vector<std::string> ignore;         // files, folders (ending in "/") or globs ("assets/ui/**") the style checks skip
-    std::vector<StyleIgnoreRule> ignoreRules;  // style.ignore entries {path, rules}: only those rules are skipped for the path
-    std::vector<std::pair<std::string, std::string>> roles;  // style.roles: glob -> role (ui, icon, effect), in file order
+    std::vector<std::string> ignore;  // files, folders (ending in "/") or globs ("assets/ui/**") the style checks skip
+    std::vector<StyleIgnoreRule>
+        ignoreRules;  // style.ignore entries {path, rules}: only those rules are skipped for the path
+    std::vector<std::pair<std::string, std::string>>
+        roles;  // style.roles: glob -> role (ui, icon, effect), in file order
 
     // True when at least one rule an image check can measure is set (not just prompt, references or audio).
     bool has_art_rules() const;

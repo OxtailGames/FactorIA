@@ -43,12 +43,12 @@ struct ScriptDebugInfo {
         int line = 0;      // where the function starts (its name, or its first token)
         int column = 0;
         int endLine = 0;
-        int scope = 0;     // the scope of its body (holds the parameters and `this`)
+        int scope = 0;  // the scope of its body (holds the parameters and `this`)
     };
     // A lexical scope and the names it declares, so the Variables view knows what to ask the frame's closure for.
     struct Scope {
-        int parent = -1;   // -1 for the module scope (always scope 0)
-        std::string kind;  // "module", "function", "block" or "catch"
+        int parent = -1;                 // -1 for the module scope (always scope 0)
+        std::string kind;                // "module", "function", "block" or "catch"
         std::vector<std::string> names;  // declaration order; a function scope lists "this" first when it has its own
     };
     // `length` bytes were inserted on `line` just before original column `column`.
@@ -117,10 +117,10 @@ struct DebugBreakpointState {
 };
 
 struct DebugStop {
-    std::string reason;       // "breakpoint", "step", "pause", "exception", "debugger" (statement), "entry"
-    std::string description;  // shown by VS Code: "Paused on breakpoint", the exception's message
-    std::string exceptionText;           // exception stops: "TypeError: x is undefined" and its stack
-    std::vector<int> hitBreakpointIds;   // breakpoint stops
+    std::string reason;                 // "breakpoint", "step", "pause", "exception", "debugger" (statement), "entry"
+    std::string description;            // shown by VS Code: "Paused on breakpoint", the exception's message
+    std::string exceptionText;          // exception stops: "TypeError: x is undefined" and its stack
+    std::vector<int> hitBreakpointIds;  // breakpoint stops
 };
 
 struct DebugFrame {
@@ -185,7 +185,8 @@ public:
     ScriptDebugger& operator=(const ScriptDebugger&) = delete;
 
     // Any thread. Replaces every breakpoint of `file` (project-relative); the result has one state per breakpoint, in order.
-    std::vector<DebugBreakpointState> set_breakpoints(const std::string& file, const std::vector<DebugBreakpoint>& breakpoints);
+    std::vector<DebugBreakpointState> set_breakpoints(const std::string& file,
+                                                      const std::vector<DebugBreakpoint>& breakpoints);
     // Any thread. all: stop at every exception where it is first seen. uncaught: stop where an exception leaves the
     // scripts (the engine would report it as a script error).
     void set_exception_filters(bool all, bool uncaught);

@@ -28,10 +28,12 @@ std::optional<std::string> read_file(const stdfs::path& p) {
     return ss.str();
 }
 
-std::uint64_t mix(std::uint64_t h, std::uint64_t v) { return (h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2))) * 0x100000001b3ULL; }
+std::uint64_t mix(std::uint64_t h, std::uint64_t v) {
+    return (h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2))) * 0x100000001b3ULL;
+}
 
 double now_ms() {
-    using clock = std::chrono::steady_clock;   // UI timing only: no simulation reads it
+    using clock = std::chrono::steady_clock;  // UI timing only: no simulation reads it
     return std::chrono::duration<double, std::milli>(clock::now().time_since_epoch()).count();
 }
 
@@ -80,8 +82,10 @@ const Json* find_svg_layer(const Json& doc, const std::string& ref, std::string&
             return l;
         }
     std::string names;
-    for (const auto& [p, l] : svgs) names += (names.empty() ? "" : ", ") + std::string("\"") + l->value("name", p) + "\"";
-    why = "The document has no svg layer \"" + ref + "\"." + (svgs.empty() ? " It has no svg layer at all." : " Its svg layers: " + names + ".");
+    for (const auto& [p, l] : svgs)
+        names += (names.empty() ? "" : ", ") + std::string("\"") + l->value("name", p) + "\"";
+    why = "The document has no svg layer \"" + ref + "\"." +
+          (svgs.empty() ? " It has no svg layer at all." : " Its svg layers: " + names + ".");
     return nullptr;
 }
 
@@ -105,14 +109,16 @@ const char* vector_tool_name(VectorTool tool) {
 }
 
 const std::vector<VectorTool>& vector_tools() {
-    static const std::vector<VectorTool> t = {VectorTool::Select, VectorTool::Node,    VectorTool::Pen, VectorTool::Rectangle,
-                                              VectorTool::Ellipse, VectorTool::Line, VectorTool::Shape};
+    static const std::vector<VectorTool> t = {VectorTool::Select,    VectorTool::Node,    VectorTool::Pen,
+                                              VectorTool::Rectangle, VectorTool::Ellipse, VectorTool::Line,
+                                              VectorTool::Shape};
     return t;
 }
 
 // ---- construction, loading -------------------------------------------------------------------------------------------------
 
-VectorModel::VectorModel(std::string projectDir, VectorCommandFn call) : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
+VectorModel::VectorModel(std::string projectDir, VectorCommandFn call)
+    : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
 
 std::string VectorModel::title() const {
     if (!is_open()) return "";
@@ -272,9 +278,13 @@ bool VectorModel::load_from_disk() {
     valid_ = true;
     error_.clear();
     // keep what still exists of the selection
-    selection_.erase(std::remove_if(selection_.begin(), selection_.end(), [&](const std::string& r) { return scene_.find(r) < 0; }), selection_.end());
+    selection_.erase(
+        std::remove_if(selection_.begin(), selection_.end(), [&](const std::string& r) { return scene_.find(r) < 0; }),
+        selection_.end());
     if (!context_.empty() && scene_.find(context_) < 0) context_.clear();
-    nodeSel_.erase(std::remove_if(nodeSel_.begin(), nodeSel_.end(), [&](const VectorNodeRef& n) { return scene_.find(n.shape) < 0; }), nodeSel_.end());
+    nodeSel_.erase(std::remove_if(nodeSel_.begin(), nodeSel_.end(),
+                                  [&](const VectorNodeRef& n) { return scene_.find(n.shape) < 0; }),
+                   nodeSel_.end());
     stamp_ = compute_stamp();
     return true;
 }
@@ -309,7 +319,9 @@ std::vector<int> VectorModel::selected_items() const {
     return out;
 }
 
-bool VectorModel::is_selected(const std::string& ref) const { return std::find(selection_.begin(), selection_.end(), ref) != selection_.end(); }
+bool VectorModel::is_selected(const std::string& ref) const {
+    return std::find(selection_.begin(), selection_.end(), ref) != selection_.end();
+}
 
 void VectorModel::select(const std::vector<std::string>& refs) {
     selection_.clear();
@@ -320,8 +332,10 @@ void VectorModel::select(const std::vector<std::string>& refs) {
 
 void VectorModel::toggle_selected(const std::string& ref) {
     auto it = std::find(selection_.begin(), selection_.end(), ref);
-    if (it != selection_.end()) selection_.erase(it);
-    else if (scene_.find(ref) >= 0) selection_.push_back(ref);
+    if (it != selection_.end())
+        selection_.erase(it);
+    else if (scene_.find(ref) >= 0)
+        selection_.push_back(ref);
 }
 
 void VectorModel::add_to_selection(const std::string& ref) {
@@ -400,11 +414,15 @@ std::vector<int> VectorModel::marquee(const VecRect& box, bool touch) const {
 
 void VectorModel::toggle_node(const VectorNodeRef& n) {
     auto it = std::find(nodeSel_.begin(), nodeSel_.end(), n);
-    if (it != nodeSel_.end()) nodeSel_.erase(it);
-    else nodeSel_.push_back(n);
+    if (it != nodeSel_.end())
+        nodeSel_.erase(it);
+    else
+        nodeSel_.push_back(n);
 }
 
-bool VectorModel::node_selected(const VectorNodeRef& n) const { return std::find(nodeSel_.begin(), nodeSel_.end(), n) != nodeSel_.end(); }
+bool VectorModel::node_selected(const VectorNodeRef& n) const {
+    return std::find(nodeSel_.begin(), nodeSel_.end(), n) != nodeSel_.end();
+}
 
 const VecNodePath* VectorModel::nodes_of(const std::string& ref) const {
     const int i = scene_.find(ref);
@@ -505,7 +523,8 @@ bool VectorModel::resolve_ids(Json& args, std::string& error) {
     for (const char* k : kKeys) {
         if (!args.is_object() || !args.contains(k)) continue;
         const Json& v = args[k];
-        if (v.is_string()) consider(v.get<std::string>());
+        if (v.is_string())
+            consider(v.get<std::string>());
         else if (v.is_array())
             for (const Json& e : v)
                 if (e.is_string()) consider(e.get<std::string>());
@@ -524,7 +543,8 @@ bool VectorModel::resolve_ids(Json& args, std::string& error) {
     std::map<std::string, std::string> mapping;
     if (r.result.contains("assigned") && r.result["assigned"].is_array())
         for (const Json& e : r.result["assigned"])
-            if (e.is_object() && e.contains("selector") && e.contains("id")) mapping[e["selector"].get<std::string>()] = e["id"].get<std::string>();
+            if (e.is_object() && e.contains("selector") && e.contains("id"))
+                mapping[e["selector"].get<std::string>()] = e["id"].get<std::string>();
     remap(mapping);
     auto fixv = [&](Json& v) {
         if (v.is_string()) {
@@ -556,7 +576,7 @@ VectorEditOutcome VectorModel::edit(const std::string& label, const std::string&
     std::string err;
     if (!resolve_ids(args, err)) return rollback(label + ": " + err);
     Json a = args;
-    const Json target = target_args();   // a local: a range-for over a temporary's items() would read freed memory
+    const Json target = target_args();  // a local: a range-for over a temporary's items() would read freed memory
     for (auto& [k, v] : target.items()) a[k] = v;
     a["preview"] = false;
     CommandResult r = call_(command, a);
@@ -570,7 +590,8 @@ VectorEditOutcome VectorModel::edit(const std::string& label, const std::string&
         if (!before.count(p)) before[p] = nullptr;
     for (auto it = before.begin(); it != before.end();) {
         auto f = after.find(it->first);
-        const bool same = f != after.end() && (f->second == it->second || (f->second && it->second && *f->second == *it->second));
+        const bool same =
+            f != after.end() && (f->second == it->second || (f->second && it->second && *f->second == *it->second));
         if (same) {
             after.erase(f);
             it = before.erase(it);
@@ -695,11 +716,13 @@ VectorEditOutcome VectorModel::set_style(const Json& props, const std::string& l
 }
 
 VectorEditOutcome VectorModel::set_hidden(const std::string& ref, bool hidden) {
-    return edit(hidden ? "Hide" : "Show", "vector.set", Json::object({{"elements", Json::array({ref})}, {"hidden", hidden}}));
+    return edit(hidden ? "Hide" : "Show", "vector.set",
+                Json::object({{"elements", Json::array({ref})}, {"hidden", hidden}}));
 }
 
 VectorEditOutcome VectorModel::set_locked(const std::string& ref, bool locked) {
-    VectorEditOutcome out = edit(locked ? "Lock" : "Unlock", "vector.set", Json::object({{"elements", Json::array({ref})}, {"locked", locked}}));
+    VectorEditOutcome out = edit(locked ? "Lock" : "Unlock", "vector.set",
+                                 Json::object({{"elements", Json::array({ref})}, {"locked", locked}}));
     if (out.ok && locked) selection_.erase(std::remove(selection_.begin(), selection_.end(), ref), selection_.end());
     return out;
 }
@@ -719,15 +742,18 @@ VectorEditOutcome VectorModel::reorder(const std::vector<std::string>& refs, con
     return edit("Reorder", "vector.reorder", Json::object({{"elements", refs_json(refs)}, {"to", to}}));
 }
 
-VectorEditOutcome VectorModel::regroup(const std::vector<std::string>& refs, const std::string& parent, const std::string& before) {
-    Json args = Json::object({{"elements", refs_json(refs)}, {"parent", parent.empty() ? std::string("root") : parent}});
+VectorEditOutcome VectorModel::regroup(const std::vector<std::string>& refs, const std::string& parent,
+                                       const std::string& before) {
+    Json args =
+        Json::object({{"elements", refs_json(refs)}, {"parent", parent.empty() ? std::string("root") : parent}});
     if (!before.empty()) args["before"] = before;
     return edit("Move to group", "vector.reorder", args);
 }
 
 VectorEditOutcome VectorModel::boolean_op(const std::string& op) {
     VectorEditOutcome out = edit_selection("Boolean " + op, "vector.boolean", Json::object({{"op", op}}));
-    if (out.ok && out.result.contains("result") && out.result["result"].is_string()) select({out.result["result"].get<std::string>()});
+    if (out.ok && out.result.contains("result") && out.result["result"].is_string())
+        select({out.result["result"].get<std::string>()});
     return out;
 }
 
@@ -940,7 +966,8 @@ VectorEditOutcome VectorModel::pen_finish(bool close) {
     Json ops = Json::array();
     if (!pen.continueAtEnd) ops.push_back(Json::object({{"op", "reverse"}, {"subpath", pen.continueSubpath}}));
     for (std::size_t i = std::size_t(pen.existing); i < sub.nodes.size(); ++i) {
-        Json op = Json::object({{"op", "append"}, {"subpath", pen.continueSubpath}, {"at", point_json(sub.nodes[i].p)}});
+        Json op =
+            Json::object({{"op", "append"}, {"subpath", pen.continueSubpath}, {"at", point_json(sub.nodes[i].p)}});
         if (sub.nodes[i].hasOut) op["out"] = point_json(sub.nodes[i].out);
         ops.push_back(op);
     }
@@ -965,7 +992,8 @@ struct SnapHit {
 
 }  // namespace
 
-VecPoint VectorModel::snap_point(VecPoint p, double tolerance, const std::vector<std::string>& exclude, VectorSnapKind* kind) const {
+VecPoint VectorModel::snap_point(VecPoint p, double tolerance, const std::vector<std::string>& exclude,
+                                 VectorSnapKind* kind) const {
     if (kind) *kind = VectorSnapKind::None;
     // the points: nodes and corners of the shapes that stay where they are, and the canvas
     if (snapping.points) {
@@ -984,16 +1012,22 @@ VecPoint VectorModel::snap_point(VecPoint p, double tolerance, const std::vector
             }
         };
         const VecRect cv = scene_.canvas;
-        for (VecPoint c : {VecPoint{cv.x0, cv.y0}, VecPoint{cv.x1, cv.y0}, VecPoint{cv.x0, cv.y1}, VecPoint{cv.x1, cv.y1}, cv.center()}) offer(c);
+        for (VecPoint c : {VecPoint{cv.x0, cv.y0}, VecPoint{cv.x1, cv.y0}, VecPoint{cv.x0, cv.y1},
+                           VecPoint{cv.x1, cv.y1}, cv.center()})
+            offer(c);
         for (const VecItem& it : scene_.items) {
             bool skipped = skip[std::size_t(it.index)] != 0;
-            for (int a = it.parent; !skipped && a >= 0; a = scene_.items[std::size_t(a)].parent) skipped = skip[std::size_t(a)] != 0;
+            for (int a = it.parent; !skipped && a >= 0; a = scene_.items[std::size_t(a)].parent)
+                skipped = skip[std::size_t(a)] != 0;
             if (skipped || it.isGroup || !it.hasBounds || it.hidden || it.hiddenByAncestor) continue;
             const VecRect b = it.bounds;
-            if (p.x < b.x0 - tolerance || p.x > b.x1 + tolerance || p.y < b.y0 - tolerance || p.y > b.y1 + tolerance) continue;
+            if (p.x < b.x0 - tolerance || p.x > b.x1 + tolerance || p.y < b.y0 - tolerance || p.y > b.y1 + tolerance)
+                continue;
             for (const VecSubpath& s : it.nodes)
                 for (const VecNode& n : s.nodes) offer(n.p);
-            for (VecPoint c : {VecPoint{b.x0, b.y0}, VecPoint{b.x1, b.y0}, VecPoint{b.x0, b.y1}, VecPoint{b.x1, b.y1}, b.center()}) offer(c);
+            for (VecPoint c :
+                 {VecPoint{b.x0, b.y0}, VecPoint{b.x1, b.y0}, VecPoint{b.x0, b.y1}, VecPoint{b.x1, b.y1}, b.center()})
+                offer(c);
         }
         if (found) {
             if (kind) *kind = VectorSnapKind::Point;
@@ -1031,7 +1065,8 @@ VecPoint VectorModel::snap_point(VecPoint p, double tolerance, const std::vector
     return out;
 }
 
-VecPoint VectorModel::snap_move(const VecRect& box, VecPoint delta, double tolerance, const std::vector<std::string>& exclude) const {
+VecPoint VectorModel::snap_move(const VecRect& box, VecPoint delta, double tolerance,
+                                const std::vector<std::string>& exclude) const {
     // Each of the nine points of the box tries to land on a target; the nearest correction wins, per axis.
     double bestX = 1e300, bestY = 1e300;
     VecPoint corr{0, 0};
@@ -1044,7 +1079,8 @@ VecPoint VectorModel::snap_move(const VecRect& box, VecPoint delta, double toler
             const VecPoint s = snap_point(q, tolerance, exclude, &kind);
             if (kind == VectorSnapKind::None) continue;
             const double dx = s.x - q.x, dy = s.y - q.y;
-            if (std::abs(dx) <= tolerance && std::abs(dx) < bestX && (kind == VectorSnapKind::Point || std::abs(dx) > 0 || s.x == q.x)) {
+            if (std::abs(dx) <= tolerance && std::abs(dx) < bestX &&
+                (kind == VectorSnapKind::Point || std::abs(dx) > 0 || s.x == q.x)) {
                 if (kind == VectorSnapKind::Point || std::abs(dx) > 0) {
                     bestX = std::abs(dx);
                     corr.x = dx;
@@ -1074,11 +1110,15 @@ VectorEditOutcome VectorModel::save() {
     auto data = abs.ok() ? read_file(*abs) : std::nullopt;
     if (!data) return fail(out, "Save: cannot read " + rel_ + ". Does the image document still exist?");
     auto doc = parse_json(*data, rel_);
-    if (!doc.ok()) return fail(out, "Save: " + doc.error().message + (doc.error().hint.empty() ? "" : " " + doc.error().hint));
+    if (!doc.ok())
+        return fail(out, "Save: " + doc.error().message + (doc.error().hint.empty() ? "" : " " + doc.error().hint));
     CommandResult r = call_("image.save", Json::object({{"path", rel_}, {"document", *doc}, {"bake", true}}));
     if (!r.ok) return fail(out, "Save: " + command_error_text(r.error));
     out.result = r.result;
-    status_ = "Saved " + rel_ + (r.result.contains("output") && r.result["output"].is_string() ? " and baked " + r.result["output"].get<std::string>() : std::string());
+    status_ = "Saved " + rel_ +
+              (r.result.contains("output") && r.result["output"].is_string()
+                   ? " and baked " + r.result["output"].get<std::string>()
+                   : std::string());
     stamp_ = compute_stamp();
     return out;
 }
@@ -1114,8 +1154,10 @@ bool VectorModel::apply_step(int id, bool forward) {
 
 void VectorModel::retain_steps(const std::set<int>& keep) {
     for (auto it = steps_.begin(); it != steps_.end();) {
-        if (keep.count(it->first)) ++it;
-        else it = steps_.erase(it);
+        if (keep.count(it->first))
+            ++it;
+        else
+            it = steps_.erase(it);
     }
 }
 

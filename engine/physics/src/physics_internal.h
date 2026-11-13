@@ -86,8 +86,8 @@ public:
 private:
     struct LocalShape {
         enum Kind { Box, Circle, Capsule } kind = Box;
-        Vec2 offset;      // meters, body space
-        Vec2 half;        // box half extents / (radius, halfHeight of capsule axis) in meters
+        Vec2 offset;  // meters, body space
+        Vec2 half;    // box half extents / (radius, halfHeight of capsule axis) in meters
         bool trigger = false;
     };
     struct Body {
@@ -130,12 +130,12 @@ private:
     void sync_entity(World& world, Entity e, RigidBody2D* rb, Collider2D* col);
     void build_body(World& world, Body& b, RigidBody2D* rb, Collider2D* col, const WorldPose& pose);
     void sync_tilemaps(World& world);
-    void sync_joints(World& world);   // Joint2D components <-> Box2D joints
-    void read_joints(World& world);   // reaction force, angle and translation back into the components
+    void sync_joints(World& world);  // Joint2D components <-> Box2D joints
+    void read_joints(World& world);  // reaction force, angle and translation back into the components
     void destroy_joint(std::uint64_t key);
     void push_state(World& world, Entity e, Body& b, RigidBody2D* rb);
-    void apply_carry(World& world);   // riders follow their platform (before the step)
-    void find_carriers();              // which kinematic body each dynamic body rests on (after the step)
+    void apply_carry(World& world);  // riders follow their platform (before the step)
+    void find_carriers();            // which kinematic body each dynamic body rests on (after the step)
     void writeback(World& world, Entity e, Body& b, RigidBody2D* rb);
     void collect_events(World& world);
     Entity entity_of(b2ShapeId s, bool* trigger = nullptr) const;
@@ -149,9 +149,12 @@ private:
         std::uint64_t tilesHash = 0;  // the tiles (sum of per-cell mixes), kept in step with Tilemap::edits
         int cols = 0;                 // grid size the colliders were built for
         int rows = 0;
-        std::vector<int> solid;       // sorted solid tile indices
+        std::vector<int> solid;  // sorted solid tile indices
         // One box per run of solid tiles (cells c0..c1 x r0..r1), parallel to shapeKeys and boxes.
-        struct Run { int c0, c1, r0, r1; b2ShapeId shape; };
+        struct Run {
+            int c0, c1, r0, r1;
+            b2ShapeId shape;
+        };
         std::vector<Run> runs;
         std::vector<std::uint64_t> shapeKeys;
         std::vector<Rect> boxes;  // world-space AABBs (for debug)
@@ -174,7 +177,7 @@ private:
     PhysicsSettings settings_;
     bool inited_ = false;
     b2WorldId world_ = b2_nullWorldId;
-    B2JobTasks tasks_;  // the Box2D world holds a pointer to it: Physics2D is never moved
+    B2JobTasks tasks_;                 // the Box2D world holds a pointer to it: Physics2D is never moved
     b2BodyId ground_ = b2_nullBodyId;  // static body at the origin: the other end of a Joint2D with no `connected`
     const World* lastWorld_ = nullptr;
     std::unordered_map<std::uint64_t, JointRec> joints_;  // by the entity that owns the Joint2D
@@ -195,8 +198,10 @@ public:
     void init(const PhysicsSettings& s) { settings_ = s; }
     void reset();
     void step(World& world, float dt);
-    std::optional<RaycastHit> raycast(World& world, Vec3 origin, Vec3 dir, float maxDistance, const RaycastOptions& opt);
-    std::vector<RaycastHit> raycast_all(World& world, Vec3 origin, Vec3 dir, float maxDistance, const RaycastOptions& opt);
+    std::optional<RaycastHit> raycast(World& world, Vec3 origin, Vec3 dir, float maxDistance,
+                                      const RaycastOptions& opt);
+    std::vector<RaycastHit> raycast_all(World& world, Vec3 origin, Vec3 dir, float maxDistance,
+                                        const RaycastOptions& opt);
     std::optional<RaycastHit> shape_cast(World& world, const CastShape& shape, Vec3 from, Vec3 to,
                                          const RaycastOptions& opt);
     bool is_touching(World& world, Entity e, Vec3 dir, float tolerance);
@@ -238,33 +243,37 @@ private:
         float friction = 0.4f, restitution = 0.0f;
         std::int32_t layer = 0, mask = -1;
         // Shape: Box and Sphere have their own exact code; Capsule, Convex and Mesh go through the convex cores of
-        // shape3d.h (`general()`). 
+        // shape3d.h (`general()`).
         enum class Kind { Box, Sphere, Capsule, Convex, Mesh } kind = Kind::Box;
         bool general() const { return kind >= Kind::Capsule; }
-        Vec3 half{0.5f, 0.5f, 0.5f};  // box half extents along its own axes (scaled); capsule / convex / mesh: bounding box
-        float radius = 0.5f;          // sphere / capsule radius (scaled)
-        float segHalf = 0.0f;         // capsule: half the length of the straight part, along the entity's local Y (scaled)
-        Vec3 gscale{1, 1, 1};         // convex / mesh: per-axis scale of the model's vertices
-        Vec3 lcenter;                 // convex / mesh: centre of the model's bounding box (scaled, entity axes)
+        Vec3 half{0.5f, 0.5f,
+                  0.5f};       // box half extents along its own axes (scaled); capsule / convex / mesh: bounding box
+        float radius = 0.5f;   // sphere / capsule radius (scaled)
+        float segHalf = 0.0f;  // capsule: half the length of the straight part, along the entity's local Y (scaled)
+        Vec3 gscale{1, 1, 1};  // convex / mesh: per-axis scale of the model's vertices
+        Vec3 lcenter;          // convex / mesh: centre of the model's bounding box (scaled, entity axes)
         std::shared_ptr<const ShapeData> data;  // convex hull cloud / mesh BVH, shared by all colliders of one mesh
         Vec3 rot[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};  // the entity's world rotation (any shape; joints use it)
-        Vec3 localScale{1, 1, 1};     // the entity's world scale (joint anchors are scaled with it)
-        std::vector<std::uint64_t> noCollide;  // seq of bodies joined to this one by a joint that forbids their collision
-        bool jointed = false;         // has a Joint3D: always a rotating rigid body
-        bool startChecked = false;    // the start-overlap check ran for this body
-        float carry = 0.0f;           // fraction of a sub-step's move left undone because of too many impacts
-        float chainDrag = 0.0f;       // extra velocity damping (1/s) of a joint chain's body
-        int iterations = 8;           // solver iterations per sub-step for the constraints of this body
-        bool navObstacle = false;     // Collider3D.navObstacle: blocks NavMesh3D cells instead of being baked into them
-        bool navWalkable = false;     // Collider3D.navWalkable: its top surface is walkable on the NavMesh3D wherever it is now
-        bool character = false;       // CharacterController3D: kinematic capsule moved by move_character
+        Vec3 localScale{1, 1, 1};                         // the entity's world scale (joint anchors are scaled with it)
+        std::vector<std::uint64_t>
+            noCollide;              // seq of bodies joined to this one by a joint that forbids their collision
+        bool jointed = false;       // has a Joint3D: always a rotating rigid body
+        bool startChecked = false;  // the start-overlap check ran for this body
+        float carry = 0.0f;         // fraction of a sub-step's move left undone because of too many impacts
+        float chainDrag = 0.0f;     // extra velocity damping (1/s) of a joint chain's body
+        int iterations = 8;         // solver iterations per sub-step for the constraints of this body
+        bool navObstacle = false;   // Collider3D.navObstacle: blocks NavMesh3D cells instead of being baked into them
+        bool navWalkable =
+            false;  // Collider3D.navWalkable: its top surface is walkable on the NavMesh3D wherever it is now
+        bool character = false;  // CharacterController3D: kinematic capsule moved by move_character
         float stepOffset = 0.3f, slopeLimit = 45.0f, skin = 0.02f;  // character controller
         bool carriedByPlatforms = true, applyWeight = true;         // character controller: see CharacterController3D
         float charMass = 70.0f, pushStrength = 1.0f;
-        Entity support;               // character: the body it stood on after its last move (null = airborne)
-        float pendingTurn = 0.0f;     // character: yaw (degrees) a turning platform gave it this step, written to the Transform
-        std::string problem;          // why the collider is ignored ("" = none)
-        std::string meshName;         // convex / mesh: Collider3D.mesh
+        Entity support;  // character: the body it stood on after its last move (null = airborne)
+        float pendingTurn =
+            0.0f;             // character: yaw (degrees) a turning platform gave it this step, written to the Transform
+        std::string problem;  // why the collider is ignored ("" = none)
+        std::string meshName;  // convex / mesh: Collider3D.mesh
         // Box frame in world space: the entity's world rotation. Exactly the identity (and `rotated` false, which
         // selects the exact axis-aligned code paths) unless the box is turned.
         Vec3 ax[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
@@ -273,20 +282,21 @@ private:
         // between steps (the Transform is written from it; `lastEuler` is what was written, so a different Transform
         // value means gameplay turned the body and `orient` is re-read from it). invI = inverse inertia, body frame.
         bool rotDyn = false;
-        bool rotDirty = false;     // orientation changed this step: Transform.rotation must be rewritten
-        bool originDirty = false;  // the box turned about an offset collider centre: the entity origin must be rewritten
+        bool rotDirty = false;  // orientation changed this step: Transform.rotation must be rewritten
+        bool originDirty =
+            false;  // the box turned about an offset collider centre: the entity origin must be rewritten
         Quat orient;
         Vec3 lastEuler;
         Vec3 invI;
-        float rollMu = -1.0f;         // rolling resistance of a rolling sphere (replaces friction); < 0 = not rolling
-        Vec3 localOffset;             // collider offset (scaled, in the entity's own axes)
-        Vec3 offset;                  // collider offset in world axes (scaled, rotated with the entity)
-        Vec3 center;                  // collider center (world)
+        float rollMu = -1.0f;  // rolling resistance of a rolling sphere (replaces friction); < 0 = not rolling
+        Vec3 localOffset;      // collider offset (scaled, in the entity's own axes)
+        Vec3 offset;           // collider offset in world axes (scaled, rotated with the entity)
+        Vec3 center;           // collider center (world)
         Vec3 vel;
         Vec3 force;
         Vec3 angVel, lastAngVel;  // deg/s
         bool rollWithMotion = true;
-        Vec3 pendingCarry;  // displacement of a teleported static/kinematic body, applied to its riders
+        Vec3 pendingCarry;                  // displacement of a teleported static/kinematic body, applied to its riders
         Vec3 lastPos, lastVel, lastCenter;  // gameplay-visible values last written / observed
         // Sleeping: a dynamic body (and every body linked to it by contacts) whose speed stayed tiny for kTimeToSleep stops
         // costing solver work and sends no events. Bodies that fell asleep together share `sleepGroup` and wake together.
@@ -319,18 +329,33 @@ private:
                        rotDyn == o.rotDyn && mass == o.mass && gravityScale == o.gravityScale &&
                        std::fabs(radius - o.radius) <= 1e-5f * std::max(1.0f, radius) && near(half, o.half) &&
                        near(offset, o.offset) && ax[0] == o.ax[0] && ax[1] == o.ax[1] && ax[2] == o.ax[2] &&
-                       layer == o.layer && mask == o.mask && kind == o.kind && segHalf == o.segHalf && near(gscale, o.gscale) &&
-                       data == o.data;
+                       layer == o.layer && mask == o.mask && kind == o.kind && segHalf == o.segHalf &&
+                       near(gscale, o.gscale) && data == o.data;
             }
         };
         Sig sig() const {
-            return {type, enabled, hasShape, trigger, rotDyn, mass, gravityScale, radius, half, offset,
-                    {ax[0], ax[1], ax[2]}, layer, mask, kind, segHalf, gscale, data.get()};
+            return {type,
+                    enabled,
+                    hasShape,
+                    trigger,
+                    rotDyn,
+                    mass,
+                    gravityScale,
+                    radius,
+                    half,
+                    offset,
+                    {ax[0], ax[1], ax[2]},
+                    layer,
+                    mask,
+                    kind,
+                    segHalf,
+                    gscale,
+                    data.get()};
         }
     };
     struct Contact {
         bool hit = false;
-        Vec3 normal;  // from a to b
+        Vec3 normal;         // from a to b
         float depth = 0.0f;  // > 0 penetrating; may be slightly negative within margin
         Vec3 point;
         // Box-box face contacts (collide(..., manifold = true)): the clipped incident face. depths[i] < 0 = still apart.
@@ -378,7 +403,9 @@ private:
     static void face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, Contact& out);
     static bool sweep(Body& mover, Vec3 disp, Vec3 moverSpin, Body& target, Vec3 targetSpin, float& tHit);
     // How far the far end of a box travels when it turns by `spin` (rad, world axes): |spin| times its bounding radius.
-    static float turning_reach(const Body& b, Vec3 spin) { return b.kind != Body::Kind::Sphere ? length(spin) * bound_radius(b) : 0.0f; }
+    static float turning_reach(const Body& b, Vec3 spin) {
+        return b.kind != Body::Kind::Sphere ? length(spin) * bound_radius(b) : 0.0f;
+    }
     static bool filters_pass(const Body& a, const Body& b);
     static void refresh_frame(Body& b);
     static void turn_by(Body& b, Vec3 radians);  // rotate the orientation directly (position-level correction)
@@ -390,11 +417,11 @@ private:
                                     float h, int carrier, float& impact, RigidContact& out);
     static void solve_velocity(std::vector<Body>& bodies, RigidContact& rc, bool reverse);
     static void correct_position(std::vector<Body>& bodies, const RigidContact& rc);
-    void wake(Body& b);                      // b and everything that fell asleep with it
+    void wake(Body& b);                     // b and everything that fell asleep with it
     void wake_touching(std::uint64_t seq);  // the bodies that touched body `seq` after the previous step
 
     PhysicsSettings settings_;
-    std::vector<Body> bodies_;  // sorted by seq (creation order)
+    std::vector<Body> bodies_;                              // sorted by seq (creation order)
     std::unordered_map<std::uint64_t, std::size_t> index_;  // entity bits -> index in bodies_
     std::uint64_t nextSeq_ = 1;
     Vec3 lastGravity_{1e30f, 1e30f, 1e30f};  // a changed scene gravity wakes every body
@@ -420,31 +447,31 @@ private:
         JointType3D type = JointType3D::Hinge;
         bool useLimits = false, useMotor = false;
         float lower = 0.0f, upper = 0.0f, motorSpeed = 0.0f, maxTorque = 0.0f;  // radians, rad/s
-        Vec3 anchorA, anchorB;             // local to each body (B: a world point when seqB == 0)
-        Vec3 axisA, axisB;                 // hinge axis in each body's local frame
-        Vec3 refA, refB;                   // hinge reference vector (angle 0) in each body's local frame
-        Vec3 relCol[3];                    // fixed: R_A^T R_B when the joint was created
+        Vec3 anchorA, anchorB;  // local to each body (B: a world point when seqB == 0)
+        Vec3 axisA, axisB;      // hinge axis in each body's local frame
+        Vec3 refA, refB;        // hinge reference vector (angle 0) in each body's local frame
+        Vec3 relCol[3];         // fixed: R_A^T R_B when the joint was created
         // What the state above was built from; any change rebuilds it from the poses the bodies have now.
         Vec3 sigAnchor, sigConnAnchor, sigAxis;
         bool sigAuto = true;
         // Accumulated impulses (warm start of the next sub-step).
         Vec3 pImp, aImp;
         float lowImp = 0.0f, upImp = 0.0f, motorImp = 0.0f;
-        float damping = 0.0f;              // Joint3D.damping (1/s)
-        float stallTime = 0.0f;            // seconds the motor has been unable to turn the joint
-        bool live = false;                 // solved this step (an awake dynamic body is involved)
-        float angle = 0.0f;                // radians, this body relative to the connected one about the axis
+        float damping = 0.0f;    // Joint3D.damping (1/s)
+        float stallTime = 0.0f;  // seconds the motor has been unable to turn the joint
+        bool live = false;       // solved this step (an awake dynamic body is involved)
+        float angle = 0.0f;      // radians, this body relative to the connected one about the axis
         // Per sub-step cache (prepare_joints).
         Vec3 rA, rB, pBias, kinv[3], aw, t1, t2, fixBias;
         float k1 = 1.0f, k2 = 1.0f, kAxis = 1.0f;
         bool hasB = false;
-        std::string problem;               // why the joint is inactive ("" = none)
+        std::string problem;  // why the joint is inactive ("" = none)
         std::uint64_t seen = 0;
     };
     std::map<std::uint64_t, JointState> joints_;  // by owner entity bits (lookup only: never iterate it to solve)
     // "No body" in the body-index links of a step's joints and islands: the joint holds to the world.
     static constexpr std::size_t kNoBody = static_cast<std::size_t>(-1);
-    std::vector<JointState*> jointOrder_;         // solve order: by owner body seq, rebuilt by sync_joints
+    std::vector<JointState*> jointOrder_;  // solve order: by owner body seq, rebuilt by sync_joints
     void sync_joints(World& world, std::uint64_t stamp);
     void correct_joints(float h);  // position pass: move/turn the bodies so the joint anchors meet (no velocity added)
     bool prepare_joints(float h);  // false when no joint is active
@@ -457,21 +484,23 @@ private:
     // ---- shapes of meshes, shared by every collider of the same mesh
     std::map<std::string, std::shared_ptr<ShapeData>> shapes_;
     std::shared_ptr<const ShapeData> shape_data(World& world, const std::string& mesh, bool bvh, std::string& problem);
-    void prune_procedural_shapes(const World& world);  // drops the shapes of procedural meshes that were destroyed or updated
+    void prune_procedural_shapes(
+        const World& world);  // drops the shapes of procedural meshes that were destroyed or updated
     // ---- navigation
     struct NavState {
         Entity e;
         std::string id;
         NavMesh3D cfg;
-        Vec3 position;               // world position of the entity (centre of the bounds)
+        Vec3 position;  // world position of the entity (centre of the bounds)
         bool baked = false;
         bool attempted = false;
-        bool stale = false;          // static colliders changed since the bake and autoBake is off
-        std::uint64_t sig = 0;       // parameters + static colliders the bake was made from
-        std::string error;           // why the last bake failed ("" = none)
+        bool stale = false;     // static colliders changed since the bake and autoBake is off
+        std::uint64_t sig = 0;  // parameters + static colliders the bake was made from
+        std::string error;      // why the last bake failed ("" = none)
         NavGrid grid;
         NavBakeStats stats;
-        std::map<std::uint64_t, std::uint64_t> obstacleSig;  // obstacle / walkable body entity bits -> pose signature applied
+        std::map<std::uint64_t, std::uint64_t>
+            obstacleSig;  // obstacle / walkable body entity bits -> pose signature applied
         struct Link {
             Entity e;
             std::string id;
@@ -480,27 +509,29 @@ private:
             float cost = 0.0f;
             bool connected = false;
         };
-        std::vector<Link> links;     // NavLink3D of the scene, ordered by entity id
-        std::uint64_t linkSig = 0;   // what `links` was resolved from
+        std::vector<Link> links;    // NavLink3D of the scene, ordered by entity id
+        std::uint64_t linkSig = 0;  // what `links` was resolved from
         bool linksResolved = false;
     };
     std::map<std::uint64_t, NavState> navs_;  // by the NavMesh3D entity's bits
     std::vector<std::uint64_t> navOrder_;     // the same keys in the order the world listed the components
     static NavParams nav_params(const NavMesh3D& cfg, Vec3 position);
     Result<const NavState*> nav_pick_mesh(World& world, Vec3 from, const NavPathOptions& options);
-    NavPath nav_search(const NavState& mesh, Vec3 from, Vec3 to, const NavPathOptions& options, NavGrid::Scratch* scratch) const;
+    NavPath nav_search(const NavState& mesh, Vec3 from, Vec3 to, const NavPathOptions& options,
+                       NavGrid::Scratch* scratch) const;
     std::uint64_t nav_signature(const NavState& n) const;
     bool nav_bake_one(World& world, NavState& n, std::string& error);
     void nav_apply_obstacles(NavState& n);
     void nav_apply_links(World& world, NavState& n);
     static std::uint64_t nav_obstacle_signature(const Body& b);
     void nav_raster(const Body& b, const NavParams& p, std::vector<NavEntry>& out) const;
-    static bool nav_column(const Body& b, float x, float z, float yLo, float yHi, float cellHeight, std::vector<NavSolid>& out);
+    static bool nav_column(const Body& b, float x, float z, float yLo, float yHi, float cellHeight,
+                           std::vector<NavSolid>& out);
     static bool nav_static_solid(const Body& b) {
         return b.enabled && b.hasShape && !b.trigger && !b.character && !b.navObstacle && b.problem.empty() &&
                b.type == BodyType::Static && !b.navWalkable;
     }
-    float lastDt_ = 1.0f / 60.0f;       // the last step's dt (character pushes turn a move into a speed)
+    float lastDt_ = 1.0f / 60.0f;  // the last step's dt (character pushes turn a move into a speed)
     CharacterMoveResult move_character_body(World& world, Body& b, Vec3 delta);
 };
 

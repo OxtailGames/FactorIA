@@ -13,14 +13,16 @@ void Editor::session_begin() {
     run_.active = true;
     run_.startFrame = engine_->frame_index();
     run_.logSeq = log_last_seq();  // wall clock: only for the folder name
-    engine_->start_input_recording();  // the engine hears the keys, mouse, pads, frame times and clipboard reads of the game
+    engine_
+        ->start_input_recording();  // the engine hears the keys, mouse, pads, frame times and clipboard reads of the game
     PlaySession& s = run_.session;
     s.name = play_session_name(std::time(nullptr));
     s.scene = scenePath_;
     s.fixedHz = engine_->fixed_dt() > 0 ? 1.0 / engine_->fixed_dt() : 60.0;
     playNotice_.clear();
     profView_.reset();
-    Profiler::get().set_enabled(true);  // the session records where the time goes; profile_tick() keeps it on until Stop
+    Profiler::get().set_enabled(
+        true);  // the session records where the time goes; profile_tick() keeps it on until Stop
     run_.profile.add_memory(engine_->profile_memory());
 }
 
@@ -60,8 +62,11 @@ void Editor::session_end() {
         s.profile = run_.profile.to_json();
     }
     for (const LogEntry& l : recent_logs(200, LogLevel::Warn, run_.logSeq))
-        s.logs.push_back(Json::object({{"seq", l.seq}, {"frame", l.frame >= run_.startFrame ? l.frame - run_.startFrame : 0},
-                                       {"level", log_level_name(l.level)}, {"category", l.category}, {"message", l.message}}));
+        s.logs.push_back(Json::object({{"seq", l.seq},
+                                       {"frame", l.frame >= run_.startFrame ? l.frame - run_.startFrame : 0},
+                                       {"level", log_level_name(l.level)},
+                                       {"category", l.category},
+                                       {"message", l.message}}));
     s.input = engine_->stop_input_recording();
     auto w = write_play_session(std::string(kPlaySessionsDir) + "/" + s.name, s);
     if (!w.ok()) {
@@ -69,7 +74,8 @@ void Editor::session_end() {
         return;
     }
     if (!s.marks.empty() || !s.logs.empty()) {
-        playNotice_ = "Last play: " + std::to_string(s.marks.size()) + " mark(s), " + std::to_string(s.logs.size()) + " warning(s)/error(s).";
+        playNotice_ = "Last play: " + std::to_string(s.marks.size()) + " mark(s), " + std::to_string(s.logs.size()) +
+                      " warning(s)/error(s).";
     }
     playSessionsDirty_ = true;  // the Play sessions window lists it
     FA_INFO("editor", "play session saved: {}/{}", kPlaySessionsDir, s.name);
@@ -102,7 +108,8 @@ void Editor::mark_finish(bool save) {
         notify("Marked frame " + std::to_string(markPending_.frame) + ": " + markPending_.note);
     } else if (!markPending_.screenshot.empty()) {
         std::error_code ec;
-        std::filesystem::remove(fs::resolve(std::string(kPlaySessionsDir) + "/" + run_.session.name + "/" + markPending_.screenshot), ec);
+        std::filesystem::remove(
+            fs::resolve(std::string(kPlaySessionsDir) + "/" + run_.session.name + "/" + markPending_.screenshot), ec);
     }
     if (engine_ && play_ == PlayState::Paused) {  // back to the game
         engine_->set_paused(false);
@@ -115,7 +122,8 @@ void Editor::draw_mark_popup() {
     if (markOpen_) ImGui::OpenPopup("Mark a problem##mark");
     if (!ImGui::BeginPopupModal("Mark a problem##mark", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) return;
     if (!markOpen_) ImGui::CloseCurrentPopup();  // closed from elsewhere (Stop)
-    ImGui::Text("Frame %llu. What is wrong? (one line; the AI sees it with the screenshot)", static_cast<unsigned long long>(markPending_.frame));
+    ImGui::Text("Frame %llu. What is wrong? (one line; the AI sees it with the screenshot)",
+                static_cast<unsigned long long>(markPending_.frame));
     if (markFocus_) {
         ImGui::SetKeyboardFocusHere();
         markFocus_ = false;

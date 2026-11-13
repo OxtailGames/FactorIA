@@ -62,7 +62,9 @@ EM_JS(void, fa_web_fatal, (const char* text), {
 });
 
 // The page hides its loading screen (Module.faReady, optional).
-EM_JS(void, fa_web_ready, (), { if (Module.faReady) Module.faReady(); });
+EM_JS(void, fa_web_ready, (), {
+    if (Module.faReady) Module.faReady();
+});
 
 int web_error(const std::string& text) {
     fa_web_fatal(text.c_str());
@@ -74,8 +76,8 @@ fa::EngineConfig g_cfg;
 
 void start_game() {
     fa::AppDesc desc = fa::make_app_desc(g_cfg);  // == what run_windowed() does
-    desc.fullscreen = false;                       // a page cannot start fullscreen: the browser wants a click first
-    fa::run_app(desc);                             // returns at once; the browser calls the frame callback
+    desc.fullscreen = false;                      // a page cannot start fullscreen: the browser wants a click first
+    fa::run_app(desc);                            // returns at once; the browser calls the frame callback
     fa_web_ready();
 }
 
@@ -84,22 +86,26 @@ void start_game() {
 int main() {
     // Keeps the fingerprint marker in the wasm: `factoria setup webplayer` and the web export read it to see that this
     // player and factoria come from the same commit.
-    fa::log(fa::LogLevel::Debug, "player", std::string("factoria_player " FA_ENGINE_VERSION " (build ") + fa::build_fingerprint() + ")");
+    fa::log(fa::LogLevel::Debug, "player",
+            std::string("factoria_player " FA_ENGINE_VERSION " (build ") + fa::build_fingerprint() + ")");
     if (!fa::fs::exists(kWebPack)) {
-        return web_error(std::string("error: ") + kWebPack + " is missing: the page must write the game pack there before "
-                         "the player starts.\nhint: use the index.html that `factoria export --platform web` writes, next to "
-                         "factoria_player.js, factoria_player.wasm and game.pak, and serve the folder over http (a file:// "
-                         "page cannot load them).\n");
+        return web_error(
+            std::string("error: ") + kWebPack +
+            " is missing: the page must write the game pack there before "
+            "the player starts.\nhint: use the index.html that `factoria export --platform web` writes, next to "
+            "factoria_player.js, factoria_player.wasm and game.pak, and serve the folder over http (a file:// "
+            "page cannot load them).\n");
     }
     // From here on every project-relative read of the engine (factoria.json, scenes, assets, scripts) comes out of the pack.
-    if (auto mounted = fa::fs::mount_pack(kWebPack); !mounted.ok()) return web_error("error: " + mounted.error().to_string());
+    if (auto mounted = fa::fs::mount_pack(kWebPack); !mounted.ok())
+        return web_error("error: " + mounted.error().to_string());
     fa::fs::set_project_root("/game");
     if (!fa::fs::exists(fa::kProjectFileName))
         return web_error(std::string("error: no ") + fa::kProjectFileName + " in " + kWebPack +
                          ".\nhint: game.pak must be the pack `factoria export --release` writes.");
     g_cfg.projectDir = "/game";
     g_cfg.hotReload = false;
-    g_cfg.exportedPlayer = true;  // no read checks on the script API objects, errors may blame an old player
+    g_cfg.exportedPlayer = true;      // no read checks on the script API objects, errors may blame an old player
     g_cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
     auto proj = fa::load_project(g_cfg.projectDir);
     if (!proj.ok()) return web_error("error: " + proj.error().to_string());
@@ -113,7 +119,7 @@ int main() {
     const stdfs::path saveDir = stdfs::path("/save") / id;
     fa::fs::set_user_dir(saveDir);
     fa::fs::restore_user_dir(saveDir, start_game);  // calls start_game() once the saves are loaded
-    return 0;  // the runtime stays alive: the page runs the frames
+    return 0;                                       // the runtime stays alive: the page runs the frames
 }
 
 #elif !defined(FA_PLAYER_MOBILE)
@@ -230,23 +236,30 @@ int startup_error(const std::string& text) {
 }
 
 void print_usage() {
-    std::puts("factoria_player [projectDir | game.pak] [--scene <scene path>] [--fullscreen] [--frames N]\n"
-              "                [--input <replay.json>] [--dump-state <file>] [--screenshot <file>] [--persist-storage]\n"
-              "                [--version] [--help]\n"
-              "  projectDir  folder containing factoria.json, or a game.pak (default: ./game next to the executable, else\n"
-              "              ./game.pak next to it, else the current directory)\n"
-              "  --scene     start scene override, project-relative (e.g. scenes/level2.scene.json)\n"
-              "  --fullscreen  start fullscreen (overrides factoria.json display.fullscreen)\n"
-              "  --frames N  draw N frames, then exit: 0, or 1 when a script failed (a crash exits non-zero too); for CI smoke tests\n"
-              "  --input F   play an input replay (the JSON `input.record` writes, the one `factoria run --input` plays); needs --frames\n"
-              "  --dump-state F  write the world state JSON after the last frame (= `factoria run --state-out`); needs --frames\n"
-              "  --screenshot F  write a PNG of the last frame (= `factoria run --screenshot-at N-1`); needs --frames\n"
-              "  --persist-storage  with those three: scripts' storage.* and the save files write to the game's real user folder\n"
-              "              (the container of a sandboxed Mac App Store build) instead of staying in memory; needs --frames\n"
-              "              these three run headless (no window, deterministic, fixed time step) like `factoria run --headless\n"
-              "              --frames N`, so a shipped build can be checked by script and compared with the editor's run;\n"
-              "              exit 0, 1 when a script failed, 2 for a missing or bad file\n"
-              "  --version   print the engine version (the one `factoria version` prints) and exit");
+    std::puts(
+        "factoria_player [projectDir | game.pak] [--scene <scene path>] [--fullscreen] [--frames N]\n"
+        "                [--input <replay.json>] [--dump-state <file>] [--screenshot <file>] [--persist-storage]\n"
+        "                [--version] [--help]\n"
+        "  projectDir  folder containing factoria.json, or a game.pak (default: ./game next to the executable, else\n"
+        "              ./game.pak next to it, else the current directory)\n"
+        "  --scene     start scene override, project-relative (e.g. scenes/level2.scene.json)\n"
+        "  --fullscreen  start fullscreen (overrides factoria.json display.fullscreen)\n"
+        "  --frames N  draw N frames, then exit: 0, or 1 when a script failed (a crash exits non-zero too); for CI "
+        "smoke tests\n"
+        "  --input F   play an input replay (the JSON `input.record` writes, the one `factoria run --input` plays); "
+        "needs --frames\n"
+        "  --dump-state F  write the world state JSON after the last frame (= `factoria run --state-out`); needs "
+        "--frames\n"
+        "  --screenshot F  write a PNG of the last frame (= `factoria run --screenshot-at N-1`); needs --frames\n"
+        "  --persist-storage  with those three: scripts' storage.* and the save files write to the game's real user "
+        "folder\n"
+        "              (the container of a sandboxed Mac App Store build) instead of staying in memory; needs "
+        "--frames\n"
+        "              these three run headless (no window, deterministic, fixed time step) like `factoria run "
+        "--headless\n"
+        "              --frames N`, so a shipped build can be checked by script and compared with the editor's run;\n"
+        "              exit 0, 1 when a script failed, 2 for a missing or bad file\n"
+        "  --version   print the engine version (the one `factoria version` prints) and exit");
 }
 
 }  // namespace
@@ -283,7 +296,8 @@ int main(int argc, char** argv) {
             char* end = nullptr;
             const long n = std::strtol(value.c_str(), &end, 10);
             if (value.empty() || *end != 0 || n < 1 || n > 1000000) {
-                std::fprintf(stderr, "error: --frames needs a whole number of frames of at least 1, e.g. --frames 60\n");
+                std::fprintf(stderr,
+                             "error: --frames needs a whole number of frames of at least 1, e.g. --frames 60\n");
                 return 2;
             }
             frames = int(n);
@@ -295,7 +309,9 @@ int main(int argc, char** argv) {
             const std::string name = a.substr(0, eq);
             if (eq == std::string::npos && (i + 1 >= argc || std::string(argv[i + 1]).rfind("--", 0) == 0)) {
                 std::fprintf(stderr, "error: %s needs a file, e.g. %s %s\n", name.c_str(), name.c_str(),
-                             name == "--input" ? "replay.json" : name == "--dump-state" ? "state.json" : "shot.png");
+                             name == "--input"        ? "replay.json"
+                             : name == "--dump-state" ? "state.json"
+                                                      : "shot.png");
                 return 2;
             }
             const std::string value = eq == std::string::npos ? std::string(argv[++i]) : a.substr(eq + 1);
@@ -315,15 +331,18 @@ int main(int argc, char** argv) {
 
     const bool checkRun = !inputArg.empty() || !dumpStateArg.empty() || !screenshotArg.empty();
     if (checkRun && frames < 1) {
-        std::fprintf(stderr,
-                     "error: --input, --dump-state and --screenshot run the game headless for a fixed number of frames, so they need "
-                     "--frames N.\nhint: e.g. factoria_player --frames 300 --input replay.json --dump-state state.json --screenshot last.png\n");
+        std::fprintf(stderr, "error: --input, --dump-state and --screenshot run the game headless for a fixed number "
+                             "of frames, so they need "
+                             "--frames N.\nhint: e.g. factoria_player --frames 300 --input replay.json --dump-state "
+                             "state.json --screenshot last.png\n");
         return 2;
     }
     if (persistStorage && !checkRun) {
-        std::fprintf(stderr, "error: --persist-storage applies to the headless check run (--input, --dump-state or --screenshot with "
-                             "--frames N); a windowed run always saves to the real folder.\n"
-                             "hint: e.g. factoria_player --frames 300 --input replay.json --persist-storage\n");
+        std::fprintf(
+            stderr,
+            "error: --persist-storage applies to the headless check run (--input, --dump-state or --screenshot with "
+            "--frames N); a windowed run always saves to the real folder.\n"
+            "hint: e.g. factoria_player --frames 300 --input replay.json --persist-storage\n");
         return 2;
     }
     // Output and input files are relative to the current directory (not to the game, which may sit inside a pack).
@@ -335,8 +354,10 @@ int main(int argc, char** argv) {
     if (!inputArg.empty()) {
         std::error_code e;
         if (!stdfs::is_regular_file(inputPath, e)) {
-            std::fprintf(stderr, "error: --input file '%s' does not exist (looked for %s).\nhint: record one with the input.record command "
-                                 "(docs/DEBUGGING.md) and pass its path, relative to the current directory.\n",
+            std::fprintf(stderr,
+                         "error: --input file '%s' does not exist (looked for %s).\nhint: record one with the "
+                         "input.record command "
+                         "(docs/DEBUGGING.md) and pass its path, relative to the current directory.\n",
                          inputArg.c_str(), inputPath.c_str());
             return 2;
         }
@@ -347,8 +368,9 @@ int main(int argc, char** argv) {
         const stdfs::path parent = stdfs::path(absolute(*out)).parent_path();
         stdfs::create_directories(parent, e);
         if (e || !stdfs::is_directory(parent, e)) {
-            std::fprintf(stderr, "error: cannot write '%s': the folder '%s' does not exist and cannot be created (%s).\n"
-                                 "hint: pass a path in a folder you can write to.\n",
+            std::fprintf(stderr,
+                         "error: cannot write '%s': the folder '%s' does not exist and cannot be created (%s).\n"
+                         "hint: pass a path in a folder you can write to.\n",
                          out->c_str(), parent.string().c_str(), e.message().c_str());
             return 2;
         }
@@ -375,7 +397,8 @@ int main(int argc, char** argv) {
         } else if (has_project(resources / "game")) {
             projectDir = resources / "game";
             pluginDir = exeDir.parent_path() / "Frameworks";
-        } else if (stdfs::is_regular_file(exeDir / fa::kPackFileName, ec)) {  // a --release export: the whole game in one file
+        } else if (stdfs::is_regular_file(exeDir / fa::kPackFileName,
+                                          ec)) {  // a --release export: the whole game in one file
             packFile = exeDir / fa::kPackFileName;
             projectDir = exeDir / "game";
             pluginDir = exeDir;
@@ -389,14 +412,16 @@ int main(int argc, char** argv) {
     }
     if (!packFile.empty()) {
         // From here on every project-relative read of the engine (factoria.json, scenes, assets, scripts) comes out of the pack.
-        if (auto mounted = fa::fs::mount_pack(packFile); !mounted.ok()) return startup_error("error: " + mounted.error().to_string() + "\n");
+        if (auto mounted = fa::fs::mount_pack(packFile); !mounted.ok())
+            return startup_error("error: " + mounted.error().to_string() + "\n");
         fa::fs::set_project_root(projectDir);
     }
     if (packFile.empty() ? !has_project(projectDir) : !fa::fs::exists(fa::kProjectFileName)) {
-        return startup_error(std::string("error: no ") + fa::kProjectFileName + " in '" +
-                             (packFile.empty() ? projectDir : packFile).string() +
-                             "'.\nhint: pass the game folder (factoria_player path/to/game) or a game.pak, or put the game in a 'game' "
-                             "folder or a game.pak next to the executable (`factoria export` does this).\n");
+        return startup_error(
+            std::string("error: no ") + fa::kProjectFileName + " in '" +
+            (packFile.empty() ? projectDir : packFile).string() +
+            "'.\nhint: pass the game folder (factoria_player path/to/game) or a game.pak, or put the game in a 'game' "
+            "folder or a game.pak next to the executable (`factoria export` does this).\n");
     }
 
     fa::EngineConfig cfg;
@@ -437,11 +462,15 @@ int main(int argc, char** argv) {
         const int code = fa::run_headless(cfg, ho, &report);
         for (const char* key : {"scriptErrors", "sceneErrors"})
             if (report.contains(key) && report[key].is_array())
-                for (const auto& e : report[key]) std::fprintf(stderr, "%s: %s\n", key, e.is_string() ? e.get<std::string>().c_str() : e.dump().c_str());
+                for (const auto& e : report[key])
+                    std::fprintf(stderr, "%s: %s\n", key,
+                                 e.is_string() ? e.get<std::string>().c_str() : e.dump().c_str());
         if (report.contains("problems") && report["problems"].is_array())
             for (const auto& pr : report["problems"])
-                std::fprintf(stderr, "warning: %s\n", pr.is_string() ? pr.get<std::string>().c_str() : pr.dump().c_str());
-        if (report.contains("error") && report["error"].is_string()) std::fprintf(stderr, "error: %s\n", report["error"].get<std::string>().c_str());
+                std::fprintf(stderr, "warning: %s\n",
+                             pr.is_string() ? pr.get<std::string>().c_str() : pr.dump().c_str());
+        if (report.contains("error") && report["error"].is_string())
+            std::fprintf(stderr, "error: %s\n", report["error"].get<std::string>().c_str());
         if (code == 0) std::printf("OK: ran %d frames headless\n", frames);
         if (code == 0 && !screenshotArg.empty() && !stdfs::exists(ho.screenshotPattern, ec))
             std::fprintf(stderr, "warning: no screenshot was written to %s\n", ho.screenshotPattern.c_str());
@@ -521,10 +550,11 @@ extern "C" sapp_desc sokol_main(int, char*[]) {
     // from the same commit (the linker drops data nothing reaches).
     const volatile char* marker = kPlayerFingerprint;
     (void)marker[0];
-    fa::log(fa::LogLevel::Debug, "player", std::string("factoria_player " FA_ENGINE_VERSION " (build ") + fa::build_fingerprint() + ")");
+    fa::log(fa::LogLevel::Debug, "player",
+            std::string("factoria_player " FA_ENGINE_VERSION " (build ") + fa::build_fingerprint() + ")");
     fa::EngineConfig cfg;
     cfg.hotReload = false;
-    cfg.exportedPlayer = true;  // no read checks on the script API objects, errors may blame an old player
+    cfg.exportedPlayer = true;      // no read checks on the script API objects, errors may blame an old player
     cfg.platformFallback = "none";  // a shipped game never gets the fake store: no free purchases (docs/PLATFORM.md)
 #if defined(__ANDROID__)
     const auto* activity = static_cast<const ANativeActivity*>(sapp_android_get_native_activity());
@@ -544,7 +574,8 @@ extern "C" sapp_desc sokol_main(int, char*[]) {
     cfg.projectDir = fa_player_ios_game_dir();
     fa::fs::set_user_dir(fa_player_ios_documents_dir());
     // Library/Caches next to Documents: backed up never, cleared by the system when space runs low.
-    fa::fs::set_cache_dir((stdfs::path(fa_player_ios_documents_dir()).parent_path() / "Library" / "Caches").generic_string());
+    fa::fs::set_cache_dir(
+        (stdfs::path(fa_player_ios_documents_dir()).parent_path() / "Library" / "Caches").generic_string());
     if (!stdfs::exists(stdfs::path(cfg.projectDir) / fa::kProjectFileName))
         return error_desc("No game in the app bundle (expected " + cfg.projectDir +
                           "/factoria.json). Configure with -DFA_GAME_PROJECT_DIR=<game folder> "

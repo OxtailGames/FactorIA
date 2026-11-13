@@ -80,7 +80,7 @@ const std::vector<ImageEdge>& ImageModel::selection_edges() {
         }
         edges_.push_back({x0, y0, x1, y1});
     };
-    for (int y = 0; y <= H && !edgesTruncated_; ++y) {   // horizontal edges between row y-1 and row y, as runs
+    for (int y = 0; y <= H && !edgesTruncated_; ++y) {  // horizontal edges between row y-1 and row y, as runs
         int start = -1;
         int kind = 0;
         for (int x = 0; x <= W; ++x) {
@@ -92,7 +92,7 @@ const std::vector<ImageEdge>& ImageModel::selection_edges() {
             }
         }
     }
-    for (int x = 0; x <= W && !edgesTruncated_; ++x) {   // vertical edges between column x-1 and column x
+    for (int x = 0; x <= W && !edgesTruncated_; ++x) {  // vertical edges between column x-1 and column x
         int start = -1;
         int kind = 0;
         for (int y = 0; y <= H; ++y) {
@@ -107,19 +107,35 @@ const std::vector<ImageEdge>& ImageModel::selection_edges() {
     return edges_;
 }
 
-ImageEditOutcome ImageModel::run_select(Json args, const std::string& label) { return run(label, {{"image.select", std::move(args)}}); }
+ImageEditOutcome ImageModel::run_select(Json args, const std::string& label) {
+    return run(label, {{"image.select", std::move(args)}});
+}
 
 ImageEditOutcome ImageModel::select_rect(int x, int y, int w, int h, SelectOp op) {
-    const int x0 = std::max(0, x), y0 = std::max(0, y), x1 = std::min(doc_.width, x + w), y1 = std::min(doc_.height, y + h);
+    const int x0 = std::max(0, x), y0 = std::max(0, y), x1 = std::min(doc_.width, x + w),
+              y1 = std::min(doc_.height, y + h);
     if (x1 <= x0 || y1 <= y0) return refuse(*this, "The rectangle is outside the picture.");
-    return run_select(Json::object({{"name", kSelectionName}, {"by", "rect"}, {"x", x0}, {"y", y0}, {"width", x1 - x0}, {"height", y1 - y0}, {"mode", select_op_name(op)}}),
+    return run_select(Json::object({{"name", kSelectionName},
+                                    {"by", "rect"},
+                                    {"x", x0},
+                                    {"y", y0},
+                                    {"width", x1 - x0},
+                                    {"height", y1 - y0},
+                                    {"mode", select_op_name(op)}}),
                       "Select rectangle");
 }
 
 ImageEditOutcome ImageModel::select_ellipse(int x, int y, int w, int h, SelectOp op) {
-    const int x0 = std::max(0, x), y0 = std::max(0, y), x1 = std::min(doc_.width, x + w), y1 = std::min(doc_.height, y + h);
+    const int x0 = std::max(0, x), y0 = std::max(0, y), x1 = std::min(doc_.width, x + w),
+              y1 = std::min(doc_.height, y + h);
     if (x1 <= x0 || y1 <= y0) return refuse(*this, "The ellipse is outside the picture.");
-    return run_select(Json::object({{"name", kSelectionName}, {"by", "ellipse"}, {"x", x0}, {"y", y0}, {"width", x1 - x0}, {"height", y1 - y0}, {"mode", select_op_name(op)}}),
+    return run_select(Json::object({{"name", kSelectionName},
+                                    {"by", "ellipse"},
+                                    {"x", x0},
+                                    {"y", y0},
+                                    {"width", x1 - x0},
+                                    {"height", y1 - y0},
+                                    {"mode", select_op_name(op)}}),
                       "Select ellipse");
 }
 
@@ -127,17 +143,25 @@ ImageEditOutcome ImageModel::select_polygon(const std::vector<std::pair<double, 
     if (points.size() < 3) return refuse(*this, "A polygon needs at least three corners.");
     Json pts = Json::array();
     for (const auto& p : points) pts.push_back(Json::array({quantize(p.first), quantize(p.second)}));
-    return run_select(Json::object({{"name", kSelectionName}, {"by", "polygon"}, {"points", pts}, {"mode", select_op_name(op)}}), "Select polygon");
+    return run_select(
+        Json::object({{"name", kSelectionName}, {"by", "polygon"}, {"points", pts}, {"mode", select_op_name(op)}}),
+        "Select polygon");
 }
 
 ImageEditOutcome ImageModel::select_wand(int x, int y, const ImageWandSettings& wand, SelectOp op) {
     if (x < 0 || y < 0 || x >= doc_.width || y >= doc_.height) return refuse(*this, "Click inside the picture.");
-    return run_select(Json::object({{"name", kSelectionName}, {"by", "color"}, {"at", Json::array({x, y})}, {"tolerance", std::clamp(wand.tolerance, 0, 255)},
-                                    {"contiguous", wand.contiguous}, {"mode", select_op_name(op)}}),
+    return run_select(Json::object({{"name", kSelectionName},
+                                    {"by", "color"},
+                                    {"at", Json::array({x, y})},
+                                    {"tolerance", std::clamp(wand.tolerance, 0, 255)},
+                                    {"contiguous", wand.contiguous},
+                                    {"mode", select_op_name(op)}}),
                       "Magic wand");
 }
 
-ImageEditOutcome ImageModel::select_all() { return run_select(Json::object({{"name", kSelectionName}, {"by", "all"}}), "Select all"); }
+ImageEditOutcome ImageModel::select_all() {
+    return run_select(Json::object({{"name", kSelectionName}, {"by", "all"}}), "Select all");
+}
 
 ImageEditOutcome ImageModel::deselect() {
     if (!has_selection()) return ImageEditOutcome{};
@@ -145,16 +169,22 @@ ImageEditOutcome ImageModel::deselect() {
 }
 
 ImageEditOutcome ImageModel::selection_grow(double px) {
-    return run_select(Json::object({{"name", kSelectionName}, {"then", Json::array({Json::object({{"grow", px}})})}}), "Grow selection");
+    return run_select(Json::object({{"name", kSelectionName}, {"then", Json::array({Json::object({{"grow", px}})})}}),
+                      "Grow selection");
 }
 ImageEditOutcome ImageModel::selection_shrink(double px) {
-    return run_select(Json::object({{"name", kSelectionName}, {"then", Json::array({Json::object({{"shrink", px}})})}}), "Shrink selection");
+    return run_select(Json::object({{"name", kSelectionName}, {"then", Json::array({Json::object({{"shrink", px}})})}}),
+                      "Shrink selection");
 }
 ImageEditOutcome ImageModel::selection_feather(double px) {
-    return run_select(Json::object({{"name", kSelectionName}, {"then", Json::array({Json::object({{"feather", px}})})}}), "Feather selection");
+    return run_select(
+        Json::object({{"name", kSelectionName}, {"then", Json::array({Json::object({{"feather", px}})})}}),
+        "Feather selection");
 }
 ImageEditOutcome ImageModel::selection_invert() {
-    return run_select(Json::object({{"name", kSelectionName}, {"then", Json::array({Json::object({{"invert", true}})})}}), "Invert selection");
+    return run_select(
+        Json::object({{"name", kSelectionName}, {"then", Json::array({Json::object({{"invert", true}})})}}),
+        "Invert selection");
 }
 
 // ---- brush strokes ---------------------------------------------------------------------------------------------------------
@@ -163,7 +193,7 @@ std::vector<PixelPoint> ImageModel::indexed_stamp(const std::vector<std::pair<do
     std::vector<PixelPoint> centres;
     for (const auto& p : points) centres.push_back({int(std::floor(p.first)), int(std::floor(p.second))});
     const int n = std::max(1, int(std::lround(size)));
-    std::vector<PixelPoint> offsets;   // the pixels one stamp covers, around (0, 0)
+    std::vector<PixelPoint> offsets;  // the pixels one stamp covers, around (0, 0)
     const int lo = -((n - 1) / 2);
     for (int j = 0; j < n; ++j)
         for (int i = 0; i < n; ++i) {
@@ -221,7 +251,8 @@ bool ImageModel::begin_stroke(bool erase, const ImageBrushSettings& brush, doubl
     live_ = std::move(L);
     if (live_.indexed) {
         const int value = live_.erase ? -1 : live_.brush.paletteIndex;
-        for (const PixelPoint& p : indexed_stamp(live_.points, live_.brush.size)) live_.grid.set(p.x - live_.gridX, p.y - live_.gridY, value);
+        for (const PixelPoint& p : indexed_stamp(live_.points, live_.brush.size))
+            live_.grid.set(p.x - live_.gridX, p.y - live_.gridY, value);
         live_.stale = false;
     }
     mark_dirty();
@@ -234,7 +265,8 @@ void ImageModel::stroke_to(double x, double y) {
     if (p == live_.points.back()) return;
     if (live_.indexed) {
         const int value = live_.erase ? -1 : live_.brush.paletteIndex;
-        for (const PixelPoint& q : indexed_stamp({live_.points.back(), p}, live_.brush.size)) live_.grid.set(q.x - live_.gridX, q.y - live_.gridY, value);
+        for (const PixelPoint& q : indexed_stamp({live_.points.back(), p}, live_.brush.size))
+            live_.grid.set(q.x - live_.gridX, q.y - live_.gridY, value);
         live_.stale = false;
     } else {
         live_.stale = true;
@@ -258,12 +290,17 @@ ImageEditOutcome ImageModel::end_stroke() {
         Json px = Json::array();
         const Json value = L.erase || L.brush.paletteIndex < 0 ? Json(nullptr) : Json(L.brush.paletteIndex);
         for (const PixelPoint& p : indexed_stamp(L.points, L.brush.size)) px.push_back(Json::array({p.x, p.y, value}));
-        return run(L.erase ? "Erase pixels" : "Draw pixels", {{"image.pixel", Json::object({{"layer", L.layer}, {"pixels", px}})}});
+        return run(L.erase ? "Erase pixels" : "Draw pixels",
+                   {{"image.pixel", Json::object({{"layer", L.layer}, {"pixels", px}})}});
     }
     Json pts = Json::array();
     for (const auto& p : L.points) pts.push_back(Json::array({p.first, p.second}));
-    Json stroke = Json::object({{"points", pts}, {"size", L.brush.size}, {"hardness", L.brush.hardness}, {"opacity", L.brush.opacity},
-                                {"color", hex_of(L.brush.color)}, {"erase", L.erase}});
+    Json stroke = Json::object({{"points", pts},
+                                {"size", L.brush.size},
+                                {"hardness", L.brush.hardness},
+                                {"opacity", L.brush.opacity},
+                                {"color", hex_of(L.brush.color)},
+                                {"erase", L.erase}});
     Json args = Json::object({{"layer", L.layer}, {"strokes", Json::array({stroke})}});
     if (selected) args["selection"] = kSelectionName;
     return run(L.erase ? "Erase" : "Paint", {{"image.paint", args}});
@@ -284,7 +321,8 @@ ImageEditOutcome ImageModel::fill_at(int x, int y, const ImageBrushSettings& bru
     if (!b.ok()) return refuse(*this, b.error().message);
     const Image& img = b->img;
     const int sx = x - b->ox, sy = y - b->oy;
-    if (sx < 0 || sy < 0 || sx >= img.width || sy >= img.height) return refuse(*this, "That pixel is outside the layer.");
+    if (sx < 0 || sy < 0 || sx >= img.width || sy >= img.height)
+        return refuse(*this, "That pixel is outside the layer.");
     auto px = [&](int i, int j) { return &img.rgba[(std::size_t(j) * img.width + i) * 4]; };
     auto distance = [&](const std::uint8_t* p, const std::uint8_t* q) {
         if (p[3] == 0 && q[3] == 0) return 0;
@@ -325,8 +363,9 @@ ImageEditOutcome ImageModel::fill_at(int x, int y, const ImageBrushSettings& bru
         }
         return true;
     };
-    return run("Fill", {{"image.edit", Json::object({{"selection", "fill"}, {"layer", path}, {"action", action}})},
-                        {"image.select", Json::object({{"name", "fill"}, {"clear", true}})}},
+    return run("Fill",
+               {{"image.edit", Json::object({{"selection", "fill"}, {"layer", path}, {"action", action}})},
+                {"image.select", Json::object({{"name", "fill"}, {"clear", true}})}},
                prepare);
 }
 
@@ -374,7 +413,8 @@ bool ImageModel::begin_move() {
         L.base = std::move(*b);
         L.patch = image_patch_extract(L.base.img, L.base.ox, L.base.oy, selection_);
         if (L.patch.img.empty()) {
-            status_ = "The selection covers no pixel of the layer: select where the layer has pixels, or deselect to move the whole layer.";
+            status_ = "The selection covers no pixel of the layer: select where the layer has pixels, or deselect to "
+                      "move the whole layer.";
             return false;
         }
         L.erased = L.base.img;
@@ -404,9 +444,14 @@ ImageEditOutcome ImageModel::end_move() {
     live_ = Live{};
     mark_dirty();
     if (L.moveDx == 0 && L.moveDy == 0) return ImageEditOutcome{};
-    if (L.wholeLayer) return set_layer(L.layer, Json::object({{"x", L.layerX0 + L.moveDx}, {"y", L.layerY0 + L.moveDy}}), "Move layer");
-    return run("Move pixels", {{"image.edit", Json::object({{"selection", kSelectionName}, {"layer", L.layer},
-                                                            {"action", Json::object({{"type", "move"}, {"dx", L.moveDx}, {"dy", L.moveDy}})}})}});
+    if (L.wholeLayer)
+        return set_layer(L.layer, Json::object({{"x", L.layerX0 + L.moveDx}, {"y", L.layerY0 + L.moveDy}}),
+                         "Move layer");
+    return run("Move pixels",
+               {{"image.edit",
+                 Json::object({{"selection", kSelectionName},
+                               {"layer", L.layer},
+                               {"action", Json::object({{"type", "move"}, {"dx", L.moveDx}, {"dy", L.moveDy}})}})}});
 }
 
 // ---- transform -------------------------------------------------------------------------------------------------------------
@@ -420,7 +465,8 @@ bool ImageModel::begin_transform() {
         return false;
     }
     if (l->kind != ImageLayerKind::Pixels) {
-        status_ = "Transform works on the pixels of a pixels layer; convert the layer (image.layer.convert to pixels) first.";
+        status_ =
+            "Transform works on the pixels of a pixels layer; convert the layer (image.layer.convert to pixels) first.";
         return false;
     }
     auto b = open_image_edit_buffer(projectDir_, rel_, json_, selected_, frame_);
@@ -494,13 +540,20 @@ ImageEditOutcome ImageModel::apply_transform() {
     const std::string selection = L.useAll ? "all" : kSelectionName;
     Calls calls;
     if (t.dx != 0 || t.dy != 0)
-        calls.push_back({"image.edit", Json::object({{"selection", selection}, {"layer", L.layer},
-                                                     {"action", Json::object({{"type", "move"}, {"dx", t.dx}, {"dy", t.dy}})}})});
+        calls.push_back(
+            {"image.edit", Json::object({{"selection", selection},
+                                         {"layer", L.layer},
+                                         {"action", Json::object({{"type", "move"}, {"dx", t.dx}, {"dy", t.dy}})}})});
     if (!identity) {
-        Json action = Json::object({{"type", "transform"}, {"scale", Json::array({t.scaleX, t.scaleY})}, {"rotate", t.rotate}, {"flipH", t.flipH},
-                                    {"flipV", t.flipV}, {"filter", t.nearest ? "nearest" : "bilinear"},
+        Json action = Json::object({{"type", "transform"},
+                                    {"scale", Json::array({t.scaleX, t.scaleY})},
+                                    {"rotate", t.rotate},
+                                    {"flipH", t.flipH},
+                                    {"flipV", t.flipV},
+                                    {"filter", t.nearest ? "nearest" : "bilinear"},
                                     {"pivot", Json::array({t.pivotX + t.dx, t.pivotY + t.dy})}});
-        calls.push_back({"image.edit", Json::object({{"selection", selection}, {"layer", L.layer}, {"action", action}})});
+        calls.push_back(
+            {"image.edit", Json::object({{"selection", selection}, {"layer", L.layer}, {"action", action}})});
     }
     return run("Transform", std::move(calls));
 }

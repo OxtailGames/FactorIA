@@ -31,8 +31,10 @@ std::string lower_slug(const std::string& s) {
 std::string hex_of(float r, float g, float b, float a) {
     auto q = [](float v) { return int(std::lround(std::clamp(v, 0.0f, 1.0f) * 255.0f)); };
     char buf[16];
-    if (q(a) == 255) std::snprintf(buf, sizeof buf, "#%02x%02x%02x", q(r), q(g), q(b));
-    else std::snprintf(buf, sizeof buf, "#%02x%02x%02x%02x", q(r), q(g), q(b), q(a));
+    if (q(a) == 255)
+        std::snprintf(buf, sizeof buf, "#%02x%02x%02x", q(r), q(g), q(b));
+    else
+        std::snprintf(buf, sizeof buf, "#%02x%02x%02x%02x", q(r), q(g), q(b), q(a));
     return buf;
 }
 
@@ -80,7 +82,8 @@ Badge badge_of(ImageLayerKind k) {
         case ImageLayerKind::Provider: return {"AI", IM_COL32(190, 90, 160, 255)};
         case ImageLayerKind::Group: return {"GP", IM_COL32(110, 160, 160, 255)};
         case ImageLayerKind::Adjustment: return {"AD", IM_COL32(190, 100, 100, 255)};
-        case ImageLayerKind::Tileset: return {"TS", IM_COL32(170, 125, 90, 255)};  // brown: PX and IX are blue and violet
+        case ImageLayerKind::Tileset:
+            return {"TS", IM_COL32(170, 125, 90, 255)};  // brown: PX and IX are blue and violet
     }
     return {"?", IM_COL32(120, 120, 120, 255)};
 }
@@ -94,17 +97,23 @@ bool toggle_button(const char* label, bool on, ImVec2 size = ImVec2(0, 0)) {
 }
 
 void eye_icon(ImDrawList* dl, ImVec2 c, bool on, bool hot) {
-    const ImU32 col = on ? (hot ? IM_COL32(255, 255, 255, 255) : IM_COL32(210, 210, 215, 255)) : IM_COL32(110, 110, 118, 255);
+    const ImU32 col =
+        on ? (hot ? IM_COL32(255, 255, 255, 255) : IM_COL32(210, 210, 215, 255)) : IM_COL32(110, 110, 118, 255);
     dl->AddEllipse(c, ImVec2(6.5f, 4.0f), col, 0.0f, 16, 1.4f);
-    if (on) dl->AddCircleFilled(c, 2.2f, col);
-    else dl->AddLine(ImVec2(c.x - 6, c.y + 5), ImVec2(c.x + 6, c.y - 5), col, 1.4f);
+    if (on)
+        dl->AddCircleFilled(c, 2.2f, col);
+    else
+        dl->AddLine(ImVec2(c.x - 6, c.y + 5), ImVec2(c.x + 6, c.y - 5), col, 1.4f);
 }
 
 void lock_icon(ImDrawList* dl, ImVec2 c, bool on, bool hot) {
-    const ImU32 col = on ? IM_COL32(240, 190, 90, 255) : (hot ? IM_COL32(190, 190, 195, 255) : IM_COL32(95, 95, 103, 255));
+    const ImU32 col =
+        on ? IM_COL32(240, 190, 90, 255) : (hot ? IM_COL32(190, 190, 195, 255) : IM_COL32(95, 95, 103, 255));
     dl->AddRectFilled(ImVec2(c.x - 4.5f, c.y - 1), ImVec2(c.x + 4.5f, c.y + 5), col, 1.0f);
-    if (on) dl->AddRect(ImVec2(c.x - 3, c.y - 6), ImVec2(c.x + 3, c.y + 0.5f), col, 3.0f, 0, 1.4f);
-    else dl->AddLine(ImVec2(c.x + 3, c.y - 1), ImVec2(c.x + 3, c.y - 4), col, 1.4f);
+    if (on)
+        dl->AddRect(ImVec2(c.x - 3, c.y - 6), ImVec2(c.x + 3, c.y + 0.5f), col, 3.0f, 0, 1.4f);
+    else
+        dl->AddLine(ImVec2(c.x + 3, c.y - 1), ImVec2(c.x + 3, c.y - 4), col, 1.4f);
 }
 
 }  // namespace
@@ -114,7 +123,7 @@ ImageModel& Editor::image_ensure_model() {
     if (!image_.model) {
         image_.model = std::make_unique<ImageModel>(projectDir_, [this](const std::string& name, const Json& args) {
             CommandResult r = engine_->commands().call(name, args);
-            after_command(name, args, r);   // the Project panel looks at the folder again when a file was written
+            after_command(name, args, r);  // the Project panel looks at the folder again when a file was written
             return r;
         });
     }
@@ -133,11 +142,12 @@ bool Editor::open_image_document(const std::string& rel) {
     const bool ok = u.model->open(rel);
     u.openError = ok ? std::string() : u.model->error();
     u.playing = false;
-    u.tiled = ok && u.model->tile_mode();   // a tile document opens with its repeat preview on
+    u.tiled = ok && u.model->tile_mode();  // a tile document opens with its repeat preview on
     u.fitNext = true;
     showImage_ = true;
     focus_window("Image");
-    if (!ok) notify("Cannot open " + rel + " in the Image panel: " + u.model->error(), 2);
+    if (!ok)
+        notify("Cannot open " + rel + " in the Image panel: " + u.model->error(), 2);
     else if (u.model->paintable(u.model->selected_layer()) == false) {
         // start on the top paintable layer: the first thing a person does is draw
         for (const ImageLayerRow& r : u.model->layer_rows())
@@ -175,8 +185,10 @@ void Editor::image_save() {
         return;
     }
     const ImageEditOutcome out = u.model->save();
-    if (!out.ok) notify(out.error, 2);
-    else project_files_changed();
+    if (!out.ok)
+        notify(out.error, 2);
+    else
+        project_files_changed();
 }
 
 // The undo entry of an edit, and what the rest of the editor must know about it.
@@ -245,7 +257,8 @@ void Editor::draw_image_panel() {
     if (!m.is_open()) {
         draw_image_toolbar(m);
         ImGui::Spacing();
-        ImGui::TextDisabled("Open an image document (*.image.json) from the list above, or double click one in the Project panel.");
+        ImGui::TextDisabled(
+            "Open an image document (*.image.json) from the list above, or double click one in the Project panel.");
         if (!u.openError.empty()) ImGui::TextColored(ImVec4(1.0f, 0.55f, 0.45f, 1), "%s", u.openError.c_str());
         ImGui::End();
         return;
@@ -267,7 +280,8 @@ void Editor::draw_image_panel() {
         ImGui::End();
         return;
     }
-    if (play_ != PlayState::Edit) ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1), "The game is running: stop it to edit the image.");
+    if (play_ != PlayState::Edit)
+        ImGui::TextColored(ImVec4(1.0f, 0.8f, 0.4f, 1), "The game is running: stop it to edit the image.");
 
     const ImVec2 avail = ImGui::GetContentRegionAvail();
     const float sideW = std::min(kSideW, std::max(220.0f, avail.x * 0.34f));
@@ -280,18 +294,21 @@ void Editor::draw_image_panel() {
     draw_image_options(m);
     {
         const bool indexed = !m.palette().empty();
-        const bool frames = m.animated() || m.frame_count() > 1 || indexed;   // a pixel-art document can start an animation from here
+        const bool frames =
+            m.animated() || m.frame_count() > 1 || indexed;  // a pixel-art document can start an animation from here
         const float statusH = ImGui::GetTextLineHeightWithSpacing() + 6;
         const float paletteH = indexed ? kPaletteH : 0.0f;
         const float framesH = frames ? kFramesH : 0.0f;
         ImVec2 canvas = ImGui::GetContentRegionAvail();
-        canvas.y = std::max(60.0f, canvas.y - statusH - paletteH - framesH - ImGui::GetStyle().ItemSpacing.y * (1 + (indexed ? 1 : 0) + (frames ? 1 : 0)));
+        canvas.y = std::max(60.0f, canvas.y - statusH - paletteH - framesH -
+                                       ImGui::GetStyle().ItemSpacing.y * (1 + (indexed ? 1 : 0) + (frames ? 1 : 0)));
         draw_image_canvas(m, canvas);
         if (indexed) draw_image_palette(m);
         if (frames) draw_image_frames(m);
         // status line
         std::string line = m.status();
-        if (u.mouseImageX >= 0) line += (line.empty() ? "" : "   |   ") + std::format("x {} y {}", int(u.mouseImageX), int(u.mouseImageY));
+        if (u.mouseImageX >= 0)
+            line += (line.empty() ? "" : "   |   ") + std::format("x {} y {}", int(u.mouseImageX), int(u.mouseImageY));
         int sx, sy, sw, sh;
         if (m.selection_bounds(sx, sy, sw, sh)) line += std::format("   |   selection {}x{} at {},{}", sw, sh, sx, sy);
         line += std::format("   |   {}%   |   {:.1f} ms", int(std::lround(u.zoom * 100)), m.last_composite_ms());
@@ -330,7 +347,9 @@ void Editor::draw_image_toolbar(ImageModel& m) {
     }
     at_track("img:open");
     edge();
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The image documents (*.image.json) of the project. A double click in the Project panel opens one too.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip(
+            "The image documents (*.image.json) of the project. A double click in the Project panel opens one too.");
     ImGui::SameLine();
     if (ImGui::Button("New...")) ImGui::OpenPopup("##imgnew");
     at_track("img:new");
@@ -342,12 +361,17 @@ void Editor::draw_image_toolbar(ImageModel& m) {
         ImGui::SetNextItemWidth(120);
         ImGui::InputInt("Size", &u.newDocSize);
         u.newDocSize = std::clamp(u.newDocSize, 1, 4096);
-        ImGui::TextDisabled("assets/%s.image.json, %dx%d, a white background layer", u.newDocName.c_str(), u.newDocSize, u.newDocSize);
+        ImGui::TextDisabled("assets/%s.image.json, %dx%d, a white background layer", u.newDocName.c_str(), u.newDocSize,
+                            u.newDocSize);
         if (ImGui::Button("Create") && editable && !u.newDocName.empty()) {
             const std::string path = "assets/" + u.newDocName + ".image.json";
             const CommandResult r = engine_->commands().call(
-                "image.create", Json::object({{"path", path}, {"width", u.newDocSize}, {"height", u.newDocSize},
-                                              {"layers", Json::array({Json::object({{"kind", "fill"}, {"name", "background"}, {"color", "#ffffff"}})})}}));
+                "image.create",
+                Json::object({{"path", path},
+                              {"width", u.newDocSize},
+                              {"height", u.newDocSize},
+                              {"layers", Json::array({Json::object(
+                                             {{"kind", "fill"}, {"name", "background"}, {"color", "#ffffff"}})})}}));
             after_command("image.create", Json::object(), r);
             if (r.ok) {
                 open_image_document(path);
@@ -367,7 +391,8 @@ void Editor::draw_image_toolbar(ImageModel& m) {
     edge();
     ImGui::EndDisabled();
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Writes the document and bakes its PNG (image.save), like the command. Ctrl+S while this panel has the keyboard.");
+        ImGui::SetTooltip("Writes the document and bakes its PNG (image.save), like the command. Ctrl+S while this "
+                          "panel has the keyboard.");
     ImGui::SameLine();
     if (ImGui::Button("Reload")) {
         m.reload();
@@ -400,9 +425,11 @@ void Editor::draw_image_toolbar(ImageModel& m) {
         edge();
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("The canvas size. Click to change it (image.resize): every layer, frame and cel moves or is cropped by the anchor. Ctrl+Z undoes it.");
+            ImGui::SetTooltip("The canvas size. Click to change it (image.resize): every layer, frame and cel moves or "
+                              "is cropped by the anchor. Ctrl+Z undoes it.");
         if (ImGui::BeginPopup("##imgresize")) {
-            static const char* const kAnchors[9] = {"top-left", "top", "top-right", "left", "center", "right", "bottom-left", "bottom", "bottom-right"};
+            static const char* const kAnchors[9] = {"top-left", "top",         "top-right", "left",        "center",
+                                                    "right",    "bottom-left", "bottom",    "bottom-right"};
             ImGui::TextUnformatted("Resize canvas (image.resize)");
             ImGui::SetNextItemWidth(120);
             ImGui::InputInt("Width", &u.resizeWidth);
@@ -425,7 +452,8 @@ void Editor::draw_image_toolbar(ImageModel& m) {
             }
             at_track("img:resize:apply", !unchanged);
             ImGui::EndDisabled();
-            if (unchanged && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Change the width or the height first: the canvas is already this size.");
+            if (unchanged && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+                ImGui::SetTooltip("Change the width or the height first: the canvas is already this size.");
             ImGui::EndPopup();
         }
     }
@@ -459,8 +487,10 @@ void Editor::draw_image_toolbar(ImageModel& m) {
     }
     edge();
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Zoom in percent. The mouse wheel zooms around the pointer; the middle button, Space + drag, or Shift + wheel pans.\n"
-                          "Above 100%% the pixels are drawn square (nearest neighbour); from 800%% a pixel grid shows.");
+        ImGui::SetTooltip(
+            "Zoom in percent. The mouse wheel zooms around the pointer; the middle button, Space + drag, or Shift + "
+            "wheel pans.\n"
+            "Above 100%% the pixels are drawn square (nearest neighbour); from 800%% a pixel grid shows.");
     ImGui::SameLine(0, 2);
     ImGui::TextDisabled("%%");
     edge();
@@ -469,13 +499,16 @@ void Editor::draw_image_toolbar(ImageModel& m) {
     at_track("img:grid");
     edge();
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("The pixel grid, drawn from 800%% zoom up. Every %d pixels a stronger line (the tile size in a tile document).", u.gridMajor);
+        ImGui::SetTooltip("The pixel grid, drawn from 800%% zoom up. Every %d pixels a stronger line (the tile size in "
+                          "a tile document).",
+                          u.gridMajor);
     ImGui::SameLine();
     if (ImGui::Checkbox("Tiled", &u.tiled)) u.fitNext = true;
     at_track("img:tiled");
     edge();
     if (ImGui::IsItemHovered())
-        ImGui::SetTooltip("Shows the picture repeated 3 x 3 so the seams show (a tile document opens with it on). Tools work on the middle copy.");
+        ImGui::SetTooltip("Shows the picture repeated 3 x 3 so the seams show (a tile document opens with it on). "
+                          "Tools work on the middle copy.");
     ImGui::SameLine();
     ImGui::Checkbox("Checker", &u.checker);
     at_track("img:checker");
@@ -500,17 +533,38 @@ void Editor::draw_image_tools(ImageModel& m) {
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) {
             const char* tip = "";
             switch (t) {
-                case ImageTool::Move: tip = "Drag the selected pixels (a pixels layer), or the whole layer when nothing is selected. (V)"; break;
-                case ImageTool::Brush: tip = "Paint with the colour. Alt+click picks a colour. Size [ and ], hardness and opacity in the bar above. On an indexed layer it paints palette colours exactly. (B)"; break;
+                case ImageTool::Move:
+                    tip = "Drag the selected pixels (a pixels layer), or the whole layer when nothing is selected. (V)";
+                    break;
+                case ImageTool::Brush:
+                    tip = "Paint with the colour. Alt+click picks a colour. Size [ and ], hardness and opacity in the "
+                          "bar above. On an indexed layer it paints palette colours exactly. (B)";
+                    break;
                 case ImageTool::Eraser: tip = "Erase to transparent. (E)"; break;
-                case ImageTool::Fill: tip = "Fill the connected area of similar colour (tolerance in the bar above), inside the selection when there is one. (G)"; break;
+                case ImageTool::Fill:
+                    tip = "Fill the connected area of similar colour (tolerance in the bar above), inside the "
+                          "selection when there is one. (G)";
+                    break;
                 case ImageTool::Picker: tip = "Take the colour under the pointer. (I)"; break;
-                case ImageTool::SelectRect: tip = "Drag a rectangle. Shift adds, Alt subtracts, Shift+Alt intersects. (M)"; break;
-                case ImageTool::SelectEllipse: tip = "Drag an ellipse. Same modifiers as the rectangle. (Shift+M)"; break;
+                case ImageTool::SelectRect:
+                    tip = "Drag a rectangle. Shift adds, Alt subtracts, Shift+Alt intersects. (M)";
+                    break;
+                case ImageTool::SelectEllipse:
+                    tip = "Drag an ellipse. Same modifiers as the rectangle. (Shift+M)";
+                    break;
                 case ImageTool::SelectLasso: tip = "Draw the outline freehand. (L)"; break;
-                case ImageTool::SelectPolygon: tip = "Click the corners; double click, Enter or a click on the first point closes it. Esc cancels. (Shift+L)"; break;
-                case ImageTool::Wand: tip = "Select the pixels of the picture under the pointer by colour, with a tolerance, connected or everywhere. (W)"; break;
-                case ImageTool::Transform: tip = "Scale, rotate and flip the selected pixels (the whole layer without a selection). Drag the handles or type the numbers, then Apply. (T)"; break;
+                case ImageTool::SelectPolygon:
+                    tip = "Click the corners; double click, Enter or a click on the first point closes it. Esc "
+                          "cancels. (Shift+L)";
+                    break;
+                case ImageTool::Wand:
+                    tip = "Select the pixels of the picture under the pointer by colour, with a tolerance, connected "
+                          "or everywhere. (W)";
+                    break;
+                case ImageTool::Transform:
+                    tip = "Scale, rotate and flip the selected pixels (the whole layer without a selection). Drag the "
+                          "handles or type the numbers, then Apply. (T)";
+                    break;
             }
             ImGui::SetTooltip("%s", tip);
         }
@@ -521,7 +575,8 @@ void Editor::draw_image_tools(ImageModel& m) {
 void Editor::draw_image_options(ImageModel& m) {
     ImageUi& u = image_;
     const bool editable = play_ == PlayState::Edit;
-    const bool indexed = !m.palette().empty() && m.layer(m.selected_layer()) && m.layer(m.selected_layer())->kind == ImageLayerKind::Indexed;
+    const bool indexed = !m.palette().empty() && m.layer(m.selected_layer()) &&
+                         m.layer(m.selected_layer())->kind == ImageLayerKind::Indexed;
     const float h = ImGui::GetFrameHeightWithSpacing() * 3 + 6;
     ImGui::BeginChild("##imgopts", ImVec2(0, h), false, ImGuiWindowFlags_NoScrollbar);
     ImGui::BeginDisabled(!editable);
@@ -558,7 +613,8 @@ void Editor::draw_image_options(ImageModel& m) {
             if (ImGui::SliderFloat("Opacity", &opacity, 0, 1, "%.2f")) u.brush.opacity = opacity;
             ImGui::EndDisabled();
             if (indexed && ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-                ImGui::SetTooltip("An indexed layer is painted with whole palette pixels: hardness and opacity do not apply.");
+                ImGui::SetTooltip(
+                    "An indexed layer is painted with whole palette pixels: hardness and opacity do not apply.");
             break;
         }
         case ImageTool::Fill: {
@@ -601,7 +657,9 @@ void Editor::draw_image_options(ImageModel& m) {
             ImGui::SameLine();
             bool nearest = t.nearest;
             if (ImGui::Checkbox("Nearest", &nearest)) m.set_transform_nearest(nearest);
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("Nearest neighbour keeps hard pixel edges (pixel art); off blends smoothly. Indexed documents start with it on.");
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("Nearest neighbour keeps hard pixel edges (pixel art); off blends smoothly. Indexed "
+                                  "documents start with it on.");
             if (changed) m.set_transform(sx, sy, rot, t.flipH, t.flipV, t.dx, t.dy);
             ImGui::SameLine();
             if (ImGui::Button("Apply")) image_edited(m.apply_transform());
@@ -612,7 +670,8 @@ void Editor::draw_image_options(ImageModel& m) {
             break;
         }
         case ImageTool::Move:
-            ImGui::TextDisabled("%s", m.has_selection() ? "Drag to move the selected pixels." : "Drag to move the whole layer (its x, y).");
+            ImGui::TextDisabled("%s", m.has_selection() ? "Drag to move the selected pixels."
+                                                        : "Drag to move the whole layer (its x, y).");
             break;
         case ImageTool::Picker: ImGui::TextDisabled("Click or drag over the picture to take a colour."); break;
         default: break;
@@ -622,7 +681,9 @@ void Editor::draw_image_options(ImageModel& m) {
         int op = int(u.selectOp);
         ImGui::SetNextItemWidth(100);
         if (ImGui::Combo("##imgselop", &op, kOps, 4)) u.selectOp = SelectOp(op);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("How a new selection combines with the one there is. Hold Shift to add, Alt to subtract, Shift+Alt to intersect.");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("How a new selection combines with the one there is. Hold Shift to add, Alt to subtract, "
+                              "Shift+Alt to intersect.");
         if (u.tool == ImageTool::Wand) {
             // the wand's own settings were drawn above
         }
@@ -649,7 +710,9 @@ void Editor::draw_image_options(ImageModel& m) {
         if (ImGui::Button("Feather")) image_edited(m.selection_feather(u.selectionPx));
         ImGui::SameLine();
         ImGui::Checkbox("Tint", &u.tint);
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show the selection as a blue tint (it shows when the outline would be too long to draw).");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip(
+                "Show the selection as a blue tint (it shows when the outline would be too long to draw).");
     }
     ImGui::EndDisabled();
     ImGui::EndChild();
@@ -684,7 +747,8 @@ void Editor::draw_image_palette(ImageModel& m) {
         ImGui::PushID(i);
         const Color c = colour_of(i);
         const ImVec4 col(c.r, c.g, c.b, 1.0f);
-        if (ImGui::ColorButton("##sw", col, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoAlpha, ImVec2(22, 22))) {
+        if (ImGui::ColorButton("##sw", col, ImGuiColorEditFlags_NoTooltip | ImGuiColorEditFlags_NoAlpha,
+                               ImVec2(22, 22))) {
             u.brush.paletteIndex = i;
             u.brush.color = c;
         }
@@ -704,7 +768,8 @@ void Editor::draw_image_palette(ImageModel& m) {
         }
         at_track("img:palette:" + std::to_string(i));
         if (ImGui::IsItemHovered())
-            ImGui::SetTooltip("%d: %s\nClick: primary colour (left button, white frame). Right-click: secondary colour (right button, orange frame). X swaps them.",
+            ImGui::SetTooltip("%d: %s\nClick: primary colour (left button, white frame). Right-click: secondary colour "
+                              "(right button, orange frame). X swaps them.",
                               i, pal.label(i).c_str());
         ImGui::PopID();
     }
@@ -715,7 +780,8 @@ void Editor::draw_image_palette(ImageModel& m) {
         u.paletteName.clear();
     }
     at_track("img:palette:add");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Add a colour to the end of the palette (image.palette).");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Add a colour to the end of the palette (image.palette).");
     if (ImGui::BeginPopup("##paladd")) {
         ImGui::TextUnformatted("New palette colour");
         ImGui::SetNextItemWidth(110);
@@ -740,7 +806,8 @@ void Editor::draw_image_palette(ImageModel& m) {
     if (ImGui::SmallButton("Edit")) ImGui::OpenPopup("##paledit");
     at_track("img:palette:edit");
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Change the primary colour of the palette (image.palette). Every pixel that uses it changes with it.");
+        ImGui::SetTooltip(
+            "Change the primary colour of the palette (image.palette). Every pixel that uses it changes with it.");
     if (ImGui::BeginPopup("##paledit")) {
         static std::string hexBuf;
         if (ImGui::IsWindowAppearing() && have) hexBuf = pal.hex(u.brush.paletteIndex);
@@ -766,7 +833,8 @@ void Editor::draw_image_palette(ImageModel& m) {
         }
     }
     at_track("img:palette:left");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Move the primary colour one place left; its pixels follow it (image.palette.move).");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Move the primary colour one place left; its pixels follow it (image.palette.move).");
     ImGui::SameLine();
     if (ImGui::SmallButton(">") && u.brush.paletteIndex + 1 < pal.size()) {
         const int from = u.brush.paletteIndex, to = from + 1;
@@ -776,7 +844,8 @@ void Editor::draw_image_palette(ImageModel& m) {
         }
     }
     at_track("img:palette:right");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Move the primary colour one place right; its pixels follow it (image.palette.move).");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Move the primary colour one place right; its pixels follow it (image.palette.move).");
     ImGui::SameLine();
     if (ImGui::SmallButton("Remove") && pal.size() > 1) {
         const int idx = u.brush.paletteIndex;
@@ -784,14 +853,16 @@ void Editor::draw_image_palette(ImageModel& m) {
         ImageEditOutcome out = m.remove_palette_color(idx, repl);
         image_edited(out);
         if (out.ok) {
-            u.secondaryIndex = u.secondaryIndex == idx ? 0 : (u.secondaryIndex > idx ? u.secondaryIndex - 1 : u.secondaryIndex);
+            u.secondaryIndex =
+                u.secondaryIndex == idx ? 0 : (u.secondaryIndex > idx ? u.secondaryIndex - 1 : u.secondaryIndex);
             u.brush.paletteIndex = std::clamp(idx, 0, std::max(0, m.palette().size() - 1));
             u.brush.color = colour_of(u.brush.paletteIndex);
         }
     }
     at_track("img:palette:remove");
     if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-        ImGui::SetTooltip("Remove the primary colour from the palette (image.palette.remove). Pixels that use it take the secondary colour, or become transparent when both are the same.");
+        ImGui::SetTooltip("Remove the primary colour from the palette (image.palette.remove). Pixels that use it take "
+                          "the secondary colour, or become transparent when both are the same.");
     ImGui::EndDisabled();
     ImGui::SameLine();
     if (ImGui::SmallButton("Swap")) {
@@ -815,7 +886,8 @@ void Editor::draw_image_frames(ImageModel& m) {
             u.playing = false;
         } else {
             u.playClock += double(ImGui::GetIO().DeltaTime) * 1000.0;
-            for (int guard = 0; guard < count && u.playClock >= double(std::max(1, m.frame_duration(m.frame()))); ++guard) {
+            for (int guard = 0; guard < count && u.playClock >= double(std::max(1, m.frame_duration(m.frame())));
+                 ++guard) {
                 u.playClock -= double(std::max(1, m.frame_duration(m.frame())));
                 m.set_frame((m.frame() + 1) % count);
             }
@@ -831,7 +903,9 @@ void Editor::draw_image_frames(ImageModel& m) {
     }
     at_track("img:frame:play");
     ImGui::EndDisabled();
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Plays the frames for their durations. A preview: it changes only the frame shown. A click on the canvas stops it.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Plays the frames for their durations. A preview: it changes only the frame shown. A click "
+                          "on the canvas stops it.");
     for (int f = 0; f < count && (m.animated() || count > 1); ++f) {
         ImGui::SameLine();
         ImGui::PushID(f);
@@ -842,38 +916,47 @@ void Editor::draw_image_frames(ImageModel& m) {
             u.playing = false;
         }
         at_track("img:frame:" + std::to_string(f));
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Frame %d, %d ms. The tools paint into this frame.", f + 1, m.frame_duration(f));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Frame %d, %d ms. The tools paint into this frame.", f + 1, m.frame_duration(f));
         ImGui::PopID();
     }
     ImGui::SameLine(0, 16);
     ImGui::BeginDisabled(!editable);
     if (ImGui::SmallButton("+ Add")) image_edited(m.add_frame(false));
     at_track("img:frame:add");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Insert an empty frame after this one (image.frame.add with blank). The first one makes the picture an animation.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Insert an empty frame after this one (image.frame.add with blank). The first one makes the "
+                          "picture an animation.");
     ImGui::SameLine();
     if (ImGui::SmallButton("Duplicate")) image_edited(m.add_frame(true));
     at_track("img:frame:duplicate");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Insert a copy of this frame after it (image.frame.add with from).");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Insert a copy of this frame after it (image.frame.add with from).");
     ImGui::SameLine();
     ImGui::BeginDisabled(count < 2 || !m.animated());
     if (ImGui::SmallButton("Delete")) image_edited(m.remove_frame(m.frame()));
     at_track("img:frame:delete");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Delete this frame on every layer (image.frame.remove).");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Delete this frame on every layer (image.frame.remove).");
     ImGui::SameLine();
     if (ImGui::SmallButton("<##fmove") && m.frame() > 0) image_edited(m.move_frame(m.frame(), m.frame() - 1));
     at_track("img:frame:left");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Move this frame one place earlier (image.frame.move).");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Move this frame one place earlier (image.frame.move).");
     ImGui::SameLine();
     if (ImGui::SmallButton(">##fmove") && m.frame() + 1 < count) image_edited(m.move_frame(m.frame(), m.frame() + 1));
     at_track("img:frame:right");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("Move this frame one place later (image.frame.move).");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("Move this frame one place later (image.frame.move).");
     ImGui::SameLine();
     ImGui::SetNextItemWidth(84);
     int ms = m.frame_duration(m.frame());
-    if (ImGui::InputInt("ms##fdur", &ms, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue) && ms != m.frame_duration(m.frame()))
+    if (ImGui::InputInt("ms##fdur", &ms, 0, 0, ImGuiInputTextFlags_EnterReturnsTrue) &&
+        ms != m.frame_duration(m.frame()))
         image_edited(m.set_frame_duration(m.frame(), ms));
     at_track("img:frame:duration");
-    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled)) ImGui::SetTooltip("How long this frame shows, in milliseconds (image.frame.set). Press Enter to apply.");
+    if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
+        ImGui::SetTooltip("How long this frame shows, in milliseconds (image.frame.set). Press Enter to apply.");
     ImGui::EndDisabled();
     ImGui::EndDisabled();
 
@@ -881,7 +964,9 @@ void Editor::draw_image_frames(ImageModel& m) {
     bool onion = m.onion();
     if (ImGui::Checkbox("Onion skin", &onion)) m.set_onion(onion);
     at_track("img:onion");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("Shows the frames before (red) and after (blue) faintly under the current one. A preview: the bake never has it.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("Shows the frames before (red) and after (blue) faintly under the current one. A preview: "
+                          "the bake never has it.");
     ImageModel::OnionSettings o = m.onion_settings();
     bool changed = false;
     ImGui::BeginDisabled(!onion);
@@ -900,7 +985,8 @@ void Editor::draw_image_frames(ImageModel& m) {
     ImGui::SameLine();
     changed |= ImGui::Checkbox("wrap##onion", &o.loop);
     at_track("img:onion:wrap");
-    if (ImGui::IsItemHovered()) ImGui::SetTooltip("The frame before the first is the last one, and the other way round.");
+    if (ImGui::IsItemHovered())
+        ImGui::SetTooltip("The frame before the first is the last one, and the other way round.");
     ImGui::EndDisabled();
     if (changed) m.set_onion_settings(o);
     ImGui::EndChild();
@@ -949,13 +1035,14 @@ void Editor::draw_image_layers(ImageModel& m) {
     const std::vector<ImageLayerRow> rows = m.layer_rows();
     constexpr float rowH = 24.0f;
     std::string dropSrc, dropDst;
-    int dropZone = 0;   // -1 above the target, 0 into it, 1 below
+    int dropZone = 0;  // -1 above the target, 0 into it, 1 below
     for (const ImageLayerRow& r : rows) {
         ImGui::PushID(r.path.c_str());
         const ImVec2 p0 = ImGui::GetCursorScreenPos();
         const float w = ImGui::GetContentRegionAvail().x;
         const bool sel = m.selected_layer() == r.path;
-        if (ImGui::Selectable("##row", sel, ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap, ImVec2(w, rowH))) {
+        if (ImGui::Selectable("##row", sel, ImGuiSelectableFlags_AllowDoubleClick | ImGuiSelectableFlags_AllowOverlap,
+                              ImVec2(w, rowH))) {
             m.select_layer(r.path);
             if (u.tool == ImageTool::Transform) m.cancel_transform();
         }
@@ -973,7 +1060,8 @@ void Editor::draw_image_layers(ImageModel& m) {
             ImGui::EndDragDropSource();
         }
         if (editable && ImGui::BeginDragDropTarget()) {
-            const ImGuiPayload* pl = ImGui::AcceptDragDropPayload(kLayerPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
+            const ImGuiPayload* pl = ImGui::AcceptDragDropPayload(
+                kLayerPayload, ImGuiDragDropFlags_AcceptBeforeDelivery | ImGuiDragDropFlags_AcceptNoDrawDefaultRect);
             if (pl) {
                 const std::string src(static_cast<const char*>(pl->Data));
                 const float t = (ImGui::GetMousePos().y - p0.y) / rowH;
@@ -981,8 +1069,12 @@ void Editor::draw_image_layers(ImageModel& m) {
                 const bool inside = r.path == src || r.path.rfind(src + "/", 0) == 0;
                 ImDrawList* dl = ImGui::GetWindowDrawList();
                 if (!inside) {
-                    if (zone == 0) dl->AddRect(p0, ImVec2(p0.x + w, p0.y + rowH), IM_COL32(110, 170, 255, 255), 2.0f, 0, 2.0f);
-                    else dl->AddLine(ImVec2(p0.x, zone < 0 ? p0.y : p0.y + rowH), ImVec2(p0.x + w, zone < 0 ? p0.y : p0.y + rowH), IM_COL32(110, 170, 255, 255), 2.0f);
+                    if (zone == 0)
+                        dl->AddRect(p0, ImVec2(p0.x + w, p0.y + rowH), IM_COL32(110, 170, 255, 255), 2.0f, 0, 2.0f);
+                    else
+                        dl->AddLine(ImVec2(p0.x, zone < 0 ? p0.y : p0.y + rowH),
+                                    ImVec2(p0.x + w, zone < 0 ? p0.y : p0.y + rowH), IM_COL32(110, 170, 255, 255),
+                                    2.0f);
                 }
                 if (pl->IsDelivery() && !inside) {
                     dropSrc = src;
@@ -1001,16 +1093,21 @@ void Editor::draw_image_layers(ImageModel& m) {
             if (ImGui::InvisibleButton("##open", ImVec2(14, rowH))) m.set_open(r.path, !r.open);
             at_track("img:layer:" + r.name + ":open");
             const ImU32 col = IM_COL32(200, 200, 205, 255);
-            if (r.open) dl->AddTriangleFilled(ImVec2(x + 2, cy - 3), ImVec2(x + 11, cy - 3), ImVec2(x + 6.5f, cy + 3), col);
-            else dl->AddTriangleFilled(ImVec2(x + 3, cy - 5), ImVec2(x + 3, cy + 5), ImVec2(x + 9, cy), col);
+            if (r.open)
+                dl->AddTriangleFilled(ImVec2(x + 2, cy - 3), ImVec2(x + 11, cy - 3), ImVec2(x + 6.5f, cy + 3), col);
+            else
+                dl->AddTriangleFilled(ImVec2(x + 3, cy - 5), ImVec2(x + 3, cy + 5), ImVec2(x + 9, cy), col);
         }
         x += 16;
         ImGui::SetCursorScreenPos(ImVec2(x, p0.y));
         const bool eyeClicked = ImGui::InvisibleButton("##vis", ImVec2(18, rowH));
         at_track("img:layer:" + r.name + ":visible");
         eye_icon(dl, ImVec2(x + 9, cy), r.visible, ImGui::IsItemHovered());
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Show or hide the layer (a change of the document: it is undone with Ctrl+Z).");
-        if (eyeClicked && editable) image_edited(m.set_layer(r.path, Json::object({{"visible", !r.visible}}), r.visible ? "Hide layer" : "Show layer"));
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Show or hide the layer (a change of the document: it is undone with Ctrl+Z).");
+        if (eyeClicked && editable)
+            image_edited(
+                m.set_layer(r.path, Json::object({{"visible", !r.visible}}), r.visible ? "Hide layer" : "Show layer"));
         x += 22;
         const Badge b = badge_of(r.kind);
         dl->AddRectFilled(ImVec2(x, cy - 8), ImVec2(x + 22, cy + 8), b.colour, 3.0f);
@@ -1025,7 +1122,8 @@ void Editor::draw_image_layers(ImageModel& m) {
                 ImGui::SetKeyboardFocusHere();
                 u.renameFocus = false;
             }
-            if (ImGui::InputText("##rename", &u.renameBuf, ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
+            if (ImGui::InputText("##rename", &u.renameBuf,
+                                 ImGuiInputTextFlags_EnterReturnsTrue | ImGuiInputTextFlags_AutoSelectAll)) {
                 if (!u.renameBuf.empty() && u.renameBuf != r.name) image_edited(m.rename_layer(r.path, u.renameBuf));
                 u.renaming.clear();
             } else if (ImGui::IsItemDeactivated()) {
@@ -1046,7 +1144,9 @@ void Editor::draw_image_layers(ImageModel& m) {
         const bool lockClicked = ImGui::InvisibleButton("##lock", ImVec2(20, rowH));
         at_track("img:layer:" + r.name + ":lock");
         lock_icon(dl, ImVec2(lockX + 10, cy), r.locked, ImGui::IsItemHovered());
-        if (ImGui::IsItemHovered()) ImGui::SetTooltip("Lock the layer: the tools do not paint on it or move it. (Kept for this session only; the document has no field for it.)");
+        if (ImGui::IsItemHovered())
+            ImGui::SetTooltip("Lock the layer: the tools do not paint on it or move it. (Kept for this session only; "
+                              "the document has no field for it.)");
         if (lockClicked) m.set_locked(r.path, !r.locked);
         (void)rowHovered;
         ImGui::SetCursorScreenPos(ImVec2(p0.x, p0.y + rowH));
@@ -1059,7 +1159,7 @@ void Editor::draw_image_layers(ImageModel& m) {
         std::vector<int> targetParent(t.begin(), t.end() - 1), srcParent(s.begin(), s.end() - 1);
         std::string parent;
         int index = 0;
-        if (dropZone == 0) {   // into the group, on top
+        if (dropZone == 0) {  // into the group, on top
             parent = dropDst;
             const ImageLayerRow* row = nullptr;
             for (const ImageLayerRow& rr : rows)
@@ -1069,7 +1169,7 @@ void Editor::draw_image_layers(ImageModel& m) {
         } else {
             parent = join_index_path(targetParent);
             int at = t.back();
-            if (srcParent == targetParent && s.back() < at) --at;   // the layer leaves its place first
+            if (srcParent == targetParent && s.back() < at) --at;  // the layer leaves its place first
             index = dropZone < 0 ? at + 1 : at;
         }
         image_edited(m.move_layer(dropSrc, parent, index));
@@ -1092,11 +1192,13 @@ void Editor::draw_image_layer_inspector(ImageModel& m) {
     ImGui::BeginDisabled(!editable);
     ImGui::Text("%s  (%s)", L.name.empty() ? "(unnamed)" : L.name.c_str(), image_layer_kind_name(L.kind));
     bool visible = L.visible;
-    if (ImGui::Checkbox("Visible", &visible)) image_edited(m.set_layer(path, Json::object({{"visible", visible}}), visible ? "Show layer" : "Hide layer"));
+    if (ImGui::Checkbox("Visible", &visible))
+        image_edited(m.set_layer(path, Json::object({{"visible", visible}}), visible ? "Show layer" : "Hide layer"));
     at_track("img:insp:visible");
     ImGui::SameLine();
     bool clip = L.clip;
-    if (ImGui::Checkbox("Clip to below", &clip)) image_edited(m.set_layer(path, Json::object({{"clip", clip}}), "Change clipping"));
+    if (ImGui::Checkbox("Clip to below", &clip))
+        image_edited(m.set_layer(path, Json::object({{"clip", clip}}), "Change clipping"));
     if (ImGui::IsItemHovered()) ImGui::SetTooltip("Draw this layer only where the layer below it is opaque.");
 
     // A slider that shows the change at once without touching the disk, and keeps it as ONE undo step when let go.
@@ -1122,7 +1224,8 @@ void Editor::draw_image_layer_inspector(ImageModel& m) {
         ImGui::SetNextItemWidth(-90);
         if (ImGui::BeginCombo("Blend", now)) {
             for (const std::string& n : names)
-                if (ImGui::Selectable(n.c_str(), n == now)) image_edited(m.set_layer(path, Json::object({{"blend", n}}), "Change blend mode"));
+                if (ImGui::Selectable(n.c_str(), n == now))
+                    image_edited(m.set_layer(path, Json::object({{"blend", n}}), "Change blend mode"));
             ImGui::EndCombo();
         }
         at_track("img:insp:blend");
@@ -1134,7 +1237,8 @@ void Editor::draw_image_layer_inspector(ImageModel& m) {
     if (L.kind == ImageLayerKind::Fill || L.kind == ImageLayerKind::Text) {
         float c[4] = {L.color.r, L.color.g, L.color.b, L.color.a};
         ImGui::SetNextItemWidth(-90);
-        if (ImGui::ColorEdit4("Colour", c, ImGuiColorEditFlags_AlphaPreviewHalf)) m.preview_layer(path, Json::object({{"color", hex_of(c[0], c[1], c[2], c[3])}}));
+        if (ImGui::ColorEdit4("Colour", c, ImGuiColorEditFlags_AlphaPreviewHalf))
+            m.preview_layer(path, Json::object({{"color", hex_of(c[0], c[1], c[2], c[3])}}));
         at_track("img:insp:color");
         if (ImGui::IsItemDeactivatedAfterEdit()) image_edited(m.commit_preview());
     }
@@ -1149,7 +1253,8 @@ void Editor::draw_image_layer_inspector(ImageModel& m) {
     if (L.kind == ImageLayerKind::Gradient) {
         float angle = L.gradient.angle;
         ImGui::SetNextItemWidth(-90);
-        if (ImGui::SliderFloat("Angle", &angle, 0, 360, "%.0f deg")) m.preview_layer(path, Json::object({{"gradient", Json::object({{"angle", angle}})}}));
+        if (ImGui::SliderFloat("Angle", &angle, 0, 360, "%.0f deg"))
+            m.preview_layer(path, Json::object({{"gradient", Json::object({{"angle", angle}})}}));
         if (ImGui::IsItemDeactivatedAfterEdit()) image_edited(m.commit_preview());
         ImGui::TextDisabled("%zu stops (edit them with image.layer.set)", L.gradient.stops.size());
     }
@@ -1163,7 +1268,8 @@ void Editor::draw_image_layer_inspector(ImageModel& m) {
         at_track("img:insp:edit_vector");
         ImGui::EndDisabled();
         if (ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled))
-            ImGui::SetTooltip("Open this layer's SVG in the Vector panel: pen, nodes, shapes, booleans and layers. Every edit is written to the layer; Save in either panel bakes the PNG.");
+            ImGui::SetTooltip("Open this layer's SVG in the Vector panel: pen, nodes, shapes, booleans and layers. "
+                              "Every edit is written to the layer; Save in either panel bakes the PNG.");
     }
     if (!L.masks.empty()) ImGui::TextDisabled("%zu mask(s) (edit them with image.layer.set)", L.masks.size());
 
@@ -1205,13 +1311,16 @@ void Editor::draw_image_operations(ImageModel& m, const ImageLayer& L, bool effe
     }
     for (int i = 0; i < int(list.size()); ++i) {
         const Json& op = list[std::size_t(i)];
-        const std::string type = op.is_object() && op.contains("type") && op["type"].is_string() ? op["type"].get<std::string>() : "?";
+        const std::string type =
+            op.is_object() && op.contains("type") && op["type"].is_string() ? op["type"].get<std::string>() : "?";
         ImGui::PushID(i);
         const bool open = u.selectedOp == i && u.selectedOpEffect == effect;
         const std::string pre = std::string("img:") + (effect ? "effect" : "op") + ":" + std::to_string(i);
         const float rowRight = ImGui::GetCursorScreenPos().x + ImGui::GetContentRegionAvail().x;
         ImGui::SetNextItemOpen(open, ImGuiCond_Always);
-        const bool shown = ImGui::TreeNodeEx("##op", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_AllowOverlap, "%s", type.c_str());
+        const bool shown = ImGui::TreeNodeEx(
+            "##op", ImGuiTreeNodeFlags_SpanAvailWidth | ImGuiTreeNodeFlags_Framed | ImGuiTreeNodeFlags_AllowOverlap,
+            "%s", type.c_str());
         at_track(pre);
         if (ImGui::IsItemToggledOpen()) {
             u.selectedOp = open ? -1 : i;
@@ -1243,7 +1352,9 @@ void Editor::draw_image_operations(ImageModel& m, const ImageLayer& L, bool effe
                 const Json* cur = op.is_object() && op.contains(f.key) ? &op[f.key] : nullptr;
                 ImGui::PushID(f.key.c_str());
                 const std::string trackName = std::string("img:field:") + f.key;
-                auto preview = [&](const Json& value) { m.preview_operation(path, effect, i, Json::object({{f.key, value}})); };
+                auto preview = [&](const Json& value) {
+                    m.preview_operation(path, effect, i, Json::object({{f.key, value}}));
+                };
                 auto commit = [&] { image_edited(m.commit_operation_preview(std::string("Change ") + type)); };
                 ImGui::SetNextItemWidth(-90);
                 switch (f.kind) {
@@ -1286,7 +1397,8 @@ void Editor::draw_image_operations(ImageModel& m, const ImageLayer& L, bool effe
                     case ImageOpField::Kind::Color: {
                         float c[4];
                         colour_from_json(cur ? *cur : Json(), f.defText.empty() ? "#ffffff" : f.defText, c);
-                        if (ImGui::ColorEdit4(f.label.c_str(), c, ImGuiColorEditFlags_AlphaPreviewHalf)) preview(hex_of(c[0], c[1], c[2], c[3]));
+                        if (ImGui::ColorEdit4(f.label.c_str(), c, ImGuiColorEditFlags_AlphaPreviewHalf))
+                            preview(hex_of(c[0], c[1], c[2], c[3]));
                         at_track(trackName);
                         if (ImGui::IsItemDeactivatedAfterEdit()) commit();
                         break;
@@ -1303,7 +1415,8 @@ void Editor::draw_image_operations(ImageModel& m, const ImageLayer& L, bool effe
                         if (cur && cur->is_array())
                             for (std::size_t k = 0; k < 3 && k < cur->size(); ++k)
                                 if ((*cur)[k].is_number()) v[k] = (*cur)[k].get<float>();
-                        if (ImGui::SliderFloat3(f.label.c_str(), v, float(f.min), float(f.max), "%.2f")) preview(Json::array({v[0], v[1], v[2]}));
+                        if (ImGui::SliderFloat3(f.label.c_str(), v, float(f.min), float(f.max), "%.2f"))
+                            preview(Json::array({v[0], v[1], v[2]}));
                         at_track(trackName);
                         if (ImGui::IsItemDeactivatedAfterEdit()) commit();
                         break;
@@ -1318,7 +1431,12 @@ void Editor::draw_image_operations(ImageModel& m, const ImageLayer& L, bool effe
                         }
                         at_track(trackName);
                         if (ImGui::IsItemDeactivatedAfterEdit()) commit();
-                        if (ImGui::IsItemHovered()) ImGui::SetTooltip("JSON list. Example: %s", f.kind == ImageOpField::Kind::Curve ? "[[0,0],[0.5,0.6],[1,1]]" : "[{\"at\":0,\"color\":\"#000000\"},{\"at\":1,\"color\":\"#ffffff\"}]");
+                        if (ImGui::IsItemHovered())
+                            ImGui::SetTooltip(
+                                "JSON list. Example: %s",
+                                f.kind == ImageOpField::Kind::Curve
+                                    ? "[[0,0],[0.5,0.6],[1,1]]"
+                                    : "[{\"at\":0,\"color\":\"#000000\"},{\"at\":1,\"color\":\"#ffffff\"}]");
                         break;
                     }
                 }

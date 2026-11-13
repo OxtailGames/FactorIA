@@ -23,7 +23,8 @@ const char* channel3d_short(int channel) { return channel == 1 ? "pos" : channel
 Json key3d_refs(const Key3DSet& keys) {
     Json out = Json::array();
     for (const Key3D& k : keys)
-        out.push_back(Json::object({{"bone", k.bone}, {"channel", channel3d_name(k.channel)}, {"t", double(k.ms) / 1000.0}}));
+        out.push_back(
+            Json::object({{"bone", k.bone}, {"channel", channel3d_name(k.channel)}, {"t", double(k.ms) / 1000.0}}));
     return out;
 }
 
@@ -80,7 +81,8 @@ int channel_of(Anim3DChannel c) { return c == Anim3DChannel::Translation ? 1 : c
 }  // namespace
 
 // ---------------------------------------------------------------------------------------------------------------- the model --
-Anim3DModel::Anim3DModel(std::string projectDir, Anim3DCommandFn call) : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
+Anim3DModel::Anim3DModel(std::string projectDir, Anim3DCommandFn call)
+    : projectDir_(std::move(projectDir)), call_(std::move(call)) {}
 
 void Anim3DModel::stat_file() {
     std::error_code ec;
@@ -104,7 +106,7 @@ bool Anim3DModel::open(const std::string& clipRel, const std::string& rigRel) {
         rigError_ = "The clip names no rig: choose the baked rig (*.rig.glb) to pose with it.";
         return true;
     }
-    if (!load_rig(rig) ) return true;   // the clip is open, error() says what the rig lacks
+    if (!load_rig(rig)) return true;  // the clip is open, error() says what the rig lacks
     return true;
 }
 
@@ -114,7 +116,8 @@ bool Anim3DModel::load_rig(const std::string& rigRel) {
     rigRel_ = rigRel;
     auto loaded = load_anim3d_rig_model(projectDir_, rigRel);
     if (!loaded.ok()) {
-        rigError_ = "Cannot pose the clip with " + rigRel + ": " + loaded.error().message + (loaded.error().hint.empty() ? "" : " " + loaded.error().hint);
+        rigError_ = "Cannot pose the clip with " + rigRel + ": " + loaded.error().message +
+                    (loaded.error().hint.empty() ? "" : " " + loaded.error().hint);
         return false;
     }
     rig_ = *loaded;
@@ -129,9 +132,7 @@ bool Anim3DModel::set_rig(const std::string& rigRel) {
     return load_rig(rigRel);
 }
 
-void Anim3DModel::bind() {
-    binding_ = rig_ && clip_ ? bind_anim3d(*clip_, *rig_->skeleton) : Anim3DBinding{};
-}
+void Anim3DModel::bind() { binding_ = rig_ && clip_ ? bind_anim3d(*clip_, *rig_->skeleton) : Anim3DBinding{}; }
 
 void Anim3DModel::close() {
     open_ = false;
@@ -162,7 +163,8 @@ bool Anim3DModel::reload() {
         return false;
     }
     if (!is_anim3d_json(json)) {
-        clipError_ = clipRel_ + " is not a 3D bone clip (its format is not " + std::string(kAnim3DFormat) + "); the 2D mode edits 2D clips.";
+        clipError_ = clipRel_ + " is not a 3D bone clip (its format is not " + std::string(kAnim3DFormat) +
+                     "); the 2D mode edits 2D clips.";
         clip_.reset();
         return false;
     }
@@ -272,19 +274,24 @@ Anim3DEdit Anim3DModel::move_keys(const Key3DSet& keys, double dt, bool extend) 
     return run("anim3d.move_keys", a);
 }
 
-Anim3DEdit Anim3DModel::remove_keys(const Key3DSet& keys) { return run("anim3d.remove_keys", Json::object({{"keys", key3d_refs(keys)}})); }
+Anim3DEdit Anim3DModel::remove_keys(const Key3DSet& keys) {
+    return run("anim3d.remove_keys", Json::object({{"keys", key3d_refs(keys)}}));
+}
 
 Anim3DEdit Anim3DModel::set_interp(const Key3DSet& keys, const std::string& interp) {
     return run("anim3d.set_interp", Json::object({{"keys", key3d_refs(keys)}, {"interp", interp}}));
 }
 
-Anim3DEdit Anim3DModel::set_key(const std::string& bone, int channel, double t, const std::array<float, 4>& value, const std::string& interp) {
+Anim3DEdit Anim3DModel::set_key(const std::string& bone, int channel, double t, const std::array<float, 4>& value,
+                                const std::string& interp) {
     const bool quat = channel == 0 && clip_ && clip_->quat;
     Json v = Json::array();
-    for (int i = 0; i < (quat ? 4 : 3); ++i) v.push_back(double(std::round(value[std::size_t(i)] * 10000.0f)) / 10000.0);
+    for (int i = 0; i < (quat ? 4 : 3); ++i)
+        v.push_back(double(std::round(value[std::size_t(i)] * 10000.0f)) / 10000.0);
     Json key = Json::object({{"t", t}, {"value", v}});
     if (!interp.empty()) key["interp"] = interp;
-    return run("anim3d.set_keys", Json::object({{"bone", bone}, {"channel", channel3d_name(channel)}, {"keys", Json::array({key})}}));
+    return run("anim3d.set_keys",
+               Json::object({{"bone", bone}, {"channel", channel3d_name(channel)}, {"keys", Json::array({key})}}));
 }
 
 Anim3DEdit Anim3DModel::key_sampled(const std::string& bone, int channel, double t) {

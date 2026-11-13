@@ -72,17 +72,19 @@ struct TextOutlineCmd {
 enum class TextAnchor { Start, Middle, End };
 struct TextOutline {
     std::vector<TextOutlineCmd> cmds;
-    std::vector<float> lineWidths;   // the advance of each line, in the same units (letter spacing included)
-    float advance = 0;               // the widest line
-    float ascent = 0, descent = 0;   // of the first font: baseline up to the top, down to the bottom (positive)
-    float lineHeight = 0;            // the distance between two baselines (ascent + descent + the font's line gap) times lineSpacing
-    int glyphs = 0;                  // glyphs drawn (spaces and glyphs without ink included)
-    std::vector<char32_t> missing;   // visible characters no font has (at most 8)
+    std::vector<float> lineWidths;  // the advance of each line, in the same units (letter spacing included)
+    float advance = 0;              // the widest line
+    float ascent = 0, descent = 0;  // of the first font: baseline up to the top, down to the bottom (positive)
+    float lineHeight =
+        0;           // the distance between two baselines (ascent + descent + the font's line gap) times lineSpacing
+    int glyphs = 0;  // glyphs drawn (spaces and glyphs without ink included)
+    std::vector<char32_t> missing;  // visible characters no font has (at most 8)
 };
 // `font`: "" / "builtin", "builtin:pixel", the other built-in names, or a project .ttf / .otf read through fa::fs. `anchor`
 // places each line against the origin: its start, middle or end. `letterSpacing` is added after every glyph, in ems.
 // An unreadable font is an error.
-Result<TextOutline> outline_text(std::string_view utf8, const std::string& font, float size, TextAnchor anchor = TextAnchor::Start,
-                                 float letterSpacing = 0.0f, float lineSpacing = 1.0f);
+Result<TextOutline> outline_text(std::string_view utf8, const std::string& font, float size,
+                                 TextAnchor anchor = TextAnchor::Start, float letterSpacing = 0.0f,
+                                 float lineSpacing = 1.0f);
 
 }  // namespace fa

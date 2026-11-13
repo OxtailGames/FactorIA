@@ -39,7 +39,8 @@ std::string glob_list(const std::vector<std::string>& extensions, const char* se
     std::string out;
     for (const std::string& e : extensions) {
         std::string up = e;
-        std::transform(up.begin(), up.end(), up.begin(), [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+        std::transform(up.begin(), up.end(), up.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
         for (const std::string& x : {e, up}) {
             if (!out.empty()) out += separator;
             out += "*." + x;
@@ -59,7 +60,8 @@ std::string pick_path(const PickSpec& spec) {
     if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&dlg)))) {
         DWORD opts = 0;
         dlg->GetOptions(&opts);
-        dlg->SetOptions(opts | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | (spec.folder ? FOS_PICKFOLDERS : FOS_FILEMUSTEXIST));
+        dlg->SetOptions(opts | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST |
+                        (spec.folder ? FOS_PICKFOLDERS : FOS_FILEMUSTEXIST));
         dlg->SetTitle(utf8_path(spec.title).wstring().c_str());
         const std::wstring filterName = utf8_path(spec.filterName).wstring();
         const std::wstring filterGlob = utf8_path(glob_list(spec.extensions, ";")).wstring();
@@ -69,9 +71,9 @@ std::string pick_path(const PickSpec& spec) {
         }
         std::error_code ec;
         IShellItem* folder = nullptr;
-        if (!spec.start.empty() &&
-            SUCCEEDED(SHCreateItemFromParsingName(std::filesystem::absolute(utf8_path(spec.start), ec).wstring().c_str(), nullptr,
-                                                  IID_PPV_ARGS(&folder)))) {
+        if (!spec.start.empty() && SUCCEEDED(SHCreateItemFromParsingName(
+                                       std::filesystem::absolute(utf8_path(spec.start), ec).wstring().c_str(), nullptr,
+                                       IID_PPV_ARGS(&folder)))) {
             dlg->SetFolder(folder);
             folder->Release();
         }
@@ -99,20 +101,30 @@ std::string pick_path(const PickSpec& spec) {
 #ifdef __APPLE__
     std::string types;  // {"png", "jpg"}
     for (const std::string& e : spec.extensions) types += std::string(types.empty() ? "" : ", ") + "\"" + e + "\"";
-    const std::string choose = spec.folder           ? "choose folder with prompt (item 1 of argv)"
-                               : types.empty()       ? "choose file with prompt (item 1 of argv)"  // any file
-                                                     : "choose file with prompt (item 1 of argv) of type {" + types + "}";
-    po.argv = {"osascript", "-e", "on run argv", "-e",
-               "POSIX path of (" + choose + " default location (POSIX file (item 2 of argv)))", "-e", "end run", spec.title, dir};
+    const std::string choose = spec.folder     ? "choose folder with prompt (item 1 of argv)"
+                               : types.empty() ? "choose file with prompt (item 1 of argv)"  // any file
+                                               : "choose file with prompt (item 1 of argv) of type {" + types + "}";
+    po.argv = {"osascript",
+               "-e",
+               "on run argv",
+               "-e",
+               "POSIX path of (" + choose + " default location (POSIX file (item 2 of argv)))",
+               "-e",
+               "end run",
+               spec.title,
+               dir};
 #else
     const std::string kdeFilter = glob_list(spec.extensions, " ") + "|" + spec.filterName;
     if (!ai::which("zenity").empty()) {
         po.argv = {"zenity", "--file-selection", "--title=" + spec.title, "--filename=" + dir + "/"};
-        if (spec.folder) po.argv.push_back("--directory");
-        else if (!spec.extensions.empty()) po.argv.push_back("--file-filter=" + spec.filterName + " | " + glob_list(spec.extensions, " "));
+        if (spec.folder)
+            po.argv.push_back("--directory");
+        else if (!spec.extensions.empty())
+            po.argv.push_back("--file-filter=" + spec.filterName + " | " + glob_list(spec.extensions, " "));
     } else if (!ai::which("kdialog").empty()) {
-        po.argv = spec.folder ? std::vector<std::string>{"kdialog", "--title", spec.title, "--getexistingdirectory", dir}
-                              : std::vector<std::string>{"kdialog", "--title", spec.title, "--getopenfilename", dir, kdeFilter};
+        po.argv = spec.folder
+                      ? std::vector<std::string>{"kdialog", "--title", spec.title, "--getexistingdirectory", dir}
+                      : std::vector<std::string>{"kdialog", "--title", spec.title, "--getopenfilename", dir, kdeFilter};
     } else {
         return {};
     }
@@ -162,14 +174,16 @@ void maximize_window() {}  // ponytail: Windows only, where a 1440x860 window at
 const char* file_manager_name() { return "Explorer"; }
 std::string open_in_file_manager(const std::string& dir) {
     const std::wstring path = utf8_path(dir).make_preferred().wstring();
-    const auto r = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+    const auto r =
+        reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", path.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
     return r > 32 ? std::string() : "Explorer could not open " + dir + " (error " + std::to_string(r) + ")";
 }
 std::string reveal_in_file_manager(const std::string& path) {
     std::error_code ec;
     if (!std::filesystem::exists(utf8_path(path), ec)) return "the file " + path + " does not exist";
     const std::wstring args = L"/select,\"" + utf8_path(path).make_preferred().wstring() + L"\"";
-    const auto r = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL));
+    const auto r = reinterpret_cast<INT_PTR>(
+        ShellExecuteW(nullptr, L"open", L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL));
     return r > 32 ? std::string() : "Explorer could not show " + path + " (error " + std::to_string(r) + ")";
 }
 #else
@@ -210,28 +224,35 @@ std::string reveal_in_file_manager(const std::string& path) {
         po.argv = argv;
         po.timeoutSeconds = 30;
         auto r = run_process(po);
-        if (!r || r->exitCode != 0) FA_WARN("editor", "open -R {} failed: {}", argv[2], r ? r->stderrText : r.error().to_string());
+        if (!r || r->exitCode != 0)
+            FA_WARN("editor", "open -R {} failed: {}", argv[2], r ? r->stderrText : r.error().to_string());
     }).detach();
     return {};
 #else
-    return open_in_file_manager(std::filesystem::path(path).parent_path().string());  // no standard "select this file" on Linux
+    return open_in_file_manager(
+        std::filesystem::path(path).parent_path().string());  // no standard "select this file" on Linux
 #endif
 }
 #endif
 
 // A web address in the default browser (the GitHub sign-in page, the Play on Phone page). Only https:// addresses and this computer's own
 // http://127.0.0.1:<port>/ server; returns "" or what went wrong.
-static bool openable_url(const std::string& url) { return url.starts_with("https://") || url.starts_with("http://127.0.0.1:"); }
+static bool openable_url(const std::string& url) {
+    return url.starts_with("https://") || url.starts_with("http://127.0.0.1:");
+}
 #ifdef _WIN32
 std::string open_url(const std::string& url) {
-    if (!openable_url(url)) return "only https:// addresses and this computer's own http://127.0.0.1 server are opened, not " + url;
+    if (!openable_url(url))
+        return "only https:// addresses and this computer's own http://127.0.0.1 server are opened, not " + url;
     const std::wstring wide(url.begin(), url.end());  // an address is ASCII
-    const auto r = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
+    const auto r =
+        reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, L"open", wide.c_str(), nullptr, nullptr, SW_SHOWNORMAL));
     return r > 32 ? std::string() : "the browser could not open " + url + " (error " + std::to_string(r) + ")";
 }
 #else
 std::string open_url(const std::string& url) {
-    if (!openable_url(url)) return "only https:// addresses and this computer's own http://127.0.0.1 server are opened, not " + url;
+    if (!openable_url(url))
+        return "only https:// addresses and this computer's own http://127.0.0.1 server are opened, not " + url;
 #ifdef __APPLE__
     const char* opener = "open";
 #else
@@ -243,7 +264,8 @@ std::string open_url(const std::string& url) {
         po.argv = argv;
         po.timeoutSeconds = 30;
         auto r = ai::run_process(po);
-        if (!r || r->exitCode != 0) FA_WARN("editor", "{} {} failed: {}", argv[0], argv[1], r ? r->stderrText : r.error().to_string());
+        if (!r || r->exitCode != 0)
+            FA_WARN("editor", "{} {} failed: {}", argv[0], argv[1], r ? r->stderrText : r.error().to_string());
     }).detach();
     return {};
 }
@@ -292,11 +314,26 @@ bool clipboard_has_text() { return true; }  // sokol_app empties its text for a 
 
 std::vector<std::uint8_t> clipboard_image_png() {
     std::error_code ec;
-    const std::filesystem::path tmp = std::filesystem::temp_directory_path(ec) / ("factoria_clipboard_" + std::to_string(std::rand()) + ".png");
+    const std::filesystem::path tmp =
+        std::filesystem::temp_directory_path(ec) / ("factoria_clipboard_" + std::to_string(std::rand()) + ".png");
     ai::ProcessOptions po;
-    po.argv = {"osascript", "-e", "on run argv", "-e", "set theData to the clipboard as \xC2\xAB" "class PNGf\xC2\xBB", "-e",
-               "set fp to open for access (POSIX file (item 1 of argv)) with write permission", "-e", "set eof fp to 0", "-e",
-               "write theData to fp", "-e", "close access fp", "-e", "end run", tmp.string()};
+    po.argv = {"osascript",
+               "-e",
+               "on run argv",
+               "-e",
+               "set theData to the clipboard as \xC2\xAB"
+               "class PNGf\xC2\xBB",
+               "-e",
+               "set fp to open for access (POSIX file (item 1 of argv)) with write permission",
+               "-e",
+               "set eof fp to 0",
+               "-e",
+               "write theData to fp",
+               "-e",
+               "close access fp",
+               "-e",
+               "end run",
+               tmp.string()};
     std::vector<std::uint8_t> png;
     auto r = ai::run_process(po);  // fails when the clipboard holds no picture
     if (r && r->exitCode == 0) {
@@ -313,9 +350,12 @@ std::vector<std::uint8_t> clipboard_image_png() {
     ai::ProcessOptions po;
     po.maxCapture = 64u << 20;
     const char* wayland = std::getenv("WAYLAND_DISPLAY");
-    if (wayland && *wayland && !ai::which("wl-paste").empty()) po.argv = {"wl-paste", "--type", "image/png"};
-    else if (!ai::which("xclip").empty()) po.argv = {"xclip", "-selection", "clipboard", "-t", "image/png", "-o"};
-    else return {};
+    if (wayland && *wayland && !ai::which("wl-paste").empty())
+        po.argv = {"wl-paste", "--type", "image/png"};
+    else if (!ai::which("xclip").empty())
+        po.argv = {"xclip", "-selection", "clipboard", "-t", "image/png", "-o"};
+    else
+        return {};
     auto r = ai::run_process(po);
     if (!r || r->exitCode != 0) return {};
     std::vector<std::uint8_t> png(r->stdoutText.begin(), r->stdoutText.end());

@@ -44,7 +44,8 @@ Json find_in_sse(const std::string& body, const Json& id) {
     Json found;
     SseSplitter splitter([&](const std::string&, const std::string& data) {
         Json m = util::parse(data);
-        if (m.is_object() && m.contains("id") && m["id"] == id && (m.contains("result") || m.contains("error"))) found = m;
+        if (m.is_object() && m.contains("id") && m["id"] == id && (m.contains("result") || m.contains("error")))
+            found = m;
     });
     splitter.feed(body);
     splitter.finish();
@@ -94,12 +95,14 @@ Result<std::unique_ptr<McpClient>> McpClient::connect(const ResolvedToolServer& 
         co.argv.push_back(server.command);
         for (const auto& a : server.args) co.argv.push_back(a);
         co.env = server.env;
-        co.inheritEnv = tool_server_inherit_env(server);  // not the whole environment: no API key or signing password unless listed
+        co.inheritEnv =
+            tool_server_inherit_env(server);  // not the whole environment: no API key or signing password unless listed
         auto child = ChildProcess::start(co);
         if (!child)
             return Error{"Tool server '" + server.name + "': " + child.error().message,
-                         child.error().hint.empty() ? "Check \"command\" and \"args\" of the server in AI settings > External tools."
-                                                    : child.error().hint};
+                         child.error().hint.empty()
+                             ? "Check \"command\" and \"args\" of the server in AI settings > External tools."
+                             : child.error().hint};
         c->child_ = std::move(*child);
     }
     std::lock_guard<std::mutex> lk(c->mu_);
@@ -116,7 +119,8 @@ Result<std::unique_ptr<McpClient>> McpClient::connect(const ResolvedToolServer& 
                 info.name = str(t, "name");
                 if (info.name.empty()) continue;
                 info.description = clip(str(t, "description", str(t, "title")), kMaxDescription);
-                if (const Json* schema = child(t, "inputSchema"); schema && schema->is_object()) info.inputSchema = *schema;
+                if (const Json* schema = child(t, "inputSchema"); schema && schema->is_object())
+                    info.inputSchema = *schema;
                 if (!info.inputSchema.contains("type")) info.inputSchema["type"] = "object";
                 c->tools_.push_back(std::move(info));
             }
@@ -128,9 +132,10 @@ Result<std::unique_ptr<McpClient>> McpClient::connect(const ResolvedToolServer& 
 }
 
 Result<void> McpClient::initialize() {
-    Json params = Json::object({{"protocolVersion", kProtocolVersion},
-                                {"capabilities", Json::object()},
-                                {"clientInfo", Json::object({{"name", "factoria"}, {"version", options_.clientVersion}})}});
+    Json params =
+        Json::object({{"protocolVersion", kProtocolVersion},
+                      {"capabilities", Json::object()},
+                      {"clientInfo", Json::object({{"name", "factoria"}, {"version", options_.clientVersion}})}});
     sessionId_.clear();
     protocolVersion_.clear();
     auto r = request("initialize", params, options_.connectTimeoutSeconds);
@@ -170,7 +175,8 @@ void McpClient::notify(const std::string& method, const Json& params) {
     (void)send(req);  // a notification has no answer to wait for
 }
 
-Result<Json> McpClient::request_http(const std::string& method, const Json& params, double timeoutSeconds, bool retried) {
+Result<Json> McpClient::request_http(const std::string& method, const Json& params, double timeoutSeconds,
+                                     bool retried) {
     const long long id = nextId_++;
     Json msg = Json::object({{"jsonrpc", "2.0"}, {"id", id}, {"method", method}, {"params", params}});
     HttpRequest req;
@@ -180,18 +186,19 @@ Result<Json> McpClient::request_http(const std::string& method, const Json& para
     req.headers.emplace_back("Content-Type", "application/json");
     req.headers.emplace_back("Accept", "application/json, text/event-stream");
     if (!sessionId_.empty()) req.headers.emplace_back("Mcp-Session-Id", sessionId_);
-    if (!protocolVersion_.empty() && method != "initialize") req.headers.emplace_back("MCP-Protocol-Version", protocolVersion_);
+    if (!protocolVersion_.empty() && method != "initialize")
+        req.headers.emplace_back("MCP-Protocol-Version", protocolVersion_);
     req.timeoutSeconds = timeoutSeconds;
     req.connectTimeoutSeconds = std::min(options_.connectTimeoutSeconds, timeoutSeconds);
     req.cancel = options_.cancel;
     auto send = options_.transport ? options_.transport : HttpTransport(http_request);
     HttpResponse resp = send(req);
 
-    if (resp.cancelled || is_cancelled(options_.cancel))
-        return transport_error("the call was cancelled", "");
+    if (resp.cancelled || is_cancelled(options_.cancel)) return transport_error("the call was cancelled", "");
     if (resp.status == 0) {
-        return transport_error("cannot reach " + server_.url + ": " + (resp.error.empty() ? "no answer" : resp.error),
-                               "Check the address in AI settings > External tools, and your internet connection or proxy.");
+        return transport_error(
+            "cannot reach " + server_.url + ": " + (resp.error.empty() ? "no answer" : resp.error),
+            "Check the address in AI settings > External tools, and your internet connection or proxy.");
     }
     if (resp.status == 404 && !sessionId_.empty() && !retried && method != "initialize") {
         // The server forgot our session (it restarted or expired it): start a new one and ask again.
@@ -200,21 +207,23 @@ Result<Json> McpClient::request_http(const std::string& method, const Json& para
     }
     if (resp.status == 401 || resp.status == 403) {
         const bool oauth = !resp.header("www-authenticate").empty();
-        return transport_error("refused the credentials (HTTP " + std::to_string(resp.status) + ")",
-                               std::string("Check the key: the header in AI settings > External tools and the environment "
-                                           "variable or API key it uses. ") +
-                                   (oauth ? "This server may want OAuth, which the built-in agent and Codex do not support: "
-                                            "use a server key/API token if it offers one, or use it through Claude Code "
-                                            "(log in once there with /mcp)."
-                                          : ""));
+        return transport_error(
+            "refused the credentials (HTTP " + std::to_string(resp.status) + ")",
+            std::string("Check the key: the header in AI settings > External tools and the environment "
+                        "variable or API key it uses. ") +
+                (oauth ? "This server may want OAuth, which the built-in agent and Codex do not support: "
+                         "use a server key/API token if it offers one, or use it through Claude Code "
+                         "(log in once there with /mcp)."
+                       : ""));
     }
     if (!resp.ok()) {
         std::string body = clip(resp.body, 300);
-        return transport_error("HTTP " + std::to_string(resp.status) + " from " + server_.url + (body.empty() ? "" : ": " + body),
-                               resp.status == 404 || resp.status == 405
-                                   ? "Is the address the server's Streamable HTTP endpoint (often ending in /mcp)? The old "
-                                     "SSE address (/sse) is not supported."
-                                   : "See the server's documentation.");
+        return transport_error(
+            "HTTP " + std::to_string(resp.status) + " from " + server_.url + (body.empty() ? "" : ": " + body),
+            resp.status == 404 || resp.status == 405
+                ? "Is the address the server's Streamable HTTP endpoint (often ending in /mcp)? The old "
+                  "SSE address (/sse) is not supported."
+                : "See the server's documentation.");
     }
     if (auto sid = resp.header("mcp-session-id"); !sid.empty()) sessionId_ = sid;
 
@@ -231,12 +240,13 @@ Result<Json> McpClient::request_http(const std::string& method, const Json& para
         }
     }
     if (!message.is_object() || (!message.contains("result") && !message.contains("error"))) {
-        return transport_error("answered " + method + " with something that is not an MCP reply: " + clip(resp.body, 200),
-                               "Is the address an MCP server (Streamable HTTP)? Servers that only offer SSE are not supported.");
+        return transport_error(
+            "answered " + method + " with something that is not an MCP reply: " + clip(resp.body, 200),
+            "Is the address an MCP server (Streamable HTTP)? Servers that only offer SSE are not supported.");
     }
     if (const Json* err = child(message, "error")) {
-        return transport_error(method + " failed: " + str(*err, "message", "unknown error") +
-                                   " (code " + std::to_string(static_cast<long long>(util::num(*err, "code"))) + ")",
+        return transport_error(method + " failed: " + str(*err, "message", "unknown error") + " (code " +
+                                   std::to_string(static_cast<long long>(util::num(*err, "code"))) + ")",
                                "");
     }
     return message["result"];
@@ -263,9 +273,10 @@ Result<Json> McpClient::request_stdio(const std::string& method, const Json& par
         }
         if (st == ChildProcess::Read::Timeout) {
             notify("notifications/cancelled", Json::object({{"requestId", id}, {"reason", "timed out"}}));
-            return transport_error(method + " timed out after " + std::to_string(static_cast<int>(timeoutSeconds)) + " s",
-                                   "Raise \"timeoutSeconds\" of the server in AI settings > External tools if the tool needs "
-                                   "longer.");
+            return transport_error(
+                method + " timed out after " + std::to_string(static_cast<int>(timeoutSeconds)) + " s",
+                "Raise \"timeoutSeconds\" of the server in AI settings > External tools if the tool needs "
+                "longer.");
         }
         if (st == ChildProcess::Read::Closed) {
             auto tail = child_->stderr_tail();
@@ -278,8 +289,11 @@ Result<Json> McpClient::request_stdio(const std::string& method, const Json& par
         if (m.contains("method")) {
             if (m.contains("id")) {  // a request from the server: answer ping, refuse the rest
                 Json reply = Json::object({{"jsonrpc", "2.0"}, {"id", m["id"]}});
-                if (str(m, "method") == "ping") reply["result"] = Json::object();
-                else reply["error"] = Json::object({{"code", -32601}, {"message", "FactorIA does not support this request"}});
+                if (str(m, "method") == "ping")
+                    reply["result"] = Json::object();
+                else
+                    reply["error"] =
+                        Json::object({{"code", -32601}, {"message", "FactorIA does not support this request"}});
                 child_->write(dump(reply) + "\n");
             }
             continue;
@@ -322,17 +336,20 @@ Result<McpCallResult> McpClient::call_tool(const std::string& tool, const Json& 
             if (type == "text") {
                 const std::string t = str(part, "text");
                 if (!repeats_structured(t)) add(t);
-            }
-            else if (type == "image") {
+            } else if (type == "image") {
                 const std::string mt = str(part, "mimeType");
-                if (image_type_ok(mt) && !str(part, "data").empty()) out.images.push_back({mt, str(part, "data")});
-                else add("[image of type '" + mt + "' not shown: only png, jpeg, gif and webp can be looked at]");
+                if (image_type_ok(mt) && !str(part, "data").empty())
+                    out.images.push_back({mt, str(part, "data")});
+                else
+                    add("[image of type '" + mt + "' not shown: only png, jpeg, gif and webp can be looked at]");
             } else if (type == "resource_link") {
                 add(str(part, "name") + (str(part, "name").empty() ? "" : ": ") + str(part, "uri"));
             } else if (type == "resource") {
                 if (const Json* res = child(part, "resource")) {
-                    if (!str(*res, "text").empty()) add(str(*res, "text"));
-                    else add("[resource " + str(*res, "uri") + "]");
+                    if (!str(*res, "text").empty())
+                        add(str(*res, "text"));
+                    else
+                        add("[resource " + str(*res, "uri") + "]");
                 }
             } else if (type == "audio") {
                 add("[audio result not shown]");
@@ -409,9 +426,10 @@ ToolResult McpToolSet::call(const ToolCall& call) {
         return tr;
     }
     tr.isError = r->isError;
-    tr.content = r->text.empty() && !r->images.empty() ? "(the tool returned " + std::to_string(r->images.size()) + " image" +
-                                                              (r->images.size() == 1 ? "" : "s") + ", attached)"
-                                                        : r->text;
+    tr.content = r->text.empty() && !r->images.empty()
+                     ? "(the tool returned " + std::to_string(r->images.size()) + " image" +
+                           (r->images.size() == 1 ? "" : "s") + ", attached)"
+                     : r->text;
     tr.images = std::move(r->images);
     return tr;
 }

@@ -66,12 +66,14 @@ TEST_CASE("resolve_project_path: a thin wrapper over fa::fs::resolve_for_write w
     CHECK(resolve_project_path(f.tmp.str(), "").value() == root);
     CHECK(resolve_project_path(f.tmp.str(), ".").value() == root);
     CHECK(resolve_project_path(f.tmp.str(), "new/dir/x.txt").value() == root / "new" / "dir" / "x.txt");
-    CHECK(resolve_project_path(f.tmp.str(), "scripts/../dup.txt").value() == root / "dup.txt");  // inside: fine since M92.2a
+    CHECK(resolve_project_path(f.tmp.str(), "scripts/../dup.txt").value() ==
+          root / "dup.txt");  // inside: fine since M92.2a
     CHECK_FALSE(stdfs::exists(f.tmp.path / "new"));
     // The tools' own folders are readable and resolvable here: the managed-folder rule is the commands' (check_writable).
     CHECK(resolve_project_path(f.tmp.str(), ".factoria/log.txt").value() == root / ".factoria" / "log.txt");
     // Every absolute or escaping form is refused, with a message and a hint.
-    for (const char* bad : {"/etc/passwd", "C:/x", "C:\\x", "C:x", "~", "~/x", "\\\\server\\share\\x", "\\\\?\\C:\\x", "../x", "a/../../x", ".."}) {
+    for (const char* bad : {"/etc/passwd", "C:/x", "C:\\x", "C:x", "~", "~/x", "\\\\server\\share\\x", "\\\\?\\C:\\x",
+                            "../x", "a/../../x", ".."}) {
         CAPTURE(bad);
         auto r = resolve_project_path(f.tmp.str(), bad);
         REQUIRE_FALSE(r.ok());
@@ -93,14 +95,18 @@ TEST_CASE("resolve_project_path: a thin wrapper over fa::fs::resolve_for_write w
 TEST_CASE("fs.write: base64 encoding writes binary files") {
     FsFixture f;
     // 1x1 PNG
-    const std::string b64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
+    const std::string b64 =
+        "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
     auto w = f.reg.call("fs.write", {{"path", "sprites/dot.png"}, {"content", b64}, {"encoding", "base64"}});
     REQUIRE(w.ok);
     std::string bytes = testing::read_all(f.tmp.path / "sprites/dot.png");
     CHECK(w.result["bytes"] == bytes.size());
     REQUIRE(bytes.size() > 24);
     CHECK(bytes.substr(1, 3) == "PNG");
-    auto be32 = [&](size_t o) { return (unsigned char)bytes[o] << 24 | (unsigned char)bytes[o + 1] << 16 | (unsigned char)bytes[o + 2] << 8 | (unsigned char)bytes[o + 3]; };
+    auto be32 = [&](size_t o) {
+        return (unsigned char)bytes[o] << 24 | (unsigned char)bytes[o + 1] << 16 | (unsigned char)bytes[o + 2] << 8 |
+               (unsigned char)bytes[o + 3];
+    };
     CHECK(be32(16) == 1);  // IHDR width
     CHECK(be32(20) == 1);  // IHDR height
 
@@ -135,7 +141,8 @@ TEST_CASE("fs: list read write edit delete") {
     REQUIRE(w.ok);
     CHECK(w.result.contains("warning"));
     CHECK(stdfs::exists(f.tmp.path / "scenes/new.scene.json"));
-    CHECK_FALSE(f.reg.call("fs.write", {{"path", "scenes/new.scene.json"}, {"content", "{}"}, {"overwrite", false}}).ok);
+    CHECK_FALSE(
+        f.reg.call("fs.write", {{"path", "scenes/new.scene.json"}, {"content", "{}"}, {"overwrite", false}}).ok);
     CHECK_FALSE(f.reg.call("fs.write", {{"path", ".factoria/x"}, {"content", "x"}}).ok);
 
     // edit: unique, ambiguous, missing
@@ -146,7 +153,8 @@ TEST_CASE("fs: list read write edit delete") {
     CHECK(amb.error["code"] == "ambiguous");
     CHECK(amb.error["message"].get<std::string>().find("lines 1, 2") != std::string::npos);
     CHECK(testing::read_all(f.tmp.path / "dup.txt") == "x = 1\nx = 1\n");
-    CHECK(f.reg.call("fs.edit", {{"path", "dup.txt"}, {"find", "x = 1"}, {"replace", "x = 2"}, {"replaceAll", true}}).result["replacements"] == 2);
+    CHECK(f.reg.call("fs.edit", {{"path", "dup.txt"}, {"find", "x = 1"}, {"replace", "x = 2"}, {"replaceAll", true}})
+              .result["replacements"] == 2);
     CHECK(f.reg.call("fs.edit", {{"path", "dup.txt"}, {"find", "nope"}, {"replace", "y"}}).error["code"] == "no_match");
 
     CHECK_FALSE(f.reg.call("fs.delete", {{"path", "scripts"}}).ok);  // needs recursive
@@ -170,10 +178,12 @@ TEST_CASE("fs: search skips binary and .factoria, supports regex") {
     CHECK(f.reg.call("fs.search", {{"query", "speed"}, {"glob", "*.txt"}}).result["count"] == 0);
 }
 
-TEST_CASE("fs: .factoria is managed by the tools, .factoria/tmp is the scratch folder (write, edit, list, search, delete)") {
+TEST_CASE(
+    "fs: .factoria is managed by the tools, .factoria/tmp is the scratch folder (write, edit, list, search, delete)") {
     FsFixture f;
     // Managed files (screenshots, saves...) cannot be written, edited or deleted, and the error names the allowed place.
-    for (const char* managed : {".factoria/log.txt", ".factoria/save/slot1.json", ".factoria/screenshots/frame_1.png", ".git/config"}) {
+    for (const char* managed :
+         {".factoria/log.txt", ".factoria/save/slot1.json", ".factoria/screenshots/frame_1.png", ".git/config"}) {
         CAPTURE(managed);
         auto w = f.reg.call("fs.write", {{"path", managed}, {"content", "x"}});
         REQUIRE_FALSE(w.ok);
@@ -190,10 +200,13 @@ TEST_CASE("fs: .factoria is managed by the tools, .factoria/tmp is the scratch f
     CHECK_FALSE(f.reg.call("fs.delete", {{"path", ".factoria/save"}, {"recursive", true}}).ok);
 
     // The scratch folder may be created, rewritten, listed, searched and deleted with the same commands.
-    auto w = f.reg.call("fs.write", {{"path", ".factoria/tmp/gen/base.scene.json"}, {"content", "{\"scratch\": \"needle\"}"}});
+    auto w = f.reg.call("fs.write",
+                        {{"path", ".factoria/tmp/gen/base.scene.json"}, {"content", "{\"scratch\": \"needle\"}"}});
     REQUIRE_MESSAGE(w.ok, w.error.dump());
     CHECK(stdfs::exists(f.tmp.path / ".factoria/tmp/gen/base.scene.json"));
-    CHECK(f.reg.call("fs.edit", {{"path", ".factoria/tmp/gen/base.scene.json"}, {"find", "scratch"}, {"replace", "tmp"}}).ok);
+    CHECK(
+        f.reg.call("fs.edit", {{"path", ".factoria/tmp/gen/base.scene.json"}, {"find", "scratch"}, {"replace", "tmp"}})
+            .ok);
     CHECK(testing::read_all(f.tmp.path / ".factoria/tmp/gen/base.scene.json").find("\"tmp\"") != std::string::npos);
     auto list = f.reg.call("fs.list", {{"path", ".factoria/tmp"}, {"recursive", true}});
     REQUIRE(list.ok);
@@ -202,7 +215,8 @@ TEST_CASE("fs: .factoria is managed by the tools, .factoria/tmp is the scratch f
     auto root = f.reg.call("fs.list", {{"recursive", true}});  // the project listing still hides .factoria
     for (auto& e : root.result["entries"]) CHECK(e["path"].get<std::string>().find(".factoria") == std::string::npos);
     CHECK(f.reg.call("fs.search", {{"query", "needle"}, {"path", ".factoria/tmp"}}).result["count"] == 1);
-    CHECK(f.reg.call("fs.search", {{"query", "needle"}}).result["count"] == 0);  // not found from the root: hidden there
+    CHECK(f.reg.call("fs.search", {{"query", "needle"}}).result["count"] ==
+          0);  // not found from the root: hidden there
     CHECK(f.reg.call("fs.delete", {{"path", ".factoria/tmp/gen/base.scene.json"}}).ok);
     CHECK_FALSE(stdfs::exists(f.tmp.path / ".factoria/tmp/gen/base.scene.json"));
     CHECK(f.reg.call("fs.delete", {{"path", ".factoria/tmp"}, {"recursive", true}}).ok);
@@ -258,7 +272,8 @@ TEST_CASE("docs: search puts each doc's best section first, so the top is not on
     for (const auto& h : hits) docs.insert(h.doc);
     REQUIRE(docs.size() >= 3);
     std::set<std::string> top;
-    for (size_t i = 0; i < docs.size(); ++i) CHECK(top.insert(hits[i].doc).second);  // the first N hits: N distinct docs
+    for (size_t i = 0; i < docs.size(); ++i)
+        CHECK(top.insert(hits[i].doc).second);  // the first N hits: N distinct docs
     for (size_t i = 1; i < docs.size(); ++i) CHECK(hits[i - 1].score >= hits[i].score);
 }
 
@@ -267,18 +282,23 @@ TEST_CASE("docs: every embedded doc has a manifest entry (summary, audience) and
     std::set<std::string> embedded;
     for (const auto& d : list_docs()) {
         embedded.insert(d.name);
-        CHECK_MESSAGE(!d.summary.empty(), "docs/" << d.path << " has no entry in the manifest of tools/common/src/docs.cpp: add {\"" << d.name
-                                                  << "\", \"<one sentence, at most 120 chars>\", {kGameAi, kUser, kEngineDev}}.");
+        CHECK_MESSAGE(!d.summary.empty(),
+                      "docs/" << d.path << " has no entry in the manifest of tools/common/src/docs.cpp: add {\""
+                              << d.name << "\", \"<one sentence, at most 120 chars>\", {kGameAi, kUser, kEngineDev}}.");
         CHECK_MESSAGE(!d.audience.empty(), d.name << " needs at least one audience");
     }
     std::set<std::string> seen;
     for (const auto& e : doc_manifest()) {
-        CHECK_MESSAGE(embedded.count(e.name) == 1, "the manifest of tools/common/src/docs.cpp names '" << e.name
-                                                   << "' but no embedded doc has that name: remove or rename the entry.");
+        CHECK_MESSAGE(embedded.count(e.name) == 1,
+                      "the manifest of tools/common/src/docs.cpp names '"
+                          << e.name << "' but no embedded doc has that name: remove or rename the entry.");
         CHECK_MESSAGE(seen.insert(e.name).second, "'" << e.name << "' appears twice in the manifest");
-        CHECK_MESSAGE(e.summary.size() <= 120, e.name << ": summary is " << e.summary.size() << " chars, keep it to 120");
-        CHECK_MESSAGE((!e.summary.empty() && e.summary.back() == '.'), e.name << ": the summary is one sentence ending in a full stop");
-        for (const auto& a : e.audience) CHECK_MESSAGE((a == "gameAi" || a == "user" || a == "engineDev"), e.name << ": unknown audience " << a);
+        CHECK_MESSAGE(e.summary.size() <= 120,
+                      e.name << ": summary is " << e.summary.size() << " chars, keep it to 120");
+        CHECK_MESSAGE((!e.summary.empty() && e.summary.back() == '.'),
+                      e.name << ": the summary is one sentence ending in a full stop");
+        for (const auto& a : e.audience)
+            CHECK_MESSAGE((a == "gameAi" || a == "user" || a == "engineDev"), e.name << ": unknown audience " << a);
     }
 }
 
@@ -347,7 +367,8 @@ TEST_CASE("api export: the argument table shows what a path argument is used for
     reg.add(info, [](const Json&) { return Json::object(); });
     const std::string md = export_commands_markdown(reg);
     CHECK(md.find("| `src` | string | no | Input. Path the command reads. |") != std::string::npos);
-    CHECK(md.find("| `out` | string | no | Output. Path the command writes; the write rules apply (docs/CLI.md, \"Paths\"). |") != std::string::npos);
+    CHECK(md.find("| `out` | string | no | Output. Path the command writes; the write rules apply (docs/CLI.md, "
+                  "\"Paths\"). |") != std::string::npos);
     CHECK(md.find("| `name` | string | no | Not a path. |") != std::string::npos);
 }
 
@@ -356,8 +377,8 @@ TEST_CASE("api export: markdown for components and commands") {
     CHECK(comps.find("# Components reference") != std::string::npos);
     CHECK(comps.find("Sprite") != std::string::npos);
     CHECK(comps.find("enum: orthographic \\| perspective") != std::string::npos);  // the bar is escaped once...
-    CHECK(comps.find("\\\\|") == std::string::npos);                                // ...never twice
-    CHECK(comps.find("Range 3..64.") != std::string::npos);                          // Shape2D.sides: an int range has no ".0"
+    CHECK(comps.find("\\\\|") == std::string::npos);                               // ...never twice
+    CHECK(comps.find("Range 3..64.") != std::string::npos);  // Shape2D.sides: an int range has no ".0"
     CHECK(comps.find("3.0..64.0") == std::string::npos);
     CommandRegistry reg;
     register_docs_commands(reg);
@@ -389,7 +410,8 @@ TEST_CASE("api export: markdown for components and commands") {
         }
 }
 
-TEST_CASE("docs.read: the default result fits an MCP tool result, a cut read ends with contents and the call that continues") {
+TEST_CASE("docs.read: the default result fits an MCP tool result, a cut read ends with contents and the call that "
+          "continues") {
     CommandRegistry reg;
     register_docs_commands(reg);
     register_api_export_commands(reg);
@@ -401,7 +423,8 @@ TEST_CASE("docs.read: the default result fits an MCP tool result, a cut read end
         REQUIRE(r.result["truncated"] == true);
         CHECK(r.result["content"].get<std::string>().size() <= 40000);
         const std::string contents = r.result["contents"].get<std::string>();
-        if (std::string(doc) != "licenses") CHECK(contents.find("(line ") != std::string::npos);  // that page has no headings
+        if (std::string(doc) != "licenses")
+            CHECK(contents.find("(line ") != std::string::npos);  // that page has no headings
         CHECK(contents.size() <= 8000);
         CHECK(r.result["next"].get<std::string>().find("docs.read") != std::string::npos);
         // Continuing with nextStartLine leaves no gap and no overlap.
@@ -458,26 +481,38 @@ TEST_CASE("ai-guide: the Index at the top is under 5 KB and lists exactly the ##
         if (line.rfind("```", 0) == 0) inFence = !inFence;
         if (!inFence && (line.rfind("## ", 0) == 0 || line.rfind("### ", 0) == 0)) {
             const std::string title = line.substr(line.find(' ') + 1);
-            if (inIndex && line.rfind("## ", 0) == 0) { inIndex = false; indexEnd = pos; }
-            if (title == "Index") inIndex = true;
-            else headings.insert(title);
+            if (inIndex && line.rfind("## ", 0) == 0) {
+                inIndex = false;
+                indexEnd = pos;
+            }
+            if (title == "Index")
+                inIndex = true;
+            else
+                headings.insert(title);
         } else if (inIndex && line.rfind("- ", 0) == 0) {
             const size_t sep = line.find(" -- ");
             listed.insert(sep == std::string::npos ? line.substr(2) : line.substr(2, sep - 2));
         }
         pos = nl + 1;
     }
-    REQUIRE_MESSAGE(indexEnd != std::string::npos, "docs/AI_GUIDE.md needs a `## Index` section near the top, followed by the numbered sections.");
-    CHECK_MESSAGE(indexEnd < 5120, "The start of docs/AI_GUIDE.md up to the end of `## Index` is " << indexEnd
-                                       << " bytes; keep it under 5120 (shorten the notes of the index): an agent reads it first.");
+    REQUIRE_MESSAGE(indexEnd != std::string::npos,
+                    "docs/AI_GUIDE.md needs a `## Index` section near the top, followed by the numbered sections.");
+    CHECK_MESSAGE(indexEnd < 5120,
+                  "The start of docs/AI_GUIDE.md up to the end of `## Index` is "
+                      << indexEnd
+                      << " bytes; keep it under 5120 (shorten the notes of the index): an agent reads it first.");
     std::string problems;
     for (const std::string& h : headings)
         if (!listed.count(h))
-            problems += "  missing from the index: \"" + h + "\" -> add the line `- " + h + " -- <what it holds>` in heading order\n";
+            problems += "  missing from the index: \"" + h + "\" -> add the line `- " + h +
+                        " -- <what it holds>` in heading order\n";
     for (const std::string& l : listed)
         if (!headings.count(l))
-            problems += "  stale index line: \"" + l + "\" is no heading of the guide -> fix or remove it (entries are `- <exact heading title> -- note`)\n";
-    CHECK_MESSAGE(problems.empty(), "The `## Index` of docs/AI_GUIDE.md does not match its ## and ### headings:\n" << problems);
+            problems +=
+                "  stale index line: \"" + l +
+                "\" is no heading of the guide -> fix or remove it (entries are `- <exact heading title> -- note`)\n";
+    CHECK_MESSAGE(problems.empty(), "The `## Index` of docs/AI_GUIDE.md does not match its ## and ### headings:\n"
+                                        << problems);
 
     CommandRegistry reg;
     register_docs_commands(reg);
@@ -492,7 +527,8 @@ TEST_CASE("ai-guide: the Index at the top is under 5 KB and lists exactly the ##
     CHECK(content.size() < 5120);
 }
 
-TEST_CASE("docs.components and docs.commands: the default lists names, name gives one in full, filter narrows, full is everything") {
+TEST_CASE("docs.components and docs.commands: the default lists names, name gives one in full, filter narrows, full is "
+          "everything") {
     CommandRegistry reg;
     register_docs_commands(reg);
     register_api_export_commands(reg);
@@ -504,7 +540,8 @@ TEST_CASE("docs.components and docs.commands: the default lists names, name give
     CHECK(md.find("docs.components {\"name\":") != std::string::npos);
     auto one = reg.call("docs.components", {{"name", "sprite"}});
     REQUIRE(one.ok);
-    CHECK(one.result["markdown"].get<std::string>().find("| Field | Type | Default | Description |") != std::string::npos);
+    CHECK(one.result["markdown"].get<std::string>().find("| Field | Type | Default | Description |") !=
+          std::string::npos);
     auto bad = reg.call("docs.components", {{"name", "Spritee"}});
     REQUIRE_FALSE(bad.ok);
     CHECK(bad.error["message"].get<std::string>().find("Did you mean 'Sprite'") != std::string::npos);
@@ -529,11 +566,16 @@ TEST_CASE("docs.components and docs.commands: the default lists names, name give
 }
 
 // full:true pages: whole entries up to maxBytes, nextCursor until the last page; walking the pages returns the unpaged set once.
-TEST_CASE("docs.components and docs.commands: full pages with a cursor, in json and markdown, with filter, and reject a stale cursor") {
+TEST_CASE("docs.components and docs.commands: full pages with a cursor, in json and markdown, with filter, and reject "
+          "a stale cursor") {
     CommandRegistry reg;
     register_docs_commands(reg);
     register_api_export_commands(reg);
-    struct Kind { const char* tool; const char* key; bool hasFields; };
+    struct Kind {
+        const char* tool;
+        const char* key;
+        bool hasFields;
+    };
     for (const Kind k : {Kind{"docs.components", "components", true}, Kind{"docs.commands", "commands", false}}) {
         // The names, from the summary list with the biggest page.
         auto all = reg.call(k.tool, {{"format", "json"}, {"maxBytes", 90000}});
@@ -571,8 +613,10 @@ TEST_CASE("docs.components and docs.commands: full pages with a cursor, in json 
                 ++pages;
             } while (!cursor.empty() && pages < 2000);
             CHECK(pages >= 2);
-            if (std::string(format) == "json") CHECK(seen == expected);
-            else CHECK(markdownEntries == expected.size());
+            if (std::string(format) == "json")
+                CHECK(seen == expected);
+            else
+                CHECK(markdownEntries == expected.size());
         }
 
         // Same call, same page.
@@ -585,7 +629,8 @@ TEST_CASE("docs.components and docs.commands: full pages with a cursor, in json 
         for (const auto& [wanted, shown] : {std::pair<double, const char*>{1000, "1000"}, {90000, "90000"}}) {
             auto r = reg.call(k.tool, {{"full", true}, {"maxBytes", wanted}});
             REQUIRE(r.ok);
-            CHECK(r.result["markdown"].get<std::string>().find(std::string("at most ") + shown + " bytes") != std::string::npos);
+            CHECK(r.result["markdown"].get<std::string>().find(std::string("at most ") + shown + " bytes") !=
+                  std::string::npos);
         }
         CHECK_FALSE(reg.call(k.tool, {{"full", true}, {"maxBytes", 1}}).ok);
         CHECK_FALSE(reg.call(k.tool, {{"full", true}, {"maxBytes", 1e30}}).ok);
@@ -605,7 +650,9 @@ TEST_CASE("docs.components and docs.commands: full pages with a cursor, in json 
     size_t count = f1.result["returned"].get<size_t>();
     std::string cursor = f1.result["nextCursor"].get<std::string>();
     while (!cursor.empty()) {
-        auto r = reg.call("docs.commands", {{"filter", "docs"}, {"full", true}, {"format", "json"}, {"maxBytes", 1000}, {"cursor", cursor}});
+        auto r =
+            reg.call("docs.commands",
+                     {{"filter", "docs"}, {"full", true}, {"format", "json"}, {"maxBytes", 1000}, {"cursor", cursor}});
         REQUIRE(r.ok);
         count += r.result["returned"].get<size_t>();
         cursor = r.result.contains("nextCursor") ? r.result["nextCursor"].get<std::string>() : "";
@@ -633,13 +680,15 @@ TEST_CASE("docs.components and docs.commands: a page stays under maxBytes counte
                         // A page may pass maxBytes only when it holds a single (huge) entry.
                         if (r.result["returned"].get<size_t>() > 1)
                             CHECK_MESSAGE(r.result.dump().size() <= size_t(maxBytes),
-                                          tool << " " << format << " full=" << full << " maxBytes=" << maxBytes << ": " << r.result.dump().size());
+                                          tool << " " << format << " full=" << full << " maxBytes=" << maxBytes << ": "
+                                               << r.result.dump().size());
                         cursor = r.result.contains("nextCursor") ? r.result["nextCursor"].get<std::string>() : "";
                     } while (!cursor.empty() && ++pages < 3000);
                 }
 }
 
-TEST_CASE("docs.components and docs.commands: cursor with name is refused; full markdown starts with the reference's preamble") {
+TEST_CASE("docs.components and docs.commands: cursor with name is refused; full markdown starts with the reference's "
+          "preamble") {
     CommandRegistry reg;
     register_docs_commands(reg);
     register_api_export_commands(reg);
@@ -648,7 +697,8 @@ TEST_CASE("docs.components and docs.commands: cursor with name is refused; full 
         auto first = reg.call(tool, {{"full", true}, {"maxBytes", 3000}});
         REQUIRE(first.ok);
         REQUIRE(first.result.contains("nextCursor"));
-        auto both = reg.call(tool, {{"name", commands ? "game.step" : "Sprite"}, {"cursor", first.result["nextCursor"]}});
+        auto both =
+            reg.call(tool, {{"name", commands ? "game.step" : "Sprite"}, {"cursor", first.result["nextCursor"]}});
         REQUIRE_FALSE(both.ok);
         CHECK(both.error["message"].get<std::string>().find("cannot be used together") != std::string::npos);
         CHECK(both.error["hint"].get<std::string>().find("Drop 'cursor'") != std::string::npos);

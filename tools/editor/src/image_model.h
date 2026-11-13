@@ -35,21 +35,33 @@ namespace fa::editor {
 
 using ImageCommandFn = std::function<CommandResult(const std::string& name, const Json& args)>;
 
-enum class ImageTool { Move, Brush, Eraser, Fill, Picker, SelectRect, SelectEllipse, SelectLasso, SelectPolygon, Wand, Transform };
+enum class ImageTool {
+    Move,
+    Brush,
+    Eraser,
+    Fill,
+    Picker,
+    SelectRect,
+    SelectEllipse,
+    SelectLasso,
+    SelectPolygon,
+    Wand,
+    Transform
+};
 const char* image_tool_name(ImageTool tool);
 // The tools the panel's toolbar lists, in order.
 const std::vector<ImageTool>& image_tools();
 bool image_tool_selects(ImageTool tool);
 
 enum class SelectOp { Replace, Add, Subtract, Intersect };
-const char* select_op_name(SelectOp op);   // the `mode` of image.select
+const char* select_op_name(SelectOp op);  // the `mode` of image.select
 
 struct ImageBrushSettings {
-    double size = 8;                // diameter in pixels
+    double size = 8;  // diameter in pixels
     double hardness = 1;
     double opacity = 1;
-    Color color{0, 0, 0, 1};        // pixels layers
-    int paletteIndex = 0;           // indexed layers: the palette colour (-1 = erase)
+    Color color{0, 0, 0, 1};  // pixels layers
+    int paletteIndex = 0;     // indexed layers: the palette colour (-1 = erase)
 };
 
 struct ImageWandSettings {
@@ -63,13 +75,13 @@ using ImageFileSet = std::map<std::string, ImageBlob>;
 
 struct ImageStep {
     int id = 0;
-    std::string rel;                // the document
+    std::string rel;  // the document
     std::string label;
     ImageFileSet before, after;
 };
 
 struct ImageLayerRow {
-    std::string path;               // index path: "1", "1/0"
+    std::string path;  // index path: "1", "1/0"
     int depth = 0;
     std::string name;
     ImageLayerKind kind = ImageLayerKind::Fill;
@@ -77,7 +89,7 @@ struct ImageLayerRow {
     float opacity = 1;
     ImageBlend blend = ImageBlend::Normal;
     bool isGroup = false;
-    bool open = true;               // a group: its children are listed
+    bool open = true;  // a group: its children are listed
     bool locked = false;
     bool clip = false;
     int childCount = 0;
@@ -85,9 +97,9 @@ struct ImageLayerRow {
 
 struct ImageEditOutcome {
     bool ok = true;
-    std::string error;              // what went wrong, with the command's hint
-    int step = 0;                   // the undo step it recorded (0 = the edit changed nothing on disk)
-    Json result;                    // the last command's result
+    std::string error;  // what went wrong, with the command's hint
+    int step = 0;       // the undo step it recorded (0 = the edit changed nothing on disk)
+    Json result;        // the last command's result
 };
 
 // One edge between a selected and an unselected pixel (marching ants), canvas coordinates.
@@ -100,10 +112,10 @@ struct ImageEdge {
 struct ImageOpField {
     enum class Kind { Number, Int, Bool, Choice, Color, Text, Vec3, Curve, Stops } kind = Kind::Number;
     std::string key, label;
-    double min = 0, max = 1, def = 0;       // Number, Int, Vec3 (range of each component)
-    std::vector<std::string> options;       // Choice; "" in the list = leave the key out
-    std::string defText;                    // Choice, Color, Text
-    bool optional = false;                  // a new operation does not write it (the engine default applies)
+    double min = 0, max = 1, def = 0;  // Number, Int, Vec3 (range of each component)
+    std::vector<std::string> options;  // Choice; "" in the list = leave the key out
+    std::string defText;               // Choice, Color, Text
+    bool optional = false;             // a new operation does not write it (the engine default applies)
 };
 const std::vector<ImageOpField>& image_op_fields(const std::string& type, bool effect);
 
@@ -112,10 +124,10 @@ public:
     ImageModel(std::string projectDir, ImageCommandFn call);
 
     // ---- the document ----------------------------------------------------------------------------------------------
-    bool open(const std::string& rel);              // false: error() says why
+    bool open(const std::string& rel);  // false: error() says why
     void close();
     bool is_open() const { return !rel_.empty(); }
-    bool valid() const { return valid_; }           // the document loads (it may be open and broken: error() has the reason)
+    bool valid() const { return valid_; }  // the document loads (it may be open and broken: error() has the reason)
     const std::string& path() const { return rel_; }
     const std::string& error() const { return error_; }
     const Json& json() const { return json_; }
@@ -126,7 +138,7 @@ public:
     bool poll_external();
     bool reload();
     ImageBakeStatus bake_status() const { return bake_; }
-    std::uint64_t doc_revision() const { return docRev_; }   // changes every time the document is read again
+    std::uint64_t doc_revision() const { return docRev_; }  // changes every time the document is read again
 
     // ---- the picture -----------------------------------------------------------------------------------------------
     // What the canvas shows: the composite of the current frame, with the stroke / transform / slider being dragged. Recomposited on
@@ -148,7 +160,7 @@ public:
     // The onion skin's look (a preview that the bake never uses): how many frames before and after are ghosted, how strong the nearest
     // ghost is (0 to 1) and whether the frames wrap around. The ghosts are tinted red (before) and blue (after) by the compositor.
     struct OnionSettings {
-        int before = 1, after = 1;      // 0 to 8
+        int before = 1, after = 1;  // 0 to 8
         float opacity = 0.4f;
         bool loop = false;
     };
@@ -157,9 +169,9 @@ public:
     // Change the canvas (image.resize), ONE undo step; `anchor` is one of the nine names (top-left ... bottom-right), `fill` a colour or "".
     ImageEditOutcome resize_canvas(int width, int height, const std::string& anchor, const std::string& fill);
     // Frame edits (image.frame.*), each ONE undo step; they select the frame the edit leaves the user on.
-    ImageEditOutcome add_frame(bool duplicate);                     // after the current frame: a copy of it, or an empty one
+    ImageEditOutcome add_frame(bool duplicate);  // after the current frame: a copy of it, or an empty one
     ImageEditOutcome remove_frame(int frame);
-    ImageEditOutcome move_frame(int frame, int to);                 // `to` = the position the frame ends at
+    ImageEditOutcome move_frame(int frame, int to);  // `to` = the position the frame ends at
     ImageEditOutcome set_frame_duration(int frame, int milliseconds);
 
     // ---- layers ----------------------------------------------------------------------------------------------------
@@ -177,7 +189,7 @@ public:
     // Whether the tools can draw on the layer, and if not why (a sentence for the status line).
     bool paintable(const std::string& path, std::string* why = nullptr) const;
 
-    ImageEditOutcome add_layer(const std::string& kind);          // above the selected layer (inside its group), selects it
+    ImageEditOutcome add_layer(const std::string& kind);  // above the selected layer (inside its group), selects it
     // Adds the provider layer a provider-made picture became (image.layer.add_provider, `addArgs` from ai::store_image_edit) on top, as
     // ONE undo step, and selects it. The layer's PNG is already written.
     ImageEditOutcome add_provider_layer(const std::string& label, Json addArgs);
@@ -253,11 +265,12 @@ public:
     struct TransformState {
         bool active = false;
         double scaleX = 1, scaleY = 1;
-        double rotate = 0;          // degrees, clockwise
+        double rotate = 0;  // degrees, clockwise
         bool flipH = false, flipV = false;
-        int dx = 0, dy = 0;         // whole pixels
+        int dx = 0, dy = 0;  // whole pixels
         bool nearest = false;
-        int boxX = 0, boxY = 0, boxW = 0, boxH = 0;   // the box of the pixels being transformed (canvas), before any change
+        int boxX = 0, boxY = 0, boxW = 0,
+            boxH = 0;  // the box of the pixels being transformed (canvas), before any change
         double pivotX = 0, pivotY = 0;
     };
     bool begin_transform();
@@ -311,37 +324,38 @@ public:
 private:
     struct Live {
         enum class Kind { None, Stroke, Move, Transform } kind = Kind::None;
-        std::string layer;                  // index path
+        std::string layer;  // index path
         bool indexed = false;
         bool erase = false;
         ImageBrushSettings brush;
         std::vector<std::pair<double, double>> points;
         std::optional<ImageSelection> sel;  // the selection a stroke is limited to
         // pixels layers
-        ImageEditBuffer base;               // the layer's pixels when the gesture began
-        Image work;                         // the pixels being shown
+        ImageEditBuffer base;  // the layer's pixels when the gesture began
+        Image work;            // the pixels being shown
         // indexed layers
         IndexGrid gridBase, grid;
-        int gridX = 0, gridY = 0;           // canvas position of the grid's top-left pixel
-        std::vector<std::string> baseRows;  // transform / move preview of an indexed layer's offset uses layerSet instead
+        int gridX = 0, gridY = 0;  // canvas position of the grid's top-left pixel
+        std::vector<std::string>
+            baseRows;  // transform / move preview of an indexed layer's offset uses layerSet instead
         // move of the whole layer
-        Json layerSet;                      // {"x":..,"y":..}
+        Json layerSet;  // {"x":..,"y":..}
         int layerX0 = 0, layerY0 = 0;
         int moveDx = 0, moveDy = 0;
         // transform / pixel move
         ImagePatch patch;
-        Image erased;                       // base with the selected pixels taken out
+        Image erased;  // base with the selected pixels taken out
         ImageSelection selAll;
         bool useAll = false;
-        bool wholeLayer = false;            // Move without a selection: the layer's x, y change
-        bool stale = true;                  // `work` / `grid` must be made again from the points / offsets
+        bool wholeLayer = false;  // Move without a selection: the layer's x, y change
+        bool stale = true;        // `work` / `grid` must be made again from the points / offsets
         TransformState tf;
     };
 
     // ---- internals
     bool load_from_disk();
     void recomposite();
-    Json preview_document() const;          // the document JSON with the drag / stroke applied, and the pictures it needs
+    Json preview_document() const;  // the document JSON with the drag / stroke applied, and the pictures it needs
     // Runs the commands one after the other as ONE undo step; `prepare` runs after the files were captured (it may write files an
     // edit needs: a copy of a PNG, the temporary selection of a fill).
     using Calls = std::vector<std::pair<std::string, Json>>;
@@ -375,7 +389,8 @@ private:
     std::set<std::string> lockedNames_, closedNames_;
     ImageBakeStatus bake_;
     std::uint64_t docRev_ = 0;
-    std::uint64_t stamp_ = 0;               // size and times of the document and the files it names, to notice a change behind our back
+    std::uint64_t stamp_ =
+        0;  // size and times of the document and the files it names, to notice a change behind our back
 
     Image picture_;
     bool pictureDirty_ = true;
@@ -384,7 +399,7 @@ private:
     std::uint64_t composites_ = 0;
     // The flattened layers under the one being edited (see recomposite).
     Image below_;
-    std::map<std::string, Image> pics_;       // the stand-in pictures of one composite (see recomposite)
+    std::map<std::string, Image> pics_;  // the stand-in pictures of one composite (see recomposite)
     std::string lastError_;
     std::string belowKey_;
 
@@ -395,12 +410,13 @@ private:
     bool edgesTruncated_ = false;
 
     Live live_;
-    Json previewSet_;                       // layer preview: the fields
+    Json previewSet_;  // layer preview: the fields
     std::string previewLayer_;
     bool previewOp_ = false, previewIsEffect_ = false;
     int previewOpIndex_ = 0;
 
-    std::map<std::string, ImageBlob> fileCache_;   // the last contents read of each tracked file (equal contents share one blob)
+    std::map<std::string, ImageBlob>
+        fileCache_;  // the last contents read of each tracked file (equal contents share one blob)
     std::map<int, ImageStep> steps_;
     int nextStep_ = 1;
 };

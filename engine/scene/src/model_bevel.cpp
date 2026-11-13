@@ -28,11 +28,11 @@ struct Side {
 };
 
 struct Groups {
-    std::vector<std::uint32_t> of;           // group of each corner (3 per triangle)
-    std::vector<std::uint32_t> vertex;       // the welded vertex of each group
-    std::vector<std::uint32_t> first;        // its first corner
-    std::vector<Vec3> normal;                // area-weighted normal of its triangles
-    std::vector<std::vector<Side>> sides;    // bevelled edges that touch it, one entry per face side
+    std::vector<std::uint32_t> of;         // group of each corner (3 per triangle)
+    std::vector<std::uint32_t> vertex;     // the welded vertex of each group
+    std::vector<std::uint32_t> first;      // its first corner
+    std::vector<Vec3> normal;              // area-weighted normal of its triangles
+    std::vector<std::vector<Side>> sides;  // bevelled edges that touch it, one entry per face side
 };
 
 std::uint32_t find_root(std::vector<std::uint32_t>& p, std::uint32_t x) {
@@ -59,10 +59,13 @@ Groups make_groups(const Soup& s, const Edges& e, const std::vector<char>& bev) 
         for (std::uint32_t v : {e.edges[i].lo, e.edges[i].hi}) {
             const int c0 = corner_at(s, t0, v), c1 = corner_at(s, t1, v);
             if (c0 < 0 || c1 < 0) continue;
-            std::uint32_t a = find_root(parent, t0 * 3 + std::uint32_t(c0)), b = find_root(parent, t1 * 3 + std::uint32_t(c1));
+            std::uint32_t a = find_root(parent, t0 * 3 + std::uint32_t(c0)),
+                          b = find_root(parent, t1 * 3 + std::uint32_t(c1));
             if (a == b) continue;
-            if (a < b) parent[b] = a;
-            else parent[a] = b;
+            if (a < b)
+                parent[b] = a;
+            else
+                parent[a] = b;
         }
     }
     Groups g;
@@ -126,7 +129,8 @@ Result<ModelMesh> model_bevel(const ModelMesh& m, const ModelBevelParams& p, std
     // vertices a bevel cannot be built at: an edge with more than two faces, or two faces walking it the same way
     std::vector<char> badVertex(s.pos.size(), 0);
     for (std::size_t i = 0; i < ec; ++i)
-        if (edges.edges[i].count > 2 || (edges.edges[i].count == 2 && !edges.regular(i))) badVertex[edges.edges[i].lo] = badVertex[edges.edges[i].hi] = 1;
+        if (edges.edges[i].count > 2 || (edges.edges[i].count == 2 && !edges.regular(i)))
+            badVertex[edges.edges[i].lo] = badVertex[edges.edges[i].hi] = 1;
 
     Groups groups;
     for (int pass = 0; pass < 64; ++pass) {
@@ -172,17 +176,22 @@ Result<ModelMesh> model_bevel(const ModelMesh& m, const ModelBevelParams& p, std
                 if (dot(dir, s.pos[third] - P) < 0) dir = -dir;
                 d[k] = dir;
             }
-            if (sd.size() == 1) gpos[g] = P + d[0] * w;
-            else gpos[g] = P + (d[0] + d[1]) * (w / std::max(1.0f + dot(d[0], d[1]), 0.2f));
+            if (sd.size() == 1)
+                gpos[g] = P + d[0] * w;
+            else
+                gpos[g] = P + (d[0] + d[1]) * (w / std::max(1.0f + dot(d[0], d[1]), 0.2f));
         }
         for (std::size_t t = 0; t < s.tris.size(); ++t) {
-            const Vec3 nc = cross(gpos[groups.of[t * 3 + 1]] - gpos[groups.of[t * 3]], gpos[groups.of[t * 3 + 2]] - gpos[groups.of[t * 3]]);
+            const Vec3 nc = cross(gpos[groups.of[t * 3 + 1]] - gpos[groups.of[t * 3]],
+                                  gpos[groups.of[t * 3 + 2]] - gpos[groups.of[t * 3]]);
             const Vec3 oc = s.face_cross(t);
             if (dot(nc, oc) <= 0.02f * dot(oc, oc)) return false;
             // a face turned half way round (a square whose corners swapped places) keeps its winding: look at its edges too
             for (int k = 0; k < 3; ++k) {
                 const std::size_t i0 = t * 3 + std::size_t(k), i1 = t * 3 + std::size_t((k + 1) % 3);
-                if (dot(gpos[groups.of[i1]] - gpos[groups.of[i0]], s.pos[s.tris[t][std::size_t((k + 1) % 3)]] - s.pos[s.tris[t][std::size_t(k)]]) <= 0) return false;
+                if (dot(gpos[groups.of[i1]] - gpos[groups.of[i0]],
+                        s.pos[s.tris[t][std::size_t((k + 1) % 3)]] - s.pos[s.tris[t][std::size_t(k)]]) <= 0)
+                    return false;
             }
         }
         return true;
@@ -195,12 +204,17 @@ Result<ModelMesh> model_bevel(const ModelMesh& m, const ModelBevelParams& p, std
     }
     if (width != p.width) {
         if (!fits)
-            return make_error(std::format("a bevel of width {} does not fit: the faces next to the sharp edges are smaller than any bevel", p.width),
-                              "Lower `width` a lot, or bevel only the larger parts of the model (put the bevel node around them).");
+            return make_error(
+                std::format(
+                    "a bevel of width {} does not fit: the faces next to the sharp edges are smaller than any bevel",
+                    p.width),
+                "Lower `width` a lot, or bevel only the larger parts of the model (put the bevel node around them).");
         // report a width that works, rounded down to two significant digits
         const float mag = det::pow(10.0f, std::floor(det::log10(width)) - 1.0f);
         const float shown = std::floor(width / mag) * mag;
-        return make_error(std::format("a bevel of width {} is wider than the faces next to the sharp edges can give (a face would turn inside out)", p.width),
+        return make_error(std::format("a bevel of width {} is wider than the faces next to the sharp edges can give (a "
+                                      "face would turn inside out)",
+                                      p.width),
                           std::format("Use a width of about {} or less.", shown));
     }
 
@@ -230,8 +244,8 @@ Result<ModelMesh> model_bevel(const ModelMesh& m, const ModelBevelParams& p, std
     const int S = std::max(p.segments, 1);
     const bool round = p.roundness > 0;
 
-    auto emit = [&](std::uint32_t a, std::uint32_t b, std::uint32_t c, const Attr& aa, const Attr& ab, const Attr& ac, std::uint32_t part,
-                    Vec3 na, Vec3 nb, Vec3 nc) {
+    auto emit = [&](std::uint32_t a, std::uint32_t b, std::uint32_t c, const Attr& aa, const Attr& ab, const Attr& ac,
+                    std::uint32_t part, Vec3 na, Vec3 nb, Vec3 nc) {
         out.add_tri(a, b, c, aa, ab, ac, part);
         if (!round) {
             na = nb = nc = unit_or(cross(out.pos[b] - out.pos[a], out.pos[c] - out.pos[a]), Vec3{0, 1, 0});
@@ -241,7 +255,8 @@ Result<ModelMesh> model_bevel(const ModelMesh& m, const ModelBevelParams& p, std
 
     // the original faces, with their own normals
     for (std::size_t t = 0; t < s.tris.size(); ++t) {
-        out.add_tri(gid[groups.of[t * 3]], gid[groups.of[t * 3 + 1]], gid[groups.of[t * 3 + 2]], s.attr[t][0], s.attr[t][1], s.attr[t][2], s.part[t]);
+        out.add_tri(gid[groups.of[t * 3]], gid[groups.of[t * 3 + 1]], gid[groups.of[t * 3 + 2]], s.attr[t][0],
+                    s.attr[t][1], s.attr[t][2], s.part[t]);
         for (std::size_t k = 0; k < 3; ++k) outN.push_back(m.normals[m.indices[std::size_t(s.src[t]) * 3 + k]]);
     }
 
@@ -265,8 +280,10 @@ Result<ModelMesh> model_bevel(const ModelMesh& m, const ModelBevelParams& p, std
             const Vec3 ctl = lerp((p0 + p2) * 0.5f, corner, clamp(p.roundness, 0.0f, 1.0f));
             for (int j = 0; j <= S; ++j) {
                 const float t = float(j) / float(S);
-                if (j == 0) r.id.push_back(gid[lo]);
-                else if (j == S) r.id.push_back(gid[hi]);
+                if (j == 0)
+                    r.id.push_back(gid[lo]);
+                else if (j == S)
+                    r.id.push_back(gid[hi]);
                 else {
                     const float a = (1 - t) * (1 - t), b = 2 * t * (1 - t), c = t * t;
                     r.id.push_back(out.add_vertex(p0 * a + ctl * b + p2 * c));
@@ -287,14 +304,18 @@ Result<ModelMesh> model_bevel(const ModelMesh& m, const ModelBevelParams& p, std
         const EdgeUse& u1 = edges.uses[ed.first + 1];
         const EdgeUse& f1 = u0.forward ? u0 : u1;  // walks lo -> hi: its face is on the left
         const EdgeUse& f2 = u0.forward ? u1 : u0;
-        auto group_at = [&](const EdgeUse& u, std::uint32_t v) { return groups.of[u.tri * 3 + std::uint32_t(corner_at(s, u.tri, v))]; };
+        auto group_at = [&](const EdgeUse& u, std::uint32_t v) {
+            return groups.of[u.tri * 3 + std::uint32_t(corner_at(s, u.tri, v))];
+        };
         const RowRef ra = row(ed.lo, group_at(f2, ed.lo), group_at(f1, ed.lo));
         const RowRef rb = row(ed.hi, group_at(f2, ed.hi), group_at(f1, ed.hi));
         for (int j = 0; j < S; ++j) {
             const std::uint32_t part = (float(j) + 0.5f) * 2.0f < float(S) ? s.part[f2.tri] : s.part[f1.tri];
             const std::uint32_t a0 = ra.id(j), a1 = ra.id(j + 1), b0 = rb.id(j), b1 = rb.id(j + 1);
-            emit(a0, b0, b1, ra.attr(j), rb.attr(j), rb.attr(j + 1), part, ra.normal(j), rb.normal(j), rb.normal(j + 1));
-            emit(a0, b1, a1, ra.attr(j), rb.attr(j + 1), ra.attr(j + 1), part, ra.normal(j), rb.normal(j + 1), ra.normal(j + 1));
+            emit(a0, b0, b1, ra.attr(j), rb.attr(j), rb.attr(j + 1), part, ra.normal(j), rb.normal(j),
+                 rb.normal(j + 1));
+            emit(a0, b1, a1, ra.attr(j), rb.attr(j + 1), ra.attr(j + 1), part, ra.normal(j), rb.normal(j + 1),
+                 ra.normal(j + 1));
         }
     }
 
@@ -339,12 +360,21 @@ Result<ModelMesh> model_bevel(const ModelMesh& m, const ModelBevelParams& p, std
             while (true) {
                 visited[cur] = 1;
                 cycle.push_back(cur);
-                if (adj[cur].size() != 2) { broken = true; break; }
+                if (adj[cur].size() != 2) {
+                    broken = true;
+                    break;
+                }
                 const Adj& step = adj[cur][0].edge != prevEdge ? adj[cur][0] : adj[cur][1];
                 prevEdge = step.edge;
                 const std::size_t next = slot_of(step.other);
-                if (next == start) { closed = true; break; }
-                if (visited[next]) { broken = true; break; }
+                if (next == start) {
+                    closed = true;
+                    break;
+                }
+                if (visited[next]) {
+                    broken = true;
+                    break;
+                }
                 cur = next;
             }
             if (!closed || broken || cycle.size() < 3) continue;
@@ -367,7 +397,8 @@ Result<ModelMesh> model_bevel(const ModelMesh& m, const ModelBevelParams& p, std
             if (dot(newell, want) < 0) std::reverse(loop.begin(), loop.end());
             const std::uint32_t part = s.part[groups.first[gs[cycle[0]]] / 3];
             if (loop.size() == 3) {
-                emit(loop[0].id, loop[1].id, loop[2].id, loop[0].attr, loop[1].attr, loop[2].attr, part, loop[0].normal, loop[1].normal, loop[2].normal);
+                emit(loop[0].id, loop[1].id, loop[2].id, loop[0].attr, loop[1].attr, loop[2].attr, part, loop[0].normal,
+                     loop[1].normal, loop[2].normal);
                 continue;
             }
             Vec3 avg{0, 0, 0}, avgN{0, 0, 0};
@@ -384,7 +415,8 @@ Result<ModelMesh> model_bevel(const ModelMesh& m, const ModelBevelParams& p, std
             avg = avg * inv;
             cattr.uv = cattr.uv * inv;
             cattr.color = cattr.color * inv;
-            const std::uint32_t centre = out.add_vertex(avg + (s.pos[v] - avg) * (0.5f * clamp(p.roundness, 0.0f, 1.0f)));
+            const std::uint32_t centre =
+                out.add_vertex(avg + (s.pos[v] - avg) * (0.5f * clamp(p.roundness, 0.0f, 1.0f)));
             const Vec3 cn = unit_or(avgN, gnormal[gs[cycle[0]]]);
             for (std::size_t q = 0; q < loop.size(); ++q) {
                 const Pt& a = loop[q];

@@ -9,13 +9,17 @@ namespace fa {
 
 namespace {
 
-std::uint32_t read32(const std::uint8_t* p) { return std::uint32_t(p[0]) | (std::uint32_t(p[1]) << 8) | (std::uint32_t(p[2]) << 16) | (std::uint32_t(p[3]) << 24); }
+std::uint32_t read32(const std::uint8_t* p) {
+    return std::uint32_t(p[0]) | (std::uint32_t(p[1]) << 8) | (std::uint32_t(p[2]) << 16) | (std::uint32_t(p[3]) << 24);
+}
 
 }  // namespace
 
-Result<std::vector<std::uint8_t>> rig_to_glb(const MeshData& model, const RigFit& fit, const std::string& glbPath, const RigWeights* given) {
+Result<std::vector<std::uint8_t>> rig_to_glb(const MeshData& model, const RigFit& fit, const std::string& glbPath,
+                                             const RigWeights* given) {
     if (fit.bones.empty() || fit.bones.size() > kRigMaxBones)
-        return make_error(std::format("a skin needs 1 to {} joints, the rig has {}", kRigMaxBones, fit.bones.size()), "Lower the spine, neck or tail options.");
+        return make_error(std::format("a skin needs 1 to {} joints, the rig has {}", kRigMaxBones, fit.bones.size()),
+                          "Lower the spine, neck or tail options.");
     auto base = mesh_to_glb(model, glbPath);
     if (!base.ok()) return base.error();
     const std::vector<std::uint8_t>& in = *base;
@@ -26,12 +30,14 @@ Result<std::vector<std::uint8_t>> rig_to_glb(const MeshData& model, const RigFit
     const std::uint32_t binLen = read32(jsonStart + jsonLen);
     const std::uint8_t* binStart = jsonStart + jsonLen + 8;
     Json root = parse_json_lenient(std::string_view(reinterpret_cast<const char*>(jsonStart), jsonLen));
-    if (root.is_discarded()) return make_error("internal: the .glb mesh_to_glb wrote has unreadable JSON", "Report this as an engine bug.");
+    if (root.is_discarded())
+        return make_error("internal: the .glb mesh_to_glb wrote has unreadable JSON", "Report this as an engine bug.");
     std::vector<std::uint8_t> bin(binStart, binStart + binLen);
 
     const std::size_t n = model.vertex_count();
     if (given && given->vertex_count() != n)
-        return make_error(std::format("internal: {} skin weights for a model of {} vertices", given->vertex_count(), n), "Report this as an engine bug.");
+        return make_error(std::format("internal: {} skin weights for a model of {} vertices", given->vertex_count(), n),
+                          "Report this as an engine bug.");
     auto append = [&](const void* p, std::size_t bytes) {
         const std::size_t at = bin.size();
         bin.resize(at + bytes);
@@ -47,7 +53,11 @@ Result<std::vector<std::uint8_t>> rig_to_glb(const MeshData& model, const RigFit
         return int(root["bufferViews"].size() - 1);
     };
     auto add_accessor = [&](int view, int componentType, std::size_t count, const char* type) {
-        root["accessors"].push_back({{"bufferView", view}, {"byteOffset", 0}, {"componentType", componentType}, {"count", count}, {"type", type}});
+        root["accessors"].push_back({{"bufferView", view},
+                                     {"byteOffset", 0},
+                                     {"componentType", componentType},
+                                     {"count", count},
+                                     {"type", type}});
         return int(root["accessors"].size() - 1);
     };
 
@@ -108,11 +118,12 @@ Result<std::vector<std::uint8_t>> rig_to_glb(const MeshData& model, const RigFit
             parent["children"].push_back(int(i + 1));
         }
     root["scenes"][0]["nodes"].push_back(1);
-    root["skins"] = Json::array({{{"name", "rig"},
-                                  {"joints", joinsList},
-                                  {"inverseBindMatrices", ibmAcc},
-                                  {"skeleton", 1},
-                                  {"extras", {{"factoriaRig", {{"format", kRigDocFormat}, {"template", fit.templateName}}}}}}});
+    root["skins"] =
+        Json::array({{{"name", "rig"},
+                      {"joints", joinsList},
+                      {"inverseBindMatrices", ibmAcc},
+                      {"skeleton", 1},
+                      {"extras", {{"factoriaRig", {{"format", kRigDocFormat}, {"template", fit.templateName}}}}}}});
     root["asset"]["generator"] = "FactorIA rig.bake";
     root["buffers"][0]["byteLength"] = bin.size();
 

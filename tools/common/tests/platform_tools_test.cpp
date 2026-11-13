@@ -80,9 +80,10 @@ TEST_CASE("validate: every problem of the platform catalog is reported once, wit
     CHECK(dup->message.find("gems_100") != std::string::npos);
 
     // The schema's own complaints about the same fields are not repeated next to the catalog's.
-    const int onType = static_cast<int>(std::count_if(report.errors.begin(), report.errors.end(), [](const ValidationIssue& i) {
-        return i.pointer == "/platform/products/0/type";
-    }));
+    const int onType =
+        static_cast<int>(std::count_if(report.errors.begin(), report.errors.end(), [](const ValidationIssue& i) {
+            return i.pointer == "/platform/products/0/type";
+        }));
     CHECK(onType == 1);
 }
 
@@ -187,14 +188,13 @@ TEST_CASE("platform.add_backend: one command lists every store backend with the 
 namespace {
 
 // A factoria.json written by hand: keys in an order of the author's, odd spacing, 4-space indent.
-const char* kHandOrdered =
-    "{\n"
-    "    \"name\":   \"Hand Game\",\n"
-    "    \"mainScene\":\"scenes/main.scene.json\",\n"
-    "    \"format\" : \"factoria.project/1\",\n"
-    "    \"display\": { \"width\": 800, \"height\": 600 },\n"
-    "    \"id\": \"com.example.hand\"\n"
-    "}\n";
+const char* kHandOrdered = "{\n"
+                           "    \"name\":   \"Hand Game\",\n"
+                           "    \"mainScene\":\"scenes/main.scene.json\",\n"
+                           "    \"format\" : \"factoria.project/1\",\n"
+                           "    \"display\": { \"width\": 800, \"height\": 600 },\n"
+                           "    \"id\": \"com.example.hand\"\n"
+                           "}\n";
 
 std::string game_with_hand_ordered_project(const testing::TempDir& tmp) {
     const std::string dir = tmp.sub("game");
@@ -212,13 +212,15 @@ TEST_CASE("platform.add_backend: dryRun lists what it would write and writes not
     register_plugin_commands(reg, dir);
     register_platform_setup_commands(reg, dir);
 
-    auto r = reg.call("platform.add_backend", Json::parse(R"({"backend": "apple", "appleBuild": false, "dryRun": true})"));
+    auto r =
+        reg.call("platform.add_backend", Json::parse(R"({"backend": "apple", "appleBuild": false, "dryRun": true})"));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["dryRun"] == true);
     REQUIRE(r.result["keys"].size() == 1);
     CHECK(r.result["keys"][0].get<std::string>().find("plugins/apple") != std::string::npos);
     bool listsPlugin = false;
-    for (const Json& f : r.result["files"]) listsPlugin = listsPlugin || f.get<std::string>().find("src/Plugin.swift") != std::string::npos;
+    for (const Json& f : r.result["files"])
+        listsPlugin = listsPlugin || f.get<std::string>().find("src/Plugin.swift") != std::string::npos;
     CHECK(listsPlugin);
     CHECK(r.result.contains("wouldDo"));
     // Nothing: not the folder, not a changed factoria.json.

@@ -24,7 +24,8 @@ public:
                 buffer_.clear();
                 return Status::Line;
             }
-            const auto left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
+            const auto left =
+                std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now());
             if (left.count() < 0) return Status::Timeout;
             pollfd p{fd_, POLLIN, 0};
             const int ready = ::poll(&p, 1, int(left.count()));
@@ -36,8 +37,10 @@ public:
             if (ready == 0) return Status::Timeout;
             char chunk[65536];
             const ssize_t n = ::read(fd_, chunk, sizeof chunk);
-            if (n > 0) buffer_.append(chunk, std::size_t(n));
-            else if (n == 0 || errno != EINTR) eof_ = true;  // EOF, or a broken descriptor
+            if (n > 0)
+                buffer_.append(chunk, std::size_t(n));
+            else if (n == 0 || errno != EINTR)
+                eof_ = true;  // EOF, or a broken descriptor
         }
     }
     bool holds_input() const override { return !buffer_.empty(); }

@@ -25,15 +25,14 @@ void open_video(World& w, Entity e, Video& v) {
     v.ended = false;
     v.playing = false;
     if (v.path.empty()) return;
-    auto fail = [&](const std::string& why) {
-        FA_WARN("video", "entity '{}' Video: {}", w.id_of(e), why);
-    };
+    auto fail = [&](const std::string& why) { FA_WARN("video", "entity '{}' Video: {}", w.id_of(e), why); };
     auto bytes = fs::read_bytes(v.path);
     if (!bytes) {
         const std::string hint = bytes.error().hint.empty() ? "" : " (hint: " + bytes.error().hint + ")";
         return fail(bytes.error().message + hint);
     }
-    auto decoder = VideoDecoder::open(std::make_shared<const std::vector<std::uint8_t>>(std::move(bytes.value())), v.path);
+    auto decoder =
+        VideoDecoder::open(std::make_shared<const std::vector<std::uint8_t>>(std::move(bytes.value())), v.path);
     if (!decoder) return fail(decoder.error().to_string());
     rt.decoder = std::move(decoder.value());
     v.duration = float(rt.decoder->info().duration);
@@ -73,7 +72,7 @@ void update_videos(World& w, float dt) {
         v.time = float(d.time());
         v.duration = float(d.info().duration);
         rt.lastTime = double(v.time);
-        });
+    });
 }
 
 }  // namespace fa

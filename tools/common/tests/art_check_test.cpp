@@ -17,7 +17,8 @@ namespace stdfs = std::filesystem;
 
 namespace {
 
-const Rgba kRed{255, 0, 0, 255}, kBlack{0, 0, 0, 255}, kWhite{255, 255, 255, 255}, kClear{0, 0, 0, 0}, kCream{250, 235, 200, 255};
+const Rgba kRed{255, 0, 0, 255}, kBlack{0, 0, 0, 255}, kWhite{255, 255, 255, 255}, kClear{0, 0, 0, 0},
+    kCream{250, 235, 200, 255};
 
 // A 20x20 picture with a 12x12 block (red unless given), optionally ringed by a 1 px line.
 Image block(Rgba fill, std::optional<Rgba> ring = std::nullopt) {
@@ -267,9 +268,12 @@ TEST_CASE("style rules: texelsPerUnit compares with how the scenes draw the text
     use.framePx[0] = use.framePx[1] = 16;
     use.world[0] = use.world[1] = 1;  // 16 texels per unit
     const std::vector<const TextureUse*> uses = {&use};
-    CHECK(find_rule(evaluate_style_rules(m, guide_of(R"({"texelsPerUnit": 16})"), uses), "texelsPerUnit")->verdict == Verdict::Ok);
-    CHECK(find_rule(evaluate_style_rules(m, guide_of(R"({"texelsPerUnit": 8})"), uses), "texelsPerUnit")->verdict == Verdict::Fail);
-    CHECK(find_rule(evaluate_style_rules(m, guide_of(R"({"texelsPerUnit": 16})"), {}), "texelsPerUnit") == nullptr);  // not drawn: not judged
+    CHECK(find_rule(evaluate_style_rules(m, guide_of(R"({"texelsPerUnit": 16})"), uses), "texelsPerUnit")->verdict ==
+          Verdict::Ok);
+    CHECK(find_rule(evaluate_style_rules(m, guide_of(R"({"texelsPerUnit": 8})"), uses), "texelsPerUnit")->verdict ==
+          Verdict::Fail);
+    CHECK(find_rule(evaluate_style_rules(m, guide_of(R"({"texelsPerUnit": 16})"), {}), "texelsPerUnit") ==
+          nullptr);  // not drawn: not judged
 }
 
 // ---- assets.check_art --------------------------------------------------------------------------------------------
@@ -277,7 +281,9 @@ TEST_CASE("style rules: texelsPerUnit compares with how the scenes draw the text
 TEST_CASE("assets.check_art: a picture with rules, backgrounds, sizes and an annotated image") {
     AssetsProject p;
     write_png(p.file("assets/hero.png"), block(kRed, kBlack));
-    const Json r = p.ok("assets.check_art", Json{{"path", "assets/hero.png"}, {"backgrounds", Json::array({"#202020", "#f0f0f0"})}, {"onScreenPx", 8}});
+    const Json r = p.ok(
+        "assets.check_art",
+        Json{{"path", "assets/hero.png"}, {"backgrounds", Json::array({"#202020", "#f0f0f0"})}, {"onScreenPx", 8}});
     REQUIRE(r["assets"].size() == 1);
     const Json& a = r["assets"][0];
     CHECK(a["backgrounds"]["source"] == "explicit");
@@ -329,11 +335,22 @@ TEST_CASE("assets.check_art: without backgrounds or scenes it uses a light and a
 TEST_CASE("assets.check_art: backgrounds and sizes come from the scenes that draw the picture") {
     AssetsProject p;
     write_png(p.file("assets/hero.png"), block(kCream));
-    write_all(p.file("scenes/main.scene.json"),
-              Json::object({{"format", "factoria.scene/1"},
-                            {"entities", Json::array({Json::object({{"id", "camera"}, {"components", Json::object({{"Camera", Json::object({{"primary", true}, {"orthoSize", 360}, {"clearColor", "#f5f5f0"}})}})}}),
-                                                      Json::object({{"id", "hero"}, {"components", Json::object({{"Sprite", Json::object({{"texture", "assets/hero.png"}, {"size", Json::array({40, 40})}})}})}})})}})
-                  .dump());
+    write_all(
+        p.file("scenes/main.scene.json"),
+        Json::object(
+            {{"format", "factoria.scene/1"},
+             {"entities",
+              Json::array(
+                  {Json::object(
+                       {{"id", "camera"},
+                        {"components", Json::object({{"Camera", Json::object({{"primary", true},
+                                                                              {"orthoSize", 360},
+                                                                              {"clearColor", "#f5f5f0"}})}})}}),
+                   Json::object({{"id", "hero"},
+                                 {"components",
+                                  Json::object({{"Sprite", Json::object({{"texture", "assets/hero.png"},
+                                                                         {"size", Json::array({40, 40})}})}})}})})}})
+            .dump());
     const Json r = p.ok("assets.check_art", Json{{"path", "assets/hero.png"}});
     const Json& a = r["assets"][0];
     CHECK(a["backgrounds"]["source"] == "scenes");
@@ -360,7 +377,9 @@ TEST_CASE("assets.check_art: halos and dark fringes on the alpha edge") {
     fill_rect(img, 19, 4, 1, 16, {0, 0, 0, 128});
     write_png(p.file("assets/halo.png"), img);
     write_png(p.file("assets/clean.png"), block(kRed, kBlack));
-    const Json r = p.ok("assets.check_art", Json{{"paths", Json::array({"assets/halo.png", "assets/clean.png"})}, {"backgrounds", Json::array({"#808080"})}, {"onScreenPx", 24}});
+    const Json r = p.ok("assets.check_art", Json{{"paths", Json::array({"assets/halo.png", "assets/clean.png"})},
+                                                 {"backgrounds", Json::array({"#808080"})},
+                                                 {"onScreenPx", 24}});
     const Json* fringe = find_json_rule(r["assets"][0]["rules"], "fringe.partial");
     REQUIRE(fringe);
     CHECK((*fringe)["verdict"] == "fail");
@@ -372,7 +391,9 @@ TEST_CASE("assets.check_art: several paths are also judged as a set") {
     AssetsProject p;
     write_png(p.file("assets/a.png"), block(kRed, kBlack));
     write_png(p.file("assets/b.png"), block({40, 120, 220, 255}, kWhite));
-    const Json r = p.ok("assets.check_art", Json{{"paths", Json::array({"assets/a.png", "assets/b.png"})}, {"backgrounds", Json::array({"#808080"})}, {"onScreenPx", 20}});
+    const Json r = p.ok("assets.check_art", Json{{"paths", Json::array({"assets/a.png", "assets/b.png"})},
+                                                 {"backgrounds", Json::array({"#808080"})},
+                                                 {"onScreenPx", 20}});
     REQUIRE(r.contains("set"));
     const Json* colour = find_json_rule(r["set"]["rules"], "set.outlineColour");
     REQUIRE(colour);
@@ -388,14 +409,21 @@ TEST_CASE("assets.check_art: several paths are also judged as a set") {
 TEST_CASE("assets.check_art: the style rules of assets.json are judged, and style:false skips them") {
     AssetsProject p;
     write_png(p.file("assets/plain.png"), block(kRed));
-    write_all(p.file("assets.json"), Json::object({{"format", "factoria.assets/1"}, {"style", Json::object({{"outline", Json::object({{"color", "#000000"}, {"width", 1}})}})}}).dump());
-    Json r = p.ok("assets.check_art", Json{{"path", "assets/plain.png"}, {"backgrounds", Json::array({"#808080"})}, {"onScreenPx", 20}});
+    write_all(p.file("assets.json"),
+              Json::object({{"format", "factoria.assets/1"},
+                            {"style", Json::object({{"outline", Json::object({{"color", "#000000"}, {"width", 1}})}})}})
+                  .dump());
+    Json r = p.ok("assets.check_art",
+                  Json{{"path", "assets/plain.png"}, {"backgrounds", Json::array({"#808080"})}, {"onScreenPx", 20}});
     const Json* outline = find_json_rule(r["assets"][0]["rules"], "outline.color");
     REQUIRE(outline);
     CHECK((*outline)["verdict"] == "fail");
     CHECK(r["style"]["applied"] == true);
     CHECK(r["verdict"] == "fail");
-    r = p.ok("assets.check_art", Json{{"path", "assets/plain.png"}, {"backgrounds", Json::array({"#808080"})}, {"onScreenPx", 20}, {"style", false}});
+    r = p.ok("assets.check_art", Json{{"path", "assets/plain.png"},
+                                      {"backgrounds", Json::array({"#808080"})},
+                                      {"onScreenPx", 20},
+                                      {"style", false}});
     CHECK(find_json_rule(r["assets"][0]["rules"], "outline.color") == nullptr);
     CHECK(r["style"]["applied"] == false);
 }
@@ -419,7 +447,9 @@ TEST_CASE("assets.check_art: the same call gives the same numbers, and the secon
 TEST_CASE("assets.check_art: wrong arguments say what to pass") {
     AssetsProject p;
     write_png(p.file("assets/hero.png"), block(kRed));
-    auto message = [](const CommandResult& r) { return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string()); };
+    auto message = [](const CommandResult& r) {
+        return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string());
+    };
 
     CommandResult r = p.call("assets.check_art", Json::object());
     REQUIRE_FALSE(r.ok);
@@ -432,7 +462,8 @@ TEST_CASE("assets.check_art: wrong arguments say what to pass") {
     r = p.call("assets.check_art", Json{{"path", "assets/hero.png"}, {"onScreenPx", 0}});
     REQUIRE_FALSE(r.ok);
     CHECK(message(r).find("/onScreenPx") != std::string::npos);
-    r = p.call("assets.check_art", Json{{"path", "assets/hero.png"}, {"backgrounds", Json::array({"assets/nothing.png"})}});
+    r = p.call("assets.check_art",
+               Json{{"path", "assets/hero.png"}, {"backgrounds", Json::array({"assets/nothing.png"})}});
     REQUIRE_FALSE(r.ok);
     CHECK(message(r).find("/backgrounds/0") != std::string::npos);
     r = p.call("assets.check_art", Json{{"path", "assets/hero.png"}, {"onScreenpx", 20}});
@@ -446,7 +477,9 @@ TEST_CASE("assets.check_art: an image used as a background stands for its dark, 
     Image sky = make_image(16, 16, {20, 20, 60, 255});
     fill_rect(sky, 0, 8, 16, 8, {240, 240, 255, 255});
     write_png(p.file("assets/sky.png"), sky);
-    const Json r = p.ok("assets.check_art", Json{{"path", "assets/hero.png"}, {"backgrounds", Json::array({"assets/sky.png"})}, {"onScreenPx", 20}});
+    const Json r =
+        p.ok("assets.check_art",
+             Json{{"path", "assets/hero.png"}, {"backgrounds", Json::array({"assets/sky.png"})}, {"onScreenPx", 20}});
     const Json& used = r["assets"][0]["backgrounds"]["used"];
     CHECK(used.size() >= 2);
     CHECK(used[0]["label"].get<std::string>().find("assets/sky.png") != std::string::npos);
@@ -464,14 +497,19 @@ struct Game {
         REQUIRE(create_project(dir, "2d-empty").ok());
     }
     void style(const Json& s) {
-        write_all(stdfs::path(dir) / "assets.json", Json::object({{"format", "factoria.assets/1"}, {"style", s}}).dump());
+        write_all(stdfs::path(dir) / "assets.json",
+                  Json::object({{"format", "factoria.assets/1"}, {"style", s}}).dump());
     }
     void sprite(const std::string& texture, double size = 0) {
         Json sp = Json::object({{"texture", texture}});
         if (size > 0) sp["size"] = Json::array({size, size});
-        Json entities = Json::array({Json::object({{"id", "camera"}, {"components", Json::object({{"Camera", Json::object({{"primary", true}})}})}}),
-                                     Json::object({{"id", "s"}, {"components", Json::object({{"Sprite", sp}})}})});
-        REQUIRE(save_json_file(dir + "/scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", entities}})).ok());
+        Json entities =
+            Json::array({Json::object({{"id", "camera"},
+                                       {"components", Json::object({{"Camera", Json::object({{"primary", true}})}})}}),
+                         Json::object({{"id", "s"}, {"components", Json::object({{"Sprite", sp}})}})});
+        REQUIRE(save_json_file(dir + "/scenes/main.scene.json",
+                               Json::object({{"format", "factoria.scene/1"}, {"entities", entities}}))
+                    .ok());
     }
     std::vector<ValidationIssue> warnings(const std::string& file) const {
         std::vector<ValidationIssue> found;

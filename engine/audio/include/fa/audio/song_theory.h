@@ -29,7 +29,7 @@ struct SongChord {
     std::string name;
     int root = 0;
     int bass = -1;
-    std::string quality;              // "" (major), "m", "7", "maj7", ...
+    std::string quality;  // "" (major), "m", "7", "maj7", ...
     std::vector<int> intervals;
 };
 // Fails with the qualities the engine knows and a "did you mean" for a wrong one.
@@ -46,8 +46,8 @@ struct SongQualityInfo {
 const std::vector<SongQualityInfo>& song_chord_qualities();
 
 struct SongScaleInfo {
-    std::string name;                 // "major", "minor", "dorian", ...
-    std::vector<int> intervals;       // semitones above the tonic
+    std::string name;            // "major", "minor", "dorian", ...
+    std::vector<int> intervals;  // semitones above the tonic
     std::string what;
 };
 const std::vector<SongScaleInfo>& song_scales();

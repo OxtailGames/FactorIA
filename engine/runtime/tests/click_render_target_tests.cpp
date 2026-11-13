@@ -92,14 +92,19 @@ struct Rig {
     Interactable& ia(const char* name) { return *e.world().get<Interactable>(id(name)); }
     // The screen point where the quad shows page pixel (px, py).
     Vec2 page(float px, float py) {
-        return e.renderer()->world_to_screen(e.world().world_matrix(id("screen")).transform_point({px / 200.0f - 0.5f, 0.5f - py / 100.0f, 0.0f}));
+        return e.renderer()->world_to_screen(
+            e.world().world_matrix(id("screen")).transform_point({px / 200.0f - 0.5f, 0.5f - py / 100.0f, 0.0f}));
     }
     CommandResult click(Json args) { return e.commands().call("game.click", args); }
     CommandResult click_at(Vec2 p) { return click(Json{{"position", Json::array({p.x, p.y})}}); }
     CommandResult click_id(const char* name) { return click(Json{{"id", name}}); }
     void add_quad(const char* name, const char* target, Json transform) {
-        const Json e1 = Json{{"id", name}, {"components", Json{{"Transform", transform},
-                                                             {"MeshRenderer", Json{{"mesh", "quad"}, {"texture", std::string("target:") + target}, {"unlit", true}}}}}};
+        const Json e1 =
+            Json{{"id", name},
+                 {"components",
+                  Json{{"Transform", transform},
+                       {"MeshRenderer",
+                        Json{{"mesh", "quad"}, {"texture", std::string("target:") + target}, {"unlit", true}}}}}};
         auto r = e.commands().call("scene.spawn", e1);
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         e.step(2);
@@ -139,7 +144,8 @@ TEST_CASE("game.click names the widget a click removes in the frame the button w
     Rig r;
     auto res = r.click_at(r.page(140, 50));
     REQUIRE_MESSAGE(res.ok, text(res));
-    CHECK_FALSE(r.e.world().active_in_hierarchy(r.id("vanish")));  // the script turned the page widget off while it was pressed
+    CHECK_FALSE(
+        r.e.world().active_in_hierarchy(r.id("vanish")));  // the script turned the page widget off while it was pressed
     CHECK(res.result["widget"] == "vanish");
     CHECK(res.result["via"]["mesh"] == "screen");
 }
@@ -170,11 +176,13 @@ TEST_CASE("game.click {id} finds a free place of the widget when a mesh in front
     Rig r;
     // A second page in front of the left of the screen mesh. The slider is page x 20..80 (mesh x -0.8..-0.2 at z 0); the cover is a unit quad
     // 0.5 units nearer the camera, so it spans screen-plane x -1.8..-0.35 there: the centre of the slider is under it, its right end is not.
-    r.add_quad("cover", "other", Json{{"position", Json::array({-0.79, 0.0, 0.5})}, {"scale", Json::array({1.0, 1.0, 1.0})}});
+    r.add_quad("cover", "other",
+               Json{{"position", Json::array({-0.79, 0.0, 0.5})}, {"scale", Json::array({1.0, 1.0, 1.0})}});
     const Vec2 centre = r.page(50, 80);
     auto probe = r.click_at(centre);
     REQUIRE_MESSAGE(probe.ok, text(probe));
-    CHECK(probe.result["via"]["mesh"] == "cover");  // the mouse at the slider's centre now reaches the cover's page, not the slider
+    CHECK(probe.result["via"]["mesh"] ==
+          "cover");  // the mouse at the slider's centre now reaches the cover's page, not the slider
     CHECK(probe.result["widget"].is_null());
     auto res = r.click_id("slider");
     REQUIRE_MESSAGE(res.ok, text(res));
@@ -220,7 +228,8 @@ TEST_CASE("game.click {id} says why a widget on a page cannot be clicked") {
     }
     SUBCASE("another page's mesh covers it all") {
         Rig r;
-        r.add_quad("cover", "other", Json{{"position", Json::array({0.0, 0.0, 0.5})}, {"scale", Json::array({3.0, 3.0, 1.0})}});
+        r.add_quad("cover", "other",
+                   Json{{"position", Json::array({0.0, 0.0, 0.5})}, {"scale", Json::array({3.0, 3.0, 1.0})}});
         auto res = r.click_id("toggle");
         CHECK_FALSE(res.ok);
         const std::string m = text(res);
@@ -254,7 +263,8 @@ TEST_CASE("game.click {id}: a widget no camera shows keeps its old error, one in
 
 TEST_CASE("render.pick names the widget through the mesh and says via") {
     Rig r;
-    auto res = r.e.commands().call("render.pick", Json{{"position", Json::array({r.page(60, 50).x, r.page(60, 50).y})}});
+    auto res =
+        r.e.commands().call("render.pick", Json{{"position", Json::array({r.page(60, 50).x, r.page(60, 50).y})}});
     REQUIRE_MESSAGE(res.ok, text(res));
     CHECK(res.result["widget"] == "toggle");
     CHECK(res.result["via"]["mesh"] == "screen");

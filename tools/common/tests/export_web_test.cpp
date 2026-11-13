@@ -38,7 +38,8 @@ std::string fake_wasm(const std::string& fingerprint) {
     return bytes + std::string(1008 - bytes.size(), 'w');
 }
 
-std::string fake_player(const testing::TempDir& tmp, const std::string& fingerprint = build_fingerprint(), const char* folder = "web-player") {
+std::string fake_player(const testing::TempDir& tmp, const std::string& fingerprint = build_fingerprint(),
+                        const char* folder = "web-player") {
     const stdfs::path dir = tmp.sub(folder);
     testing::write_all(dir / "factoria_player.js", "// fake emscripten glue\n");
     testing::write_all(dir / "factoria_player.wasm", fake_wasm(fingerprint));
@@ -64,7 +65,9 @@ ExportOptions web_options(const testing::TempDir& tmp, const std::string& proj) 
     return o;
 }
 
-bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool has(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 std::uint32_t u16(const std::string& s, std::size_t at) {
     return static_cast<unsigned char>(s[at]) | (static_cast<unsigned char>(s[at + 1]) << 8);
@@ -81,8 +84,10 @@ std::map<std::string, std::string> read_zip(const std::string& zip, std::vector<
     std::size_t at = u32(zip, eocd + 16);
     for (std::uint32_t i = 0; i < count; ++i) {
         REQUIRE(u32(zip, at) == 0x02014b50);
-        const std::uint32_t method = u16(zip, at + 10), crc = u32(zip, at + 16), csize = u32(zip, at + 20), size = u32(zip, at + 24);
-        const std::uint32_t nameLen = u16(zip, at + 28), extra = u16(zip, at + 30), comment = u16(zip, at + 32), local = u32(zip, at + 42);
+        const std::uint32_t method = u16(zip, at + 10), crc = u32(zip, at + 16), csize = u32(zip, at + 20),
+                            size = u32(zip, at + 24);
+        const std::uint32_t nameLen = u16(zip, at + 28), extra = u16(zip, at + 30), comment = u16(zip, at + 32),
+                            local = u32(zip, at + 42);
         const std::string name = zip.substr(at + 46, nameLen);
         at += 46 + nameLen + extra + comment;
         REQUIRE(u32(zip, local) == 0x04034b50);
@@ -99,7 +104,9 @@ std::map<std::string, std::string> read_zip(const std::string& zip, std::vector<
             std::free(heap);
         }
         CHECK(content.size() == size);
-        CHECK(static_cast<std::uint32_t>(buminiz::mz_crc32(buminiz::mz_crc32(0, nullptr, 0), reinterpret_cast<const unsigned char*>(content.data()), content.size())) == crc);
+        CHECK(static_cast<std::uint32_t>(buminiz::mz_crc32(buminiz::mz_crc32(0, nullptr, 0),
+                                                           reinterpret_cast<const unsigned char*>(content.data()),
+                                                           content.size())) == crc);
         if (order) order->push_back(name);
         out[name] = std::move(content);
     }
@@ -121,8 +128,10 @@ struct ScopedHome {  // FACTORIA_HOME somewhere empty: no players installed by a
 #if defined(_WIN32)
         _putenv_s("FACTORIA_HOME", v);
 #else
-        if (*v) setenv("FACTORIA_HOME", v, 1);
-        else unsetenv("FACTORIA_HOME");
+        if (*v)
+            setenv("FACTORIA_HOME", v, 1);
+        else
+            unsetenv("FACTORIA_HOME");
 #endif
     }
 };
@@ -174,8 +183,10 @@ TEST_CASE("export web: the zip has index.html at its root and the same files as 
     const auto files = read_zip(testing::read_all(zipPath), &order);
     REQUIRE_FALSE(order.empty());
     CHECK(order.front() == "index.html");
-    for (const std::string& name : order) CHECK(name.find('/') == std::string::npos);  // flat: itch.io wants index.html at the root
-    for (const char* name : {"index.html", "factoria_player.js", "factoria_player.wasm", "game.pak", "FACTORIA_NOTICES.txt"}) {
+    for (const std::string& name : order)
+        CHECK(name.find('/') == std::string::npos);  // flat: itch.io wants index.html at the root
+    for (const char* name :
+         {"index.html", "factoria_player.js", "factoria_player.wasm", "game.pak", "FACTORIA_NOTICES.txt"}) {
         REQUIRE_MESSAGE(files.count(name) == 1, name);
         CHECK(files.at(name) == testing::read_all(stdfs::path(r->outputDir) / name));
     }
@@ -192,7 +203,8 @@ TEST_CASE("export web: the game's name is HTML-escaped and a placeholder in it i
     CHECK(html.find("<Jerry>") == std::string::npos);
 }
 
-TEST_CASE("export web: --player can be the folder or factoria_player.js; an incomplete or wrong one is a teaching error") {
+TEST_CASE(
+    "export web: --player can be the folder or factoria_player.js; an incomplete or wrong one is a teaching error") {
     testing::TempDir tmp;
     const std::string proj = make_project(tmp);
     ExportOptions o = web_options(tmp, proj);
@@ -243,7 +255,8 @@ TEST_CASE("export web: a dry run reports the plan and writes nothing") {
     CHECK(plan->format == "zip");
     CHECK(plan->player == (stdfs::path(o.playerBinary) / "factoria_player.js").generic_string());
     // The export resolves its folder (RUNNER~1 on Windows runners, /var -> /private/var on macOS): compare resolved paths.
-    CHECK(stdfs::weakly_canonical(plan->artifact) == stdfs::weakly_canonical(stdfs::path(tmp.sub("out")) / "web-test-web.zip"));
+    CHECK(stdfs::weakly_canonical(plan->artifact) ==
+          stdfs::weakly_canonical(stdfs::path(tmp.sub("out")) / "web-test-web.zip"));
     CHECK(plan->to_json()["mode"] == "explicit");
     CHECK_FALSE(stdfs::exists(tmp.sub("out")));
 }
@@ -312,7 +325,8 @@ TEST_CASE("export web: a player of another build stops the export unless allowPl
         auto r = export_project(o);
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         bool said = false;
-        for (const std::string& w : r->warnings) said = said || (w.find("0123456789ab") != std::string::npos && w.find("anyway") != std::string::npos);
+        for (const std::string& w : r->warnings)
+            said = said || (w.find("0123456789ab") != std::string::npos && w.find("anyway") != std::string::npos);
         CHECK(said);
     }
 }
@@ -370,7 +384,8 @@ void give_icon(const std::string& proj) {
 }
 
 bool any_warning_has(const ExportReport& r, const std::string& text) {
-    return std::any_of(r.warnings.begin(), r.warnings.end(), [&](const std::string& w) { return w.find(text) != std::string::npos; });
+    return std::any_of(r.warnings.begin(), r.warnings.end(),
+                       [&](const std::string& w) { return w.find(text) != std::string::npos; });
 }
 
 }  // namespace
@@ -393,14 +408,16 @@ TEST_CASE("export web: the page links a favicon.png made from the game's icon, a
     const auto files = read_zip(testing::read_all(stdfs::path(r->outputDir).parent_path() / "web-test-web.zip"));
     REQUIRE(files.count("favicon.png") == 1);
     CHECK(files.at("favicon.png") == testing::read_all(root / "favicon.png"));
-    for (const std::string& w : r->warnings) CHECK(w.find("512") == std::string::npos);  // an app icon's remark, not a favicon's
+    for (const std::string& w : r->warnings)
+        CHECK(w.find("512") == std::string::npos);  // an app icon's remark, not a favicon's
 }
 
 TEST_CASE("export web: a game without an icon keeps the empty icon and writes no favicon") {
     testing::TempDir tmp;
     auto r = export_project(web_options(tmp, make_project(tmp)));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
-    CHECK(testing::read_all(stdfs::path(r->outputDir) / "index.html").find("<link rel=\"icon\" href=\"data:,\">") != std::string::npos);
+    CHECK(testing::read_all(stdfs::path(r->outputDir) / "index.html").find("<link rel=\"icon\" href=\"data:,\">") !=
+          std::string::npos);
     CHECK_FALSE(has(r->files, "favicon.png"));
 }
 
@@ -439,7 +456,8 @@ TEST_CASE("export web: the report has the raw and gzip size of each file, the to
     CHECK(j["largestFolders"].size() >= 1);
 }
 
-TEST_CASE("export: the largest folders are listed, and a packed store/ or src/ folder is a warning that names export.exclude") {
+TEST_CASE("export: the largest folders are listed, and a packed store/ or src/ folder is a warning that names "
+          "export.exclude") {
     testing::TempDir tmp;
     const std::string proj = make_project(tmp);
     testing::write_all(stdfs::path(proj) / "store" / "capsule.png", std::string(300000, 'x'));
@@ -523,14 +541,16 @@ TEST_CASE("export web singleFile: one page holds the player, the wasm and the ga
     CHECK(html.find("<title>Web Test</title>") != std::string::npos);
     CHECK(html.find("{{") == std::string::npos);
     // The blocks: base64 round trip back to the exact bytes of the player and of the pack.
-    const auto wasm = inline_block(html, "fa-wasm"), js = inline_block(html, "fa-js"), pak = inline_block(html, "fa-pak"), notices = inline_block(html, "fa-notices");
+    const auto wasm = inline_block(html, "fa-wasm"), js = inline_block(html, "fa-js"),
+               pak = inline_block(html, "fa-pak"), notices = inline_block(html, "fa-notices");
     REQUIRE(wasm.has_value());
     REQUIRE(js.has_value());
     REQUIRE(pak.has_value());
     REQUIRE(notices.has_value());
     CHECK(decoded(*wasm) == fake_wasm(build_fingerprint()));
     CHECK(decoded(*js) == "// fake emscripten glue\n");
-    CHECK(wasm->find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") == std::string::npos);  // nothing that could end a script block
+    CHECK(wasm->find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") ==
+          std::string::npos);  // nothing that could end a script block
     CHECK(notices->find("</script") == std::string::npos);
     const std::string packBytes = decoded(*pak);
     REQUIRE(packBytes.size() > 16);
@@ -590,7 +610,8 @@ TEST_CASE("export web singleFile: a player that needs threads cannot run from a 
     const std::string proj = make_project(tmp);
     ExportOptions o = single_options(tmp, proj);
     o.allowPlayerMismatch = true;  // the stand-in wasm has no build fingerprint
-    testing::write_all(stdfs::path(o.playerBinary) / "factoria_player.wasm", wasm_with_memory(3));  // shared memory with a maximum
+    testing::write_all(stdfs::path(o.playerBinary) / "factoria_player.wasm",
+                       wasm_with_memory(3));  // shared memory with a maximum
     auto r = export_project(o);
     REQUIRE_FALSE(r.ok());
     CHECK(r.error().message.find("threads") != std::string::npos);
@@ -625,18 +646,33 @@ TEST_CASE("export web singleFile: the command refuses contradictions before it b
     };
     CHECK(err_of(Json::object({{"platform", "linux"}, {"singleFile", true}})).find("/singleFile") != std::string::npos);
     CHECK(err_of(Json::object({{"singleFile", true}})).find("/platform") != std::string::npos);
-    CHECK(err_of(Json::object({{"platform", "web"}, {"singleFileMaxMb", 10}})).find("/singleFileMaxMb") != std::string::npos);
-    CHECK_FALSE(reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 0}})).ok);
-    CHECK_FALSE(reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 100000}})).ok);
-    CHECK_FALSE(reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 256.5}})).ok);  // over the 256 a browser holds
-    CHECK_FALSE(reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 0.9}})).ok);
+    CHECK(err_of(Json::object({{"platform", "web"}, {"singleFileMaxMb", 10}})).find("/singleFileMaxMb") !=
+          std::string::npos);
+    CHECK_FALSE(
+        reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 0}}))
+            .ok);
+    CHECK_FALSE(reg.call("project.export",
+                         Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 100000}}))
+                    .ok);
+    CHECK_FALSE(reg.call("project.export",
+                         Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 256.5}}))
+                    .ok);  // over the 256 a browser holds
+    CHECK_FALSE(
+        reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 0.9}}))
+            .ok);
     {  // a fraction of a megabyte is a number like any other
-        auto frac = reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"singleFileMaxMb", 1.5}, {"player", fake_player(tmp)}, {"dryRun", true}}));
+        auto frac = reg.call("project.export", Json::object({{"platform", "web"},
+                                                             {"singleFile", true},
+                                                             {"singleFileMaxMb", 1.5},
+                                                             {"player", fake_player(tmp)},
+                                                             {"dryRun", true}}));
         CHECK_MESSAGE(frac.ok, frac.error.dump());
     }
     CHECK_FALSE(stdfs::exists(stdfs::path(proj) / "build" / "export"));
 
-    auto dry = reg.call("project.export", Json::object({{"platform", "web"}, {"singleFile", true}, {"player", player}, {"dryRun", true}}));
+    auto dry =
+        reg.call("project.export",
+                 Json::object({{"platform", "web"}, {"singleFile", true}, {"player", player}, {"dryRun", true}}));
     REQUIRE_MESSAGE(dry.ok, dry.error.dump());
     CHECK(dry.result["format"].get<std::string>() == "html");
     CHECK(dry.result["artifact"].get<std::string>().find("web-test.html") != std::string::npos);

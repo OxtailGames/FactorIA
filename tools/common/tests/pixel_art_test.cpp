@@ -24,7 +24,11 @@ std::string draw(const std::vector<PixelPoint>& pts, int w, int h) {
 
 PixelPalette sample_palette() {
     PixelPalette p;
-    p.entries = {{"outline", {0x1a, 0x1c, 0x2c}}, {"skin-dark", {0xb0, 0x6a, 0x40}}, {"skin", {0xe0, 0xa0, 0x70}}, {"skin-light", {0xf8, 0xd0, 0xa8}}, {"sky", {0x38, 0xb7, 0x64}}};
+    p.entries = {{"outline", {0x1a, 0x1c, 0x2c}},
+                 {"skin-dark", {0xb0, 0x6a, 0x40}},
+                 {"skin", {0xe0, 0xa0, 0x70}},
+                 {"skin-light", {0xf8, 0xd0, 0xa8}},
+                 {"sky", {0x38, 0xb7, 0x64}}};
     return p;
 }
 
@@ -32,11 +36,19 @@ constexpr const char* kDoc = "assets/art/p.image.json";
 constexpr const char* kPng = "assets/art/p.png";
 
 Json palette_json() {
-    return Json::array({{{"name", "outline"}, {"color", "#1a1c2c"}}, {{"name", "skin-dark"}, {"color", "#b06a40"}}, {{"name", "skin"}, {"color", "#e0a070"}}, {{"name", "skin-light"}, {"color", "#f8d0a8"}}, {{"name", "sky"}, {"color", "#38b764"}}});
+    return Json::array({{{"name", "outline"}, {"color", "#1a1c2c"}},
+                        {{"name", "skin-dark"}, {"color", "#b06a40"}},
+                        {{"name", "skin"}, {"color", "#e0a070"}},
+                        {{"name", "skin-light"}, {"color", "#f8d0a8"}},
+                        {{"name", "sky"}, {"color", "#38b764"}}});
 }
 
 void make_doc(const AssetsProject& p, int w = 16, int h = 16) {
-    p.ok("image.create", {{"path", kDoc}, {"width", w}, {"height", h}, {"palette", palette_json()}, {"ramps", Json::array({Json::array({"skin-dark", "skin", "skin-light"})})}});
+    p.ok("image.create", {{"path", kDoc},
+                          {"width", w},
+                          {"height", h},
+                          {"palette", palette_json()},
+                          {"ramps", Json::array({Json::array({"skin-dark", "skin", "skin-light"})})}});
 }
 
 Json read_doc(const AssetsProject& p) { return parse_json(read_all(p.file(kDoc)), kDoc).value(); }
@@ -49,7 +61,9 @@ std::string rows_text(const Json& layer) {
     return out;
 }
 
-std::string error_of(const CommandResult& r) { return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string()); }
+std::string error_of(const CommandResult& r) {
+    return r.error["message"].get<std::string>() + " " + r.error.value("hint", std::string());
+}
 
 }  // namespace
 
@@ -70,7 +84,7 @@ TEST_CASE("pixel_perfect removes the L corners of a bending line") {
     const auto chain = pixel_polyline({{0, 0}, {3, 0}, {3, 3}}, false);
     const auto perfect = pixel_polyline({{0, 0}, {3, 0}, {3, 3}}, true);
     CHECK(chain.size() == 7);
-    CHECK(perfect.size() == 6);   // the corner pixel (3,0) touches both neighbours diagonally: dropped
+    CHECK(perfect.size() == 6);  // the corner pixel (3,0) touches both neighbours diagonally: dropped
     // a staircase has L-corners
     const std::vector<PixelPoint> stairs = {{0, 0}, {1, 0}, {1, 1}, {2, 1}, {2, 2}};
     const auto fixed = pixel_perfect(stairs);
@@ -102,8 +116,8 @@ TEST_CASE("pixel_ellipse: symmetric, inside its box, filled covers the outline")
             CHECK(p.x < 3 + w);
             CHECK(p.y >= 2);
             CHECK(p.y < 2 + h);
-            CHECK(f.count({3 + (3 + w - 1) - p.x, p.y}) == 1);   // mirrored left-right
-            CHECK(f.count({p.x, 2 + (2 + h - 1) - p.y}) == 1);   // mirrored top-bottom
+            CHECK(f.count({3 + (3 + w - 1) - p.x, p.y}) == 1);  // mirrored left-right
+            CHECK(f.count({p.x, 2 + (2 + h - 1) - p.y}) == 1);  // mirrored top-bottom
         }
         for (const PixelPoint& p : o) CHECK(f.count(p) == 1);
     }
@@ -130,7 +144,7 @@ TEST_CASE("pixel_polygon: outline and even-odd fill") {
 
 TEST_CASE("pixel_flood: 4 and 8 connectivity") {
     IndexGrid g(5, 5);
-    for (int i = 0; i < 5; ++i) g.set(i, i, 1);   // a diagonal wall of index 1
+    for (int i = 0; i < 5; ++i) g.set(i, i, 1);  // a diagonal wall of index 1
     // 4-connected fill from the lower-left stays below the diagonal
     const auto four = pixel_flood(g, 0, 4, false);
     const auto eight = pixel_flood(g, 0, 4, true);
@@ -141,8 +155,8 @@ TEST_CASE("pixel_flood: 4 and 8 connectivity") {
     h.set(0, 1, 1);
     h.set(2, 1, 1);
     h.set(1, 2, 1);
-    CHECK(pixel_flood(h, 1, 1, false).size() == 1);   // the centre is cut off for 4 neighbours
-    CHECK(pixel_flood(h, 0, 0, true).size() == 5);    // 8 neighbours reach the other corners across the diagonals
+    CHECK(pixel_flood(h, 1, 1, false).size() == 1);  // the centre is cut off for 4 neighbours
+    CHECK(pixel_flood(h, 0, 0, true).size() == 5);   // 8 neighbours reach the other corners across the diagonals
     CHECK(pixel_flood(h, 9, 9, false).empty());
     CHECK(pixel_flood(h, 0, 0, false).size() == 1);
 }
@@ -191,7 +205,7 @@ TEST_CASE("ramps: a declared ramp is followed, otherwise the step is derived by 
     pal.ramps = {{1, 2, 3}};
     CHECK(pal.step(2, -1) == 1);
     CHECK(pal.step(2, 1) == 3);
-    CHECK(pal.step(1, -1) == 1);    // stops at the end
+    CHECK(pal.step(1, -1) == 1);  // stops at the end
     CHECK(pal.step(1, 5) == 3);
     CHECK(pal.step(1, 0) == 1);
     CHECK(pal.ramp_of(3)->second == 2);
@@ -200,7 +214,7 @@ TEST_CASE("ramps: a declared ramp is followed, otherwise the step is derived by 
     PixelPalette plain = sample_palette();
     CHECK(plain.step(2, -1) == 1);
     CHECK(plain.step(2, 1) == 3);
-    CHECK(plain.step(0, -1) == 0);   // the darkest has no darker one
+    CHECK(plain.step(0, -1) == 0);  // the darkest has no darker one
     // deterministic
     CHECK(plain.step(4, 1) == plain.step(4, 1));
 }
@@ -208,10 +222,16 @@ TEST_CASE("ramps: a declared ramp is followed, otherwise the step is derived by 
 TEST_CASE("an indexed layer bakes through the compositor and rejects bad rows with a pointer") {
     AssetsProject p;
     make_doc(p);
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "sprite"}, {"create", true}, {"pixels", Json::array({Json::array({3, 4, "skin"}), Json::array({4, 4, 0})})}});
+    p.ok("image.pixel", {{"path", kDoc},
+                         {"layer", "sprite"},
+                         {"create", true},
+                         {"pixels", Json::array({Json::array({3, 4, "skin"}), Json::array({4, 4, 0})})}});
     const Image img = read_png(p.file(kPng));
     REQUIRE(img.width == 16);
-    auto px = [&](int x, int y) { return Rgba{img.rgba[(y * 16 + x) * 4], img.rgba[(y * 16 + x) * 4 + 1], img.rgba[(y * 16 + x) * 4 + 2], img.rgba[(y * 16 + x) * 4 + 3]}; };
+    auto px = [&](int x, int y) {
+        return Rgba{img.rgba[(y * 16 + x) * 4], img.rgba[(y * 16 + x) * 4 + 1], img.rgba[(y * 16 + x) * 4 + 2],
+                    img.rgba[(y * 16 + x) * 4 + 3]};
+    };
     CHECK(px(3, 4).r == 0xe0);
     CHECK(px(3, 4).g == 0xa0);
     CHECK(px(3, 4).a == 255);
@@ -233,17 +253,25 @@ TEST_CASE("an indexed layer bakes through the compositor and rejects bad rows wi
 TEST_CASE("image.pixel: pixels, runs, stamp, relative steps, regions") {
     AssetsProject p;
     make_doc(p, 8, 4);
-    Json r = p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, "skin"})})},
+    Json r = p.ok("image.pixel", {{"path", kDoc},
+                                  {"layer", "s"},
+                                  {"create", true},
+                                  {"pixels", Json::array({Json::array({0, 0, "skin"})})},
                                   {"runs", Json::array({Json::array({2, 1, 4, "outline"})})},
                                   {"stamp", {{"x", 5}, {"y", 2}, {"rows", Json::array({"12", "3."})}}}});
     CHECK(r["pixelsSet"] == 4 + 1 + 3);
     CHECK(r["changed"] == true);
     CHECK(rows_text(layer0(p)) == "2.......\n..0000..\n.....12.\n.....3..\n");
     // relative step: one darker, on the pixel as it is
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"pixels", Json::array({Json::array({0, 0, {{"step", -1}}}), Json::array({1, 0, {{"step", -1}}})})}});
+    p.ok("image.pixel",
+         {{"path", kDoc},
+          {"layer", "s"},
+          {"pixels", Json::array({Json::array({0, 0, {{"step", -1}}}), Json::array({1, 0, {{"step", -1}}})})}});
     CHECK(rows_text(layer0(p)).substr(0, 8) == "1.......");
     // {"color": "skin", "step": 1} is skin-light
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"pixels", Json::array({Json::array({7, 3, {{"color", "skin"}, {"step", 1}}})})}});
+    p.ok("image.pixel", {{"path", kDoc},
+                         {"layer", "s"},
+                         {"pixels", Json::array({Json::array({7, 3, {{"color", "skin"}, {"step", 1}}})})}});
     CHECK(rows_text(layer0(p)).back() == '\n');
     CHECK(rows_text(layer0(p)).find(".....3.3") != std::string::npos);
     // erase with null
@@ -251,29 +279,35 @@ TEST_CASE("image.pixel: pixels, runs, stamp, relative steps, regions") {
     CHECK(rows_text(layer0(p)).find("..") != std::string::npos);
     CHECK(layer0(p)["rows"][1] == "...000..");
     // pixels outside are dropped and reported
-    Json out = p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"pixels", Json::array({Json::array({99, 0, 1})})}});
+    Json out =
+        p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"pixels", Json::array({Json::array({99, 0, 1})})}});
     CHECK(has_warning(out, "outside"));
 }
 
 TEST_CASE("image.pixel teaches: colour outside the palette, unknown name, wrong layer kind, missing layer") {
     AssetsProject p;
     make_doc(p);
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
-    auto off = p.call("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"pixels", Json::array({Json::array({0, 0, "#e0a071"})})}});
+    p.ok("image.pixel",
+         {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
+    auto off = p.call("image.pixel",
+                      {{"path", kDoc}, {"layer", "s"}, {"pixels", Json::array({Json::array({0, 0, "#e0a071"})})}});
     REQUIRE_FALSE(off.ok);
     CHECK(error_of(off).find("/pixels/0/2") != std::string::npos);
     CHECK(error_of(off).find("skin") != std::string::npos);
-    auto typo = p.call("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"pixels", Json::array({Json::array({0, 0, "skn"})})}});
+    auto typo =
+        p.call("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"pixels", Json::array({Json::array({0, 0, "skn"})})}});
     REQUIRE_FALSE(typo.ok);
     CHECK(error_of(typo).find("skin") != std::string::npos);
-    auto gone = p.call("image.pixel", {{"path", kDoc}, {"layer", "nope"}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
+    auto gone =
+        p.call("image.pixel", {{"path", kDoc}, {"layer", "nope"}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
     REQUIRE_FALSE(gone.ok);
     CHECK(error_of(gone).find("create") != std::string::npos);
     auto badKey = p.call("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"pixel", Json::array()}});
     REQUIRE_FALSE(badKey.ok);
     CHECK(error_of(badKey).find("pixels") != std::string::npos);
     p.ok("image.layer.add", {{"path", kDoc}, {"layer", {{"kind", "fill"}, {"name", "bg"}, {"color", "#000000"}}}});
-    auto wrong = p.call("image.pixel", {{"path", kDoc}, {"layer", "bg"}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
+    auto wrong =
+        p.call("image.pixel", {{"path", kDoc}, {"layer", "bg"}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
     REQUIRE_FALSE(wrong.ok);
     CHECK(error_of(wrong).find("not an indexed one") != std::string::npos);
     // the failed calls left the document as it was
@@ -283,8 +317,13 @@ TEST_CASE("image.pixel teaches: colour outside the palette, unknown name, wrong 
 TEST_CASE("image.paint and image.edit refuse an indexed layer instead of anti-aliasing it") {
     AssetsProject p;
     make_doc(p);
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
-    auto paint = p.call("image.paint", {{"path", kDoc}, {"layer", "s"}, {"strokes", Json::array({{{"points", Json::array({Json::array({1, 1}), Json::array({8, 8})})}, {"color", "#ffffff"}}})}});
+    p.ok("image.pixel",
+         {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, 1})})}});
+    auto paint = p.call("image.paint",
+                        {{"path", kDoc},
+                         {"layer", "s"},
+                         {"strokes", Json::array({{{"points", Json::array({Json::array({1, 1}), Json::array({8, 8})})},
+                                                   {"color", "#ffffff"}}})}});
     REQUIRE_FALSE(paint.ok);
     CHECK(error_of(paint).find("indexed") != std::string::npos);
     CHECK(error_of(paint).find("image.draw") != std::string::npos);
@@ -293,28 +332,56 @@ TEST_CASE("image.paint and image.edit refuse an indexed layer instead of anti-al
 TEST_CASE("image.draw: a 16x16 sprite, shape by shape") {
     AssetsProject p;
     make_doc(p);
-    Json r = p.ok("image.draw", {{"path", kDoc}, {"layer", "sprite"}, {"create", true},
-                                 {"shapes", Json::array({{{"type", "ellipse"}, {"x", 2}, {"y", 2}, {"width", 12}, {"height", 12}, {"fill", "skin"}, {"color", "outline"}},
-                                                        {{"type", "rect"}, {"x", 5}, {"y", 5}, {"width", 2}, {"height", 2}, {"fill", "outline"}},
-                                                        {{"type", "line"}, {"points", Json::array({Json::array({5, 10}), Json::array({8, 12}), Json::array({11, 10})})}, {"color", "outline"}, {"perfect", true}},
-                                                        {{"type", "fill"}, {"at", Json::array({8, 8})}, {"color", "skin-light"}}})}});
+    Json r = p.ok(
+        "image.draw",
+        {{"path", kDoc},
+         {"layer", "sprite"},
+         {"create", true},
+         {"shapes",
+          Json::array({{{"type", "ellipse"},
+                        {"x", 2},
+                        {"y", 2},
+                        {"width", 12},
+                        {"height", 12},
+                        {"fill", "skin"},
+                        {"color", "outline"}},
+                       {{"type", "rect"}, {"x", 5}, {"y", 5}, {"width", 2}, {"height", 2}, {"fill", "outline"}},
+                       {{"type", "line"},
+                        {"points", Json::array({Json::array({5, 10}), Json::array({8, 12}), Json::array({11, 10})})},
+                        {"color", "outline"},
+                        {"perfect", true}},
+                       {{"type", "fill"}, {"at", Json::array({8, 8})}, {"color", "skin-light"}}})}});
     CHECK(r["region"]["width"].get<int>() > 0);
     CHECK(r["pixelsSet"].get<int>() > 50);
     CHECK(r.contains("$image"));
     const Json layer = layer0(p);
     CHECK(layer["rows"].size() == 16);
     const std::string text = rows_text(layer);
-    CHECK(text.find('3') != std::string::npos);   // flood filled
+    CHECK(text.find('3') != std::string::npos);  // flood filled
     CHECK(layer["rows"][5].get<std::string>().substr(5, 2) == "00");
     // flood fill is bounded by the outline: the corner stays transparent
     CHECK(layer["rows"][0].get<std::string>()[0] == '.');
     // the same commands on a fresh project give the same bytes
     AssetsProject q;
     make_doc(q);
-    q.ok("image.draw", {{"path", kDoc}, {"layer", "sprite"}, {"create", true}, {"shapes", Json::array({{{"type", "ellipse"}, {"x", 2}, {"y", 2}, {"width", 12}, {"height", 12}, {"fill", "skin"}, {"color", "outline"}},
-                                                                                                        {{"type", "rect"}, {"x", 5}, {"y", 5}, {"width", 2}, {"height", 2}, {"fill", "outline"}},
-                                                                                                        {{"type", "line"}, {"points", Json::array({Json::array({5, 10}), Json::array({8, 12}), Json::array({11, 10})})}, {"color", "outline"}, {"perfect", true}},
-                                                                                                        {{"type", "fill"}, {"at", Json::array({8, 8})}, {"color", "skin-light"}}})}});
+    q.ok("image.draw",
+         {{"path", kDoc},
+          {"layer", "sprite"},
+          {"create", true},
+          {"shapes",
+           Json::array({{{"type", "ellipse"},
+                         {"x", 2},
+                         {"y", 2},
+                         {"width", 12},
+                         {"height", 12},
+                         {"fill", "skin"},
+                         {"color", "outline"}},
+                        {{"type", "rect"}, {"x", 5}, {"y", 5}, {"width", 2}, {"height", 2}, {"fill", "outline"}},
+                        {{"type", "line"},
+                         {"points", Json::array({Json::array({5, 10}), Json::array({8, 12}), Json::array({11, 10})})},
+                         {"color", "outline"},
+                         {"perfect", true}},
+                        {{"type", "fill"}, {"at", Json::array({8, 8})}, {"color", "skin-light"}}})}});
     CHECK(read_all(p.file(kPng)) == read_all(q.file(kPng)));
     CHECK(read_all(p.file(kDoc)) == read_all(q.file(kDoc)));
 }
@@ -322,7 +389,10 @@ TEST_CASE("image.draw: a 16x16 sprite, shape by shape") {
 TEST_CASE("image.draw teaches: unknown shape, missing field, fill outside, bad connectivity") {
     AssetsProject p;
     make_doc(p);
-    auto call = [&](Json shape) { return p.call("image.draw", {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"shapes", Json::array({std::move(shape)})}}); };
+    auto call = [&](Json shape) {
+        return p.call("image.draw",
+                      {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"shapes", Json::array({std::move(shape)})}});
+    };
     auto bad = call({{"type", "elipse"}, {"x", 0}});
     REQUIRE_FALSE(bad.ok);
     CHECK(error_of(bad).find("ellipse") != std::string::npos);
@@ -336,10 +406,12 @@ TEST_CASE("image.draw teaches: unknown shape, missing field, fill outside, bad c
     auto conn = call({{"type", "fill"}, {"at", Json::array({1, 1})}, {"color", 1}, {"connectivity", 6}});
     REQUIRE_FALSE(conn.ok);
     CHECK(error_of(conn).find("4") != std::string::npos);
-    auto frac = call({{"type", "line"}, {"points", Json::array({Json::array({0.5, 0}), Json::array({4, 4})})}, {"color", 0}});
+    auto frac =
+        call({{"type", "line"}, {"points", Json::array({Json::array({0.5, 0}), Json::array({4, 4})})}, {"color", 0}});
     REQUIRE_FALSE(frac.ok);
     CHECK(error_of(frac).find("/points/0/0") != std::string::npos);
-    auto colour = call({{"type", "line"}, {"points", Json::array({Json::array({0, 0}), Json::array({4, 4})})}, {"color", "#123456"}});
+    auto colour = call(
+        {{"type", "line"}, {"points", Json::array({Json::array({0, 0}), Json::array({4, 4})})}, {"color", "#123456"}});
     REQUIRE_FALSE(colour.ok);
     CHECK(error_of(colour).find("nearest") != std::string::npos);
 }
@@ -349,10 +421,13 @@ TEST_CASE("image.draw fills 4-connected by default and 8-connected on request") 
     make_doc(p, 5, 5);
     // a diagonal wall splits a 5x5 canvas
     Json diag = Json::array();
-    for (int i = 0; i < 5; ++i) diag.push_back({{"type", "rect"}, {"x", i}, {"y", i}, {"width", 1}, {"height", 1}, {"color", "outline"}});
+    for (int i = 0; i < 5; ++i)
+        diag.push_back({{"type", "rect"}, {"x", i}, {"y", i}, {"width", 1}, {"height", 1}, {"color", "outline"}});
     p.ok("image.draw", {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"shapes", diag}});
     // transparent pixels on both sides: 4-connected fills only one side
-    p.ok("image.draw", {{"path", kDoc}, {"layer", "s"}, {"shapes", Json::array({{{"type", "fill"}, {"at", Json::array({0, 4})}, {"color", "sky"}}})}});
+    p.ok("image.draw", {{"path", kDoc},
+                        {"layer", "s"},
+                        {"shapes", Json::array({{{"type", "fill"}, {"at", Json::array({0, 4})}, {"color", "sky"}}})}});
     const std::string t = rows_text(layer0(p));
     CHECK(t == "0....\n40...\n440..\n4440.\n44440\n");
 }
@@ -360,7 +435,10 @@ TEST_CASE("image.draw fills 4-connected by default and 8-connected on request") 
 TEST_CASE("image.palette reads, replaces and reports usage") {
     AssetsProject p;
     make_doc(p);
-    p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, 2}), Json::array({1, 0, 2})})}});
+    p.ok("image.pixel", {{"path", kDoc},
+                         {"layer", "s"},
+                         {"create", true},
+                         {"pixels", Json::array({Json::array({0, 0, 2}), Json::array({1, 0, 2})})}});
     Json info = p.ok("image.palette", {{"path", kDoc}});
     CHECK(info["palette"]["source"] == "document");
     CHECK(info["palette"]["colors"].size() == 5);
@@ -368,7 +446,9 @@ TEST_CASE("image.palette reads, replaces and reports usage") {
     CHECK(info["palette"]["colors"][2]["shade"] == "skin-dark");
     CHECK(info["palette"]["colors"][2]["light"] == "skin-light");
     CHECK(info["palette"]["colors"][2]["char"] == "2");
-    Json changed = p.ok("image.palette", {{"path", kDoc}, {"palette", Json::array({"#000000", "#ffffff", "#ff0000"})}, {"ramps", nullptr}});
+    Json changed =
+        p.ok("image.palette",
+             {{"path", kDoc}, {"palette", Json::array({"#000000", "#ffffff", "#ff0000"})}, {"ramps", nullptr}});
     CHECK(has_warning(changed, "INDEX"));
     const Image img = read_png(p.file(kPng));
     CHECK(img.rgba[0] == 255);
@@ -383,12 +463,15 @@ TEST_CASE("image.palette reads, replaces and reports usage") {
 
 TEST_CASE("the style palette is the default and is copied into the document on first use") {
     AssetsProject p;
-    write_all(p.file("assets.json"), Json({{"style", {{"palette", Json::array({"#102030", "#405060", "#a0b0c0"})}}}}).dump(2));
+    write_all(p.file("assets.json"),
+              Json({{"style", {{"palette", Json::array({"#102030", "#405060", "#a0b0c0"})}}}}).dump(2));
     p.ok("image.create", {{"path", kDoc}, {"width", 4}, {"height", 4}});
     Json info = p.ok("image.palette", {{"path", kDoc}});
     CHECK(info["palette"]["source"] == "style");
     CHECK(info["palette"]["colors"].size() == 3);
-    Json r = p.ok("image.pixel", {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, 2})})}});
+    Json r =
+        p.ok("image.pixel",
+             {{"path", kDoc}, {"layer", "s"}, {"create", true}, {"pixels", Json::array({Json::array({0, 0, 2})})}});
     CHECK(r.contains("palettePinned"));
     CHECK(read_doc(p)["palette"].size() == 3);
 }
@@ -396,7 +479,11 @@ TEST_CASE("the style palette is the default and is copied into the document on f
 TEST_CASE("image.layer.convert: pixels -> indexed -> pixels") {
     AssetsProject p;
     make_doc(p, 8, 8);
-    p.ok("image.layer.add", {{"path", kDoc}, {"layer", {{"kind", "fill"}, {"name", "box"}, {"color", "#e0a070"}, {"x", 2}, {"y", 2}, {"width", 3}, {"height", 3}}}});
+    p.ok(
+        "image.layer.add",
+        {{"path", kDoc},
+         {"layer",
+          {{"kind", "fill"}, {"name", "box"}, {"color", "#e0a070"}, {"x", 2}, {"y", 2}, {"width", 3}, {"height", 3}}}});
     Json r = p.ok("image.layer.convert", {{"path", kDoc}, {"layer", "box"}, {"to", "indexed"}});
     CHECK(r["colorsUsed"] == 1);
     Json layer = layer0(p);
@@ -422,7 +509,15 @@ TEST_CASE("image.layer.convert quantizes a gradient to the palette, with and wit
     auto run = [](const char* dither) {
         AssetsProject p;
         make_doc(p, 8, 4);
-        p.ok("image.layer.add", {{"path", kDoc}, {"layer", {{"kind", "gradient"}, {"name", "g"}, {"gradient", {{"type", "linear"}, {"angle", 90}, {"stops", Json::array({{{"at", 0}, {"color", "#1a1c2c"}}, {{"at", 1}, {"color", "#f8d0a8"}}})}}}}}});
+        p.ok("image.layer.add",
+             {{"path", kDoc},
+              {"layer",
+               {{"kind", "gradient"},
+                {"name", "g"},
+                {"gradient",
+                 {{"type", "linear"},
+                  {"angle", 90},
+                  {"stops", Json::array({{{"at", 0}, {"color", "#1a1c2c"}}, {{"at", 1}, {"color", "#f8d0a8"}}})}}}}}});
         p.ok("image.layer.convert", {{"path", kDoc}, {"layer", "g"}, {"to", "indexed"}, {"dither", dither}});
         return rows_text(layer0(p));
     };

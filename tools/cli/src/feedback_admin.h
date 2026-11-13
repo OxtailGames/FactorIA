@@ -24,8 +24,9 @@ using FeedbackModel = std::function<Result<std::string>(const std::string& syste
 struct FeedbackAdminEnv {
     ai::EnvLookup env = ai::system_env();  // HOME / APPDATA / FACTORIA_AI_CONFIG / API keys
     ai::HttpTransport transport;           // empty = ai::http_request
-    FeedbackModel model;                   // empty = the model of the "fast" role of the user's ai.json, or the orchestrator when it is off (make_ai_feedback_model)
-    std::function<std::string()> today;    // "YYYY-MM-DD" (UTC); empty = the clock
+    FeedbackModel
+        model;  // empty = the model of the "fast" role of the user's ai.json, or the orchestrator when it is off (make_ai_feedback_model)
+    std::function<std::string()> today;  // "YYYY-MM-DD" (UTC); empty = the clock
 };
 FeedbackAdminEnv& feedback_admin_env();  // process-wide, used by the commands
 std::string feedback_admin_today(const FeedbackAdminEnv& e);
@@ -39,9 +40,9 @@ struct FeedbackAdminConfig {
     std::string adminToken;
     std::string cursor;
 };
-std::string user_config_dir(const ai::EnvLookup& env);          // the folder of the user's ai.json
+std::string user_config_dir(const ai::EnvLookup& env);             // the folder of the user's ai.json
 std::string feedback_admin_config_path(const ai::EnvLookup& env);  // <folder>/feedback-admin.json
-std::string default_feedback_inbox(const ai::EnvLookup& env);   // <folder>/feedback-inbox
+std::string default_feedback_inbox(const ai::EnvLookup& env);      // <folder>/feedback-inbox
 Result<FeedbackAdminConfig> load_feedback_admin_config(const std::string& path);
 // Writes the cursor and keeps every other key of the file (owner-only permissions on Linux and macOS).
 Result<void> save_feedback_admin_cursor(const std::string& path, const std::string& cursor);
@@ -72,8 +73,8 @@ Result<FeedbackModel> make_ai_feedback_model(const FeedbackAdminEnv& e);
 // ---- pull ------------------------------------------------------------------------------------------------------------
 enum class ClassifyMode { Auto, On, Off };
 struct PullOptions {
-    std::string out;               // inbox folder; empty = default_feedback_inbox
-    bool outExplicit = false;      // --out was given: the inbox may be inside a git checkout
+    std::string out;           // inbox folder; empty = default_feedback_inbox
+    bool outExplicit = false;  // --out was given: the inbox may be inside a git checkout
     ClassifyMode classify = ClassifyMode::Auto;
     // Ignore the saved cursor and read everything from the start. The server keeps a report that merges (the same gap reported
     // again) at its place in the arrival order and only raises its `occurrences`, so an incremental pull never sees the new
@@ -85,11 +86,11 @@ struct PullOptions {
 struct PullSummary {
     std::string inbox;
     int pages = 0;
-    int fetched = 0;      // reports the server sent
-    int added = 0;        // new entries in an installation's file
-    int updated = 0;      // known entries whose occurrences went up
-    int known = 0;        // known and unchanged (also those in the archive and the quarantine)
-    int invalid = 0;      // reports this version could not read (the reasons are in `warnings`)
+    int fetched = 0;  // reports the server sent
+    int added = 0;    // new entries in an installation's file
+    int updated = 0;  // known entries whose occurrences went up
+    int known = 0;    // known and unchanged (also those in the archive and the quarantine)
+    int invalid = 0;  // reports this version could not read (the reasons are in `warnings`)
     int valid = 0, doubtful = 0, junk = 0, unclassified = 0;
     // New reports whose claim of a missing feature fails the check (the engine has it): each is marked `suggestedRejection` in the
     // inbox. [{shareId, id, installKey, title, reason}]. Confirm with `feedback reject --suggested`, drop with `feedback keep`.
@@ -97,11 +98,11 @@ struct PullSummary {
     // The efficiency entries of the whole inbox ranked by what fixing them would save across installations, each with its verdict
     // and a ready reason for `feedback reject` (rank_efficiency, fa/tooling/efficiency.h); [] when the inbox has none.
     Json efficiency = Json::array();
-    int alreadyRejected = 0;  // reports the server already carries a rejection for (imported as rejected entries)
+    int alreadyRejected = 0;     // reports the server already carries a rejection for (imported as rejected entries)
     std::string classification;  // what happened: "5 valid, 1 doubtful, 2 junk" or why it was skipped
     std::vector<std::string> installations;  // installKeys that got a file written
     std::vector<std::string> warnings;
-    std::string cursor;           // the saved cursor
+    std::string cursor;  // the saved cursor
     Json to_json() const;
 };
 Result<PullSummary> feedback_pull(const PullOptions& options, const FeedbackAdminEnv& e);
@@ -117,7 +118,8 @@ Result<int> quarantine_clear(const std::string& inbox);  // the number of items 
 enum class KeyKind { Unknown, Install, Reporter };
 // Decides what `key` is: "install:KEY" / "reporter:KEY", the shareId of a report in the inbox (its installation), a folder
 // of the inbox (an installation). Anything else is ambiguous: an Error that says to pass --install or --reporter.
-Result<std::pair<KeyKind, std::string>> resolve_ban_key(const std::string& key, KeyKind forced, const std::string& inbox);
+Result<std::pair<KeyKind, std::string>> resolve_ban_key(const std::string& key, KeyKind forced,
+                                                        const std::string& inbox);
 // Removes the entry with this shareId from the inbox (files and quarantine); the number removed.
 int remove_local_report(const std::string& inbox, const std::string& shareId);
 
@@ -141,11 +143,11 @@ struct VerdictOutcome {
 };
 // Rejects on the server (batches of 50) and marks the entries in the inbox (status rejected, statusBy developer, the reason; a
 // quarantined item gets its `rejection`). Entries the server could not find are left alone.
-Result<VerdictOutcome> feedback_reject_reports(const FeedbackAdminConfig& cfg, const ai::HttpTransport& transport, const std::string& inbox,
-                                               const std::vector<RejectItem>& items);
+Result<VerdictOutcome> feedback_reject_reports(const FeedbackAdminConfig& cfg, const ai::HttpTransport& transport,
+                                               const std::string& inbox, const std::vector<RejectItem>& items);
 // Takes the rejection back on the server; the inbox entries are open again.
-Result<VerdictOutcome> feedback_unreject_reports(const FeedbackAdminConfig& cfg, const ai::HttpTransport& transport, const std::string& inbox,
-                                                 const std::vector<std::string>& shareIds);
+Result<VerdictOutcome> feedback_unreject_reports(const FeedbackAdminConfig& cfg, const ai::HttpTransport& transport,
+                                                 const std::string& inbox, const std::vector<std::string>& shareIds);
 // Drops the suggestedRejection of the inbox entries (keep them); the number of entries changed.
 Result<int> feedback_keep_reports(const std::string& inbox, const std::vector<std::string>& shareIds);
 

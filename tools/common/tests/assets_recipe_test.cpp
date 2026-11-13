@@ -16,9 +16,8 @@ namespace {
 const char* kSvg =
     "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' width='64' height='64'>"
     "<rect x='0' y='0' width='32' height='32' fill='#ff0000'/><circle cx='44' cy='44' r='12' fill='#0000ff'/></svg>";
-const char* kSvgEdited =
-    "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' width='64' height='64'>"
-    "<rect x='0' y='0' width='64' height='32' fill='#00ff00'/></svg>";
+const char* kSvgEdited = "<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64' width='64' height='64'>"
+                         "<rect x='0' y='0' width='64' height='32' fill='#00ff00'/></svg>";
 
 Json recipe_of_asset(const AssetsProject& p, const std::string& rel) {
     const Json m = p.manifest();
@@ -40,7 +39,9 @@ void regenerates_same_bytes(const AssetsProject& p, const std::string& rel) {
 
 // Writes a provenance record the way assets.set_provenance would (that command lives in fa_ai, not in the tooling tests).
 void set_provenance(const AssetsProject& p, const std::string& rel, const Json& fields) {
-    Json m = std::filesystem::exists(p.file("assets.json")) ? p.manifest() : Json{{"format", "factoria.assets/1"}, {"assets", Json::object()}};
+    Json m = std::filesystem::exists(p.file("assets.json"))
+                 ? p.manifest()
+                 : Json{{"format", "factoria.assets/1"}, {"assets", Json::object()}};
     Json& prov = m["assets"][rel]["provenance"];
     if (!prov.is_object()) prov = Json{{"date", "2026-10-29"}};
     for (const auto& [k, v] : fields.items()) prov[k] = v;
@@ -58,7 +59,8 @@ const ValidationIssue* issue_with(const std::vector<ValidationIssue>& list, cons
 TEST_CASE("recipes: rasterize_svg records its source with a hash, an explicit seed and project paths") {
     AssetsProject p;
     write_all(p.file("assets/art/coin.svg"), kSvg);
-    p.ok("assets.rasterize_svg", {{"path", "assets/art/./coin.png"}, {"source", "assets/art/coin.svg"}, {"width", 64}, {"style", "paper"}});
+    p.ok("assets.rasterize_svg",
+         {{"path", "assets/art/./coin.png"}, {"source", "assets/art/coin.svg"}, {"width", 64}, {"style", "paper"}});
     const Json recipe = recipe_of_asset(p, "assets/art/coin.png");
     CHECK(recipe["command"] == "assets.rasterize_svg");
     CHECK(recipe["args"]["path"] == "assets/art/coin.png");
@@ -72,7 +74,8 @@ TEST_CASE("recipes: rasterize_svg records its source with a hash, an explicit se
 
 TEST_CASE("recipes: an SVG given as text regenerates too (the text is in the args, no input)") {
     AssetsProject p;
-    p.ok("assets.rasterize_svg", {{"path", "assets/art/inline.png"}, {"svg", kSvg}, {"style", "watercolor"}, {"seed", 7}});
+    p.ok("assets.rasterize_svg",
+         {{"path", "assets/art/inline.png"}, {"svg", kSvg}, {"style", "watercolor"}, {"seed", 7}});
     const Json recipe = recipe_of_asset(p, "assets/art/inline.png");
     CHECK_FALSE(recipe.contains("inputs"));
     CHECK(recipe["args"]["seed"] == 7);
@@ -81,7 +84,10 @@ TEST_CASE("recipes: an SVG given as text regenerates too (the text is in the arg
 
 TEST_CASE("recipes: draw_icon, generate_texture, synth_sound and generate_loop regenerate their own bytes") {
     AssetsProject p;
-    p.ok("assets.draw_icon", Json::parse(R"({"background":{"shape":"rounded","color":"#223355"},"layers":[{"type":"circle","x":50,"y":50,"radius":30,"fill":"#ffcc44"}]})"));
+    p.ok(
+        "assets.draw_icon",
+        Json::parse(
+            R"({"background":{"shape":"rounded","color":"#223355"},"layers":[{"type":"circle","x":50,"y":50,"radius":30,"fill":"#ffcc44"}]})"));
     // the icon and its Android foreground are one call: the recipe is the same and records the paths the call chose
     const Json icon = recipe_of_asset(p, "assets/icon.png");
     CHECK(icon["args"]["path"] == "assets/icon.png");
@@ -89,7 +95,8 @@ TEST_CASE("recipes: draw_icon, generate_texture, synth_sound and generate_loop r
     CHECK(recipe_of_asset(p, "assets/icon_fg.png") == icon);
     regenerates_same_bytes(p, "assets/icon.png");
 
-    p.ok("assets.generate_texture", {{"path", "assets/tex/paper.png"}, {"preset", "paper"}, {"width", 64}, {"height", 64}, {"normalMap", true}});
+    p.ok("assets.generate_texture",
+         {{"path", "assets/tex/paper.png"}, {"preset", "paper"}, {"width", 64}, {"height", 64}, {"normalMap", true}});
     CHECK(recipe_of_asset(p, "assets/tex/paper.png")["args"]["seed"] == 0);
     regenerates_same_bytes(p, "assets/tex/paper.png");
     regenerates_same_bytes(p, "assets/tex/paper_n.png");
@@ -99,7 +106,8 @@ TEST_CASE("recipes: draw_icon, generate_texture, synth_sound and generate_loop r
     CHECK(sound["args"]["seconds"].is_number());  // the preset's length, made explicit
     regenerates_same_bytes(p, "assets/audio/coin.wav");
 
-    p.ok("assets.generate_loop", {{"path", "assets/audio/wind.wav"}, {"kind", "noise"}, {"seconds", 2}, {"color", "pink"}});
+    p.ok("assets.generate_loop",
+         {{"path", "assets/audio/wind.wav"}, {"kind", "noise"}, {"seconds", 2}, {"color", "pink"}});
     CHECK(recipe_of_asset(p, "assets/audio/wind.wav")["args"]["sampleRate"] == 22050);
     regenerates_same_bytes(p, "assets/audio/wind.wav");
     p.ok("assets.generate_loop", {{"path", "assets/audio/wind.ogg"}, {"kind", "noise"}, {"seconds", 2}, {"seed", 3}});
@@ -110,7 +118,10 @@ TEST_CASE("recipes: draw_capsules records the key art and the logo, and its file
     AssetsProject p;
     write_png(p.file("store/keyart.png"), make_image(1920, 1080, {120, 20, 20, 255}));
     write_png(p.file("assets/logo.png"), make_image(200, 80, {255, 255, 255, 255}));
-    p.ok("assets.draw_capsules", {{"keyArt", "store/keyart.png"}, {"logo", {{"image", "assets/logo.png"}}}, {"stores", {"itch"}}, {"name", "Demo Game"}});
+    p.ok("assets.draw_capsules", {{"keyArt", "store/keyart.png"},
+                                  {"logo", {{"image", "assets/logo.png"}}},
+                                  {"stores", {"itch"}},
+                                  {"name", "Demo Game"}});
     std::string any;
     const Json manifest = p.manifest();
     for (const auto& [rel, entry] : manifest["assets"].items())
@@ -138,11 +149,13 @@ TEST_CASE("recipes: pack_atlas records its frames, and the atlas regenerates") {
     CHECK(read_all(p.file("data/atlas.json")) == table);
 }
 
-TEST_CASE("recipes: slice_sheet records the source it was cut from; a sheet cut in place or from an unrecorded image has none") {
+TEST_CASE("recipes: slice_sheet records the source it was cut from; a sheet cut in place or from an unrecorded image "
+          "has none") {
     AssetsProject p;
     // a 2x1 grid picture whose cells hold a shape each, made by rasterize_svg (so it has a provenance record)
     p.ok("assets.rasterize_svg", {{"path", "assets/raw.png"}, {"svg", kSvg}, {"width", 64}, {"ai", false}});
-    const Json r = p.ok("assets.slice_sheet", {{"path", "assets/raw.png"}, {"columns", 2}, {"rows", 1}, {"out", "assets/raw_grid.png"}});
+    const Json r = p.ok("assets.slice_sheet",
+                        {{"path", "assets/raw.png"}, {"columns", 2}, {"rows", 1}, {"out", "assets/raw_grid.png"}});
     CHECK(r["written"] == true);
     const Json recipe = recipe_of_asset(p, "assets/raw_grid.png");
     CHECK(recipe["command"] == "assets.slice_sheet");
@@ -158,13 +171,15 @@ TEST_CASE("recipes: slice_sheet records the source it was cut from; a sheet cut 
 
     // an image with no provenance: the sheet gets none and no recipe, and the result says why
     write_png(p.file("assets/plain.png"), make_image(32, 16, {9, 9, 9, 255}));
-    const CommandResult plain = p.call("assets.slice_sheet", {{"path", "assets/plain.png"}, {"columns", 2}, {"out", "assets/plain_sheet.png"}});
+    const CommandResult plain =
+        p.call("assets.slice_sheet", {{"path", "assets/plain.png"}, {"columns", 2}, {"out", "assets/plain_sheet.png"}});
     REQUIRE(plain.ok);
     CHECK(has_warning(plain.result, "no provenance record"));
     CHECK_FALSE(p.manifest()["assets"]["assets/plain_sheet.png"].contains("provenance"));
 
     // output over its own input: the source is gone, so no recipe (and the result says so)
-    const CommandResult inPlace = p.call("assets.slice_sheet", {{"path", "assets/raw_grid.png"}, {"columns", 2}, {"out", "assets/raw_grid.png"}});
+    const CommandResult inPlace =
+        p.call("assets.slice_sheet", {{"path", "assets/raw_grid.png"}, {"columns", 2}, {"out", "assets/raw_grid.png"}});
     REQUIRE(inPlace.ok);
     CHECK(has_warning(inPlace.result, "no recipe was recorded"));
     CHECK_FALSE(p.manifest()["assets"]["assets/raw_grid.png"]["provenance"].contains("recipe"));
@@ -173,8 +188,10 @@ TEST_CASE("recipes: slice_sheet records the source it was cut from; a sheet cut 
 TEST_CASE("assets.regenerate: stale detection, order of dependent assets, and what changed") {
     AssetsProject p;
     write_all(p.file("assets/art/coin.svg"), kSvg);
-    p.ok("assets.rasterize_svg", {{"path", "assets/art/coin.png"}, {"source", "assets/art/coin.svg"}, {"width", 64}, {"ai", false}});
-    p.ok("assets.slice_sheet", {{"path", "assets/art/coin.png"}, {"columns", 2}, {"rows", 2}, {"out", "assets/art/coin_sheet.png"}});
+    p.ok("assets.rasterize_svg",
+         {{"path", "assets/art/coin.png"}, {"source", "assets/art/coin.svg"}, {"width", 64}, {"ai", false}});
+    p.ok("assets.slice_sheet",
+         {{"path", "assets/art/coin.png"}, {"columns", 2}, {"rows", 2}, {"out", "assets/art/coin_sheet.png"}});
 
     Json none = p.ok("assets.regenerate", {{"stale", true}});
     CHECK(none["count"] == 0);
@@ -228,23 +245,27 @@ TEST_CASE("assets.regenerate keeps the style role of the provenance") {
     CHECK(prov.contains("recipe"));
 }
 
-TEST_CASE("assets.draw_icon and assets.generate_texture draw over a file again and keep the style role of its provenance") {
+TEST_CASE(
+    "assets.draw_icon and assets.generate_texture draw over a file again and keep the style role of its provenance") {
     AssetsProject p;
-    const Json icon = Json::parse(R"({"background":{"color":"#223355"},"layers":[{"type":"circle","x":50,"y":50,"radius":30,"fill":"#ffcc44"}]})");
+    const Json icon = Json::parse(
+        R"({"background":{"color":"#223355"},"layers":[{"type":"circle","x":50,"y":50,"radius":30,"fill":"#ffcc44"}]})");
     p.ok("assets.draw_icon", icon);
     set_provenance(p, "assets/icon.png", {{"origin", "original"}, {"role", "icon"}});
     p.ok("assets.draw_icon", icon);
     CHECK(p.manifest()["assets"]["assets/icon.png"]["provenance"]["role"] == "icon");
     CHECK(p.manifest()["assets"]["assets/icon.png"]["provenance"].contains("recipe"));
 
-    const Json tex = {{"path", "assets/tex/paper.png"}, {"preset", "paper"}, {"width", 32}, {"height", 32}, {"normalMap", true}};
+    const Json tex = {
+        {"path", "assets/tex/paper.png"}, {"preset", "paper"}, {"width", 32}, {"height", 32}, {"normalMap", true}};
     p.ok("assets.generate_texture", tex);
     set_provenance(p, "assets/tex/paper.png", {{"origin", "original"}, {"role", "effect"}});
     Json again = tex;
     again["overwrite"] = true;
     p.ok("assets.generate_texture", again);
     CHECK(p.manifest()["assets"]["assets/tex/paper.png"]["provenance"]["role"] == "effect");
-    CHECK_FALSE(p.manifest()["assets"]["assets/tex/paper_n.png"]["provenance"].contains("role"));  // the normal map had none
+    CHECK_FALSE(
+        p.manifest()["assets"]["assets/tex/paper_n.png"]["provenance"].contains("role"));  // the normal map had none
 }
 
 TEST_CASE("assets.regenerate: errors say what to do") {
@@ -264,7 +285,8 @@ TEST_CASE("assets.regenerate: errors say what to do") {
 
     // an asset a provider made
     write_png(p.file("assets/ai.png"), make_image(8, 8, {1, 2, 3, 255}));
-    set_provenance(p, "assets/ai.png", {{"origin", "generated"}, {"ai", true}, {"provider", "openai"}, {"model", "gpt-image-1"}});
+    set_provenance(p, "assets/ai.png",
+                   {{"origin", "generated"}, {"ai", true}, {"provider", "openai"}, {"model", "gpt-image-1"}});
     r = p.call("assets.regenerate", {{"path", "assets/ai.png"}});
     REQUIRE_FALSE(r.ok);
     CHECK(r.error["code"] == "not_regenerable");
@@ -316,7 +338,8 @@ TEST_CASE("recipes: project.validate warns about stale assets and missing inputs
     CommandRegistry registry;
     register_asset_commands(registry, dir);
     write_all(std::filesystem::path(dir) / "assets/art/coin.svg", kSvg);
-    REQUIRE(registry.call("assets.rasterize_svg", {{"path", "assets/art/coin.png"}, {"source", "assets/art/coin.svg"}}).ok);
+    REQUIRE(
+        registry.call("assets.rasterize_svg", {{"path", "assets/art/coin.png"}, {"source", "assets/art/coin.svg"}}).ok);
     CHECK(issue_with(validate_project(dir).warnings, "stale") == nullptr);
 
     write_all(std::filesystem::path(dir) / "assets/art/coin.svg", kSvgEdited);
@@ -335,21 +358,26 @@ TEST_CASE("recipes: project.validate warns about stale assets and missing inputs
     CHECK_FALSE(m->hint.empty());
 }
 
-TEST_CASE("recipes: assets.animate_svg regenerates its own sheet byte for byte, goes stale with its module, and validate says so") {
+TEST_CASE("recipes: assets.animate_svg regenerates its own sheet byte for byte, goes stale with its module, and "
+          "validate says so") {
     TempDir tmp;
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
     const std::string dir = tmp.sub("game");
     CommandRegistry registry;
     register_asset_commands(registry, dir);
     const std::filesystem::path root(dir);
-    const char* module =
-        "export default function frame({progress}) {\n"
-        "  const w = Math.abs(Math.cos(progress * Math.PI * 2)) * 30 + 6;\n"
-        "  return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><ellipse cx='50' cy='50' rx='${w}' ry='30' fill='#e8c66a'/></svg>`;\n"
-        "}\n";
+    const char* module = "export default function frame({progress}) {\n"
+                         "  const w = Math.abs(Math.cos(progress * Math.PI * 2)) * 30 + 6;\n"
+                         "  return `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><ellipse cx='50' "
+                         "cy='50' rx='${w}' ry='30' fill='#e8c66a'/></svg>`;\n"
+                         "}\n";
     write_all(root / "art/coin.anim.js", module);
-    const CommandResult made = registry.call("assets.animate_svg", {{"path", "assets/art/coin.png"}, {"source", "art/coin.anim.js"}, {"frames", 4},
-                                                                      {"fps", 8}, {"frameWidth", 32}, {"frameHeight", 32}});
+    const CommandResult made = registry.call("assets.animate_svg", {{"path", "assets/art/coin.png"},
+                                                                    {"source", "art/coin.anim.js"},
+                                                                    {"frames", 4},
+                                                                    {"fps", 8},
+                                                                    {"frameWidth", 32},
+                                                                    {"frameHeight", 32}});
     REQUIRE_MESSAGE(made.ok, made.error.dump());
     CHECK(made.result["nextSteps"].dump().find("assets.regenerate") != std::string::npos);
     const std::string original = read_all(root / "assets/art/coin.png");
@@ -368,7 +396,8 @@ TEST_CASE("recipes: assets.animate_svg regenerates its own sheet byte for byte, 
     CHECK(issue_with(validate_project(dir).warnings, "stale") == nullptr);
 }
 
-TEST_CASE("recipes: assets.bake_sheet regenerates through the registry, and goes stale with its prefab (skipped without a GPU)") {
+TEST_CASE("recipes: assets.bake_sheet regenerates through the registry, and goes stale with its prefab (skipped "
+          "without a GPU)") {
     TempDir tmp;
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
     const std::string dir = tmp.sub("game");
@@ -378,7 +407,9 @@ TEST_CASE("recipes: assets.bake_sheet regenerates through the registry, and goes
     const char* prefab = R"({"format":"factoria.prefab/1","entity":{"id":"orb","components":{
       "Transform":{},"Shape2D":{"shape":"circle","size":[20,20],"color":[1,0.5,0,1]}}}})";
     write_all(root / "prefabs/orb.prefab.json", prefab);
-    const CommandResult made = registry.call("assets.bake_sheet", {{"path", "assets/fx/orb.png"}, {"prefab", "prefabs/orb.prefab.json"}, {"frames", 2}, {"fps", 4}});
+    const CommandResult made = registry.call(
+        "assets.bake_sheet",
+        {{"path", "assets/fx/orb.png"}, {"prefab", "prefabs/orb.prefab.json"}, {"frames", 2}, {"fps", 4}});
     if (!made.ok && made.error.value("code", std::string()) == "no_gpu") {
         MESSAGE("skipped: no graphics device on this machine");
         return;
@@ -390,7 +421,8 @@ TEST_CASE("recipes: assets.bake_sheet regenerates through the registry, and goes
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(read_all(root / "assets/fx/orb.png") == original);
 
-    write_all(root / "prefabs/orb.prefab.json", std::string(R"({"format":"factoria.prefab/1","entity":{"id":"orb","components":{
+    write_all(root / "prefabs/orb.prefab.json",
+              std::string(R"({"format":"factoria.prefab/1","entity":{"id":"orb","components":{
       "Transform":{},"Shape2D":{"shape":"circle","size":[30,30],"color":[0,1,0,1]}}}})"));
     const ValidationReport report = validate_project(dir);
     const ValidationIssue* s = issue_with(report.warnings, "'assets/fx/orb.png' is stale");

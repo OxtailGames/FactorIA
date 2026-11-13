@@ -126,7 +126,8 @@ void build_3d(World& w) {
     // 40 x 40 = 1600 cubes and spheres, a third of them outside the camera's frustum.
     for (int ix = 0; ix < 40; ++ix) {
         for (int iz = 0; iz < 40; ++iz) {
-            Entity e = make(w, {-30.0f + float(ix) * 1.5f, 0.25f + float(rng.next_u32() % 3) * 0.4f, -50.0f + float(iz) * 2.5f});
+            Entity e = make(
+                w, {-30.0f + float(ix) * 1.5f, 0.25f + float(rng.next_u32() % 3) * 0.4f, -50.0f + float(iz) * 2.5f});
             w.get<Transform>(e)->rotation = {0, float(rng.next_u32() % 90), 0};
             MeshRenderer& m = w.add<MeshRenderer>(e);
             m.mesh = (ix + iz) % 2 ? "cube" : "sphere";
@@ -170,10 +171,11 @@ void release_render_env() { env_slot().reset(); }
 
 void add_render_benches(std::vector<Bench>& out) {
     ensure_builtin_components();
-    out.push_back(render_bench("render.frame2d", "8 frames of 5000 sprites on 8 layers and 120 texts, headless 640x360", build_2d,
-                               8 * 5120, "visuals"));
-    out.push_back(render_bench("render.frame3d", "8 frames of 1600 cubes and spheres, a sun and 4 point lights with shadows, headless 640x360",
-                               build_3d, 8 * 1600, "meshes"));
+    out.push_back(render_bench("render.frame2d", "8 frames of 5000 sprites on 8 layers and 120 texts, headless 640x360",
+                               build_2d, 8 * 5120, "visuals"));
+    out.push_back(render_bench(
+        "render.frame3d", "8 frames of 1600 cubes and spheres, a sun and 4 point lights with shadows, headless 640x360",
+        build_3d, 8 * 1600, "meshes"));
 }
 
 }  // namespace fa::bench

@@ -20,7 +20,8 @@ public:
     Json() = default;
     Json(std::nullptr_t) {}
     Json(bool b) : type_(Type::Bool), bool_(b) {}
-    template <class T, class = typename std::enable_if<std::is_integral<T>::value && !std::is_same<T, bool>::value>::type>
+    template <class T,
+              class = typename std::enable_if<std::is_integral<T>::value && !std::is_same<T, bool>::value>::type>
     Json(T n) : type_(Type::Number), number_(static_cast<double>(n)) {}
     Json(double n) : type_(Type::Number), number_(n) {}
     Json(const char* s) : type_(Type::String), string_(s ? s : "") {}
@@ -145,7 +146,9 @@ private:
         for (std::size_t k = 1; k < n; ++k)
             if ((static_cast<unsigned char>(s[i + k]) & 0xC0) != 0x80) return 0;
         const unsigned char c1 = static_cast<unsigned char>(s[i + 1]);
-        if ((c == 0xE0 && c1 < 0xA0) || (c == 0xED && c1 > 0x9F) || (c == 0xF0 && c1 < 0x90) || (c == 0xF4 && c1 > 0x8F)) return 0;
+        if ((c == 0xE0 && c1 < 0xA0) || (c == 0xED && c1 > 0x9F) || (c == 0xF0 && c1 < 0x90) ||
+            (c == 0xF4 && c1 > 0x8F))
+            return 0;
         return n;
     }
 
@@ -155,9 +158,12 @@ private:
             case Type::Bool: out += bool_ ? "true" : "false"; break;
             case Type::Number: {
                 char buf[40];
-                if (!std::isfinite(number_)) std::snprintf(buf, sizeof buf, "null");
-                else if (number_ == std::floor(number_) && std::fabs(number_) < 9e15) std::snprintf(buf, sizeof buf, "%.0f", number_);
-                else std::snprintf(buf, sizeof buf, "%.9g", number_);
+                if (!std::isfinite(number_))
+                    std::snprintf(buf, sizeof buf, "null");
+                else if (number_ == std::floor(number_) && std::fabs(number_) < 9e15)
+                    std::snprintf(buf, sizeof buf, "%.0f", number_);
+                else
+                    std::snprintf(buf, sizeof buf, "%.9g", number_);
                 out += buf;
                 break;
             }
@@ -241,10 +247,14 @@ private:
             for (int i = 0; i < 4; ++i) {
                 const char c = s[pos++];
                 code <<= 4;
-                if (c >= '0' && c <= '9') code |= static_cast<unsigned>(c - '0');
-                else if (c >= 'a' && c <= 'f') code |= static_cast<unsigned>(c - 'a' + 10);
-                else if (c >= 'A' && c <= 'F') code |= static_cast<unsigned>(c - 'A' + 10);
-                else return fail("a \\u escape needs four hex digits");
+                if (c >= '0' && c <= '9')
+                    code |= static_cast<unsigned>(c - '0');
+                else if (c >= 'a' && c <= 'f')
+                    code |= static_cast<unsigned>(c - 'a' + 10);
+                else if (c >= 'A' && c <= 'F')
+                    code |= static_cast<unsigned>(c - 'A' + 10);
+                else
+                    return fail("a \\u escape needs four hex digits");
             }
             return true;
         }

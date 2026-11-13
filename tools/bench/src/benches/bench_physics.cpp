@@ -33,7 +33,8 @@ struct Sim {
             world->flush();
         }
         double sum = double(world->events().collisions.size());
-        world->each<Transform, RigidBody2D>([&](Entity, Transform& t, RigidBody2D&) { sum += t.position.x + 2.0 * t.position.y; });
+        world->each<Transform, RigidBody2D>(
+            [&](Entity, Transform& t, RigidBody2D&) { sum += t.position.x + 2.0 * t.position.y; });
         world->each<Transform, RigidBody3D>(
             [&](Entity, Transform& t, RigidBody3D&) { sum += t.position.x + 2.0 * t.position.y + 3.0 * t.position.z; });
         return sum;

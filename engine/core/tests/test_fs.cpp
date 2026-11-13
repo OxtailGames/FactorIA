@@ -20,7 +20,8 @@ struct TempProject {
     stdfs::path oldRoot;
     TempProject() {
         oldRoot = fs::project_root();
-        dir = stdfs::temp_directory_path() / ("fa_test_fs_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        dir = stdfs::temp_directory_path() /
+              ("fa_test_fs_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         stdfs::remove_all(dir);
         stdfs::create_directories(dir);
         fs::set_project_root(dir);
@@ -111,7 +112,7 @@ TEST_CASE("fs: writes replace the file atomically through a temporary file that 
     const std::string big(1 << 20, 'x');
     REQUIRE(fs::write_text("scenes/a.scene.json", big).ok());  // replaces an existing file (also on Windows)
     CHECK(fs::read_text("scenes/a.scene.json").value() == big);
-    REQUIRE(fs::write_text("scenes/a.scene.json", "").ok());   // shrinking to nothing works too
+    REQUIRE(fs::write_text("scenes/a.scene.json", "").ok());  // shrinking to nothing works too
     CHECK(fs::read_text("scenes/a.scene.json").value().empty());
     CHECK(names_in(p.dir / "scenes") == std::vector<std::string>{"a.scene.json"});
 
@@ -168,7 +169,8 @@ TEST_CASE("fs: paths longer than Windows' MAX_PATH are read and written (os_path
     CHECK(prefixed.rfind(LR"(\\?\)", 0) == 0);
     CHECK(prefixed.find(L'/') == std::wstring::npos);  // the prefix turns off '/' -> '\' conversion: none left
     CHECK(fs::os_path(fs::os_path(longPath)) == fs::os_path(longPath));
-    CHECK(fs::os_path(LR"(\\server\share\)" + std::wstring(260, L'd')).native().rfind(LR"(\\?\UNC\server\share\)", 0) == 0);
+    CHECK(fs::os_path(LR"(\\server\share\)" + std::wstring(260, L'd')).native().rfind(LR"(\\?\UNC\server\share\)", 0) ==
+          0);
 #else
     CHECK(fs::os_path(longPath) == longPath);
 #endif
@@ -193,13 +195,14 @@ TEST_CASE("fs: missing files get did-you-mean hints") {
 TEST_CASE("fs: write policy - .factoria is managed, .factoria/tmp is scratch") {
     TempProject p;
     // Normal folders are writable; the tools' folders are not, except the scratch folder.
-    for (const char* ok : {"scenes/a.scene.json", "assets/x.png", "levels/.hidden", ".factoria_not/x", ".factoria/tmp/a.json",
-                           ".factoria/tmp/deep/er/a.json", "./.factoria/tmp/a.json", "scenes/../.factoria/tmp/a.json"}) {
+    for (const char* ok :
+         {"scenes/a.scene.json", "assets/x.png", "levels/.hidden", ".factoria_not/x", ".factoria/tmp/a.json",
+          ".factoria/tmp/deep/er/a.json", "./.factoria/tmp/a.json", "scenes/../.factoria/tmp/a.json"}) {
         CAPTURE(ok);
         CHECK(fs::check_writable(ok).ok());
     }
-    for (const char* bad : {".factoria", ".factoria/save/slot1.json", ".factoria/screenshots/frame_1.png", ".factoria/tmpx/a.json",
-                            ".factoria/tmp2", ".git/config", ".git"}) {
+    for (const char* bad : {".factoria", ".factoria/save/slot1.json", ".factoria/screenshots/frame_1.png",
+                            ".factoria/tmpx/a.json", ".factoria/tmp2", ".git/config", ".git"}) {
         CAPTURE(bad);
         auto r = fs::check_writable(bad);
         REQUIRE_FALSE(r.ok());
@@ -332,9 +335,7 @@ TEST_CASE("fs: make_temp_dir gives a fresh, unique, empty directory per call") {
 }
 
 // The web build copies the save folder to the browser's storage here; everywhere else the folder is on disk and this does nothing.
-TEST_CASE("fs: user_dir_changed is a no-op outside the web build") {
-    CHECK_NOTHROW(fs::user_dir_changed());
-}
+TEST_CASE("fs: user_dir_changed is a no-op outside the web build") { CHECK_NOTHROW(fs::user_dir_changed()); }
 
 TEST_CASE("fs: warm reads a file ahead, later reads take it from memory until unwarm") {
     TempProject p;
@@ -415,7 +416,8 @@ TEST_CASE("windows rules: a file open through ReadStream cannot be replaced; the
     // Let go: the same write goes through at once (nothing left in the registry).
     const auto t1 = std::chrono::steady_clock::now();
     REQUIRE(fs::write_text("data/a.json", "2").ok());
-    CHECK(std::chrono::steady_clock::now() - t1 < std::chrono::milliseconds(800));  // no retries (~0.9 s); room for a loaded VM
+    CHECK(std::chrono::steady_clock::now() - t1 <
+          std::chrono::milliseconds(800));  // no retries (~0.9 s); room for a loaded VM
     CHECK(fs::read_text("data/a.json").value() == "2");
     std::error_code ec;
     CHECK(fs::remove_file(p.dir / "data" / "a.json", ec));
@@ -454,17 +456,22 @@ TEST_CASE("windows rules: fs::read_bytes holds the file open only while it reads
     REQUIRE(fs::write_text("a.json", "1").ok());
     for (int i = 0; i < 20; ++i) {
         REQUIRE(fs::read_text("a.json").ok());
-        REQUIRE(fs::write_text("a.json", std::to_string(i)).ok());  // would take a second each if a read stayed registered
+        REQUIRE(
+            fs::write_text("a.json", std::to_string(i)).ok());  // would take a second each if a read stayed registered
     }
     // A failed open and a moved-from-nothing stream register nothing either.
-    { fs::ReadStream missing(fs::os_path(p.dir / "nope.json")); CHECK(!missing.good()); }
+    {
+        fs::ReadStream missing(fs::os_path(p.dir / "nope.json"));
+        CHECK(!missing.good());
+    }
     const auto t0 = std::chrono::steady_clock::now();
     REQUIRE(fs::write_text("nope.json", "x").ok());
     // The retries of the mode take ~0.9 s; one write on a loaded CI VM takes far less than 800 ms.
     CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(800));
 }
 
-TEST_CASE("windows rules: a folder with an open file inside is deleted except for that file, and reports the violation") {
+TEST_CASE(
+    "windows rules: a folder with an open file inside is deleted except for that file, and reports the violation") {
     RulesScope rules(true);
     TempProject p;
     REQUIRE(fs::write_text("tree/keep/open.txt", "o").ok());
@@ -512,8 +519,9 @@ TEST_CASE("fs: file times count nanoseconds from 1970 with every standard librar
     const std::int64_t t = fs::host_modified_time(p.dir / "a.json");
     CHECK(t > 0);
     CHECK(fs::modified_time("a.json") == t);
-    const std::int64_t sys = std::chrono::duration_cast<std::chrono::nanoseconds>(
-                                 std::chrono::system_clock::now().time_since_epoch()).count();
+    const std::int64_t sys =
+        std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::system_clock::now().time_since_epoch())
+            .count();
     const std::int64_t clock = fs::file_time_ns(stdfs::file_time_type::clock::now());
     CHECK(std::abs(clock - sys) < std::int64_t(5'000'000'000));
     CHECK(std::abs(t - sys) < std::int64_t(3600) * 1'000'000'000);
@@ -530,7 +538,8 @@ TEST_CASE("windows rules: modified_time moves in steps of 15.625 ms") {
     const std::int64_t baseNs = std::chrono::duration_cast<Ns>(base.time_since_epoch()).count();
     const std::int64_t aligned = baseNs - ((baseNs % 1'000'000'000) + 1'000'000'000) % 1'000'000'000;  // a whole second
     const std::int64_t odd = aligned + 3 * fs::kWindowsTimeStepNs + 7'500'000;
-    stdfs::last_write_time(file, stdfs::file_time_type(std::chrono::duration_cast<stdfs::file_time_type::duration>(Ns(odd))));
+    stdfs::last_write_time(file,
+                           stdfs::file_time_type(std::chrono::duration_cast<stdfs::file_time_type::duration>(Ns(odd))));
     const std::int64_t set = fs::file_time_ns(stdfs::last_write_time(file));
     {
         RulesScope off(false);
@@ -543,10 +552,12 @@ TEST_CASE("windows rules: modified_time moves in steps of 15.625 ms") {
         CHECK(t <= set);
         CHECK(set - t < fs::kWindowsTimeStepNs);
         // Two writes less than a step apart keep one time: a detector comparing times alone misses the second.
-        stdfs::last_write_time(file, stdfs::file_time_type(std::chrono::duration_cast<stdfs::file_time_type::duration>(Ns(odd + 5'000'000))));
+        stdfs::last_write_time(file, stdfs::file_time_type(std::chrono::duration_cast<stdfs::file_time_type::duration>(
+                                         Ns(odd + 5'000'000))));
         CHECK(fs::modified_time("a.json") == t);
         // A step later it differs.
-        stdfs::last_write_time(file, stdfs::file_time_type(std::chrono::duration_cast<stdfs::file_time_type::duration>(Ns(odd + fs::kWindowsTimeStepNs))));
+        stdfs::last_write_time(file, stdfs::file_time_type(std::chrono::duration_cast<stdfs::file_time_type::duration>(
+                                         Ns(odd + fs::kWindowsTimeStepNs))));
         CHECK(fs::modified_time("a.json") == t + fs::kWindowsTimeStepNs);
     }
 }

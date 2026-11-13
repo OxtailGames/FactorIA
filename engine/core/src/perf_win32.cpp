@@ -70,7 +70,8 @@ double process_cpu_seconds() {
 #ifdef FA_PERF_TSC
     // Its rate is the TSC's. Calibrating it from GetProcessTimes instead read 4x too much CPU on the CI's Windows VM: the
     // first call (StartupTimeline, a few tens of ms into the process) saw a tick-sampled time several times the real one.
-    if (QueryProcessCycleTime(GetCurrentProcess(), &cycles) && cycles != 0) return double(cycles) * seconds_per_tsc_tick();
+    if (QueryProcessCycleTime(GetCurrentProcess(), &cycles) && cycles != 0)
+        return double(cycles) * seconds_per_tsc_tick();
 #endif
     FILETIME created, exited, kernel, user;
     if (!GetProcessTimes(GetCurrentProcess(), &created, &exited, &kernel, &user)) return 0.0;
@@ -79,7 +80,8 @@ double process_cpu_seconds() {
     // ARM64: the cycle counter has no rate Windows names; its seconds-per-cycle comes from the process's own life, once
     // it has used enough CPU for the tick-sampled time to mean something.
     if (!QueryProcessCycleTime(GetCurrentProcess(), &cycles) || cycles == 0 || coarse < 0.05) return coarse;
-    static double secondsPerCycle = 0.0;  // calibrated once: the clock rate does not change during a run enough to matter
+    static double secondsPerCycle =
+        0.0;  // calibrated once: the clock rate does not change during a run enough to matter
     if (secondsPerCycle == 0.0) secondsPerCycle = coarse / double(cycles);
     return double(cycles) * secondsPerCycle;
 #else

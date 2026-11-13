@@ -19,9 +19,9 @@ public:
 };
 
 struct ProviderRuntime {
-    HttpTransport transport;                       // default: http_request
+    HttpTransport transport;  // default: http_request
     EnvLookup env = system_env();
-    std::function<void(double seconds)> sleep;     // default: real sleep (cancel-aware); tests inject no-ops
+    std::function<void(double seconds)> sleep;  // default: real sleep (cancel-aware); tests inject no-ops
     // Runs `ant auth print-credentials --access-token`; default uses the process runner.
     std::function<std::string()> antToken;
 };

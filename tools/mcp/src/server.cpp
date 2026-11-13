@@ -40,8 +40,10 @@ std::string elapsed_label(std::chrono::seconds s) {
     const long long n = s.count();
     if (n < 60) return std::to_string(n) + "s";
     char buf[32];
-    if (n < 3600) std::snprintf(buf, sizeof buf, "%lldm %02llds", n / 60, n % 60);
-    else std::snprintf(buf, sizeof buf, "%lldh %02lldm", n / 3600, (n / 60) % 60);
+    if (n < 3600)
+        std::snprintf(buf, sizeof buf, "%lldm %02llds", n / 60, n % 60);
+    else
+        std::snprintf(buf, sizeof buf, "%lldh %02lldm", n / 3600, (n / 60) % 60);
     return buf;
 }
 
@@ -52,15 +54,9 @@ class ProgressPump {
 public:
     ProgressPump(Json token, std::function<void(const Json&)> send, std::chrono::milliseconds throttle,
                  std::chrono::milliseconds heartbeat, const std::atomic<bool>* cancel)
-        : token_(std::move(token)),
-          cancel_(cancel),
-          send_(std::move(send)),
-          throttle_(throttle),
-          heartbeat_(heartbeat),
-          start_(std::chrono::steady_clock::now()),
-          lastSent_(start_),
-          message_("working"),
-          thread_([this] { run(); }) {}
+        : token_(std::move(token)), cancel_(cancel), send_(std::move(send)), throttle_(throttle), heartbeat_(heartbeat),
+          start_(std::chrono::steady_clock::now()), lastSent_(start_), message_("working"), thread_([this] { run(); }) {
+    }
     ~ProgressPump() {
         {
             std::lock_guard<std::mutex> lock(mu_);
@@ -89,12 +85,11 @@ private:
         fresh_ = false;
         if (cancelled()) return;
         const auto secs = std::chrono::duration_cast<std::chrono::seconds>(now - start_);
-        send_(Json::object(
-            {{"jsonrpc", "2.0"},
-             {"method", "notifications/progress"},
-             {"params", Json::object({{"progressToken", token_},
-                                      {"progress", ++counter_},
-                                      {"message", message_ + " [" + elapsed_label(secs) + "]"}})}}));
+        send_(Json::object({{"jsonrpc", "2.0"},
+                            {"method", "notifications/progress"},
+                            {"params", Json::object({{"progressToken", token_},
+                                                     {"progress", ++counter_},
+                                                     {"message", message_ + " [" + elapsed_label(secs) + "]"}})}}));
     }
     void run() {
         std::unique_lock<std::mutex> lock(mu_);
@@ -155,7 +150,8 @@ std::string invalid_message_reason(const Json& msg) {
     if (!msg.is_object()) return "a JSON-RPC message is an object (or a batch: an array of objects)";
     if (const auto id = msg.find("id"); id != msg.end() && !valid_id(*id)) return "\"id\" must be a string or a number";
     const auto rpc = msg.find("jsonrpc");
-    if (rpc == msg.end() || !rpc->is_string() || rpc->get<std::string>() != "2.0") return "expected \"jsonrpc\":\"2.0\"";
+    if (rpc == msg.end() || !rpc->is_string() || rpc->get<std::string>() != "2.0")
+        return "expected \"jsonrpc\":\"2.0\"";
     if (const auto m = msg.find("method"); m != msg.end() && !m->is_string()) return "\"method\" must be a string";
     if (const auto p = msg.find("params"); p != msg.end() && !p->is_object() && !p->is_null())
         return "\"params\" must be an object";
@@ -171,7 +167,8 @@ Json reply_id(const Json& msg) {
 
 std::string humanize(const std::string& name) {
     std::string s = name;
-    for (char& c : s) if (c == '.' || c == '_') c = ' ';
+    for (char& c : s)
+        if (c == '.' || c == '_') c = ' ';
     if (!s.empty()) s[0] = static_cast<char>(std::toupper(static_cast<unsigned char>(s[0])));
     return s;
 }
@@ -184,7 +181,8 @@ int level_rank(const std::string& l) {
 }
 
 Json text_result(const std::string& text, bool isError) {
-    return Json::object({{"content", Json::array({Json::object({{"type", "text"}, {"text", text}})})}, {"isError", isError}});
+    return Json::object(
+        {{"content", Json::array({Json::object({{"type", "text"}, {"text", text}})})}, {"isError", isError}});
 }
 
 }  // namespace
@@ -301,7 +299,8 @@ void McpServer::set_notification_sink(Sink sink) {
         sink_ = std::move(sink);
         queued.swap(queued_);
     }
-    if (sink_) for (const auto& m : queued) sink_(m);
+    if (sink_)
+        for (const auto& m : queued) sink_(m);
 }
 
 std::vector<std::string> McpServer::drain_outgoing() {
@@ -314,8 +313,10 @@ std::vector<std::string> McpServer::drain_outgoing() {
 void McpServer::emit(const Json& message) {
     std::string line = dump_line(message);
     std::lock_guard<std::mutex> lock(outMutex_);
-    if (sink_) sink_(line);
-    else queued_.push_back(std::move(line));
+    if (sink_)
+        sink_(line);
+    else
+        queued_.push_back(std::move(line));
 }
 
 void McpServer::set_progress_timing(std::chrono::milliseconds throttle, std::chrono::milliseconds heartbeat) {
@@ -340,7 +341,9 @@ void McpServer::log(const std::string& level, const std::string& logger, const J
 
 bool is_user_only_command(std::string_view commandName) { return commandName == "ai.plugin_install"; }
 
-bool McpServer::visible(const CommandInfo& c) const { return !is_user_only_command(c.name) && (!filter_ || filter_(c)); }
+bool McpServer::visible(const CommandInfo& c) const {
+    return !is_user_only_command(c.name) && (!filter_ || filter_(c));
+}
 
 bool McpServer::listed(const CommandInfo& c) const {
     if (!visible(c)) return false;
@@ -401,9 +404,11 @@ Json McpServer::tool_json(const CommandInfo& c) const {
     // Commands whose default behaviour writes only under .factoria/ (game.screenshot...) declare {read, state}, so they are
     // not destructive; the ones that write project files declare writeProject. A command that only writes a file the caller
     // names through an optional argument (x-fa-path "write") is not read-only but not destructive either.
-    const bool destructiveHint = !readOnlyHint && (caps.has(Capability::WriteAnywhere) || caps.has(Capability::Publish) ||
-                                                    caps.has(Capability::Spend) || caps.has(Capability::WriteProject));
-    const bool openWorldHint = caps.has(Capability::Network) || caps.has(Capability::Publish) || caps.has(Capability::Spend);
+    const bool destructiveHint =
+        !readOnlyHint && (caps.has(Capability::WriteAnywhere) || caps.has(Capability::Publish) ||
+                          caps.has(Capability::Spend) || caps.has(Capability::WriteProject));
+    const bool openWorldHint =
+        caps.has(Capability::Network) || caps.has(Capability::Publish) || caps.has(Capability::Spend);
     t["annotations"] = Json::object({{"title", humanize(c.name)},
                                      {"readOnlyHint", readOnlyHint},
                                      {"destructiveHint", destructiveHint},
@@ -433,8 +438,10 @@ std::string McpServer::validate_groups(const std::vector<std::string>& groups) c
             // A group that names commands this server hides (--read-only hides every command that changes state) is not a typo.
             for (const CommandInfo* c : host_.commands().list())
                 if (!visible(*c) && command_in_tool_group(*c, g))
-                    return "Tool group '" + g + "' only has commands this server does not offer (a --read-only server hides the commands "
-                           "that change state; some commands are for the user only). Use a group that has read-only commands, or start "
+                    return "Tool group '" + g +
+                           "' only has commands this server does not offer (a --read-only server hides the commands "
+                           "that change state; some commands are for the user only). Use a group that has read-only "
+                           "commands, or start "
                            "the server without --read-only.";
             return "Tool group '" + g + "' matches no command category and no command. " + tool_group_hint(g, commands);
         }
@@ -481,42 +488,51 @@ Json McpServer::loader_tools_json() const {
     // change anything, so it says so; otherwise it is a write tool like the commands behind it.
     bool callIsReadOnly = true;
     for (const CommandInfo* c : host_.commands().list())
-        if (visible(*c) && !c->readOnly) { callIsReadOnly = false; break; }
+        if (visible(*c) && !c->readOnly) {
+            callIsReadOnly = false;
+            break;
+        }
     auto make = [](const char* name, const char* title, const std::string& desc, const char* schema, bool readOnly) {
         Json t = Json::object();
         t["name"] = name;
         t["title"] = title;
         t["description"] = desc;
         t["inputSchema"] = Json::parse(schema);
-        t["annotations"] = Json::object({{"title", title}, {"readOnlyHint", readOnly}, {"destructiveHint", !readOnly}, {"openWorldHint", false}});
+        t["annotations"] = Json::object(
+            {{"title", title}, {"readOnlyHint", readOnly}, {"destructiveHint", !readOnly}, {"openWorldHint", false}});
         return t;
     };
     Json out = Json::array();
-    out.push_back(make(kToolLoad, "Load tool groups",
-                       "This server lists only its core tools; the other commands are in groups. Load groups to add their tools "
-                       "to the tool list (the server sends tools/list_changed; if your tool list does not change, use "
-                       "tool_describe and tool_call instead). A group is a category, an exact command name "
-                       "(assets.slice_sheet) or all. Without groups it lists the groups. Groups (commands): " + groups + ".",
-                       R"({"type":"object","properties":{"groups":{"type":"array","items":{"type":"string"},"description":
+    out.push_back(
+        make(kToolLoad, "Load tool groups",
+             "This server lists only its core tools; the other commands are in groups. Load groups to add their tools "
+             "to the tool list (the server sends tools/list_changed; if your tool list does not change, use "
+             "tool_describe and tool_call instead). A group is a category, an exact command name "
+             "(assets.slice_sheet) or all. Without groups it lists the groups. Groups (commands): " +
+                 groups + ".",
+             R"({"type":"object","properties":{"groups":{"type":"array","items":{"type":"string"},"description":
                        "Categories or command names to load, e.g. [\"anim\", \"physics\"]."}},"additionalProperties":false})",
-                       true));
-    out.push_back(make(kToolDescribe, "Describe commands",
-                       "Full definition (description and input schema) of any command of this server, loaded or not. Names are "
-                       "dotted (assets.slice_sheet) or tool names (assets_slice_sheet). Several at once.",
-                       R"({"type":"object","properties":{"commands":{"type":"array","items":{"type":"string"},"minItems":1,
+             true));
+    out.push_back(
+        make(kToolDescribe, "Describe commands",
+             "Full definition (description and input schema) of any command of this server, loaded or not. Names are "
+             "dotted (assets.slice_sheet) or tool names (assets_slice_sheet). Several at once.",
+             R"({"type":"object","properties":{"commands":{"type":"array","items":{"type":"string"},"minItems":1,
                        "description":"Command names."}},"required":["commands"],"additionalProperties":false})",
-                       true));
-    out.push_back(make(kToolCall, "Call a command",
-                       "Run any command of this server by name, loaded or not: same arguments and result as its own tool; wrong "
-                       "arguments come back with its input schema (see tool_describe).",
-                       R"({"type":"object","properties":{"command":{"type":"string","description":
+             true));
+    out.push_back(
+        make(kToolCall, "Call a command",
+             "Run any command of this server by name, loaded or not: same arguments and result as its own tool; wrong "
+             "arguments come back with its input schema (see tool_describe).",
+             R"({"type":"object","properties":{"command":{"type":"string","description":
                        "Command name, e.g. assets.slice_sheet."},"arguments":{"type":"object","description":
                        "The command's arguments. {} when it takes none."}},"required":["command"],"additionalProperties":false})",
-                       callIsReadOnly));
+             callIsReadOnly));
     return out;
 }
 
-Json McpServer::run_loader_tool(const std::string& tool, const Json& args, const Json& params, const std::atomic<bool>* cancel) {
+Json McpServer::run_loader_tool(const std::string& tool, const Json& args, const Json& params,
+                                const std::atomic<bool>* cancel) {
     auto find_command = [&](const std::string& name) -> const CommandInfo* {
         for (const CommandInfo* c : host_.commands().list())
             if (visible(*c) && (c->name == name || mcp_tool_name(c->name) == name)) return c;
@@ -530,25 +546,31 @@ Json McpServer::run_loader_tool(const std::string& tool, const Json& args, const
     };
     if (tool == kToolCall) {
         if (!args.contains("command") || !args["command"].is_string())
-            return text_result("invalid_params: tool_call needs `command` (string), e.g. \"assets.slice_sheet\".", true);
+            return text_result("invalid_params: tool_call needs `command` (string), e.g. \"assets.slice_sheet\".",
+                               true);
         const std::string name = args["command"].get<std::string>();
         if (args.contains("arguments") && !args["arguments"].is_null() && !args["arguments"].is_object())
-            return text_result("invalid_params: tool_call `arguments` must be an object with the command's arguments ({} when it takes none), got " +
+            return text_result("invalid_params: tool_call `arguments` must be an object with the command's arguments "
+                               "({} when it takes none), got " +
                                    std::string(args["arguments"].type_name()) + ".",
                                true);
         const CommandInfo* c = find_command(name);
         if (!c)
-            return text_result("unknown_command: No command named '" + name + "'. " + did_you_mean(name, visible_names()) +
+            return text_result("unknown_command: No command named '" + name + "'. " +
+                                   did_you_mean(name, visible_names()) +
                                    "\nhint: tool_load with no groups lists the groups; tool_describe shows a command.",
                                true);
-        Json inner = Json::object({{"name", mcp_tool_name(c->name)},
-                                   {"arguments", args.contains("arguments") && !args["arguments"].is_null() ? args["arguments"] : Json::object()}});
+        Json inner =
+            Json::object({{"name", mcp_tool_name(c->name)},
+                          {"arguments", args.contains("arguments") && !args["arguments"].is_null() ? args["arguments"]
+                                                                                                   : Json::object()}});
         if (params.contains("_meta")) inner["_meta"] = params["_meta"];
         return run_tool(inner, cancel);
     }
     if (tool == kToolDescribe) {
         if (!args.contains("commands") || !args["commands"].is_array() || args["commands"].empty())
-            return text_result("invalid_params: tool_describe needs `commands`, a non-empty array of command names.", true);
+            return text_result("invalid_params: tool_describe needs `commands`, a non-empty array of command names.",
+                               true);
         Json commands = Json::array(), unknown = Json::array();
         std::set<std::string> done;
         for (const Json& n : args["commands"]) {
@@ -579,7 +601,8 @@ Json McpServer::run_loader_tool(const std::string& tool, const Json& args, const
     // tool_load
     std::vector<std::string> groups;
     if (args.contains("groups")) {
-        if (!args["groups"].is_array()) return text_result("invalid_params: `groups` must be an array of strings.", true);
+        if (!args["groups"].is_array())
+            return text_result("invalid_params: `groups` must be an array of strings.", true);
         for (const Json& g : args["groups"]) {
             if (!g.is_string()) return text_result("invalid_params: `groups` must be an array of strings.", true);
             groups.push_back(g.get<std::string>());
@@ -594,7 +617,8 @@ Json McpServer::run_loader_tool(const std::string& tool, const Json& args, const
             if (listed(*c)) ++e.second;
         }
         Json arr = Json::array();
-        for (const auto& [cat, n] : counts) arr.push_back(Json::object({{"group", cat}, {"commands", n.first}, {"loaded", n.second}}));
+        for (const auto& [cat, n] : counts)
+            arr.push_back(Json::object({{"group", cat}, {"commands", n.first}, {"loaded", n.second}}));
         Json out = Json::object({{"groups", std::move(arr)},
                                  {"hint", "Call tool_load with {\"groups\": [\"<group>\", ...]} to load some."}});
         return text_result(dump_pretty(out), false);
@@ -621,10 +645,12 @@ Json McpServer::run_loader_tool(const std::string& tool, const Json& args, const
         }
     }
     if (addedCount > 0) notify_tools_changed();
-    Json out = Json::object({{"loaded", groups}, {"added", addedCount}, {"addedTools", std::move(added)}, {"toolsListed", total}});
-    out["note"] = addedCount == 0 ? "Those groups were loaded already."
-                                  : "The tool list changed (notifications/tools/list_changed). If your client keeps its old list, "
-                                    "call these through tool_call {command, arguments}.";
+    Json out = Json::object(
+        {{"loaded", groups}, {"added", addedCount}, {"addedTools", std::move(added)}, {"toolsListed", total}});
+    out["note"] = addedCount == 0
+                      ? "Those groups were loaded already."
+                      : "The tool list changed (notifications/tools/list_changed). If your client keeps its old list, "
+                        "call these through tool_call {command, arguments}.";
     return text_result(dump_pretty(out), false);
 }
 
@@ -651,11 +677,14 @@ Json McpServer::session_state() const {
 bool McpServer::restore_session(const Json& state) {
     if (!state.is_object() || !state.contains("protocolVersion") || !state["protocolVersion"].is_string()) return false;
     protocol_ = state["protocolVersion"].get<std::string>();
-    clientInfo_ = state.contains("clientInfo") && state["clientInfo"].is_object() ? state["clientInfo"] : Json::object();
+    clientInfo_ =
+        state.contains("clientInfo") && state["clientInfo"].is_object() ? state["clientInfo"] : Json::object();
     clientName_ = string_field(clientInfo_, "name");
-    clientCapabilities_ =
-        state.contains("clientCapabilities") && state["clientCapabilities"].is_object() ? state["clientCapabilities"] : Json::object();
-    if (state.contains("logLevel") && state["logLevel"].is_string() && level_rank(state["logLevel"].get<std::string>()) >= 0)
+    clientCapabilities_ = state.contains("clientCapabilities") && state["clientCapabilities"].is_object()
+                              ? state["clientCapabilities"]
+                              : Json::object();
+    if (state.contains("logLevel") && state["logLevel"].is_string() &&
+        level_rank(state["logLevel"].get<std::string>()) >= 0)
         logLevel_ = state["logLevel"].get<std::string>();
     initialized_ = true;
     session_->set_handshake({protocol_, clientInfo_, clientCapabilities_});
@@ -714,12 +743,16 @@ Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel) {
     if (command.empty()) {
         for (const CommandInfo* c : host_.commands().list())
             if (!is_user_only_command(c->name) && mcp_tool_name(c->name) == toolName && !visible(*c))
-                return text_result("tool_not_available: '" + toolName + "' is not served by this server (it only serves the tools tools/list shows).\nhint: ask the user to run it themselves (`factoria call " + c->name +
-                                       "`) or to start `factoria mcp` without --read-only.",
+                return text_result("tool_not_available: '" + toolName +
+                                       "' is not served by this server (it only serves the tools tools/list "
+                                       "shows).\nhint: ask the user to run it themselves (`factoria call " +
+                                       c->name + "`) or to start `factoria mcp` without --read-only.",
                                    true);
     }
     if (command.empty())
-        return text_result("unknown_tool: " + did_you_mean(toolName, toolNames) + "\nhint: call tools/list to see the available tools.", true);
+        return text_result("unknown_tool: " + did_you_mean(toolName, toolNames) +
+                               "\nhint: call tools/list to see the available tools.",
+                           true);
     std::vector<std::string> pagingArgs, narrowingArgs;  // read now: the command may replace itself while it runs
     if (const CommandInfo* info = host_.commands().info(command)) {
         pagingArgs = mcp_detail::paging_arguments(info->inputSchema);
@@ -731,8 +764,9 @@ Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel) {
     std::unique_ptr<ProgressPump> pump;
     if (params.contains("_meta") && params["_meta"].is_object() && params["_meta"].contains("progressToken") &&
         (params["_meta"]["progressToken"].is_string() || params["_meta"]["progressToken"].is_number()))
-        pump = std::make_unique<ProgressPump>(params["_meta"]["progressToken"], [this](const Json& m) { emit(m); },
-                                              progressThrottle_, progressHeartbeat_, cancel);
+        pump = std::make_unique<ProgressPump>(
+            params["_meta"]["progressToken"], [this](const Json& m) { emit(m); }, progressThrottle_, progressHeartbeat_,
+            cancel);
     std::optional<CommandProgressScope> scope;
     if (pump) scope.emplace([p = pump.get()](std::string_view message) { return p->report(message); });
     // A tools/call is an AI client's call (Claude Code, a CLI agent attached to the editor): commands that only the user may run
@@ -758,8 +792,8 @@ Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel) {
         if (text.size() > resultCap_) {
             const std::size_t full = text.size();
             text = std::string(mcp_detail::utf8_prefix(text, resultCap_ - mcp_detail::kNoteReserve));
-            text += "\n[truncated] This error is " + std::to_string(full) + " bytes; the first " + std::to_string(text.size()) +
-                    " are shown.";
+            text += "\n[truncated] This error is " + std::to_string(full) + " bytes; the first " +
+                    std::to_string(text.size()) + " are shown.";
         }
         return text_result(text, true);
     }
@@ -786,7 +820,8 @@ Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel) {
                 // A screenshot without `path` is temporary: now that its bytes are in the reply the file can go.
                 if (!b64.empty() && discard_temporary_image(spec, host_.project_dir())) {
                     spec.erase("path");
-                    spec["note"] = "Attached to this reply as an image; the temporary file was deleted. Pass `path` to keep a screenshot.";
+                    spec["note"] = "Attached to this reply as an image; the temporary file was deleted. Pass `path` to "
+                                   "keep a screenshot.";
                     result["$image"] = spec;
                 }
             } else {
@@ -795,7 +830,8 @@ Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel) {
         }
         if (!b64.empty()) {
             image = Json::object({{"type", "image"}, {"data", b64}, {"mimeType", mime}});
-            if (spec.contains("base64")) spec["base64"] = "<" + std::to_string(b64.size()) + " base64 chars, attached as image>";
+            if (spec.contains("base64"))
+                spec["base64"] = "<" + std::to_string(b64.size()) + " base64 chars, attached as image>";
             result["$image"] = spec;
         } else if (!note.empty()) {
             result["$image"]["error"] = note;
@@ -835,17 +871,21 @@ Json McpServer::run_tool(const Json& params, const std::atomic<bool>* cancel) {
     return Json::object({{"content", std::move(content)}, {"isError", false}});
 }
 
-Json McpServer::handle_request(const std::string& method, const Json& params, const Json& id, const std::atomic<bool>* cancel) {
+Json McpServer::handle_request(const std::string& method, const Json& params, const Json& id,
+                               const std::atomic<bool>* cancel) {
     if (method == "initialize") {
         const std::string requested = string_field(params, "protocolVersion");
         const auto& sup = mcp_supported_protocols();
-        protocol_ = std::find(sup.begin(), sup.end(), requested) != sup.end() ? requested : std::string(kMcpLatestProtocol);
+        protocol_ =
+            std::find(sup.begin(), sup.end(), requested) != sup.end() ? requested : std::string(kMcpLatestProtocol);
         if (params.is_object() && params.contains("clientInfo") && params["clientInfo"].is_object()) {
             clientInfo_ = params["clientInfo"];
             clientName_ = string_field(clientInfo_, "name");
         }
         clientCapabilities_ =
-            params.is_object() && params.contains("capabilities") && params["capabilities"].is_object() ? params["capabilities"] : Json::object();
+            params.is_object() && params.contains("capabilities") && params["capabilities"].is_object()
+                ? params["capabilities"]
+                : Json::object();
         initialized_ = true;
         session_->set_handshake({protocol_, clientInfo_, clientCapabilities_});
         Json caps = Json::object({{"tools", Json::object({{"listChanged", true}})},
@@ -870,17 +910,20 @@ Json McpServer::handle_request(const std::string& method, const Json& params, co
     if (method == "resources/list") {
         Json arr = Json::array();
         for (const auto& r : host_.list_resources())
-            arr.push_back(Json::object({{"uri", r.uri}, {"name", r.name}, {"description", r.description}, {"mimeType", r.mimeType}}));
+            arr.push_back(Json::object(
+                {{"uri", r.uri}, {"name", r.name}, {"description", r.description}, {"mimeType", r.mimeType}}));
         return ok_response(id, Json::object({{"resources", arr}}));
     }
-    if (method == "resources/templates/list") return ok_response(id, Json::object({{"resourceTemplates", Json::array()}}));
+    if (method == "resources/templates/list")
+        return ok_response(id, Json::object({{"resourceTemplates", Json::array()}}));
     if (method == "resources/read") {
         if (!params.is_object() || !params.contains("uri") || !params["uri"].is_string())
             return error_response(id, kInvalidParams, "resources/read needs params.uri (string).");
         std::string uri = params["uri"].get<std::string>();
         auto r = host_.read_resource(uri);
         if (!r.ok())
-            return error_response(id, kResourceNotFound, r.error().message, Json::object({{"uri", uri}, {"hint", r.error().hint}}));
+            return error_response(id, kResourceNotFound, r.error().message,
+                                  Json::object({{"uri", uri}, {"hint", r.error().hint}}));
         Json content = Json::object({{"uri", r->uri}, {"mimeType", r->mimeType}, {"text", r->text}});
         return ok_response(id, Json::object({{"contents", Json::array({content})}}));
     }
@@ -889,20 +932,25 @@ Json McpServer::handle_request(const std::string& method, const Json& params, co
         for (const auto& p : host_.list_prompts()) {
             Json args = Json::array();
             for (const auto& a : p.arguments)
-                args.push_back(Json::object({{"name", a.name}, {"description", a.description}, {"required", a.required}}));
-            arr.push_back(Json::object({{"name", p.name}, {"title", humanize(p.name)}, {"description", p.description}, {"arguments", args}}));
+                args.push_back(
+                    Json::object({{"name", a.name}, {"description", a.description}, {"required", a.required}}));
+            arr.push_back(Json::object(
+                {{"name", p.name}, {"title", humanize(p.name)}, {"description", p.description}, {"arguments", args}}));
         }
         return ok_response(id, Json::object({{"prompts", arr}}));
     }
     if (method == "prompts/get") {
         if (!params.is_object() || !params.contains("name") || !params["name"].is_string())
             return error_response(id, kInvalidParams, "prompts/get needs params.name (string).");
-        Json args = params.contains("arguments") && params["arguments"].is_object() ? params["arguments"] : Json::object();
+        Json args =
+            params.contains("arguments") && params["arguments"].is_object() ? params["arguments"] : Json::object();
         auto r = host_.get_prompt(params["name"].get<std::string>(), args);
-        if (!r.ok()) return error_response(id, kInvalidParams, r.error().message, Json::object({{"hint", r.error().hint}}));
+        if (!r.ok())
+            return error_response(id, kInvalidParams, r.error().message, Json::object({{"hint", r.error().hint}}));
         Json messages = Json::array();
         for (const auto& m : r.value())
-            messages.push_back(Json::object({{"role", m.role}, {"content", Json::object({{"type", "text"}, {"text", m.text}})}}));
+            messages.push_back(
+                Json::object({{"role", m.role}, {"content", Json::object({{"type", "text"}, {"text", m.text}})}}));
         std::string description;
         for (const auto& p : host_.list_prompts())
             if (p.name == params["name"].get<std::string>()) description = p.description;
@@ -911,8 +959,9 @@ Json McpServer::handle_request(const std::string& method, const Json& params, co
     if (method == "logging/setLevel") {
         const std::string level = string_field(params, "level");
         if (level_rank(level) < 0)
-            return error_response(id, kInvalidParams, "Invalid log level '" + level + "'.",
-                                  Json::object({{"hint", "Use debug, info, notice, warning, error, critical, alert or emergency."}}));
+            return error_response(
+                id, kInvalidParams, "Invalid log level '" + level + "'.",
+                Json::object({{"hint", "Use debug, info, notice, warning, error, critical, alert or emergency."}}));
         logLevel_ = level;
         return ok_response(id, Json::object());
     }
@@ -923,7 +972,8 @@ Json McpServer::runnable_request_id(const Json& msg) {
     if (!invalid_message_reason(msg).empty()) return nullptr;
     const auto id = msg.find("id");
     const auto method = msg.find("method");
-    if (id == msg.end() || id->is_null() || method == msg.end() || method->get<std::string>() == "initialize") return nullptr;
+    if (id == msg.end() || id->is_null() || method == msg.end() || method->get<std::string>() == "initialize")
+        return nullptr;
     return *id;
 }
 
@@ -997,10 +1047,12 @@ std::optional<std::string> McpServer::handle_message(std::string_view message) {
         const std::string_view before = message.substr(0, std::size_t(deep));
         const std::size_t line = 1 + std::size_t(std::count(before.begin(), before.end(), '\n'));
         const std::size_t lastNewline = before.rfind('\n');
-        const std::size_t column = 1 + (lastNewline == std::string_view::npos ? before.size() : before.size() - lastNewline - 1);
+        const std::size_t column =
+            1 + (lastNewline == std::string_view::npos ? before.size() : before.size() - lastNewline - 1);
         return dump_line(error_response(nullptr, kParseError,
-                                        "Parse error: nesting deeper than " + std::to_string(kMaxJsonDepth) + " levels at line " +
-                                            std::to_string(line) + ", column " + std::to_string(column) +
+                                        "Parse error: nesting deeper than " + std::to_string(kMaxJsonDepth) +
+                                            " levels at line " + std::to_string(line) + ", column " +
+                                            std::to_string(column) +
                                             ". Send flatter arguments (ids instead of nested copies)."));
     }
     try {

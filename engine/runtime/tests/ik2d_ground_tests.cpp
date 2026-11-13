@@ -33,9 +33,11 @@ std::string scene_json(int groundMask) {
 TEST_CASE("ik2d ground: the engine casts the foot ray into the 2D physics world") {
     for (int mask : {0, 1}) {
         const stdfs::path dir = fs::make_temp_dir("fa_ik2d_ground").value();
-        REQUIRE(fs::write_text((dir / "factoria.json").generic_string(),
-                               R"({"format":"factoria.project/1","name":"G","id":"com.example.g","mainScene":"main.scene.json",
-                                   "display":{"width":64,"height":64},"physics":{"fixedHz":60}})").ok());
+        REQUIRE(fs::write_text(
+                    (dir / "factoria.json").generic_string(),
+                    R"({"format":"factoria.project/1","name":"G","id":"com.example.g","mainScene":"main.scene.json",
+                                   "display":{"width":64,"height":64},"physics":{"fixedHz":60}})")
+                    .ok());
         REQUIRE(fs::write_text((dir / "main.scene.json").generic_string(), scene_json(mask)).ok());
         EngineConfig c;
         c.projectDir = dir.generic_string();

@@ -52,9 +52,12 @@ const char* kMatFile = R"({
   "shader": "shaders/autotest_glow.surface.glsl",
   "params": { "glow": { "type": "color", "default": [1.0, 0.35, 0.0, 1.0], "doc": "Emission color; its alpha scales the strength." } }
 })";
-const char* kMatSnippet = "void surface(in SurfaceInput i, inout Surface s) {\n    s.emission += glow.rgb * glow.a;\n}\n";
-const char* kMatSnippetV2 = "void surface(in SurfaceInput i, inout Surface s) {\n    s.albedo = vec3(0.0, 0.0, 1.0);\n    s.emission += glow.rgb * glow.a;\n}\n";
-const char* kMatSnippetBroken = "void surface(in SurfaceInput i, inout Surface s) {\n    s.albedo = vec3(0.0, 0.0, 1.0);\n    s.colour = glow.rgb;\n}\n";
+const char* kMatSnippet =
+    "void surface(in SurfaceInput i, inout Surface s) {\n    s.emission += glow.rgb * glow.a;\n}\n";
+const char* kMatSnippetV2 = "void surface(in SurfaceInput i, inout Surface s) {\n    s.albedo = vec3(0.0, 0.0, 1.0);\n "
+                            "   s.emission += glow.rgb * glow.a;\n}\n";
+const char* kMatSnippetBroken = "void surface(in SurfaceInput i, inout Surface s) {\n    s.albedo = vec3(0.0, 0.0, "
+                                "1.0);\n    s.colour = glow.rgb;\n}\n";
 
 // Section L: a cube with a material that has a ranged float, a vec3 and a color param (the Inspector types them by material.info).
 const char* kInspectScene = R"({
@@ -129,7 +132,8 @@ void Editor::at_section_K(AtScript& at) {
         auto vp_diff = [this](const Image& a, const Image& b) {
             if (a.rgba.size() != b.rgba.size() || a.rgba.empty()) return 1e9;
             const int x0 = int(vpImageMin_.x * dpi_), y0 = int(vpImageMin_.y * dpi_);
-            const int x1 = std::min(a.width, x0 + int(vpImageSize_.x * dpi_)), y1 = std::min(a.height, y0 + int(vpImageSize_.y * dpi_));
+            const int x1 = std::min(a.width, x0 + int(vpImageSize_.x * dpi_)),
+                      y1 = std::min(a.height, y0 + int(vpImageSize_.y * dpi_));
             double sum = 0;
             long n = 0;
             for (int y = std::max(0, y0); y < y1; ++y)
@@ -146,11 +150,13 @@ void Editor::at_section_K(AtScript& at) {
             const bool ok = same ? d < 0.05 : d > 1.0;
             std::string detail = " (viewport difference " + std::to_string(d) + ")";
             if (!ok) {
-                const std::pair<const char*, const Image*> shots[] = {{"base", &ms->base}, {"green", &ms->green}, {"undone", &ms->undone},
-                    {"v2", &ms->v2}, {"broken", &ms->broken}, {"fixed", &ms->fixed}, {"playing", &ms->playing}};
+                const std::pair<const char*, const Image*> shots[] = {
+                    {"base", &ms->base},     {"green", &ms->green}, {"undone", &ms->undone},  {"v2", &ms->v2},
+                    {"broken", &ms->broken}, {"fixed", &ms->fixed}, {"playing", &ms->playing}};
                 for (const auto& [name, img] : shots)
                     if (!img->rgba.empty()) (void)save_png(*img, atOutDir_ + "/material_" + name + ".png");
-                detail += "; shots saved as material_*.png; materials: " + engine_->renderer()->asset_report()["materials"].dump();
+                detail += "; shots saved as material_*.png; materials: " +
+                          engine_->renderer()->asset_report()["materials"].dump();
             }
             at_check(ok, what + detail);
         };
@@ -167,7 +173,8 @@ void Editor::at_section_K(AtScript& at) {
             ms->state = material_state();
             write_file(path, text);
             std::error_code ec;
-            stdfs::last_write_time(path, stdfs::file_time_type::clock::now() + std::chrono::seconds(10 * ++ms->edits), ec);
+            stdfs::last_write_time(path, stdfs::file_time_type::clock::now() + std::chrono::seconds(10 * ++ms->edits),
+                                   ec);
         };
         // Waits until the renderer took the rewritten snippet, polling once a frame for at most 300 frames (a reload is the 0.25 s
         // poll plus a compile, slow on a software GPU), then 5 frames to draw it.
@@ -178,27 +185,34 @@ void Editor::at_section_K(AtScript& at) {
             int left;
             void operator()() const {
                 if (ms->skip) return;
-                if (state() != ms->state) ed->atSteps_.push_front(AtStep{5, [] {}});
-                else if (left == 0) ed->at_check(false, "the renderer reloaded the rewritten snippet within 300 frames");
-                else ed->atSteps_.push_front(AtStep{1, Reloaded{ed, ms, state, left - 1}});
+                if (state() != ms->state)
+                    ed->atSteps_.push_front(AtStep{5, [] {}});
+                else if (left == 0)
+                    ed->at_check(false, "the renderer reloaded the rewritten snippet within 300 frames");
+                else
+                    ed->atSteps_.push_front(AtStep{1, Reloaded{ed, ms, state, left - 1}});
             }
         };
         auto wait_reload = [this, ms, material_state, &step] { step(1, Reloaded{this, ms, material_state, 300}); };
         // A shot for vp_diff, like snap() without toasts: they fade on their own clock over the viewport (the "Reloaded" one of
         // the scene was in one shot and gone in the next on a slow runner).
-        auto grab = [this, &step](Image MatShots::*which, std::shared_ptr<MatShots> shots) {
+        auto grab = [this, &step](Image MatShots::* which, std::shared_ptr<MatShots> shots) {
             step(3, [this] { toasts_.clear(); });
             step(3, [this, which, shots] {
-                atPostFrame_.push_back([this, which, shots] { at_check(capture_window((*shots).*which), "captured the viewport"); });
+                atPostFrame_.push_back(
+                    [this, which, shots] { at_check(capture_window((*shots).*which), "captured the viewport"); });
             });
         };
         // Errors the AI would read: game.logs, from the seq noted before the edit.
         auto errors_naming = [this](std::uint64_t after) {
-            const CommandResult r = engine_->commands().call("game.logs", Json::object({{"minLevel", "error"}, {"after", after}}));
+            const CommandResult r =
+                engine_->commands().call("game.logs", Json::object({{"minLevel", "error"}, {"after", after}}));
             int n = 0;
             if (r.ok)
                 for (const Json& l : r.result["logs"])
-                    if (l["message"].get<std::string>().find("shaders/autotest_glow.surface.glsl:") != std::string::npos) ++n;
+                    if (l["message"].get<std::string>().find("shaders/autotest_glow.surface.glsl:") !=
+                        std::string::npos)
+                        ++n;
             return n;
         };
 
@@ -218,13 +232,17 @@ void Editor::at_section_K(AtScript& at) {
             ms->skip = !r || !r->stats().materialFallbacks.empty();
             // CI installs the compiler and sets FA_REQUIRE_SHDC=1 (docs/BUILDING.md): there a material that did not build fails.
             const char* required = std::getenv("FA_REQUIRE_SHDC");
-            if (ms->skip && required && std::string(required) == "1") at_check(false, "the custom material builds (FA_REQUIRE_SHDC=1)");
-            else if (ms->skip) atLog_.push_back("SKIP custom material section (the material did not build: no sokol-shdc? set SOKOL_SHDC)");
+            if (ms->skip && required && std::string(required) == "1")
+                at_check(false, "the custom material builds (FA_REQUIRE_SHDC=1)");
+            else if (ms->skip)
+                atLog_.push_back(
+                    "SKIP custom material section (the material did not build: no sokol-shdc? set SOKOL_SHDC)");
         });
         // (a) materialParams through a Console command, the way the AI edits; Undo brings the picture back.
         step(2, [this, ms] {
             if (ms->skip) return;
-            run_console_line(R"(scene.set_component {"id":"gem","component":"MeshRenderer","fields":{"materialParams":{"glow":[0,1,0,1]}}})");
+            run_console_line(
+                R"(scene.set_component {"id":"gem","component":"MeshRenderer","fields":{"materialParams":{"glow":[0,1,0,1]}}})");
         });
         step(8, [] {});
         grab(&MatShots::green, ms);
@@ -261,8 +279,10 @@ void Editor::at_section_K(AtScript& at) {
         step(2, [this, ms, diff_check, errors_naming] {
             if (ms->skip) return;
             diff_check(ms->v2, ms->broken, true, "a broken snippet keeps the last good picture");
-            at_check(errors_naming(ms->seq) == 1, "...and logs exactly one error with file:line (game.logs shows it to the AI)");
-            at_check(engine_->renderer()->stats().materialFallbacks.empty(), "...without falling back to the error material");
+            at_check(errors_naming(ms->seq) == 1,
+                     "...and logs exactly one error with file:line (game.logs shows it to the AI)");
+            at_check(engine_->renderer()->stats().materialFallbacks.empty(),
+                     "...without falling back to the error material");
             showOverlay_ = false;  // no selection outline in the pictures compared below
             select_id("gem");      // the Inspector shows the build error under MeshRenderer.material
         });
@@ -272,9 +292,11 @@ void Editor::at_section_K(AtScript& at) {
         });
         step(4, [this, ms] {
             if (ms->skip) return;
-            at_check(at_visible("insp:material:error"), "the Inspector shows the material's build error under the material field");
+            at_check(at_visible("insp:material:error"),
+                     "the Inspector shows the material's build error under the material field");
             const std::string shown = material_build_error(assetReport_, "materials/autotest_glow.material.json");
-            at_check(shown.find("autotest_glow.surface.glsl") != std::string::npos, "...naming the snippet file (" + shown.substr(0, 120) + ")");
+            at_check(shown.find("autotest_glow.surface.glsl") != std::string::npos,
+                     "...naming the snippet file (" + shown.substr(0, 120) + ")");
         });
         snap("editor_inspector_material_error.png");
         step(2, [ms, rewrite, snippet] {
@@ -292,7 +314,8 @@ void Editor::at_section_K(AtScript& at) {
         });
         step(4, [this, ms] {
             if (ms->skip) return;
-            at_check(!at_visible("insp:material:error"), "the Inspector's build error is gone once the snippet builds again");
+            at_check(!at_visible("insp:material:error"),
+                     "the Inspector's build error is gone once the snippet builds again");
             select_id("");
             showOverlay_ = true;
         });
@@ -309,7 +332,8 @@ void Editor::at_section_K(AtScript& at) {
         step(2, [this, ms, diff_check] {
             if (ms->skip) return;
             at_check(play_state() == PlayState::Playing, "the game is playing");
-            diff_check(ms->v2, ms->playing, false, "a snippet rewritten on disk changes the viewport while the game plays");
+            diff_check(ms->v2, ms->playing, false,
+                       "a snippet rewritten on disk changes the viewport while the game plays");
             stop();
         });
     }
@@ -372,7 +396,8 @@ void Editor::at_section_L(AtScript& at) {
             focus_window("###Viewport");
         });
         step(10, [this] {
-            at_check(at_visible("tree:coin_2") && at_visible("tree:player") && at_visible("tree:camera"), "the Hierarchy lists the scene's entities");
+            at_check(at_visible("tree:coin_2") && at_visible("tree:player") && at_visible("tree:camera"),
+                     "the Hierarchy lists the scene's entities");
             at_check(!at_visible("insp:Transform.position.0"), "the Inspector shows nothing with no entity selected");
         });
         snap("editor_hierarchy_empty.png");
@@ -381,7 +406,8 @@ void Editor::at_section_L(AtScript& at) {
         click("tree:coin_2");
         step(4, [this] {
             at_check(selected_id() == "coin_2", "clicking an entity in the Hierarchy selects it");
-            at_check(at_visible("insp:Transform.position.0") && at_visible("insp:Shape2D.thickness"), "the Inspector shows its components and fields");
+            at_check(at_visible("insp:Transform.position.0") && at_visible("insp:Shape2D.thickness"),
+                     "the Inspector shows its components and fields");
             at_check(!at_enabled("insp:EntityInfo.id"), "a read-only field (the entity id) is disabled");
         });
         snap("editor_inspector.png");
@@ -389,11 +415,14 @@ void Editor::at_section_L(AtScript& at) {
         // 2. Click a number, type, Enter: the world changes with one undo step.
         step(2, [this, he] { he->undo = undo_depth(); });
         click("insp:Transform.position.0");
-        step(4, [this] { at_check(ImGui::GetIO().WantTextInput, "clicking a number in the Inspector opens it for typing"); });
+        step(4, [this] {
+            at_check(ImGui::GetIO().WantTextInput, "clicking a number in the Inspector opens it for typing");
+        });
         type_text("300");
         press_enter();
         step(4, [this, he, position_of] {
-            at_check(std::fabs(position_of("coin_2").x - 300.0f) < 0.01f && std::fabs(position_of("coin_2").y + 160.0f) < 0.01f,
+            at_check(std::fabs(position_of("coin_2").x - 300.0f) < 0.01f &&
+                         std::fabs(position_of("coin_2").y + 160.0f) < 0.01f,
                      "typing 300 and Enter sets Transform.position.x of the selected entity (y is kept)");
             at_check(undo_depth() == he->undo + 1 && dirty(), "...as ONE undo step, and the scene is dirty");
         });
@@ -406,7 +435,9 @@ void Editor::at_section_L(AtScript& at) {
                      "the scene file has the value typed in the Inspector");
         });
         click("toolbar:undo");
-        step(4, [this, position_of] { at_check(std::fabs(position_of("coin_2").x - 250.0f) < 0.01f, "the Undo button takes the typed value back"); });
+        step(4, [this, position_of] {
+            at_check(std::fabs(position_of("coin_2").x - 250.0f) < 0.01f, "the Undo button takes the typed value back");
+        });
 
         // 3. A value the command refuses changes nothing, and its message shows under the field.
         step(2, [this, he] { he->undo = undo_depth(); });
@@ -417,7 +448,8 @@ void Editor::at_section_L(AtScript& at) {
         press_enter();
         step(4, [this, he] {
             Entity c = world().find_by_id("coin_2");
-            at_check(world().get<Shape2D>(c)->thickness >= 0.0f, "a value outside the field's range is refused: nothing changed");
+            at_check(world().get<Shape2D>(c)->thickness >= 0.0f,
+                     "a value outside the field's range is refused: nothing changed");
             at_check(undo_depth() == he->undo, "...and the refused edit left no undo step");
             auto it = inspErrors_.find("Shape2D.thickness");
             at_check(it != inspErrors_.end() && it->second.find("thickness") != std::string::npos,
@@ -427,16 +459,21 @@ void Editor::at_section_L(AtScript& at) {
 
         // 4. Add and remove a component.
         click("insp:add");
-        step(3, [this] { at_check(at_visible("insp:add:Sprite"), "the Add Component list offers the components the entity lacks"); });
+        step(3, [this] {
+            at_check(at_visible("insp:add:Sprite"), "the Add Component list offers the components the entity lacks");
+        });
         click("insp:add:Sprite");
         step(2, [this] { inspScrollTo_ = "Sprite"; });
         step(3, [] {});
         step(4, [this] {
-            at_check(world().has<Sprite>(world().find_by_id("coin_2")), "choosing a component in the list adds it with its defaults");
+            at_check(world().has<Sprite>(world().find_by_id("coin_2")),
+                     "choosing a component in the list adds it with its defaults");
             at_check(at_visible("insp:hdr:Sprite"), "...and the Inspector shows its header");
         });
         click("insp:hdr:Sprite:x");
-        step(4, [this] { at_check(!world().has<Sprite>(world().find_by_id("coin_2")), "the x on a component's header removes it"); });
+        step(4, [this] {
+            at_check(!world().has<Sprite>(world().find_by_id("coin_2")), "the x on a component's header removes it");
+        });
 
         // 5. Reparent by drag and drop.
         step(2, [this] { toasts_.clear(); });
@@ -447,7 +484,8 @@ void Editor::at_section_L(AtScript& at) {
         drag("tree:coin_3", "tree:platform_1");
         step(4, [this, he] {
             World& w = world();
-            at_check(w.parent(w.find_by_id("coin_3")) == w.find_by_id("platform_1"), "dragging an entity onto another in the Hierarchy makes it a child");
+            at_check(w.parent(w.find_by_id("coin_3")) == w.find_by_id("platform_1"),
+                     "dragging an entity onto another in the Hierarchy makes it a child");
             at_check(undo_depth() == he->undo + 1, "...as one undo step");
             const Vec3 now = w.world_position(w.find_by_id("coin_3"));
             at_check(std::fabs(now.x - he->coinWorld.x) < 0.01f && std::fabs(now.y - he->coinWorld.y) < 0.01f,
@@ -468,12 +506,16 @@ void Editor::at_section_L(AtScript& at) {
         drag("tree:coin_3", "tree:empty");
         step(4, [this] {
             World& w = world();
-            at_check(w.parent(w.find_by_id("coin_3")).is_null(), "dropping an entity on the empty space of the Hierarchy moves it to the top level");
+            at_check(w.parent(w.find_by_id("coin_3")).is_null(),
+                     "dropping an entity on the empty space of the Hierarchy moves it to the top level");
         });
 
         // 6. The context menu: create a child, rename, toggle active, delete.
         right_click("tree:coin_1");
-        step(3, [this] { at_check(at_visible("tree:ctx:child") && at_visible("tree:ctx:delete"), "right-clicking an entity opens its context menu"); });
+        step(3, [this] {
+            at_check(at_visible("tree:ctx:child") && at_visible("tree:ctx:delete"),
+                     "right-clicking an entity opens its context menu");
+        });
         click("tree:ctx:child");
         step(4, [this] {
             World& w = world();
@@ -487,11 +529,17 @@ void Editor::at_section_L(AtScript& at) {
         step(4, [this] { at_check(at_visible("tree:rename:text"), "Rename opens a box for the name"); });
         type_text("Gold");
         press_enter();
-        step(4, [this] { at_check(world().info(world().find_by_id("coin_1")).name == "Gold", "typing a name and Enter renames the entity"); });
+        step(4, [this] {
+            at_check(world().info(world().find_by_id("coin_1")).name == "Gold",
+                     "typing a name and Enter renames the entity");
+        });
         right_click("tree:coin_1");
         step(3, [] {});
         click("tree:ctx:active");
-        step(4, [this] { at_check(!world().info(world().find_by_id("coin_1")).active, "the Active item of the context menu deactivates the entity"); });
+        step(4, [this] {
+            at_check(!world().info(world().find_by_id("coin_1")).active,
+                     "the Active item of the context menu deactivates the entity");
+        });
         snap("editor_hierarchy.png");
         right_click("tree:coin_3");
         step(3, [] {});
@@ -506,17 +554,22 @@ void Editor::at_section_L(AtScript& at) {
             play();
         });
         step(6, [this] { select_id("player"); });
-        step(6, [this] { at_check(at_visible("insp:Transform.position.0"), "the Inspector works while the game runs"); });
+        step(6,
+             [this] { at_check(at_visible("insp:Transform.position.0"), "the Inspector works while the game runs"); });
         click("insp:Transform.position.0");
         type_text("-111");
         press_enter();
         step(4, [this, he, position_of] {
-            at_check(std::fabs(position_of("player").x + 111.0f) < 0.5f, "an edit while playing changes the running game");
+            at_check(std::fabs(position_of("player").x + 111.0f) < 0.5f,
+                     "an edit while playing changes the running game");
             at_check(undo_depth() == he->undo, "...and adds no undo step (Stop discards it)");
         });
         snap("editor_inspector_play.png");
         step(2, [this] { stop(); });
-        step(4, [this, position_of] { at_check(std::fabs(position_of("player").x + 300.0f) < 0.01f, "Stop takes the edit made while playing back"); });
+        step(4, [this, position_of] {
+            at_check(std::fabs(position_of("player").x + 300.0f) < 0.01f,
+                     "Stop takes the edit made while playing back");
+        });
 
         // 8. A material: its params typed by material.info, edited with the same commands.
         step(2, [this, project_file, he] {
@@ -528,7 +581,8 @@ void Editor::at_section_L(AtScript& at) {
             he->undo = undo_depth();
         });
         step(30, [this] {
-            at_check(at_visible("insp:matparam:pulse") && at_visible("insp:matparam:glow") && at_visible("insp:matparam:tint"),
+            at_check(at_visible("insp:matparam:pulse") && at_visible("insp:matparam:glow") &&
+                         at_visible("insp:matparam:tint"),
                      "the Inspector lists the params of MeshRenderer.material, typed by material.info");
             at_check(!at_enabled("insp:matreset:pulse"), "...a param with no override cannot be reset");
         });
@@ -540,8 +594,11 @@ void Editor::at_section_L(AtScript& at) {
         type_text("2.5");
         press_enter();
         step(4, [this, he] {
-            const Json params = component_to_json(world(), world().find_by_id("gem"), *TypeRegistry::global().find("MeshRenderer"), true, false)["materialParams"];
-            at_check(params.is_object() && params.value("pulse", 0.0) == 2.5, "typing a value for a material param writes it into materialParams");
+            const Json params =
+                component_to_json(world(), world().find_by_id("gem"), *TypeRegistry::global().find("MeshRenderer"),
+                                  true, false)["materialParams"];
+            at_check(params.is_object() && params.value("pulse", 0.0) == 2.5,
+                     "typing a value for a material param writes it into materialParams");
             at_check(undo_depth() == he->undo + 1, "...as one undo step");
             at_check(at_enabled("insp:matreset:pulse"), "...and the param can now be reset");
         });
@@ -549,13 +606,17 @@ void Editor::at_section_L(AtScript& at) {
         type_text("9");
         press_enter();
         step(4, [this] {
-            const Json params = component_to_json(world(), world().find_by_id("gem"), *TypeRegistry::global().find("MeshRenderer"), true, false)["materialParams"];
+            const Json params =
+                component_to_json(world(), world().find_by_id("gem"), *TypeRegistry::global().find("MeshRenderer"),
+                                  true, false)["materialParams"];
             at_check(params.value("pulse", 0.0) == 4.0, "a value above the param's max is held to it (max 4)");
         });
         snap("editor_inspector_material.png");
         click("insp:matreset:pulse");
         step(4, [this] {
-            const Json params = component_to_json(world(), world().find_by_id("gem"), *TypeRegistry::global().find("MeshRenderer"), true, false)["materialParams"];
+            const Json params =
+                component_to_json(world(), world().find_by_id("gem"), *TypeRegistry::global().find("MeshRenderer"),
+                                  true, false)["materialParams"];
             at_check(!params.contains("pulse"), "Reset removes the override: the material's default applies again");
             select_id("");
             reload_scene_from_disk();
@@ -585,7 +646,9 @@ void Editor::at_section_M(AtScript& at) {
         };
         // Panel pixels per design pixel (= world unit with the fixture's camera).
         auto sc = [this] { return vpImageSize_.x / float(engine_->renderer()->target_width()); };
-        auto sc_y = [this] { return vpImageSize_.y / float(engine_->renderer()->target_height()); };  // the image size is floored: not quite the same
+        auto sc_y = [this] {
+            return vpImageSize_.y / float(engine_->renderer()->target_height());
+        };  // the image size is floored: not quite the same
         auto panel_of_player = [this] {
             const Vec2 d = engine_->renderer()->world_to_screen(world().world_position(world().find_by_id("player")));
             return Vec2{vpImageMin_.x + d.x / float(engine_->renderer()->target_width()) * vpImageSize_.x,
@@ -667,7 +730,10 @@ void Editor::at_section_M(AtScript& at) {
             focus_window("###Viewport");
         });
         // The mouse over the viewport (keys reach it while hovered or focused).
-        step(4, [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f}); });
+        step(4, [this] {
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE,
+                         Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f});
+        });
         step(4, [this] { at_check(!at_visible("gizmo:move:x"), "Select mode shows no gizmo"); });
         click("toolbar:gizmo:move");
         step(4, [this] {
@@ -675,12 +741,19 @@ void Editor::at_section_M(AtScript& at) {
             at_check(at_visible("gizmo:move:x") && at_visible("gizmo:move:y") && at_visible("gizmo:move:plane"),
                      "Move shows an arrow per axis and the free-move square on the selected entity");
             at_check(!at_visible("gizmo:move:z"), "...with no Z arrow under a 2D camera");
-            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f});
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE,
+                         Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f});
         });
         press(SAPP_KEYCODE_Q);
-        step(3, [this] { at_check(gizmoMode_ == GizmoMode::Select && !at_visible("gizmo:move:x"), "Q switches to Select: the gizmo disappears"); });
+        step(3, [this] {
+            at_check(gizmoMode_ == GizmoMode::Select && !at_visible("gizmo:move:x"),
+                     "Q switches to Select: the gizmo disappears");
+        });
         press(SAPP_KEYCODE_W);
-        step(3, [this] { at_check(gizmoMode_ == GizmoMode::Move && at_visible("gizmo:move:x"), "W switches to Move: the gizmo is back"); });
+        step(3, [this] {
+            at_check(gizmoMode_ == GizmoMode::Move && at_visible("gizmo:move:x"),
+                     "W switches to Move: the gizmo is back");
+        });
         snap("editor_gizmo_move.png");
 
         // Move: the X arrow. The world moved by what the mouse covered (px / panel scale) and y did not.
@@ -688,8 +761,10 @@ void Editor::at_section_M(AtScript& at) {
         drag_by("move:x", 60, 25);
         step(2, [this, g, tf, sc] {
             const Transform t = tf("player");
-            at_check(std::fabs(t.position.x - (g->pos.x + 60.0f / sc())) < 0.05f, "dragging the X arrow moves position.x by the world distance the mouse covered");
-            at_check(t.position.y == g->pos.y && t.position.z == g->pos.z, "...and position.y / z did not change (the drag followed the axis)");
+            at_check(std::fabs(t.position.x - (g->pos.x + 60.0f / sc())) < 0.05f,
+                     "dragging the X arrow moves position.x by the world distance the mouse covered");
+            at_check(t.position.y == g->pos.y && t.position.z == g->pos.z,
+                     "...and position.y / z did not change (the drag followed the axis)");
             at_check(undo_depth() == g->undo + 1, "the whole drag is ONE undo step");
             at_check(dirty_, "...and marks the scene dirty");
             undo();
@@ -700,7 +775,8 @@ void Editor::at_section_M(AtScript& at) {
         drag_by("move:plane", 30, 20);
         step(2, [this, g, tf, sc, sc_y] {
             const Transform t = tf("player");
-            at_check(std::fabs(t.position.x - (g->pos.x + 30.0f / sc())) < 0.05f && std::fabs(t.position.y - (g->pos.y - 20.0f / sc_y())) < 0.05f,
+            at_check(std::fabs(t.position.x - (g->pos.x + 30.0f / sc())) < 0.05f &&
+                         std::fabs(t.position.y - (g->pos.y - 20.0f / sc_y())) < 0.05f,
                      "dragging the centre square moves the entity in both axes under the mouse");
             at_check(undo_depth() == g->undo + 1, "...as one undo step");
             undo();
@@ -708,7 +784,10 @@ void Editor::at_section_M(AtScript& at) {
 
         // Rotate: a ring around Z. From 45 degrees on the ring to 0: a clockwise 45 on screen is -45 about Z (y is up).
         press(SAPP_KEYCODE_E);
-        step(3, [this] { at_check(gizmoMode_ == GizmoMode::Rotate && at_visible("gizmo:rotate:z") && !at_visible("gizmo:rotate:x"), "E shows one rotation ring in 2D"); });
+        step(3, [this] {
+            at_check(gizmoMode_ == GizmoMode::Rotate && at_visible("gizmo:rotate:z") && !at_visible("gizmo:rotate:x"),
+                     "E shows one rotation ring in 2D");
+        });
         snap("editor_gizmo_rotate.png");
         step(2, remember);
         grab("rotate:z");
@@ -716,8 +795,11 @@ void Editor::at_section_M(AtScript& at) {
         release();
         step(2, [this, g, tf] {
             const Transform t = tf("player");
-            at_check(std::fabs(t.rotation.z + 45.0f) < 2.0f, "dragging the ring turns rotation.z with the mouse's angle around the entity (" + std::to_string(t.rotation.z) + ")");
-            at_check(t.rotation.x == 0 && t.rotation.y == 0 && t.position.x == g->pos.x && t.scale.x == g->scl.x, "...and nothing else changes");
+            at_check(std::fabs(t.rotation.z + 45.0f) < 2.0f,
+                     "dragging the ring turns rotation.z with the mouse's angle around the entity (" +
+                         std::to_string(t.rotation.z) + ")");
+            at_check(t.rotation.x == 0 && t.rotation.y == 0 && t.position.x == g->pos.x && t.scale.x == g->scl.x,
+                     "...and nothing else changes");
             at_check(undo_depth() == g->undo + 1, "...as one undo step");
             undo();
         });
@@ -729,19 +811,24 @@ void Editor::at_section_M(AtScript& at) {
         release();
         step(2, [this, tf] {
             const float z = tf("player").rotation.z;
-            at_check(std::fabs(z - 240.0f) < 3.0f, "a drag that goes more than half a turn keeps turning (rotation.z " + std::to_string(z) + ", wanted 240)");
+            at_check(std::fabs(z - 240.0f) < 3.0f, "a drag that goes more than half a turn keeps turning (rotation.z " +
+                                                       std::to_string(z) + ", wanted 240)");
             undo();
         });
 
         // Scale: the X handle's box grows the entity along its own X only.
         press(SAPP_KEYCODE_R);
-        step(3, [this] { at_check(gizmoMode_ == GizmoMode::Scale && at_visible("gizmo:scale:x") && at_visible("gizmo:scale:all"), "R shows scale handles and the uniform box"); });
+        step(3, [this] {
+            at_check(gizmoMode_ == GizmoMode::Scale && at_visible("gizmo:scale:x") && at_visible("gizmo:scale:all"),
+                     "R shows scale handles and the uniform box");
+        });
         snap("editor_gizmo_scale.png");
         step(2, remember);
         drag_by("scale:x", 40, 0);
         step(2, [this, g, tf] {
             const Transform t = tf("player");
-            at_check(std::fabs(t.scale.x - 1.5f) < 0.02f && t.scale.y == g->scl.y && t.scale.z == g->scl.z, "dragging the X handle scales x only (1 -> " + std::to_string(t.scale.x) + ")");
+            at_check(std::fabs(t.scale.x - 1.5f) < 0.02f && t.scale.y == g->scl.y && t.scale.z == g->scl.z,
+                     "dragging the X handle scales x only (1 -> " + std::to_string(t.scale.x) + ")");
             at_check(undo_depth() == g->undo + 1, "...as one undo step");
             undo();
         });
@@ -750,7 +837,9 @@ void Editor::at_section_M(AtScript& at) {
         drag_by("scale:x", -400, 0);
         step(2, [this, tf] {
             const Transform t = tf("player");
-            at_check(t.scale.x > 0.0f && t.scale.x < 0.05f, "dragging a scale handle past the pivot holds a small positive value (" + std::to_string(t.scale.x) + ")");
+            at_check(t.scale.x > 0.0f && t.scale.x < 0.05f,
+                     "dragging a scale handle past the pivot holds a small positive value (" +
+                         std::to_string(t.scale.x) + ")");
             undo();
         });
 
@@ -760,7 +849,8 @@ void Editor::at_section_M(AtScript& at) {
         drag_by("move:x", 33.3f, 0);
         step(2, [this, tf] {
             const float x = tf("player").position.x;
-            at_check(std::fabs(x - std::round(x)) < 1e-3f, "Ctrl while dragging an arrow snaps the position to whole units (" + std::to_string(x) + ")");
+            at_check(std::fabs(x - std::round(x)) < 1e-3f,
+                     "Ctrl while dragging an arrow snaps the position to whole units (" + std::to_string(x) + ")");
             undo();
         });
         ctrl(false);
@@ -771,7 +861,8 @@ void Editor::at_section_M(AtScript& at) {
         release();
         step(2, [this, tf] {
             const float z = tf("player").rotation.z;
-            at_check(std::fabs(z) > 1.0f && std::fabs(z / 15.0f - std::round(z / 15.0f)) < 1e-3f, "Ctrl while dragging a ring snaps the rotation to 15 degrees (" + std::to_string(z) + ")");
+            at_check(std::fabs(z) > 1.0f && std::fabs(z / 15.0f - std::round(z / 15.0f)) < 1e-3f,
+                     "Ctrl while dragging a ring snaps the rotation to 15 degrees (" + std::to_string(z) + ")");
             undo();
         });
         ctrl(false);
@@ -780,7 +871,8 @@ void Editor::at_section_M(AtScript& at) {
         drag_by("scale:x", 37, 0);
         step(2, [this, tf] {
             const float s = tf("player").scale.x;
-            at_check(s > 1.0f && std::fabs(s * 10.0f - std::round(s * 10.0f)) < 1e-2f, "Ctrl while dragging a scale handle snaps it to 0.1 (" + std::to_string(s) + ")");
+            at_check(s > 1.0f && std::fabs(s * 10.0f - std::round(s * 10.0f)) < 1e-2f,
+                     "Ctrl while dragging a scale handle snaps it to 0.1 (" + std::to_string(s) + ")");
             undo();
         });
         ctrl(false);
@@ -788,18 +880,23 @@ void Editor::at_section_M(AtScript& at) {
 
         // A child of a rotated and scaled parent ends where the mouse put it in world space (the value written is local).
         step(2, [this, g] {
-            run_console_line(R"(scene.set_component {"id":"platform_1","component":"Transform","fields":{"rotation":[0,0,30],"scale":[1.5,1,1]}})");
+            run_console_line(
+                R"(scene.set_component {"id":"platform_1","component":"Transform","fields":{"rotation":[0,0,30],"scale":[1.5,1,1]}})");
             run_console_line(R"(scene.set_parent {"id":"coin_1","parent":"platform_1"})");
             select_id("coin_1");
             g->undo = undo_depth();
             g->pos = world().world_position(world().find_by_id("coin_1"));
         });
-        step(4, [this] { at_check(!world().parent(world().find_by_id("coin_1")).is_null() && at_visible("gizmo:move:x"), "the child has the gizmo too"); });
+        step(4, [this] {
+            at_check(!world().parent(world().find_by_id("coin_1")).is_null() && at_visible("gizmo:move:x"),
+                     "the child has the gizmo too");
+        });
         drag_by("move:x", 50, 0);
         step(2, [this, g, sc] {
             const Vec3 now = world().world_position(world().find_by_id("coin_1"));
             at_check(std::fabs(now.x - (g->pos.x + 50.0f / sc())) < 0.1f && std::fabs(now.y - g->pos.y) < 0.1f,
-                     "a child of a rotated, scaled parent moves by the mouse's world distance (the local value written differs from it)");
+                     "a child of a rotated, scaled parent moves by the mouse's world distance (the local value written "
+                     "differs from it)");
             at_check(undo_depth() == g->undo + 1, "...as one undo step");
             select_id("player");
         });
@@ -824,7 +921,8 @@ void Editor::at_section_M(AtScript& at) {
             at_check(undo_depth() == g->undo && !gizmoDrag_.active, "...and leaves no undo step, ending the drag");
         });
         release();
-        step(2, [this, g, tf] { at_check(tf("player").position.x == g->pos.x, "letting go after Esc changes nothing"); });
+        step(2,
+             [this, g, tf] { at_check(tf("player").position.x == g->pos.x, "letting go after Esc changes nothing"); });
 
         // Playing: the input goes to the game, so no handles. Paused: they edit the running game, with no undo step, lost on Stop.
         step(2, [this, remember] {
@@ -836,14 +934,19 @@ void Editor::at_section_M(AtScript& at) {
             at_check(!at_visible("gizmo:move:x"), "no gizmo while the game plays");
             pause();
         });
-        step(6, [this] { at_check(play_ == PlayState::Paused && at_visible("gizmo:move:x"), "paused: the gizmo is back"); });
+        step(6, [this] {
+            at_check(play_ == PlayState::Paused && at_visible("gizmo:move:x"), "paused: the gizmo is back");
+        });
         drag_by("move:x", 40, 0);
         step(2, [this, g, tf, sc] {
-            at_check(std::fabs(tf("player").position.x - (g->pos.x + 40.0f / sc())) < 0.05f, "a drag while paused edits the running game");
+            at_check(std::fabs(tf("player").position.x - (g->pos.x + 40.0f / sc())) < 0.05f,
+                     "a drag while paused edits the running game");
             at_check(undo_depth() == g->undo, "...with no undo step (Stop discards it)");
             stop();
         });
-        step(6, [this, g, tf] { at_check(tf("player").position.x == g->pos.x, "Stop takes the edit made while paused back"); });
+        step(6, [this, g, tf] {
+            at_check(tf("player").position.x == g->pos.x, "Stop takes the edit made while paused back");
+        });
 
         // Save: the scene file holds what the gizmo wrote.
         step(2, remember);
@@ -853,7 +956,8 @@ void Editor::at_section_M(AtScript& at) {
             auto loaded = load_json_file(project_file(scenePath_));
             const Json* saved = loaded ? find_saved_entity((*loaded)["entities"], "player") : nullptr;
             const Json pos = saved ? (*saved)["components"]["Transform"]["position"] : Json();
-            at_check(pos.is_array() && pos.size() >= 1 && std::fabs(pos[0].get<float>() - tf("player").position.x) < 1e-3f,
+            at_check(pos.is_array() && pos.size() >= 1 &&
+                         std::fabs(pos[0].get<float>() - tf("player").position.x) < 1e-3f,
                      "the scene file holds the position the gizmo set");
             at_check(!dirty_, "...and the scene is clean after saving");
         });
@@ -863,7 +967,8 @@ void Editor::at_section_M(AtScript& at) {
             scenePath_ = "./" + spelled;
             dirty_ = true;
             const CommandResult saved = engine_->commands().call("scene.save", Json::object({{"path", spelled}}));
-            at_check(saved.ok && !dirty_, "scene.save of the open file clears the dirty flag whatever the spelling of the scene path");
+            at_check(saved.ok && !dirty_,
+                     "scene.save of the open file clears the dirty flag whatever the spelling of the scene path");
             scenePath_ = spelled;
         });
         step(2, [this, project_file] {  // back to the fixture the next sections expect
@@ -900,7 +1005,10 @@ void Editor::at_section_M(AtScript& at) {
             step(2, [this, g] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, g->grab); });
             wait_until([this] { return gizmoDrag_.active; });
         };
-        auto over_viewport = [this] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f}); };
+        auto over_viewport = [this] {
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE,
+                         Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f});
+        };
         auto start_scene = [this, project_file](const char* json, const char* id, int mode) {
             write_file(project_file(scenePath_), json);
             reload_scene_from_disk();
@@ -915,11 +1023,15 @@ void Editor::at_section_M(AtScript& at) {
             const int other = (axis + 1) % 3;
             return fixed && rel.at(other, other) < 0.9998f;
         };
-        auto vec3_str = [](Vec3 v) { return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ")"; };
+        auto vec3_str = [](Vec3 v) {
+            return "(" + std::to_string(v.x) + ", " + std::to_string(v.y) + ", " + std::to_string(v.z) + ")";
+        };
 
         step(2, [start_scene] { start_scene(kGizmo3dScene, "gem", int(GizmoMode::Move)); });
         step(6, over_viewport);
-        step(4, [this] { at_check(at_visible("gizmo:move:x") && at_visible("gizmo:move:y"), "3D: the move gizmo shows on the cube"); });
+        step(4, [this] {
+            at_check(at_visible("gizmo:move:x") && at_visible("gizmo:move:y"), "3D: the move gizmo shows on the cube");
+        });
         snap("editor_gizmo_move_3d.png");
         step(2, [this, g, tf] {
             const Transform t = tf("gem");
@@ -939,7 +1051,10 @@ void Editor::at_section_M(AtScript& at) {
 
         step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_E); });
         step(3, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_E); });
-        step(3, [this] { at_check(at_visible("gizmo:rotate:x") && at_visible("gizmo:rotate:y") && at_visible("gizmo:rotate:z"), "3D: the rotate gizmo has three rings"); });
+        step(3, [this] {
+            at_check(at_visible("gizmo:rotate:x") && at_visible("gizmo:rotate:y") && at_visible("gizmo:rotate:z"),
+                     "3D: the rotate gizmo has three rings");
+        });
         snap("editor_gizmo_rotate_3d.png");
         for (int axis = 0; axis < 2; ++axis) {  // the local x ring, then the local y ring
             const GizmoHandle h{GizmoKind::RotateAxis, axis};
@@ -958,7 +1073,9 @@ void Editor::at_section_M(AtScript& at) {
             step(2, [this, g, tf, axis, turned_about_local, vec3_str] {
                 const Transform t = tf("gem");
                 at_check(turned_about_local(g->rot, t.rotation, axis),
-                         std::string("3D: dragging the local ") + (axis == 0 ? "x" : "y") + " ring turns the cube about that local axis, as the euler round trip says " + vec3_str(g->rot) + " -> " + vec3_str(t.rotation));
+                         std::string("3D: dragging the local ") + (axis == 0 ? "x" : "y") +
+                             " ring turns the cube about that local axis, as the euler round trip says " +
+                             vec3_str(g->rot) + " -> " + vec3_str(t.rotation));
                 at_check(t.scale.x == g->scl.x && undo_depth() == g->undo + 1, "...one undo step, scale untouched");
                 undo();
             });
@@ -966,7 +1083,9 @@ void Editor::at_section_M(AtScript& at) {
 
         step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_R); });
         step(3, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_R); });
-        step(3, [this] { at_check(at_visible("gizmo:scale:x") && at_visible("gizmo:scale:y"), "3D: the scale gizmo shows"); });
+        step(3, [this] {
+            at_check(at_visible("gizmo:scale:x") && at_visible("gizmo:scale:y"), "3D: the scale gizmo shows");
+        });
         step(2, [this, g, tf] {
             g->scl = tf("gem").scale;
             g->undo = undo_depth();
@@ -988,7 +1107,8 @@ void Editor::at_section_M(AtScript& at) {
         step(2, [start_scene] { start_scene(kGizmoHudScene, "hud", int(GizmoMode::Move)); });
         step(6, over_viewport);
         step(4, [this, shape_of] {
-            at_check(at_visible("gizmo:move:x") && at_visible("gizmo:move:plane"), "HUD: a screen-space entity gets the move gizmo");
+            at_check(at_visible("gizmo:move:x") && at_visible("gizmo:move:plane"),
+                     "HUD: a screen-space entity gets the move gizmo");
             const GizmoShape* y = shape_of(GizmoHandle{GizmoKind::MoveAxis, 1});
             at_check(y && y->dir.y > 0.9f, "HUD: the Y arrow points down the screen (design y grows downwards)");
         });
@@ -1000,8 +1120,10 @@ void Editor::at_section_M(AtScript& at) {
         drag_by("move:plane", 30, 20);
         step(2, [this, g, tf, sc, sc_y] {
             const Transform t = tf("hud");
-            at_check(std::fabs(t.position.x - (g->pos.x + 30.0f / sc())) < 0.1f && std::fabs(t.position.y - (g->pos.y + 20.0f / sc_y())) < 0.1f,
-                     "HUD: the centre square moves it by the design pixels the mouse covered (right and DOWN are positive)");
+            at_check(
+                std::fabs(t.position.x - (g->pos.x + 30.0f / sc())) < 0.1f &&
+                    std::fabs(t.position.y - (g->pos.y + 20.0f / sc_y())) < 0.1f,
+                "HUD: the centre square moves it by the design pixels the mouse covered (right and DOWN are positive)");
             at_check(undo_depth() == g->undo + 1, "...as one undo step");
             g->pos = t.position;
             g->undo = undo_depth();
@@ -1107,19 +1229,28 @@ void Editor::at_section_N(AtScript& at) {
             Image img;
             img.width = img.height = 16;
             img.rgba.assign(16 * 16 * 4, 255);
-            for (size_t i = 0; i < img.rgba.size(); i += 4) { img.rgba[i + 1] = 90; img.rgba[i + 2] = 40; }
-            at_check(save_png(img, project_file("assets/autotest_drop.png")).ok(), "a picture was written for the Project panel test");
+            for (size_t i = 0; i < img.rgba.size(); i += 4) {
+                img.rgba[i + 1] = 90;
+                img.rgba[i + 2] = 40;
+            }
+            at_check(save_png(img, project_file("assets/autotest_drop.png")).ok(),
+                     "a picture was written for the Project panel test");
             write_file(project_file("assets/autotest_trash.txt"), "delete me");
             // The prefab comes from the open scene's coin, through the command the AI uses.
             std::string err;
-            CommandResult r = edit_command("at:prefab", "prefab.save",
-                                           Json::object({{"id", "coin_1"}, {"path", "prefabs/autotest_drop.prefab.json"}, {"overwrite", true}}), &err);
+            CommandResult r = edit_command(
+                "at:prefab", "prefab.save",
+                Json::object({{"id", "coin_1"}, {"path", "prefabs/autotest_drop.prefab.json"}, {"overwrite", true}}),
+                &err);
             at_check(r.ok, "prefab.save made a prefab for the Project panel test: " + err);
-            r = edit_command("at:sprite", "scene.spawn",
-                             Json::object({{"id", "dropsprite"}, {"name", "Drop Sprite"},
-                                           {"components", Json::object({{"Transform", Json::object({{"position", Json::array({300, 250, 0})}})},
-                                                                        {"Sprite", Json::object()}})}}),
-                             &err);
+            r = edit_command(
+                "at:sprite", "scene.spawn",
+                Json::object({{"id", "dropsprite"},
+                              {"name", "Drop Sprite"},
+                              {"components",
+                               Json::object({{"Transform", Json::object({{"position", Json::array({300, 250, 0})}})},
+                                             {"Sprite", Json::object()}})}}),
+                &err);
             at_check(r.ok, "an entity with a Sprite was spawned: " + err);
             bz->undo = undo_depth();
             showProject_ = true;
@@ -1127,14 +1258,17 @@ void Editor::at_section_N(AtScript& at) {
         });
         wait_until([this] { return at_visible("proj:refresh") && at_visible("proj:file:assets/blip.wav"); });
         step(4, [this, bz] {
-            at_check(at_visible("proj:file:assets/blip.wav"), "the Project panel lists a file of the project (assets/blip.wav)");
+            at_check(at_visible("proj:file:assets/blip.wav"),
+                     "the Project panel lists a file of the project (assets/blip.wav)");
             at_check(at_visible("proj:folder:") && at_visible("proj:folder:assets"), "...and a folder tree");
             bz->scans = projBrowser_.scans;
             // The scan read the recipes too: the watcher's next poll (every second, so maybe after the 30 frames below on a
             // fast machine) must not walk the disk again for the prefab.save above.
             at_check(!projBrowser_.recipesDirty, "...and leaves the recipe watcher no second walk of the disk to do");
         });
-        step(30, [this, bz] { at_check(projBrowser_.scans == bz->scans, "the panel does not read the disk again while nothing changed"); });
+        step(30, [this, bz] {
+            at_check(projBrowser_.scans == bz->scans, "the panel does not read the disk again while nothing changed");
+        });
         snap("editor_project_panel.png");
 
         // The type filter.
@@ -1143,7 +1277,8 @@ void Editor::at_section_N(AtScript& at) {
         click_widget("proj:type:audio");
         step(5, [this] {
             at_check(at_visible("proj:file:assets/blip.wav"), "the type filter 'audio' keeps the sounds");
-            at_check(!at_visible("proj:file:assets/autotest_drop.png") && !at_visible("proj:file:prefabs/autotest_drop.prefab.json"),
+            at_check(!at_visible("proj:file:assets/autotest_drop.png") &&
+                         !at_visible("proj:file:prefabs/autotest_drop.prefab.json"),
                      "...and hides the pictures and prefabs");
         });
         snap("editor_project_filter.png");
@@ -1151,8 +1286,10 @@ void Editor::at_section_N(AtScript& at) {
         // The search.
         search_for("DROP.p");
         step(4, [this] {
-            at_check(at_visible("proj:file:assets/autotest_drop.png") && at_visible("proj:file:prefabs/autotest_drop.prefab.json"),
-                     "searching 'DROP.p' (case-insensitive) keeps the files whose path contains it (the prefab.save and the picture written "
+            at_check(at_visible("proj:file:assets/autotest_drop.png") &&
+                         at_visible("proj:file:prefabs/autotest_drop.prefab.json"),
+                     "searching 'DROP.p' (case-insensitive) keeps the files whose path contains it (the prefab.save "
+                     "and the picture written "
                      "after the panel was created are listed without Refresh)");
             at_check(!at_visible("proj:file:assets/blip.wav"), "...and hides the others");
         });
@@ -1168,8 +1305,10 @@ void Editor::at_section_N(AtScript& at) {
         });
         drag_to(tile_prefab, [this, bz] {
             const Vec2 t{vpImageMin_.x + vpImageSize_.x * 0.78f, vpImageMin_.y + vpImageSize_.y * 0.30f};
-            const float tw = float(engine_->renderer()->target_width()), th = float(engine_->renderer()->target_height());
-            bz->expected = engine_->renderer()->screen_to_world(Vec2{(t.x - vpImageMin_.x) / vpImageSize_.x * tw, (t.y - vpImageMin_.y) / vpImageSize_.y * th}, 0.0f);
+            const float tw = float(engine_->renderer()->target_width()),
+                        th = float(engine_->renderer()->target_height());
+            bz->expected = engine_->renderer()->screen_to_world(
+                Vec2{(t.x - vpImageMin_.x) / vpImageSize_.x * tw, (t.y - vpImageMin_.y) / vpImageSize_.y * th}, 0.0f);
             return t;
         });
         step(5, [this, bz] {
@@ -1180,9 +1319,11 @@ void Editor::at_section_N(AtScript& at) {
             const Vec3 p = e.is_null() ? Vec3{9999, 9999, 9999} : world().world_position(e);
             // A world unit can be less than a pixel in a small window: allow two panel pixels of difference.
             const float tol = 2.0f * float(engine_->renderer()->target_width()) / std::max(1.0f, vpImageSize_.x);
-            at_check(std::fabs(p.x - bz->expected.x) < tol && std::fabs(p.y - bz->expected.y) < tol && std::fabs(p.z) < 0.01f,
-                     "...at the world point under the mouse on the z = 0 plane (" + std::to_string(p.x) + ", " + std::to_string(p.y) +
-                         " expected " + std::to_string(bz->expected.x) + ", " + std::to_string(bz->expected.y) + ")");
+            at_check(std::fabs(p.x - bz->expected.x) < tol && std::fabs(p.y - bz->expected.y) < tol &&
+                         std::fabs(p.z) < 0.01f,
+                     "...at the world point under the mouse on the z = 0 plane (" + std::to_string(p.x) + ", " +
+                         std::to_string(p.y) + " expected " + std::to_string(bz->expected.x) + ", " +
+                         std::to_string(bz->expected.y) + ")");
         });
         snap("editor_project_drop_prefab.png");
         step(2, [this] { focus_window("###Viewport"); });
@@ -1195,9 +1336,11 @@ void Editor::at_section_N(AtScript& at) {
 
         // A file that is not a prefab dropped on the viewport does nothing.
         search_for("autotest_drop.png");
-        drag_to(tile_png, [this] { return Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.5f}; });
+        drag_to(tile_png,
+                [this] { return Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.5f}; });
         step(5, [this, bz] {
-            at_check(world().entity_count() == bz->entities && undo_depth() == bz->undo, "a picture dropped on the Viewport does nothing");
+            at_check(world().entity_count() == bz->entities && undo_depth() == bz->undo,
+                     "a picture dropped on the Viewport does nothing");
         });
 
         // A picture dropped on a Sprite's texture field.
@@ -1207,17 +1350,21 @@ void Editor::at_section_N(AtScript& at) {
             inspScrollTo_ = "Sprite.texture";
             bz->undo = undo_depth();
         });
-        wait_until([this] { return at_shown("insp:Sprite.texture") && at_visible(std::string("proj:file:assets/autotest_drop.png")); });
+        wait_until([this] {
+            return at_shown("insp:Sprite.texture") && at_visible(std::string("proj:file:assets/autotest_drop.png"));
+        });
         drag_to(tile_png, [this] { return at_widget("insp:Sprite.texture"); });
         step(5, [this, bz] {
             const Sprite* sp = world().get<Sprite>(world().find_by_id("dropsprite"));
-            at_check(sp && sp->texture == "assets/autotest_drop.png", "a picture dropped on the Sprite's texture field sets it");
+            at_check(sp && sp->texture == "assets/autotest_drop.png",
+                     "a picture dropped on the Sprite's texture field sets it");
             at_check(undo_depth() == bz->undo + 1, "...as one undo step");
         });
         snap("editor_project_drop_texture.png");
         search_for("blip.wav");
         step(2, [this, bz] { bz->undo = undo_depth(); });
-        wait_until([this] { return at_shown("insp:Sprite.texture") && at_visible(std::string("proj:file:assets/blip.wav")); });
+        wait_until(
+            [this] { return at_shown("insp:Sprite.texture") && at_visible(std::string("proj:file:assets/blip.wav")); });
         drag_to("proj:file:assets/blip.wav", [this] { return at_widget("insp:Sprite.texture"); });
         step(5, [this, bz] {
             const Sprite* sp = world().get<Sprite>(world().find_by_id("dropsprite"));
@@ -1235,19 +1382,29 @@ void Editor::at_section_N(AtScript& at) {
         });
         snap("editor_project_menu.png");
         click_widget("proj:ctx:copy");
-        step(4, [this] { at_check(std::string(ImGui::GetClipboardText() ? ImGui::GetClipboardText() : "") == "assets/autotest_trash.txt", "Copy path puts the project-relative path on the clipboard"); });
+        step(4, [this] {
+            at_check(std::string(ImGui::GetClipboardText() ? ImGui::GetClipboardText() : "") ==
+                         "assets/autotest_trash.txt",
+                     "Copy path puts the project-relative path on the clipboard");
+        });
         right_click_widget("proj:file:assets/autotest_trash.txt");
         step(3, [] {});
         click_widget("proj:ctx:delete");
-        step(4, [this] { at_check(at_visible("proj:delete-confirm") && stdfs::exists(projectDir_ + "/assets/autotest_trash.txt"), "Delete asks first; the file is still there"); });
+        step(4, [this] {
+            at_check(at_visible("proj:delete-confirm") && stdfs::exists(projectDir_ + "/assets/autotest_trash.txt"),
+                     "Delete asks first; the file is still there");
+        });
         snap("editor_project_delete.png");
         click_widget("proj:delete-confirm");
-        wait_until([this] { return !at_visible("proj:file:assets/autotest_trash.txt") && !at_visible("proj:delete-confirm"); });
-        step(4, [this] {
-            at_check(!stdfs::exists(projectDir_ + "/assets/autotest_trash.txt"), "confirming removes the file from disk (fs.delete)");
-            at_check(!at_visible("proj:file:assets/autotest_trash.txt"), "...and the panel stops listing it without a Refresh");
+        wait_until([this] {
+            return !at_visible("proj:file:assets/autotest_trash.txt") && !at_visible("proj:delete-confirm");
         });
-
+        step(4, [this] {
+            at_check(!stdfs::exists(projectDir_ + "/assets/autotest_trash.txt"),
+                     "confirming removes the file from disk (fs.delete)");
+            at_check(!at_visible("proj:file:assets/autotest_trash.txt"),
+                     "...and the panel stops listing it without a Refresh");
+        });
     }
 }
 

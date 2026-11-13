@@ -47,7 +47,8 @@ TEST_CASE("phone window: a start that fails reports why, once, and the session i
     REQUIRE(session.start(o));
     session.wait();
     std::optional<PhoneSession::Done> done;
-    for (int i = 0; i < 600 && !(done = session.take_result()); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    for (int i = 0; i < 600 && !(done = session.take_result()); ++i)
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     REQUIRE(done.has_value());
     CHECK(done->wasStart);
     CHECK_FALSE(done->ok);

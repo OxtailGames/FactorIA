@@ -52,7 +52,8 @@ struct Log {
     VfxHost host() {
         VfxHost h;
         h.play_sound = [this](const std::string& clip, float volume, float pitch, const std::string& bus) {
-            events.push_back("sound " + clip + " " + std::to_string(int(volume * 100)) + " " + std::to_string(int(pitch * 10)) + " " + bus);
+            events.push_back("sound " + clip + " " + std::to_string(int(volume * 100)) + " " +
+                             std::to_string(int(pitch * 10)) + " " + bus);
             return true;
         };
         h.call = [this](const std::string& command, const Json& args) {
@@ -148,7 +149,8 @@ TEST_CASE("vfx: every kind of mistake is an error naming the JSON pointer, with 
         CHECK(i->hint.find("Did you mean 'feel.shake'") != std::string::npos);
     }
     SUBCASE("commands that write files or change settings are refused at parse time, with the pointer") {
-        for (const char* name : {"audio.bake", "audio.create", "audio.edit", "feel.settings", "feel.cancel", "audio.log", "feel.state", "feel.*"}) {
+        for (const char* name : {"audio.bake", "audio.create", "audio.edit", "feel.settings", "feel.cancel",
+                                 "audio.log", "feel.state", "feel.*"}) {
             Json j = hit_effect();
             j["parts"][3]["command"] = name;
             auto doc = parse_vfx(j, "assets/vfx/hit.vfx.json");
@@ -245,7 +247,8 @@ TEST_CASE("vfx: the schema file lists every key the parser accepts") {
     const Json& top = (*schema)["properties"];
     for (const char* k : {"$schema", "format", "doc", "duration", "parts"}) CHECK_MESSAGE(top.contains(k), k);
     const Json& part = (*schema)["properties"]["parts"]["items"]["properties"];
-    for (const char* k : {"type", "name", "at", "duration", "offset", "emitter", "light", "is3D", "fade", "clip", "volume", "pitch", "bus", "command", "args"}) {
+    for (const char* k : {"type", "name", "at", "duration", "offset", "emitter", "light", "is3D", "fade", "clip",
+                          "volume", "pitch", "bus", "command", "args"}) {
         REQUIRE_MESSAGE(part.contains(k), k);
         CHECK_MESSAGE(part[k].contains("description"), k);
     }
@@ -254,17 +257,18 @@ TEST_CASE("vfx: the schema file lists every key the parser accepts") {
 // ----------------------------------------------------------------------------------------------------------- loading --
 
 TEST_CASE("vfx: the cache is used for a file with no modification time too, checked by its content") {
-    const std::int64_t kNow = 100'000'000'000;   // ns; the entry below was made for mtime 1 s: settled
+    const std::int64_t kNow = 100'000'000'000;  // ns; the entry below was made for mtime 1 s: settled
     // a file the backend gives no time for (an APK asset): never parsed again while its size and text are the same
     CHECK(vfx_cache_use(-1, 120, kNow, true, -1, 120, false) == VfxCacheUse::Compare);
-    CHECK(vfx_cache_use(-1, 121, kNow, true, -1, 120, false) == VfxCacheUse::Parse);    // another size: read and parse
-    CHECK(vfx_cache_use(-1, 120, kNow, false, 0, 0, false) == VfxCacheUse::Parse);      // nothing cached yet
-    CHECK(vfx_cache_use(-1, 120, kNow, true, -1, 120, true) == VfxCacheUse::Parse);     // the caller wants the issues
+    CHECK(vfx_cache_use(-1, 121, kNow, true, -1, 120, false) == VfxCacheUse::Parse);  // another size: read and parse
+    CHECK(vfx_cache_use(-1, 120, kNow, false, 0, 0, false) == VfxCacheUse::Parse);    // nothing cached yet
+    CHECK(vfx_cache_use(-1, 120, kNow, true, -1, 120, true) == VfxCacheUse::Parse);   // the caller wants the issues
     // a file with a time: trusted once left alone for two seconds, compared while it is younger, parsed when the time or size moved
     CHECK(vfx_cache_use(1'000'000'000, 120, kNow, true, 1'000'000'000, 120, false) == VfxCacheUse::Trust);
     CHECK(vfx_cache_use(kNow - 500'000'000, 120, kNow, true, kNow - 500'000'000, 120, false) == VfxCacheUse::Compare);
     CHECK(vfx_cache_use(2'000'000'000, 120, kNow, true, 1'000'000'000, 120, false) == VfxCacheUse::Parse);
-    CHECK(vfx_cache_use(-1, 120, kNow, true, 1'000'000'000, 120, false) == VfxCacheUse::Parse);   // the time vanished: not the same file
+    CHECK(vfx_cache_use(-1, 120, kNow, true, 1'000'000'000, 120, false) ==
+          VfxCacheUse::Parse);  // the time vanished: not the same file
 }
 
 TEST_CASE("vfx: load_vfx reads a file, shares it, and reads it again when it changed") {
@@ -277,7 +281,8 @@ TEST_CASE("vfx: load_vfx reads a file, shares it, and reads it again when it cha
     REQUIRE(b.ok());
     CHECK(a->get() == b->get());  // one VfxDoc for both
     Json longer = hit_effect();
-    longer["doc"] = "A hit that is a bit longer than the first one";  // a different size: the cache sees it on any file system
+    longer["doc"] =
+        "A hit that is a bit longer than the first one";  // a different size: the cache sees it on any file system
     write(path, longer);
     auto c = load_vfx(path);
     REQUIRE(c.ok());
@@ -306,7 +311,8 @@ TEST_CASE("vfx: a same-size edit of a file just written is seen (the cache check
 
 TEST_CASE("vfx: a particle that lives longer than 30 s is an error (it would hold one of the 64 slots)") {
     auto doc = [](const char* emitter) {
-        return Json::parse(std::string(R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","emitter":)") + emitter + "}]}");
+        return Json::parse(std::string(R"({"format":"factoria.vfx/1","parts":[{"type":"emitter","emitter":)") +
+                           emitter + "}]}");
     };
     CHECK_FALSE(find_issue(issues_of(doc(R"({"burst":4,"lifetime":20})")), "/parts/0/emitter/lifetime"));
     const std::vector<VfxIssue> longIssues = issues_of(doc(R"({"burst":4,"lifetime":3600})"));
@@ -315,8 +321,10 @@ TEST_CASE("vfx: a particle that lives longer than 30 s is an error (it would hol
     CHECK(long1->error);
     CHECK_FALSE(long1->hint.empty());
     // The variance and the trail count: 25 s * 1.5 = 37.5 s.
-    CHECK(find_issue(issues_of(doc(R"({"burst":4,"lifetime":25,"lifetimeVariance":0.5})")), "/parts/0/emitter/lifetime"));
-    CHECK(find_issue(issues_of(doc(R"({"burst":4,"lifetime":20,"trail":"particle","trailTime":15})")), "/parts/0/emitter/lifetime"));
+    CHECK(
+        find_issue(issues_of(doc(R"({"burst":4,"lifetime":25,"lifetimeVariance":0.5})")), "/parts/0/emitter/lifetime"));
+    CHECK(find_issue(issues_of(doc(R"({"burst":4,"lifetime":20,"trail":"particle","trailTime":15})")),
+                     "/parts/0/emitter/lifetime"));
     // A sub-emitter written inline is checked too.
     const std::vector<VfxIssue> innerIssues =
         issues_of(doc(R"({"burst":4,"lifetime":1,"subEmitters":{"death":{"emitter":{"burst":2,"lifetime":500}}}})"));
@@ -383,7 +391,8 @@ TEST_CASE("vfx: parts start at their time, lights fade and end, and an autoDestr
     update_vfx(w, dt, host);  // 0.20: the shake
     REQUIRE(log.events.size() == 2);
     CHECK(log.events[1] == "call feel.shake {\"amount\":0.5}");
-    for (int i = 0; i < 6; ++i) update_vfx(w, dt, host);  // 0.60 s: past the end of the effect (0.4 s) and of its sparks (0.46 s)
+    for (int i = 0; i < 6; ++i)
+        update_vfx(w, dt, host);    // 0.60 s: past the end of the effect (0.4 s) and of its sparks (0.46 s)
     CHECK(log.events.size() == 2);  // each part once
     CHECK(children_named(w, fx, "flash") == 0);  // the flash lasted 0.4 s
     CHECK_FALSE(w.get<Vfx>(fx)->playing);
@@ -413,13 +422,14 @@ TEST_CASE("vfx: a one-shot autoDestroy effect is gone at the time its particles 
     while (steps < 8) step();  // 0.40 s
     CHECK(w.alive(*r));
     CHECK(w.entity_count() == before + 1);  // the sparks, the flash went at 0.4 s
-    while (steps < 11) step();  // 0.55 s
+    while (steps < 11) step();              // 0.55 s
     CHECK_FALSE(w.alive(*r));
     CHECK(w.entity_count() == before - 1);
     CHECK(vfx_playing_count(w) == 0);
 }
 
-TEST_CASE("vfx: a looping effect over a minute of game time keeps a bounded, stable set of entities, without a renderer") {
+TEST_CASE(
+    "vfx: a looping effect over a minute of game time keeps a bounded, stable set of entities, without a renderer") {
     TempDir tmp("fa_vfx_loop60");
     const std::string path = tmp.file("loop.vfx.json");
     write(path, Json::parse(R"({"format":"factoria.vfx/1","duration":1.0,"parts":[
@@ -437,7 +447,8 @@ TEST_CASE("vfx: a looping effect over a minute of game time keeps a bounded, sta
         update_vfx(w, 1.0f / 60.0f, none);
         w.flush();
         peak = std::max(peak, w.entity_count());
-        if (i >= 2 * 60 && i < 10 * 60) peakEarly = std::max(peakEarly, w.entity_count());  // after the first loops have warmed up
+        if (i >= 2 * 60 && i < 10 * 60)
+            peakEarly = std::max(peakEarly, w.entity_count());  // after the first loops have warmed up
         if (i >= 50 * 60) peakLate = std::max(peakLate, w.entity_count());
     }
     // The effect, plus at most the emitters of the loops whose particles are still draining (0.6 s + 0.1 s of slack, and 0.48 + 0.1).
@@ -450,7 +461,8 @@ TEST_CASE("vfx: a looping effect over a minute of game time keeps a bounded, sta
     CHECK(vfx_playing_count(w) == 1);
 }
 
-TEST_CASE("vfx: an explicit file duration shorter than a part ends its light and its emitter at the end of the effect") {
+TEST_CASE(
+    "vfx: an explicit file duration shorter than a part ends its light and its emitter at the end of the effect") {
     TempDir tmp("fa_vfx_shortdur");
     const std::string path = tmp.file("short.vfx.json");
     write(path, Json::parse(R"({"format":"factoria.vfx/1","duration":0.2,"parts":[
@@ -556,7 +568,8 @@ TEST_CASE("vfx: speed, a paused clock and loop") {
         CHECK(sawNew);
         write(path, Json::parse(R"({"format": "factoria.vfx/1", "parts": "broken"})"));
         log.events.clear();
-        for (int i = 0; i < 9; ++i) update_vfx(w, 0.05f, log.host());  // a round later: the file is invalid, the last version plays on
+        for (int i = 0; i < 9; ++i)
+            update_vfx(w, 0.05f, log.host());  // a round later: the file is invalid, the last version plays on
         bool sawLast = false;
         for (const std::string& e : log.events) sawLast = sawLast || e.find("other.wav") != std::string::npos;
         CHECK(sawLast);
@@ -577,7 +590,8 @@ TEST_CASE("vfx: the same effects at the same steps do the same things") {
         for (int i = 0; i < 20; ++i) {
             const std::size_t before = log.events.size();
             update_vfx(w, 1.0f / 60.0f, log.host());
-            for (std::size_t k = before; k < log.events.size(); ++k) trace.push_back(std::to_string(i) + ":" + log.events[k]);
+            for (std::size_t k = before; k < log.events.size(); ++k)
+                trace.push_back(std::to_string(i) + ":" + log.events[k]);
             trace.push_back(std::to_string(i) + " children " + std::to_string(w.entity_count()));
         }
         return trace;
@@ -621,7 +635,8 @@ TEST_CASE("vfx: vfx_play checks the file and the options, and follows a parent")
     REQUIRE_FALSE(bad2.ok());
     CHECK(bad2.error().message.find("parent") != std::string::npos);
     CHECK_FALSE(bad2.error().hint.empty());
-    CHECK(w.entity_count() == before + 1);  // only `gone` itself (still waiting to be destroyed): the refused play made nothing
+    CHECK(w.entity_count() ==
+          before + 1);  // only `gone` itself (still waiting to be destroyed): the refused play made nothing
 }
 
 TEST_CASE("vfx: at most kVfxMaxPlaying effects play at once; a play past that is dropped") {
@@ -785,17 +800,20 @@ TEST_CASE("vfx: VfxHost::load supplies the document instead of the file (the edi
     }
 }
 
-TEST_CASE("vfx: play scale makes the effect that many times larger: positions, particle size and speed, trails, light radius; not times or command arguments") {
+TEST_CASE("vfx: play scale makes the effect that many times larger: positions, particle size and speed, trails, light "
+          "radius; not times or command arguments") {
     TempDir tmp("fa_vfx_scale");
     const std::string path = tmp.file("hit.vfx.json");
     Json fx = hit_effect();
     fx["parts"][0]["emitter"]["gravity"] = Json::array({0, -100, 0});
     fx["parts"][0]["emitter"]["trailWidth"] = 3;
     fx["parts"][0]["emitter"]["noiseStrength"] = 10;
-    fx["parts"][0]["emitter"]["subEmitters"] = Json::parse(R"({"death": {"count": 2, "emitter": {"speed": 50, "startSize": 6, "shape": "circle", "shapeSize": [4, 4, 4],
+    fx["parts"][0]["emitter"]["subEmitters"] = Json::parse(
+        R"({"death": {"count": 2, "emitter": {"speed": 50, "startSize": 6, "shape": "circle", "shapeSize": [4, 4, 4],
         "subEmitters": {"death": {"emitter": {"gravity": [0, -20, 0]}}}}}})");
     // The same emitter kept in its own space (the emitter's matrix scales how far its particles fly), and one that is a prefab link.
-    fx["parts"].push_back(Json::parse(R"({"type": "emitter", "name": "local", "emitter": {"burst": 3, "worldSpace": false, "speed": 70, "startSize": 5,
+    fx["parts"].push_back(Json::parse(
+        R"({"type": "emitter", "name": "local", "emitter": {"burst": 3, "worldSpace": false, "speed": 70, "startSize": 5,
         "gravity": [0, -40, 0], "subEmitters": {"death": {"prefab": "prefabs/dust.prefab.json"}}}})"));
     write(path, fx);
     auto play = [&](float scale) {
@@ -853,7 +871,8 @@ TEST_CASE("vfx: play scale makes the effect that many times larger: positions, p
     CHECK(death["startSize"].get<double>() == doctest::Approx(12.0));
     CHECK(death["shapeSize"][0].get<double>() == doctest::Approx(8.0));
     CHECK(death["subEmitters"]["death"]["emitter"]["gravity"][1].get<double>() == doctest::Approx(-40.0));
-    CHECK(a.subEmitters["death"]["emitter"]["speed"].get<double>() == doctest::Approx(50.0));  // scale 1 leaves the document's values
+    CHECK(a.subEmitters["death"]["emitter"]["speed"].get<double>() ==
+          doctest::Approx(50.0));  // scale 1 leaves the document's values
     // An emitter in its own space: the matrix of the effect already stretches how far its particles fly, so only the sizes change.
     const ParticleEmitter& la = *w1->get<ParticleEmitter>(local1);
     const ParticleEmitter& lb = *w2->get<ParticleEmitter>(local2);

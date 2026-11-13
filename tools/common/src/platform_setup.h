@@ -18,10 +18,11 @@ namespace fa::platform_setup {
 // What one call of platform.add_backend works with, and what it reports.
 struct Context {
     std::string projectDir;
-    std::string backend;  // "steam", "apple", "googleplay": also the plugin's name and its template (platforms/plugins/<backend>)
-    Json args;            // the command's arguments, defaults filled in
+    std::string
+        backend;  // "steam", "apple", "googleplay": also the plugin's name and its template (platforms/plugins/<backend>)
+    Json args;    // the command's arguments, defaults filled in
     CommandRegistry* registry = nullptr;
-    std::string folder;   // the plugin's folder once ensure_plugin ran: the result's "folder"
+    std::string folder;  // the plugin's folder once ensure_plugin ran: the result's "folder"
     // googleplay: where to look for the Android SDK instead of the usual folders (tests); it must outlive the call.
     const AndroidToolchainSearch* androidSearch = nullptr;
     // run_cmake runs this CMake when set, else the one find_cmake() finds (googleplay: the Android SDK's own, which comes with Ninja).
@@ -40,10 +41,12 @@ struct Context {
     // dryRun: nothing is written, built or copied; each step records what it would do in `done` and the files and factoria.json
     // keys it would write in `files` and `keys` (the result's "wouldDo", "files" and "keys").
     bool dryRun = false;
-    std::vector<std::string> files;      // files written (or, in a dry run, that would be)
-    std::vector<std::string> keys;       // factoria.json keys written (or that would be): "factoria.json#/plugins/steam"
+    std::vector<std::string> files;  // files written (or, in a dry run, that would be)
+    std::vector<std::string> keys;   // factoria.json keys written (or that would be): "factoria.json#/plugins/steam"
     // Records a file the command writes (generic separators).
-    void wrote(const std::string& file) { if (std::find(files.begin(), files.end(), file) == files.end()) files.push_back(file); }
+    void wrote(const std::string& file) {
+        if (std::find(files.begin(), files.end(), file) == files.end()) files.push_back(file);
+    }
 
     std::vector<std::string> done;       // what was done, in order: the result's "done"
     std::vector<std::string> nextSteps;  // what the developer still does by hand: the result's "nextSteps"
@@ -51,9 +54,9 @@ struct Context {
 };
 
 struct Backend {
-    std::string name;         // "steam"
-    std::string summary;      // one sentence for the command's description: what setting it up does
-    Json properties;          // the JSON Schema "properties" this backend reads besides "backend" (may be an empty object)
+    std::string name;     // "steam"
+    std::string summary;  // one sentence for the command's description: what setting it up does
+    Json properties;      // the JSON Schema "properties" this backend reads besides "backend" (may be an empty object)
     std::function<void(Context&)> run;  // does the work; throws CommandError (teaching) when something is missing
 };
 
@@ -87,15 +90,16 @@ struct NdkToolchain {
 };
 // Finds them; throws a CommandError that says what to install. `backend` is the plugin ("admob"), `display` how a message names it
 // ("the AdMob plugin").
-NdkToolchain find_ndk_toolchain(const AndroidToolchainSearch& search, const std::string& backend, const std::string& display);
+NdkToolchain find_ndk_toolchain(const AndroidToolchainSearch& search, const std::string& backend,
+                                const std::string& display);
 // Builds the plugin's C bridge in `folder` for arm64-v8a and x86_64 (a dry run only records the step) and fills ctx.done and
 // ctx.extra["libraries"].
 void build_android_abis(Context& ctx, const NdkToolchain& tc, const std::string& folder);
 
 // One per backend file.
-Backend steam_backend();  // platform_setup_steam.cpp
-Backend apple_backend();  // platform_setup_apple.cpp
+Backend steam_backend();       // platform_setup_steam.cpp
+Backend apple_backend();       // platform_setup_apple.cpp
 Backend googleplay_backend();  // platform_setup_googleplay.cpp
-Backend admob_backend();  // platform_setup_admob.cpp
+Backend admob_backend();       // platform_setup_admob.cpp
 
 }  // namespace fa::platform_setup

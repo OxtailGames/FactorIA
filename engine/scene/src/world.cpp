@@ -42,7 +42,9 @@ void decompose(const Mat4& m, Vec3& position, Vec3& euler, Vec3& scale) {
     Mat4 rot;
     auto put = [&](int col, Vec3 v, float s) {
         if (std::fabs(s) < kEpsilon) return;
-        rot.at(col, 0) = v.x / s; rot.at(col, 1) = v.y / s; rot.at(col, 2) = v.z / s;
+        rot.at(col, 0) = v.x / s;
+        rot.at(col, 1) = v.y / s;
+        rot.at(col, 2) = v.z / s;
     };
     put(0, cx, scale.x);
     put(1, cy, scale.y);
@@ -134,7 +136,9 @@ Entity World::create(std::string_view name, std::string_view id) {
 
     std::string finalId;
     if (id.empty()) {
-        do { finalId = "e" + std::to_string(d.autoId++); } while (d.ids.count(finalId));
+        do {
+            finalId = "e" + std::to_string(d.autoId++);
+        } while (d.ids.count(finalId));
     } else {
         finalId = std::string(id);
         for (int n = 2; d.ids.count(finalId); ++n) finalId = std::string(id) + "_" + std::to_string(n);
@@ -298,11 +302,15 @@ bool World::has_tag(Entity e, std::string_view tag) const {
 
 Result<void> World::set_id(Entity e, std::string_view newId) {
     if (!alive(e)) return make_error("Cannot rename the id of a dead entity", "Check world.alive(entity) first.");
-    if (newId.empty()) return make_error("Entity id must not be empty", "Use a short unique string such as \"player\" or \"enemy_1\".");
+    if (newId.empty())
+        return make_error("Entity id must not be empty",
+                          "Use a short unique string such as \"player\" or \"enemy_1\".");
     EntityInfo& inf = impl_->info(e);
     if (impl_->pending_destroy(e))
-        return make_error("Cannot rename '" + inf.id + "': the entity is being destroyed (destroy() ran this frame and flush() has not yet)",
-                          "Its id is already free for a new entity; rename it before destroying it, or create the replacement with the id you want.");
+        return make_error("Cannot rename '" + inf.id +
+                              "': the entity is being destroyed (destroy() ran this frame and flush() has not yet)",
+                          "Its id is already free for a new entity; rename it before destroying it, or create the "
+                          "replacement with the id you want.");
     if (inf.id == newId) return {};
     if (auto it = impl_->ids.find(std::string(newId)); it != impl_->ids.end())
         return make_error("Entity id '" + std::string(newId) + "' is already used by another entity",
@@ -357,17 +365,22 @@ std::vector<Entity> World::entities_with(const TypeInfo* type) const {
 // ------------------------------------------------------------- hierarchy --
 Result<void> World::check_set_parent(Entity child, Entity parent) const {
     const Impl& d = *impl_;
-    if (!alive(child)) return make_error("Cannot move an entity that was destroyed", "Check world.alive(entity) first.");
+    if (!alive(child))
+        return make_error("Cannot move an entity that was destroyed", "Check world.alive(entity) first.");
     if (!parent.is_null() && !alive(parent))
-        return make_error("The new parent entity is not alive", "Check world.alive(parent) first, or pass a null parent for the top level.");
+        return make_error("The new parent entity is not alive",
+                          "Check world.alive(parent) first, or pass a null parent for the top level.");
     if (d.pending_destroy(child))
-        return make_error("Cannot move '" + id_of(child) + "': it is being destroyed (destroy() ran this frame and flush() has not yet)",
-                          "Move it before destroying it, or leave it: its whole subtree goes away at the end of the frame. "
-                          "To keep the entity, do not destroy it.");
+        return make_error(
+            "Cannot move '" + id_of(child) +
+                "': it is being destroyed (destroy() ran this frame and flush() has not yet)",
+            "Move it before destroying it, or leave it: its whole subtree goes away at the end of the frame. "
+            "To keep the entity, do not destroy it.");
     if (!parent.is_null() && d.pending_destroy(parent))
-        return make_error("Cannot make '" + id_of(child) + "' a child of '" + id_of(parent) + "': '" + id_of(parent) +
-                              "' is being destroyed (itself or one of its ancestors), so the child would be destroyed with it",
-                          "Pick a parent that is not being destroyed, or create the child after the frame's flush.");
+        return make_error(
+            "Cannot make '" + id_of(child) + "' a child of '" + id_of(parent) + "': '" + id_of(parent) +
+                "' is being destroyed (itself or one of its ancestors), so the child would be destroyed with it",
+            "Pick a parent that is not being destroyed, or create the child after the frame's flush.");
     if (parent == child || (!parent.is_null() && is_ancestor(child, parent)))
         return make_error("Making '" + id_of(child) + "' a child of '" + id_of(parent) + "' would create a cycle",
                           "Pick a parent that is not the entity or one of its descendants.");
@@ -392,8 +405,10 @@ void World::set_parent(Entity child, Entity parent, bool keepWorldTransform, int
     d.slots[child.index].parent = parent;
     if (!parent.is_null()) {
         auto& sib = d.slots[parent.index].children;
-        if (index < 0 || static_cast<std::size_t>(index) >= sib.size()) sib.push_back(child);
-        else sib.insert(sib.begin() + index, child);
+        if (index < 0 || static_cast<std::size_t>(index) >= sib.size())
+            sib.push_back(child);
+        else
+            sib.insert(sib.begin() + index, child);
     }
 
     if (keepWorldTransform) {
@@ -406,16 +421,17 @@ void World::set_parent(Entity child, Entity parent, bool keepWorldTransform, int
 
 std::string World::check_child_index(Entity parent, Entity moving, double index) const {
     if (parent.is_null() || !alive(parent))
-        return "An index needs a parent: top-level entities stay in creation order. Pass a parent, or leave the index out.";
+        return "An index needs a parent: top-level entities stay in creation order. Pass a parent, or leave the index "
+               "out.";
     if (index != std::floor(index) || index < 0)
         return std::format("The index must be a whole number from 0, got {}.", index);
     const auto& sib = impl_->slots[parent.index].children;
     long long n = static_cast<long long>(sib.size());
     if (!moving.is_null() && std::find(sib.begin(), sib.end(), moving) != sib.end()) --n;
     if (index > static_cast<double>(n))
-        return std::format("The index {} is past the end: '", index) + id_of(parent) + "' has " +
-               std::to_string(n) + " other child" + (n == 1 ? "" : "ren") + ", so the index goes from 0 to " + std::to_string(n) +
-               " (" + std::to_string(n) + " = last). Leave the index out to append.";
+        return std::format("The index {} is past the end: '", index) + id_of(parent) + "' has " + std::to_string(n) +
+               " other child" + (n == 1 ? "" : "ren") + ", so the index goes from 0 to " + std::to_string(n) + " (" +
+               std::to_string(n) + " = last). Leave the index out to append.";
     return {};
 }
 
@@ -458,7 +474,8 @@ Mat4 World::drawn_matrix(Entity e) const {
         const auto* t = static_cast<const Transform*>(impl_->transformPool->get(cur));
         if (const FeelPose* p = feel_.pose_of(cur))
             m = Mat4::trs(t->position + p->position, t->rotation + p->rotation,
-                          {t->scale.x * p->scale.x, t->scale.y * p->scale.y, t->scale.z * p->scale.z}) * m;
+                          {t->scale.x * p->scale.x, t->scale.y * p->scale.y, t->scale.z * p->scale.z}) *
+                m;
         else
             m = Mat4::trs(t->position, t->rotation, t->scale) * m;
     }

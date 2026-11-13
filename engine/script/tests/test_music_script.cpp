@@ -78,7 +78,7 @@ TEST_CASE("entity.music: the song starts, its beats and sections reach the scrip
     const std::string log = ev(h, "log.join(' ')").get<std::string>();
     CHECK(log.find("ready:live") == 0);
     CHECK(log.find("beat:1.1@0") != std::string::npos);
-    CHECK(log.find("beat:1.2@22050") != std::string::npos);   // half a second at 120 BPM
+    CHECK(log.find("beat:1.2@22050") != std::string::npos);      // half a second at 120 BPM
     CHECK(log.find("section:main@88200") != std::string::npos);  // the start of bar 2
 }
 
@@ -91,8 +91,10 @@ TEST_CASE("entity.music: the same project gives the same frames on every run") {
         ev(h, kSpawn);
         run(h, 200);
         const std::string log = ev(h, "log.join(' ')").get<std::string>();
-        if (run_i == 0) first = log;
-        else CHECK(log == first);
+        if (run_i == 0)
+            first = log;
+        else
+            CHECK(log == first);
         CHECK(log.size() > 20);
     }
 }

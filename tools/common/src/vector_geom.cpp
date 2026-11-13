@@ -18,8 +18,8 @@ constexpr double kKappa = 0.5522847498307936;  // the handle of a quarter circle
 // ---- matrices -----------------------------------------------------------------------------------------------------
 
 Mat operator*(const Mat& p, const Mat& q) {
-    return {p.a * q.a + p.c * q.b,       p.b * q.a + p.d * q.b,       p.a * q.c + p.c * q.d,
-            p.b * q.c + p.d * q.d,       p.a * q.e + p.c * q.f + p.e, p.b * q.e + p.d * q.f + p.f};
+    return {p.a * q.a + p.c * q.b, p.b * q.a + p.d * q.b,       p.a * q.c + p.c * q.d,
+            p.b * q.c + p.d * q.d, p.a * q.e + p.c * q.f + p.e, p.b * q.e + p.d * q.f + p.f};
 }
 
 Mat inverse(const Mat& m) {
@@ -84,14 +84,22 @@ bool parse_transform(const std::string& text, Mat& out, std::string& err) {
         const std::string name = trim_copy(text.substr(i, open - i));
         const std::vector<double> v = numbers_in(text.substr(open + 1, close - open - 1));
         Mat t;
-        if (name == "matrix" && v.size() == 6) t = {v[0], v[1], v[2], v[3], v[4], v[5]};
-        else if (name == "translate" && (v.size() == 1 || v.size() == 2)) t = translation(v[0], v.size() > 1 ? v[1] : 0);
-        else if (name == "scale" && (v.size() == 1 || v.size() == 2)) t = {v[0], 0, 0, v.size() > 1 ? v[1] : v[0], 0, 0};
-        else if (name == "rotate" && (v.size() == 1 || v.size() == 3)) t = rotation(v[0], v.size() == 3 ? v[1] : 0, v.size() == 3 ? v[2] : 0);
-        else if (name == "skewX" && v.size() == 1) t.c = std::tan(v[0] * kPi / 180.0);
-        else if (name == "skewY" && v.size() == 1) t.b = std::tan(v[0] * kPi / 180.0);
+        if (name == "matrix" && v.size() == 6)
+            t = {v[0], v[1], v[2], v[3], v[4], v[5]};
+        else if (name == "translate" && (v.size() == 1 || v.size() == 2))
+            t = translation(v[0], v.size() > 1 ? v[1] : 0);
+        else if (name == "scale" && (v.size() == 1 || v.size() == 2))
+            t = {v[0], 0, 0, v.size() > 1 ? v[1] : v[0], 0, 0};
+        else if (name == "rotate" && (v.size() == 1 || v.size() == 3))
+            t = rotation(v[0], v.size() == 3 ? v[1] : 0, v.size() == 3 ? v[2] : 0);
+        else if (name == "skewX" && v.size() == 1)
+            t.c = std::tan(v[0] * kPi / 180.0);
+        else if (name == "skewY" && v.size() == 1)
+            t.b = std::tan(v[0] * kPi / 180.0);
         else {
-            err = "'" + name + "(" + text.substr(open + 1, close - open - 1) + ")' is not a valid transform function (matrix(6 numbers), translate(x y), scale(x y), rotate(a x y), skewX(a), skewY(a))";
+            err = "'" + name + "(" + text.substr(open + 1, close - open - 1) +
+                  ")' is not a valid transform function (matrix(6 numbers), translate(x y), scale(x y), rotate(a x y), "
+                  "skewX(a), skewY(a))";
             return false;
         }
         m = m * t;
@@ -119,7 +127,8 @@ std::string transform_to_string(const Mat& m, int decimals) {
     auto near = [](double a, double b) { return std::fabs(a - b) < 1e-9; };
     if (m.is_identity()) return {};
     if (near(m.a, 1) && near(m.b, 0) && near(m.c, 0) && near(m.d, 1)) return "translate(" + n(m.e) + " " + n(m.f) + ")";
-    if (near(m.b, 0) && near(m.c, 0) && near(m.e, 0) && near(m.f, 0)) return "scale(" + n(m.a) + (near(m.a, m.d) ? "" : " " + n(m.d)) + ")";
+    if (near(m.b, 0) && near(m.c, 0) && near(m.e, 0) && near(m.f, 0))
+        return "scale(" + n(m.a) + (near(m.a, m.d) ? "" : " " + n(m.d)) + ")";
     return "matrix(" + n(m.a) + " " + n(m.b) + " " + n(m.c) + " " + n(m.d) + " " + n(m.e) + " " + n(m.f) + ")";
 }
 
@@ -174,7 +183,8 @@ struct Scanner {
     }
 };
 
-void arc_to_cubics(P from, double rx, double ry, double rotation_deg, bool large, bool sweep, P to, std::vector<Seg>& out) {
+void arc_to_cubics(P from, double rx, double ry, double rotation_deg, bool large, bool sweep, P to,
+                   std::vector<Seg>& out) {
     if (from.x == to.x && from.y == to.y) return;
     rx = std::fabs(rx);
     ry = std::fabs(ry);
@@ -197,15 +207,22 @@ void arc_to_cubics(P from, double rx, double ry, double rotation_deg, bool large
     if (large == sweep) coef = -coef;
     const double cxp = coef * (rx * y1 / ry), cyp = coef * -(ry * x1 / rx);
     const double cx = cp * cxp - sp * cyp + (from.x + to.x) * 0.5, cy = sp * cxp + cp * cyp + (from.y + to.y) * 0.5;
-    auto angle = [](double ux, double uy, double vx, double vy) { return std::atan2(ux * vy - uy * vx, ux * vx + uy * vy); };
+    auto angle = [](double ux, double uy, double vx, double vy) {
+        return std::atan2(ux * vy - uy * vx, ux * vx + uy * vy);
+    };
     const double theta1 = angle(1, 0, (x1 - cxp) / rx, (y1 - cyp) / ry);
     double delta = angle((x1 - cxp) / rx, (y1 - cyp) / ry, (-x1 - cxp) / rx, (-y1 - cyp) / ry);
     if (!sweep && delta > 0) delta -= 2 * kPi;
     if (sweep && delta < 0) delta += 2 * kPi;
     const int n = std::max(1, int(std::ceil(std::fabs(delta) / (kPi / 2) - 1e-9)));
     const double step = delta / n, alpha = 4.0 / 3.0 * std::tan(step / 4.0);
-    auto point = [&](double t) { return P{cp * rx * std::cos(t) - sp * ry * std::sin(t) + cx, sp * rx * std::cos(t) + cp * ry * std::sin(t) + cy}; };
-    auto deriv = [&](double t) { return P{-cp * rx * std::sin(t) - sp * ry * std::cos(t), -sp * rx * std::sin(t) + cp * ry * std::cos(t)}; };
+    auto point = [&](double t) {
+        return P{cp * rx * std::cos(t) - sp * ry * std::sin(t) + cx,
+                 sp * rx * std::cos(t) + cp * ry * std::sin(t) + cy};
+    };
+    auto deriv = [&](double t) {
+        return P{-cp * rx * std::sin(t) - sp * ry * std::cos(t), -sp * rx * std::sin(t) + cp * ry * std::cos(t)};
+    };
     for (int k = 0; k < n; ++k) {
         const double t0 = theta1 + step * k, t1 = t0 + step;
         const P p0 = point(t0), p1 = k == n - 1 ? to : point(t1);
@@ -243,7 +260,8 @@ bool parse_path_data(const std::string& d, Path& out, std::string& err) {
         const char c = d[sc.i];
         const bool isLetter = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
         if (isLetter) {
-            if (std::strchr("MmLlHhVvCcSsQqTtAaZz", c) == nullptr) return bad(std::format("unknown path command '{}'", c));
+            if (std::strchr("MmLlHhVvCcSsQqTtAaZz", c) == nullptr)
+                return bad(std::format("unknown path command '{}'", c));
             cmd = c;
             ++sc.i;
         } else if (cmd == 0) {
@@ -290,7 +308,8 @@ bool parse_path_data(const std::string& d, Path& out, std::string& err) {
                 break;
             case 'C': {
                 if (!read(6)) return bad("expected six numbers after C");
-                const P p1{base.x + v[0], base.y + v[1]}, p2{base.x + v[2], base.y + v[3]}, p3{base.x + v[4], base.y + v[5]};
+                const P p1{base.x + v[0], base.y + v[1]}, p2{base.x + v[2], base.y + v[3]},
+                    p3{base.x + v[4], base.y + v[5]};
                 cubic_to(p1, p2, p3);
                 lastCtrl = p2;
                 cur = p3;
@@ -323,7 +342,8 @@ bool parse_path_data(const std::string& d, Path& out, std::string& err) {
                 break;
             }
             case 'A': {
-                if (!read(3) || !sc.flag(v[3]) || !sc.flag(v[4]) || !sc.number(v[5]) || !sc.number(v[6])) return bad("expected rx ry rotation large-arc sweep x y after A");
+                if (!read(3) || !sc.flag(v[3]) || !sc.flag(v[4]) || !sc.number(v[5]) || !sc.number(v[6]))
+                    return bad("expected rx ry rotation large-arc sweep x y after A");
                 const P to{base.x + v[5], base.y + v[6]};
                 if (!sub) begin_sub(cur);
                 arc_to_cubics(cur, v[0], v[1], v[2], v[3] != 0, v[4] != 0, to, sub->segs);
@@ -342,7 +362,8 @@ bool parse_path_data(const std::string& d, Path& out, std::string& err) {
     Path clean;
     for (SubPath& s : out) {
         if (s.segs.empty()) continue;
-        if (s.closed && !s.segs.back().cubic && dist(s.segs.back().p, s.start) < 1e-9 && s.segs.size() > 1) s.segs.pop_back();
+        if (s.closed && !s.segs.back().cubic && dist(s.segs.back().p, s.start) < 1e-9 && s.segs.size() > 1)
+            s.segs.pop_back();
         clean.push_back(std::move(s));
     }
     out = std::move(clean);
@@ -474,8 +495,10 @@ std::vector<Ring> flatten_path(const Path& p, double tol) {
         r.pts.push_back(s.start);
         P prev = s.start;
         for (const Seg& g : s.segs) {
-            if (g.cubic) flatten_cubic(prev, g.c1, g.c2, g.p, tol, r.pts);
-            else r.pts.push_back(g.p);
+            if (g.cubic)
+                flatten_cubic(prev, g.c1, g.c2, g.p, tol, r.pts);
+            else
+                r.pts.push_back(g.p);
             prev = g.p;
         }
         // no repeated points; a closed ring does not repeat its first point
@@ -484,7 +507,8 @@ std::vector<Ring> flatten_path(const Path& p, double tol) {
             if (clean.empty() || dist(clean.back(), q) > 1e-9) clean.push_back(q);
         while (r.closed && clean.size() > 1 && dist(clean.front(), clean.back()) <= 1e-9) clean.pop_back();
         r.pts = std::move(clean);
-        if (!r.pts.empty() && !s.segs.empty()) rings.push_back(std::move(r));  // a degenerate one (a dot) stays: the stroker draws it
+        if (!r.pts.empty() && !s.segs.empty())
+            rings.push_back(std::move(r));  // a degenerate one (a dot) stays: the stroker draws it
     }
     return rings;
 }

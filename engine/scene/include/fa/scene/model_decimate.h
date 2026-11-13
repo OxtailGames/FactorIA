@@ -39,18 +39,21 @@ struct ModelSimplifyParams {
 struct ModelSimplifyResult {
     std::vector<std::uint32_t> indices, triParts;
     std::vector<std::uint32_t> keep;  // result vertex -> input vertex
-    std::vector<Vec3> positions;      // of the result vertices: moved to where the simplified surface follows the input best
-    std::vector<float> attributes;    // the same for the attributes (a normal may need normalising again)
-    double error = 0;                 // metres, the largest deviation of the result from the input surface (an upper bound after several passes)
-    bool limitedByError = false;      // stopped at maxError before reaching the target
+    std::vector<Vec3>
+        positions;  // of the result vertices: moved to where the simplified surface follows the input best
+    std::vector<float> attributes;  // the same for the attributes (a normal may need normalising again)
+    double error =
+        0;  // metres, the largest deviation of the result from the input surface (an upper bound after several passes)
+    bool limitedByError = false;  // stopped at maxError before reaching the target
 };
-ModelSimplifyResult model_simplify(const std::vector<Vec3>& positions, const std::vector<float>& attributes, std::size_t attributeStride,
-                                   const std::vector<float>& weights, const std::vector<std::uint32_t>& indices,
+ModelSimplifyResult model_simplify(const std::vector<Vec3>& positions, const std::vector<float>& attributes,
+                                   std::size_t attributeStride, const std::vector<float>& weights,
+                                   const std::vector<std::uint32_t>& indices,
                                    const std::vector<std::uint32_t>& triParts, const ModelSimplifyParams& params);
 
 // Collapses edges of the mesh in place (positions and indices are compacted at the end; `triParts` follows the triangles). `triParts` may be empty
 // (one part). Open borders are kept.
-ModelDecimateStats model_decimate(std::vector<Vec3>& positions, std::vector<std::uint32_t>& indices, std::vector<std::uint32_t>& triParts,
-                                  const ModelDecimateParams& params);
+ModelDecimateStats model_decimate(std::vector<Vec3>& positions, std::vector<std::uint32_t>& indices,
+                                  std::vector<std::uint32_t>& triParts, const ModelDecimateParams& params);
 
 }  // namespace fa

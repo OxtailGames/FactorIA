@@ -95,7 +95,9 @@ Reply raw(int port, const std::string& request) {
     return r;
 }
 
-Reply get(int port, const std::string& path) { return raw(port, "GET " + path + " HTTP/1.1\r\nHost: localhost\r\n\r\n"); }
+Reply get(int port, const std::string& path) {
+    return raw(port, "GET " + path + " HTTP/1.1\r\nHost: localhost\r\n\r\n");
+}
 
 // The token of a status url: http://127.0.0.1:<port>/<token>/
 std::string token_of(const ServeWebStatus& st) {
@@ -150,13 +152,16 @@ TEST_CASE("serve web: only plain relative paths are files") {
     CHECK(safe_relative_path("index.html") == std::optional<std::string>("index.html"));
     CHECK(safe_relative_path("a/b.js") == std::optional<std::string>("a/b.js"));
     CHECK(safe_relative_path("a%20b.js") == std::optional<std::string>("a b.js"));
-    for (const char* bad : {"", "..", "../x", "a/../x", "a/..", "%2e%2e/x", "%2E%2E%2Fx", "..%2fx", "a%2f..%2fx", ".hidden", "a/.hidden", "a//b", "/etc/passwd",
-                            "a\\b", "..\\x", "%5c", "C:/x", "a%3Ab", "a%00b", "a%0Ab", "%", "%4", "%zz", "a%252e", "x%25", "con.", "name ", "a/", "a*b", "a?b", "%2fetc",
-                            // Windows device names, with or without an extension, any case, in any segment: refused on every system
-                            "con", "CON", "Con.txt", "prn", "aux.png", "NUL", "nul.tar.gz", "com1", "COM9.js", "lpt1", "LPT9.x", "a/CON", "a/com3.js/b", "CONIN$",
-                            "con .txt", "nul  ", "com%c2%b9", "LPT%C2%B3.txt"})
+    for (const char* bad :
+         {"", "..", "../x", "a/../x", "a/..", "%2e%2e/x", "%2E%2E%2Fx", "..%2fx", "a%2f..%2fx", ".hidden", "a/.hidden",
+          "a//b", "/etc/passwd", "a\\b", "..\\x", "%5c", "C:/x", "a%3Ab", "a%00b", "a%0Ab", "%", "%4", "%zz", "a%252e",
+          "x%25", "con.", "name ", "a/", "a*b", "a?b", "%2fetc",
+          // Windows device names, with or without an extension, any case, in any segment: refused on every system
+          "con", "CON", "Con.txt", "prn", "aux.png", "NUL", "nul.tar.gz", "com1", "COM9.js", "lpt1", "LPT9.x", "a/CON",
+          "a/com3.js/b", "CONIN$", "con .txt", "nul  ", "com%c2%b9", "LPT%C2%B3.txt"})
         CHECK_MESSAGE(!safe_relative_path(bad).has_value(), bad);
-    for (const char* ok : {"console.js", "com10.js", "com0", "lpt", "aux1", "connect.png", "nulled", "a/prnt.txt", "com.js"})
+    for (const char* ok :
+         {"console.js", "com10.js", "com0", "lpt", "aux1", "connect.png", "nulled", "a/prnt.txt", "com.js"})
         CHECK_MESSAGE(safe_relative_path(ok).has_value(), ok);
     // A name that is not valid UTF-8 is reported as a bad encoding (a 400), never turned into a path (MSVC throws on it).
     for (const char* bad : {"%ff", "%c0%af", "%e2%82", "a%80b", "%f8%88%80%80%80", "%ed%a0%80", "%f4%90%80%80"}) {
@@ -165,7 +170,8 @@ TEST_CASE("serve web: only plain relative paths are files") {
         CHECK_MESSAGE(badEncoding, bad);
     }
     bool badEncoding = true;
-    CHECK(safe_relative_path("%e2%82%ac.txt", &badEncoding) == std::optional<std::string>("\xe2\x82\xac.txt"));  // the euro sign
+    CHECK(safe_relative_path("%e2%82%ac.txt", &badEncoding) ==
+          std::optional<std::string>("\xe2\x82\xac.txt"));  // the euro sign
     CHECK_FALSE(badEncoding);
     badEncoding = true;
     CHECK_FALSE(safe_relative_path("../x", &badEncoding).has_value());
@@ -268,11 +274,33 @@ TEST_CASE("serve web: a path cannot leave the export folder") {
     f.start();
     // The marker file the export keeps, a file of the project, and a file next to the export folder: none is served by any spelling.
     testing::write_all(stdfs::path(f.st.outputDir).parent_path() / "secret.txt", "secret");
-    for (const char* target : {"factoria.json", "../factoria.json", "../../factoria.json", "../../../factoria.json", "..%2ffactoria.json", "%2e%2e/factoria.json",
-                               "%2E%2E%2Ffactoria.json", "..%5cfactoria.json", "%2e%2e%5cfactoria.json", "....//factoria.json", "..;/factoria.json",
-                               "%252e%252e/factoria.json", "/etc/passwd", "%2fetc%2fpasswd", "C:/Windows/win.ini", "C%3A/Windows/win.ini",
-                               ".factoria-export", "./index.html", "a/./index.html", "index.html/..", "../secret.txt", "..\\secret.txt", "%00", "index.html%00.png",
-                               "index.html.", "index.html%20", "INDEX.HTML::$DATA"}) {
+    for (const char* target : {"factoria.json",
+                               "../factoria.json",
+                               "../../factoria.json",
+                               "../../../factoria.json",
+                               "..%2ffactoria.json",
+                               "%2e%2e/factoria.json",
+                               "%2E%2E%2Ffactoria.json",
+                               "..%5cfactoria.json",
+                               "%2e%2e%5cfactoria.json",
+                               "....//factoria.json",
+                               "..;/factoria.json",
+                               "%252e%252e/factoria.json",
+                               "/etc/passwd",
+                               "%2fetc%2fpasswd",
+                               "C:/Windows/win.ini",
+                               "C%3A/Windows/win.ini",
+                               ".factoria-export",
+                               "./index.html",
+                               "a/./index.html",
+                               "index.html/..",
+                               "../secret.txt",
+                               "..\\secret.txt",
+                               "%00",
+                               "index.html%00.png",
+                               "index.html.",
+                               "index.html%20",
+                               "INDEX.HTML::$DATA"}) {
         Reply r = get(f.port, f.base + target);
         CHECK_MESSAGE(r.status != 200, target);
         CHECK_MESSAGE(r.body.find("secret") == std::string::npos, target);
@@ -291,11 +319,13 @@ TEST_CASE("serve web: the request is bounded") {
     // The server answers and then reads what is left of the request (a lingering close), so the client always gets the status and
     // never a reset connection that wipes it (that made this check flaky on Windows and macOS). Repeated: a race shows up in some of them.
     for (int i = 0; i < 10; ++i)
-        CHECK(raw(f.port, "GET " + f.base + " HTTP/1.1\r\nX-Pad: " + std::string(20000 + 5000 * i, 'a') + "\r\n\r\n").status == 431);
+        CHECK(raw(f.port, "GET " + f.base + " HTTP/1.1\r\nX-Pad: " + std::string(20000 + 5000 * i, 'a') + "\r\n\r\n")
+                  .status == 431);
     // A log body announced over 16 KB is refused before it is read.
     CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: 100000\r\n\r\n").status == 413);
     CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: abc\r\n\r\n").status == 400);
-    CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: 99999999999999999999\r\n\r\n").status == 400);
+    CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: 99999999999999999999\r\n\r\n").status ==
+          400);
     CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: 5\r\n\r\nnojson").status == 400);
     CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: 2\r\n\r\n{}").status == 400);
     CHECK(raw(f.port, "POST " + f.base + "index.html HTTP/1.1\r\nContent-Length: 0\r\n\r\n").status == 405);
@@ -304,7 +334,8 @@ TEST_CASE("serve web: the request is bounded") {
     CHECK(get(f.port, f.base + "a%c0%afb").status == 400);
     CHECK(get(f.port, f.base).status == 200);
     // Windows device names are not files, whatever the system the server runs on.
-    for (const char* name : {"CON", "nul.txt", "com1", "LPT1.png", "aux", "a/prn"}) CHECK_MESSAGE(get(f.port, f.base + name).status == 404, name);
+    for (const char* name : {"CON", "nul.txt", "com1", "LPT1.png", "aux", "a/prn"})
+        CHECK_MESSAGE(get(f.port, f.base + name).status == 404, name);
     // Idle connections hold a worker each, but fewer than the pool: a request is still answered.
     std::vector<net::Socket> idle;
     for (int i = 0; i < 4; ++i) idle.push_back(net::connect_loopback(static_cast<std::uint16_t>(f.port)));
@@ -318,8 +349,10 @@ TEST_CASE("serve web: what the page logs comes back as log lines of category pho
     const std::uint64_t before = f.server.status().phoneLogLines;
     const auto after = recent_logs(1, LogLevel::Trace);
     const std::uint64_t seq = after.empty() ? 0 : after.back().seq;
-    const std::string body = R"([{"l":"error","t":"boom from the phone"},{"l":"warn","t":"careful"},{"l":"log","t":"line\u0001with control"},{"l":"info"}])";
-    Reply r = raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body);
+    const std::string body =
+        R"([{"l":"error","t":"boom from the phone"},{"l":"warn","t":"careful"},{"l":"log","t":"line\u0001with control"},{"l":"info"}])";
+    Reply r = raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(body.size()) +
+                              "\r\n\r\n" + body);
     CHECK(r.status == 204);
     CHECK(f.server.status().phoneLogLines == before + 3);  // the entry without text is skipped
     bool error = false, warn = false, control = false;
@@ -344,11 +377,13 @@ TEST_CASE("serve web: a page that sends fields of the wrong type cannot crash or
     f.start();
     const std::uint64_t before = f.server.status().phoneLogLines;
     auto post = [&](const std::string& body) {
-        return raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body);
+        return raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(body.size()) +
+                               "\r\n\r\n" + body);
     };
     // Every one of these threw a type_error out of a worker thread (std::terminate) before the fields were checked.
-    for (const char* body : {R"([{"l":1}])", R"([{"l":1,"t":2}])", R"([{"l":"log","t":5}])", R"([{"l":null,"t":null}])", R"([{"l":{"a":1},"t":["x"]}])",
-                             R"([1,"x",null,[],[{"t":"nested"}]])", R"([{"t":true}])", R"([{"l":"warn","t":{"a":1}}])"}) {
+    for (const char* body : {R"([{"l":1}])", R"([{"l":1,"t":2}])", R"([{"l":"log","t":5}])", R"([{"l":null,"t":null}])",
+                             R"([{"l":{"a":1},"t":["x"]}])", R"([1,"x",null,[],[{"t":"nested"}]])", R"([{"t":true}])",
+                             R"([{"l":"warn","t":{"a":1}}])"}) {
         Reply r = post(body);
         CHECK_MESSAGE((r.status == 204 || r.status == 400), body);  // answered, not a dropped connection
         CHECK_MESSAGE(r.connected, body);
@@ -375,11 +410,14 @@ TEST_CASE("serve web: phone log lines are rate limited, and one notice says how 
     const std::uint64_t seq = last.empty() ? 0 : last.back().seq;
     const std::uint64_t before = f.server.status().phoneLogLines;
     std::string body = "[";
-    for (int i = 0; i < 8; ++i) body += std::string(i ? "," : "") + R"({"l":"log","t":"burst )" + std::to_string(i) + "\"}";
+    for (int i = 0; i < 8; ++i)
+        body += std::string(i ? "," : "") + R"({"l":"log","t":"burst )" + std::to_string(i) + "\"}";
     body += "]";
     // 8 lines in a window of 3: 3 are taken, 5 dropped. (A slow machine may cross the 600 ms window between the lines: the count is
     // then a little higher, never lower than 3, and never more than all 8.)
-    CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body).status == 204);
+    CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(body.size()) +
+                          "\r\n\r\n" + body)
+              .status == 204);
     const std::uint64_t taken = f.server.status().phoneLogLines - before;
     CHECK(taken >= 3);
     CHECK(taken <= 8);
@@ -389,15 +427,20 @@ TEST_CASE("serve web: phone log lines are rate limited, and one notice says how 
     (void)f.server.status();
     bool noticeFromStatus = false;
     for (const LogEntry& e : recent_logs(300, LogLevel::Trace, seq))
-        if (e.category == "phone" && e.level == LogLevel::Warn && e.message.find("log lines from the page were dropped") != std::string::npos) noticeFromStatus = true;
+        if (e.category == "phone" && e.level == LogLevel::Warn &&
+            e.message.find("log lines from the page were dropped") != std::string::npos)
+            noticeFromStatus = true;
     if (taken < 8) CHECK(noticeFromStatus);
     const std::string one = R"([{"l":"log","t":"after the burst"}])";
-    CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(one.size()) + "\r\n\r\n" + one).status == 204);
+    CHECK(raw(f.port, "POST " + f.base + "__fa/log HTTP/1.1\r\nContent-Length: " + std::to_string(one.size()) +
+                          "\r\n\r\n" + one)
+              .status == 204);
     bool after = false, notice = false;
     for (const LogEntry& e : recent_logs(300, LogLevel::Trace, seq)) {
         if (e.category != "phone") continue;
         if (e.message == "after the burst") after = true;
-        if (e.level == LogLevel::Warn && e.message.find("log lines from the page were dropped") != std::string::npos) notice = true;
+        if (e.level == LogLevel::Warn && e.message.find("log lines from the page were dropped") != std::string::npos)
+            notice = true;
     }
     CHECK(after);
     if (taken < 8) CHECK(notice);
@@ -417,8 +460,11 @@ TEST_CASE("serve web: a changed file exports again and the version moves, which 
     REQUIRE(wait_for([&] { return f.server.status().state == "ready"; }));
     auto j2 = Json::parse(get(f.port, f.base + "__fa/version").body);
     CHECK(j2["version"].get<int>() >= 2);
-    CHECK(get(f.port, f.base).body.find("window.__faServe={version:" + std::to_string(j2["version"].get<int>()) + "}") != std::string::npos);
-    CHECK(get(f.port, f.base + "factoria_player.wasm").status == 200);  // the other folder serves just as well after the switch
+    CHECK(
+        get(f.port, f.base).body.find("window.__faServe={version:" + std::to_string(j2["version"].get<int>()) + "}") !=
+        std::string::npos);
+    CHECK(get(f.port, f.base + "factoria_player.wasm").status ==
+          200);  // the other folder serves just as well after the switch
 
     // Nothing changed: the version stays.
     const std::uint64_t stable = f.server.status().version;
@@ -460,7 +506,8 @@ TEST_CASE("serve web: lan listens on every interface and lists the private addre
         CHECK(u.find("/" + f.token + "/") != std::string::npos);
         CHECK(u.find("127.0.0.1") == std::string::npos);
     }
-    if (f.st.lanUrls.empty()) CHECK_FALSE(f.st.warnings.empty());  // it says so instead of showing a URL that cannot work
+    if (f.st.lanUrls.empty())
+        CHECK_FALSE(f.st.warnings.empty());  // it says so instead of showing a URL that cannot work
     CHECK(get(f.port, f.base).status == 200);
     auto j = f.st.to_json();
     CHECK(j["lan"].get<bool>());
@@ -603,7 +650,8 @@ TEST_CASE("serve web: in the editor the command never waits, it answers starting
     CHECK(wait_for([] { return !web_server().running(); }));
 }
 
-TEST_CASE("serve web: in the editor a stop that comes while the server is starting is honoured, and a start during a stop says so") {
+TEST_CASE("serve web: in the editor a stop that comes while the server is starting is honoured, and a start during a "
+          "stop says so") {
     testing::TempDir tmp;
     const std::string proj = make_project(tmp);
     const std::string player = fake_player(tmp);
@@ -650,7 +698,8 @@ TEST_CASE("serve web: in the editor a stop that comes while the server is starti
     auto stop2 = reg.call("project.serve_web", stopArgs);
     REQUIRE_MESSAGE(stop2.ok, stop2.error.dump());
     CHECK(stop2.result["state"].get<std::string>() == "stopping");
-    auto restart = reg.call("project.serve_web", startArgs);  // the stop job may or may not be over by now: both answers are right
+    auto restart =
+        reg.call("project.serve_web", startArgs);  // the stop job may or may not be over by now: both answers are right
     REQUIRE_MESSAGE(restart.ok, restart.error.dump());
     const std::string answer = restart.result["state"].get<std::string>();
     CHECK((answer == "stopping" || answer == "starting"));
@@ -664,7 +713,8 @@ TEST_CASE("serve web: in the editor a stop that comes while the server is starti
     CHECK(web_server().running());
 }
 
-TEST_CASE("serve web: a project and a player under folders with accents are served (paths are native strings, like in production)") {
+TEST_CASE("serve web: a project and a player under folders with accents are served (paths are native strings, like in "
+          "production)") {
     testing::TempDir tmp;
     net::SocketRuntime sockets;
     // Accents that exist in the Windows ANSI code page (1252) too: projectDir is a native string there, never UTF-8.
@@ -696,7 +746,8 @@ TEST_CASE("serve web: a project and a player under folders with accents are serv
     // The fingerprint reads the files of the project and of the player by their native names: a change under the accented folders
     // exports again.
     const std::uint64_t before = st.version;
-    testing::write_all(stdfs::path(proj) / "assets" / stdfs::path(u8"ñandú.txt"), "accented file name, changed and longer");
+    testing::write_all(stdfs::path(proj) / "assets" / stdfs::path(u8"ñandú.txt"),
+                       "accented file name, changed and longer");
     server.refresh();
     REQUIRE(wait_for([&] { return server.status().version > before && server.status().state == "ready"; }));
     testing::write_all(playerDir / "factoria_player.js", "// fake emscripten glue, changed\n");

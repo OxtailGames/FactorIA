@@ -63,16 +63,18 @@
 
 namespace fa::wfc {
 
-constexpr int kMinPatternSize = 2;                          // n of the overlapping model
+constexpr int kMinPatternSize = 2;  // n of the overlapping model
 constexpr int kMaxPatternSize = 5;
-constexpr std::size_t kMaxPatterns = 20000;                 // distinct patterns of a model (16-bit pattern ids and counters)
-constexpr std::size_t kMaxCompatEntries = 48'000'000;       // adjacency pairs of a model
-constexpr std::size_t kMaxSampleCells = 262144;             // 512 x 512
+constexpr std::size_t kMaxPatterns = 20000;            // distinct patterns of a model (16-bit pattern ids and counters)
+constexpr std::size_t kMaxCompatEntries = 48'000'000;  // adjacency pairs of a model
+constexpr std::size_t kMaxSampleCells = 262144;        // 512 x 512
 constexpr int kMaxOutputSide = 2048;
 constexpr std::uint64_t kWfcMemoryBudget = 256ull * 1024ull * 1024ull;  // bytes of solver state of one generation
-constexpr std::size_t kMaxCellRules = 65536;                // fixed cells of one generation (each costs n * n * patterns work per attempt)
+constexpr std::size_t kMaxCellRules =
+    65536;  // fixed cells of one generation (each costs n * n * patterns work per attempt)
 constexpr int kMaxAttempts = 1000;
-constexpr std::uint64_t kMaxTotalWeight = 0xFFFFFFFFull;      // the weights of a model add up to less than 2^32 (the weighted choice draws 32 bits)
+constexpr std::uint64_t kMaxTotalWeight =
+    0xFFFFFFFFull;  // the weights of a model add up to less than 2^32 (the weighted choice draws 32 bits)
 
 // Directions of the grid, in the order every per-direction array uses: +x (east), +y (south: rows grow downwards), -x, -y.
 // opposite(d) == d ^ 2.
@@ -84,31 +86,33 @@ constexpr int kDy[kDirs] = {0, 1, 0, -1};
 struct Sample {
     int width = 0;
     int height = 0;
-    std::vector<int> cells;        // width * height symbol ids
-    int symbolCount = 0;           // every id is < symbolCount
+    std::vector<int> cells;  // width * height symbol ids
+    int symbolCount = 0;     // every id is < symbolCount
 };
 
 // What a model needs to run: patterns with weights and adjacency.
 struct PatternModel {
-    int n = 1;                                   // a pattern is n x n symbols (1 for the tiled model)
+    int n = 1;  // a pattern is n x n symbols (1 for the tiled model)
     int symbolCount = 0;
-    std::vector<std::uint32_t> weights;          // per pattern: how often it occurs (>= 1)
-    std::vector<int> symbols;                    // patterns * n * n symbol ids, each pattern row-major
+    std::vector<std::uint32_t> weights;  // per pattern: how often it occurs (>= 1)
+    std::vector<int> symbols;            // patterns * n * n symbol ids, each pattern row-major
     // compat[d][p]: the patterns (ascending) that may stand in direction d next to pattern p. The relation is symmetric:
     // q is in compat[d][p] exactly when p is in compat[d ^ 2][q].
     std::vector<std::vector<std::uint16_t>> compat[kDirs];
     // edgeOk[p * 4 + d]: pattern p may sit on a map edge with nothing beyond it in direction d (non-periodic output).
     std::vector<std::uint8_t> edgeOk;
-    std::size_t sampleCells = 0;                 // how many cells the sample had (stats)
+    std::size_t sampleCells = 0;  // how many cells the sample had (stats)
 
     std::size_t pattern_count() const { return weights.size(); }
-    int symbol_at(std::size_t pattern, int dx, int dy) const { return symbols[pattern * std::size_t(n * n) + std::size_t(dy * n + dx)]; }
+    int symbol_at(std::size_t pattern, int dx, int dy) const {
+        return symbols[pattern * std::size_t(n * n) + std::size_t(dy * n + dx)];
+    }
 };
 
 struct OverlapOptions {
-    int n = 3;                                   // pattern side, kMinPatternSize..kMaxPatternSize
-    int symmetry = 1;                            // 1 as in the sample, 2 + mirrored, 4 the four rotations, 8 rotations and mirrors
-    bool periodicInput = false;                  // the sample wraps around its edges (patterns cross them)
+    int n = 3;                   // pattern side, kMinPatternSize..kMaxPatternSize
+    int symmetry = 1;            // 1 as in the sample, 2 + mirrored, 4 the four rotations, 8 rotations and mirrors
+    bool periodicInput = false;  // the sample wraps around its edges (patterns cross them)
 };
 
 // Learns the n x n patterns of the sample (and their rotations / mirrors for symmetry > 1) with their counts, and which of them
@@ -125,10 +129,11 @@ Result<std::shared_ptr<PatternModel>> build_overlapping_model(const Sample& samp
 // and the adjacency table below kMaxCompatEntries (the same limits as the overlapping model); an error says what to change.
 struct TerrainModel {
     std::shared_ptr<PatternModel> model;
-    std::vector<int> tileValues;                 // symbol id -> tile value (-1 = empty is always symbol 0)
-    std::vector<std::string> patternTerrain;     // per pattern: its terrain's name ("" = the empty cell)
+    std::vector<int> tileValues;              // symbol id -> tile value (-1 = empty is always symbol 0)
+    std::vector<std::string> patternTerrain;  // per pattern: its terrain's name ("" = the empty cell)
 };
-Result<TerrainModel> build_terrain_model(const std::vector<Terrain>& terrains, const std::vector<std::pair<int, std::uint32_t>>& tileWeights);
+Result<TerrainModel> build_terrain_model(const std::vector<Terrain>& terrains,
+                                         const std::vector<std::pair<int, std::uint32_t>>& tileWeights);
 
 // ---------------------------------------------------------------------------------------------------------- generator
 
@@ -137,15 +142,15 @@ struct CellRule {
     int x = 0;
     int y = 0;
     std::vector<int> allowed;
-    std::string label;                           // where it came from, for messages ("/constraints/border"); empty = "cell rule <index>"
+    std::string label;  // where it came from, for messages ("/constraints/border"); empty = "cell rule <index>"
 };
 
 // The finished grid must hold between `min` and `max` cells whose symbol is one of `symbols`.
 struct CountRule {
     std::vector<int> symbols;
     int min = 0;
-    int max = -1;                                // -1 = no maximum
-    std::string name;                            // for messages ("treasure"); empty = the symbol ids
+    int max = -1;      // -1 = no maximum
+    std::string name;  // for messages ("treasure"); empty = the symbol ids
 };
 
 // A check on a finished grid that runs in pieces (the reachability check): begin() hands it the grid, then step() is called, each
@@ -179,14 +184,15 @@ public:
 };
 
 struct GenerateOptions {
-    int width = 0;                               // output cells
+    int width = 0;  // output cells
     int height = 0;
-    bool periodic = false;                       // the output wraps around its edges
+    bool periodic = false;  // the output wraps around its edges
     std::uint64_t seed = 0;
-    int maxAttempts = 10;                        // 1..kMaxAttempts; a contradiction or a refused grid uses one
+    int maxAttempts = 10;  // 1..kMaxAttempts; a contradiction or a refused grid uses one
     std::vector<CellRule> cellRules;
-    std::vector<int> forbidden;                  // symbols no cell may hold
-    std::vector<CountRule> counts;               // minimum / maximum cells per symbol group (checked on every finished grid; a maximum also steers the solver)
+    std::vector<int> forbidden;  // symbols no cell may hold
+    std::vector<CountRule>
+        counts;  // minimum / maximum cells per symbol group (checked on every finished grid; a maximum also steers the solver)
     // Total work (see MEMORY AND TIME) over all attempts after which the run fails with GenFailure::workLimit; 0 = no cap.
     std::int64_t maxWork = 0;
     // Asked about every finished grid (width * height symbols). Return false to refuse it (with `why`): the generator retries
@@ -207,34 +213,37 @@ struct GenerateOptions {
 enum class GenStatus { Running, Done, Failed };
 
 struct GenStats {
-    int attempts = 0;                            // attempts started (the successful one included)
-    int contradictions = 0;                      // attempts that ended in a cell with no pattern left
-    int rejected = 0;                            // finished grids `accept` refused
-    int cutOff = 0;                              // of those, the ones refused because walkable areas were cut off (GridCheck::refusedCutOff)
-    std::int64_t observations = 0;               // cells collapsed by choice
-    std::int64_t propagations = 0;               // patterns removed from cells
-    int patterns = 0;                            // patterns of the model
-    int cells = 0;                               // cells of the solver (the pattern grid: smaller than the output for a non-periodic overlapping model)
-    std::int64_t work = 0;                       // units of work done (see WORK above): deterministic, unlike `ms`
-    int pinned = 0;                              // cells pinned to a tile a minimum count was missing (see CountRule)
-    double ms = 0.0;                             // wall time spent in step(): it differs between runs and machines and is NOT part of the determinism promise
-    std::size_t memoryBytes = 0;                 // estimate_generator_memory(): the solver state and the model, an upper bound
-    int heapRebuilds = 0;                        // times the entropy heap was rebuilt without its stale entries
-    std::size_t heapPeak = 0;                    // most entries the entropy heap held (at most 4 per cell)
-    std::size_t peakBytes = 0;                   // what the solver's vectors held at their largest (<= memoryBytes)
-    std::uint64_t seedUsed = 0;                  // the derived seed of the attempt that is running or succeeded
-    std::vector<int> symbolCounts;               // after Done: how many output cells hold each symbol of the model 
+    int attempts = 0;        // attempts started (the successful one included)
+    int contradictions = 0;  // attempts that ended in a cell with no pattern left
+    int rejected = 0;        // finished grids `accept` refused
+    int cutOff = 0;  // of those, the ones refused because walkable areas were cut off (GridCheck::refusedCutOff)
+    std::int64_t observations = 0;  // cells collapsed by choice
+    std::int64_t propagations = 0;  // patterns removed from cells
+    int patterns = 0;               // patterns of the model
+    int cells =
+        0;  // cells of the solver (the pattern grid: smaller than the output for a non-periodic overlapping model)
+    std::int64_t work = 0;  // units of work done (see WORK above): deterministic, unlike `ms`
+    int pinned = 0;         // cells pinned to a tile a minimum count was missing (see CountRule)
+    double ms =
+        0.0;  // wall time spent in step(): it differs between runs and machines and is NOT part of the determinism promise
+    std::size_t memoryBytes = 0;    // estimate_generator_memory(): the solver state and the model, an upper bound
+    int heapRebuilds = 0;           // times the entropy heap was rebuilt without its stale entries
+    std::size_t heapPeak = 0;       // most entries the entropy heap held (at most 4 per cell)
+    std::size_t peakBytes = 0;      // what the solver's vectors held at their largest (<= memoryBytes)
+    std::uint64_t seedUsed = 0;     // the derived seed of the attempt that is running or succeeded
+    std::vector<int> symbolCounts;  // after Done: how many output cells hold each symbol of the model
 };
 
 // Where and why the last failed attempt stopped.
 struct GenFailure {
-    int attempt = 0;                             // 1-based
-    int x = -1;                                  // output cell where the contradiction appeared (-1: the grid was refused)
+    int attempt = 0;  // 1-based
+    int x = -1;       // output cell where the contradiction appeared (-1: the grid was refused)
     int y = -1;
-    std::string reason;                          // "contradiction", the count that was missed, or what `accept` said
-    int countRule = -1;                          // index into GenerateOptions::counts when a count was missed
-    int cellRule = -1;                           // index into GenerateOptions::cellRules of the fixed cell nearest to a contradiction (within n cells), else -1
-    bool workLimit = false;                      // the run stopped because GenerateOptions::maxWork was passed (no attempt failed)
+    std::string reason;  // "contradiction", the count that was missed, or what `accept` said
+    int countRule = -1;  // index into GenerateOptions::counts when a count was missed
+    int cellRule =
+        -1;  // index into GenerateOptions::cellRules of the fixed cell nearest to a contradiction (within n cells), else -1
+    bool workLimit = false;  // the run stopped because GenerateOptions::maxWork was passed (no attempt failed)
 };
 
 // An upper bound of the bytes the model's tables and the solver state take for this model and size. 64-bit arithmetic that
@@ -244,7 +253,8 @@ std::uint64_t estimate_generator_memory(const PatternModel& model, int width, in
 // estimate_generator_memory() plus `extraBytes` (what the caller's own checks hold) against kWfcMemoryBudget: the byte count, or an
 // error that says how big a level fits. create() runs it before it allocates anything per cell; callers with a cheap way to know the
 // size (the command) run it first.
-Result<std::uint64_t> check_generator_memory(const PatternModel& model, int width, int height, bool periodic, std::uint64_t extraBytes = 0);
+Result<std::uint64_t> check_generator_memory(const PatternModel& model, int width, int height, bool periodic,
+                                             std::uint64_t extraBytes = 0);
 
 // The seed of attempt `attempt` (0-based): the same on every platform.
 std::uint64_t derive_attempt_seed(std::uint64_t seed, int attempt);
@@ -258,7 +268,8 @@ public:
     // Checks the options (size and memory budget first, before anything is allocated per cell; periodic size against n, cell rules
     // inside the grid with symbols the model has and a place in the model where they can stand, constraints that contradict each
     // other, the fixed cells or the model, weights) and prepares the first attempt. The model is kept alive by the generator.
-    static Result<std::unique_ptr<Generator>> create(std::shared_ptr<const PatternModel> model, GenerateOptions options);
+    static Result<std::unique_ptr<Generator>> create(std::shared_ptr<const PatternModel> model,
+                                                     GenerateOptions options);
 
     // Does at most `workBudget` units of work (see WORK above) and returns where it stands. The budget may be overshot by one step of the
     // algorithm: the removals pending in one cell, one chunk of a phase, one call of a one-shot `accept`, one step of a `check`.

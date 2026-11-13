@@ -37,7 +37,10 @@ std::optional<int> read_pitch_class(std::string_view text, std::size_t& used) {
     if (i < text.size() && (text[i] == '#' || text[i] == 'b')) {
         const char acc = text[i];
         int n = 0;
-        while (i < text.size() && text[i] == acc && n < 2) { ++i; ++n; }
+        while (i < text.size() && text[i] == acc && n < 2) {
+            ++i;
+            ++n;
+        }
         pc += acc == '#' ? n : -n;
     }
     used = i;
@@ -124,8 +127,12 @@ std::optional<int> song_parse_pitch(std::string_view text) {
     if (rest.empty() || rest.size() > 2) return std::nullopt;
     std::size_t i = 0;
     bool neg = false;
-    if (rest[0] == '-') { neg = true; i = 1; }
-    if (i >= rest.size() || !std::isdigit(static_cast<unsigned char>(rest[i])) || i + 1 != rest.size()) return std::nullopt;
+    if (rest[0] == '-') {
+        neg = true;
+        i = 1;
+    }
+    if (i >= rest.size() || !std::isdigit(static_cast<unsigned char>(rest[i])) || i + 1 != rest.size())
+        return std::nullopt;
     const int octave = (neg ? -1 : 1) * (rest[i] - '0');
     // The accidental can cross an octave boundary (Cb4 is B3, B#3 is C4): recompute from the letter.
     int letter = letter_class(text[0]);
@@ -166,7 +173,8 @@ Result<SongChord> song_parse_chord(std::string_view name) {
     if (slash != std::string_view::npos) {
         auto bass = song_pitch_class(rest.substr(slash + 1));
         if (!bass)
-            return Error{"`" + std::string(rest.substr(slash + 1)) + "` after the slash of `" + std::string(name) + "` is not a note",
+            return Error{"`" + std::string(rest.substr(slash + 1)) + "` after the slash of `" + std::string(name) +
+                             "` is not a note",
                          "The bass note is a pitch class such as G or F#: Cmaj7/G."};
         chord.bass = *bass;
     }
@@ -179,9 +187,11 @@ Result<SongChord> song_parse_chord(std::string_view name) {
     std::vector<std::string> names;
     for (const SongQualityInfo& q : kQualities)
         if (!q.spelling.empty()) names.push_back(q.spelling);
-    return Error{"unknown chord quality `" + std::string(quality) + "` in `" + std::string(name) + "`",
-                 did_you_mean(std::string(quality), names) + " Qualities: m, dim, aug, sus2, sus4, 5, 6, m6, 7, maj7, m7, mMaj7, dim7, m7b5, 9, maj9, m9, add9, 11, 13 "
-                 "(docs/MUSIC.md lists them all)."};
+    return Error{
+        "unknown chord quality `" + std::string(quality) + "` in `" + std::string(name) + "`",
+        did_you_mean(std::string(quality), names) +
+            " Qualities: m, dim, aug, sus2, sus4, 5, 6, m6, 7, maj7, m7, mMaj7, dim7, m7b5, 9, maj9, m9, add9, 11, 13 "
+            "(docs/MUSIC.md lists them all)."};
 }
 
 std::vector<int> song_chord_pitches(const SongChord& chord, int rootOctave) {
@@ -224,12 +234,19 @@ std::vector<int> song_scale_notes(int rootPitchClass, std::string_view mode, int
 bool song_prefers_flats(int rootPitchClass, std::string_view mode) {
     // The major key with the same notes: its tonic sits this many semitones below the mode's tonic.
     int below = 0;
-    if (mode == "minor" || mode == "harmonic_minor" || mode == "melodic_minor" || mode == "pentatonic_minor" || mode == "blues") below = 9;
-    else if (mode == "dorian") below = 2;
-    else if (mode == "phrygian") below = 4;
-    else if (mode == "lydian") below = 5;
-    else if (mode == "mixolydian") below = 7;
-    else if (mode == "locrian") below = 11;
+    if (mode == "minor" || mode == "harmonic_minor" || mode == "melodic_minor" || mode == "pentatonic_minor" ||
+        mode == "blues")
+        below = 9;
+    else if (mode == "dorian")
+        below = 2;
+    else if (mode == "phrygian")
+        below = 4;
+    else if (mode == "lydian")
+        below = 5;
+    else if (mode == "mixolydian")
+        below = 7;
+    else if (mode == "locrian")
+        below = 11;
     const int major = ((rootPitchClass - below) % 12 + 12) % 12;
     return major == 5 || major == 10 || major == 3 || major == 8 || major == 1 || major == 6;
 }
@@ -245,11 +262,16 @@ std::vector<std::string> song_diatonic_chords(int rootPitchClass, std::string_vi
         const int fifth = ((*pcs)[(d + 4) % 7] - root + 12) % 12;
         const int seventh = ((*pcs)[(d + 6) % 7] - root + 12) % 12;
         std::string q;
-        if (third == 4 && fifth == 7) q = sevenths ? (seventh == 11 ? "maj7" : "7") : "";
-        else if (third == 3 && fifth == 7) q = sevenths ? (seventh == 11 ? "mMaj7" : "m7") : "m";
-        else if (third == 3 && fifth == 6) q = sevenths ? (seventh == 9 ? "dim7" : "m7b5") : "dim";
-        else if (third == 4 && fifth == 8) q = sevenths ? "aug7" : "aug";
-        else q = "?";
+        if (third == 4 && fifth == 7)
+            q = sevenths ? (seventh == 11 ? "maj7" : "7") : "";
+        else if (third == 3 && fifth == 7)
+            q = sevenths ? (seventh == 11 ? "mMaj7" : "m7") : "m";
+        else if (third == 3 && fifth == 6)
+            q = sevenths ? (seventh == 9 ? "dim7" : "m7b5") : "dim";
+        else if (third == 4 && fifth == 8)
+            q = sevenths ? "aug7" : "aug";
+        else
+            q = "?";
         out.push_back(song_pitch_class_name(root, flats) + q);
     }
     return out;

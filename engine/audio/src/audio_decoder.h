@@ -15,7 +15,7 @@ namespace fa::audio_detail {
 using Bytes = std::vector<std::uint8_t>;
 
 inline constexpr int kMaxChannels = 32;  // the most channels a clip may have (a clip plays its first two)
-inline constexpr int kMixRate = 44100;  // the rate and layout (stereo float) the mixer works in
+inline constexpr int kMixRate = 44100;   // the rate and layout (stereo float) the mixer works in
 
 // .wav .ogg .mp3 .qoa
 bool is_audio_extension(std::string_view ext);
@@ -34,7 +34,10 @@ public:
     virtual bool rewind() = 0;  // back to the first frame
     // The next read returns frame `frame` of the file, exactly the samples a read from the start would make there (music
     // streams jump to the chunk they need). false when the format cannot seek that way (only .ogg does).
-    virtual bool seek(std::uint64_t frame) { (void)frame; return false; }
+    virtual bool seek(std::uint64_t frame) {
+        (void)frame;
+        return false;
+    }
 
 protected:
     int channels_ = 0, rate_ = 0;
@@ -42,7 +45,8 @@ protected:
 };
 
 // The decoder for `ext` (".ogg"...), or null with a sentence in *error that finishes "Audio clip 'x' ".
-std::unique_ptr<Decoder> open_decoder(const std::uint8_t* data, std::size_t size, std::string_view ext, std::string* error);
+std::unique_ptr<Decoder> open_decoder(const std::uint8_t* data, std::size_t size, std::string_view ext,
+                                      std::string* error);
 
 // Decoder output as the mixer wants it: stereo at kMixRate, linear interpolation between source frames (a mono source
 // feeds both sides, a source with more than two channels contributes its first two). With `loop` the decoder rewinds

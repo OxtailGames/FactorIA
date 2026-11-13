@@ -12,7 +12,8 @@ Vec3 capsule_inertia(float m, float r, float segHalf) {
     const double mCyl = double(m) * vCyl / v, mHemis = double(m) * vHemis / v;
     const double axial = mCyl * R * R * 0.5 + mHemis * 0.4 * R * R;
     // Each hemisphere's centre of mass is 3r/8 from its flat face, and the face is H/2 from the middle.
-    const double transverse = mCyl * (R * R / 4.0 + H * H / 12.0) + mHemis * (0.4 * R * R + H * H / 4.0 + 3.0 * H * R / 8.0);
+    const double transverse =
+        mCyl * (R * R / 4.0 + H * H / 12.0) + mHemis * (0.4 * R * R + H * H / 4.0 + 3.0 * H * R / 8.0);
     return {float(transverse), float(axial), float(transverse)};
 }
 

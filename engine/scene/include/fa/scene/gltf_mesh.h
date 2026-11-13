@@ -26,12 +26,14 @@ struct GltfEmbeddedImage {
 };
 
 struct GltfMesh {
-    MeshData data;                          // one submesh per (material, part), in order of first use
-    std::vector<MeshMaterial> materials;    // the distinct materials in the order of `data.submeshes`' first use; names are unique ("material_1" when the file names none)
-    std::vector<std::size_t> submeshMaterial;  // for each of data.submeshes: its index into `materials`, or SIZE_MAX for the default (no material)
+    MeshData data;  // one submesh per (material, part), in order of first use
+    std::vector<MeshMaterial>
+        materials;  // the distinct materials in the order of `data.submeshes`' first use; names are unique ("material_1" when the file names none)
+    std::vector<std::size_t>
+        submeshMaterial;  // for each of data.submeshes: its index into `materials`, or SIZE_MAX for the default (no material)
     std::vector<GltfEmbeddedImage> embedded;
     std::vector<std::string> warnings;
-    std::size_t meshNodes = 0;              // nodes that carried a mesh
+    std::size_t meshNodes = 0;  // nodes that carried a mesh
 };
 
 // `path` is project-relative (or absolute) and ends in .glb or .gltf. Errors name the file and say what is wrong.

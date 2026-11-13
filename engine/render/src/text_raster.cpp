@@ -45,7 +45,7 @@ Result<TextBitmap> rasterize_with(std::string_view utf8, std::unique_ptr<render:
         // INT_MAX): that glyph draws nothing, and its box is not moved by the pen (that sum would overflow).
         constexpr std::int64_t kFar = 1 << 24;
         const bool inRange = std::abs(std::int64_t(p.x0)) < kFar && std::abs(std::int64_t(p.x1)) < kFar &&
-                          std::abs(std::int64_t(p.y0)) < kFar && std::abs(std::int64_t(p.y1)) < kFar;
+                             std::abs(std::int64_t(p.y0)) < kFar && std::abs(std::int64_t(p.y1)) < kFar;
         if (inRange) {
             p.x0 += int(std::floor(pen));
             p.x1 += int(std::floor(pen));
@@ -71,8 +71,9 @@ Result<TextBitmap> rasterize_with(std::string_view utf8, std::unique_ptr<render:
     }
     if (placed.empty()) return out;
     if (std::int64_t(maxX - minX) * (maxY - minY) > kMaxBitmapPixels)
-        return make_error("the text is " + std::to_string(maxX - minX) + " x " + std::to_string(maxY - minY) + " pixels, more than a bitmap of " +
-                              std::to_string(kMaxBitmapPixels / 1000000) + " million pixels",
+        return make_error("the text is " + std::to_string(maxX - minX) + " x " + std::to_string(maxY - minY) +
+                              " pixels, more than a bitmap of " + std::to_string(kMaxBitmapPixels / 1000000) +
+                              " million pixels",
                           "Use a smaller pixel size or a shorter text.");
     out.originX = -minX;
     out.originY = -minY;
@@ -100,8 +101,10 @@ Result<TextBitmap> rasterize_text(std::string_view utf8, const std::string& font
 }
 
 Result<TextBitmap> rasterize_text(std::string_view utf8, const std::vector<std::uint8_t>& fontBytes, float pixelSize) {
-    return rasterize_with(utf8, render::load_font_face_from_memory(std::vector<unsigned char>(fontBytes.begin(), fontBytes.end()), "font"),
-                          pixelSize);
+    return rasterize_with(
+        utf8,
+        render::load_font_face_from_memory(std::vector<unsigned char>(fontBytes.begin(), fontBytes.end()), "font"),
+        pixelSize);
 }
 
 }  // namespace fa

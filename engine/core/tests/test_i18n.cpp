@@ -16,7 +16,8 @@ struct Locales {
     stdfs::path dir, oldRoot;
     Locales() {
         oldRoot = fs::project_root();
-        dir = stdfs::temp_directory_path() / ("fa_test_i18n_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+        dir = stdfs::temp_directory_path() /
+              ("fa_test_i18n_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
         stdfs::remove_all(dir);
         stdfs::create_directories(dir / "locales");
         fs::set_project_root(dir);
@@ -26,7 +27,9 @@ struct Locales {
         std::error_code ec;
         stdfs::remove_all(dir, ec);
     }
-    void write(const std::string& language, const std::string& json) { REQUIRE(fs::write_text("locales/" + language + ".json", json).ok()); }
+    void write(const std::string& language, const std::string& json) {
+        REQUIRE(fs::write_text("locales/" + language + ".json", json).ok());
+    }
 };
 
 StringTable table_of(const char* language, const char* json) {
@@ -37,7 +40,8 @@ StringTable table_of(const char* language, const char* json) {
     return std::move(t.value());
 }
 
-I18n game(std::initializer_list<std::pair<const char*, const char*>> tables, const char* def = "en", std::vector<std::string> languages = {}) {
+I18n game(std::initializer_list<std::pair<const char*, const char*>> tables, const char* def = "en",
+          std::vector<std::string> languages = {}) {
     if (languages.empty())
         for (const auto& t : tables) languages.emplace_back(t.first);
     I18n i;
@@ -74,8 +78,8 @@ TEST_CASE("i18n: language tags are normalized") {
 TEST_CASE("i18n: the system languages are matched to the project's") {
     const std::vector<std::string> project = {"en", "es", "pt-BR", "zh-Hans", "zh-Hant", "fr-CA"};
     CHECK(best_language_match({"es"}, project) == "es");
-    CHECK(best_language_match({"es-MX"}, project) == "es");           // base language
-    CHECK(best_language_match({"pt-PT"}, project) == "pt-BR");        // another variant of the language
+    CHECK(best_language_match({"es-MX"}, project) == "es");     // base language
+    CHECK(best_language_match({"pt-PT"}, project) == "pt-BR");  // another variant of the language
     CHECK(best_language_match({"pt"}, project) == "pt-BR");
     CHECK(best_language_match({"fr-FR"}, project) == "fr-CA");
     CHECK(best_language_match({"zh-CN"}, project) == "zh-Hans");
@@ -84,8 +88,9 @@ TEST_CASE("i18n: the system languages are matched to the project's") {
     CHECK(best_language_match({"zh-HK"}, project) == "zh-Hant");
     CHECK(best_language_match({"zh-MO"}, project) == "zh-Hant");
     CHECK(best_language_match({"zh-Hant-TW"}, project) == "zh-Hant");  // language + script
-    CHECK(best_language_match({"PT_br"}, project) == "pt-BR");        // spelling and case
-    CHECK(best_language_match({"de-DE", "es-ES", "en"}, project) == "es");  // the first language that matches, in the user's order
+    CHECK(best_language_match({"PT_br"}, project) == "pt-BR");         // spelling and case
+    CHECK(best_language_match({"de-DE", "es-ES", "en"}, project) ==
+          "es");  // the first language that matches, in the user's order
     CHECK(best_language_match({"de", "ja"}, project).empty());
     CHECK(best_language_match({}, project).empty());
     CHECK(best_language_match({"es"}, {}).empty());
@@ -177,7 +182,8 @@ TEST_CASE("i18n: CLDR plural categories per language") {
     CHECK(cat("en", -1) == PC::One);  // the sign does not matter
 }
 
-TEST_CASE("i18n: plural_categories lists the forms a language needs, and with everyCount the ones only fractions or millions pick") {
+TEST_CASE("i18n: plural_categories lists the forms a language needs, and with everyCount the ones only fractions or "
+          "millions pick") {
     using PC = PluralCategory;
     const auto forms = [](const char* lang, bool every = false) { return plural_categories(lang, every); };
     CHECK(forms("en") == std::vector<PC>{PC::One, PC::Other});
@@ -258,7 +264,8 @@ TEST_CASE("i18n: {placeholders} take their value from the arguments") {
     CHECK(format_message("{a}{b}", Json{{"a", "x"}, {"b", "y"}}) == "xy");
     CHECK(format_message("{n}", Json{{"n", 2.0}}) == "2");  // a script number that happens to be whole
     CHECK(format_message("{n}", Json{{"n", 2.5}}) == "2.5");
-    CHECK(format_message("{on} {off} {nothing}", Json{{"on", true}, {"off", false}, {"nothing", nullptr}}) == "true false ");
+    CHECK(format_message("{on} {off} {nothing}", Json{{"on", true}, {"off", false}, {"nothing", nullptr}}) ==
+          "true false ");
     CHECK(format_message("{{literal}} and {{{n}}}", Json{{"n", 7}}) == "{literal} and {7}");
     CHECK(format_message("a { b } {} {x-y} {", Json::object()) == "a { b } {} {x-y} {");  // not placeholders
     CHECK(format_message("no braces", nullptr) == "no braces");
@@ -312,10 +319,12 @@ TEST_CASE("i18n: set_language resolves tags and teaches on a mistake") {
 }
 
 TEST_CASE("i18n: plural entries pick the form of args.count in the language of the table") {
-    I18n i = game({{"en", R"({"coins": {"one": "{count} coin", "other": "{count} coins"}, "only": {"other": "x{count}"}})"},
-                   {"ru", R"({"coins": {"one": "{count} монета", "few": "{count} монеты", "many": "{count} монет", "other": "{count} монеты"}})"},
-                   {"ar", R"({"coins": {"zero": "z", "one": "o", "two": "tw", "few": "f", "many": "m", "other": "ot"}})"}},
-                  "en");
+    I18n i = game(
+        {{"en", R"({"coins": {"one": "{count} coin", "other": "{count} coins"}, "only": {"other": "x{count}"}})"},
+         {"ru",
+          R"({"coins": {"one": "{count} монета", "few": "{count} монеты", "many": "{count} монет", "other": "{count} монеты"}})"},
+         {"ar", R"({"coins": {"zero": "z", "one": "o", "two": "tw", "few": "f", "many": "m", "other": "ot"}})"}},
+        "en");
     CHECK(i.t("coins", Json{{"count", 1}}) == "1 coin");
     CHECK(i.t("coins", Json{{"count", 5}}) == "5 coins");
     CHECK(i.t("coins", Json{{"count", 0}}) == "0 coins");
@@ -338,12 +347,15 @@ TEST_CASE("i18n: plural entries pick the form of args.count in the language of t
 }
 
 TEST_CASE("i18n: a gendered name picks its article in Spanish and French, a missing form falls back to other") {
-    I18n i = game({{"en", R"({"ship": {"light": "Skiff", "heavy": "Barge"}, "ship_the": {"other": "the {name}"}, "ship_is": {"other": "{name} is ready"}})"},
-                   {"es", R"({"ship": {"light": {"text": "Ligera", "gender": "f"}, "heavy": {"text": "Barcaza", "gender": "f"}, "old": {"text": "Viejo", "gender": "m"}},
+    I18n i = game(
+        {{"en",
+          R"({"ship": {"light": "Skiff", "heavy": "Barge"}, "ship_the": {"other": "the {name}"}, "ship_is": {"other": "{name} is ready"}})"},
+         {"es",
+          R"({"ship": {"light": {"text": "Ligera", "gender": "f"}, "heavy": {"text": "Barcaza", "gender": "f"}, "old": {"text": "Viejo", "gender": "m"}},
                               "ship_the": {"f": "la {name}", "m": "el {name}", "other": "{name}"}, "ship_is": {"f": "{name} está lista", "other": "{name} está listo"}})"},
-                   {"fr", R"({"ship": {"light": {"text": "Légère", "gender": "f"}, "old": {"text": "Vieux", "gender": "m"}},
+         {"fr", R"({"ship": {"light": {"text": "Légère", "gender": "f"}, "old": {"text": "Vieux", "gender": "m"}},
                               "ship_the": {"f": "la {name}", "m": "le {name}", "other": "{name}"}})"}},
-                  "en");
+        "en");
     const auto sentence = [&](const char* key, const char* noun) {
         return i.t(key, Json{{"name", i.t(noun)}, {"gender", i.gender(noun)}});
     };
@@ -357,7 +369,7 @@ TEST_CASE("i18n: a gendered name picks its article in Spanish and French, a miss
     CHECK(sentence("ship_the", "ship.old") == "el Viejo");
     CHECK(sentence("ship_is", "ship.light") == "Ligera está lista");
     CHECK(sentence("ship_is", "ship.old") == "Viejo está listo");  // no "m" form: "other"
-    CHECK(i.t("ship_the") == "{name}");                              // no gender at all: "other"
+    CHECK(i.t("ship_the") == "{name}");                            // no gender at all: "other"
     CHECK(i.t("ship_the", Json{{"name", "X"}, {"gender", "n"}}) == "X");
     CHECK(i.t("ship.old") == "Viejo");  // a gendered string is a string
     REQUIRE(i.set_language("fr").ok());
@@ -446,5 +458,5 @@ TEST_CASE("i18n: a language with a table of the wrong name is refused") {
 TEST_CASE("i18n: pseudo-localization lengthens a string by at least 40 %") {
     CHECK(fa::I18n::pseudo_localize("Play") == "[Plaay]");
     const std::string kana = "\xE3\x83\x97\xE3\x83\xAC\xE3\x82\xA4";  // three characters, no ASCII vowel
-    CHECK(fa::I18n::pseudo_localize(kana) == "[" + kana + "~]");              // padded to four characters
+    CHECK(fa::I18n::pseudo_localize(kana) == "[" + kana + "~]");      // padded to four characters
 }

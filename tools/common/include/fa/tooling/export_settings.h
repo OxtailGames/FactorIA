@@ -29,20 +29,22 @@ namespace fa {
 // export.windows.msix: what the Microsoft Store (Partner Center > Product identity) knows the app as, and the manifest texts.
 // Empty = derived (see ProjectExportSettings::msix_*). The identity fields have no default: the Store assigns them.
 struct WindowsMsixSettings {
-    std::string identityName;           // Package/Identity/Name, e.g. "12345Studio.MyGame" (Partner Center); "" = not set
-    std::string publisher;              // Package/Identity/Publisher, "CN=..." exactly as Partner Center shows it; "" = not set
-    std::string publisherDisplayName;   // the publisher name players see; "" = not set
-    std::string displayName;            // "" = the game's name
-    std::string description;            // "" = the display name
+    std::string identityName;  // Package/Identity/Name, e.g. "12345Studio.MyGame" (Partner Center); "" = not set
+    std::string publisher;     // Package/Identity/Publisher, "CN=..." exactly as Partner Center shows it; "" = not set
+    std::string publisherDisplayName;             // the publisher name players see; "" = not set
+    std::string displayName;                      // "" = the game's name
+    std::string description;                      // "" = the display name
     std::string backgroundColor = "transparent";  // tile background: "#RRGGBB" or "transparent"
-    std::string version;                // "major.minor.build.revision"; "" = the project's "version" with revision 0 (1.2.3 -> 1.2.3.0)
+    std::string
+        version;  // "major.minor.build.revision"; "" = the project's "version" with revision 0 (1.2.3 -> 1.2.3.0)
     std::string minVersion = "10.0.17763.0";  // oldest Windows 10 build the package installs on (1809)
-    std::vector<std::string> languages;  // resource languages (BCP 47, "en-us"); empty = localization.languages of the project, else en-us
+    std::vector<std::string>
+        languages;  // resource languages (BCP 47, "en-us"); empty = localization.languages of the project, else en-us
     bool operator==(const WindowsMsixSettings&) const = default;
 };
 
 struct WindowsExportSettings {
-    std::string icon;  // project-relative; "" = the project's `icon`
+    std::string icon;               // project-relative; "" = the project's `icon`
     std::string format = "folder";  // "folder" | "msix" (also writes <slug>-windows.msix next to the folder)
     WindowsMsixSettings msix;
     bool operator==(const WindowsExportSettings&) const = default;
@@ -51,11 +53,11 @@ struct WindowsExportSettings {
 struct MacosExportSettings {
     std::string icon;
     std::string category = "public.app-category.games";  // LSApplicationCategoryType
-    std::string minimumSystemVersion = "11.0";            // LSMinimumSystemVersion, 11.0 or newer
-    std::string copyright;                                // NSHumanReadableCopyright; "" = none
-    std::string buildNumber;                              // CFBundleVersion; "" = the project's "version"
-    bool usesNonExemptEncryption = false;                 // ITSAppUsesNonExemptEncryption in Info.plist
-    Json entitlements = Json::object();                   // sandbox capabilities added to the Mac App Store signature (sign.macos)
+    std::string minimumSystemVersion = "11.0";           // LSMinimumSystemVersion, 11.0 or newer
+    std::string copyright;                               // NSHumanReadableCopyright; "" = none
+    std::string buildNumber;                             // CFBundleVersion; "" = the project's "version"
+    bool usesNonExemptEncryption = false;                // ITSAppUsesNonExemptEncryption in Info.plist
+    Json entitlements = Json::object();  // sandbox capabilities added to the Mac App Store signature (sign.macos)
     bool operator==(const MacosExportSettings&) const = default;
 };
 
@@ -66,9 +68,9 @@ struct LinuxExportSettings {
 };
 
 struct AndroidAdaptiveIconSettings {
-    std::string foreground;                // 108dp layer, project-relative; "" = the icon scaled into the safe zone
-    std::string background = "#FFFFFF";    // "#RRGGBB", or the project-relative path of an image
-    std::string monochrome;                // optional layer for Android 13 themed icons; "" = none
+    std::string foreground;              // 108dp layer, project-relative; "" = the icon scaled into the safe zone
+    std::string background = "#FFFFFF";  // "#RRGGBB", or the project-relative path of an image
+    std::string monochrome;              // optional layer for Android 13 themed icons; "" = none
     bool operator==(const AndroidAdaptiveIconSettings&) const = default;
 };
 
@@ -80,7 +82,7 @@ struct AndroidSigningSettings {
 
 struct AndroidExportSettings {
     std::string icon;
-    std::string format = "apk";            // "apk" | "aab" | "gradle"
+    std::string format = "apk";  // "apk" | "aab" | "gradle"
     AndroidAdaptiveIconSettings adaptiveIcon;
     int versionCode = 0;                   // 0 = derived from the project's "version" (1.2.3 -> 10203)
     int minSdk = 26;                       // 26 <= minSdk <= targetSdk
@@ -100,10 +102,11 @@ struct IosPrivacyApi {
 
 // One kind of data the app collects (NSPrivacyCollectedDataTypes).
 struct IosPrivacyCollectedData {
-    std::string type;                    // "PurchaseHistory" (the NSPrivacyCollectedDataType... name without the prefix)
-    bool linked = false;                 // linked to the user's identity
-    bool tracking = false;               // used to track the user
-    std::vector<std::string> purposes;   // "AppFunctionality" (the NSPrivacyCollectedDataTypePurpose... names without the prefix)
+    std::string type;       // "PurchaseHistory" (the NSPrivacyCollectedDataType... name without the prefix)
+    bool linked = false;    // linked to the user's identity
+    bool tracking = false;  // used to track the user
+    std::vector<std::string>
+        purposes;  // "AppFunctionality" (the NSPrivacyCollectedDataTypePurpose... names without the prefix)
     bool operator==(const IosPrivacyCollectedData&) const = default;
 };
 
@@ -111,9 +114,9 @@ struct IosPrivacyCollectedData {
 // always declared (ios_engine_privacy_apis in fa/tooling/ios_privacy.h); nothing is collected and nothing tracks unless
 // these say so.
 struct IosPrivacySettings {
-    bool tracking = false;                        // NSPrivacyTracking
-    std::vector<std::string> trackingDomains;     // NSPrivacyTrackingDomains (what tracking needs)
-    std::vector<IosPrivacyApi> accessedApis;      // added to (merged with) the engine's
+    bool tracking = false;                     // NSPrivacyTracking
+    std::vector<std::string> trackingDomains;  // NSPrivacyTrackingDomains (what tracking needs)
+    std::vector<IosPrivacyApi> accessedApis;   // added to (merged with) the engine's
     std::vector<IosPrivacyCollectedData> collectedData;
     bool operator==(const IosPrivacySettings&) const = default;
 };
@@ -145,8 +148,9 @@ struct PackExportSettings {
 // (Android versionCode, iOS and macOS buildNumber) stay empty/0 so that saving does not freeze them; use the helpers below.
 struct ProjectExportSettings {
     std::string icon;  // the icon of every platform that has no icon of its own; "" = none
-    bool scriptBytecode = true;  // export.scriptBytecode: a --release desktop export compiles the .js files to QuickJS bytecode
-                                 // inside the game pack (false: plain source in the pack). No other export reads it
+    bool scriptBytecode =
+        true;  // export.scriptBytecode: a --release desktop export compiles the .js files to QuickJS bytecode
+               // inside the game pack (false: plain source in the pack). No other export reads it
     std::vector<std::string> exclude;  // export.exclude: project-relative globs ('*', '**', '?') no export ships
     PackExportSettings pack;           // export.pack: the codecs and the file order of game.pak
     WindowsExportSettings windows;
@@ -187,9 +191,9 @@ struct ExportSettingsIssue {
 };
 
 struct ExportSettingsParse {
-    ProjectExportSettings settings;                // what could be read; an invalid field keeps its default
-    std::vector<ExportSettingsIssue> errors;       // wrong type or value: the export cannot trust the file
-    std::vector<ExportSettingsIssue> warnings;     // unknown keys (with "did you mean"), not harmful
+    ProjectExportSettings settings;             // what could be read; an invalid field keeps its default
+    std::vector<ExportSettingsIssue> errors;    // wrong type or value: the export cannot trust the file
+    std::vector<ExportSettingsIssue> warnings;  // unknown keys (with "did you mean"), not harmful
 };
 
 // Reads `icon` and `export` from the parsed factoria.json. Pure: it looks at no file (a missing icon file is reported
@@ -213,15 +217,15 @@ Result<void> save_export_settings(const std::string& projectDir, const ProjectEx
 // ---------------------------------------------------------------------------
 
 using ExportEnvLookup = std::function<std::string(const std::string& name)>;  // "" when the variable is unset
-ExportEnvLookup system_export_env();                                           // reads the process environment
+ExportEnvLookup system_export_env();                                          // reads the process environment
 
 struct MachineExportConfig {
-    std::string androidSdk;                // "" = look for it (find_android_toolchain)
-    std::string androidJdk;                // "" = look for it
-    std::string androidKeystorePassword;   // "" = not stored here (FACTORIA_ANDROID_KEYSTORE_PASSWORD still applies)
-    std::string androidKeyPassword;        // "" = the keystore password
-    std::string sourcePath;                // the file it was read from ("" when there is none)
-    std::vector<std::string> warnings;     // e.g. a file with passwords that other users can read
+    std::string androidSdk;               // "" = look for it (find_android_toolchain)
+    std::string androidJdk;               // "" = look for it
+    std::string androidKeystorePassword;  // "" = not stored here (FACTORIA_ANDROID_KEYSTORE_PASSWORD still applies)
+    std::string androidKeyPassword;       // "" = the keystore password
+    std::string sourcePath;               // the file it was read from ("" when there is none)
+    std::vector<std::string> warnings;    // e.g. a file with passwords that other users can read
 };
 
 // $FACTORIA_EXPORT_CONFIG when set; else $FACTORIA_HOME/export.json when that is set; else <HOME>/.factoria/export.json
@@ -240,15 +244,16 @@ struct MachineTool {
 };
 struct MachineToolFound {
     std::string path;
-    std::string from;                   // the variable name, "export.json" or "PATH"
+    std::string from;  // the variable name, "export.json" or "PATH"
 };
 // A variable or a config entry that points at nothing is an error that says so (no fall-through to PATH); so is a tool
 // found nowhere: the message names the download page, the variable and the key. `configPath` "" = machine_export_config_path(env).
-Result<MachineToolFound> find_machine_tool(const MachineTool& tool, const ExportEnvLookup& env = system_export_env(), const std::string& configPath = {});
+Result<MachineToolFound> find_machine_tool(const MachineTool& tool, const ExportEnvLookup& env = system_export_env(),
+                                           const std::string& configPath = {});
 // The ffmpeg that turns a recorded .avi into an .mp4 (`factoria run --record-video x.mp4`): FACTORIA_FFMPEG, "ffmpeg" in "publish",
 // PATH, then the copy `factoria setup ffmpeg` installs (`installedPath`; "" = <factoria home>/tools/ffmpeg/<release>/ffmpeg).
-Result<MachineToolFound> find_ffmpeg(const ExportEnvLookup& env = system_export_env(), const std::string& configPath = {},
-                                     const std::string& installedPath = {});
+Result<MachineToolFound> find_ffmpeg(const ExportEnvLookup& env = system_export_env(),
+                                     const std::string& configPath = {}, const std::string& installedPath = {});
 
 // A missing file is not an error (defaults come back). Unreadable JSON, a wrong "format" or a value of the wrong
 // type is, naming the file and the key. `path` "" = machine_export_config_path().
@@ -273,11 +278,12 @@ AndroidSigningSecrets resolve_android_signing_secrets(const MachineExportConfig&
 // ---------------------------------------------------------------------------
 
 struct AndroidToolchain {
-    std::string jdk;       // folder that holds bin/java (JAVA_HOME style); "" when none was found
-    std::string jdkFrom;   // "config" | "JAVA_HOME" | "FactorIA" | "Android Studio" | "Unity Hub"
-    int jdkMajor = 0;      // 17 for "17.0.9", read from <jdk>/release; 0 when unknown
-    std::string sdk;       // folder of the Android SDK; "" when none was found
-    std::string sdkFrom;   // "config" | "ANDROID_HOME" | "ANDROID_SDK_ROOT" | "FactorIA" | "default location" | "Unity Hub"
+    std::string jdk;      // folder that holds bin/java (JAVA_HOME style); "" when none was found
+    std::string jdkFrom;  // "config" | "JAVA_HOME" | "FactorIA" | "Android Studio" | "Unity Hub"
+    int jdkMajor = 0;     // 17 for "17.0.9", read from <jdk>/release; 0 when unknown
+    std::string sdk;      // folder of the Android SDK; "" when none was found
+    std::string
+        sdkFrom;  // "config" | "ANDROID_HOME" | "ANDROID_SDK_ROOT" | "FactorIA" | "default location" | "Unity Hub"
     std::vector<std::string> problems;  // what blocks a build, each saying what is missing and how to fix it
     std::vector<std::string> warnings;  // worth knowing (a configured folder that was skipped, licenses not accepted)
 

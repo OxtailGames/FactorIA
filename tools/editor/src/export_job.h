@@ -36,13 +36,15 @@ std::string export_format_label(const std::string& format);
 
 // What the Export window lets the user choose.
 struct ExportSettings {
-    std::string outDir;   // parent folder of the export; relative = to the project; "" = <project>/build/export
-    bool release = false; // changes the build commands in nextSteps and the iOS script
-    bool webSingleFile = false;  // web: one .html file with everything inlined (ExportOptions::singleFile) instead of a folder and a zip
+    std::string outDir;    // parent folder of the export; relative = to the project; "" = <project>/build/export
+    bool release = false;  // changes the build commands in nextSteps and the iOS script
+    bool webSingleFile =
+        false;  // web: one .html file with everything inlined (ExportOptions::singleFile) instead of a folder and a zip
     std::map<std::string, std::string> players;  // desktop platform -> factoria_player built for it (another OS)
 };
 // The options a platform's button exports with.
-ExportOptions export_options(const std::string& projectDir, const std::string& platform, const ExportSettings& settings);
+ExportOptions export_options(const std::string& projectDir, const std::string& platform,
+                             const ExportSettings& settings);
 // The folder exports go into: settings.outDir resolved against the project, or <project>/build/export.
 std::string export_parent_dir(const std::string& projectDir, const ExportSettings& settings);
 // A desktop platform other than this machine's: exporting it needs a factoria_player built there (Choose player...).
@@ -86,17 +88,18 @@ public:
     ExportJob& operator=(const ExportJob&) = delete;
     ~ExportJob() { wait(); }
 
-    bool start(ExportOptions options);              // false while an export runs
+    bool start(ExportOptions options);  // false while an export runs
     bool running() const { return running_.load(); }
-    void cancel() { cancel_.store(true); }          // asks the running export to stop; it fails with "cancelled"
+    void cancel() { cancel_.store(true); }  // asks the running export to stop; it fails with "cancelled"
     bool cancelling() const { return running() && cancel_.load(); }
-    void add_line(const std::string& line);         // what ExportOptions::progress does: keeps one line (blank ones are dropped)
-    std::string progress_line() const;              // the latest non-empty line of the running export ("" = none yet)
+    void
+    add_line(const std::string& line);  // what ExportOptions::progress does: keeps one line (blank ones are dropped)
+    std::string progress_line() const;  // the latest non-empty line of the running export ("" = none yet)
     std::vector<std::string> recent_lines() const;  // the last lines (at most kMaxLines), oldest first
     static constexpr size_t kMaxLines = 200;
     const std::string& platform() const { return platform_; }  // of the running or last export
-    std::optional<ExportOutcome> take_result();     // the finished export's outcome, once; nullopt while it runs
-    void wait();                                    // blocks until the running export is done (project switch, quit)
+    std::optional<ExportOutcome> take_result();  // the finished export's outcome, once; nullopt while it runs
+    void wait();                                 // blocks until the running export is done (project switch, quit)
 
 private:
     std::thread thread_;

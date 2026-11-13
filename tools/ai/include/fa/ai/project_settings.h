@@ -96,9 +96,9 @@ struct ResolvedAiConfig {
     std::string projectDir;   // as given
     std::string projectFile;  // absolute path of .factoria/ai/settings.json (even when it does not exist)
     bool fileExists = false;
-    std::string fileHash;     // sha256 of the file (line endings normalized); "" when there is none
+    std::string fileHash;             // sha256 of the file (line endings normalized); "" when there is none
     Json overrides = Json::object();  // the file's content ({} when there is none)
-    bool applied = false;     // the file exists, is valid and accepted: `config` has its values
+    bool applied = false;             // the file exists, is valid and accepted: `config` has its values
     // The file exists but the user has not accepted it on this computer: the project behaves as without it (`config` is
     // `inherited`, `applied` false), and `pending` says what it would change, for the editor to show before the user accepts
     // (accept_project_settings). Not accepted AND invalid (not JSON, a key a project may not hold, an unknown name, a value ai.json
@@ -124,7 +124,8 @@ Result<ResolvedAiConfig> resolve_ai_config(std::string_view projectDir, std::str
 // `aiConfigPath` locates ai-trust.json ("" = inherited.sourcePath, else default_config_path(env)). The project's overrides are
 // applied on a JSON form of `inherited` (config_to_json), with the roles that only follow another role left to follow it.
 Result<ResolvedAiConfig> resolve_ai_config_over(std::string_view projectDir, const AiConfig& inherited,
-                                                std::string_view aiConfigPath = {}, const EnvLookup& env = system_env());
+                                                std::string_view aiConfigPath = {},
+                                                const EnvLookup& env = system_env());
 // resolve_ai_config(...).config, for the paths that only run with it (ai commands, skills, asset commands, the agent). Without a
 // project file the result is load_config's, byte for byte.
 Result<AiConfig> load_resolved_config(std::string_view projectDir, std::string_view aiConfigPath = {},
@@ -135,7 +136,8 @@ Result<AiConfig> load_resolved_config(std::string_view projectDir, std::string_v
 struct ProjectSettingsFile {
     std::string path;  // absolute (even when the file does not exist)
     bool exists = false;
-    std::string hash;  // sha256 of the text with CRLF turned into LF, so a line-ending change does not need a new acceptance
+    std::string
+        hash;  // sha256 of the text with CRLF turned into LF, so a line-ending change does not need a new acceptance
     std::string error;
     Json overrides = Json::object();
 };
@@ -158,19 +160,20 @@ Json project_overrides_from(const AiConfig& wanted, const AiConfig& inherited);
 // the user did not review. True records the acceptance of exactly what was written, so the edit applies at once: pass it ONLY
 // from code that saves what the user just chose on this computer (the editor's AI settings window). NO COMMAND OR TOOL MAY PASS
 // TRUE: a command that wrote and applied a file in one step would let an AI grant itself settings the user never accepted.
-Result<void> save_project_settings(std::string_view projectDir, const Json& overrides, std::string_view aiConfigPath = {},
-                                   const EnvLookup& env = system_env(), bool recordTrust = false);
+Result<void> save_project_settings(std::string_view projectDir, const Json& overrides,
+                                   std::string_view aiConfigPath = {}, const EnvLookup& env = system_env(),
+                                   bool recordTrust = false);
 // Removes one override from the project's file ("/roles/artist/enabled", or a whole branch: "/roles/artist", "/limits",
 // "/roles"), so the value goes back to the user's. Resetting a role's or asset route's provider also resets its model, effort
 // and voice (they belong to that provider). Not a save of new content: when the file was not accepted before, it stays not
 // accepted (the reduced file is still unreviewed). Nothing to remove is not an error.
-Result<void> reset_project_setting(std::string_view projectDir, std::string_view pointer, std::string_view aiConfigPath = {},
-                                   const EnvLookup& env = system_env());
+Result<void> reset_project_setting(std::string_view projectDir, std::string_view pointer,
+                                   std::string_view aiConfigPath = {}, const EnvLookup& env = system_env());
 // The user accepts the project's file as it is: `expectedHash` is ResolvedAiConfig::fileHash of what was shown, so a file that
 // changed since then is refused ("" = accept whatever is there). The file must be valid. Only the editor (and C++ callers) call
 // this; no command does.
-Result<void> accept_project_settings(std::string_view projectDir, std::string_view expectedHash, std::string_view aiConfigPath = {},
-                                     const EnvLookup& env = system_env());
+Result<void> accept_project_settings(std::string_view projectDir, std::string_view expectedHash,
+                                     std::string_view aiConfigPath = {}, const EnvLookup& env = system_env());
 
 // Writes ONE value of the user's ai.json (the same pointers as settings_view: "/roles/artist/enabled", "/limits/maxTurns",
 // "/mcpServers/<name>", "/extensions/plugins/<name>", ...) and keeps everything else in the file; `value` null removes the key, so

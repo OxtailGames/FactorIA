@@ -17,6 +17,7 @@ namespace fa {
 
 // `glbPath` is where the file will be written (project-relative): texture uris are relative to its folder, as in mesh_to_glb. `weights` (one entry per
 // vertex of `model`, bones of `fit`) are what the file stores; null: the rigid binding.
-Result<std::vector<std::uint8_t>> rig_to_glb(const MeshData& model, const RigFit& fit, const std::string& glbPath, const RigWeights* weights = nullptr);
+Result<std::vector<std::uint8_t>> rig_to_glb(const MeshData& model, const RigFit& fit, const std::string& glbPath,
+                                             const RigWeights* weights = nullptr);
 
 }  // namespace fa

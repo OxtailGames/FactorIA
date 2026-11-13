@@ -23,7 +23,8 @@ namespace fa {
 
 // ------------------------------------------------------------------------------------------------------ tables ----
 const std::vector<std::string>& platform_services_all() {
-    static const std::vector<std::string> v = {"achievements", "stats", "leaderboards", "cloudSave", "purchases", "overlay", "presence", "integrity", "ads", "remotePlay"};
+    static const std::vector<std::string> v = {"achievements", "stats",    "leaderboards", "cloudSave", "purchases",
+                                               "overlay",      "presence", "integrity",    "ads",       "remotePlay"};
     return v;
 }
 
@@ -33,7 +34,8 @@ const std::vector<std::string>& platform_events() {
 }
 
 const std::vector<std::string>& platform_error_codes() {
-    static const std::vector<std::string> v = {"unavailable", "notSignedIn", "notAllowed", "unknownId", "network", "failed"};
+    static const std::vector<std::string> v = {"unavailable", "notSignedIn", "notAllowed",
+                                               "unknownId",   "network",     "failed"};
     return v;
 }
 
@@ -41,22 +43,26 @@ const std::vector<PlatformMethodInfo>& platform_methods() {
     static const std::vector<PlatformMethodInfo> v = {
         {"player.signIn", "", "Sign the player in (or read who is signed in)."},
         {"achievements.unlock", "achievements", "Unlock one achievement."},
-        {"achievements.progress", "achievements", "Report progress (0..1) toward an achievement; 1 or more unlocks it."},
+        {"achievements.progress", "achievements",
+         "Report progress (0..1) toward an achievement; 1 or more unlocks it."},
         {"achievements.list", "achievements", "Read the state of every achievement of the catalog."},
         {"achievements.reset", "achievements", "Development only: lock every achievement again."},
         {"stats.get", "stats", "Read one stat."},
         {"stats.set", "stats", "Set one stat."},
         {"stats.add", "stats",
-         "Add a delta to one stat on the value the store holds when it serves the request (args: id, delta; result: id, value). Only the fake "
+         "Add a delta to one stat on the value the store holds when it serves the request (args: id, delta; result: "
+         "id, value). Only the fake "
          "backend gets it: a real store gets a stats.get and a stats.set."},
         {"leaderboards.submit", "leaderboards", "Submit a score to a leaderboard."},
-        {"leaderboards.entries", "leaderboards", "Read the top, the neighbours of the player, or the friends' entries."},
+        {"leaderboards.entries", "leaderboards",
+         "Read the top, the neighbours of the player, or the friends' entries."},
         {"cloud.save", "cloudSave", "Store a text under a key in the player's cloud."},
         {"cloud.load", "cloudSave", "Read the text stored under a key."},
         {"cloud.list", "cloudSave", "List the keys stored in the player's cloud."},
         {"cloud.remove", "cloudSave", "Delete a key from the player's cloud."},
         {"cloud.stat", "cloudSave",
-         "Read the size and the modified time of a key without returning its text (result: exists, and when it does: size in bytes, modified in "
+         "Read the size and the modified time of a key without returning its text (result: exists, and when it does: "
+         "size in bytes, modified in "
          "Unix seconds or null when the store keeps no time)."},
         {"purchases.products", "purchases", "Read the store's titles and prices of products."},
         {"purchases.buy", "purchases", "Start the purchase of a product."},
@@ -65,25 +71,33 @@ const std::vector<PlatformMethodInfo>& platform_methods() {
         {"overlay.open", "overlay", "Open a page of the store's overlay."},
         {"presence.set", "presence", "Set the rich presence text friends see."},
         {"integrity.token", "integrity",
-         "Get a signed token that says this is the genuine app on a genuine device, for the game's own server to verify (args: challenge, "
+         "Get a signed token that says this is the genuine app on a genuine device, for the game's own server to "
+         "verify (args: challenge, "
          "the server's nonce; result: token)."},
-        {"ads.available", "ads", "Ask whether a rewarded ad is ready to show at a placement (args: placement; result: available)."},
+        {"ads.available", "ads",
+         "Ask whether a rewarded ad is ready to show at a placement (args: placement; result: available)."},
         {"ads.showRewarded", "ads",
-         "Show a rewarded ad at a placement (args: placement; result: rewarded, and reason when it is false: closedEarly, noFill or "
+         "Show a rewarded ad at a placement (args: placement; result: rewarded, and reason when it is false: "
+         "closedEarly, noFill or "
          "consentRefused)."},
         {"ads.consent", "ads",
          "Read what the player answered to the consent sheets (result: gdpr, tracking, canShowAds, privacyOptions)."},
         {"ads.setUnderAge", "ads",
-         "Tell the ad network whether the player is under the age of consent, after the game asked their age (args: underAge)."},
+         "Tell the ad network whether the player is under the age of consent, after the game asked their age (args: "
+         "underAge)."},
         {"ads.privacyOptions", "ads",
-         "Open the consent form where the player changes their ad choices, when ads.consent says privacyOptions is \"required\" "
+         "Open the consent form where the player changes their ad choices, when ads.consent says privacyOptions is "
+         "\"required\" "
          "(result: shown)."},
         {"remotePlay.sessions", "remotePlay",
-         "List the guests connected through Remote Play Together now (result: an array of { id, guestName, guestId, deviceName, formFactor, "
+         "List the guests connected through Remote Play Together now (result: an array of { id, guestName, guestId, "
+         "deviceName, formFactor, "
          "resolution })."},
         {"http.fetch", "http",
-         "Send an HTTP request to a host the game declared in factoria.json \"network\" (args: url, method, headers, body, timeout; "
-         "result: status, headers, text). Not a store service: the engine answers it itself, or the fake backend in tests."},
+         "Send an HTTP request to a host the game declared in factoria.json \"network\" (args: url, method, headers, "
+         "body, timeout; "
+         "result: status, headers, text). Not a store service: the engine answers it itself, or the fake backend in "
+         "tests."},
     };
     return v;
 }
@@ -98,18 +112,22 @@ namespace {
 
 std::string in_quotes(const std::string& s) { return Json(s).dump(); }
 
-bool contains(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool contains(const std::vector<std::string>& v, const std::string& s) {
+    return std::find(v.begin(), v.end(), s) != v.end();
+}
 
 bool valid_cloud_key(const std::string& s) {
     if (s.empty() || s.size() > 64) return false;
-    return std::all_of(s.begin(), s.end(), [](unsigned char c) { return std::isalnum(c) || c == '_' || c == '.' || c == '-'; });
+    return std::all_of(s.begin(), s.end(),
+                       [](unsigned char c) { return std::isalnum(c) || c == '_' || c == '.' || c == '-'; });
 }
 
 Json unknown_player() { return Json::object({{"id", ""}, {"name", ""}, {"signedIn", false}}); }
 
 // The characters of integrity.token's challenge: URL-safe Base64 (A-Z a-z 0-9 - _ =).
 bool challenge_char(unsigned char c) {
-    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' || c == '=';
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '_' ||
+           c == '=';
 }
 
 // The character at byte `i` of `s` for a message: ASCII is quoted ("+", " ", "\n"), anything else is named only, so that
@@ -134,20 +152,23 @@ struct Reject {
 
 const Json& need(const Json& args, const char* key, const char* what) {
     auto it = args.find(key);
-    if (it == args.end() || it->is_null()) throw Bad{std::string("the argument \"") + key + "\" is missing (" + what + ")", {}};
+    if (it == args.end() || it->is_null())
+        throw Bad{std::string("the argument \"") + key + "\" is missing (" + what + ")", {}};
     return *it;
 }
 
 const std::string& need_string(const Json& args, const char* key, const char* what) {
     const Json& v = need(args, key, what);
-    if (!v.is_string()) throw Bad{std::string("\"") + key + "\" must be a string (" + what + "), got " + describe_json_value(v), {}};
+    if (!v.is_string())
+        throw Bad{std::string("\"") + key + "\" must be a string (" + what + "), got " + describe_json_value(v), {}};
     return v.get_ref<const std::string&>();
 }
 
 double need_number(const Json& args, const char* key, const char* what) {
     const Json& v = need(args, key, what);
     if (!v.is_number() || !std::isfinite(v.get<double>()))
-        throw Bad{std::string("\"") + key + "\" must be a finite number (" + what + "), got " + describe_json_value(v), {}};
+        throw Bad{std::string("\"") + key + "\" must be a finite number (" + what + "), got " + describe_json_value(v),
+                  {}};
     return v.get<double>();
 }
 
@@ -162,7 +183,8 @@ std::vector<std::string> ids_of(const std::vector<T>& v) {
 
 // The catalog entry `id` of one section, or the teaching error. `phrase`: "an achievement", `section`: "achievements".
 template <class T>
-const T& lookup(const std::vector<T>& entries, const std::string& id, const char* phrase, const char* section, const char* example) {
+const T& lookup(const std::vector<T>& entries, const std::string& id, const char* phrase, const char* section,
+                const char* example) {
     for (const T& e : entries)
         if (e.id == id) return e;
     const std::vector<std::string> ids = ids_of(entries);
@@ -174,7 +196,8 @@ const T& lookup(const std::vector<T>& entries, const std::string& id, const char
     std::string hint;
     if (ids.empty()) {
         if (std::string(section) == "ads.placements")
-            hint = std::string("Add it to factoria.json, e.g. \"platform\": {\"ads\": {\"placements\": [") + example + "]}}.";
+            hint = std::string("Add it to factoria.json, e.g. \"platform\": {\"ads\": {\"placements\": [") + example +
+                   "]}}.";
         else
             hint = std::string("Add it to factoria.json, e.g. \"platform\": {\"") + section + "\": [" + example + "]}.";
     } else {
@@ -215,7 +238,9 @@ std::string localized(const std::string& text, const std::string& key, const Pla
     return text.empty() ? key : text;
 }
 
-Json id_pair(const PlatformEntry& e, const std::string& backend) { return Json::object({{"id", e.id}, {"storeId", e.store_id(backend)}}); }
+Json id_pair(const PlatformEntry& e, const std::string& backend) {
+    return Json::object({{"id", e.id}, {"storeId", e.store_id(backend)}});
+}
 
 template <class T>
 Json id_pairs(const std::vector<T>& entries, const std::string& backend) {
@@ -224,7 +249,8 @@ Json id_pairs(const std::vector<T>& entries, const std::string& backend) {
     return a;
 }
 
-Json product_args(const PlatformProduct& p, const std::string& backend, bool withCatalogData, const PlatformServices::Translator& tr) {
+Json product_args(const PlatformProduct& p, const std::string& backend, bool withCatalogData,
+                  const PlatformServices::Translator& tr) {
     Json j = id_pair(p, backend);
     j["type"] = p.type;
     if (withCatalogData) {  // for backends that have no store to ask (the fake); real stores answer with their own
@@ -247,8 +273,8 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
     if (method == "player.signIn") return Json::object();
 
     if (method == "achievements.unlock" || method == "achievements.progress") {
-        const auto& a = lookup(cat.achievements, need_string(in, "id", "the id of an achievement"), "an achievement", "achievements",
-                               kAchievementExample);
+        const auto& a = lookup(cat.achievements, need_string(in, "id", "the id of an achievement"), "an achievement",
+                               "achievements", kAchievementExample);
         Json out = id_pair(a, be);
         if (method == "achievements.progress") {
             const double p = need_number(in, "progress", "a fraction from 0 to 1");
@@ -259,26 +285,29 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         }
         return out;
     }
-    if (method == "achievements.list" || method == "achievements.reset")
-    {
+    if (method == "achievements.list" || method == "achievements.reset") {
         Json list = id_pairs(cat.achievements, be);
-        if (method == "achievements.list")  // the catalog's texts, in the current language, for a backend with none of its own
+        if (method ==
+            "achievements.list")  // the catalog's texts, in the current language, for a backend with none of its own
             for (std::size_t i = 0; i < list.size(); ++i) {
                 list[i]["name"] = localized(cat.achievements[i].name, cat.achievements[i].nameKey, c.translator);
-                list[i]["description"] = localized(cat.achievements[i].description, cat.achievements[i].descriptionKey, c.translator);
+                list[i]["description"] =
+                    localized(cat.achievements[i].description, cat.achievements[i].descriptionKey, c.translator);
             }
         return Json::object({{"achievements", std::move(list)}});
     }
 
     if (method == "stats.get" || method == "stats.set" || method == "stats.add") {
-        const auto& s = lookup(cat.stats, need_string(in, "id", "the id of a stat"), "a stat", "stats", "{\"id\": \"wins\", \"type\": \"int\"}");
+        const auto& s = lookup(cat.stats, need_string(in, "id", "the id of a stat"), "a stat", "stats",
+                               "{\"id\": \"wins\", \"type\": \"int\"}");
         Json out = id_pair(s, be);
         out["type"] = s.type;
         if (method == "stats.set") {
             const double v = need_number(in, "value", "the new value of the stat");
             if (s.type == "int") {
                 if (!is_whole(v))
-                    throw Bad{"the stat " + in_quotes(s.id) + " is an int: \"value\" must be a whole number, got " + describe_json_value(in["value"]),
+                    throw Bad{"the stat " + in_quotes(s.id) + " is an int: \"value\" must be a whole number, got " +
+                                  describe_json_value(in["value"]),
                               "Declare it with \"type\": \"float\" in factoria.json platform.stats to keep fractions."};
                 out["value"] = static_cast<long long>(v);
             } else {
@@ -288,7 +317,8 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         if (method == "stats.add") {
             const double d = need_number(in, "delta", "the amount to add to the stat");
             if (s.type == "int" && !is_whole(d))
-                throw Bad{"the stat " + in_quotes(s.id) + " is an int: \"delta\" must be a whole number, got " + describe_json_value(in["delta"]),
+                throw Bad{"the stat " + in_quotes(s.id) + " is an int: \"delta\" must be a whole number, got " +
+                              describe_json_value(in["delta"]),
                           "Declare it with \"type\": \"float\" in factoria.json platform.stats to keep fractions."};
             out["delta"] = d;
         }
@@ -296,12 +326,14 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
     }
 
     if (method == "leaderboards.submit" || method == "leaderboards.entries") {
-        const auto& l = lookup(cat.leaderboards, need_string(in, "id", "the id of a leaderboard"), "a leaderboard", "leaderboards",
-                               "{\"id\": \"high_score\", \"name\": \"High score\"}");
+        const auto& l = lookup(cat.leaderboards, need_string(in, "id", "the id of a leaderboard"), "a leaderboard",
+                               "leaderboards", "{\"id\": \"high_score\", \"name\": \"High score\"}");
         Json out = id_pair(l, be);
-        out["name"] = localized(l.name, l.nameKey, c.translator);  // in the current language, for backends with no name of their own
+        out["name"] = localized(l.name, l.nameKey,
+                                c.translator);  // in the current language, for backends with no name of their own
         out["order"] = l.order;
-        out["period"] = l.period;  // the board of "periodKey" (the day, or the Monday of the week; "" for allTime) in "date"'s calendar
+        out["period"] =
+            l.period;  // the board of "periodKey" (the day, or the Monday of the week; "" for allTime) in "date"'s calendar
         std::string day;  // "day": the board of another day, daily boards only
         if (auto it = in.find("day"); it != in.end() && !it->is_null()) {
             const std::string shown = describe_json_value(*it);
@@ -309,42 +341,51 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
                 throw Bad{"\"day\" must be a string \"YYYY-MM-DD\", got " + shown, "Example: { day: \"2026-10-23\" }."};
             if (l.period != "daily")
                 throw Bad{"\"day\" only addresses a daily board, but " + in_quotes(l.id) + " is " +
-                              (l.period.empty() || l.period == "allTime" ? std::string("an allTime board") : "a " + l.period + " board"),
-                          "Drop the option, or declare \"period\": \"daily\" for this leaderboard in factoria.json platform.leaderboards."};
+                              (l.period.empty() || l.period == "allTime" ? std::string("an allTime board")
+                                                                         : "a " + l.period + " board"),
+                          "Drop the option, or declare \"period\": \"daily\" for this leaderboard in factoria.json "
+                          "platform.leaderboards."};
             auto parsed = parse_calendar_date(it->get<std::string>(), "\"day\"");
             if (!parsed.ok() || it->get<std::string>().size() != 10)
                 throw Bad{"\"day\" must be a date \"YYYY-MM-DD\", got " + shown,
-                          "Example: { day: \"2026-10-23\" }; game.today().iso is today's local day, game.today().utc.iso the UTC one."};
+                          "Example: { day: \"2026-10-23\" }; game.today().iso is today's local day, "
+                          "game.today().utc.iso the UTC one."};
             day = parsed->iso();
             // Game Center and Play Games only know the store's own current day.
             if ((be == "apple" || be == "googleplay") && day != c.today.iso() && day != c.today.utc().iso())
                 throw Reject{"unsupported",
-                             "the " + in_quotes(be) + " backend cannot address the leaderboard " + in_quotes(l.id) + " on " + day +
-                                 ": its store only has the current daily board",
-                             "Omit \"day\" or pass game.today().utc.iso; other days are kept by the fake and Steam backends only."};
+                             "the " + in_quotes(be) + " backend cannot address the leaderboard " + in_quotes(l.id) +
+                                 " on " + day + ": its store only has the current daily board",
+                             "Omit \"day\" or pass game.today().utc.iso; other days are kept by the fake and Steam "
+                             "backends only."};
         }
         out["periodKey"] = day.empty() ? period_key(l.period, c.today) : day;
         out["date"] = c.today.iso();
         if (method == "leaderboards.submit") {
             const double score = need_number(in, "score", "the score to submit");
             if (!is_whole(score))
-                throw Bad{"\"score\" must be a whole number, got " + describe_json_value(in["score"]),
-                          "Stores keep integer scores: submit a time in milliseconds (1234) instead of seconds (1.234)."};
+                throw Bad{
+                    "\"score\" must be a whole number, got " + describe_json_value(in["score"]),
+                    "Stores keep integer scores: submit a time in milliseconds (1234) instead of seconds (1.234)."};
             out["score"] = static_cast<long long>(score);
         } else {
             std::string range = "top";
             if (auto it = in.find("range"); it != in.end() && !it->is_null()) {
                 const std::vector<std::string> ranges = {"top", "around", "friends"};
                 if (!it->is_string() || !contains(ranges, it->get<std::string>())) {
-                    const std::string best = it->is_string() ? closest_match(it->get<std::string>(), ranges) : std::string();
-                    throw Bad{"\"range\" must be one of \"top\", \"around\", \"friends\", got " + describe_json_value(*it) +
+                    const std::string best =
+                        it->is_string() ? closest_match(it->get<std::string>(), ranges) : std::string();
+                    throw Bad{"\"range\" must be one of \"top\", \"around\", \"friends\", got " +
+                                  describe_json_value(*it) +
                                   (best.empty() ? std::string() : " (did you mean " + in_quotes(best) + "?)"),
-                              "\"top\" is the best entries, \"around\" the ones next to the player, \"friends\" the player's friends."};
+                              "\"top\" is the best entries, \"around\" the ones next to the player, \"friends\" the "
+                              "player's friends."};
                 }
                 range = it->get<std::string>();
             }
             double count = 10;
-            if (auto it = in.find("count"); it != in.end() && !it->is_null()) count = need_number(in, "count", "how many entries");
+            if (auto it = in.find("count"); it != in.end() && !it->is_null())
+                count = need_number(in, "count", "how many entries");
             if (!is_whole(count) || count < 1 || count > 100)
                 throw Bad{"\"count\" must be a whole number from 1 to 100, got " + describe_json_value(in["count"]),
                           "Ask for a page of entries, e.g. { count: 10 }."};
@@ -368,10 +409,15 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
     if (method == "purchases.products") {
         Json list = Json::array();
         if (auto it = in.find("ids"); it != in.end() && !it->is_null()) {
-            if (!it->is_array()) throw Bad{"\"ids\" must be an array of product ids, got " + describe_json_value(*it), {}};
+            if (!it->is_array())
+                throw Bad{"\"ids\" must be an array of product ids, got " + describe_json_value(*it), {}};
             for (const Json& id : *it) {
-                if (!id.is_string()) throw Bad{"\"ids\" must hold product ids (strings), got " + describe_json_value(id), {}};
-                list.push_back(product_args(lookup(cat.products, id.get<std::string>(), "a product", "products", "{\"id\": \"gems_100\", \"type\": \"consumable\", \"title\": \"100 gems\"}"), be, true, c.translator));
+                if (!id.is_string())
+                    throw Bad{"\"ids\" must hold product ids (strings), got " + describe_json_value(id), {}};
+                list.push_back(
+                    product_args(lookup(cat.products, id.get<std::string>(), "a product", "products",
+                                        "{\"id\": \"gems_100\", \"type\": \"consumable\", \"title\": \"100 gems\"}"),
+                                 be, true, c.translator));
             }
         } else {
             for (const PlatformProduct& p : cat.products) list.push_back(product_args(p, be, true, c.translator));
@@ -393,10 +439,12 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         auto it = c.transactions.find(tx);
         if (it == c.transactions.end())
             throw Reject{"unknownId", "the transaction " + in_quotes(tx) + " is not one this game was told about",
-                      "Pass the transactionId of a purchases.buy() result, a platform.on(\"purchase\") event or a restore() entry, and finish "
-                      "each transaction once."};
+                         "Pass the transactionId of a purchases.buy() result, a platform.on(\"purchase\") event or a "
+                         "restore() entry, and finish "
+                         "each transaction once."};
         const PlatformProduct* p = cat.find_product(it->second);
-        Json out = p ? product_args(*p, be, false, c.translator) : Json::object({{"id", it->second}, {"storeId", it->second}, {"type", "consumable"}});
+        Json out = p ? product_args(*p, be, false, c.translator)
+                     : Json::object({{"id", it->second}, {"storeId", it->second}, {"type", "consumable"}});
         out["transactionId"] = tx;
         return out;
     }
@@ -407,61 +455,85 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         if (!url.ok()) throw Bad{url.error().message, url.error().hint};
         std::string verb = "GET";
         if (auto it = in.find("method"); it != in.end() && !it->is_null()) {
-            if (!it->is_string()) throw Bad{"\"method\" must be a string, got " + describe_json_value(*it), "Use \"GET\", \"POST\", \"PUT\", \"PATCH\", \"DELETE\" or \"HEAD\"."};
+            if (!it->is_string())
+                throw Bad{"\"method\" must be a string, got " + describe_json_value(*it),
+                          "Use \"GET\", \"POST\", \"PUT\", \"PATCH\", \"DELETE\" or \"HEAD\"."};
             verb = it->get<std::string>();
             for (char& ch : verb) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
             const std::vector<std::string> verbs = {"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"};
             if (!contains(verbs, verb)) {
                 const std::string best = closest_match(verb, verbs);
-                throw Bad{in_quotes(it->get<std::string>()) + " is not a method http.fetch sends; use GET, HEAD, POST, PUT, PATCH or DELETE" +
+                throw Bad{in_quotes(it->get<std::string>()) +
+                              " is not a method http.fetch sends; use GET, HEAD, POST, PUT, PATCH or DELETE" +
                               (best.empty() ? std::string() : " (did you mean " + in_quotes(best) + "?)"),
                           "Example: http.fetch(url, { method: \"POST\", body: \"...\" })."};
             }
         }
         Json headers = Json::object();
         if (auto it = in.find("headers"); it != in.end() && !it->is_null()) {
-            if (!it->is_object()) throw Bad{"\"headers\" must be an object of strings, got " + describe_json_value(*it), "Example: { headers: { Authorization: \"Bearer abc\" } }."};
-            static const std::vector<std::string> forbidden = {"host", "content-length", "connection", "transfer-encoding", "upgrade", "expect",
-                                                                "te", "trailer", "keep-alive", "proxy-authorization", "proxy-connection"};
-            if (it->size() > 32) throw Bad{"\"headers\" has " + std::to_string(it->size()) + " entries; the most is 32", {}};
+            if (!it->is_object())
+                throw Bad{"\"headers\" must be an object of strings, got " + describe_json_value(*it),
+                          "Example: { headers: { Authorization: \"Bearer abc\" } }."};
+            static const std::vector<std::string> forbidden = {
+                "host", "content-length", "connection", "transfer-encoding",   "upgrade",         "expect",
+                "te",   "trailer",        "keep-alive", "proxy-authorization", "proxy-connection"};
+            if (it->size() > 32)
+                throw Bad{"\"headers\" has " + std::to_string(it->size()) + " entries; the most is 32", {}};
             std::set<std::string> seen;
             std::size_t total = 0;
             for (auto h = it->begin(); h != it->end(); ++h) {
                 const std::string& name = h.key();
-                if (name.empty() || !std::all_of(name.begin(), name.end(), [](unsigned char ch) { return std::isalnum(ch) || std::strchr("!#$%&'*+-.^_`|~", ch); }))
-                    throw Bad{"the header name " + in_quotes(name) + " is not valid", "A header name has letters, digits and - (for example \"Content-Type\")."};
+                if (name.empty() || !std::all_of(name.begin(), name.end(), [](unsigned char ch) {
+                        return std::isalnum(ch) || std::strchr("!#$%&'*+-.^_`|~", ch);
+                    }))
+                    throw Bad{"the header name " + in_quotes(name) + " is not valid",
+                              "A header name has letters, digits and - (for example \"Content-Type\")."};
                 std::string key = name;
                 for (char& ch : key) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
                 if (contains(forbidden, key) || key.rfind("sec-", 0) == 0)
                     throw Bad{"the header " + in_quotes(name) + " is set by the system and cannot be changed",
                               "Remove it; the system sets Host, Content-Length, Connection and the like itself."};
-                if (!seen.insert(key).second) throw Bad{"the header " + in_quotes(name) + " is given twice (header names ignore case)", "Keep one."};
+                if (!seen.insert(key).second)
+                    throw Bad{"the header " + in_quotes(name) + " is given twice (header names ignore case)",
+                              "Keep one."};
                 if (!h.value().is_string())
-                    throw Bad{"the header " + in_quotes(name) + " must be a string, got " + describe_json_value(h.value()),
+                    throw Bad{"the header " + in_quotes(name) + " must be a string, got " +
+                                  describe_json_value(h.value()),
                               "Convert it first: { \"X-Level\": String(level) }."};
                 const std::string& value = h.value().get_ref<const std::string&>();
-                if (std::any_of(value.begin(), value.end(), [](unsigned char ch) { return ch < 0x20 && ch != '\t'; }) || value.size() > 4096)
-                    throw Bad{"the value of the header " + in_quotes(name) + " has a line break or control character, or is longer than 4096 bytes", {}};
+                if (std::any_of(value.begin(), value.end(), [](unsigned char ch) { return ch < 0x20 && ch != '\t'; }) ||
+                    value.size() > 4096)
+                    throw Bad{"the value of the header " + in_quotes(name) +
+                                  " has a line break or control character, or is longer than 4096 bytes",
+                              {}};
                 total += name.size() + value.size();
                 headers[name] = value;
             }
-            if (total > 16 * 1024) throw Bad{"the headers are " + std::to_string(total) + " bytes; the most is 16384", {}};
+            if (total > 16 * 1024)
+                throw Bad{"the headers are " + std::to_string(total) + " bytes; the most is 16384", {}};
         }
-        Json out = Json::object({{"url", url->url}, {"host", url->host}, {"method", verb}, {"headers", headers}, {"timeout", 15.0}});
+        Json out = Json::object(
+            {{"url", url->url}, {"host", url->host}, {"method", verb}, {"headers", headers}, {"timeout", 15.0}});
         if (auto it = in.find("body"); it != in.end() && !it->is_null()) {
             if (!it->is_string())
-                throw Bad{"\"body\" must be a string, got " + describe_json_value(*it),
-                          "http.fetch turns an object into JSON for you; at this level pass text: JSON.stringify(value)."};
+                throw Bad{
+                    "\"body\" must be a string, got " + describe_json_value(*it),
+                    "http.fetch turns an object into JSON for you; at this level pass text: JSON.stringify(value)."};
             if (verb == "GET" || verb == "HEAD")
-                throw Bad{"a " + verb + " request cannot have a body", "Use method \"POST\" (or PUT, PATCH), or move the data into the URL's query."};
+                throw Bad{"a " + verb + " request cannot have a body",
+                          "Use method \"POST\" (or PUT, PATCH), or move the data into the URL's query."};
             if (it->get_ref<const std::string&>().size() > 1024 * 1024)
-                throw Bad{"\"body\" is " + std::to_string(it->get_ref<const std::string&>().size()) + " bytes; the most is 1048576 (1 MB)",
-                          "http.fetch is for small texts; send big files through the store's cloud save or your own upload."};
+                throw Bad{
+                    "\"body\" is " + std::to_string(it->get_ref<const std::string&>().size()) +
+                        " bytes; the most is 1048576 (1 MB)",
+                    "http.fetch is for small texts; send big files through the store's cloud save or your own upload."};
             out["body"] = *it;
         }
         if (auto it = in.find("timeout"); it != in.end() && !it->is_null()) {
-            if (!it->is_number() || !std::isfinite(it->get<double>()) || it->get<double>() <= 0.0 || it->get<double>() > 120.0)
-                throw Bad{"\"timeout\" must be a number of seconds above 0 and at most 120, got " + describe_json_value(*it),
+            if (!it->is_number() || !std::isfinite(it->get<double>()) || it->get<double>() <= 0.0 ||
+                it->get<double>() > 120.0)
+                throw Bad{"\"timeout\" must be a number of seconds above 0 and at most 120, got " +
+                              describe_json_value(*it),
                           "The default is 15 seconds: { timeout: 30 }."};
             out["timeout"] = it->get<double>();
         }
@@ -474,8 +546,8 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         const bool children = cat.adsAudience == "children";
         Json out = Json::object();
         if (method == "ads.available" || method == "ads.showRewarded") {
-            const auto& pl = lookup(cat.placements, need_string(in, "placement", "the id of an ad placement"), "an ad placement",
-                                    "ads.placements", "{\"id\": \"more_time\"}");
+            const auto& pl = lookup(cat.placements, need_string(in, "placement", "the id of an ad placement"),
+                                    "an ad placement", "ads.placements", "{\"id\": \"more_time\"}");
             // `ids` is every network's id of the placement: AdMob has one ad unit per platform (the Android one is ids.admob, the
             // iOS one ids.admob_ios), and only the plugin knows which platform it runs on.
             Json ids = Json::object();
@@ -484,26 +556,32 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         } else if (method == "ads.setUnderAge") {
             const Json& v = need(in, "underAge", "true when the player is under the age of consent");
             if (!v.is_boolean())
-                throw Bad{"\"underAge\" must be true or false, got " + describe_json_value(v),
-                          "Ask the player's age with a neutral screen (the menu kit's ageGate part) and pass the answer: "
-                          "platform.ads.setUnderAge(age < 16)."};
+                throw Bad{
+                    "\"underAge\" must be true or false, got " + describe_json_value(v),
+                    "Ask the player's age with a neutral screen (the menu kit's ageGate part) and pass the answer: "
+                    "platform.ads.setUnderAge(age < 16)."};
             if (children && !v.get<bool>())
-                throw Bad{"platform.ads.audience is \"children\": every player counts as a child, so underAge cannot be false",
-                          "Remove the setUnderAge(false) call, or set \"audience\" to \"mixed\" in factoria.json platform.ads if adults play too."};
+                throw Bad{"platform.ads.audience is \"children\": every player counts as a child, so underAge cannot "
+                          "be false",
+                          "Remove the setUnderAge(false) call, or set \"audience\" to \"mixed\" in factoria.json "
+                          "platform.ads if adults play too."};
             out = Json::object({{"underAge", v.get<bool>()}});
         }
         out["audience"] = cat.adsAudience;
-        if (method != "ads.setUnderAge") out["underAge"] = children ? Json(true) : c.underAge ? Json(*c.underAge) : Json(nullptr);
+        if (method != "ads.setUnderAge")
+            out["underAge"] = children ? Json(true) : c.underAge ? Json(*c.underAge) : Json(nullptr);
         out["release"] = c.release;
         return out;
     }
 
     if (method == "overlay.open") {
-        const std::string& page = need_string(in, "page", "\"achievements\", \"leaderboards\", \"friends\" or \"store\"");
+        const std::string& page =
+            need_string(in, "page", "\"achievements\", \"leaderboards\", \"friends\" or \"store\"");
         const std::vector<std::string> pages = {"achievements", "leaderboards", "friends", "store"};
         if (!contains(pages, page)) {
             const std::string best = closest_match(page, pages);
-            throw Bad{in_quotes(page) + " is not an overlay page; use \"achievements\", \"leaderboards\", \"friends\" or \"store\"" +
+            throw Bad{in_quotes(page) +
+                          " is not an overlay page; use \"achievements\", \"leaderboards\", \"friends\" or \"store\"" +
                           (best.empty() ? std::string() : " (did you mean " + in_quotes(best) + "?)"),
                       "Example: platform.overlay.open(\"achievements\")."};
         }
@@ -511,12 +589,19 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         if (auto it = in.find("id"); it != in.end() && !it->is_null()) {
             if (!it->is_string()) throw Bad{"\"id\" must be a string, got " + describe_json_value(*it), {}};
             const std::string& id = it->get_ref<const std::string&>();
-            if (page == "friends") throw Bad{"the \"friends\" page takes no id", "Call platform.overlay.open(\"friends\")."};
-            if (page == "achievements") out.update(id_pair(lookup(cat.achievements, id, "an achievement", "achievements", kAchievementExample), be));
+            if (page == "friends")
+                throw Bad{"the \"friends\" page takes no id", "Call platform.overlay.open(\"friends\")."};
+            if (page == "achievements")
+                out.update(
+                    id_pair(lookup(cat.achievements, id, "an achievement", "achievements", kAchievementExample), be));
             else if (page == "leaderboards")
-                out.update(id_pair(lookup(cat.leaderboards, id, "a leaderboard", "leaderboards", "{\"id\": \"high_score\", \"name\": \"High score\"}"), be));
+                out.update(id_pair(lookup(cat.leaderboards, id, "a leaderboard", "leaderboards",
+                                          "{\"id\": \"high_score\", \"name\": \"High score\"}"),
+                                   be));
             else
-                out.update(id_pair(lookup(cat.products, id, "a product", "products", "{\"id\": \"gems_100\", \"type\": \"consumable\", \"title\": \"100 gems\"}"), be));
+                out.update(id_pair(lookup(cat.products, id, "a product", "products",
+                                          "{\"id\": \"gems_100\", \"type\": \"consumable\", \"title\": \"100 gems\"}"),
+                                   be));
         }
         return out;
     }
@@ -525,10 +610,12 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
         const std::string& text = need_string(in, "text", "the text friends see; \"\" clears it");
         Json data = Json::object();
         if (auto it = in.find("data"); it != in.end() && !it->is_null()) {
-            if (!it->is_object()) throw Bad{"\"data\" must be an object of string values, got " + describe_json_value(*it), {}};
+            if (!it->is_object())
+                throw Bad{"\"data\" must be an object of string values, got " + describe_json_value(*it), {}};
             for (auto di = it->begin(); di != it->end(); ++di)
                 if (!di->is_string())
-                    throw Bad{"presence data values must be strings; " + in_quotes(di.key()) + " is " + describe_json_value(*di),
+                    throw Bad{"presence data values must be strings; " + in_quotes(di.key()) + " is " +
+                                  describe_json_value(*di),
                               "Write numbers as text: { score: String(score) }."};
             data = *it;
         }
@@ -536,28 +623,34 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
     }
 
     if (method == "integrity.token") {
-        const std::string hint =
-            "Make the challenge on your server: 16 or more random bytes as URL-safe Base64 (a nonce), send it to the game, and check it "
-            "inside the decoded token; a token without a fresh challenge can be replayed.";
+        const std::string hint = "Make the challenge on your server: 16 or more random bytes as URL-safe Base64 (a "
+                                 "nonce), send it to the game, and check it "
+                                 "inside the decoded token; a token without a fresh challenge can be replayed.";
         const auto it = in.find("challenge");
         if (it == in.end() || it->is_null())
-            throw Bad{"the argument \"challenge\" is missing (a nonce from your server, 16 to 500 characters of URL-safe Base64)", hint};
+            throw Bad{"the argument \"challenge\" is missing (a nonce from your server, 16 to 500 characters of "
+                      "URL-safe Base64)",
+                      hint};
         if (!it->is_string())
-            throw Bad{"\"challenge\" must be a string (a nonce from your server, 16 to 500 characters of URL-safe Base64), got " + describe_json_value(*it), hint};
+            throw Bad{"\"challenge\" must be a string (a nonce from your server, 16 to 500 characters of URL-safe "
+                      "Base64), got " +
+                          describe_json_value(*it),
+                      hint};
         const std::string& challenge = it->get_ref<const std::string&>();
         for (std::size_t i = 0; i < challenge.size(); ++i) {
             if (challenge_char(static_cast<unsigned char>(challenge[i]))) continue;
             std::size_t position = 0;
             const std::string what = describe_char(challenge, i, position);
-            throw Bad{"the challenge has " + (what[0] == '"' ? "the character " : std::string()) + what + " at position " + std::to_string(position) +
+            throw Bad{"the challenge has " + (what[0] == '"' ? "the character " : std::string()) + what +
+                          " at position " + std::to_string(position) +
                           "; only A-Z a-z 0-9 - _ = are allowed (URL-safe Base64)",
                       hint + (challenge[i] == '+' || challenge[i] == '/'
                                   ? " Standard Base64 writes + and /; URL-safe Base64 writes - and _ instead."
                                   : std::string())};
         }
         if (challenge.size() < 16 || challenge.size() > 500)
-            throw Bad{"the challenge is too " + std::string(challenge.size() < 16 ? "short" : "long") + ": " + std::to_string(challenge.size()) +
-                          " characters, it needs 16 to 500",
+            throw Bad{"the challenge is too " + std::string(challenge.size() < 16 ? "short" : "long") + ": " +
+                          std::to_string(challenge.size()) + " characters, it needs 16 to 500",
                       hint};
         return Json::object({{"challenge", challenge}});
     }
@@ -571,7 +664,7 @@ Json prepare(const std::string& method, const Json& in, const PrepareContext& c)
 
 // ------------------------------------------------------------------------------------------------------- state ----
 struct PlatformSink::State {
-    std::mutex mutex;  // guards everything below: backends answer from any thread
+    std::mutex mutex;              // guards everything below: backends answer from any thread
     std::uint64_t generation = 1;  // of the current backend: a replaced backend's sink does nothing
     std::uint64_t nextId = 1;
     PlatformCatalog catalog;
@@ -579,16 +672,19 @@ struct PlatformSink::State {
     PlatformServices::DateSource dateSource;
     bool release = false;
     std::string backendName = "none";
-    std::string adsBackendName;  // the ads backend, "" when there is none (the store backend then serves ads, if it offers them)
-    std::string httpBackendName;  // the http backend, "" when there is none (the store backend then serves http, if it offers it: the fake)
+    std::string
+        adsBackendName;  // the ads backend, "" when there is none (the store backend then serves ads, if it offers them)
+    std::string
+        httpBackendName;  // the http backend, "" when there is none (the store backend then serves http, if it offers it: the fake)
     std::vector<std::string> storeServices, adsServices, httpServices, services;  // `services`: all together
-    std::optional<bool> underAge;  // the answer of ads.setUnderAge
-    NetworkPolicy network;         // factoria.json "network": the hosts http.fetch may call
+    std::optional<bool> underAge;                                                 // the answer of ads.setUnderAge
+    NetworkPolicy network;  // factoria.json "network": the hosts http.fetch may call
 
     void rebuild_services() {
         services = storeServices;
         // An http backend decides alone whether http is offered: a client that cannot run (no libcurl) must not fall back to the fake.
-        if (!httpBackendName.empty()) services.erase(std::remove(services.begin(), services.end(), std::string("http")), services.end());
+        if (!httpBackendName.empty())
+            services.erase(std::remove(services.begin(), services.end(), std::string("http")), services.end());
         for (const std::vector<std::string>* more : {&adsServices, &httpServices})
             for (const std::string& s : *more)
                 if (!contains(services, s)) services.push_back(s);
@@ -596,11 +692,12 @@ struct PlatformSink::State {
 
     struct Pending {
         std::string method;
-        Json args;  // as the backend got them
+        Json args;                // as the backend got them
         std::uint64_t frame = 0;  // the engine frame of the request (for the http log)
-        double deadline = -1.0;   // on the clock: the engine answers "network" from here on; < 0 = none (the fake backend)
-        double seconds = 0.0;     // the time the request was given, for the message
-        int route = 0;            // who got it: 0 the store backend, 1 the ads backend, 2 the http backend
+        double deadline =
+            -1.0;              // on the clock: the engine answers "network" from here on; < 0 = none (the fake backend)
+        double seconds = 0.0;  // the time the request was given, for the message
+        int route = 0;         // who got it: 0 the store backend, 1 the ads backend, 2 the http backend
     };
     std::map<std::uint64_t, Pending> pending;
     // The http log (log_http): requests in the order they were made, each with its answer once it has one.
@@ -644,11 +741,13 @@ struct PlatformSink::State {
         if (method == "http.fetch") {
             double own = 15.0;  // prepare() always sets "timeout"; a request that skipped it gets the default
             if (args.is_object())
-                if (auto it = args.find("timeout"); it != args.end() && it->is_number()) own = std::clamp(it->get<double>(), 0.0, 120.0);
+                if (auto it = args.find("timeout"); it != args.end() && it->is_number())
+                    own = std::clamp(it->get<double>(), 0.0, 120.0);
             return own + (over != timeoutOverrides.end() ? over->second : kPlatformHttpGraceSeconds);
         }
         if (over != timeoutOverrides.end()) return over->second;
-        for (const char* interactive : {"purchases.buy", "purchases.restore", "ads.showRewarded", "ads.privacyOptions", "player.signIn"})
+        for (const char* interactive :
+             {"purchases.buy", "purchases.restore", "ads.showRewarded", "ads.privacyOptions", "player.signIn"})
             if (method == interactive) return kPlatformInteractiveTimeoutSeconds;
         for (const char* flow : {"ads.consent", "ads.available", "ads.setUnderAge"})
             if (method == flow) return kPlatformAdsFlowTimeoutSeconds;
@@ -664,8 +763,11 @@ struct PlatformSink::State {
         dropped += extra;
         if (!warned) {
             warned = true;
-            FA_WARN("platform", "{} {} are waiting for the game and the limit is {}: the oldest are dropped (counted in platform.state()). "
-                    "Take them every frame; a script layer that is not running cannot receive them.", what, queue.size() + extra, cap);
+            FA_WARN("platform",
+                    "{} {} are waiting for the game and the limit is {}: the oldest are dropped (counted in "
+                    "platform.state()). "
+                    "Take them every frame; a script layer that is not running cannot receive them.",
+                    what, queue.size() + extra, cap);
         }
     }
 
@@ -679,8 +781,10 @@ struct PlatformSink::State {
         std::vector<PlatformEvent> kept;
         kept.reserve(events.size() - extra);
         for (auto& e : events) {
-            if (extra > 0 && e.name != "purchase") --extra;
-            else kept.push_back(std::move(e));
+            if (extra > 0 && e.name != "purchase")
+                --extra;
+            else
+                kept.push_back(std::move(e));
         }
         if (extra > 0) {  // everything left is a purchase: the oldest go
             kept.erase(kept.begin(), kept.begin() + static_cast<std::ptrdiff_t>(extra));
@@ -690,9 +794,12 @@ struct PlatformSink::State {
         droppedEvents += total;
         if (!warnedEventOverflow) {
             warnedEventOverflow = true;
-            FA_WARN("platform", "{} platform events are waiting for the game and the limit is {}: the oldest {} dropped{} (counted in platform.state()). "
+            FA_WARN("platform",
+                    "{} platform events are waiting for the game and the limit is {}: the oldest {} dropped{} (counted "
+                    "in platform.state()). "
                     "Take them every frame; a script layer that is not running cannot receive them.",
-                    events.size() + total, kPlatformMaxQueuedEvents, total, lostPurchase ? ", PURCHASES among them" : " (never a purchase)");
+                    events.size() + total, kPlatformMaxQueuedEvents, total,
+                    lostPurchase ? ", PURCHASES among them" : " (never a purchase)");
         }
     }
 
@@ -732,7 +839,8 @@ struct PlatformSink::State {
             if (result.is_object()) merge_player(result);
         } else if (m == "achievements.list" || m == "purchases.products") {
             if (!result.is_array()) return;
-            const Json* asked = m == "achievements.list" && p.args.contains("achievements") ? &p.args["achievements"] : nullptr;
+            const Json* asked =
+                m == "achievements.list" && p.args.contains("achievements") ? &p.args["achievements"] : nullptr;
             for (Json& e : result) {
                 if (asked && e.is_object())  // a backend list without texts gets the catalog's, as prepared
                     for (const Json& a : *asked) {
@@ -793,8 +901,11 @@ struct PlatformSink::State {
         if (bought.empty()) return;
         if (!warnedLatePurchase) {  // once per session; every one is still delivered
             warnedLatePurchase = true;
-            FA_WARN("platform", "backend '{}' answered platform.{} after the engine gave up on it: {} purchase(s) delivered as `purchase` events "
-                    "(grant them, then finish them). This is logged once.", backendName, w.method, bought.size());
+            FA_WARN("platform",
+                    "backend '{}' answered platform.{} after the engine gave up on it: {} purchase(s) delivered as "
+                    "`purchase` events "
+                    "(grant them, then finish them). This is logged once.",
+                    backendName, w.method, bought.size());
         }
         for (Json& e : bought) emit_locked("purchase", std::move(e));
     }
@@ -812,26 +923,39 @@ struct PlatformSink::State {
             }
             if (!warnedLate) {
                 warnedLate = true;
-                FA_WARN("platform", "backend '{}' answered request {} which is not pending (answered twice, not asked, or after its deadline): ignored", backendName, id);
+                FA_WARN("platform",
+                        "backend '{}' answered request {} which is not pending (answered twice, not asked, or after "
+                        "its deadline): ignored",
+                        backendName, id);
             }
             return;
         }
         Pending p = std::move(it->second);
         pending.erase(it);
         // A game sends this answer to its server: one without a token is a failure here, not something to forward.
-        if (ok && p.method == "integrity.token" && !(result.is_object() && result.contains("token") && result["token"].is_string())) {
+        if (ok && p.method == "integrity.token" &&
+            !(result.is_object() && result.contains("token") && result["token"].is_string())) {
             ok = false;
-            error = {"failed", "the " + in_quotes(backendName) + " backend answered integrity.token without a string \"token\": got " + describe_json_value(result),
+            error = {"failed",
+                     "the " + in_quotes(backendName) +
+                         " backend answered integrity.token without a string \"token\": got " +
+                         describe_json_value(result),
                      "This is a bug in the backend; the answer must be {\"token\": \"<string>\"}."};
         }
         // The game builds its Response from this answer: a malformed one is a failure here.
         if (ok && p.method == "http.fetch") {
-            const bool shaped = result.is_object() && result.contains("status") && result["status"].is_number_integer() &&
-                                result.contains("text") && result["text"].is_string() && result.contains("headers") && result["headers"].is_object();
+            const bool shaped = result.is_object() && result.contains("status") &&
+                                result["status"].is_number_integer() && result.contains("text") &&
+                                result["text"].is_string() && result.contains("headers") &&
+                                result["headers"].is_object();
             if (!shaped) {
                 ok = false;
-                error = {"failed", "the " + in_quotes(backendName) + " backend answered http.fetch without {status, headers, text}: got " + describe_json_value(result),
-                         "This is a bug in the backend; in a test, script it as game.platform.respond(\"http.fetch\", { status: 200, text: \"...\" })."};
+                error = {"failed",
+                         "the " + in_quotes(backendName) +
+                             " backend answered http.fetch without {status, headers, text}: got " +
+                             describe_json_value(result),
+                         "This is a bug in the backend; in a test, script it as game.platform.respond(\"http.fetch\", "
+                         "{ status: 200, text: \"...\" })."};
             }
         }
         PlatformAnswer a;
@@ -843,11 +967,13 @@ struct PlatformSink::State {
             a.result = std::move(result);
         } else {
             if (!contains(platform_error_codes(), error.code)) {
-                error.message += (error.message.empty() ? "" : " ") + std::string("(the backend used the error code ") + in_quotes(error.code) +
+                error.message += (error.message.empty() ? "" : " ") + std::string("(the backend used the error code ") +
+                                 in_quotes(error.code) +
                                  ", which is not one of: " + join(platform_error_codes(), ", ") + ")";
                 error.code = "failed";
             }
-            if (error.message.empty()) error.message = "the " + in_quotes(backendName) + " backend reported a failure without a message";
+            if (error.message.empty())
+                error.message = "the " + in_quotes(backendName) + " backend reported a failure without a message";
             a.error = std::move(error);
         }
         if (logHttp && a.method == "http.fetch") {
@@ -855,8 +981,11 @@ struct PlatformSink::State {
                 if (slot.first == id) {
                     HttpLogEntry e;
                     e.frame = p.frame;
-                    if (a.ok) e.answer = Json::object({{"result", a.result}});
-                    else e.answer = Json::object({{"error", a.error.code}, {"message", a.error.message}, {"hint", a.error.hint}});
+                    if (a.ok)
+                        e.answer = Json::object({{"result", a.result}});
+                    else
+                        e.answer = Json::object(
+                            {{"error", a.error.code}, {"message", a.error.message}, {"hint", a.error.hint}});
                     slot.second = std::move(e);
                     break;
                 }
@@ -866,7 +995,8 @@ struct PlatformSink::State {
             return;
         }
         answers.push_back(std::move(a));
-        cap_queue(answers, kPlatformMaxQueuedAnswers, droppedAnswers, warnedAnswerOverflow, "answers of platform requests");
+        cap_queue(answers, kPlatformMaxQueuedAnswers, droppedAnswers, warnedAnswerOverflow,
+                  "answers of platform requests");
     }
 
     void emit(std::uint64_t gen, const std::string& event, Json data) {
@@ -878,15 +1008,17 @@ struct PlatformSink::State {
     void emit_locked(const std::string& event, Json data) {
         if (!contains(platform_events(), event)) {
             if (warnedEvents.insert(event).second)
-                FA_WARN("platform", "backend '{}' sent the event {} which games do not get (events: {}): dropped", backendName, in_quotes(event),
-                        join(platform_events(), ", "));
+                FA_WARN("platform", "backend '{}' sent the event {} which games do not get (events: {}): dropped",
+                        backendName, in_quotes(event), join(platform_events(), ", "));
             return;
         }
         if (event == "purchase" && data.is_object()) {
             fix_purchase(data, std::string());
             const std::string status = data.value("status", std::string());
-            if (status == "purchased") remember(data);
-            else if (status == "revoked") transactions.erase(data.value("transactionId", std::string()));  // refunded: nothing left to finish
+            if (status == "purchased")
+                remember(data);
+            else if (status == "revoked")
+                transactions.erase(data.value("transactionId", std::string()));  // refunded: nothing left to finish
         } else if (event == "player" && data.is_object()) {
             merge_player(data);
         }
@@ -920,8 +1052,10 @@ public:
     std::string name() const override { return "none"; }
     std::vector<std::string> services() const override { return {}; }
     void request(std::uint64_t id, const std::string& method, const Json&, const PlatformSink& sink) override {
-        if (method == "player.signIn") sink.complete(id, unknown_player());
-        else sink.fail(id, {"unavailable", "the \"none\" backend answers nothing but player.signIn", {}});
+        if (method == "player.signIn")
+            sink.complete(id, unknown_player());
+        else
+            sink.fail(id, {"unavailable", "the \"none\" backend answers nothing but player.signIn", {}});
     }
 };
 
@@ -1046,7 +1180,8 @@ void PlatformServices::set_ads_backend(std::unique_ptr<PlatformBackend> backend,
 PlatformBackend* PlatformServices::ads_backend() const { return adsBackend_.get(); }
 
 std::string PlatformServices::ads_why() const {
-    if (adsBackend_ || !adsWhy_.empty()) return adsWhy_;  // without a backend, the reason the engine gave for using none
+    if (adsBackend_ || !adsWhy_.empty())
+        return adsWhy_;  // without a backend, the reason the engine gave for using none
     std::lock_guard<std::mutex> lock(state_->mutex);
     if (contains(state_->storeServices, "ads"))
         return "the " + in_quotes(state_->backendName) + " backend serves ads itself (no ads plugin is in use)";
@@ -1099,9 +1234,13 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
         backendName = viaAds ? s.adsBackendName : viaHttp ? s.httpBackendName : s.backendName;
         try {
             CalendarDate today;
-            if (s.dateSource) today = s.dateSource();
-            else if (auto d = parse_calendar_date(kDefaultDate); d.ok()) today = d.value();
-            prepared = prepare(method, args, {s.catalog, backendName, s.transactions, s.translator, today, s.underAge, s.release, s.network});
+            if (s.dateSource)
+                today = s.dateSource();
+            else if (auto d = parse_calendar_date(kDefaultDate); d.ok())
+                today = d.value();
+            prepared = prepare(
+                method, args,
+                {s.catalog, backendName, s.transactions, s.translator, today, s.underAge, s.release, s.network});
         } catch (const Bad& b) {
             return make_error(b.message, b.hint);
         } catch (const Reject& r) {
@@ -1115,15 +1254,17 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
             return out;
         }
         out.id = s.nextId++;
-        offered = info->service.empty() || (viaHttp ? contains(s.httpServices, "http") : contains(s.services, info->service));
+        offered =
+            info->service.empty() || (viaHttp ? contains(s.httpServices, "http") : contains(s.services, info->service));
         if (offered && method == "ads.setUnderAge") s.underAge = prepared.value("underAge", false);
         // A game for adults and children (audience "mixed") shows no ad before it knows the player's age.
-        if (offered && s.catalog.adsAudience == "mixed" && !s.underAge && (method == "ads.available" || method == "ads.showRewarded")) {
+        if (offered && s.catalog.adsAudience == "mixed" && !s.underAge &&
+            (method == "ads.available" || method == "ads.showRewarded")) {
             PlatformAnswer a;
             a.id = out.id;
             a.method = method;
             a.result = method == "ads.available" ? Json::object({{"available", false}})
-                                                  : Json::object({{"rewarded", false}, {"reason", "consentRefused"}});
+                                                 : Json::object({{"rewarded", false}, {"reason", "consentRefused"}});
             out.answer = std::move(a);
             return out;
         }
@@ -1133,8 +1274,14 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
             PlatformBackend* target = viaAds ? adsBackend_.get() : viaHttp ? httpBackend_.get() : backend_.get();
             const bool timed = dynamic_cast<FakeBackend*>(target) == nullptr;
             const double seconds = s.timeout_for(method, prepared);
-            s.pending[out.id] = {method, prepared, s.frameClock ? *s.frameClock : 0, timed ? s.now() + seconds : -1.0, seconds,
-                                 viaAds ? 1 : viaHttp ? 2 : 0};
+            s.pending[out.id] = {method,
+                                 prepared,
+                                 s.frameClock ? *s.frameClock : 0,
+                                 timed ? s.now() + seconds : -1.0,
+                                 seconds,
+                                 viaAds    ? 1
+                                 : viaHttp ? 2
+                                           : 0};
             if (s.logHttp && method == "http.fetch") s.httpLog.emplace_back(out.id, std::nullopt);
             s.startingId = out.id;
             s.startingThread = std::this_thread::get_id();
@@ -1148,17 +1295,21 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
         a.ok = false;
         a.error.code = "unavailable";
         if (viaHttp) {  // an http backend that cannot run on this computer
-            a.error.message = method + " is not available: " + (httpWhy_.empty() ? "the " + in_quotes(backendName) + " client cannot run here" : httpWhy_);
+            a.error.message =
+                method + " is not available: " +
+                (httpWhy_.empty() ? "the " + in_quotes(backendName) + " client cannot run here" : httpWhy_);
             a.error.hint = "Check platform.has(\"http\") before calling it, and let the game carry on offline.";
             out.answer = std::move(a);
             return out;
         }
-        a.error.message = "platform." + method + " is not available: the " + in_quotes(backendName) + " backend does not offer the " +
-                          in_quotes(info->service) + " service";
-        a.error.hint = "Check platform.has(" + in_quotes(info->service) + ") before calling it. " +
-                       (backendName == "none" ? "This game has no store backend here (exported games get one from a plugin; headless runs "
-                                                "and tests use the fake backend): docs/PLATFORM.md."
-                                              : "See the backend table in docs/PLATFORM.md.");
+        a.error.message = "platform." + method + " is not available: the " + in_quotes(backendName) +
+                          " backend does not offer the " + in_quotes(info->service) + " service";
+        a.error.hint =
+            "Check platform.has(" + in_quotes(info->service) + ") before calling it. " +
+            (backendName == "none"
+                 ? "This game has no store backend here (exported games get one from a plugin; headless runs "
+                   "and tests use the fake backend): docs/PLATFORM.md."
+                 : "See the backend table in docs/PLATFORM.md.");
         out.answer = std::move(a);
         return out;
     }
@@ -1167,7 +1318,10 @@ Result<PlatformServices::StartInfo> PlatformServices::start(const std::string& m
     try {
         (viaAds ? adsBackend_ : viaHttp ? httpBackend_ : backend_)->request(out.id, method, prepared, handle);
     } catch (const std::exception& e) {  // a backend must not throw; the game still gets an answer
-        handle.fail(out.id, {"failed", std::string("the ") + in_quotes(backendName) + " backend threw while handling " + method + ": " + e.what(), {}});
+        handle.fail(out.id, {"failed",
+                             std::string("the ") + in_quotes(backendName) + " backend threw while handling " + method +
+                                 ": " + e.what(),
+                             {}});
     }
     {
         std::lock_guard<std::mutex> lock(s.mutex);
@@ -1199,18 +1353,24 @@ void PlatformServices::frame() {
         for (std::uint64_t id : overdue) {
             const auto it = state_->pending.find(id);
             const PlatformSink::State::Pending p = it->second;  // complete_locked erases it
-            const std::string& backend = p.route == 1 ? state_->adsBackendName : p.route == 2 ? state_->httpBackendName : state_->backendName;
+            const std::string& backend = p.route == 1   ? state_->adsBackendName
+                                         : p.route == 2 ? state_->httpBackendName
+                                                        : state_->backendName;
             ++state_->timedOut;
             if (p.method == "purchases.buy" || p.method == "purchases.restore") {
                 state_->watched[id] = {p.method, p.args};
-                while (state_->watched.size() > kPlatformMaxWatchedPurchases) state_->watched.erase(state_->watched.begin());
+                while (state_->watched.size() > kPlatformMaxWatchedPurchases)
+                    state_->watched.erase(state_->watched.begin());
             }
             state_->complete_locked(state_->generation, id, false, Json(),
-                                    {"network", "platform." + p.method + " got no answer from the " + in_quotes(backend) + " backend in " +
-                                                    std::format("{:g}", p.seconds) + " s, so the engine gave up on it",
+                                    {"network",
+                                     "platform." + p.method + " got no answer from the " + in_quotes(backend) +
+                                         " backend in " + std::format("{:g}", p.seconds) +
+                                         " s, so the engine gave up on it",
                                      "Offer a retry; an answer that arrives later is ignored" +
                                          std::string(p.method == "purchases.buy" || p.method == "purchases.restore"
-                                                         ? " (but a purchase that did go through reaches platform.on(\"purchase\"), so grant what arrives there)"
+                                                         ? " (but a purchase that did go through reaches "
+                                                           "platform.on(\"purchase\"), so grant what arrives there)"
                                                          : "") +
                                          "."});
             cancelled.push_back({id, p.route});
@@ -1229,8 +1389,10 @@ double PlatformServices::request_timeout(const std::string& method, const Json& 
 
 void PlatformServices::set_request_timeout(const std::string& method, double seconds) {
     std::lock_guard<std::mutex> lock(state_->mutex);
-    if (seconds > 0.0 && std::isfinite(seconds)) state_->timeoutOverrides[method] = seconds;
-    else state_->timeoutOverrides.erase(method);
+    if (seconds > 0.0 && std::isfinite(seconds))
+        state_->timeoutOverrides[method] = seconds;
+    else
+        state_->timeoutOverrides.erase(method);
 }
 
 void PlatformServices::set_clock(Clock clock) {
@@ -1276,19 +1438,29 @@ Json PlatformServices::info() const {
     Json services = Json::array();
     for (const std::string& s : state_->services) services.push_back(s);
     // The backend that answers ads.*: the ads plugin, else the store backend when it offers ads, else "none".
-    const std::string adsBackend = !state_->adsBackendName.empty() ? state_->adsBackendName
-                                   : contains(state_->storeServices, "ads") ? state_->backendName : std::string("none");
+    const std::string adsBackend = !state_->adsBackendName.empty()          ? state_->adsBackendName
+                                   : contains(state_->storeServices, "ads") ? state_->backendName
+                                                                            : std::string("none");
     // The backend that answers http.fetch: the engine's client, else the store backend when it offers http (the fake), else "none".
-    const std::string httpBackend = !state_->httpBackendName.empty() ? state_->httpBackendName
-                                    : contains(state_->storeServices, "http") ? state_->backendName : std::string("none");
+    const std::string httpBackend = !state_->httpBackendName.empty()          ? state_->httpBackendName
+                                    : contains(state_->storeServices, "http") ? state_->backendName
+                                                                              : std::string("none");
     Json hosts = Json::array();
     for (const std::string& h : state_->network.hosts) hosts.push_back(h);
-    return Json::object({{"backend", state_->backendName}, {"adsBackend", adsBackend}, {"httpBackend", httpBackend}, {"networkHosts", hosts},
-                         {"release", state_->release}, {"services", services},
+    return Json::object({{"backend", state_->backendName},
+                         {"adsBackend", adsBackend},
+                         {"httpBackend", httpBackend},
+                         {"networkHosts", hosts},
+                         {"release", state_->release},
+                         {"services", services},
                          {"audience", state_->catalog.adsAudience},
-                         {"underAge", state_->catalog.adsAudience == "children" ? Json(true) : state_->underAge ? Json(*state_->underAge) : Json(nullptr)},
-                         {"player", state_->player}, {"pending", state_->pending.size()},
-                         {"droppedEvents", state_->droppedEvents}, {"timedOut", state_->timedOut}});
+                         {"underAge", state_->catalog.adsAudience == "children" ? Json(true)
+                                      : state_->underAge                        ? Json(*state_->underAge)
+                                                                                : Json(nullptr)},
+                         {"player", state_->player},
+                         {"pending", state_->pending.size()},
+                         {"droppedEvents", state_->droppedEvents},
+                         {"timedOut", state_->timedOut}});
 }
 
 void PlatformServices::forget_under_age() {

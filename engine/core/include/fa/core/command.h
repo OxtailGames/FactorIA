@@ -53,8 +53,8 @@ struct CommandInfo {
     std::string summary;      // one line, imperative ("Create an entity from JSON.")
     std::string description;  // details, caveats and at least one example call
     Json inputSchema = Json::object({{"type", "object"}, {"properties", Json::object()}});
-    bool readOnly = true;     // false if it mutates game/project state
-    std::string category;     // "scene", "game", "project", "assets", "feedback", "docs", "fs"...
+    bool readOnly = true;  // false if it mutates game/project state
+    std::string category;  // "scene", "game", "project", "assets", "feedback", "docs", "fs"...
     // What does not fit in `description`. MCP's tools/list sends summary + description with every request, so a description
     // stays under 1.5 KB (a test holds every command to it) and the rest goes here. It is in the docs reference
     // (docs/reference/commands, docs.commands {"name": ...}, `factoria commands <name>`); the description MCP sends ends by
@@ -166,7 +166,7 @@ private:
 std::optional<CommandCaller> command_caller_from_env_value(const char* value);
 std::optional<CommandCaller> command_caller_from_env();  // reads kCallerEnvVar
 
-CommandCaller command_caller();                         // the caller of the command running on this thread (User outside any scope)
+CommandCaller command_caller();  // the caller of the command running on this thread (User outside any scope)
 const char* command_caller_name(CommandCaller caller);  // "the user", "an AI agent", "an MCP client"
 
 // What the caller of the command running on this thread may do (capability.h). It is the set of the caller's kind
@@ -215,7 +215,8 @@ class CommandCapabilityScope {
 public:
     // `hint`: (optional) words the hint of a capability_denied error raised inside the scope; a nested scope without one keeps
     // the outer scope's, so a tool a game script calls is refused with the game script's hint.
-    explicit CommandCapabilityScope(CapabilitySet granted, std::shared_ptr<const CapabilityHintProvider> hint = nullptr);
+    explicit CommandCapabilityScope(CapabilitySet granted,
+                                    std::shared_ptr<const CapabilityHintProvider> hint = nullptr);
     ~CommandCapabilityScope();
     CommandCapabilityScope(const CommandCapabilityScope&) = delete;
     CommandCapabilityScope& operator=(const CommandCapabilityScope&) = delete;
@@ -237,7 +238,8 @@ inline constexpr const char* kRoleEnvVar = "FACTORIA_ROLE";
 
 class CommandCapabilityFloor {
 public:
-    explicit CommandCapabilityFloor(CapabilitySet granted, std::shared_ptr<const CapabilityHintProvider> hint = nullptr);
+    explicit CommandCapabilityFloor(CapabilitySet granted,
+                                    std::shared_ptr<const CapabilityHintProvider> hint = nullptr);
     ~CommandCapabilityFloor();
     CommandCapabilityFloor(const CommandCapabilityFloor&) = delete;
     CommandCapabilityFloor& operator=(const CommandCapabilityFloor&) = delete;
@@ -267,7 +269,8 @@ CommandContext command_context();
 
 class CommandContextScope {
 public:
-    explicit CommandContextScope(const CommandContext& context) : caller_(context.caller), capabilities_(context.capabilities, context.hint) {}
+    explicit CommandContextScope(const CommandContext& context)
+        : caller_(context.caller), capabilities_(context.capabilities, context.hint) {}
     CommandContextScope(const CommandContextScope&) = delete;
     CommandContextScope& operator=(const CommandContextScope&) = delete;
 
@@ -339,7 +342,9 @@ public:
 
     // Installs (or, with null, removes) the interceptor. Not to be called while another thread is inside call(). A registry without
     // one pays a single pointer test per call.
-    void set_interceptor(std::shared_ptr<const CommandInterceptor> interceptor) { interceptor_ = std::move(interceptor); }
+    void set_interceptor(std::shared_ptr<const CommandInterceptor> interceptor) {
+        interceptor_ = std::move(interceptor);
+    }
     bool has_interceptor() const { return interceptor_ != nullptr; }
 
 private:

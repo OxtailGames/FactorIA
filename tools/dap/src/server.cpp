@@ -82,10 +82,14 @@ int int_of(const Json& j, const char* key, int def = 0) {
 
 Json capabilities() {
     Json filters = Json::array();
-    filters.push_back(Json::object({{"filter", "uncaught"}, {"label", "Uncaught Exceptions"},
-                                    {"description", "Stop where an exception is about to reach the engine."}, {"default", true}}));
-    filters.push_back(Json::object({{"filter", "all"}, {"label", "All Exceptions"},
-                                    {"description", "Stop at every throw, also the exceptions your code catches."}, {"default", false}}));
+    filters.push_back(Json::object({{"filter", "uncaught"},
+                                    {"label", "Uncaught Exceptions"},
+                                    {"description", "Stop where an exception is about to reach the engine."},
+                                    {"default", true}}));
+    filters.push_back(Json::object({{"filter", "all"},
+                                    {"label", "All Exceptions"},
+                                    {"description", "Stop at every throw, also the exceptions your code catches."},
+                                    {"default", false}}));
     return Json::object({{"supportsConfigurationDoneRequest", true},
                          {"supportsConditionalBreakpoints", true},
                          {"supportsHitConditionalBreakpoints", true},
@@ -106,17 +110,32 @@ const char* dap_reason(const std::string& reason) {
 }
 
 const std::vector<std::string>& supported_requests() {
-    static const std::vector<std::string> v = {
-        "initialize", "launch",     "setBreakpoints", "setExceptionBreakpoints", "configurationDone", "threads",
-        "pause",      "stackTrace", "scopes",         "variables",               "evaluate",          "setVariable",
-        "continue",   "next",       "stepIn",         "stepOut",                 "source",            "disconnect",
-        "terminate"};
+    static const std::vector<std::string> v = {"initialize",
+                                               "launch",
+                                               "setBreakpoints",
+                                               "setExceptionBreakpoints",
+                                               "configurationDone",
+                                               "threads",
+                                               "pause",
+                                               "stackTrace",
+                                               "scopes",
+                                               "variables",
+                                               "evaluate",
+                                               "setVariable",
+                                               "continue",
+                                               "next",
+                                               "stepIn",
+                                               "stepOut",
+                                               "source",
+                                               "disconnect",
+                                               "terminate"};
     return v;
 }
 
 }  // namespace
 
-DapServer::DapServer(Sink sink, ScriptInstrumenter instrumenter) : sink_(std::move(sink)), instrumenter_(std::move(instrumenter)) {}
+DapServer::DapServer(Sink sink, ScriptInstrumenter instrumenter)
+    : sink_(std::move(sink)), instrumenter_(std::move(instrumenter)) {}
 DapServer::~DapServer() = default;
 
 // ------------------------------------------------------------------------------------------------------------ sending
@@ -151,7 +170,9 @@ void DapServer::send_output(const std::string& category, const std::string& text
     send_event("output", std::move(body));
 }
 
-void DapServer::handle_protocol_error(const std::string& text) { send_output("stderr", "factoria dap: " + text + "\n"); }
+void DapServer::handle_protocol_error(const std::string& text) {
+    send_output("stderr", "factoria dap: " + text + "\n");
+}
 
 // ------------------------------------------------------------------------------------------------------------- paths
 std::string DapServer::module_name(const std::string& absolutePath, std::string& why) const {
@@ -164,7 +185,8 @@ std::string DapServer::module_name(const std::string& absolutePath, std::string&
     const std::string canon = normalised(given.string());
     const std::string prefix = projectCanon_ + "/";
     const bool inside = canon.size() > prefix.size() &&
-                        (kCaseInsensitivePaths ? lowered(canon.substr(0, prefix.size())) == lowered(prefix) : canon.compare(0, prefix.size(), prefix) == 0);
+                        (kCaseInsensitivePaths ? lowered(canon.substr(0, prefix.size())) == lowered(prefix)
+                                               : canon.compare(0, prefix.size(), prefix) == 0);
     if (!inside) {
         why = "'" + absolutePath + "' is outside the project folder '" + launch_.projectDir +
               "': only the scripts of the project being debugged can have breakpoints";
@@ -186,8 +208,9 @@ std::string DapServer::absolute_path(const std::string& moduleName) const {
 // -------------------------------------------------------------------------------------------------------- requests
 void DapServer::handle_message(const Json& msg) {
     if (!msg.is_object() || str_of(msg, "type") != "request" || str_of(msg, "command").empty()) {
-        handle_protocol_error("ignored a message that is not a request: " + msg.dump().substr(0, 200) +
-                              ". Requests look like {\"seq\":1,\"type\":\"request\",\"command\":\"initialize\",\"arguments\":{}}");
+        handle_protocol_error(
+            "ignored a message that is not a request: " + msg.dump().substr(0, 200) +
+            ". Requests look like {\"seq\":1,\"type\":\"request\",\"command\":\"initialize\",\"arguments\":{}}");
         return;
     }
     const std::string command = msg["command"].get<std::string>();
@@ -237,7 +260,8 @@ Json DapServer::dispatch(const std::string& command, const Json& args, const Jso
         cv_.notify_all();
         return Json::object();
     }
-    if (command == "threads") return Json::object({{"threads", Json::array({Json::object({{"id", 1}, {"name", "Game"}})})}});
+    if (command == "threads")
+        return Json::object({{"threads", Json::array({Json::object({{"id", 1}, {"name", "Game"}})})}});
     if (command == "pause") {
         if (debugger_) debugger_->request_pause();
         return Json::object();
@@ -255,8 +279,8 @@ Json DapServer::dispatch(const std::string& command, const Json& args, const Jso
         cv_.notify_all();
         return {};
     }
-    static const std::vector<std::string> pausedOnly = {"stackTrace", "scopes",   "variables", "evaluate",
-                                                        "setVariable", "continue", "next",      "stepIn", "stepOut"};
+    static const std::vector<std::string> pausedOnly = {"stackTrace", "scopes", "variables", "evaluate", "setVariable",
+                                                        "continue",   "next",   "stepIn",    "stepOut"};
     if (std::find(pausedOnly.begin(), pausedOnly.end(), command) != pausedOnly.end()) {
         std::lock_guard<std::mutex> lock(mutex_);
         if (paused_) {
@@ -268,23 +292,29 @@ Json DapServer::dispatch(const std::string& command, const Json& args, const Jso
         if (command == "evaluate") {
             if (finished_) throw Failure{"The game has ended, there is nothing to evaluate in."};
             if (launched_ && !debugger_)
-                throw Failure{"This session runs without debugging (noDebug), so the debug console is not connected to the game. Start it with F5 instead of Ctrl+F5."};
+                throw Failure{"This session runs without debugging (noDebug), so the debug console is not connected to "
+                              "the game. Start it with F5 instead of Ctrl+F5."};
             evalPending_.push_back(request);  // answered by poll() at the start of the next frame
             answered = true;
             return {};
         }
         if (command == "continue") return Json::object({{"allThreadsContinued", true}});
-        if (command == "next" || command == "stepIn" || command == "stepOut") return Json::object();  // the game is not stopped: nothing to do
+        if (command == "next" || command == "stepIn" || command == "stepOut")
+            return Json::object();  // the game is not stopped: nothing to do
         if (command == "stackTrace") return Json::object({{"stackFrames", Json::array()}, {"totalFrames", 0}});
-        throw Failure{"The game is not stopped, so '" + command + "' has nothing to read. Stop it first: set a breakpoint or press Pause."};
+        throw Failure{"The game is not stopped, so '" + command +
+                      "' has nothing to read. Stop it first: set a breakpoint or press Pause."};
     }
-    throw Failure{"This debugger does not support the request '" + command + "'. " + did_you_mean(command, supported_requests())};
+    throw Failure{"This debugger does not support the request '" + command + "'. " +
+                  did_you_mean(command, supported_requests())};
 }
 
 Json DapServer::on_launch(const Json& args, const Json& request, bool& answered) {
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        if (launched_) throw Failure{"The session was already launched. Start a new debug session instead of sending launch twice."};
+        if (launched_)
+            throw Failure{
+                "The session was already launched. Start a new debug session instead of sending launch twice."};
     }
     std::error_code ec;
     auto parsed = parse_dap_launch(args, fsys::current_path(ec).string());
@@ -333,7 +363,8 @@ Json DapServer::set_breakpoints_now(const Json& args) {
     const Json source = args.contains("source") ? args["source"] : Json::object();
     const std::string path = str_of(source, "path");
     if (path.empty())
-        throw Failure{"setBreakpoints needs source.path (the absolute path of a script of the project). Got " + source.dump() + "."};
+        throw Failure{"setBreakpoints needs source.path (the absolute path of a script of the project). Got " +
+                      source.dump() + "."};
     std::vector<DebugBreakpoint> wanted;
     if (args.contains("breakpoints") && args["breakpoints"].is_array()) {
         for (const Json& b : args["breakpoints"]) {
@@ -377,9 +408,13 @@ Json DapServer::on_set_exception_breakpoints(const Json& args) {
     if (args.contains("filters") && args["filters"].is_array())
         for (const Json& f : args["filters"]) {
             if (!f.is_string()) continue;
-            if (f == "all") all = true;
-            else if (f == "uncaught") uncaught = true;
-            else throw Failure{"Unknown exception filter '" + f.get<std::string>() + "'. " + did_you_mean(f.get<std::string>(), std::vector<std::string>{"uncaught", "all"})};
+            if (f == "all")
+                all = true;
+            else if (f == "uncaught")
+                uncaught = true;
+            else
+                throw Failure{"Unknown exception filter '" + f.get<std::string>() + "'. " +
+                              did_you_mean(f.get<std::string>(), std::vector<std::string>{"uncaught", "all"})};
         }
     {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -393,7 +428,9 @@ Json DapServer::on_set_exception_breakpoints(const Json& args) {
 Json DapServer::on_source(const Json& args) {
     const Json source = args.contains("source") ? args["source"] : Json::object();
     std::string path = str_of(source, "path");
-    if (path.empty()) throw Failure{"source needs source.path: this debugger shows project files from disk and has no virtual sources."};
+    if (path.empty())
+        throw Failure{
+            "source needs source.path: this debugger shows project files from disk and has no virtual sources."};
     std::string why;
     const std::string module = module_name(path, why);
     if (module.empty()) throw Failure{why};
@@ -440,7 +477,8 @@ void DapServer::finish(int exitCode) {
         waiting.swap(evalPending_);
         disconnected = disconnected_;
     }
-    for (const Json& r : waiting) send_response(r, false, Json::object(), "The game ended before this expression could run.");
+    for (const Json& r : waiting)
+        send_response(r, false, Json::object(), "The game ended before this expression could run.");
     if (disconnected) return;
     send_event("exited", Json::object({{"exitCode", exitCode}}));
     send_event("terminated");
@@ -491,8 +529,10 @@ DebugResume DapServer::paused(const DebugStop& stop, PausedScripts& scripts) {
                               {"description", stop.description},
                               {"threadId", 1},
                               {"allThreadsStopped", true}});
-    if (!stop.exceptionText.empty()) body["text"] = stop.exceptionText;
-    else if (!stop.description.empty()) body["text"] = stop.description;
+    if (!stop.exceptionText.empty())
+        body["text"] = stop.exceptionText;
+    else if (!stop.description.empty())
+        body["text"] = stop.description;
     if (!stop.hitBreakpointIds.empty()) body["hitBreakpointIds"] = stop.hitBreakpointIds;
     send_event("stopped", std::move(body));
 
@@ -529,7 +569,8 @@ bool DapServer::run_paused_request(const Item& item, PausedScripts& scripts, Deb
                      : command == "next"   ? DebugResume::StepOver
                      : command == "stepIn" ? DebugResume::StepIn
                                            : DebugResume::StepOut;
-            send_response(req, true, command == "continue" ? Json::object({{"allThreadsContinued", true}}) : Json::object());
+            send_response(req, true,
+                          command == "continue" ? Json::object({{"allThreadsContinued", true}}) : Json::object());
             return true;
         }
         if (command == "stackTrace") {
@@ -537,15 +578,18 @@ bool DapServer::run_paused_request(const Item& item, PausedScripts& scripts, Deb
         } else if (command == "scopes") {
             Json arr = Json::array();
             for (const DebugScope& s : scripts.scopes(int_of(args, "frameId"))) {
-                Json j = Json::object({{"name", s.name}, {"variablesReference", s.variablesReference}, {"expensive", s.expensive}});
+                Json j = Json::object(
+                    {{"name", s.name}, {"variablesReference", s.variablesReference}, {"expensive", s.expensive}});
                 if (s.name == "Locals") j["presentationHint"] = "locals";
                 arr.push_back(std::move(j));
             }
             send_response(req, true, Json::object({{"scopes", arr}}));
         } else if (command == "variables") {
             Json arr = Json::array();
-            for (const DebugValue& v : scripts.variables(int_of(args, "variablesReference"), int_of(args, "start"), int_of(args, "count"))) {
-                Json j = Json::object({{"name", v.name}, {"value", v.value}, {"variablesReference", v.variablesReference}});
+            for (const DebugValue& v :
+                 scripts.variables(int_of(args, "variablesReference"), int_of(args, "start"), int_of(args, "count"))) {
+                Json j =
+                    Json::object({{"name", v.name}, {"value", v.value}, {"variablesReference", v.variablesReference}});
                 if (!v.type.empty()) j["type"] = v.type;
                 if (v.namedVariables > 0) j["namedVariables"] = v.namedVariables;
                 if (v.indexedVariables > 0) j["indexedVariables"] = v.indexedVariables;
@@ -554,10 +598,13 @@ bool DapServer::run_paused_request(const Item& item, PausedScripts& scripts, Deb
             send_response(req, true, Json::object({{"variables", arr}}));
         } else if (command == "evaluate") {
             auto r = scripts.evaluate(int_of(args, "frameId"), str_of(args, "expression"));
-            if (!r.ok()) send_response(req, false, Json::object(), r.error().message);
-            else send_response(req, true, value_body(*r));
+            if (!r.ok())
+                send_response(req, false, Json::object(), r.error().message);
+            else
+                send_response(req, true, value_body(*r));
         } else if (command == "setVariable") {
-            auto r = scripts.set_variable(int_of(args, "variablesReference"), str_of(args, "name"), str_of(args, "value"));
+            auto r =
+                scripts.set_variable(int_of(args, "variablesReference"), str_of(args, "name"), str_of(args, "value"));
             if (!r.ok()) {
                 send_response(req, false, Json::object(), r.error().message);
             } else {
@@ -582,7 +629,8 @@ Json DapServer::stack_trace_body(const Json& args, PausedScripts& scripts) {
     Json arr = Json::array();
     for (int i = start; i < static_cast<int>(frames.size()) && (levels <= 0 || i < start + levels); ++i) {
         const DebugFrame& f = frames[static_cast<std::size_t>(i)];
-        Json j = Json::object({{"id", f.id}, {"name", f.name}, {"line", line_to_client(f.line)}, {"column", column_to_client(f.column)}});
+        Json j = Json::object(
+            {{"id", f.id}, {"name", f.name}, {"line", line_to_client(f.line)}, {"column", column_to_client(f.column)}});
         if (!f.file.empty()) j["source"] = Json::object({{"name", base_name(f.file)}, {"path", absolute_path(f.file)}});
         arr.push_back(std::move(j));
     }

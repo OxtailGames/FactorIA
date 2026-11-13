@@ -9,7 +9,8 @@
 using namespace fa;
 
 namespace {
-FeedbackFix fix_of(const std::string& category, std::vector<std::string> titles, const std::string& version, const std::string& note = {}) {
+FeedbackFix fix_of(const std::string& category, std::vector<std::string> titles, const std::string& version,
+                   const std::string& note = {}) {
     FeedbackFix f;
     f.category = category;
     f.titles = std::move(titles);
@@ -19,10 +20,17 @@ FeedbackFix fix_of(const std::string& category, std::vector<std::string> titles,
 }
 
 // An inbox entry as `feedback pull` writes it.
-Json pulled(const std::string& id, const std::string& title, const std::string& category, const std::string& severity, int occurrences,
-            const std::string& trust, const std::string& shareId) {
-    return Json::object({{"id", id}, {"date", "2026-10-01"}, {"category", category}, {"severity", severity}, {"title", title},
-                         {"missing", "Engine lacks " + title}, {"workaround", "(not shared)"}, {"occurrences", occurrences}, {"status", "open"},
+Json pulled(const std::string& id, const std::string& title, const std::string& category, const std::string& severity,
+            int occurrences, const std::string& trust, const std::string& shareId) {
+    return Json::object({{"id", id},
+                         {"date", "2026-10-01"},
+                         {"category", category},
+                         {"severity", severity},
+                         {"title", title},
+                         {"missing", "Engine lacks " + title},
+                         {"workaround", "(not shared)"},
+                         {"occurrences", occurrences},
+                         {"status", "open"},
                          {"remote", Json::object({{"shareId", shareId}, {"installKey", "k"}, {"trust", trust}})}});
 }
 void write_install(const testing::TempDir& tmp, const std::string& key, std::vector<Json> entries) {
@@ -32,12 +40,15 @@ void write_install(const testing::TempDir& tmp, const std::string& key, std::vec
 }
 }  // namespace
 
-TEST_CASE("feedback collect: an anonymous installation counts half, a verified one in full, and the report counts installations") {
+TEST_CASE("feedback collect: an anonymous installation counts half, a verified one in full, and the report counts "
+          "installations") {
     testing::TempDir tmp;
     write_install(tmp, "anon1", {pulled("FB-0001", "No one-way platforms", "physics", "major", 5, "anonymous", "r_1")});
-    write_install(tmp, "anon2", {pulled("FB-0001", "One-way platforms missing", "physics", "major", 1, "anonymous", "r_2")});
+    write_install(tmp, "anon2",
+                  {pulled("FB-0001", "One-way platforms missing", "physics", "major", 1, "anonymous", "r_2")});
     write_install(tmp, "ver1", {pulled("FB-0001", "No one-way platforms", "physics", "major", 2, "verified", "r_3")});
-    write_install(tmp, "solo", {pulled("FB-0001", "Audio cannot loop a sub-range", "audio", "minor", 9, "anonymous", "r_4")});
+    write_install(tmp, "solo",
+                  {pulled("FB-0001", "Audio cannot loop a sub-range", "audio", "minor", 9, "anonymous", "r_4")});
 
     auto report = collect_feedback({tmp.str()});
     REQUIRE(report.ok());
@@ -62,7 +73,8 @@ TEST_CASE("feedback collect: an anonymous installation counts half, a verified o
 
 TEST_CASE("feedback collect: a half-trust score keeps its decimal") {
     testing::TempDir tmp;
-    write_install(tmp, "a", {pulled("FB-0001", "Particles cannot collide", "particles", "nice-to-have", 1, "anonymous", "r_1")});
+    write_install(tmp, "a",
+                  {pulled("FB-0001", "Particles cannot collide", "particles", "nice-to-have", 1, "anonymous", "r_1")});
     auto report = collect_feedback({tmp.str()});
     REQUIRE(report.ok());
     CHECK(report->json["clusters"][0]["score"] == 0.5);
@@ -89,7 +101,8 @@ TEST_CASE("feedback fixed: add creates the file, validates, merges and lists") {
     CHECK(doc->size() == 2);
 
     // Another wording of the same gap in the same version extends the fix.
-    auto merged = add_fixed_to_file(path, fix_of("physics", {"no one-way platforms", "One-way platforms missing"}, "0.11.0"));
+    auto merged =
+        add_fixed_to_file(path, fix_of("physics", {"no one-way platforms", "One-way platforms missing"}, "0.11.0"));
     REQUIRE(merged.ok());
     CHECK(merged->merged);
     CHECK(merged->total == 1);

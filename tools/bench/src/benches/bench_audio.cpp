@@ -20,11 +20,28 @@ namespace {
 std::vector<std::uint8_t> tone_wav() {
     const int rate = 44100, frames = rate * 2;
     std::vector<std::uint8_t> out;
-    auto u32 = [&](std::uint32_t v) { for (int i = 0; i < 4; ++i) out.push_back(std::uint8_t(v >> (8 * i))); };
-    auto u16 = [&](std::uint16_t v) { for (int i = 0; i < 2; ++i) out.push_back(std::uint8_t(v >> (8 * i))); };
-    auto tag = [&](const char* t) { for (int i = 0; i < 4; ++i) out.push_back(std::uint8_t(t[i])); };
-    tag("RIFF"); u32(std::uint32_t(36 + frames * 2)); tag("WAVE"); tag("fmt "); u32(16); u16(1); u16(1); u32(rate); u32(rate * 2);
-    u16(2); u16(16); tag("data"); u32(std::uint32_t(frames * 2));
+    auto u32 = [&](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) out.push_back(std::uint8_t(v >> (8 * i)));
+    };
+    auto u16 = [&](std::uint16_t v) {
+        for (int i = 0; i < 2; ++i) out.push_back(std::uint8_t(v >> (8 * i)));
+    };
+    auto tag = [&](const char* t) {
+        for (int i = 0; i < 4; ++i) out.push_back(std::uint8_t(t[i]));
+    };
+    tag("RIFF");
+    u32(std::uint32_t(36 + frames * 2));
+    tag("WAVE");
+    tag("fmt ");
+    u32(16);
+    u16(1);
+    u16(1);
+    u32(rate);
+    u32(rate * 2);
+    u16(2);
+    u16(16);
+    tag("data");
+    u32(std::uint32_t(frames * 2));
     for (int i = 0; i < frames; ++i) {
         const double t = double(i) / rate;
         const double v = 0.5 * std::sin(6.283185307 * 220.0 * t) + 0.25 * std::sin(6.283185307 * 440.0 * t) +
@@ -112,7 +129,8 @@ Bench audio_mix(const char* name, const char* summary, bool busFx) {
 }  // namespace
 
 void add_audio_benches(std::vector<Bench>& out) {
-    out.push_back(audio_mix("audio.mix_voices", "Mix 2 s of audio: 48 looping voices at different pitches and pans, two buses", false));
+    out.push_back(audio_mix("audio.mix_voices",
+                            "Mix 2 s of audio: 48 looping voices at different pitches and pans, two buses", false));
     out.push_back(audio_mix("audio.mix_bus_fx", "The same 48 voices with a low-pass and a reverb on the buses", true));
 }
 

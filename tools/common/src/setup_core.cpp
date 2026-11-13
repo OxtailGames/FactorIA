@@ -54,18 +54,23 @@ int http_status_of(const std::string& curlStderr) {
     return std::atoi(curlStderr.c_str() + at + marker.size());
 }
 
-Error curl_failure(int exitCode, const std::string& stderrText, const std::string& what, const std::string& url, int& httpStatus) {
+Error curl_failure(int exitCode, const std::string& stderrText, const std::string& what, const std::string& url,
+                   int& httpStatus) {
     const std::string host = url_host(url);
     const std::string prefix = "Downloading " + what + " failed: ";
-    const std::string network = "Check the internet connection (behind a proxy, set HTTPS_PROXY), then run it again; a download that was cut off starts over.";
+    const std::string network = "Check the internet connection (behind a proxy, set HTTPS_PROXY), then run it again; a "
+                                "download that was cut off starts over.";
     // An HTTP error status is in the text whatever the exit code is: curl 8 with --retry reports 56 where older versions say 22.
     httpStatus = http_status_of(stderrText);
     if (httpStatus != 0 || exitCode == 22) {
-        std::string message = prefix + "the server answered HTTP " + (httpStatus ? std::to_string(httpStatus) : "an error") + " for " + url + ".";
+        std::string message = prefix + "the server answered HTTP " +
+                              (httpStatus ? std::to_string(httpStatus) : "an error") + " for " + url + ".";
         std::string hint = "Try again later.";
-        if (httpStatus == 404) hint = "The file is not there (anymore). Update FactorIA, then run it again.";
+        if (httpStatus == 404)
+            hint = "The file is not there (anymore). Update FactorIA, then run it again.";
         else if ((httpStatus == 403 || httpStatus == 429) && url.find("api.github.com") != std::string::npos)
-            hint = "GitHub allows only 60 anonymous requests an hour per network address; try again later or from another network.";
+            hint = "GitHub allows only 60 anonymous requests an hour per network address; try again later or from "
+                   "another network.";
         return make_error(message, hint);
     }
     switch (exitCode) {
@@ -75,14 +80,27 @@ Error curl_failure(int exitCode, const std::string& stderrText, const std::strin
         case 56:
         case 52:
         case 18: return make_error(prefix + "the connection to " + host + " broke off.", network);
-        case 23: return make_error(prefix + "cannot write the file.", "Check the free disk space and that the folder is writable.");
-        case 35: case 51: case 53: case 54: case 58: case 59: case 60: case 77: case 83: case 90: case 91:
+        case 23:
+            return make_error(prefix + "cannot write the file.",
+                              "Check the free disk space and that the folder is writable.");
+        case 35:
+        case 51:
+        case 53:
+        case 54:
+        case 58:
+        case 59:
+        case 60:
+        case 77:
+        case 83:
+        case 90:
+        case 91:
             return make_error(prefix + "the secure connection to " + host + " failed (" + first_line(stderrText) + ").",
                               "Check the computer's date and time, and a proxy or antivirus that intercepts HTTPS.");
         default: break;
     }
     std::string detail = first_line(stderrText);
-    return make_error(prefix + "curl exited with code " + std::to_string(exitCode) + (detail.empty() ? "." : ": " + detail), network);
+    return make_error(
+        prefix + "curl exited with code " + std::to_string(exitCode) + (detail.empty() ? "." : ": " + detail), network);
 }
 
 }  // namespace
@@ -111,9 +129,10 @@ Downloader curl_downloader(ProcessRunner run) {
         }
 #endif
         if (curl.empty())
-            return fail(make_error("Cannot download " + what + ": the 'curl' program was not found.",
-                                   "curl comes with macOS, Windows 10 and later and most Linux systems; on Linux install it "
-                                   "(sudo apt install curl, sudo dnf install curl)."));
+            return fail(
+                make_error("Cannot download " + what + ": the 'curl' program was not found.",
+                           "curl comes with macOS, Windows 10 and later and most Linux systems; on Linux install it "
+                           "(sudo apt install curl, sudo dnf install curl)."));
         const stdfs::path dest(rq.destination);
         stdfs::path part = dest;
         part += ".part";
@@ -122,8 +141,8 @@ Downloader curl_downloader(ProcessRunner run) {
         stdfs::remove(part, ec);
 
         ProcessOptions po;
-        po.argv = {curl, "-fL", "-sS", "--retry", "3", "--connect-timeout", "30", "--proto-redir", "=https",
-                   "--speed-limit", "1024", "--speed-time", "60"};
+        po.argv = {curl,     "-fL",           "-sS",  "--retry",      "3", "--connect-timeout", "30", "--proto-redir",
+                   "=https", "--speed-limit", "1024", "--speed-time", "60"};
         for (const std::string& h : rq.headers) {
             po.argv.push_back("-H");
             po.argv.push_back(h);
@@ -144,7 +163,8 @@ Downloader curl_downloader(ProcessRunner run) {
                         last = size;
                         rq.onBytes(size);
                     }
-                    for (int i = 0; i < 10 && !done.load(); ++i) std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    for (int i = 0; i < 10 && !done.load(); ++i)
+                        std::this_thread::sleep_for(std::chrono::milliseconds(50));
                 }
             });
         }
@@ -172,8 +192,9 @@ Downloader curl_downloader(ProcessRunner run) {
         stdfs::remove(dest, ec);
         stdfs::rename(part, dest, ec);
         if (ec)
-            return fail(make_error("Cannot move the downloaded file into place (" + dest.string() + "): " + ec.message(),
-                                   "Check the free disk space and that the folder is writable."));
+            return fail(
+                make_error("Cannot move the downloaded file into place (" + dest.string() + "): " + ec.message(),
+                           "Check the free disk space and that the folder is writable."));
         return out;
     };
 }
@@ -211,7 +232,9 @@ std::string SetupContext::version() const {
     if (!engineVersion.empty()) return engineVersion;
     return FA_ENGINE_VERSION;
 }
-std::string SetupContext::config_path() const { return machineConfigPath.empty() ? machine_export_config_path(env) : machineConfigPath; }
+std::string SetupContext::config_path() const {
+    return machineConfigPath.empty() ? machine_export_config_path(env) : machineConfigPath;
+}
 AndroidToolchainSearch SetupContext::search() const {
     return toolchainSearch ? *toolchainSearch : default_android_toolchain_search(env);
 }
@@ -252,7 +275,8 @@ bool is_dir(const stdfs::path& p) {
 // ---- the install bookkeeping ---------------------------------------------------------------------------------------
 
 Installer::Installer(const SetupContext& context, std::string component)
-    : ctx(context), staging_(stdfs::path(context.home_dir()) / "staging" / component), start_(std::chrono::steady_clock::now()) {
+    : ctx(context), staging_(stdfs::path(context.home_dir()) / "staging" / component),
+      start_(std::chrono::steady_clock::now()) {
     report.component = std::move(component);
 }
 
@@ -281,7 +305,9 @@ stdfs::path Installer::make_staging_subdir(const std::string& name) {
     return dir;
 }
 
-double Installer::elapsed() const { return std::chrono::duration<double>(std::chrono::steady_clock::now() - start_).count(); }
+double Installer::elapsed() const {
+    return std::chrono::duration<double>(std::chrono::steady_clock::now() - start_).count();
+}
 
 void Installer::add_step(SetupStep step) {
     if (step.outcome == "installed") report.changed = true;
@@ -326,7 +352,9 @@ std::optional<Fail> download_file(const SetupContext& ctx, const std::string& ur
         long seen = lastBucket->load();
         if (bucket <= seen || !lastBucket->compare_exchange_strong(seen, bucket)) return;
         ctx.say("Downloading " + what + ": " + format_bytes(got) +
-                (expectedBytes ? " of " + format_bytes(expectedBytes) + " (" + std::to_string(std::min<std::uint64_t>(100, got * 100 / expectedBytes)) + "%)" : std::string()));
+                (expectedBytes ? " of " + format_bytes(expectedBytes) + " (" +
+                                     std::to_string(std::min<std::uint64_t>(100, got * 100 / expectedBytes)) + "%)"
+                               : std::string()));
     };
     const DownloadResult r = ctx.fetch(rq);
     if (!r.ok) return Fail{r.cancelled || is_cancelled(ctx.cancel) ? "cancelled" : "network", r.error};
@@ -338,10 +366,12 @@ std::optional<Fail> download_file(const SetupContext& ctx, const std::string& ur
     return std::nullopt;
 }
 
-std::optional<Fail> fetch_text(const SetupContext& ctx, const std::string& url, const std::string& what, const stdfs::path& scratch,
-                               std::string& out, int* httpStatus, const std::vector<std::string>& headers) {
+std::optional<Fail> fetch_text(const SetupContext& ctx, const std::string& url, const std::string& what,
+                               const stdfs::path& scratch, std::string& out, int* httpStatus,
+                               const std::vector<std::string>& headers) {
     static std::atomic<int> counter{0};
-    const stdfs::path file = scratch / ("fetch-" + std::to_string(process_id()) + "-" + std::to_string(++counter) + ".txt");
+    const stdfs::path file =
+        scratch / ("fetch-" + std::to_string(process_id()) + "-" + std::to_string(++counter) + ".txt");
     DownloadRequest rq;
     rq.url = url;
     rq.destination = file.string();
@@ -353,62 +383,78 @@ std::optional<Fail> fetch_text(const SetupContext& ctx, const std::string& url, 
     auto text = tooling_detail::read_file(file);
     std::error_code ec;
     stdfs::remove(file, ec);
-    if (!text) return Fail{"failed", make_error("Cannot read what was downloaded for " + what + ".", "Check the free disk space and try again.")};
+    if (!text)
+        return Fail{"failed", make_error("Cannot read what was downloaded for " + what + ".",
+                                         "Check the free disk space and try again.")};
     out = std::move(*text);
     return std::nullopt;
 }
 
-std::optional<Fail> verify_checksum(const stdfs::path& file, const std::string& type, const std::string& expected, const std::string& what) {
+std::optional<Fail> verify_checksum(const stdfs::path& file, const std::string& type, const std::string& expected,
+                                    const std::string& what) {
     if (type != "sha1" && type != "sha256")
-        return Fail{"failed", make_error("Unknown checksum type '" + type + "' for " + what + ".", "This is a bug in FactorIA; please report it.")};
+        return Fail{"failed", make_error("Unknown checksum type '" + type + "' for " + what + ".",
+                                         "This is a bug in FactorIA; please report it.")};
     auto actual = type == "sha1" ? sha1_file_hex(file) : sha256_file_hex(file);
     if (!actual.ok()) return Fail{"failed", actual.error()};
     if (to_lower(*actual) != to_lower(expected))
         return Fail{"checksum_mismatch",
-                    make_error("The download of " + what + " is damaged or was changed on the way: its " + type + " is " + *actual + " but the publisher lists " + expected + ".",
-                               "Nothing was installed. Run it again; if it keeps failing, check for a proxy or antivirus that rewrites downloads.")};
+                    make_error("The download of " + what + " is damaged or was changed on the way: its " + type +
+                                   " is " + *actual + " but the publisher lists " + expected + ".",
+                               "Nothing was installed. Run it again; if it keeps failing, check for a proxy or "
+                               "antivirus that rewrites downloads.")};
     return std::nullopt;
 }
 
 // ---- files ----------------------------------------------------------------------------------------------------------
 
-std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& archive, const stdfs::path& destination) {
+std::optional<Fail> extract_archive(const SetupContext& ctx, const stdfs::path& archive,
+                                    const stdfs::path& destination) {
     std::error_code ec;
     stdfs::create_directories(destination, ec);
     const std::string name = to_lower(archive.filename().string());
     const bool zip = ends_with(name, ".zip");
     const bool tarball = ends_with(name, ".tar.gz") || ends_with(name, ".tgz");
     if (!zip && !tarball)
-        return Fail{"failed", make_error("Cannot unpack " + archive.filename().string() + ": only .zip and .tar.gz archives are supported.", "This is a bug in FactorIA; please report it.")};
+        return Fail{"failed", make_error("Cannot unpack " + archive.filename().string() +
+                                             ": only .zip and .tar.gz archives are supported.",
+                                         "This is a bug in FactorIA; please report it.")};
     const std::string os = ctx.host_os();
     ProcessOptions po;
     if (os == "linux") {
         if (zip) {
             const std::string unzip = which("unzip");
             if (unzip.empty())
-                return Fail{"failed", make_error("Cannot unpack " + archive.filename().string() + ": the 'unzip' program is missing.",
-                                                 "Install it (sudo apt install unzip, sudo dnf install unzip) and run the setup again.")};
+                return Fail{
+                    "failed",
+                    make_error("Cannot unpack " + archive.filename().string() + ": the 'unzip' program is missing.",
+                               "Install it (sudo apt install unzip, sudo dnf install unzip) and run the setup again.")};
             po.argv = {unzip, "-q", "-o", archive.string(), "-d", destination.string()};
         } else {
             po.argv = {"tar", "--no-same-owner", "-xzf", archive.string(), "-C", destination.string()};
         }
     } else if (os == "macos") {
         // bsdtar reads .zip and .tar.gz alike; the system one, not whatever tar a PATH has first.
-        po.argv = {is_file("/usr/bin/tar") ? "/usr/bin/tar" : "tar", "-xf", archive.string(), "-C", destination.string()};
+        po.argv = {is_file("/usr/bin/tar") ? "/usr/bin/tar" : "tar", "-xf", archive.string(), "-C",
+                   destination.string()};
     } else {
         const char* root = std::getenv("SystemRoot");
         stdfs::path tar = stdfs::path(root ? root : "C:\\Windows") / "System32" / "tar.exe";
-        po.argv = {is_file(tar) ? tar.string() : std::string("tar"), "-xf", archive.string(), "-C", destination.string()};
+        po.argv = {is_file(tar) ? tar.string() : std::string("tar"), "-xf", archive.string(), "-C",
+                   destination.string()};
     }
     ctx.say("Unpacking " + archive.filename().string() + "...");
     auto r = ctx.run_process_with(po);
     if (!r.ok())
         return Fail{"failed", make_error("Cannot unpack " + archive.filename().string() + ": " + r.error().message,
-                                         r.error().hint.empty() ? "Check that the archive tool of this system works." : r.error().hint)};
-    if (r->cancelled || is_cancelled(ctx.cancel)) return Fail{"cancelled", make_error("Unpacking " + archive.filename().string() + " was cancelled.")};
+                                         r.error().hint.empty() ? "Check that the archive tool of this system works."
+                                                                : r.error().hint)};
+    if (r->cancelled || is_cancelled(ctx.cancel))
+        return Fail{"cancelled", make_error("Unpacking " + archive.filename().string() + " was cancelled.")};
     if (r->exitCode != 0) {
         std::string detail = first_line(r->stderrText);
-        return Fail{"failed", make_error("Cannot unpack " + archive.filename().string() + ": " + po.argv[0] + " exited with code " + std::to_string(r->exitCode) +
+        return Fail{"failed", make_error("Cannot unpack " + archive.filename().string() + ": " + po.argv[0] +
+                                             " exited with code " + std::to_string(r->exitCode) +
                                              (detail.empty() ? "." : ": " + detail),
                                          "The download may be damaged, or the disk is full: run it again.")};
     }
@@ -425,8 +471,10 @@ std::optional<Fail> replace_dir(const stdfs::path& from, const stdfs::path& to) 
         aside += ".old-" + std::to_string(process_id()) + "-" + std::to_string(++counter);
         stdfs::rename(to, aside, ec);
         if (ec)
-            return Fail{"failed", make_error("Cannot replace " + to.string() + ": " + ec.message(),
-                                             "Close the programs that use files in that folder (a build, an editor) and run it again.")};
+            return Fail{
+                "failed",
+                make_error("Cannot replace " + to.string() + ": " + ec.message(),
+                           "Close the programs that use files in that folder (a build, an editor) and run it again.")};
     }
     stdfs::rename(from, to, ec);
     if (ec) {
@@ -454,7 +502,8 @@ stdfs::path single_child_dir(const stdfs::path& root) {
 void make_executable(const stdfs::path& file) {
 #if !defined(_WIN32)
     std::error_code ec;
-    stdfs::permissions(file, stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec, stdfs::perm_options::add, ec);
+    stdfs::permissions(file, stdfs::perms::owner_exec | stdfs::perms::group_exec | stdfs::perms::others_exec,
+                       stdfs::perm_options::add, ec);
 #else
     (void)file;
 #endif

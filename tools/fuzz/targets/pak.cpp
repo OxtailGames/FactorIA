@@ -23,9 +23,12 @@ std::uint64_t get_le(const std::uint8_t* p, int n) {
 void fix_index_checksum(std::vector<std::uint8_t>& pack) {
     constexpr std::size_t kHeader = 16, kFooter = 24;
     if (pack.size() < kHeader + kFooter + 4 || get_le(&pack[8], 4) != fa::kPackFormatVersion) return;
-    const std::uint64_t offset = get_le(&pack[pack.size() - kFooter], 8), length = get_le(&pack[pack.size() - kFooter + 8], 8);
-    if (length < 4 || offset < kHeader || offset > pack.size() - kFooter || length != pack.size() - kFooter - offset) return;
-    const std::uint32_t sum = fa::pack_checksum(std::span<const std::uint8_t>(&pack[std::size_t(offset)], std::size_t(length) - 4));
+    const std::uint64_t offset = get_le(&pack[pack.size() - kFooter], 8),
+                        length = get_le(&pack[pack.size() - kFooter + 8], 8);
+    if (length < 4 || offset < kHeader || offset > pack.size() - kFooter || length != pack.size() - kFooter - offset)
+        return;
+    const std::uint32_t sum =
+        fa::pack_checksum(std::span<const std::uint8_t>(&pack[std::size_t(offset)], std::size_t(length) - 4));
     for (int i = 0; i < 4; ++i) pack[std::size_t(offset + length) - 4 + std::size_t(i)] = std::uint8_t(sum >> (8 * i));
 }
 
@@ -50,7 +53,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         (void)pack.is_directory(path);
         if (decoded < 0 || decoded > kReadCap) continue;
         auto whole = pack.read(path);
-        if (whole && std::int64_t(whole.value().size()) != decoded) fa::fuzz::fail("read() returned another size than size_of()");
+        if (whole && std::int64_t(whole.value().size()) != decoded)
+            fa::fuzz::fail("read() returned another size than size_of()");
         (void)pack.read_range(path, 0, 100);
         (void)pack.read_range(path, std::uint64_t(decoded) / 2, 4096);
         (void)pack.read_range(path, std::uint64_t(decoded) + 5, 10);

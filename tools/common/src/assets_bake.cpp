@@ -34,31 +34,35 @@ namespace fa::assets_detail {
 namespace {
 
 constexpr const char* kCommand = "assets.bake_sheet";
-constexpr int kMaxFrames = 1024;         // frames of one sheet
-constexpr int kMaxSheetSide = 16384;     // pixels
-constexpr int kStartCanvas = 512;        // the square the first attempt draws into (pixels); doubled while the animation touches its edge
+constexpr int kMaxFrames = 1024;      // frames of one sheet
+constexpr int kMaxSheetSide = 16384;  // pixels
+constexpr int kStartCanvas =
+    512;  // the square the first attempt draws into (pixels); doubled while the animation touches its edge
 constexpr int kMaxCanvas = 4096;
 constexpr double kMinScale = 0.01, kMaxScale = 32;
-constexpr int kBleedAlpha = 48;          // pixels with less alpha than this take the colour of the solid pixels around them
+constexpr int kBleedAlpha = 48;  // pixels with less alpha than this take the colour of the solid pixels around them
 const char* const kCameraId = "bake_camera";
 const char* const kDefaultTargetId = "bake_target";
 
-[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) { arg_error(kCommand, pointer, what, hint); }
+[[noreturn]] void bad(const std::string& pointer, const std::string& what, const std::string& hint) {
+    arg_error(kCommand, pointer, what, hint);
+}
 
 // ---- arguments ------------------------------------------------------------------------------------------------------
 
 struct ClipSpec {
     std::string name;
-    std::string clip;         // a clip of the entity's Animator to play from time 0 (empty = none)
-    bool framesGiven = false; // `frames` was in the arguments (otherwise a clip of the Animator takes it from its duration)
-    std::string call;         // a method of the entity's behaviour to call (empty = none)
+    std::string clip;  // a clip of the entity's Animator to play from time 0 (empty = none)
+    bool framesGiven =
+        false;         // `frames` was in the arguments (otherwise a clip of the Animator takes it from its duration)
+    std::string call;  // a method of the entity's behaviour to call (empty = none)
     Json callArgs = Json::array();
-    std::string event;        // a game event to send (empty = none)
-    Json eventData;           // its data (null = none)
+    std::string event;  // a game event to send (empty = none)
+    Json eventData;     // its data (null = none)
     int frames = 0;
     double fps = 0;
     bool loop = true;
-    bool loopGiven = false;   // `loop` was in the arguments (otherwise an Animator clip says it)
+    bool loopGiven = false;        // `loop` was in the arguments (otherwise an Animator clip says it)
     std::optional<double> warmup;  // seconds; overrides the command's
 };
 
@@ -88,7 +92,8 @@ int int_arg(const Json& a, const char* key, int def, int lo, int hi, const std::
     return int(it->get<long long>());
 }
 
-double number_arg(const Json& a, const std::string& pointerBase, const char* key, double def, double lo, double hi, const std::string& hint) {
+double number_arg(const Json& a, const std::string& pointerBase, const char* key, double def, double lo, double hi,
+                  const std::string& hint) {
     auto it = a.find(key);
     if (it == a.end() || it->is_null()) return def;
     if (!it->is_number() || !(it->get<double>() >= lo && it->get<double>() <= hi))
@@ -98,127 +103,178 @@ double number_arg(const Json& a, const std::string& pointerBase, const char* key
 
 std::string project_json_path(const Json& a, const char* key, const std::string& pointer, const char* what) {
     auto it = a.find(key);
-    if (it == a.end() || !it->is_string()) bad(pointer, std::string("expected the project path of ") + what + " as a string.", "Example: \"prefabs/burst.prefab.json\".");
+    if (it == a.end() || !it->is_string())
+        bad(pointer, std::string("expected the project path of ") + what + " as a string.",
+            "Example: \"prefabs/burst.prefab.json\".");
     auto norm = fs::normalize_checked(it->get<std::string>());
     if (!norm.ok() || norm->empty())
-        bad(pointer, "'" + it->get<std::string>() + "' is not a path inside the project.", "Use a project-relative path such as \"prefabs/burst.prefab.json\".");
+        bad(pointer, "'" + it->get<std::string>() + "' is not a path inside the project.",
+            "Use a project-relative path such as \"prefabs/burst.prefab.json\".");
     return *norm;
 }
 
 Spec parse_spec(const Json& a, double fixedHzHint) {
     (void)fixedHzHint;
-    if (!a.is_object()) fail("invalid_argument", "assets.bake_sheet expects an object.", "See the description of the command for the fields.");
+    if (!a.is_object())
+        fail("invalid_argument", "assets.bake_sheet expects an object.",
+             "See the description of the command for the fields.");
     check_arg_keys(kCommand, a, "",
-                   {"path", "prefab", "scene", "entity", "frames", "fps", "columns", "frameWidth", "frameHeight", "scale", "pivot", "clips",
-                    "warmup", "seed", "background", "padding", "margin", "overwrite", "ai", "author", "license"});
+                   {"path",       "prefab",      "scene",  "entity",    "frames", "fps",    "columns",
+                    "frameWidth", "frameHeight", "scale",  "pivot",     "clips",  "warmup", "seed",
+                    "background", "padding",     "margin", "overwrite", "ai",     "author", "license"});
     Spec s;
     {
         auto norm = fs::normalize_checked(tooling_detail::arg_string(a, "path", true));
         if (!norm.ok() || norm->empty() || !starts_with(*norm, "assets/"))
-            fail("invalid_argument", "The sheet goes under assets/, and '" + tooling_detail::arg_string(a, "path", true) + "' is not there.",
+            fail("invalid_argument",
+                 "The sheet goes under assets/, and '" + tooling_detail::arg_string(a, "path", true) +
+                     "' is not there.",
                  "Use a path such as \"assets/fx/explosion.png\".");
         if (to_lower(fs::extension(*norm)) != ".png")
-            fail("invalid_argument", std::string(kCommand) + " writes PNG files, and '" + *norm + "' does not end in .png.", "Use a path such as \"assets/fx/explosion.png\".");
+            fail("invalid_argument",
+                 std::string(kCommand) + " writes PNG files, and '" + *norm + "' does not end in .png.",
+                 "Use a path such as \"assets/fx/explosion.png\".");
         s.path = *norm;
     }
     const bool hasPrefab = a.contains("prefab"), hasScene = a.contains("scene"), hasEntity = a.contains("entity");
     if (hasPrefab && (hasScene || hasEntity))
-        fail("invalid_argument", "Give either `prefab` or `scene` + `entity`, not both.", "A prefab is baked as it is; for an entity placed in a scene pass the scene file and the entity's id.");
+        fail("invalid_argument", "Give either `prefab` or `scene` + `entity`, not both.",
+             "A prefab is baked as it is; for an entity placed in a scene pass the scene file and the entity's id.");
     if (!hasPrefab && !(hasScene && hasEntity))
-        fail("invalid_argument", hasScene ? "`scene` needs `entity`: the id of the entity to bake." : hasEntity ? "`entity` needs `scene`: the scene file that holds it."
-                                                                                                          : "Say what to bake: `prefab`, or `scene` + `entity`.",
-             "Example: {\"path\":\"assets/fx/burst.png\",\"prefab\":\"prefabs/burst.prefab.json\",\"frames\":16,\"fps\":24}");
+        fail("invalid_argument",
+             hasScene    ? "`scene` needs `entity`: the id of the entity to bake."
+             : hasEntity ? "`entity` needs `scene`: the scene file that holds it."
+                         : "Say what to bake: `prefab`, or `scene` + `entity`.",
+             "Example: "
+             "{\"path\":\"assets/fx/burst.png\",\"prefab\":\"prefabs/burst.prefab.json\",\"frames\":16,\"fps\":24}");
     if (hasPrefab) {
         s.prefab = project_json_path(a, "prefab", "/prefab", "the prefab");
     } else {
         s.scene = project_json_path(a, "scene", "/scene", "the scene");
         if (!a["entity"].is_string() || a["entity"].get<std::string>().empty())
-            bad("/entity", "expected the id of an entity of the scene.", "Use scene.list_entities or open the scene file to see the ids.");
+            bad("/entity", "expected the id of an entity of the scene.",
+                "Use scene.list_entities or open the scene file to see the ids.");
         s.entity = a["entity"].get<std::string>();
     }
 
-    s.frames = int_arg(a, "frames", 12, 1, kMaxFrames, "Frames per clip (or in all, without `clips`); 8 to 24 is typical.");
-    s.fps = number_arg(a, "", "fps", 12, 1, 240, "Frames per second of simulated time; the fixed step of the project (60 Hz by default) is the highest that makes different frames.");
+    s.frames =
+        int_arg(a, "frames", 12, 1, kMaxFrames, "Frames per clip (or in all, without `clips`); 8 to 24 is typical.");
+    s.fps = number_arg(a, "", "fps", 12, 1, 240,
+                       "Frames per second of simulated time; the fixed step of the project (60 Hz by default) is the "
+                       "highest that makes different frames.");
     s.columns = int_arg(a, "columns", 0, 0, kMaxFrames, "Leave it out (or 0) for a square-ish grid.");
     s.frameWidth = int_arg(a, "frameWidth", 0, 0, kMaxSheetSide, "Pixels. Leave out to fit the animation.");
     s.frameHeight = int_arg(a, "frameHeight", 0, 0, kMaxSheetSide, "Pixels. Leave out to fit the animation.");
     if (a.contains("scale") && !a["scale"].is_null())
-        s.scale = number_arg(a, "", "scale", 1, kMinScale, kMaxScale, "Pixels per world unit: 1 draws the entity at the size it has in the world, 2 twice as big. Leave it out to fit frameWidth x frameHeight, or 1.");
+        s.scale = number_arg(a, "", "scale", 1, kMinScale, kMaxScale,
+                             "Pixels per world unit: 1 draws the entity at the size it has in the world, 2 twice as "
+                             "big. Leave it out to fit frameWidth x frameHeight, or 1.");
     if (a.contains("pivot") && !a["pivot"].is_null()) {
         const Json& p = a["pivot"];
-        if (!p.is_array() || p.size() != 2 || !p[0].is_number() || !p[1].is_number() || p[0].get<double>() < 0 || p[0].get<double>() > 1 || p[1].get<double>() < 0 || p[1].get<double>() > 1)
-            bad("/pivot", "expected [x, y], two numbers from 0 to 1.", "The point of the frame, counted from its top-left corner, where the entity's origin lands: [0.5, 1] is the middle of the bottom edge (a character's feet). Leave it out to keep the origin where the animation puts it.");
+        if (!p.is_array() || p.size() != 2 || !p[0].is_number() || !p[1].is_number() || p[0].get<double>() < 0 ||
+            p[0].get<double>() > 1 || p[1].get<double>() < 0 || p[1].get<double>() > 1)
+            bad("/pivot", "expected [x, y], two numbers from 0 to 1.",
+                "The point of the frame, counted from its top-left corner, where the entity's origin lands: [0.5, 1] "
+                "is the middle of the bottom edge (a character's feet). Leave it out to keep the origin where the "
+                "animation puts it.");
         s.pivot = std::array<double, 2>{p[0].get<double>(), p[1].get<double>()};
     }
-    s.warmup = number_arg(a, "", "warmup", 0, 0, 3600, "Seconds of simulated time to play before the first frame (a particle system that should start full).");
+    s.warmup = number_arg(
+        a, "", "warmup", 0, 0, 3600,
+        "Seconds of simulated time to play before the first frame (a particle system that should start full).");
     s.seed = tooling_detail::arg_int(a, "seed", 1);
-    if (a.contains("background") && !a["background"].is_null()) s.background = colour_arg(kCommand, a["background"], "/background");
-    s.padding = int_arg(a, "padding", 1, 0, 64, "Transparent pixels around every cell (twice between two cells) so a filtered sprite does not bleed into its neighbour.");
+    if (a.contains("background") && !a["background"].is_null())
+        s.background = colour_arg(kCommand, a["background"], "/background");
+    s.padding = int_arg(a, "padding", 1, 0, 64,
+                        "Transparent pixels around every cell (twice between two cells) so a filtered sprite does not "
+                        "bleed into its neighbour.");
     s.margin = int_arg(a, "margin", 2, 0, 256, "Pixels of empty space kept around the animation's outline.");
     s.overwrite = tooling_detail::arg_bool(a, "overwrite", false);
 
     if (a.contains("clips") && !a["clips"].is_null()) {
         const Json& list = a["clips"];
         if (!list.is_array() || list.empty())
-            bad("/clips", "expected a non-empty array of clips.", "Example: [{\"name\":\"explode\",\"call\":\"explode\",\"frames\":24}, {\"name\":\"idle\",\"frames\":8}]");
+            bad("/clips", "expected a non-empty array of clips.",
+                "Example: [{\"name\":\"explode\",\"call\":\"explode\",\"frames\":24}, "
+                "{\"name\":\"idle\",\"frames\":8}]");
         std::set<std::string> names;
         for (std::size_t i = 0; i < list.size(); ++i) {
             const Json& c = list[i];
             const std::string at = "/clips/" + std::to_string(i);
-            if (!c.is_object()) bad(at, "expected an object {name, call | event, frames}.", "Example: {\"name\":\"explode\",\"call\":\"explode\",\"frames\":24}");
-            check_arg_keys(kCommand, c, at, {"name", "clip", "call", "args", "event", "data", "frames", "fps", "loop", "warmup"});
+            if (!c.is_object())
+                bad(at, "expected an object {name, call | event, frames}.",
+                    "Example: {\"name\":\"explode\",\"call\":\"explode\",\"frames\":24}");
+            check_arg_keys(kCommand, c, at,
+                           {"name", "clip", "call", "args", "event", "data", "frames", "fps", "loop", "warmup"});
             ClipSpec clip;
             if (!c.contains("name") || !c["name"].is_string() || c["name"].get<std::string>().empty())
-                bad(at + "/name", "every clip needs a name.", "The name SpriteAnimator.clip plays it by: \"idle\", \"explode\"...");
+                bad(at + "/name", "every clip needs a name.",
+                    "The name SpriteAnimator.clip plays it by: \"idle\", \"explode\"...");
             clip.name = c["name"].get<std::string>();
-            if (!names.insert(clip.name).second) bad(at + "/name", "two clips are called '" + clip.name + "'.", "Clip names are unique in a sheet.");
+            if (!names.insert(clip.name).second)
+                bad(at + "/name", "two clips are called '" + clip.name + "'.", "Clip names are unique in a sheet.");
             if (c.contains("call") && c.contains("event"))
-                bad(at, "give `call` or `event`, not both.", "`call` runs a method of the entity's behaviour; `event` sends a game event the scripts listen to with world.on.");
+                bad(at, "give `call` or `event`, not both.",
+                    "`call` runs a method of the entity's behaviour; `event` sends a game event the scripts listen to "
+                    "with world.on.");
             if (c.contains("clip")) {
                 if (c.contains("call") || c.contains("event"))
                     bad(at, "`clip` cannot go with `call` or `event`: give one way to start the clip.",
-                        "`clip` plays a clip of the entity's Animator from time 0; `call` runs a method of the behaviour and `event` sends a game event. To start an Animator clip from a script use `call` and animator.play() in the method.");
+                        "`clip` plays a clip of the entity's Animator from time 0; `call` runs a method of the "
+                        "behaviour and `event` sends a game event. To start an Animator clip from a script use `call` "
+                        "and animator.play() in the method.");
                 if (!c["clip"].is_string() || c["clip"].get<std::string>().empty())
-                    bad(at + "/clip", "expected the name of a clip of the entity's Animator.", "The key in Animator.clips (\"walk\"), or the name of an animation of its glTF model.");
+                    bad(at + "/clip", "expected the name of a clip of the entity's Animator.",
+                        "The key in Animator.clips (\"walk\"), or the name of an animation of its glTF model.");
                 clip.clip = c["clip"].get<std::string>();
             }
             if (c.contains("call")) {
                 if (!c["call"].is_string() || c["call"].get<std::string>().empty())
-                    bad(at + "/call", "expected the name of a method of the entity's behaviour.", "Example: \"call\": \"explode\" runs this.explode() of the entity's Script.");
+                    bad(at + "/call", "expected the name of a method of the entity's behaviour.",
+                        "Example: \"call\": \"explode\" runs this.explode() of the entity's Script.");
                 clip.call = c["call"].get<std::string>();
             }
             if (c.contains("args")) {
                 if (!c["args"].is_array() || clip.call.empty())
-                    bad(at + "/args", "expected an array of arguments, and only next to `call`.", "Example: {\"call\":\"hit\",\"args\":[3]} runs this.hit(3).");
+                    bad(at + "/args", "expected an array of arguments, and only next to `call`.",
+                        "Example: {\"call\":\"hit\",\"args\":[3]} runs this.hit(3).");
                 clip.callArgs = c["args"];
             }
             if (c.contains("event")) {
                 if (!c["event"].is_string() || c["event"].get<std::string>().empty())
-                    bad(at + "/event", "expected the name of a game event.", "Example: \"event\": \"boss.die\" is what world.on(\"boss.die\", ...) hears.");
+                    bad(at + "/event", "expected the name of a game event.",
+                        "Example: \"event\": \"boss.die\" is what world.on(\"boss.die\", ...) hears.");
                 clip.event = c["event"].get<std::string>();
             }
             if (c.contains("data")) {
-                if (clip.event.empty()) bad(at + "/data", "`data` goes with `event`.", "Example: {\"event\":\"boss.die\",\"data\":{\"fast\":true}}");
+                if (clip.event.empty())
+                    bad(at + "/data", "`data` goes with `event`.",
+                        "Example: {\"event\":\"boss.die\",\"data\":{\"fast\":true}}");
                 clip.eventData = c["data"];
             }
             clip.framesGiven = c.contains("frames") && !c["frames"].is_null();
             clip.frames = int_arg(c, "frames", s.frames, 1, kMaxFrames, "Frames of this clip.");
             clip.fps = number_arg(c, at, "fps", s.fps, 1, 240, "Frames per second of this clip.");
             if (c.contains("loop")) {
-                if (!c["loop"].is_boolean()) bad(at + "/loop", "expected true or false.", "Whether SpriteAnimator repeats the clip; a one-shot explosion is false.");
+                if (!c["loop"].is_boolean())
+                    bad(at + "/loop", "expected true or false.",
+                        "Whether SpriteAnimator repeats the clip; a one-shot explosion is false.");
                 clip.loop = c["loop"].get<bool>();
                 clip.loopGiven = true;
             }
-            if (c.contains("warmup")) clip.warmup = number_arg(c, at, "warmup", 0, 0, 3600, "Seconds played before this clip's first frame.");
+            if (c.contains("warmup"))
+                clip.warmup = number_arg(c, at, "warmup", 0, 0, 3600, "Seconds played before this clip's first frame.");
             s.clips.push_back(std::move(clip));
         }
     }
     int total = 0;
     if (s.clips.empty()) total = s.frames;
     for (const ClipSpec& c : s.clips)
-        if (c.clip.empty() || c.framesGiven) total += c.frames;  // an Animator clip without `frames` is counted once its duration is known
+        if (c.clip.empty() || c.framesGiven)
+            total += c.frames;  // an Animator clip without `frames` is counted once its duration is known
     if (total > kMaxFrames)
-        fail("invalid_argument", std::format("The sheet would have {} frames; the most is {}.", total, kMaxFrames), "Bake fewer frames, or split the clips over two sheets.");
+        fail("invalid_argument", std::format("The sheet would have {} frames; the most is {}.", total, kMaxFrames),
+             "Bake fewer frames, or split the clips over two sheets.");
     return s;
 }
 
@@ -248,13 +304,14 @@ void place_at_origin(Json& entity, double z) {
 double position_z(const Json& entity) {
     if (!entity.contains("components") || !entity["components"].is_object()) return 0;
     const Json& comps = entity["components"];
-    if (!comps.contains("Transform") || !comps["Transform"].is_object() || !comps["Transform"].contains("position")) return 0;
+    if (!comps.contains("Transform") || !comps["Transform"].is_object() || !comps["Transform"].contains("position"))
+        return 0;
     const Json& p = comps["Transform"]["position"];
     return p.is_array() && p.size() >= 3 && p[2].is_number() ? p[2].get<double>() : 0;
 }
 
 struct Source {
-    std::string file;      // the prefab or the scene file (project-relative): the input of the recipe, the name in messages
+    std::string file;  // the prefab or the scene file (project-relative): the input of the recipe, the name in messages
     std::string targetId;  // the id of the entity in the bake scene
     Json entity;           // its JSON in the bake scene
 };
@@ -265,23 +322,36 @@ Source load_source(const std::string& projectDir, const Spec& spec) {
     const stdfs::path file = project_file(projectDir, src.file);
     std::error_code ec;
     if (!stdfs::is_regular_file(file, ec))
-        fail("not_found", "'" + src.file + "' does not exist.", spec.prefab.empty() ? "Use scene.list_entities or check the scene's path." : "Check the path of the prefab; prefabs end in .prefab.json and live in the project folder.");
+        fail("not_found", "'" + src.file + "' does not exist.",
+             spec.prefab.empty()
+                 ? "Use scene.list_entities or check the scene's path."
+                 : "Check the path of the prefab; prefabs end in .prefab.json and live in the project folder.");
     auto text = tooling_detail::read_file(file);
     auto doc = text ? parse_json(*text, src.file) : Result<Json>(Error{"cannot read " + src.file, ""});
-    if (!doc.ok()) fail("invalid_argument", "'" + src.file + "' is not valid JSON: " + doc.error().message, doc.error().hint);
+    if (!doc.ok())
+        fail("invalid_argument", "'" + src.file + "' is not valid JSON: " + doc.error().message, doc.error().hint);
     if (!spec.prefab.empty()) {
         if (!doc->is_object() || !doc->contains("entity") || !(*doc)["entity"].is_object())
-            fail("invalid_argument", "'" + src.file + "' is not a prefab: it has no \"entity\" object.", "A prefab file looks like {\"format\": \"factoria.prefab/1\", \"entity\": {...}}.");
+            fail("invalid_argument", "'" + src.file + "' is not a prefab: it has no \"entity\" object.",
+                 "A prefab file looks like {\"format\": \"factoria.prefab/1\", \"entity\": {...}}.");
         const Json& e = (*doc)["entity"];
-        src.targetId = e.contains("id") && e["id"].is_string() && !e["id"].get<std::string>().empty() ? e["id"].get<std::string>() : kDefaultTargetId;
+        src.targetId = e.contains("id") && e["id"].is_string() && !e["id"].get<std::string>().empty()
+                           ? e["id"].get<std::string>()
+                           : kDefaultTargetId;
         src.entity = Json::object({{"prefab", src.file}, {"id", src.targetId}});
         place_at_origin(src.entity, position_z(e));
     } else {
         const Json* found = nullptr;
         std::vector<std::string> ids;
-        if (!doc->is_object() || !doc->contains("entities") || !find_entity((*doc)["entities"], spec.entity, found, ids))
+        if (!doc->is_object() || !doc->contains("entities") ||
+            !find_entity((*doc)["entities"], spec.entity, found, ids))
             fail("not_found", "The scene '" + src.file + "' has no entity '" + spec.entity + "'.",
-                 ids.empty() ? "The scene lists no entities with an id." : did_you_mean(spec.entity, ids) + " Entities of the scene: " + join(std::vector<std::string>(ids.begin(), ids.begin() + std::min<std::size_t>(ids.size(), 12)), ", ") + ".");
+                 ids.empty() ? "The scene lists no entities with an id."
+                             : did_you_mean(spec.entity, ids) + " Entities of the scene: " +
+                                   join(std::vector<std::string>(ids.begin(),
+                                                                 ids.begin() + std::min<std::size_t>(ids.size(), 12)),
+                                        ", ") +
+                                   ".");
         src.targetId = spec.entity;
         src.entity = *found;
         place_at_origin(src.entity, position_z(*found));
@@ -291,7 +361,8 @@ Source load_source(const std::string& projectDir, const Spec& spec) {
 
 // The project files the entity depends on (scripts, textures, nested prefabs): the inputs of the recipe, so a changed script
 // makes the sheet stale.
-void collect_inputs(const std::string& projectDir, const Json& node, const std::string& parentKey, std::set<std::string>& out, int depth = 0) {
+void collect_inputs(const std::string& projectDir, const Json& node, const std::string& parentKey,
+                    std::set<std::string>& out, int depth = 0) {
     if (depth > 12) return;
     auto add_file = [&](const std::string& rel) {
         auto norm = fs::normalize_checked(rel);
@@ -306,7 +377,8 @@ void collect_inputs(const std::string& projectDir, const Json& node, const std::
         for (auto it = node.begin(); it != node.end(); ++it) {
             if (it->is_string()) {
                 const std::string& key = it.key();
-                if (key == "texture" || key == "prefab" || (key == "path" && parentKey == "Script") || parentKey == "clips" || (key == "model" && parentKey == "Animator"))
+                if (key == "texture" || key == "prefab" || (key == "path" && parentKey == "Script") ||
+                    parentKey == "clips" || (key == "model" && parentKey == "Animator"))
                     add_file(it->get<std::string>());
                 if (key == "prefab") {
                     auto loaded = load_json_file((stdfs::path(projectDir) / it->get<std::string>()).generic_string());
@@ -324,7 +396,9 @@ void collect_inputs(const std::string& projectDir, const Json& node, const std::
 bool any_ai(const Json& node, const std::string& projectDir, const std::set<std::string>& files) {
     for (const std::string& rel : files) {
         const Json e = assets::entry(rel);
-        if (e.is_object() && e.contains("provenance") && e["provenance"].is_object() && e["provenance"].value("ai", false)) return true;
+        if (e.is_object() && e.contains("provenance") && e["provenance"].is_object() &&
+            e["provenance"].value("ai", false))
+            return true;
     }
     (void)node;
     (void)projectDir;
@@ -335,7 +409,8 @@ Json camera_scene(const Json* entity, double orthoSize) {
     Json camera = Json::object(
         {{"id", kCameraId},
          {"components", Json::object({{"Transform", Json::object({{"position", Json::array({0, 0, 0})}})},
-                                      {"Camera", Json::object({{"orthoSize", orthoSize}, {"clearColor", Json::array({0, 0, 0, 0})}})}})}});
+                                      {"Camera", Json::object({{"orthoSize", orthoSize},
+                                                               {"clearColor", Json::array({0, 0, 0, 0})}})}})}});
     Json entities = Json::array({camera});
     if (entity) entities.push_back(*entity);
     return Json::object({{"format", "factoria.scene/1"}, {"entities", entities}});
@@ -343,7 +418,7 @@ Json camera_scene(const Json* entity, double orthoSize) {
 
 // ---- one run of the animation ---------------------------------------------------------------------------------------------
 
-struct Crop {            // the pixels a frame drew (premultiplied, as the GPU left them) and where they sit on the canvas
+struct Crop {  // the pixels a frame drew (premultiplied, as the GPU left them) and where they sit on the canvas
     int x0 = 0, y0 = 0, w = 0, h = 0;
     std::vector<std::uint8_t> rgba;
     bool empty() const { return w == 0; }
@@ -353,7 +428,7 @@ struct ClipFrames {
     std::vector<Crop> frames;
 };
 
-struct ResolvedClip {   // what a clip of the Animator turned out to be (the arguments, or the clip file, fill the gaps)
+struct ResolvedClip {  // what a clip of the Animator turned out to be (the arguments, or the clip file, fill the gaps)
     int frames = 0;
     bool loop = true;
 };
@@ -363,14 +438,18 @@ struct Pass {
     int canvas = 0;
     double scale = 1;
     std::vector<ClipFrames> clips;
-    int x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // the union of what was drawn, with the origin (canvas pixels; x1, y1 exclusive)
+    int x0 = 0, y0 = 0, x1 = 0,
+        y1 = 0;  // the union of what was drawn, with the origin (canvas pixels; x1, y1 exclusive)
     bool any = false;
     bool touchesEdge = false;
 };
 
-std::string clip_label(const Spec& spec, std::size_t i) { return spec.clips.empty() ? std::string("the animation") : "clip '" + spec.clips[i].name + "'"; }
+std::string clip_label(const Spec& spec, std::size_t i) {
+    return spec.clips.empty() ? std::string("the animation") : "clip '" + spec.clips[i].name + "'";
+}
 
-[[noreturn]] void script_failure(const std::string& what, const std::string& file, const std::string& detail, const std::string& hint) {
+[[noreturn]] void script_failure(const std::string& what, const std::string& file, const std::string& detail,
+                                 const std::string& hint) {
     fail("script_error", "Baking '" + file + "' failed: " + what + (detail.empty() ? "" : ": " + detail), hint);
 }
 
@@ -383,16 +462,24 @@ std::string first_script_error(Engine& engine) {
 std::string trigger_code(const Source& src, const ClipSpec& clip) {
     if (!clip.call.empty()) {
         return "(() => {"
-               "const e = world.find(" + Json(src.targetId).dump() + "); if (!e) return {error: 'entity'};"
+               "const e = world.find(" +
+               Json(src.targetId).dump() +
+               "); if (!e) return {error: 'entity'};"
                "const b = e.behaviour; if (!b) return {error: 'behaviour'};"
-               "const name = " + Json(clip.call).dump() + "; const m = b[name];"
+               "const name = " +
+               Json(clip.call).dump() +
+               "; const m = b[name];"
                "if (typeof m !== 'function') { const names = []; let o = b;"
-               " while (o && o !== Object.prototype) { for (const k of Object.getOwnPropertyNames(o)) { if (k === 'constructor') continue;"
-               "  let v; try { v = b[k]; } catch (err) { continue; } if (typeof v === 'function' && !names.includes(k)) names.push(k); } o = Object.getPrototypeOf(o); }"
+               " while (o && o !== Object.prototype) { for (const k of Object.getOwnPropertyNames(o)) { if (k === "
+               "'constructor') continue;"
+               "  let v; try { v = b[k]; } catch (err) { continue; } if (typeof v === 'function' && "
+               "!names.includes(k)) names.push(k); } o = Object.getPrototypeOf(o); }"
                " return {error: 'method', methods: names}; }"
-               "m.apply(b, " + clip.callArgs.dump() + "); return {ok: true}; })()";
+               "m.apply(b, " +
+               clip.callArgs.dump() + "); return {ok: true}; })()";
     }
-    return "(world.emit(" + Json(clip.event).dump() + ", " + (clip.eventData.is_null() ? std::string("{}") : clip.eventData.dump()) + "), {ok: true})";
+    return "(world.emit(" + Json(clip.event).dump() + ", " +
+           (clip.eventData.is_null() ? std::string("{}") : clip.eventData.dump()) + "), {ok: true})";
 }
 
 void tight_crop(const Image& img, Crop& out) {
@@ -415,7 +502,8 @@ void tight_crop(const Image& img, Crop& out) {
     out.h = y1 - y0;
     out.rgba.resize(std::size_t(out.w) * out.h * 4);
     for (int y = 0; y < out.h; ++y)
-        std::copy_n(&img.rgba[(std::size_t(y0 + y) * img.width + x0) * 4], std::size_t(out.w) * 4, &out.rgba[std::size_t(y) * out.w * 4]);
+        std::copy_n(&img.rgba[(std::size_t(y0 + y) * img.width + x0) * 4], std::size_t(out.w) * 4,
+                    &out.rgba[std::size_t(y) * out.w * 4]);
 }
 
 struct TempScene {
@@ -429,16 +517,25 @@ struct TempScene {
 // Plays the clip `clip.clip` of the baked entity's Animator from its time 0, with no cross-fade, and says how many frames it
 // takes and whether it loops. The Animator's state machine is switched off (it would leave the clip), its layers stay. The first
 // frame shows the pose at time 0; the next ones step the Animator on the fixed clock like any other bake.
-void start_animator_clip(Engine& engine, const Source& src, const Spec& spec, std::size_t ci, const ClipSpec& clip, ResolvedClip& out) {
+void start_animator_clip(Engine& engine, const Source& src, const Spec& spec, std::size_t ci, const ClipSpec& clip,
+                         ResolvedClip& out) {
     World& world = engine.world();
     const Entity e = world.find_by_id(src.targetId);
     Animator* an = e.is_null() ? nullptr : world.get<Animator>(e);
     if (!an)
-        fail("invalid_argument", std::format("{} plays the Animator clip '{}', and the entity '{}' of '{}' has no Animator.", clip_label(spec, ci), clip.clip, src.targetId, src.file),
-             "Add an Animator to the entity: {\"Animator\": {\"clips\": {\"" + clip.clip + "\": \"anim/" + clip.clip + ".anim.json\"}}} for a character built in parts, or a MeshRenderer with a glTF model that has the animation. "
-             "Or use `call` / `event` to start the clip from a script.");
+        fail("invalid_argument",
+             std::format("{} plays the Animator clip '{}', and the entity '{}' of '{}' has no Animator.",
+                         clip_label(spec, ci), clip.clip, src.targetId, src.file),
+             "Add an Animator to the entity: {\"Animator\": {\"clips\": {\"" + clip.clip + "\": \"anim/" + clip.clip +
+                 ".anim.json\"}}} for a character built in parts, or a MeshRenderer with a glTF model that has the "
+                 "animation. "
+                 "Or use `call` / `event` to start the clip from a script.");
     auto listed = animator_clips(world, e);
-    if (!listed.ok()) fail("invalid_argument", std::format("{} cannot read the clips of the Animator of '{}': {}", clip_label(spec, ci), src.targetId, listed.error().message), listed.error().hint);
+    if (!listed.ok())
+        fail("invalid_argument",
+             std::format("{} cannot read the clips of the Animator of '{}': {}", clip_label(spec, ci), src.targetId,
+                         listed.error().message),
+             listed.error().hint);
     std::vector<std::string> names;
     const Json* found = nullptr;
     for (const Json& c : *listed) {
@@ -447,10 +544,17 @@ void start_animator_clip(Engine& engine, const Source& src, const Spec& spec, st
         if (n == clip.clip) found = &c;
     }
     if (!found)
-        fail("invalid_argument", std::format("{} asks for the Animator clip '{}', which the Animator of '{}' does not have.", clip_label(spec, ci), clip.clip, src.targetId),
-             (names.empty() ? std::string("The Animator has no clips; add some to Animator.clips.") : did_you_mean(clip.clip, names) + " Clips of the Animator: " + join(names, ", ") + ".") + " The clip is the key of Animator.clips (or the name of an animation of its model), not a file name.");
+        fail("invalid_argument",
+             std::format("{} asks for the Animator clip '{}', which the Animator of '{}' does not have.",
+                         clip_label(spec, ci), clip.clip, src.targetId),
+             (names.empty() ? std::string("The Animator has no clips; add some to Animator.clips.")
+                            : did_you_mean(clip.clip, names) + " Clips of the Animator: " + join(names, ", ") + ".") +
+                 " The clip is the key of Animator.clips (or the name of an animation of its model), not a file name.");
     if (found->contains("error"))
-        fail("invalid_argument", std::format("{} cannot play '{}': {}", clip_label(spec, ci), clip.clip, found->value("error", std::string())), "Fix the clip file (factoria validate checks it), then bake again.");
+        fail("invalid_argument",
+             std::format("{} cannot play '{}': {}", clip_label(spec, ci), clip.clip,
+                         found->value("error", std::string())),
+             "Fix the clip file (factoria validate checks it), then bake again.");
 
     const double duration = found->value("duration", 0.0);
     const bool fileLoop = found->value("loop", true) && an->loop;
@@ -459,16 +563,23 @@ void start_animator_clip(Engine& engine, const Source& src, const Spec& spec, st
         // A looping clip ends where it started, so its last frame is one step short of the duration; a clip that stops shows its last pose too.
         const long n = std::lround(duration * clip.fps) + (fileLoop ? 0 : 1);
         if (n > kMaxFrames)
-            fail("invalid_argument", std::format("{} lasts {} s, which is {} frames at {} fps; the most is {}.", clip_label(spec, ci), duration, n, clip.fps, kMaxFrames), "Give `frames` or a lower `fps`.");
+            fail("invalid_argument",
+                 std::format("{} lasts {} s, which is {} frames at {} fps; the most is {}.", clip_label(spec, ci),
+                             duration, n, clip.fps, kMaxFrames),
+                 "Give `frames` or a lower `fps`.");
         out.frames = int(std::max<long>(1, n));
     }
 
     an->states = Json::object();
     an->transitions = Json::array();
     an->state.clear();
-    Result<void> r = animator_sample(world, e, clip.clip, 0.0f);  // 2D clips: the pose at time 0 (it pauses the Animator)
-    if (!r.ok()) r = animator_play(world, e, clip.clip, 0.0f);    // glTF
-    if (!r.ok()) fail("invalid_argument", std::format("{} cannot play '{}': {}", clip_label(spec, ci), clip.clip, r.error().message), r.error().hint);
+    Result<void> r =
+        animator_sample(world, e, clip.clip, 0.0f);             // 2D clips: the pose at time 0 (it pauses the Animator)
+    if (!r.ok()) r = animator_play(world, e, clip.clip, 0.0f);  // glTF
+    if (!r.ok())
+        fail("invalid_argument",
+             std::format("{} cannot play '{}': {}", clip_label(spec, ci), clip.clip, r.error().message),
+             r.error().hint);
     an->time = an->rt.lastTime = 0.0f;
     an->playing = true;
     update_animators(world, 0.0f);  // writes the pose of time 0 without advancing it
@@ -485,7 +596,8 @@ Pass run_pass(const std::string& projectDir, const Spec& spec, const Source& src
     temp.file = project_file(projectDir, sceneRel);
     {
         std::string err;
-        if (!tooling_detail::write_file(temp.file, camera_scene(nullptr, orthoSize).dump(2), &err)) fail("failed", "Cannot write the scene the bake starts from: " + err);
+        if (!tooling_detail::write_file(temp.file, camera_scene(nullptr, orthoSize).dump(2), &err))
+            fail("failed", "Cannot write the scene the bake starts from: " + err);
     }
     EngineConfig cfg = tooling_detail::headless_engine_config(projectDir, sceneRel, true, RenderMode::OnDemand);
     cfg.width = canvas;
@@ -509,19 +621,27 @@ Pass run_pass(const std::string& projectDir, const Spec& spec, const Source& src
         fallback.fps = spec.fps;
         ClipSpec clip = spec.clips.empty() ? fallback : spec.clips[ci];  // a copy: an Animator clip fills in its frames
         if (clip.fps > fixedHz + 1e-9)
-            fail("invalid_argument", std::format("{} asks for {} frames per second, and the simulation steps {} times per second: some frames would repeat.", clip_label(spec, ci), clip.fps, fixedHz),
-                 "Use a fps of at most " + std::to_string(int(fixedHz)) + " (fixedHz in factoria.json is the simulation rate).");
+            fail("invalid_argument",
+                 std::format("{} asks for {} frames per second, and the simulation steps {} times per second: some "
+                             "frames would repeat.",
+                             clip_label(spec, ci), clip.fps, fixedHz),
+                 "Use a fps of at most " + std::to_string(int(fixedHz)) +
+                     " (fixedHz in factoria.json is the simulation rate).");
 
         // A fresh world for each clip, with the same seed: a clip does not depend on the ones before it.
         std::string loadError;
-        if (!engine.load_scene_json(sceneJson, src.file, &loadError)) fail("invalid_argument", "Cannot load '" + src.file + "' for baking: " + loadError, "Open the file and fix what the message points at; scene.import_ascii / project.validate help.");
+        if (!engine.load_scene_json(sceneJson, src.file, &loadError))
+            fail("invalid_argument", "Cannot load '" + src.file + "' for baking: " + loadError,
+                 "Open the file and fix what the message points at; scene.import_ascii / project.validate help.");
         engine.world().rng().reseed(std::uint64_t(spec.seed));
         engine.scripts().clear_errors();
         engine.step(1);  // the scripts of the entity start
         const double warmup = clip.warmup ? *clip.warmup : spec.warmup;
         if (const long n = std::lround(warmup * fixedHz); n > 0) engine.step(int(n));
         if (std::string e = first_script_error(engine); !e.empty())
-            script_failure("a script failed while the entity started" + std::string(spec.clips.empty() ? "" : " (" + clip_label(spec, ci) + ")"), src.file, e,
+            script_failure("a script failed while the entity started" +
+                               std::string(spec.clips.empty() ? "" : " (" + clip_label(spec, ci) + ")"),
+                           src.file, e,
                            "Fix the script (script.errors lists the errors of a running game), then bake again.");
 
         ResolvedClip resolved{clip.frames, clip.loop};
@@ -529,20 +649,33 @@ Pass run_pass(const std::string& projectDir, const Spec& spec, const Source& src
         if (!clip.call.empty() || !clip.event.empty()) {
             auto r = engine.scripts().eval(trigger_code(src, clip));
             if (!r.ok())
-                script_failure(std::format("{} could not be started with {}", clip_label(spec, ci), clip.call.empty() ? "the event '" + clip.event + "'" : "the call '" + clip.call + "'"), src.file, r.error().message,
-                               "The method is called on the behaviour of the entity '" + src.targetId + "'; fix the script and bake again.");
+                script_failure(
+                    std::format("{} could not be started with {}", clip_label(spec, ci),
+                                clip.call.empty() ? "the event '" + clip.event + "'" : "the call '" + clip.call + "'"),
+                    src.file, r.error().message,
+                    "The method is called on the behaviour of the entity '" + src.targetId +
+                        "'; fix the script and bake again.");
             const std::string what = r->value("error", std::string());
             if (what == "entity" || what == "behaviour")
-                script_failure(std::format("{} calls '{}', and the entity '{}' {}", clip_label(spec, ci), clip.call, src.targetId, what == "entity" ? "is not in the baked world" : "has no Script"), src.file, "",
-                               "`call` runs a method of the entity's behaviour: add a Script component to the entity, or use `event` to send a game event instead.");
+                script_failure(std::format("{} calls '{}', and the entity '{}' {}", clip_label(spec, ci), clip.call,
+                                           src.targetId,
+                                           what == "entity" ? "is not in the baked world" : "has no Script"),
+                               src.file, "",
+                               "`call` runs a method of the entity's behaviour: add a Script component to the entity, "
+                               "or use `event` to send a game event instead.");
             if (what == "method") {
                 std::vector<std::string> methods;
                 for (const Json& m : (*r)["methods"]) methods.push_back(m.get<std::string>());
-                script_failure(std::format("{} calls '{}', which the behaviour of '{}' does not have", clip_label(spec, ci), clip.call, src.targetId), src.file, "",
-                               (methods.empty() ? std::string("The behaviour has no methods.") : did_you_mean(clip.call, methods) + " Its methods: " + join(methods, ", ") + "."));
+                script_failure(std::format("{} calls '{}', which the behaviour of '{}' does not have",
+                                           clip_label(spec, ci), clip.call, src.targetId),
+                               src.file, "",
+                               (methods.empty()
+                                    ? std::string("The behaviour has no methods.")
+                                    : did_you_mean(clip.call, methods) + " Its methods: " + join(methods, ", ") + "."));
             }
             if (std::string e = first_script_error(engine); !e.empty())
-                script_failure(std::format("{} raised an error when it started", clip_label(spec, ci)), src.file, e, "Fix the script (script.errors lists the errors of a running game), then bake again.");
+                script_failure(std::format("{} raised an error when it started", clip_label(spec, ci)), src.file, e,
+                               "Fix the script (script.errors lists the errors of a running game), then bake again.");
         }
 
         ClipFrames frames;
@@ -554,17 +687,23 @@ Pass run_pass(const std::string& projectDir, const Spec& spec, const Source& src
             if (target > stepped) engine.step(int(target - stepped));
             stepped = target;
             if (std::string e = first_script_error(engine); !e.empty())
-                script_failure(std::format("a script failed at frame {} of {}", f, clip_label(spec, ci)), src.file, e, "Fix the script (script.errors lists the errors of a running game), then bake again.");
+                script_failure(std::format("a script failed at frame {} of {}", f, clip_label(spec, ci)), src.file, e,
+                               "Fix the script (script.errors lists the errors of a running game), then bake again.");
             Image img;
             if (!engine.capture_scaled(img, 1.0, &err)) {
                 if (first && err.find("No renderer") != std::string::npos)
-                    fail("no_gpu", "Baking draws with the GPU, and this computer has no graphics device the engine can use. " + err,
-                         "Run it on a machine with a GPU (Metal, Direct3D 11, OpenGL); a Linux CI needs Mesa's EGL (llvmpipe).");
-                fail("failed", "Cannot capture frame " + std::to_string(f) + " of " + clip_label(spec, ci) + ": " + err);
+                    fail("no_gpu",
+                         "Baking draws with the GPU, and this computer has no graphics device the engine can use. " +
+                             err,
+                         "Run it on a machine with a GPU (Metal, Direct3D 11, OpenGL); a Linux CI needs Mesa's EGL "
+                         "(llvmpipe).");
+                fail("failed",
+                     "Cannot capture frame " + std::to_string(f) + " of " + clip_label(spec, ci) + ": " + err);
             }
             first = false;
             if (img.width != canvas || img.height != canvas)
-                fail("failed", std::format("The engine drew {}x{} pixels where {}x{} were asked.", img.width, img.height, canvas, canvas));
+                fail("failed", std::format("The engine drew {}x{} pixels where {}x{} were asked.", img.width,
+                                           img.height, canvas, canvas));
             Crop crop;
             tight_crop(img, crop);
             if (!crop.empty()) {
@@ -604,17 +743,21 @@ struct Axis {
 };
 
 // `before` and `after`: pixels the animation needs before and after the pivot (the margin included).
-Axis fit_axis(int before, int after, int given, std::optional<double> pivot, const char* sizeArg, const char* dimension, const char* startSide, const char* endSide, double scale) {
+Axis fit_axis(int before, int after, int given, std::optional<double> pivot, const char* sizeArg, const char* dimension,
+              const char* startSide, const char* endSide, double scale) {
     Axis a;
     auto too_small = [&](int needed) {
-        a.error = std::format("The animation reaches {} px {} the pivot and {} px {} it (the margin included) at scale {}, so the frame needs a {} of {} px{}, and {} is {}.",
-                              before, startSide, after, endSide, scale, dimension, needed, pivot ? " at that pivot" : "", sizeArg, given);
+        a.error = std::format("The animation reaches {} px {} the pivot and {} px {} it (the margin included) at scale "
+                              "{}, so the frame needs a {} of {} px{}, and {} is {}.",
+                              before, startSide, after, endSide, scale, dimension, needed,
+                              pivot ? " at that pivot" : "", sizeArg, given);
     };
     if (given > 0) {
         if (pivot) {
             a.origin = int(std::lround(*pivot * given));
             if (a.origin < before || given - a.origin < after) {
-                too_small(*pivot > 0 && *pivot < 1 ? int(std::ceil(std::max(before / *pivot, after / (1 - *pivot)))) : before + after);
+                too_small(*pivot > 0 && *pivot < 1 ? int(std::ceil(std::max(before / *pivot, after / (1 - *pivot))))
+                                                   : before + after);
                 return a;
             }
         } else {
@@ -630,7 +773,8 @@ Axis fit_axis(int before, int after, int given, std::optional<double> pivot, con
     if (pivot) {
         const double p = *pivot;
         if ((p <= 0 && before > 0) || (p >= 1 && after > 0)) {
-            a.error = std::format("The pivot is at the very {} of the frame, but the animation reaches {} px past it.", p <= 0 ? "start" : "end", p <= 0 ? before : after);
+            a.error = std::format("The pivot is at the very {} of the frame, but the animation reaches {} px past it.",
+                                  p <= 0 ? "start" : "end", p <= 0 ? before : after);
             return a;
         }
         int size = p <= 0 ? after : p >= 1 ? before : int(std::ceil(std::max(before / p, after / (1 - p))));
@@ -656,10 +800,16 @@ Layout compute_layout(const Pass& pass, const Spec& spec) {
     const int o = pass.canvas / 2;
     Layout l;
     const int m = spec.margin;
-    const Axis ax = fit_axis(o - pass.x0 + m, pass.x1 - o + m, spec.frameWidth, spec.pivot ? std::optional<double>((*spec.pivot)[0]) : std::nullopt, "frameWidth", "width", "left of", "right of", pass.scale);
-    const Axis ay = fit_axis(o - pass.y0 + m, pass.y1 - o + m, spec.frameHeight, spec.pivot ? std::optional<double>((*spec.pivot)[1]) : std::nullopt, "frameHeight", "height", "above", "below", pass.scale);
-    if (!ax.error.empty()) l.error = ax.error;
-    else if (!ay.error.empty()) l.error = ay.error;
+    const Axis ax = fit_axis(o - pass.x0 + m, pass.x1 - o + m, spec.frameWidth,
+                             spec.pivot ? std::optional<double>((*spec.pivot)[0]) : std::nullopt, "frameWidth", "width",
+                             "left of", "right of", pass.scale);
+    const Axis ay = fit_axis(o - pass.y0 + m, pass.y1 - o + m, spec.frameHeight,
+                             spec.pivot ? std::optional<double>((*spec.pivot)[1]) : std::nullopt, "frameHeight",
+                             "height", "above", "below", pass.scale);
+    if (!ax.error.empty())
+        l.error = ax.error;
+    else if (!ay.error.empty())
+        l.error = ay.error;
     l.w = ax.size;
     l.h = ay.size;
     l.ox = ax.origin;
@@ -779,23 +929,33 @@ Json bake_in_child(const std::string& projectDir, const Json& args) {
         exe = stdfs::exists(sibling, ec) ? sibling : stdfs::path();
     }
     if (exe.empty())
-        fail("gpu_busy", "This process already uses the graphics card (the editor, a window or a session with graphics), and baking needs a second device; the factoria executable could not be located to run it in a child process.",
+        fail("gpu_busy",
+             "This process already uses the graphics card (the editor, a window or a session with graphics), and "
+             "baking needs a second device; the factoria executable could not be located to run it in a child process.",
              "Run it from a terminal: factoria call assets.bake_sheet '{...}'.");
     ProcessOptions po;
     po.argv = {exe.string(), "call", "--project", projectDir, "--no-graphics", "--json", kCommand, args.dump()};
     po.workingDir = projectDir;
     po.timeoutSeconds = 900;
     auto run = run_process(po);
-    if (!run.ok()) fail("failed", "Cannot start " + exe.string() + " to bake in a child process: " + run.error().message, run.error().hint);
+    if (!run.ok())
+        fail("failed", "Cannot start " + exe.string() + " to bake in a child process: " + run.error().message,
+             run.error().hint);
     auto out = parse_json(run->stdoutText, "<assets.bake_sheet in a child process>");
     if (!out.ok()) {
-        const std::string tail = run->stderrText.size() > 600 ? run->stderrText.substr(run->stderrText.size() - 600) : run->stderrText;
-        fail("failed", std::format("The child process that bakes (exit code {}) printed no result. Its error output ended with: {}", run->exitCode, tail),
+        const std::string tail =
+            run->stderrText.size() > 600 ? run->stderrText.substr(run->stderrText.size() - 600) : run->stderrText;
+        fail("failed",
+             std::format(
+                 "The child process that bakes (exit code {}) printed no result. Its error output ended with: {}",
+                 run->exitCode, tail),
              "Run the command from a terminal to see it: factoria call assets.bake_sheet '{...}'.");
     }
     if (out->is_object() && out->contains("ok") && (*out)["ok"] == false) {
         const Json err = out->value("error", Json::object());
-        throw CommandError(err.value("code", std::string("failed")), err.value("message", std::string("The child process failed.")), err.value("hint", std::string()));
+        throw CommandError(err.value("code", std::string("failed")),
+                           err.value("message", std::string("The child process failed.")),
+                           err.value("hint", std::string()));
     }
     return *out;
 }
@@ -806,7 +966,9 @@ Json bake_sheet(const std::string& projectDir, const Json& a) {
     const Spec spec = parse_spec(a, 60);
     const stdfs::path file = project_write_file(projectDir, spec.path);
     std::error_code ec;
-    if (!spec.overwrite && stdfs::exists(file, ec)) fail("exists", "'" + spec.path + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
+    if (!spec.overwrite && stdfs::exists(file, ec))
+        fail("exists", "'" + spec.path + "' already exists.",
+             "Pass overwrite: true to replace it, or choose another `path`.");
     ProjectRootGuard root(projectDir);
     require_usable_manifest(projectDir);
     const Source src = load_source(projectDir, spec);
@@ -826,9 +988,13 @@ Json bake_sheet(const std::string& projectDir, const Json& a) {
     Pass pass = settle(scale);
     if (!pass.any)
         fail("empty", "Nothing was drawn: every frame of '" + src.file + "' is empty.",
-             "The entity needs something visible: a Sprite or Shape2D with a size and a colour with alpha, a ParticleEmitter that has emitted by the first frame (try `warmup`), and no `active: false`. "
+             "The entity needs something visible: a Sprite or Shape2D with a size and a colour with alpha, a "
+             "ParticleEmitter that has emitted by the first frame (try `warmup`), and no `active: false`. "
              "A Text with space \"screen\" is drawn at its screen position, not around the entity.");
-    if (pass.touchesEdge) warnings.push_back(std::format("The animation reaches the edge of the {} px canvas the bake draws on, so it is cut there: lower `scale` or make the entity smaller.", pass.canvas));
+    if (pass.touchesEdge)
+        warnings.push_back(std::format("The animation reaches the edge of the {} px canvas the bake draws on, so it is "
+                                       "cut there: lower `scale` or make the entity smaller.",
+                                       pass.canvas));
 
     Layout layout;
     const bool fit = !spec.scale && spec.frameWidth > 0 && spec.frameHeight > 0;
@@ -840,12 +1006,18 @@ Json bake_sheet(const std::string& projectDir, const Json& a) {
             pass = settle(scale);
             layout = compute_layout(pass, spec);
             if (layout.error.empty()) break;
-            if (attempt >= 6) fail("invalid_argument", layout.error + " It could not be fitted by scaling.", "Make frameWidth and frameHeight larger, or the margin smaller.");
+            if (attempt >= 6)
+                fail("invalid_argument", layout.error + " It could not be fitted by scaling.",
+                     "Make frameWidth and frameHeight larger, or the margin smaller.");
         }
     } else {
         layout = compute_layout(pass, spec);
         if (!layout.error.empty())
-            fail("invalid_argument", layout.error, spec.scale ? "Make the frame larger, lower `scale`, or leave frameWidth / frameHeight out to fit the animation." : "Make the frame larger, or leave frameWidth / frameHeight out to fit the animation; with both and no `scale` the animation is scaled to fit.");
+            fail("invalid_argument", layout.error,
+                 spec.scale ? "Make the frame larger, lower `scale`, or leave frameWidth / frameHeight out to fit the "
+                              "animation."
+                            : "Make the frame larger, or leave frameWidth / frameHeight out to fit the animation; with "
+                              "both and no `scale` the animation is scaled to fit.");
     }
     scale = pass.scale;
 
@@ -861,14 +1033,21 @@ Json bake_sheet(const std::string& projectDir, const Json& a) {
         total += n;
     }
     if (total > kMaxFrames)
-        fail("invalid_argument", std::format("The sheet would have {} frames (the Animator clips take their length from their duration); the most is {}.", total, kMaxFrames),
+        fail("invalid_argument",
+             std::format("The sheet would have {} frames (the Animator clips take their length from their duration); "
+                         "the most is {}.",
+                         total, kMaxFrames),
              "Give `frames` or a lower `fps` to the clips, bake fewer clips, or split them over two sheets.");
-    const int columns = spec.columns > 0 ? std::min(spec.columns, total) : std::max(1, int(std::ceil(std::sqrt(double(total)))));
+    const int columns =
+        spec.columns > 0 ? std::min(spec.columns, total) : std::max(1, int(std::ceil(std::sqrt(double(total)))));
     const int rows = (total + columns - 1) / columns;
     const int pitchX = layout.w + 2 * spec.padding, pitchY = layout.h + 2 * spec.padding;
     if (std::int64_t(columns) * pitchX > kMaxSheetSide || std::int64_t(rows) * pitchY > kMaxSheetSide)
-        fail("invalid_argument", std::format("The sheet would be {}x{} pixels ({} frames of {}x{} in {} columns); the most is {} on a side.", columns * pitchX, rows * pitchY, total, layout.w, layout.h, columns, kMaxSheetSide),
-             "Lower `scale`, bake fewer frames, or pass more `columns` (a wider, shorter grid) or fewer.");
+        fail(
+            "invalid_argument",
+            std::format("The sheet would be {}x{} pixels ({} frames of {}x{} in {} columns); the most is {} on a side.",
+                        columns * pitchX, rows * pitchY, total, layout.w, layout.h, columns, kMaxSheetSide),
+            "Lower `scale`, bake fewer frames, or pass more `columns` (a wider, shorter grid) or fewer.");
     Image sheet;
     sheet.width = columns * pitchX;
     sheet.height = rows * pitchY;
@@ -882,21 +1061,28 @@ Json bake_sheet(const std::string& projectDir, const Json& a) {
         for (std::size_t f = 0; f < frames.size(); ++f) {
             const Crop& crop = frames[f];
             if (crop.empty()) ++emptyFrames;
-            if (f > 0 && (crop.x0 != frames[0].x0 || crop.y0 != frames[0].y0 || crop.w != frames[0].w || crop.h != frames[0].h || crop.rgba != frames[0].rgba)) allSame = false;
+            if (f > 0 && (crop.x0 != frames[0].x0 || crop.y0 != frames[0].y0 || crop.w != frames[0].w ||
+                          crop.h != frames[0].h || crop.rgba != frames[0].rgba))
+                allSame = false;
             const Image cell = render_cell(crop, layout, pass.canvas, spec.background);
             const int col = index % columns, row = index / columns;
             const int cx = spec.padding + col * pitchX, cy = spec.padding + row * pitchY;
             for (int y = 0; y < cell.height; ++y)
-                std::copy_n(&cell.rgba[std::size_t(y) * cell.width * 4], std::size_t(cell.width) * 4, &sheet.rgba[(std::size_t(cy + y) * sheet.width + cx) * 4]);
+                std::copy_n(&cell.rgba[std::size_t(y) * cell.width * 4], std::size_t(cell.width) * 4,
+                            &sheet.rgba[(std::size_t(cy + y) * sheet.width + cx) * 4]);
             ++index;
         }
-        if (allSame) identicalClips.push_back(spec.clips.empty() ? std::string("the animation") : "'" + spec.clips[ci].name + "'");
+        if (allSame)
+            identicalClips.push_back(spec.clips.empty() ? std::string("the animation")
+                                                        : "'" + spec.clips[ci].name + "'");
     }
     if (spec.background) {  // the gutters too, so the sheet is one colour behind the frames
         for (int y = 0; y < sheet.height; ++y)
             for (int x = 0; x < sheet.width; ++x) {
                 const int px = x % pitchX, py = y % pitchY;
-                if (px >= spec.padding && px < spec.padding + layout.w && py >= spec.padding && py < spec.padding + layout.h && index > (y / pitchY) * columns + x / pitchX) continue;
+                if (px >= spec.padding && px < spec.padding + layout.w && py >= spec.padding &&
+                    py < spec.padding + layout.h && index > (y / pitchY) * columns + x / pitchX)
+                    continue;
                 Image one;
                 one.width = 1;
                 one.height = 1;
@@ -905,15 +1091,23 @@ Json bake_sheet(const std::string& projectDir, const Json& a) {
                 std::copy_n(one.rgba.begin(), 4, &sheet.rgba[(std::size_t(y) * sheet.width + x) * 4]);
             }
     }
-    if (emptyFrames > 0) warnings.push_back(std::format("{} of the {} frames are empty (nothing is drawn at that moment): a particle burst that has not started, or an entity that is hidden for a while.", emptyFrames, total));
+    if (emptyFrames > 0)
+        warnings.push_back(std::format("{} of the {} frames are empty (nothing is drawn at that moment): a particle "
+                                       "burst that has not started, or an entity that is hidden for a while.",
+                                       emptyFrames, total));
     if (!identicalClips.empty())
-        warnings.push_back("The frames of " + join(identicalClips, ", ") + " are all identical: nothing in the entity changes over time. It needs a SpriteAnimator, a tween, a ParticleEmitter or a script that moves it; for a clip started by a script pass `call` or `event`.");
+        warnings.push_back(
+            "The frames of " + join(identicalClips, ", ") +
+            " are all identical: nothing in the entity changes over time. It needs a SpriteAnimator, a tween, a "
+            "ParticleEmitter or a script that moves it; for a clip started by a script pass `call` or `event`.");
 
     bool opaque = true;
     for (std::size_t i = 3; i < sheet.rgba.size() && opaque; i += 4) opaque = sheet.rgba[i] == 255;
     const std::vector<std::uint8_t> png = opaque ? encode_png_rgb(sheet) : encode_png(sheet);
     std::string werr;
-    if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()), &werr)) fail("failed", werr);
+    if (!tooling_detail::write_file(file, std::string_view(reinterpret_cast<const char*>(png.data()), png.size()),
+                                    &werr))
+        fail("failed", werr);
 
     // ---- the manifest: the sheet, the provenance and the recipe
     const std::array<double, 2> pivot = {round6(double(layout.ox) / layout.w), round6(double(layout.oy) / layout.h)};
@@ -927,12 +1121,14 @@ Json bake_sheet(const std::string& projectDir, const Json& a) {
     inputs.insert(src.file);
     collect_inputs(projectDir, spec.prefab.empty() ? src.entity : Json::object({{"prefab", src.file}}), "", inputs);
     if (!spec.scene.empty()) collect_inputs(projectDir, src.entity, "", inputs);
-    const bool ai = a.contains("ai") ? tooling_detail::arg_bool(a, "ai", false) : any_ai(src.entity, projectDir, inputs);
+    const bool ai =
+        a.contains("ai") ? tooling_detail::arg_bool(a, "ai", false) : any_ai(src.entity, projectDir, inputs);
     const std::string author = tooling_detail::arg_string(a, "author", false, ai ? "" : "factoria");
     const std::string license = tooling_detail::arg_string(a, "license", false, "CC0-1.0");
 
     Json recipeArgs = Json::object({{"path", spec.path}});
-    if (!spec.prefab.empty()) recipeArgs["prefab"] = spec.prefab;
+    if (!spec.prefab.empty())
+        recipeArgs["prefab"] = spec.prefab;
     else {
         recipeArgs["scene"] = spec.scene;
         recipeArgs["entity"] = spec.entity;
@@ -951,35 +1147,53 @@ Json bake_sheet(const std::string& projectDir, const Json& a) {
     recipeArgs["padding"] = spec.padding;
     recipeArgs["margin"] = spec.margin;
     recipeArgs["overwrite"] = true;
-    Json provenance = Json::object({{"origin", "generated"},
-                                    {"ai", ai},
-                                    {"kind", "image"},
-                                    {"provider", "factoria assets.bake_sheet"},
-                                    {"license", license},
-                                    {"notes", std::format("Baked from {} '{}': {} frames at {} fps, {}x{} px each, scale {}, seed {}.", spec.prefab.empty() ? "entity '" + spec.entity + "' of scene" : "prefab", src.file, total, spec.fps,
-                                                         layout.w, layout.h, round6(scale), spec.seed)},
-                                    {"date", assets::today()},
-                                    {"source", src.file}});
+    Json provenance = Json::object(
+        {{"origin", "generated"},
+         {"ai", ai},
+         {"kind", "image"},
+         {"provider", "factoria assets.bake_sheet"},
+         {"license", license},
+         {"notes", std::format("Baked from {} '{}': {} frames at {} fps, {}x{} px each, scale {}, seed {}.",
+                               spec.prefab.empty() ? "entity '" + spec.entity + "' of scene" : "prefab", src.file,
+                               total, spec.fps, layout.w, layout.h, round6(scale), spec.seed)},
+         {"date", assets::today()},
+         {"source", src.file}});
     if (!author.empty()) provenance["author"] = author;
-    provenance["recipe"] = make_recipe(projectDir, kCommand, recipeArgs, std::vector<std::string>(inputs.begin(), inputs.end()));
+    provenance["recipe"] =
+        make_recipe(projectDir, kCommand, recipeArgs, std::vector<std::string>(inputs.begin(), inputs.end()));
     {
         auto r = assets::update_entry(spec.path, [&](Json& e) {
             e.erase("analysis");
             e["sheet"] = sheetEntry;
             e["provenance"] = provenance;
         });
-        if (!r.ok()) fail("failed", "The sheet was written, but assets.json was not updated: " + r.error().message, r.error().hint);
+        if (!r.ok())
+            fail("failed", "The sheet was written, but assets.json was not updated: " + r.error().message,
+                 r.error().hint);
     }
 
-    Json result = Json::object({{"path", spec.path}, {"width", sheet.width}, {"height", sheet.height}, {"frames", total}, {"columns", columns}, {"rows", rows},
-                                {"frameWidth", layout.w}, {"frameHeight", layout.h}, {"scale", round6(scale)}, {"pivot", Json::array({pivot[0], pivot[1]})},
-                                {"sheet", sheetEntry}, {"provenance", provenance}});
+    Json result = Json::object({{"path", spec.path},
+                                {"width", sheet.width},
+                                {"height", sheet.height},
+                                {"frames", total},
+                                {"columns", columns},
+                                {"rows", rows},
+                                {"frameWidth", layout.w},
+                                {"frameHeight", layout.h},
+                                {"scale", round6(scale)},
+                                {"pivot", Json::array({pivot[0], pivot[1]})},
+                                {"sheet", sheetEntry},
+                                {"provenance", provenance}});
     if (!warnings.empty()) result["warnings"] = warnings;
     result["$image"] = Json::object({{"path", file.string()}, {"mimeType", "image/png"}});
     std::vector<std::string> next = sheet_next_steps(spec.path, sheetEntry, spec.fps);
-    next.push_back(std::format("The entity's origin is the pivot [{}, {}] of every frame, counted from the top-left corner of the frame. Sprite.pivot counts from the bottom-left corner: to keep the baked origin where the entity was, set Sprite.pivot to [{}, {}].",
+    next.push_back(std::format("The entity's origin is the pivot [{}, {}] of every frame, counted from the top-left "
+                               "corner of the frame. Sprite.pivot counts from the bottom-left corner: to keep the "
+                               "baked origin where the entity was, set Sprite.pivot to [{}, {}].",
                                pivot[0], pivot[1], pivot[0], round6(1.0 - pivot[1])));
-    next.push_back("Make it again after editing the prefab or its scripts with assets.regenerate (the recipe is in the provenance of assets.json). Look at the image in this result: if a frame is wrong, change the entity or its warmup and bake again.");
+    next.push_back("Make it again after editing the prefab or its scripts with assets.regenerate (the recipe is in the "
+                   "provenance of assets.json). Look at the image in this result: if a frame is wrong, change the "
+                   "entity or its warmup and bake again.");
     result["nextSteps"] = next;
     return result;
 }
@@ -991,7 +1205,8 @@ void register_bake_sheet_command(CommandRegistry& registry, const std::string& p
     info.name = kCommand;
     info.category = "assets";
     info.readOnly = false;
-    info.summary = "Bake an entity the engine draws (a prefab, or an entity of a scene) into a sprite sheet: Shape2D, tweens, particles and scripts play and are captured frame by frame.";
+    info.summary = "Bake an entity the engine draws (a prefab, or an entity of a scene) into a sprite sheet: Shape2D, "
+                   "tweens, particles and scripts play and are captured frame by frame.";
     info.description =
         "Plays a prefab (`prefab`) or an entity of a scene with its children (`scene` + `entity`) alone in a "
         "private world and captures it into a PNG sprite sheet at `path` (under assets/, ending in .png), "
@@ -1003,8 +1218,8 @@ void register_bake_sheet_command(CommandRegistry& registry, const std::string& p
         "seed and settings bake the same pixels on the same GPU (the pixels of two different GPUs can differ "
         "by an edge pixel); a frame is captured every 1/`fps` seconds of simulated time, `frames` frames per "
         "clip. Example: "
-        "{\"path\":\"assets/fx/burst.png\",\"prefab\":\"prefabs/burst.prefab.json\",\"frames\":16,\"fps\":24,\"warmup\":0.5,\"pivot\":[0.5,0.5]}"
-        FA_COMMAND_DETAILS
+        "{\"path\":\"assets/fx/burst.png\",\"prefab\":\"prefabs/"
+        "burst.prefab.json\",\"frames\":16,\"fps\":24,\"warmup\":0.5,\"pivot\":[0.5,0.5]}" FA_COMMAND_DETAILS
         "SpriteAnimator, Tint, tweens, ParticleEmitter, Shape2D, Sprite and the entity's scripts all run as "
         "in the game; nothing else is in the world (no other entities and no lights: a `lit` sprite is drawn "
         "as in a world without lights). The entity is placed at the origin of the world, even when the scene "
@@ -1043,32 +1258,123 @@ void register_bake_sheet_command(CommandRegistry& registry, const std::string& p
          {"additionalProperties", false},
          {"properties",
           Json::object(
-              {{"path", Json::object({{"type", "string"}, {"description", "Where to write the PNG sheet, project-relative, under assets/ and ending in .png."}})},
-               {"prefab", Json::object({{"type", "string"}, {"description", "The prefab to bake, project-relative (\"prefabs/burst.prefab.json\"). Give this, or `scene` + `entity`."}})},
-               {"scene", Json::object({{"type", "string"}, {"description", "A scene file that holds the entity to bake. Needs `entity`."}})},
-               {"entity", Json::object({{"type", "string"}, {"description", "The id of the entity of `scene` to bake, with its children."}})},
-               {"frames", Json::object({{"type", "integer"}, {"minimum", 1}, {"maximum", kMaxFrames}, {"default", 12}, {"description", "Frames per clip (all of them without `clips`)."}})},
-               {"fps", Json::object({{"type", "number"}, {"minimum", 1}, {"maximum", 240}, {"default", 12}, {"description", "Frames per second of simulated time (at most the project's fixed rate, 60 by default): a frame is captured every 1/fps seconds. Also the sheet's clip speed."}})},
-               {"columns", Json::object({{"type", "integer"}, {"minimum", 0}, {"description", "Columns of the grid; 0 or absent = square-ish."}})},
-               {"frameWidth", Json::object({{"type", "integer"}, {"minimum", 1}, {"description", "Pixels of a cell. Absent = as wide as the animation needs."}})},
-               {"frameHeight", Json::object({{"type", "integer"}, {"minimum", 1}, {"description", "Pixels of a cell. Absent = as tall as the animation needs."}})},
-               {"scale", Json::object({{"type", "number"}, {"minimum", kMinScale}, {"maximum", kMaxScale}, {"description", "Pixels per world unit (1 = the size the entity has in the world, 2 = twice as big). Absent: 1, or the scale that fits frameWidth x frameHeight when both are given."}})},
-               {"pivot", Json::object({{"type", "array"}, {"items", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}})}, {"minItems", 2}, {"maxItems", 2}, {"description", "[x, y] in 0..1 from the top-left of the frame: where the entity's origin lands in every frame ([0.5, 1] = middle of the bottom edge). Absent: where the animation puts it (the cell is the tight box of everything drawn)."}})},
-               {"clips", Json::object({{"type", "array"}, {"minItems", 1}, {"description", "Named clips, each in a fresh world: {name, clip?, call?, args?, event?, data?, frames?, fps?, loop?, warmup?}. `clip` is a clip of the entity's Animator, played from time 0 (frames default to its duration x fps, loop to the clip's); `call` is a method of the entity's behaviour, `event` a game event (world.on); `clip`, `call` and `event` are alternatives, and `call` and `event` start the clip after the warm-up. They follow each other in the sheet."},
-                                        {"items", Json::object({{"type", "object"}, {"required", Json::array({"name"})}, {"additionalProperties", false},
-                                                                {"properties", Json::object({{"name", Json::object({{"type", "string"}})}, {"clip", Json::object({{"type", "string"}})}, {"call", Json::object({{"type", "string"}})},
-                                                                                             {"args", Json::object({{"type", "array"}})}, {"event", Json::object({{"type", "string"}})}, {"data", Json::object({})},
-                                                                                             {"frames", Json::object({{"type", "integer"}, {"minimum", 1}})}, {"fps", Json::object({{"type", "number"}, {"minimum", 1}})},
-                                                                                             {"loop", Json::object({{"type", "boolean"}, {"description", "Whether SpriteAnimator repeats the clip. Default true; for a `clip` of the Animator, the clip's own loop."}})}, {"warmup", Json::object({{"type", "number"}, {"minimum", 0}})}})}})}})},
-               {"warmup", Json::object({{"type", "number"}, {"minimum", 0}, {"default", 0}, {"description", "Seconds of simulated time to play before the first frame (a particle system that should start full). A clip can set its own."}})},
-               {"seed", Json::object({{"type", "integer"}, {"default", 1}, {"description", "Seeds the world RNG (scripts' rng, random particles): the same seed gives the same sheet."}})},
-               {"background", Json::object({{"description", "A colour behind the frames (\"#rrggbb\", \"#rrggbbaa\", a name or [r, g, b]). Default: transparent."}})},
-               {"padding", Json::object({{"type", "integer"}, {"minimum", 0}, {"default", 1}, {"description", "Transparent pixels around every cell (twice between two cells), recorded in the sheet entry."}})},
-               {"margin", Json::object({{"type", "integer"}, {"minimum", 0}, {"default", 2}, {"description", "Empty pixels kept around the animation's outline."}})},
-               {"overwrite", Json::object({{"type", "boolean"}, {"default", false}, {"description", "Replace the file when it already exists."}})},
-               {"ai", Json::object({{"type", "boolean"}, {"description", "Override the AI disclosure. Default: true when the prefab/scene or a texture it draws is recorded as AI-made in assets.json."}})},
-               {"author", Json::object({{"type", "string"}, {"description", "Who gets the credit in the provenance record."}})},
-               {"license", Json::object({{"type", "string"}, {"default", "CC0-1.0"}, {"description", "License of the sheet for the provenance record."}})}})}});
+              {{"path",
+                Json::object({{"type", "string"},
+                              {"description",
+                               "Where to write the PNG sheet, project-relative, under assets/ and ending in .png."}})},
+               {"prefab",
+                Json::object({{"type", "string"},
+                              {"description", "The prefab to bake, project-relative (\"prefabs/burst.prefab.json\"). "
+                                              "Give this, or `scene` + `entity`."}})},
+               {"scene",
+                Json::object({{"type", "string"},
+                              {"description", "A scene file that holds the entity to bake. Needs `entity`."}})},
+               {"entity",
+                Json::object({{"type", "string"},
+                              {"description", "The id of the entity of `scene` to bake, with its children."}})},
+               {"frames", Json::object({{"type", "integer"},
+                                        {"minimum", 1},
+                                        {"maximum", kMaxFrames},
+                                        {"default", 12},
+                                        {"description", "Frames per clip (all of them without `clips`)."}})},
+               {"fps",
+                Json::object({{"type", "number"},
+                              {"minimum", 1},
+                              {"maximum", 240},
+                              {"default", 12},
+                              {"description",
+                               "Frames per second of simulated time (at most the project's fixed rate, 60 by default): "
+                               "a frame is captured every 1/fps seconds. Also the sheet's clip speed."}})},
+               {"columns", Json::object({{"type", "integer"},
+                                         {"minimum", 0},
+                                         {"description", "Columns of the grid; 0 or absent = square-ish."}})},
+               {"frameWidth",
+                Json::object({{"type", "integer"},
+                              {"minimum", 1},
+                              {"description", "Pixels of a cell. Absent = as wide as the animation needs."}})},
+               {"frameHeight",
+                Json::object({{"type", "integer"},
+                              {"minimum", 1},
+                              {"description", "Pixels of a cell. Absent = as tall as the animation needs."}})},
+               {"scale",
+                Json::object({{"type", "number"},
+                              {"minimum", kMinScale},
+                              {"maximum", kMaxScale},
+                              {"description",
+                               "Pixels per world unit (1 = the size the entity has in the world, 2 = twice as big). "
+                               "Absent: 1, or the scale that fits frameWidth x frameHeight when both are given."}})},
+               {"pivot", Json::object({{"type", "array"},
+                                       {"items", Json::object({{"type", "number"}, {"minimum", 0}, {"maximum", 1}})},
+                                       {"minItems", 2},
+                                       {"maxItems", 2},
+                                       {"description",
+                                        "[x, y] in 0..1 from the top-left of the frame: where the entity's origin "
+                                        "lands in every frame ([0.5, 1] = middle of the bottom edge). Absent: where "
+                                        "the animation puts it (the cell is the tight box of everything drawn)."}})},
+               {"clips",
+                Json::object(
+                    {{"type", "array"},
+                     {"minItems", 1},
+                     {"description",
+                      "Named clips, each in a fresh world: {name, clip?, call?, args?, event?, data?, frames?, fps?, "
+                      "loop?, warmup?}. `clip` is a clip of the entity's Animator, played from time 0 (frames default "
+                      "to its duration x fps, loop to the clip's); `call` is a method of the entity's behaviour, "
+                      "`event` a game event (world.on); `clip`, `call` and `event` are alternatives, and `call` and "
+                      "`event` start the clip after the warm-up. They follow each other in the sheet."},
+                     {"items",
+                      Json::object(
+                          {{"type", "object"},
+                           {"required", Json::array({"name"})},
+                           {"additionalProperties", false},
+                           {"properties",
+                            Json::object(
+                                {{"name", Json::object({{"type", "string"}})},
+                                 {"clip", Json::object({{"type", "string"}})},
+                                 {"call", Json::object({{"type", "string"}})},
+                                 {"args", Json::object({{"type", "array"}})},
+                                 {"event", Json::object({{"type", "string"}})},
+                                 {"data", Json::object({})},
+                                 {"frames", Json::object({{"type", "integer"}, {"minimum", 1}})},
+                                 {"fps", Json::object({{"type", "number"}, {"minimum", 1}})},
+                                 {"loop", Json::object(
+                                              {{"type", "boolean"},
+                                               {"description", "Whether SpriteAnimator repeats the clip. Default true; "
+                                                               "for a `clip` of the Animator, the clip's own loop."}})},
+                                 {"warmup", Json::object({{"type", "number"}, {"minimum", 0}})}})}})}})},
+               {"warmup",
+                Json::object({{"type", "number"},
+                              {"minimum", 0},
+                              {"default", 0},
+                              {"description", "Seconds of simulated time to play before the first frame (a particle "
+                                              "system that should start full). A clip can set its own."}})},
+               {"seed",
+                Json::object(
+                    {{"type", "integer"},
+                     {"default", 1},
+                     {"description",
+                      "Seeds the world RNG (scripts' rng, random particles): the same seed gives the same sheet."}})},
+               {"background", Json::object({{"description", "A colour behind the frames (\"#rrggbb\", \"#rrggbbaa\", a "
+                                                            "name or [r, g, b]). Default: transparent."}})},
+               {"padding", Json::object({{"type", "integer"},
+                                         {"minimum", 0},
+                                         {"default", 1},
+                                         {"description", "Transparent pixels around every cell (twice between two "
+                                                         "cells), recorded in the sheet entry."}})},
+               {"margin", Json::object({{"type", "integer"},
+                                        {"minimum", 0},
+                                        {"default", 2},
+                                        {"description", "Empty pixels kept around the animation's outline."}})},
+               {"overwrite", Json::object({{"type", "boolean"},
+                                           {"default", false},
+                                           {"description", "Replace the file when it already exists."}})},
+               {"ai", Json::object({{"type", "boolean"},
+                                    {"description", "Override the AI disclosure. Default: true when the prefab/scene "
+                                                    "or a texture it draws is recorded as AI-made in assets.json."}})},
+               {"author",
+                Json::object({{"type", "string"}, {"description", "Who gets the credit in the provenance record."}})},
+               {"license", Json::object({{"type", "string"},
+                                         {"default", "CC0-1.0"},
+                                         {"description", "License of the sheet for the provenance record."}})}})}});
     mark_paths(info.inputSchema, "write", {"path"});
     mark_paths(info.inputSchema, "read", {"prefab", "scene"});
     registry.add(info, [projectDir](const Json& args) { return bake_sheet(projectDir, args); });

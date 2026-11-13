@@ -17,12 +17,12 @@ namespace fa::editor {
 
 struct SoundPlayRequest {
     SoundRenderPtr clip;
-    std::string name;             // what the Audio panel's log shows
-    double gainDb = 0.0;          // level match
-    double from = 0.0;            // seconds: where to start
-    double to = -1.0;             // seconds: where the region ends (< 0: the end of the sound)
-    bool loop = false;            // wrap at the end of the region ...
-    double loopFrom = -1.0;       // ... to here (< 0: the start of the region): an intro before it plays once
+    std::string name;        // what the Audio panel's log shows
+    double gainDb = 0.0;     // level match
+    double from = 0.0;       // seconds: where to start
+    double to = -1.0;        // seconds: where the region ends (< 0: the end of the sound)
+    bool loop = false;       // wrap at the end of the region ...
+    double loopFrom = -1.0;  // ... to here (< 0: the start of the region): an intro before it plays once
 };
 
 class SoundPlayer {
@@ -52,9 +52,9 @@ public:
 
 private:
     struct Chunk {
-        std::size_t src;      // first frame of the clip in this chunk
+        std::size_t src;  // first frame of the clip in this chunk
         std::size_t frames;
-        double cum;           // frames pushed before it
+        double cum;  // frames pushed before it
     };
     void fill();
     void push_run(std::size_t from, std::size_t frames, bool fadeIn, bool fadeOut);
@@ -66,7 +66,7 @@ private:
     std::size_t cursor_ = 0, regionStart_ = 0, regionEnd_ = 0, loopFrom_ = 0;
     double gain_ = 1.0;
     double pushed_ = 0.0;
-    bool ended_ = false;      // everything of a one-shot has been pushed
+    bool ended_ = false;  // everything of a one-shot has been pushed
     bool firstChunk_ = true;
     std::deque<Chunk> chunks_;
     double lastPos_ = 0.0;

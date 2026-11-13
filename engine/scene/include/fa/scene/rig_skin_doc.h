@@ -26,23 +26,25 @@ namespace fa {
 // One edit of the weights, applied in order after the automatic weights (and so surviving a re-bake). The vertices it works on are those of
 // `parts` and of the faces `select` matches (both given: the vertices in both; neither: every vertex).
 struct RigSkinEdit {
-    std::string op;          // set, add, smooth, normalize, limit, mirror
-    std::string bone;        // set, add: the bone whose weight changes
-    std::string from;        // mirror: "l" or "r", the side that is copied to the other
-    float weight = 1;        // set: the weight the bone gets, 0..1 (the others share the rest in their proportions)
-    float amount = 0;        // add: added to the bone's weight (negative takes weight away), -1..1
-    float strength = 0.5f;   // smooth: how far each pass moves a vertex to the average of its neighbours, 0..1
-    float threshold = 0.01f; // normalize: influences under this weight are dropped, 0..0.5
-    int iterations = 1;      // smooth: passes, 1..50
-    int max = 4;             // limit: influences kept per vertex, 1..4
+    std::string op;           // set, add, smooth, normalize, limit, mirror
+    std::string bone;         // set, add: the bone whose weight changes
+    std::string from;         // mirror: "l" or "r", the side that is copied to the other
+    float weight = 1;         // set: the weight the bone gets, 0..1 (the others share the rest in their proportions)
+    float amount = 0;         // add: added to the bone's weight (negative takes weight away), -1..1
+    float strength = 0.5f;    // smooth: how far each pass moves a vertex to the average of its neighbours, 0..1
+    float threshold = 0.01f;  // normalize: influences under this weight are dropped, 0..0.5
+    int iterations = 1;       // smooth: passes, 1..50
+    int max = 4;              // limit: influences kept per vertex, 1..4
     std::vector<std::string> parts;  // model parts the edit works on
-    Json select;             // a face query of the model document (model_select.h), evaluated on the model the rig fits; null = none
-    std::string pointer;     // "/skin/edits/2"
+    Json
+        select;  // a face query of the model document (model_select.h), evaluated on the model the rig fits; null = none
+    std::string pointer;  // "/skin/edits/2"
 };
 
 struct RigSkinPart {
-    std::string method;      // "" = the document's default; auto, heat, voxel or rigid
-    std::string bone;        // the bone this part follows ("" = the part's own bones from the fit); rigid: the one bone, heat and voxel: the bone the part is centred on
+    std::string method;  // "" = the document's default; auto, heat, voxel or rigid
+    std::string
+        bone;  // the bone this part follows ("" = the part's own bones from the fit); rigid: the one bone, heat and voxel: the bone the part is centred on
 };
 
 struct RigSkinSettings {

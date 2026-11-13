@@ -53,8 +53,8 @@ std::wstring build_environment_block(const std::optional<std::vector<std::string
     // CreateProcess documents the order: alphabetical by name, case-insensitive Unicode, no locale.
     std::stable_sort(vars.begin(), vars.end(), [](const std::wstring& a, const std::wstring& b) {
         const std::wstring na = name_of(a), nb = name_of(b);
-        return CompareStringOrdinal(na.c_str(), static_cast<int>(na.size()), nb.c_str(), static_cast<int>(nb.size()), TRUE) ==
-               CSTR_LESS_THAN;
+        return CompareStringOrdinal(na.c_str(), static_cast<int>(na.size()), nb.c_str(), static_cast<int>(nb.size()),
+                                    TRUE) == CSTR_LESS_THAN;
     });
     std::wstring block;
     for (const std::wstring& v : vars) {

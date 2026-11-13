@@ -41,7 +41,7 @@ constexpr int kMaxAtlasSideMobile = 2048;  // what every GLES3 device samples (G
 // create any other (the engine then transcodes the file to RGBA8, which is what the PNG would have been), so a texture of
 // another size stays a PNG, and atlas pages are rounded up to it.
 constexpr int kBlock = 4;
-constexpr int kEtc1sQuality = 128;         // 1..255
+constexpr int kEtc1sQuality = 128;  // 1..255
 // Part of every cache key: bump it when the encoder, the codec settings or the mip chain change.
 constexpr const char* kCacheTag = "fa-textures-1 basisu-2.50";
 
@@ -72,7 +72,8 @@ Result<Image> load_source(const Project& p, const std::string& rel) {
 // ETC1S makes smaller files with visible loss. Zstandard supercompression is off (the engine does not link zstd).
 Result<std::string> encode_ktx2(const Image& img, bool uastc) {
     if (std::max(img.width, img.height) > int(basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION))
-        return err("it is larger than " + std::to_string(basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION) + " pixels on a side");
+        return err("it is larger than " + std::to_string(basist::BASISU_MAX_SUPPORTED_TEXTURE_DIMENSION) +
+                   " pixels on a side");
     static std::once_flag once;
     std::call_once(once, [] { basisu::basisu_encoder_init(); });
     basisu::vector<basisu::image> mips;
@@ -80,8 +81,8 @@ Result<std::string> encode_ktx2(const Image& img, bool uastc) {
     const std::uint32_t flags = basisu::cFlagKTX2 | basisu::cFlagSRGB | basisu::cFlagThreaded |
                                 (uastc ? std::uint32_t(basisu::cPackUASTCLevelDefault) : std::uint32_t(kEtc1sQuality));
     std::size_t size = 0;
-    void* out = basisu::basis_compress(uastc ? basist::basis_tex_format::cUASTC_LDR_4x4 : basist::basis_tex_format::cETC1S,
-                                       mips, flags, 0.0f, &size);
+    void* out = basisu::basis_compress(
+        uastc ? basist::basis_tex_format::cUASTC_LDR_4x4 : basist::basis_tex_format::cETC1S, mips, flags, 0.0f, &size);
     if (!out) return err("the Basis Universal encoder failed");
     std::string bytes(static_cast<const char*>(out), size);
     basisu::basis_free_data(out);
@@ -112,9 +113,9 @@ std::vector<Page> pack_pages(const std::string& basePath, std::vector<Member> me
     std::erase_if(members, [&](const Member& m) {
         const bool tooBig = m.image.width + 2 * pad > maxSide || m.image.height + 2 * pad > maxSide;
         if (tooBig)
-            warnings.push_back("Texture " + m.path + " is " + std::to_string(m.image.width) + "x" + std::to_string(m.image.height) +
-                               ", too large to share an atlas of at most " + std::to_string(maxSide) + "x" +
-                               std::to_string(maxSide) + ": it ships on its own");
+            warnings.push_back("Texture " + m.path + " is " + std::to_string(m.image.width) + "x" +
+                               std::to_string(m.image.height) + ", too large to share an atlas of at most " +
+                               std::to_string(maxSide) + "x" + std::to_string(maxSide) + ": it ships on its own");
         return tooBig;
     });
     while (!members.empty()) {
@@ -163,7 +164,7 @@ std::vector<Page> pack_pages(const std::string& basePath, std::vector<Member> me
 
 struct Shipper {
     ExportAssets& ea;
-    std::set<std::string> usedCache;       // cache files this export needs (the rest are pruned)
+    std::set<std::string> usedCache;         // cache files this export needs (the rest are pruned)
     std::vector<std::string> notBlockSized;  // textures asked to be compressed that are not a multiple of 4 pixels
 
     // The compression `path` gets: "none", "uastc" or "etc1s" (the setting, with "auto" resolved for the platform).
@@ -244,7 +245,8 @@ Result<void> convert_textures(ExportAssets& ea) {
     const std::string iconPath = icon.empty() ? icon : generic(stdfs::path(icon).lexically_normal());
     std::vector<std::string> textures;
     for (const std::string& f : ea.files)
-        if (assets::kind_of(f) == assets::AssetKind::Texture && fs::extension(f) != kTextureTwinExtension && f != iconPath)
+        if (assets::kind_of(f) == assets::AssetKind::Texture && fs::extension(f) != kTextureTwinExtension &&
+            f != iconPath)
             textures.push_back(f);  // the icon is read from the project, never by the game
     if (textures.empty()) return {};
 
@@ -269,24 +271,28 @@ Result<void> convert_textures(ExportAssets& ea) {
     for (auto& [group, members] : groups) {
         const std::string slug = tooling_detail::slugify(group, '-');
         if (slug.empty()) {
-            ea.report.warnings.push_back("Atlas group \"" + group + "\" has no letters or digits to name its file with, so "
+            ea.report.warnings.push_back("Atlas group \"" + group +
+                                         "\" has no letters or digits to name its file with, so "
                                          "its textures are not packed");
             continue;
         }
-        std::vector<Page> pages = pack_pages("assets/atlases/" + slug + ".png", std::move(members), maxSide, ea.report.warnings);
+        std::vector<Page> pages =
+            pack_pages("assets/atlases/" + slug + ".png", std::move(members), maxSide, ea.report.warnings);
         const bool taken = std::any_of(pages.begin(), pages.end(), [&](const Page& p) {
             return std::find(ea.files.begin(), ea.files.end(), p.path) != ea.files.end();
         });
         if (taken) {
-            ea.report.warnings.push_back("Atlas group \"" + group + "\" would write assets/atlases/" + slug +
-                                         ".png, which is a file of the project, so its textures are not packed. Rename the group");
+            ea.report.warnings.push_back(
+                "Atlas group \"" + group + "\" would write assets/atlases/" + slug +
+                ".png, which is a file of the project, so its textures are not packed. Rename the group");
             continue;
         }
         for (Page& page : pages) {
             Json& assets = ea.manifest["assets"];
             if (!assets.is_object()) assets = Json::object();
             for (const Sprite& s : page.sprites) {
-                assets[s.path]["packed"] = Json::object({{"atlas", page.path}, {"rect", Json::array({s.x, s.y, s.w, s.h})}});
+                assets[s.path]["packed"] =
+                    Json::object({{"atlas", page.path}, {"rect", Json::array({s.x, s.y, s.w, s.h})}});
                 packed.insert(s.path);
             }
             atlases.push_back(std::move(page));
@@ -303,7 +309,8 @@ Result<void> convert_textures(ExportAssets& ea) {
         if (mode == "none") continue;  // ships as it is: not even decoded
         auto img = load_source(ea.project, path);
         if (!img.ok()) {
-            ea.report.warnings.push_back("Texture " + path + " could not be read (" + img.error().message + "), so it ships as it is");
+            ea.report.warnings.push_back("Texture " + path + " could not be read (" + img.error().message +
+                                         "), so it ships as it is");
             continue;
         }
         shipper.ship(path, mode, *img, false);

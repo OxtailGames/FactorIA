@@ -14,21 +14,21 @@ hb_unicode_funcs_t* ucd() { return hb_unicode_funcs_get_default(); }
 
 // Drawn as nothing in every font; a font that lacks them is not "missing" them.
 bool is_default_ignorable(char32_t c) {
-    return c == 0xAD || c == 0x34F || (c >= 0x180B && c <= 0x180F) || (c >= 0x200B && c <= 0x200F) || (c >= 0x202A && c <= 0x202E) ||
-           (c >= 0x2060 && c <= 0x206F) || (c >= 0xFE00 && c <= 0xFE0F) || c == 0xFEFF || (c >= 0xE0100 && c <= 0xE01EF);
+    return c == 0xAD || c == 0x34F || (c >= 0x180B && c <= 0x180F) || (c >= 0x200B && c <= 0x200F) ||
+           (c >= 0x202A && c <= 0x202E) || (c >= 0x2060 && c <= 0x206F) || (c >= 0xFE00 && c <= 0xFE0F) ||
+           c == 0xFEFF || (c >= 0xE0100 && c <= 0xE01EF);
 }
 
 // Draws with its base character: combining marks, joiners, variation selectors and the Hangul vowels and final consonants.
 bool is_extender(char32_t c) {
-    if (c == 0x200C || c == 0x200D || (c >= 0xFE00 && c <= 0xFE0F) || (c >= 0xE0100 && c <= 0xE01EF) || (c >= 0x1160 && c <= 0x11FF))
+    if (c == 0x200C || c == 0x200D || (c >= 0xFE00 && c <= 0xFE0F) || (c >= 0xE0100 && c <= 0xE01EF) ||
+        (c >= 0x1160 && c <= 0x11FF))
         return true;
     switch (hb_unicode_general_category(ucd(), c)) {
         case HB_UNICODE_GENERAL_CATEGORY_NON_SPACING_MARK:
         case HB_UNICODE_GENERAL_CATEGORY_ENCLOSING_MARK:
-        case HB_UNICODE_GENERAL_CATEGORY_SPACING_MARK:
-            return true;
-        default:
-            return false;
+        case HB_UNICODE_GENERAL_CATEGORY_SPACING_MARK: return true;
+        default: return false;
     }
 }
 
@@ -40,22 +40,25 @@ bool is_hangul(char32_t c) { return (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0x3130
 bool breaks_everywhere(char32_t c, WordBreak wb) {
     if (wb == WordBreak::KeepAll) return false;
     if (is_hangul(c)) return wb == WordBreak::Normal;
-    return (c >= 0x2E80 && c <= 0x2FDF) || (c >= 0x3000 && c <= 0x4DBF) || (c >= 0x4E00 && c <= 0x9FFF) || (c >= 0xAC00 && c <= 0xD7A3) ||
-           (c >= 0xF900 && c <= 0xFAFF) || (c >= 0xFF00 && c <= 0xFFEF) || (c >= 0x20000 && c <= 0x3FFFF);
+    return (c >= 0x2E80 && c <= 0x2FDF) || (c >= 0x3000 && c <= 0x4DBF) || (c >= 0x4E00 && c <= 0x9FFF) ||
+           (c >= 0xAC00 && c <= 0xD7A3) || (c >= 0xF900 && c <= 0xFAFF) || (c >= 0xFF00 && c <= 0xFFEF) ||
+           (c >= 0x20000 && c <= 0x3FFFF);
 }
 
 // ponytail: simple kinsoku, not UAX #14. A line never starts with these (closing brackets, stops, the prolonged sound mark,
 // small kana, the iteration mark) and never ends with an opening bracket. Upgrade to the full line-break classes when a
 // language needs more (hyphens, numbers with units, Thai and Khmer dictionary breaks).
 constexpr std::u32string_view kNoBreakBefore =
-    U"、。，．：；！？）］｝〉》」』】〕〗〙〛｠,.:;!?)]}%’”»›ゝゞヽヾーぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ々〻‥…・〜～";
+    U"、。，．：；！？）］｝〉》」』】〕〗〙〛｠,.:;!?)]}%"
+    U"’”»›ゝゞヽヾーぁぃぅぇぉっゃゅょゎゕゖァィゥェォッャュョヮヵヶ々〻‥…・〜～";
 constexpr std::u32string_view kNoBreakAfter = U"（［｛〈《「『【〔〖〘〚｟([{‘“«‹";
 
 // A space a line may end with: U+0020, U+200B ZERO WIDTH SPACE (how a translator marks the word boundaries of Thai, Khmer,
 // Lao and Burmese) and the UAX #14 class BA spaces (Ogham, the en/em/thin spaces, the medium mathematical space). It hangs on
 // the end of a line and is dropped when the line wraps. The no-break spaces (U+00A0, U+2007, U+202F) are not in the list.
 bool is_break_space(char32_t c) {
-    return c == U' ' || c == 0x200B || c == 0x1680 || (c >= 0x2000 && c <= 0x2006) || (c >= 0x2008 && c <= 0x200A) || c == 0x205F;
+    return c == U' ' || c == 0x200B || c == 0x1680 || (c >= 0x2000 && c <= 0x2006) || (c >= 0x2008 && c <= 0x200A) ||
+           c == 0x205F;
 }
 
 // A hyphen a line may end after: U+002D and U+2010, unless a number follows ("-5", "x -5") or another hyphen.
@@ -65,7 +68,9 @@ bool is_break_hyphen(char32_t c) { return c == U'-' || c == 0x2010; }
 bool can_break_between(char32_t a, char32_t b, WordBreak wb) {
     if (is_break_space(b)) return false;  // spaces hang on the end of the line
     if (is_break_space(a)) return true;
-    if (is_break_hyphen(a) && !is_break_hyphen(b) && !(b >= U'0' && b <= U'9') && kNoBreakBefore.find(b) == std::u32string_view::npos) return true;
+    if (is_break_hyphen(a) && !is_break_hyphen(b) && !(b >= U'0' && b <= U'9') &&
+        kNoBreakBefore.find(b) == std::u32string_view::npos)
+        return true;
     if (!breaks_everywhere(a, wb) && !breaks_everywhere(b, wb)) return false;
     return kNoBreakBefore.find(b) == std::u32string_view::npos && kNoBreakAfter.find(a) == std::u32string_view::npos;
 }
@@ -75,8 +80,9 @@ bool can_break_between(char32_t a, char32_t b, WordBreak wb) {
 bool needs_bidi(std::u32string_view p, TextDirection dir) {
     if (dir == TextDirection::Rtl) return true;  // even Latin text sits in a right-to-left paragraph
     for (char32_t c : p)
-        if ((c >= 0x0590 && c <= 0x08FF) || (c >= 0xFB1D && c <= 0xFDFF) || (c >= 0xFE70 && c <= 0xFEFF) || (c >= 0x10800 && c <= 0x10FFF) ||
-            (c >= 0x1E800 && c <= 0x1EFFF) || (c >= 0x202A && c <= 0x202E) || (c >= 0x2066 && c <= 0x2069) || c == 0x200F || c == 0x061C)
+        if ((c >= 0x0590 && c <= 0x08FF) || (c >= 0xFB1D && c <= 0xFDFF) || (c >= 0xFE70 && c <= 0xFEFF) ||
+            (c >= 0x10800 && c <= 0x10FFF) || (c >= 0x1E800 && c <= 0x1EFFF) || (c >= 0x202A && c <= 0x202E) ||
+            (c >= 0x2066 && c <= 0x2069) || c == 0x200F || c == 0x061C)
             return true;
     return false;
 }
@@ -93,8 +99,13 @@ struct Bidi {
         seq.stringBuffer = p.data();
         seq.stringLength = p.size();
         algo = SBAlgorithmCreate(&seq);
-        if (algo) para = SBAlgorithmCreateParagraph(algo, 0, p.size(), dir == TextDirection::Rtl ? SBLevel(1) : dir == TextDirection::Ltr ? SBLevel(0) : SBLevelDefaultLTR);
-        if (para && SBParagraphGetLength(para) != p.size()) {  // cannot happen after decode_text; do not trust half a paragraph
+        if (algo)
+            para = SBAlgorithmCreateParagraph(algo, 0, p.size(),
+                                              dir == TextDirection::Rtl   ? SBLevel(1)
+                                              : dir == TextDirection::Ltr ? SBLevel(0)
+                                                                          : SBLevelDefaultLTR);
+        if (para &&
+            SBParagraphGetLength(para) != p.size()) {  // cannot happen after decode_text; do not trust half a paragraph
             SBParagraphRelease(para);
             para = nullptr;
         }
@@ -135,7 +146,8 @@ struct Chain {
     const std::function<FontFace*(std::size_t)>& get;
     std::vector<FontFace*> resolved;
     std::vector<char> tried;
-    Chain(std::size_t n, const std::function<FontFace*(std::size_t)>& g) : size(n), get(g), resolved(n, nullptr), tried(n, 0) {}
+    Chain(std::size_t n, const std::function<FontFace*(std::size_t)>& g)
+        : size(n), get(g), resolved(n, nullptr), tried(n, 0) {}
     FontFace* at(std::size_t k) {
         if (!tried[k]) {
             tried[k] = 1;
@@ -146,8 +158,9 @@ struct Chain {
     }
 };
 
-void shape_run(hb_buffer_t* buf, std::u32string_view p, std::size_t a, std::size_t b, FontFace* f, hb_script_t script, bool rtl, int px,
-               bool synth, float synthExtra, std::vector<Glyph>& pool, std::vector<Cluster>& clusters) {
+void shape_run(hb_buffer_t* buf, std::u32string_view p, std::size_t a, std::size_t b, FontFace* f, hb_script_t script,
+               bool rtl, int px, bool synth, float synthExtra, std::vector<Glyph>& pool,
+               std::vector<Cluster>& clusters) {
     hb_buffer_clear_contents(buf);
     hb_buffer_add_utf32(buf, reinterpret_cast<const std::uint32_t*>(p.data()), int(p.size()), unsigned(a), int(b - a));
     hb_buffer_set_direction(buf, rtl ? HB_DIRECTION_RTL : HB_DIRECTION_LTR);
@@ -173,13 +186,16 @@ void shape_run(hb_buffer_t* buf, std::u32string_view p, std::size_t a, std::size
         clusters.back().adv += pool.back().adv;
     }
     if (clusters.size() == first) return;
-    if (rtl) std::reverse(clusters.begin() + std::ptrdiff_t(first), clusters.end());  // HarfBuzz hands right-to-left runs back in visual order
-    clusters[first].first = std::uint32_t(a);                                          // the run's clusters cover [a, b) without gaps
-    for (std::size_t k = first; k < clusters.size(); ++k) clusters[k].end = k + 1 < clusters.size() ? clusters[k + 1].first : std::uint32_t(b);
+    if (rtl)
+        std::reverse(clusters.begin() + std::ptrdiff_t(first),
+                     clusters.end());          // HarfBuzz hands right-to-left runs back in visual order
+    clusters[first].first = std::uint32_t(a);  // the run's clusters cover [a, b) without gaps
+    for (std::size_t k = first; k < clusters.size(); ++k)
+        clusters[k].end = k + 1 < clusters.size() ? clusters[k + 1].first : std::uint32_t(b);
 }
 
-void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float maxW, WordBreak wordBreak, TextDirection direction, Chain& chain,
-                     HbBuffer& buf, const RichShaping* rich, ShapedText& out) {
+void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float maxW, WordBreak wordBreak,
+                     TextDirection direction, Chain& chain, HbBuffer& buf, const RichShaping* rich, ShapedText& out) {
     const std::size_t n = p.size();
     if (n == 0) {
         out.lines.emplace_back();
@@ -209,7 +225,8 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
         }
         if (!f) {
             f = ext ? faceOf[i - 1] : primary;  // nobody has it: .notdef of the base's font, drawn as nothing
-            if (is_visible(c) && out.missing.size() < 8 && std::find(out.missing.begin(), out.missing.end(), c) == out.missing.end())
+            if (is_visible(c) && out.missing.size() < 8 &&
+                std::find(out.missing.begin(), out.missing.end(), c) == out.missing.end())
                 out.missing.push_back(c);
         }
         faceOf[i] = f;
@@ -225,7 +242,8 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
             }
         }
         for (char32_t part : composed_parts(c))  // the shaper decomposes SARA AM whatever the font has
-            if (!f->has_glyph(part) && out.missing.size() < 8 && std::find(out.missing.begin(), out.missing.end(), part) == out.missing.end())
+            if (!f->has_glyph(part) && out.missing.size() < 8 &&
+                std::find(out.missing.begin(), out.missing.end(), part) == out.missing.end())
                 out.missing.push_back(part);
     }
 
@@ -234,13 +252,18 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
     hb_script_t last = HB_SCRIPT_INVALID;
     for (std::size_t i = 0; i < n; ++i) {
         hb_script_t s = hb_unicode_script(ucd(), p[i]);
-        if (s == HB_SCRIPT_COMMON || s == HB_SCRIPT_INHERITED || s == HB_SCRIPT_UNKNOWN) s = last;
-        else last = s;
+        if (s == HB_SCRIPT_COMMON || s == HB_SCRIPT_INHERITED || s == HB_SCRIPT_UNKNOWN)
+            s = last;
+        else
+            last = s;
         script[i] = s;
     }
     hb_script_t firstScript = HB_SCRIPT_COMMON;
     for (std::size_t i = 0; i < n; ++i)
-        if (script[i] != HB_SCRIPT_INVALID) { firstScript = script[i]; break; }
+        if (script[i] != HB_SCRIPT_INVALID) {
+            firstScript = script[i];
+            break;
+        }
     for (std::size_t i = 0; i < n && script[i] == HB_SCRIPT_INVALID; ++i) script[i] = firstScript;
 
     std::unique_ptr<Bidi> bidi;
@@ -262,7 +285,8 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
             c.end = std::uint32_t(i + 1);
             c.g0 = std::uint32_t(pool.size());
             const int icon = attr_of(i).icon;
-            const float adv = std::size_t(icon) < rich->iconAdvance.size() ? rich->iconAdvance[std::size_t(icon)] : float(px);
+            const float adv =
+                std::size_t(icon) < rich->iconAdvance.size() ? rich->iconAdvance[std::size_t(icon)] : float(px);
             pool.push_back({nullptr, 0, adv, 0, 0, icon, false});
             c.g1 = std::uint32_t(pool.size());
             c.adv = adv;
@@ -270,10 +294,11 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
             ++i;
             continue;
         }
-        while (j < n && !is_icon(j) && faceOf[j] == faceOf[i] && synth[j] == synth[i] && script[j] == script[i] && level_of(j) == level_of(i))
+        while (j < n && !is_icon(j) && faceOf[j] == faceOf[i] && synth[j] == synth[i] && script[j] == script[i] &&
+               level_of(j) == level_of(i))
             ++j;
-        shape_run(buf.b, p, i, j, faceOf[i], script[i], (level_of(i) & 1) != 0, px, synth[i] != 0, rich ? rich->syntheticExtra : 0.0f, pool,
-                  clusters);
+        shape_run(buf.b, p, i, j, faceOf[i], script[i], (level_of(i) & 1) != 0, px, synth[i] != 0,
+                  rich ? rich->syntheticExtra : 0.0f, pool, clusters);
         i = j;
     }
     std::vector<std::uint32_t> clusterOf(n + 1, 0);  // code point -> index of its cluster
@@ -281,7 +306,10 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
         for (std::uint32_t c = clusters[k].first; c < clusters[k].end && c < n; ++c) clusterOf[c] = std::uint32_t(k);
 
     // ---- line breaking on the logical order: after spaces, and around ideographs, kana and Hangul ----
-    struct Span { std::size_t c0 = 0, c1 = 0; float width = 0; };
+    struct Span {
+        std::size_t c0 = 0, c1 = 0;
+        float width = 0;
+    };
     std::vector<Span> spans;
     Span cur;
     bool curEmpty = true;
@@ -292,15 +320,23 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
         cur = Span{};
         curEmpty = true;
     };
-    auto can_break_before = [&](std::size_t k) { return can_break_between(p[clusters[k - 1].first], p[clusters[k].first], wordBreak); };
+    auto can_break_before = [&](std::size_t k) {
+        return can_break_between(p[clusters[k - 1].first], p[clusters[k].first], wordBreak);
+    };
     for (std::size_t k = 0; k < clusters.size();) {
         std::size_t j = k + 1;
         while (j < clusters.size() && !can_break_before(j)) ++j;
         float wordW = 0, trailW = 0;  // a unit is a word and the spaces after it
         for (std::size_t c = k; c < j; ++c) (clusters[c].space ? trailW : wordW) += clusters[c].adv;
-        if (maxW > 0 && curEmpty && wordW == 0) { k = j; continue; }  // no leading spaces on a wrapped line
+        if (maxW > 0 && curEmpty && wordW == 0) {
+            k = j;
+            continue;
+        }  // no leading spaces on a wrapped line
         if (maxW > 0 && !curEmpty && cur.width + wordW > maxW) close_line(true);
-        if (curEmpty) { cur.c0 = k; curEmpty = false; }
+        if (curEmpty) {
+            cur.c0 = k;
+            curEmpty = false;
+        }
         cur.c1 = j;
         cur.width += wordW + trailW;
         k = j;
@@ -319,7 +355,8 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
                 const SBRun* runs = SBLineGetRunsPtr(sbLine);
                 for (SBUInteger r = 0; r < SBLineGetRunCount(sbLine); ++r) {
                     const std::size_t from = order.size();
-                    for (std::size_t c = clusterOf[runs[r].offset]; c < s.c1 && clusters[c].first < runs[r].offset + runs[r].length; ++c)
+                    for (std::size_t c = clusterOf[runs[r].offset];
+                         c < s.c1 && clusters[c].first < runs[r].offset + runs[r].length; ++c)
                         if (clusters[c].first >= runs[r].offset) order.push_back(c);
                     if (runs[r].level & 1) std::reverse(order.begin() + std::ptrdiff_t(from), order.end());
                 }
@@ -331,7 +368,8 @@ void shape_paragraph(std::u32string_view p, std::uint32_t base, int px, float ma
             for (std::size_t c : order)
                 for (std::uint32_t g = clusters[c].g0; g < clusters[c].g1; ++g) {
                     const Glyph& gl = pool[g];
-                    line.glyphs.push_back({gl.face, gl.gid, base + clusters[c].first, pen + gl.xOff, gl.yOff, gl.adv, gl.icon, gl.synth});
+                    line.glyphs.push_back(
+                        {gl.face, gl.gid, base + clusters[c].first, pen + gl.xOff, gl.yOff, gl.adv, gl.icon, gl.synth});
                     pen += gl.adv;
                 }
             line.width = pen;
@@ -352,8 +390,8 @@ std::vector<std::uint32_t> grapheme_index(std::u32string_view text) {
         bool joins = false;
         if (i > 0) {
             const char32_t prev = text[i - 1];
-            joins = is_extender(c) || (c >= 0x1F3FB && c <= 0x1F3FF) || prev == 0x200D || (prev == U'\r' && c == U'\n') ||
-                    (regional && oddRegional);
+            joins = is_extender(c) || (c >= 0x1F3FB && c <= 0x1F3FF) || prev == 0x200D ||
+                    (prev == U'\r' && c == U'\n') || (regional && oddRegional);
         }
         if (!joins) ++g;
         oddRegional = regional && !(joins && oddRegional);
@@ -363,12 +401,14 @@ std::vector<std::uint32_t> grapheme_index(std::u32string_view text) {
 }
 
 ShapedText shape_text(std::string_view utf8, int px, float maxWidth, std::size_t chainSize,
-                      const std::function<FontFace*(std::size_t)>& chainFn, WordBreak wordBreak, TextDirection direction) {
+                      const std::function<FontFace*(std::size_t)>& chainFn, WordBreak wordBreak,
+                      TextDirection direction) {
     return shape_text(decode_text(utf8), px, maxWidth, chainSize, chainFn, nullptr, wordBreak, direction);
 }
 
 ShapedText shape_text(std::u32string_view text, int px, float maxWidth, std::size_t chainSize,
-                      const std::function<FontFace*(std::size_t)>& chainFn, const RichShaping* rich, WordBreak wordBreak, TextDirection direction) {
+                      const std::function<FontFace*(std::size_t)>& chainFn, const RichShaping* rich,
+                      WordBreak wordBreak, TextDirection direction) {
     ShapedText out;
     Chain chain(std::max<std::size_t>(chainSize, 1), chainFn);
     if (!chain.at(0)) {
@@ -379,7 +419,8 @@ ShapedText shape_text(std::u32string_view text, int px, float maxWidth, std::siz
     for (std::size_t start = 0;;) {
         const std::size_t nl = text.find(U'\n', start);
         const std::size_t end = nl == std::u32string::npos ? text.size() : nl;
-        shape_paragraph(text.substr(start, end - start), std::uint32_t(start), px, maxWidth, wordBreak, direction, chain, buf, rich, out);
+        shape_paragraph(text.substr(start, end - start), std::uint32_t(start), px, maxWidth, wordBreak, direction,
+                        chain, buf, rich, out);
         if (nl == std::u32string::npos) break;
         start = nl + 1;
     }

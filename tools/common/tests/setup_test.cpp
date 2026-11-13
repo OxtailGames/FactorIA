@@ -76,19 +76,26 @@ void make_sdk(const stdfs::path& dir, bool license, bool cmdline, bool packages)
 // ---- the fake listings --------------------------------------------------------------------------------------------
 
 // One cmdline-tools package of the listing (a Mac archive only: the tests run as a Mac with an M chip).
-std::string tools_package(const std::string& path, int major, const std::string& archiveName, const std::string& content) {
-    return "<remotePackage path=\"" + path + "\"><revision><major>" + std::to_string(major) + "</major><minor>0</minor></revision><archives><archive><complete>"
-           "<size>" + std::to_string(content.size()) + "</size><checksum type=\"sha1\">" + sha1_hex(content) + "</checksum><url>" + archiveName +
-           "</url></complete><host-os>macosx</host-os><host-arch>aarch64</host-arch></archive></archives></remotePackage>\n";
+std::string tools_package(const std::string& path, int major, const std::string& archiveName,
+                          const std::string& content) {
+    return "<remotePackage path=\"" + path + "\"><revision><major>" + std::to_string(major) +
+           "</major><minor>0</minor></revision><archives><archive><complete>"
+           "<size>" +
+           std::to_string(content.size()) + "</size><checksum type=\"sha1\">" + sha1_hex(content) + "</checksum><url>" +
+           archiveName +
+           "</url></complete><host-os>macosx</host-os><host-arch>aarch64</host-arch></archive></archives></"
+           "remotePackage>\n";
 }
 
 // Google's listing: the pinned classic tools (the archive that is served) and `latest`, revision 23, an archive nobody serves: a
 // test that downloads it fails. With `pinnedListed` false the pinned package is gone and the served archive is `latest`.
 std::string repo_xml(const std::string& archiveName, const std::string& content, bool pinnedListed = true) {
-    std::string xml = "<sdk:sdk-repository>\n<license id=\"android-sdk-license\" type=\"text\">" + std::string(kLicenseText) + "</license>\n";
+    std::string xml = "<sdk:sdk-repository>\n<license id=\"android-sdk-license\" type=\"text\">" +
+                      std::string(kLicenseText) + "</license>\n";
     if (pinnedListed) {
         xml += tools_package("cmdline-tools;22.0", 22, archiveName, content);
-        xml += tools_package("cmdline-tools;latest", 23, "commandlinetools-mac_arm64-23_latest.zip", "the Android CLI front");
+        xml += tools_package("cmdline-tools;latest", 23, "commandlinetools-mac_arm64-23_latest.zip",
+                             "the Android CLI front");
     } else {
         xml += tools_package("cmdline-tools;latest", 23, archiveName, content);
     }
@@ -97,8 +104,9 @@ std::string repo_xml(const std::string& archiveName, const std::string& content,
 
 std::string adoptium_json(const std::string& name, const std::string& content, const std::string& sha = {}) {
     return R"([{"binary":{"package":{"checksum":")" + (sha.empty() ? sha256_hex(content) : sha) +
-           R"(","link":"https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B1/)" + name + R"(","name":")" + name +
-           R"(","size":)" + std::to_string(content.size()) + R"(}},"release_name":"jdk-21.0.12+1","version":{"openjdk_version":"21.0.12+1-LTS"}}])";
+           R"(","link":"https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B1/)" + name +
+           R"(","name":")" + name + R"(","size":)" + std::to_string(content.size()) +
+           R"(}},"release_name":"jdk-21.0.12+1","version":{"openjdk_version":"21.0.12+1-LTS"}}])";
 }
 
 struct Asset {
@@ -112,9 +120,12 @@ struct Asset {
 std::string release_json(const std::string& tag, const std::vector<Asset>& assets) {
     std::string a;
     for (const Asset& x : assets) {
-        const std::string digest = x.digest ? "\"sha256:" + (x.badDigest ? std::string(64, '0') : sha256_hex(x.content)) + "\"" : "null";
-        a += std::string(a.empty() ? "" : ",") + R"({"name":")" + x.name + R"(","size":)" + std::to_string(long(x.content.size()) + x.sizeDelta) +
-             R"(,"browser_download_url":"https://github.com/OxtailGames/FactorIA/releases/download/)" + tag + "/" + x.name + R"(","digest":)" + digest + "}";
+        const std::string digest =
+            x.digest ? "\"sha256:" + (x.badDigest ? std::string(64, '0') : sha256_hex(x.content)) + "\"" : "null";
+        a += std::string(a.empty() ? "" : ",") + R"({"name":")" + x.name + R"(","size":)" +
+             std::to_string(long(x.content.size()) + x.sizeDelta) +
+             R"(,"browser_download_url":"https://github.com/OxtailGames/FactorIA/releases/download/)" + tag + "/" +
+             x.name + R"(","digest":)" + digest + "}";
     }
     return R"({"tag_name":")" + tag + R"(","assets":[)" + a + "]}";
 }
@@ -123,7 +134,9 @@ const char* kTagsUrl = "https://api.github.com/repos/OxtailGames/FactorIA/releas
 const char* kLatestUrl = "https://api.github.com/repos/OxtailGames/FactorIA/releases/latest";
 const char* kCmakeBase = "https://github.com/Kitware/CMake/releases/download/v3.31.6/";
 
-std::string package_url(const std::string& name) { return "https://github.com/OxtailGames/FactorIA/releases/download/v0.1.3/" + name; }
+std::string package_url(const std::string& name) {
+    return "https://github.com/OxtailGames/FactorIA/releases/download/v0.1.3/" + name;
+}
 
 // ---- the fake world -----------------------------------------------------------------------------------------------
 
@@ -138,23 +151,24 @@ struct World {
     testing::TempDir tmp;
     std::string home, user, exeDir, apps;
     std::map<std::string, std::string> env;
-    std::map<std::string, std::string> served;       // url -> body
-    std::map<std::string, int> failing;              // url -> HTTP status
-    std::set<std::string> cancelOn;                  // urls whose download is cancelled
+    std::map<std::string, std::string> served;  // url -> body
+    std::map<std::string, int> failing;         // url -> HTTP status
+    std::set<std::string> cancelOn;             // urls whose download is cancelled
     std::vector<std::string> requested;
     std::map<std::string, std::vector<std::string>> headersOf;
     std::vector<ProcessCall> calls;
     std::vector<std::string> said;
-    std::map<std::string, std::string> cmakeAt;      // cmake path -> its `--version` output
-    std::string developerDir, xcodeVersion, sdks;    // what xcode-select / xcodebuild print ("" = they fail)
-    int sdkmanagerExit = 0;                          // the exit code of the package install
-    std::string sdkmanagerOutput;                    // its stderr when it fails
-    bool jdkBundle = true;                           // the JDK archive has Contents/Home (macOS) inside
-    bool unpackWeb = true;                           // every package carries web/ (false: a release older than the web export)
-    bool unpackIosLibs = true;                       // the macOS package carries mobile/ios (false: a broken release)
-    bool pinnedListed = true;                        // Google's listing still has cmdline-tools;22.0 (false: only `latest`)
-    std::string sourceRoot;                          // the checkout `setup webplayer` builds in (a temporary folder; "" = none)
-    std::function<Result<ProcessResult>(const ProcessOptions&)> onOther;  // programs the world does not know (bash, emsdk)
+    std::map<std::string, std::string> cmakeAt;    // cmake path -> its `--version` output
+    std::string developerDir, xcodeVersion, sdks;  // what xcode-select / xcodebuild print ("" = they fail)
+    int sdkmanagerExit = 0;                        // the exit code of the package install
+    std::string sdkmanagerOutput;                  // its stderr when it fails
+    bool jdkBundle = true;                         // the JDK archive has Contents/Home (macOS) inside
+    bool unpackWeb = true;      // every package carries web/ (false: a release older than the web export)
+    bool unpackIosLibs = true;  // the macOS package carries mobile/ios (false: a broken release)
+    bool pinnedListed = true;   // Google's listing still has cmdline-tools;22.0 (false: only `latest`)
+    std::string sourceRoot;     // the checkout `setup webplayer` builds in (a temporary folder; "" = none)
+    std::function<Result<ProcessResult>(const ProcessOptions&)>
+        onOther;  // programs the world does not know (bash, emsdk)
     std::string jdkContent = std::string(400, 'J');
     std::string toolsContent = std::string(500, 'T');
 
@@ -175,8 +189,13 @@ struct World {
     std::string config() const { return (h() / "export.json").string(); }
     std::string jdk_name() const { return "OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12_1.tar.gz"; }
     std::string tools_name() const { return "commandlinetools-mac_arm64-1_latest.zip"; }
-    static std::string adoptium_url() { return "https://api.adoptium.net/v3/assets/latest/21/hotspot?os=mac&architecture=aarch64&image_type=jdk&vendor=eclipse"; }
-    std::string jdk_link() const { return "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B1/" + jdk_name(); }
+    static std::string adoptium_url() {
+        return "https://api.adoptium.net/v3/assets/latest/21/"
+               "hotspot?os=mac&architecture=aarch64&image_type=jdk&vendor=eclipse";
+    }
+    std::string jdk_link() const {
+        return "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12%2B1/" + jdk_name();
+    }
     std::string tools_url() const { return std::string(kSdkDownloadBase) + tools_name(); }
 
     void serve_android() {
@@ -189,7 +208,8 @@ struct World {
     // Release v0.1.3 with the three packages (each a distinct body).
     std::vector<Asset> serve_release(bool digests = true) {
         std::vector<Asset> assets;
-        for (const char* name : {"FactorIA-windows-x64.zip", "FactorIA-linux-x64.tar.gz", "FactorIA-macos-universal.tar.gz"}) {
+        for (const char* name :
+             {"FactorIA-windows-x64.zip", "FactorIA-linux-x64.tar.gz", "FactorIA-macos-universal.tar.gz"}) {
             Asset a;
             a.name = name;
             a.content = std::string("package ") + name + std::string(300, 'x');
@@ -206,7 +226,8 @@ struct World {
 
     void serve_cmake(const std::string& archiveName, const std::string& content, const std::string& sumOf = {}) {
         served[std::string(kCmakeBase) + "cmake-3.31.6-SHA-256.txt"] =
-            std::string(64, 'e') + "  cmake-3.31.6-files-v1.json\n" + sha256_hex(sumOf.empty() ? content : sumOf) + "  " + archiveName + "\n";
+            std::string(64, 'e') + "  cmake-3.31.6-files-v1.json\n" + sha256_hex(sumOf.empty() ? content : sumOf) +
+            "  " + archiveName + "\n";
         served[std::string(kCmakeBase) + archiveName] = content;
     }
 
@@ -226,7 +247,8 @@ struct World {
         c.run = [this](const ProcessOptions& o) { return run(o); };
         c.progress = [this](const std::string& line) { said.push_back(line); };
         AndroidToolchainSearch s;
-        s.env = c.env;  // only the folders of this world: never the Unity Hub or Android Studio of the computer running the tests
+        s.env =
+            c.env;  // only the folders of this world: never the Unity Hub or Android Studio of the computer running the tests
         s.jdk.push_back({(h() / "android" / "jdk").string(), "FactorIA"});
         s.sdk.push_back({(h() / "android" / "sdk").string(), "FactorIA"});
         c.toolchainSearch = s;
@@ -249,7 +271,8 @@ struct World {
             r.error = make_error("cancelled in the test");
             return r;
         }
-        if (auto f = failing.find(rq.url); f != failing.end()) return fail(f->second, "HTTP " + std::to_string(f->second) + " for " + rq.url);
+        if (auto f = failing.find(rq.url); f != failing.end())
+            return fail(f->second, "HTTP " + std::to_string(f->second) + " for " + rq.url);
         auto it = served.find(rq.url);
         if (it == served.end()) return fail(404, "not served in the test: " + rq.url);
         put(rq.destination, it->second);
@@ -324,20 +347,24 @@ struct World {
         } else if (starts_with(name, "FactorIA-")) {
             const bool windows = name.find("windows") != std::string::npos;
             put(d / "FactorIA" / (windows ? "factoria_player.exe" : "factoria_player"), "player of " + name);
-            for (const char* abi : {"arm64-v8a", "x86_64"}) put(d / "FactorIA" / "mobile" / "android" / "jniLibs" / abi / "libfactoria_player.so");
+            for (const char* abi : {"arm64-v8a", "x86_64"})
+                put(d / "FactorIA" / "mobile" / "android" / "jniLibs" / abi / "libfactoria_player.so");
             if (unpackWeb) {  // every package carries the web player
                 put(d / "FactorIA" / "web" / "factoria_player.js", "glue of " + name);
                 put(d / "FactorIA" / "web" / "factoria_player.wasm", "wasm of " + name);
             }
             if (name.find("macos") != std::string::npos && unpackIosLibs)
-                for (const char* sdk : {"iphoneos", "iphonesimulator"}) put(d / "FactorIA" / "mobile" / "ios" / sdk / "libfactoria_player_main.a");
+                for (const char* sdk : {"iphoneos", "iphonesimulator"})
+                    put(d / "FactorIA" / "mobile" / "ios" / sdk / "libfactoria_player_main.a");
         } else if (starts_with(name, "emsdk")) {
             put(d / "emsdk-main" / "emsdk", "#!/bin/sh\n");
             put(d / "emsdk-main" / "emsdk_env.sh", "# env\n");
         } else if (starts_with(name, "cmake-")) {
             const std::string top = name.substr(0, name.find(".tar.gz"));
-            if (name.find("macos") != std::string::npos) put(d / top / "CMake.app" / "Contents" / "bin" / "cmake");
-            else put(d / top / "bin" / "cmake");
+            if (name.find("macos") != std::string::npos)
+                put(d / top / "CMake.app" / "Contents" / "bin" / "cmake");
+            else
+                put(d / top / "bin" / "cmake");
         } else {
             return make_error("the test does not know how to unpack " + name);
         }
@@ -351,8 +378,10 @@ struct World {
     Result<ProcessResult> sdkmanager(const ProcessOptions& o) {
         std::string root, packageFile;
         for (const std::string& a : o.argv) {
-            if (starts_with(a, "--sdk_root=")) root = a.substr(11);
-            else if (starts_with(a, "--package_file=")) packageFile = a.substr(15);
+            if (starts_with(a, "--sdk_root="))
+                root = a.substr(11);
+            else if (starts_with(a, "--package_file="))
+                packageFile = a.substr(15);
         }
         ProcessResult r;
         r.exitCode = 0;
@@ -373,23 +402,28 @@ struct World {
         if (trim(is_there(licenseFile) ? testing::read_all(licenseFile.string()) : std::string()).empty()) {
             if (!starts_with(o.stdinText, "y\n")) {
                 r.exitCode = 1;
-                r.stderrText = "License android-sdk-license: Accept? (y/N): Skipping following packages as the license is not accepted: platform-tools\n";
+                r.stderrText = "License android-sdk-license: Accept? (y/N): Skipping following packages as the license "
+                               "is not accepted: platform-tools\n";
                 return r;
             }
             put(licenseFile, "\n24333f8a63b6825ea9c5514f83c2829b004d1fee");
         }
         for (const std::string& line : split(testing::read_all(packageFile), '\n')) {
             const std::string pkg(trim(line));
-            if (pkg == "platform-tools") put(stdfs::path(root) / "platform-tools" / "adb");
-            else if (pkg == "platforms;android-36") put(stdfs::path(root) / "platforms" / "android-36" / "android.jar");
-            else if (pkg == "build-tools;35.0.0") put(stdfs::path(root) / "build-tools" / "35.0.0" / "aapt2");
+            if (pkg == "platform-tools")
+                put(stdfs::path(root) / "platform-tools" / "adb");
+            else if (pkg == "platforms;android-36")
+                put(stdfs::path(root) / "platforms" / "android-36" / "android.jar");
+            else if (pkg == "build-tools;35.0.0")
+                put(stdfs::path(root) / "build-tools" / "35.0.0" / "aapt2");
         }
         return r;
     }
 
     std::size_t sdkmanager_calls() const {
         std::size_t n = 0;
-        for (const ProcessCall& c : calls) n += stdfs::path(c.argv[0]).filename().string().rfind("sdkmanager", 0) == 0 ? 1 : 0;
+        for (const ProcessCall& c : calls)
+            n += stdfs::path(c.argv[0]).filename().string().rfind("sdkmanager", 0) == 0 ? 1 : 0;
         return n;
     }
 };
@@ -449,7 +483,8 @@ TEST_CASE("setup: status of an empty computer writes nothing and downloads only 
     CHECK(all.home == w.home);
     CHECK(all.components[0].state == "missing");
     CHECK(all.components[0].canInstall);
-    CHECK(all.components[0].installSizeMb == 500);  // JDK 200 + the pinned command-line tools 160 + the packages 140: no Android CLI on top
+    CHECK(all.components[0].installSizeMb ==
+          500);  // JDK 200 + the pinned command-line tools 160 + the packages 140: no Android CLI on top
     CHECK(all.components[0].licenses.empty());  // fetchLicenses off: no request
     CHECK(all.components[1].state == "missing");
     CHECK(all.components[1].installSizeMb > 0);
@@ -488,7 +523,8 @@ TEST_CASE("setup: a license that cannot be fetched is a problem, not a crash") {
     const SetupComponent a = setup_status(c, "android", true).components[0];
     CHECK(a.licenses.empty());
     bool mentioned = false;
-    for (const std::string& p : a.problems) mentioned |= p.find("Could not fetch the license text") != std::string::npos;
+    for (const std::string& p : a.problems)
+        mentioned |= p.find("Could not fetch the license text") != std::string::npos;
     CHECK(mentioned);
 }
 
@@ -497,7 +533,8 @@ TEST_CASE("setup: status of a computer that has everything") {
     make_jdk(w.h() / "android" / "jdk", 21);
     make_sdk(w.h() / "android" / "sdk", true, true, true);
     SetupContext c = w.ctx();
-    const SetupComponent a = setup_status(c, "android", true).components[0];  // would fetch the license if it were missing
+    const SetupComponent a =
+        setup_status(c, "android", true).components[0];  // would fetch the license if it were missing
     CHECK(a.state == "installed");
     CHECK(a.problems.empty());
     CHECK(a.licenses.empty());
@@ -535,13 +572,16 @@ TEST_CASE("setup android: installs the JDK, the pinned tools, the license and th
     o.acceptLicenses = true;
     const SetupResult r = setup_install(o, c);
     REQUIRE_MESSAGE(r.ok, r.error.message);
-    CHECK(steps_of(r.report) == "jdk=installed cmdline-tools=installed licenses=installed packages=installed config=installed");
+    CHECK(steps_of(r.report) ==
+          "jdk=installed cmdline-tools=installed licenses=installed packages=installed config=installed");
     CHECK(r.report.changed);
     CHECK(r.report.warnings.empty());  // the pinned package was there: nothing to warn about
 
     const stdfs::path jdk = w.h() / "android" / "jdk", sdk = w.h() / "android" / "sdk";
-    const stdfs::path tools = sdk / "cmdline-tools" / "22.0";  // the folder is named like the package cmdline-tools;22.0
-    CHECK(w.requested == std::vector<std::string>{World::adoptium_url(), w.jdk_link(), kSdkRepositoryUrl, w.tools_url()});  // not the `latest` archive
+    const stdfs::path tools =
+        sdk / "cmdline-tools" / "22.0";  // the folder is named like the package cmdline-tools;22.0
+    CHECK(w.requested == std::vector<std::string>{World::adoptium_url(), w.jdk_link(), kSdkRepositoryUrl,
+                                                  w.tools_url()});  // not the `latest` archive
     CHECK(is_there(jdk / "bin" / "java"));  // Contents/Home of the macOS bundle is the JDK folder
     CHECK(is_there(jdk / "release"));
     CHECK_FALSE(is_there(jdk / "Contents"));
@@ -554,7 +594,7 @@ TEST_CASE("setup android: installs the JDK, the pinned tools, the license and th
     CHECK(is_there(sdk / "build-tools" / "35.0.0"));
     CHECK_FALSE(is_there(w.h() / "staging"));  // nothing left behind
 #ifndef _WIN32
-    struct stat st {};
+    struct stat st{};
     REQUIRE(stat((tools / "bin" / "sdkmanager").string().c_str(), &st) == 0);
     CHECK((st.st_mode & S_IXUSR) != 0);
 #endif
@@ -562,7 +602,8 @@ TEST_CASE("setup android: installs the JDK, the pinned tools, the license and th
     CHECK(r.report.steps[1].path == tools.string());
 
     // The license: only the one the user agreed to, as the line Google's tools write (a line break, the hash of the text).
-    CHECK(testing::read_all((sdk / "licenses" / "android-sdk-license").string()) == "\n" + sdk_license_hash(kLicenseText));
+    CHECK(testing::read_all((sdk / "licenses" / "android-sdk-license").string()) ==
+          "\n" + sdk_license_hash(kLicenseText));
     CHECK(listing(sdk / "licenses") == std::vector<std::string>{"android-sdk-license"});
     CHECK(r.report.steps[2].detail.find("no other license") != std::string::npos);
 
@@ -579,7 +620,8 @@ TEST_CASE("setup android: installs the JDK, the pinned tools, the license and th
     CHECK(mgr[0]->argv[1] == "--sdk_root=" + sdk.string());
     CHECK(starts_with(mgr[0]->argv[2], "--package_file="));
     CHECK(mgr[0]->env.at("JAVA_HOME") == jdk.string());
-    CHECK(mgr[0]->env.at("ANDROID_USER_HOME") == (w.h() / "android" / "user").string());  // Google's tools keep their files in FactorIA's folder
+    CHECK(mgr[0]->env.at("ANDROID_USER_HOME") ==
+          (w.h() / "android" / "user").string());  // Google's tools keep their files in FactorIA's folder
     CHECK(mgr[0]->packageFile == "platform-tools\nplatforms;android-36\nbuild-tools;35.0.0\n");
     CHECK(mgr[0]->stdinText.empty());
 
@@ -609,7 +651,8 @@ TEST_CASE("setup android: installs the JDK, the pinned tools, the license and th
     CHECK(status.state == "installed");
     CHECK(status.licenses.empty());
     bool pathOfTools = false;
-    for (const auto& [name, path] : status.paths) pathOfTools |= name == "sdkmanager" && path == (tools / "bin" / "sdkmanager").string();
+    for (const auto& [name, path] : status.paths)
+        pathOfTools |= name == "sdkmanager" && path == (tools / "bin" / "sdkmanager").string();
     CHECK(pathOfTools);
     const std::size_t requested = w.requested.size(), called = w.calls.size();
     SetupInstallOptions again;
@@ -640,7 +683,8 @@ TEST_CASE("setup android: when Google's list no longer has the pinned tools, `la
     o.acceptLicenses = true;
     const SetupResult r = setup_install(o, c);
     REQUIRE_MESSAGE(r.ok, r.error.message);
-    CHECK(steps_of(r.report) == "jdk=installed cmdline-tools=installed licenses=installed packages=installed config=installed");
+    CHECK(steps_of(r.report) ==
+          "jdk=installed cmdline-tools=installed licenses=installed packages=installed config=installed");
     REQUIRE(r.report.warnings.size() == 1);
     CHECK(r.report.warnings[0].find("cmdline-tools;22.0") != std::string::npos);
     CHECK(r.report.warnings[0].find("cmdline-tools;latest") != std::string::npos);
@@ -674,7 +718,8 @@ TEST_CASE("setup android: the license is recorded by the install, only for the u
     make_jdk(lone.tmp.path / "jdk", 17);
     lone.env["JAVA_HOME"] = (lone.tmp.path / "jdk").string();
     make_sdk(lone.h() / "android" / "sdk", false, true, true);
-    stdfs::create_directories(lone.h() / "android" / "sdk" / "licenses");  // an SDK folder that looks like one, without the license file
+    stdfs::create_directories(lone.h() / "android" / "sdk" /
+                              "licenses");  // an SDK folder that looks like one, without the license file
     lone.serve_android();
     SetupContext cl = lone.ctx();
     SetupInstallOptions o;
@@ -691,7 +736,8 @@ TEST_CASE("setup android: the license is recorded by the install, only for the u
     CHECK(steps_of(done.report) == "jdk=skipped cmdline-tools=skipped licenses=installed packages=skipped");
     CHECK(lone.requested == std::vector<std::string>{kSdkRepositoryUrl});  // the license text is all it fetches
     CHECK(lone.sdkmanager_calls() == 0);
-    CHECK(testing::read_all((lone.h() / "android" / "sdk" / "licenses" / "android-sdk-license").string()) == "\n" + sdk_license_hash(kLicenseText));
+    CHECK(testing::read_all((lone.h() / "android" / "sdk" / "licenses" / "android-sdk-license").string()) ==
+          "\n" + sdk_license_hash(kLicenseText));
     CHECK(setup_status(cl, "android", false).components[0].state == "installed");
 
     // Tools that were there before (an SDK that was found) are not known to be the classic ones: they get the "y" answers as before.
@@ -783,7 +829,8 @@ TEST_CASE("setup android: a JDK that is already there is used, not downloaded") 
     o.acceptLicenses = true;
     const SetupResult r = setup_install(o, c);
     REQUIRE_MESSAGE(r.ok, r.error.message);
-    CHECK(steps_of(r.report) == "jdk=skipped cmdline-tools=installed licenses=installed packages=installed config=installed");
+    CHECK(steps_of(r.report) ==
+          "jdk=skipped cmdline-tools=installed licenses=installed packages=installed config=installed");
     CHECK(r.report.steps[0].path == jdk17.string());
     for (const std::string& url : w.requested) CHECK(url.find("adoptium") == std::string::npos);
     CHECK_FALSE(is_there(w.h() / "android" / "jdk"));
@@ -850,7 +897,8 @@ TEST_CASE("setup android: Unity Hub's SDK is never installed into") {
     CHECK(listing(unity) == before);
     CHECK(is_there(w.h() / "android" / "sdk" / "cmdline-tools" / "22.0" / "bin" / "sdkmanager"));
     for (const ProcessCall& call : w.calls)
-        if (stdfs::path(call.argv[0]).filename() == "sdkmanager") CHECK(call.argv[1] == "--sdk_root=" + (w.h() / "android" / "sdk").string());
+        if (stdfs::path(call.argv[0]).filename() == "sdkmanager")
+            CHECK(call.argv[1] == "--sdk_root=" + (w.h() / "android" / "sdk").string());
 }
 
 TEST_CASE("setup android: sdkmanager failing says what it printed") {
@@ -879,7 +927,8 @@ TEST_CASE("setup android: sdkmanager failing says what it printed") {
     REQUIRE_FALSE(r2.ok);
     CHECK(r2.code == "failed");
     CHECK(r2.error.message.find("does not accept the license agreement FactorIA recorded") != std::string::npos);
-    CHECK(r2.error.message.find((w2.h() / "android" / "sdk" / "licenses" / "android-sdk-license").string()) != std::string::npos);
+    CHECK(r2.error.message.find((w2.h() / "android" / "sdk" / "licenses" / "android-sdk-license").string()) !=
+          std::string::npos);
     CHECK(r2.error.hint.find("--licenses") != std::string::npos);
 
     // Without the user's agreement in this run (an SDK whose license file is stale), it maps to the license error.
@@ -924,7 +973,8 @@ TEST_CASE("setup players: installs the other desktop players and the mobile libr
     const SetupResult r = setup_install(o, c);
     REQUIRE_MESSAGE(r.ok, r.error.message);
     CHECK(steps_of(r.report) == "player-windows=installed player-linux=installed mobile=installed");
-    CHECK(w.requested == std::vector<std::string>{kTagsUrl, package_url("FactorIA-windows-x64.zip"), package_url("FactorIA-linux-x64.tar.gz"),
+    CHECK(w.requested == std::vector<std::string>{kTagsUrl, package_url("FactorIA-windows-x64.zip"),
+                                                  package_url("FactorIA-linux-x64.tar.gz"),
                                                   package_url("FactorIA-macos-universal.tar.gz")});
     const auto& headers = w.headersOf.at(kTagsUrl);
     CHECK(std::find(headers.begin(), headers.end(), "Accept: application/vnd.github+json") != headers.end());
@@ -940,7 +990,7 @@ TEST_CASE("setup players: installs the other desktop players and the mobile libr
     CHECK_FALSE(is_there(root / ".tmp-windows"));
     CHECK_FALSE(is_there(w.h() / "staging"));
 #ifndef _WIN32
-    struct stat st {};
+    struct stat st{};
     REQUIRE(stat((root / "linux" / "factoria_player").string().c_str(), &st) == 0);
     CHECK((st.st_mode & S_IXUSR) != 0);
 #endif
@@ -958,7 +1008,8 @@ TEST_CASE("setup players: installs the other desktop players and the mobile libr
     const std::size_t requested = w.requested.size();
     const SetupResult again = setup_install(o, c);
     REQUIRE_MESSAGE(again.ok, again.error.message);
-    CHECK(steps_of(again.report) == "player-windows=skipped player-linux=skipped");  // the mobile libraries are there: not asked for
+    CHECK(steps_of(again.report) ==
+          "player-windows=skipped player-linux=skipped");  // the mobile libraries are there: not asked for
     CHECK_FALSE(again.report.changed);
     CHECK(w.requested.size() == requested);
 
@@ -974,8 +1025,10 @@ TEST_CASE("setup players: installs the other desktop players and the mobile libr
 TEST_CASE("setup players: the mobile libraries next to factoria are not downloaded again") {
     World w;
     w.serve_release();
-    for (const char* abi : {"arm64-v8a", "x86_64"}) put(stdfs::path(w.exeDir) / "mobile" / "android" / "jniLibs" / abi / "libfactoria_player.so");
-    for (const char* sdk : {"iphoneos", "iphonesimulator"}) put(stdfs::path(w.exeDir) / "mobile" / "ios" / sdk / "libfactoria_player_main.a");
+    for (const char* abi : {"arm64-v8a", "x86_64"})
+        put(stdfs::path(w.exeDir) / "mobile" / "android" / "jniLibs" / abi / "libfactoria_player.so");
+    for (const char* sdk : {"iphoneos", "iphonesimulator"})
+        put(stdfs::path(w.exeDir) / "mobile" / "ios" / sdk / "libfactoria_player_main.a");
     SetupContext c = w.ctx();
     const SetupComponent before = setup_status(c, "players").components[0];
     CHECK(before.details.find("next to factoria") != std::string::npos);
@@ -998,9 +1051,13 @@ TEST_CASE("setup players: platforms narrows the install; Windows and Linux hosts
     const SetupResult r = setup_install(o, c);
     REQUIRE_MESSAGE(r.ok, r.error.message);
     CHECK(steps_of(r.report) == "mobile=installed");
-    CHECK(w.requested == std::vector<std::string>{kTagsUrl, package_url("FactorIA-macos-universal.tar.gz")});  // the macOS package holds the iOS libraries
-    CHECK(is_there(w.h() / "players" / "0.1.3" / "mobile" / "android" / "jniLibs" / "arm64-v8a" / "libfactoria_player.so"));
-    CHECK(is_there(w.h() / "players" / "0.1.3" / "mobile" / "ios" / "iphoneos" / "libfactoria_player_main.a"));  // on a Linux host too
+    CHECK(w.requested ==
+          std::vector<std::string>{
+              kTagsUrl, package_url("FactorIA-macos-universal.tar.gz")});  // the macOS package holds the iOS libraries
+    CHECK(is_there(w.h() / "players" / "0.1.3" / "mobile" / "android" / "jniLibs" / "arm64-v8a" /
+                   "libfactoria_player.so"));
+    CHECK(is_there(w.h() / "players" / "0.1.3" / "mobile" / "ios" / "iphoneos" /
+                   "libfactoria_player_main.a"));  // on a Linux host too
     CHECK(is_there(w.h() / "players" / "0.1.3" / "mobile" / "ios" / "iphonesimulator" / "libfactoria_player_main.a"));
     CHECK_FALSE(is_there(w.h() / "players" / "0.1.3" / "macos"));  // only its mobile/ was asked for
     CHECK(installed_mobile_dir(c) == (w.h() / "players" / "0.1.3" / "mobile").string());
@@ -1021,10 +1078,12 @@ TEST_CASE("setup players: a Windows host wants the Linux and macOS players") {
     CHECK(w.requested.size() == 3);  // the release, linux, and macos (which also holds the mobile libraries)
 }
 
-TEST_CASE("setup players: a Windows download has Android only, so the iOS libraries are still fetched from the macOS package") {
+TEST_CASE("setup players: a Windows download has Android only, so the iOS libraries are still fetched from the macOS "
+          "package") {
     World w;
     w.serve_release();
-    for (const char* abi : {"arm64-v8a", "x86_64"}) put(stdfs::path(w.exeDir) / "mobile" / "android" / "jniLibs" / abi / "libfactoria_player.so");
+    for (const char* abi : {"arm64-v8a", "x86_64"})
+        put(stdfs::path(w.exeDir) / "mobile" / "android" / "jniLibs" / abi / "libfactoria_player.so");
     SetupContext c = w.ctx("windows", "x64");
     const SetupComponent before = setup_status(c, "players").components[0];
     CHECK(before.details.find("iOS libraries") != std::string::npos);
@@ -1169,11 +1228,13 @@ TEST_CASE("setup players: a wrong checksum installs nothing") {
     CHECK_FALSE(is_there(w.h() / "staging"));
 }
 
-TEST_CASE("setup players: a development build with no release takes the newest release's players and says they will not match") {
+TEST_CASE("setup players: a development build with no release takes the newest release's players and says they will "
+          "not match") {
     World w;
     w.failing[kTagsUrl] = 404;  // v0.1.3 was never released
     std::vector<Asset> assets;
-    for (const char* name : {"FactorIA-windows-x64.zip", "FactorIA-linux-x64.tar.gz", "FactorIA-macos-universal.tar.gz"}) {
+    for (const char* name :
+         {"FactorIA-windows-x64.zip", "FactorIA-linux-x64.tar.gz", "FactorIA-macos-universal.tar.gz"}) {
         Asset a;
         a.name = name;
         a.content = std::string("package ") + name + std::string(300, 'x');
@@ -1199,7 +1260,8 @@ TEST_CASE("setup players: a development build with no release takes the newest r
     bool said = false;
     for (const std::string& line : w.said) said = said || line.find("fingerprint will not match") != std::string::npos;
     CHECK(said);  // the CLI prints it while it runs
-    CHECK(std::find(w.requested.begin(), w.requested.end(), package_url("FactorIA-windows-x64.zip")) == w.requested.end());
+    CHECK(std::find(w.requested.begin(), w.requested.end(), package_url("FactorIA-windows-x64.zip")) ==
+          w.requested.end());
 
     // A released version has no such warning.
     World w2;
@@ -1269,8 +1331,10 @@ TEST_CASE("setup players: a real tar.gz is unpacked with the system tar") {
 #endif
     const stdfs::path pkg = w.tmp.path / "pkg";
     put(pkg / "FactorIA" / "factoria_player", "#!/bin/sh\necho player\n");
-    for (const char* abi : {"arm64-v8a", "x86_64"}) put(pkg / "FactorIA" / "mobile" / "android" / "jniLibs" / abi / "libfactoria_player.so", "so");
-    for (const char* sdk : {"iphoneos", "iphonesimulator"}) put(pkg / "FactorIA" / "mobile" / "ios" / sdk / "libfactoria_player_main.a", "a");
+    for (const char* abi : {"arm64-v8a", "x86_64"})
+        put(pkg / "FactorIA" / "mobile" / "android" / "jniLibs" / abi / "libfactoria_player.so", "so");
+    for (const char* sdk : {"iphoneos", "iphonesimulator"})
+        put(pkg / "FactorIA" / "mobile" / "ios" / sdk / "libfactoria_player_main.a", "a");
     const stdfs::path tarball = w.tmp.path / name;
     ProcessOptions po;
     po.argv = {"tar", "-czf", tarball.string(), "-C", pkg.string(), "FactorIA"};
@@ -1281,7 +1345,8 @@ TEST_CASE("setup players: a real tar.gz is unpacked with the system tar") {
     Asset a;
     a.name = name;
     a.content = bytes;
-    Asset macos = a;  // the mobile libraries come from the macOS package: the same archive stands in for it on a Linux host
+    Asset macos =
+        a;  // the mobile libraries come from the macOS package: the same archive stands in for it on a Linux host
     macos.name = "FactorIA-macos-universal.tar.gz";
     w.publish({a, macos});
 
@@ -1301,10 +1366,11 @@ TEST_CASE("setup players: a real tar.gz is unpacked with the system tar") {
     const stdfs::path player = w.h() / "players" / "0.1.3" / os / "factoria_player";
     CHECK(installed_player(c, os) == player.string());
     CHECK(testing::read_all(player) == "#!/bin/sh\necho player\n");
-    struct stat st {};
+    struct stat st{};
     REQUIRE(stat(player.string().c_str(), &st) == 0);
     CHECK((st.st_mode & S_IXUSR) != 0);
-    CHECK(is_there(w.h() / "players" / "0.1.3" / "mobile" / "android" / "jniLibs" / "x86_64" / "libfactoria_player.so"));
+    CHECK(
+        is_there(w.h() / "players" / "0.1.3" / "mobile" / "android" / "jniLibs" / "x86_64" / "libfactoria_player.so"));
 }
 #endif
 
@@ -1318,7 +1384,8 @@ TEST_CASE("setup cmake: a CMake that is found is used and nothing is downloaded"
     const stdfs::path bin = w.tmp.path / "bin";
     put(bin / "cmake");
     w.env["PATH"] = bin.string();
-    w.cmakeAt[(bin / "cmake").string()] = "cmake version 3.28.1\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake).\n";
+    w.cmakeAt[(bin / "cmake").string()] =
+        "cmake version 3.28.1\n\nCMake suite maintained and supported by Kitware (kitware.com/cmake).\n";
     SetupContext c = w.ctx();
     CHECK(find_cmake(c) == (bin / "cmake").string());
     const SetupComponent status = setup_status(c, "cmake").components[0];
@@ -1381,7 +1448,8 @@ TEST_CASE("setup cmake: installs Kitware's CMake when none is found, and find_cm
     REQUIRE_MESSAGE(r.ok, r.error.message);
     CHECK(steps_of(r.report) == "cmake=installed");
     CHECK(r.report.changed);
-    CHECK(w.requested == std::vector<std::string>{std::string(kCmakeBase) + "cmake-3.31.6-SHA-256.txt", std::string(kCmakeBase) + archive});
+    CHECK(w.requested == std::vector<std::string>{std::string(kCmakeBase) + "cmake-3.31.6-SHA-256.txt",
+                                                  std::string(kCmakeBase) + archive});
     CHECK(find_cmake(c) == installed.string());
     CHECK(setup_status(c, "cmake").components[0].state == "installed");
 
@@ -1449,7 +1517,8 @@ TEST_CASE("setup xcode: a complete Xcode is installed; nothing is run to install
     World w;
     w.developerDir = "/Applications/Xcode.app/Contents/Developer";
     w.xcodeVersion = "Xcode 27.1\nBuild version 27A1\n";
-    w.sdks = "iOS SDKs:\n\tiOS 27.1    -sdk iphoneos27.1\n\niOS Simulator SDKs:\n\tSimulator - iOS 27.1    -sdk iphonesimulator27.1\n";
+    w.sdks = "iOS SDKs:\n\tiOS 27.1    -sdk iphoneos27.1\n\niOS Simulator SDKs:\n\tSimulator - iOS 27.1    -sdk "
+             "iphonesimulator27.1\n";
     SetupContext c = w.ctx();
     const SetupComponent status = setup_status(c, "xcode").components[0];
     CHECK(status.state == "installed");
@@ -1654,7 +1723,8 @@ TEST_CASE("curl downloader: failures say what happened and how to fix it") {
         FakeCurl curl;
         curl.exitCode = 22;
         curl.stderrText = "curl: (22) The requested URL returned error: 403\n";
-        const DownloadResult r = curl_downloader(curl.runner())(request(w, "https://api.github.com/repos/x/y/releases/latest"));
+        const DownloadResult r =
+            curl_downloader(curl.runner())(request(w, "https://api.github.com/repos/x/y/releases/latest"));
         REQUIRE_FALSE(r.ok);
         CHECK(r.httpStatus == 403);
         CHECK(r.error.hint.find("60 anonymous requests") != std::string::npos);
@@ -1750,7 +1820,8 @@ TEST_CASE("curl downloader: the real curl copies a file:// URL, with progress, a
 // setup webplayer: the web player built from the checkout (development builds)
 // ---------------------------------------------------------------------------------------------------------------------
 
-TEST_CASE("setup webplayer: a factoria without its checkout cannot build one and says where the web player comes from") {
+TEST_CASE(
+    "setup webplayer: a factoria without its checkout cannot build one and says where the web player comes from") {
     World w;  // the default source folder does not exist
     SetupContext c = w.ctx();
     const SetupComponent st = setup_status(c, "webplayer").components[0];
@@ -1954,9 +2025,12 @@ TEST_CASE("setup webplayer: the pinned Emscripten version is the one CI, the rel
     const stdfs::path root = FA_REPO_ROOT;
     for (const char* file : {".github/workflows/ci.yml", ".github/workflows/release.yml"}) {
         INFO(file);
-        CHECK(testing::read_all((root / file).string()).find(std::string("EMSDK_VERSION: ") + kSetupEmscriptenVersion) != std::string::npos);
+        CHECK(
+            testing::read_all((root / file).string()).find(std::string("EMSDK_VERSION: ") + kSetupEmscriptenVersion) !=
+            std::string::npos);
     }
-    CHECK(testing::read_all((root / "docs" / "BUILDING.md").string()).find(std::string("emsdk install ") + kSetupEmscriptenVersion) != std::string::npos);
+    CHECK(testing::read_all((root / "docs" / "BUILDING.md").string())
+              .find(std::string("emsdk install ") + kSetupEmscriptenVersion) != std::string::npos);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -1980,7 +2054,8 @@ TEST_CASE("setup online: the real Android SDK repository, Adoptium and GitHub li
     c.toolchainSearch = search;
 
     // Google: the license and the command-line tools of every host.
-    for (const auto& [os, arch] : std::vector<std::pair<std::string, std::string>>{{"macos", "aarch64"}, {"macos", "x64"}, {"windows", "x64"}, {"linux", "x64"}}) {
+    for (const auto& [os, arch] : std::vector<std::pair<std::string, std::string>>{
+             {"macos", "aarch64"}, {"macos", "x64"}, {"windows", "x64"}, {"linux", "x64"}}) {
         INFO(os << "/" << arch);
         SetupContext host = c;
         host.host = os;
@@ -2004,11 +2079,13 @@ TEST_CASE("setup online: the real Android SDK repository, Adoptium and GitHub li
         const DownloadResult d = curl_downloader()(rq);
         REQUIRE_MESSAGE(d.ok, d.error.message);
         const std::string xml = testing::read_all(rq.destination);
-        for (const auto& [os, arch] : std::vector<std::pair<std::string, std::string>>{{"macos", "aarch64"}, {"macos", "x64"}, {"windows", "x64"}, {"linux", "x64"}}) {
+        for (const auto& [os, arch] : std::vector<std::pair<std::string, std::string>>{
+                 {"macos", "aarch64"}, {"macos", "x64"}, {"windows", "x64"}, {"linux", "x64"}}) {
             INFO(os << "/" << arch);
             auto repo = parse_sdk_repository(xml, os, arch);
             REQUIRE_MESSAGE(repo.ok(), (repo.ok() ? std::string() : repo.error().message));
-            CHECK_MESSAGE(repo->cmdlineToolsPinned, (repo->warnings.empty() ? std::string("not pinned") : repo->warnings[0]));
+            CHECK_MESSAGE(repo->cmdlineToolsPinned,
+                          (repo->warnings.empty() ? std::string("not pinned") : repo->warnings[0]));
             CHECK(repo->cmdlineToolsPackage == kSetupAndroidCmdlineTools);
             CHECK(repo->warnings.empty());
             CHECK(sdk_license_hash(repo->license.text) == "24333f8a63b6825ea9c5514f83c2829b004d1fee");
@@ -2017,12 +2094,14 @@ TEST_CASE("setup online: the real Android SDK repository, Adoptium and GitHub li
 
     // Adoptium: a JDK 21 archive for every host.
     std::string text;
-    for (const char* query : {"os=mac&architecture=aarch64", "os=mac&architecture=x64", "os=windows&architecture=x64", "os=linux&architecture=x64"}) {
+    for (const char* query : {"os=mac&architecture=aarch64", "os=mac&architecture=x64", "os=windows&architecture=x64",
+                              "os=linux&architecture=x64"}) {
         INFO(query);
         const stdfs::path dir = tmp.path / "adoptium";
         stdfs::create_directories(dir);
         DownloadRequest rq;
-        rq.url = std::string("https://api.adoptium.net/v3/assets/latest/21/hotspot?") + query + "&image_type=jdk&vendor=eclipse";
+        rq.url = std::string("https://api.adoptium.net/v3/assets/latest/21/hotspot?") + query +
+                 "&image_type=jdk&vendor=eclipse";
         rq.destination = (dir / "listing.json").string();
         rq.what = "the JDK listing";
         const DownloadResult d = curl_downloader()(rq);

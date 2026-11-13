@@ -231,13 +231,16 @@ struct AnimModule::Impl {
         } else if (!spec.empty() && spec[0] == '/') {
             joined = spec.substr(1);
         } else {
-            JS_ThrowReferenceError(ctx, "cannot import '%s' from %s: an animation module has no packages and no engine modules; import project files with a relative path such as './shapes.js'",
+            JS_ThrowReferenceError(ctx,
+                                   "cannot import '%s' from %s: an animation module has no packages and no engine "
+                                   "modules; import project files with a relative path such as './shapes.js'",
                                    name, base && *base ? base : self->moduleRel.c_str());
             return nullptr;
         }
         auto norm = fs::normalize_checked(joined);
         if (!norm.ok() || norm->empty()) {
-            JS_ThrowReferenceError(ctx, "cannot import '%s' from %s: the path leaves the project folder", name, base ? base : "");
+            JS_ThrowReferenceError(ctx, "cannot import '%s' from %s: the path leaves the project folder", name,
+                                   base ? base : "");
             return nullptr;
         }
         char* out = static_cast<char*>(js_malloc(ctx, norm->size() + 1));
@@ -260,12 +263,16 @@ struct AnimModule::Impl {
             return nullptr;
         }
         if (!text) {
-            JS_ThrowReferenceError(ctx, "cannot load module '%s': the file does not exist or cannot be read (it is imported by the animation module)", rel.c_str());
+            JS_ThrowReferenceError(ctx,
+                                   "cannot load module '%s': the file does not exist or cannot be read (it is imported "
+                                   "by the animation module)",
+                                   rel.c_str());
             return nullptr;
         }
         // listed before it is compiled: the files it imports are loaded during the compile, and come after it
         if (fileSet.insert(rel).second) files.push_back(rel);
-        JSValue func = JS_Eval(ctx, text->c_str(), text->size(), rel.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        JSValue func =
+            JS_Eval(ctx, text->c_str(), text->size(), rel.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
         if (JS_IsException(func)) return nullptr;
         auto* def = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(func));
         JS_FreeValue(ctx, func);
@@ -287,7 +294,8 @@ struct AnimModule::Impl {
     void arm() {
         deadline = std::chrono::steady_clock::now() + std::chrono::microseconds(std::int64_t(limits.seconds * 1e6));
         timedOut = false;
-        if (allocated <= limits.memoryBytes) outOfMemory = false;  // the module caught the error and let go of the memory
+        if (allocated <= limits.memoryBytes)
+            outOfMemory = false;  // the module caught the error and let go of the memory
         JS_UpdateStackTop(rt);
     }
 
@@ -320,7 +328,9 @@ struct AnimModule::Impl {
                 if (at == std::string::npos) continue;
                 std::string rest = ln.substr(at + 3);
                 const std::size_t lp = rest.rfind('(');
-                if (lp != std::string::npos) rest = rest.substr(lp + 1, rest.rfind(')') == std::string::npos ? std::string::npos : rest.rfind(')') - lp - 1);
+                if (lp != std::string::npos)
+                    rest = rest.substr(lp + 1, rest.rfind(')') == std::string::npos ? std::string::npos
+                                                                                    : rest.rfind(')') - lp - 1);
                 const std::size_t c2 = rest.rfind(':');
                 if (c2 == std::string::npos || c2 == 0) continue;
                 const std::size_t c1 = rest.rfind(':', c2 - 1);
@@ -359,15 +369,21 @@ struct AnimModule::Impl {
         if (e.line > 0) msg += ":" + std::to_string(e.line) + (e.column > 0 ? ":" + std::to_string(e.column) : "");
         std::string what = e.message;
         if (!e.name.empty() && e.name != "Error") what = e.message.empty() ? e.name : e.name + ": " + e.message;
-        std::string hint = "Fix the line named; the module sees only the JavaScript language and the argument {t, frame, frames, fps, progress, params, rng}.";
+        std::string hint = "Fix the line named; the module sees only the JavaScript language and the argument {t, "
+                           "frame, frames, fps, progress, params, rng}.";
         if (timedOut) {
-            what = std::format("took longer than {} s (an endless loop, or too much work for one frame)", limits.seconds);
-            hint = "Look for a loop that never ends; or raise `timeLimitMs` if the frame really needs the time. Frames are drawn one after another, so a slow frame is slow for all of them.";
+            what =
+                std::format("took longer than {} s (an endless loop, or too much work for one frame)", limits.seconds);
+            hint = "Look for a loop that never ends; or raise `timeLimitMs` if the frame really needs the time. Frames "
+                   "are drawn one after another, so a slow frame is slow for all of them.";
         } else if (e.message.find("out of memory") != std::string::npos) {
-            what = std::format("ran out of memory (the limit is {} MB for the whole module)", limits.memoryBytes / (1024 * 1024));
+            what = std::format("ran out of memory (the limit is {} MB for the whole module)",
+                               limits.memoryBytes / (1024 * 1024));
             hint = "Do not build huge arrays or strings; draw fewer shapes per frame.";
         } else if (e.name == "ReferenceError" && e.message.find("is not defined") != std::string::npos) {
-            hint = "An animation module has no engine bindings, no DOM, no Node and no timers: only the language itself (Math, JSON, Array...). Take data from `params` and the frame argument, and import helpers from project files with a relative path.";
+            hint = "An animation module has no engine bindings, no DOM, no Node and no timers: only the language "
+                   "itself (Math, JSON, Array...). Take data from `params` and the frame argument, and import helpers "
+                   "from project files with a relative path.";
         } else if (e.name == "RangeError" && e.message.find("call stack") != std::string::npos) {
             hint = "A function calls itself without end: check the recursion.";
         }
@@ -389,7 +405,8 @@ struct AnimModule::Impl {
                     msg += "\n  " + text;
                     if (e.column > 0) {
                         std::string pad;
-                        for (int i = 0; i + 1 < e.column && i < int(text.size()); ++i) pad += text[i] == '\t' ? '\t' : ' ';
+                        for (int i = 0; i + 1 < e.column && i < int(text.size()); ++i)
+                            pad += text[i] == '\t' ? '\t' : ' ';
                         msg += "\n  " + pad + "^";
                     }
                 }
@@ -404,7 +421,8 @@ AnimModule::~AnimModule() = default;
 const std::vector<std::string>& AnimModule::files() const { return impl_->files; }
 const std::vector<std::string>& AnimModule::logs() const { return impl_->logLines; }
 
-std::unique_ptr<AnimModule> AnimModule::load(const std::string& projectDir, const std::string& moduleRel, const Limits& limits) {
+std::unique_ptr<AnimModule> AnimModule::load(const std::string& projectDir, const std::string& moduleRel,
+                                             const Limits& limits) {
     auto impl = std::make_unique<Impl>();
     Impl& I = *impl;
     I.projectDir = projectDir;
@@ -443,7 +461,8 @@ std::unique_ptr<AnimModule> AnimModule::load(const std::string& projectDir, cons
     JSModuleDef* def = I.compile(moduleRel);
     if (!def) I.raise(I.take_exception(), doing);
     // compile() freed the function value (the module stays alive in the context); evaluate it through a tiny importer
-    const std::string importer = "import * as m from " + Json("/" + moduleRel).dump() + "; globalThis.__animModule = m;";
+    const std::string importer =
+        "import * as m from " + Json("/" + moduleRel).dump() + "; globalThis.__animModule = m;";
     JSValue evaluated = JS_Eval(I.ctx, importer.c_str(), importer.size(), "<animate_svg>", JS_EVAL_TYPE_MODULE);
     if (JS_IsException(evaluated)) I.raise(I.take_exception(), doing);
     if (JS_PromiseState(I.ctx, evaluated) != JS_PROMISE_NOT_A_PROMISE) {
@@ -460,7 +479,8 @@ std::unique_ptr<AnimModule> AnimModule::load(const std::string& projectDir, cons
         }
         if (state == JS_PROMISE_PENDING) {
             JS_FreeValue(I.ctx, evaluated);
-            fail("script_error", moduleRel + ": the module uses top-level await on something that never settles.", "Draw synchronously: `frame` must return the SVG string.");
+            fail("script_error", moduleRel + ": the module uses top-level await on something that never settles.",
+                 "Draw synchronously: `frame` must return the SVG string.");
         }
     }
     JS_FreeValue(I.ctx, evaluated);
@@ -469,7 +489,8 @@ std::unique_ptr<AnimModule> AnimModule::load(const std::string& projectDir, cons
     JS_FreeValue(I.ctx, global);
     if (!JS_IsObject(ns)) {
         JS_FreeValue(I.ctx, ns);
-        fail("script_error", moduleRel + ": the module did not produce exports.", "Use `export default function frame({t, frame, frames, params, rng}) { return \"<svg ...>\"; }`.");
+        fail("script_error", moduleRel + ": the module did not produce exports.",
+             "Use `export default function frame({t, frame, frames, params, rng}) { return \"<svg ...>\"; }`.");
     }
     JSValue def_export = JS_GetPropertyStr(I.ctx, ns, "default");
     if (!JS_IsFunction(I.ctx, def_export)) {
@@ -491,8 +512,10 @@ std::unique_ptr<AnimModule> AnimModule::load(const std::string& projectDir, cons
         JS_FreeValue(I.ctx, def_export);
         JS_FreeValue(I.ctx, ns);
         fail("script_error",
-             moduleRel + ": the module has no default export that is a function" + (names.empty() ? " (it exports nothing)" : " (it exports: " + join(names, ", ") + ")") + ".",
-             "Write `export default function frame({t, frame, frames, fps, progress, params, rng}) { return \"<svg ...>...</svg>\"; }`.");
+             moduleRel + ": the module has no default export that is a function" +
+                 (names.empty() ? " (it exports nothing)" : " (it exports: " + join(names, ", ") + ")") + ".",
+             "Write `export default function frame({t, frame, frames, fps, progress, params, rng}) { return \"<svg "
+             "...>...</svg>\"; }`.");
     }
     JS_FreeValue(I.ctx, ns);
     I.fn = def_export;
@@ -504,8 +527,16 @@ std::string AnimModule::draw(const AnimFrame& f) {
     Impl& I = *impl_;
     const std::string doing = std::format("while drawing frame {} of {}{}, t = {:.4g} s", f.frame, f.frames,
                                           f.clip.empty() ? std::string() : ", clip \"" + f.clip + "\"", f.t);
-    Json args = Json::object({{"t", f.t}, {"frame", f.frame}, {"frames", f.frames}, {"fps", f.fps}, {"progress", f.progress},
-                              {"sheetFrame", f.sheetFrame}, {"seed", f.baseSeed}, {"width", f.width}, {"height", f.height}, {"params", f.params}});
+    Json args = Json::object({{"t", f.t},
+                              {"frame", f.frame},
+                              {"frames", f.frames},
+                              {"fps", f.fps},
+                              {"progress", f.progress},
+                              {"sheetFrame", f.sheetFrame},
+                              {"seed", f.baseSeed},
+                              {"width", f.width},
+                              {"height", f.height},
+                              {"params", f.params}});
     if (!f.clip.empty()) args["clip"] = f.clip;
     if (!f.layer.empty()) args["layer"] = f.layer;
     if (!f.ramp.empty()) args["ramp"] = Json(f.ramp);
@@ -513,17 +544,23 @@ std::string AnimModule::draw(const AnimFrame& f) {
     I.arm();
     JSValue arg = JS_ParseJSON(I.ctx, text.c_str(), text.size(), "<frame argument>");
     if (JS_IsException(arg)) I.raise(I.take_exception(), doing);
-    JSValue callArgs[4] = {JS_DupValue(I.ctx, I.fn), arg, JS_NewUint32(I.ctx, f.seed), JS_NewFloat64(I.ctx, f.t * 1000.0)};
+    JSValue callArgs[4] = {JS_DupValue(I.ctx, I.fn), arg, JS_NewUint32(I.ctx, f.seed),
+                           JS_NewFloat64(I.ctx, f.t * 1000.0)};
     JSValue run = JS_GetPropertyStr(I.ctx, I.hooks, "run");
     JSValue result = JS_Call(I.ctx, run, I.hooks, 4, callArgs);
     JS_FreeValue(I.ctx, run);
     for (JSValue& v : callArgs) JS_FreeValue(I.ctx, v);
     if (JS_IsException(result)) I.raise(I.take_exception(), doing);
     if (!JS_IsString(result)) {
-        const char* kind = JS_IsUndefined(result) ? "undefined" : JS_IsNull(result) ? "null" : JS_IsObject(result) ? "an object" : "a non-string value";
+        const char* kind = JS_IsUndefined(result) ? "undefined"
+                           : JS_IsNull(result)    ? "null"
+                           : JS_IsObject(result)  ? "an object"
+                                                  : "a non-string value";
         JS_FreeValue(I.ctx, result);
-        fail("script_error", std::format("{}: `frame` returned {} instead of an SVG string ({}).", I.moduleRel, kind, doing),
-             "Return the SVG text: `return `<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 100\">...</svg>`;` (a missing return is the usual cause).");
+        fail("script_error",
+             std::format("{}: `frame` returned {} instead of an SVG string ({}).", I.moduleRel, kind, doing),
+             "Return the SVG text: `return `<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 100 "
+             "100\">...</svg>`;` (a missing return is the usual cause).");
     }
     std::size_t len = 0;
     const char* s = JS_ToCStringLen(I.ctx, &len, result);

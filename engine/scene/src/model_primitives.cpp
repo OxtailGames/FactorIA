@@ -12,7 +12,6 @@ namespace fa {
 
 namespace {
 
-
 int clamp_int(int v, int lo, int hi) { return std::max(lo, std::min(hi, v)); }
 
 struct Builder {
@@ -108,10 +107,14 @@ void lathe(Builder& b, const std::vector<Strip>& strips, int segments, float cap
             const bool lowPole = strip[k].r == 0, highPole = strip[k + 1].r == 0;
             if (lowPole && highPole) continue;
             for (int j = 0; j < segments; ++j) {
-                const std::uint32_t a = base + std::uint32_t(k) * stride + std::uint32_t(j), bb = a + 1, d = a + stride, c = d + 1;
-                if (lowPole) b.tri(a, c, d);
-                else if (highPole) b.tri(a, bb, c);
-                else b.quad(a, bb, c, d);
+                const std::uint32_t a = base + std::uint32_t(k) * stride + std::uint32_t(j), bb = a + 1, d = a + stride,
+                                    c = d + 1;
+                if (lowPole)
+                    b.tri(a, c, d);
+                else if (highPole)
+                    b.tri(a, bb, c);
+                else
+                    b.quad(a, bb, c, d);
             }
         }
     }
@@ -133,7 +136,8 @@ void arc_points(Strip& out, float radius, float cy, float a0, float a1, int ring
 // v = 1 at the first point of the strip and 0 at the last, by distance along it.
 void spread_v(Strip& strip) {
     float total = 0;
-    for (std::size_t i = 1; i < strip.size(); ++i) total += float(det::f64::hypot(strip[i].r - strip[i - 1].r, strip[i].y - strip[i - 1].y));
+    for (std::size_t i = 1; i < strip.size(); ++i)
+        total += float(det::f64::hypot(strip[i].r - strip[i - 1].r, strip[i].y - strip[i - 1].y));
     float run = 0;
     for (std::size_t i = 0; i < strip.size(); ++i) {
         if (i) run += float(det::f64::hypot(strip[i].r - strip[i - 1].r, strip[i].y - strip[i - 1].y));
@@ -190,9 +194,12 @@ ModelMesh model_rounded_box(const ModelRoundedBoxParams& p) {
         float s, c;
         sc(phi, s, c);
         float t = s / c;
-        if (k == 0 && i <= seg) t = -1.0f;
-        else if (k == seg && i > seg) t = 1.0f;
-        else if ((i == seg) || (i == seg + 1)) t = 0.0f;
+        if (k == 0 && i <= seg)
+            t = -1.0f;
+        else if (k == seg && i > seg)
+            t = 1.0f;
+        else if ((i == seg) || (i == seg + 1))
+            t = 0.0f;
         tanv[std::size_t(i)] = t;
     }
     Builder b;
@@ -226,12 +233,13 @@ ModelMesh model_rounded_box(const ModelRoundedBoxParams& p) {
 ModelMesh model_cylinder(const ModelCylinderParams& p) {
     const float rb = std::max(p.radius, 0.0f);
     const float rt = p.radiusTop < 0 ? rb : p.radiusTop;
-    return frustum(rb, rt, std::max(p.height, 1e-4f), clamp_int(p.segments, 3, 512), p.heightSegments, p.capBottom, p.capTop);
+    return frustum(rb, rt, std::max(p.height, 1e-4f), clamp_int(p.segments, 3, 512), p.heightSegments, p.capBottom,
+                   p.capTop);
 }
 
 ModelMesh model_cone(const ModelConeParams& p) {
-    return frustum(std::max(p.radius, 0.0f), std::max(p.radiusTop, 0.0f), std::max(p.height, 1e-4f), clamp_int(p.segments, 3, 512), p.heightSegments,
-                   p.cap, p.radiusTop > 0);
+    return frustum(std::max(p.radius, 0.0f), std::max(p.radiusTop, 0.0f), std::max(p.height, 1e-4f),
+                   clamp_int(p.segments, 3, 512), p.heightSegments, p.cap, p.radiusTop > 0);
 }
 
 ModelMesh model_sphere(const ModelSphereParams& p) {
@@ -267,8 +275,10 @@ ModelMesh model_torus(const ModelTorusParams& p) {
     Strip s;
     for (int i = 0; i <= sides; ++i) {
         float sn, cs;
-        if (i == sides) sn = 0, cs = 1;
-        else sc(360.0f * float(i) / float(sides), sn, cs);
+        if (i == sides)
+            sn = 0, cs = 1;
+        else
+            sc(360.0f * float(i) / float(sides), sn, cs);
         s.push_back({ring + tube * cs, tube * sn, cs, sn, float(i) / float(sides)});
     }
     lathe(b, {s}, clamp_int(p.segments, kTorusMinSegments, kTorusMaxSegments), 1);
@@ -278,7 +288,8 @@ ModelMesh model_torus(const ModelTorusParams& p) {
 ModelMesh model_grid(const ModelGridParams& p) {
     Builder b;
     const float w = std::max(p.width, 1e-4f), d = std::max(p.depth, 1e-4f);
-    add_grid(b, {-w * 0.5f, 0, d * 0.5f}, {w, 0, 0}, {0, 0, -d}, clamp_int(p.segX, 1, 512), clamp_int(p.segZ, 1, 512), {0, 1}, {1, 0}, {0, -1});
+    add_grid(b, {-w * 0.5f, 0, d * 0.5f}, {w, 0, 0}, {0, 0, -d}, clamp_int(p.segX, 1, 512), clamp_int(p.segZ, 1, 512),
+             {0, 1}, {1, 0}, {0, -1});
     return std::move(b.m);
 }
 
@@ -307,7 +318,7 @@ ModelMesh model_arch(const ModelArchParams& p) {
     const float ow = std::min(std::max(p.openingWidth, 1e-3f), W * 0.99f);
     const float rad = ow * 0.5f;
     const float oh = std::min(std::max(p.openingHeight, rad), H * 0.99f);  // the half circle needs rad of height
-    const float ys = oh - rad;                                              // where the half circle starts
+    const float ys = oh - rad;                                             // where the half circle starts
     const int n = clamp_int(p.segments, 2, 256);
     ModelPolygon poly;
     poly.outer.push_back({-W * 0.5f, 0});

@@ -55,7 +55,8 @@ struct LauncherWorld {
 
 }  // namespace
 
-TEST_CASE("setup launcher (macOS): missing, then an app in ~/Applications that opens this factoria with the FactorIA icon") {
+TEST_CASE(
+    "setup launcher (macOS): missing, then an app in ~/Applications that opens this factoria with the FactorIA icon") {
     LauncherWorld w("macos");
     CHECK(w.status().state == "missing");
     CHECK(w.status().canInstall);
@@ -69,11 +70,13 @@ TEST_CASE("setup launcher (macOS): missing, then an app in ~/Applications that o
     CHECK(script.rfind("#!/bin/zsh\n", 0) == 0);
     CHECK(script.find("FACTORIA='" + w.exe().string() + "'") != std::string::npos);
     CHECK(script.find("exec \"$FACTORIA\" editor") != std::string::npos);
-    CHECK((stdfs::status(w.app() / "Contents/MacOS/FactorIA").permissions() & stdfs::perms::owner_exec) != stdfs::perms::none);
+    CHECK((stdfs::status(w.app() / "Contents/MacOS/FactorIA").permissions() & stdfs::perms::owner_exec) !=
+          stdfs::perms::none);
     const std::string plist = testing::read_all(w.app() / "Contents/Info.plist");
     CHECK(plist.find("<string>9.8.7</string>") != std::string::npos);
     CHECK(plist.find("<key>CFBundleIconFile</key><string>AppIcon</string>") != std::string::npos);
-    CHECK(testing::read_all(w.app() / "Contents/Resources/AppIcon.icns") == bundled_read("tools/editor/icon/factoria.icns").value_or("?"));
+    CHECK(testing::read_all(w.app() / "Contents/Resources/AppIcon.icns") ==
+          bundled_read("tools/editor/icon/factoria.icns").value_or("?"));
 
     // Launch Services is told about the app, so the Dock reads the new icon.
     REQUIRE(w.runs.size() == 1);
@@ -157,7 +160,9 @@ TEST_CASE("setup launcher (Linux): a .desktop entry and its icon under ~/.local/
 
     const std::string data = (w.tmp.path / "xdg").string();
     const std::string h = w.home().string();
-    w.ctx.env = [h, data](const std::string& n) { return n == "HOME" ? h : n == "XDG_DATA_HOME" ? data : std::string(); };
+    w.ctx.env = [h, data](const std::string& n) {
+        return n == "HOME" ? h : n == "XDG_DATA_HOME" ? data : std::string();
+    };
     CHECK(w.status().state == "missing");
     REQUIRE(w.install().ok);
     CHECK(stdfs::is_regular_file(stdfs::path(data) / "applications/factoria.desktop"));
@@ -175,7 +180,8 @@ TEST_CASE("setup launcher: not needed on Windows") {
 
 TEST_CASE("editor_restart_command (macOS): through the launcher of this factoria, with the project as an argument") {
     LauncherWorld w("macos");
-    const std::string project = (w.tmp.path / "My Games" / "it's a game").string();  // spaces and a quote stay one argument
+    const std::string project =
+        (w.tmp.path / "My Games" / "it's a game").string();  // spaces and a quote stay one argument
 
     CHECK(editor_restart_command(w.ctx, project).empty());  // no launcher yet
     REQUIRE(w.install().ok);
@@ -252,7 +258,8 @@ TEST_CASE("editor_restart_command (macOS): an old, foreign or another factoria's
     CHECK(editor_restart_command(w.ctx, project).empty());
 }
 
-TEST_CASE("editor_restart_command (Windows): FactorIA-Editor.exe next to factoria.exe; Linux: none, the WM class groups") {
+TEST_CASE(
+    "editor_restart_command (Windows): FactorIA-Editor.exe next to factoria.exe; Linux: none, the WM class groups") {
     LauncherWorld w("windows");
     const std::string project = (w.tmp.path / "My Games").string();
     CHECK(editor_restart_command(w.ctx, project).empty());  // no factoria.exe, no launcher

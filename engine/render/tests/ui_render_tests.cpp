@@ -22,7 +22,8 @@ Image nine_slice_texture() {
         for (int x = 0; x < 24; ++x) {
             const int cx = x / 8, cy = y / 8;
             Color c;
-            if (cx != 1 && cy != 1) {  // a corner: its colour with a 2 px checker so every pixel row differs from its neighbour
+            if (cx != 1 &&
+                cy != 1) {  // a corner: its colour with a 2 px checker so every pixel row differs from its neighbour
                 c = corner[(cy / 2) * 2 + cx / 2];
                 if (((x % 8) / 2 + (y % 8) / 2) % 2 == 1) c = Color{c.r * 0.5f, c.g * 0.5f, c.b * 0.5f, 1};
             } else if (cx == 1 && cy == 1) {
@@ -59,10 +60,13 @@ TEST_CASE("9-slice: a Panel keeps its corners unscaled at any size") {
     REQUIRE(save_png(tex, "assets/nine_slice.png").ok());
     World w;
     w.add<Camera>(make(w, "cam"));
-    struct Spot { float x, y, width, height; };
+    struct Spot {
+        float x, y, width, height;
+    };
     const Spot spots[3] = {{10, 10, 40, 40}, {60, 10, 100, 60}, {10, 80, 200, 90}};  // small, wide, large
     for (int i = 0; i < 3; ++i) {
-        Panel& p = widget<Panel>(w, ("panel" + std::to_string(i)).c_str(), spots[i].x, spots[i].y, spots[i].width, spots[i].height);
+        Panel& p = widget<Panel>(w, ("panel" + std::to_string(i)).c_str(), spots[i].x, spots[i].y, spots[i].width,
+                                 spots[i].height);
         p.texture = "assets/nine_slice.png";
         p.slice = {8, 8, 8, 8};
         p.color = Color{1, 1, 1, 1};
@@ -126,14 +130,16 @@ TEST_CASE("widgets: backgrounds, labels, state tints, focus ring and ScrollList 
     ScrollList& list = widget<ScrollList>(w, "list", 10, 128, 150, 40);
     list.padding = {0, 0, 0, 0};
     Entity listE = w.find("list");
-    for (int i = 0; i < 3; ++i) {  // 24 px items at y 128, 152, 176: the second is cut at the list's bottom, the third is gone
+    for (int i = 0; i < 3;
+         ++i) {  // 24 px items at y 128, 152, 176: the second is cut at the list's bottom, the third is gone
         Button& item = widget<Button>(w, ("item" + std::to_string(i)).c_str(), 10, 128.0f + 24.0f * float(i), 150, 24);
         item.text = "Item " + std::to_string(i);
         item.color = Color{0.8f, 0.2f, 0.2f, 1};
         label(item);
         w.set_parent(w.find(("item" + std::to_string(i)).c_str()), listE, true);
     }
-    Entity stripe = make(w, "stripe", {10, 160, 0});  // anything screen-space under a ScrollList is clipped, not just widgets
+    Entity stripe =
+        make(w, "stripe", {10, 160, 0});  // anything screen-space under a ScrollList is clipped, not just widgets
     {
         Shape2D& s = w.add<Shape2D>(stripe);
         s.space = RenderSpace::Screen;
@@ -153,7 +159,8 @@ TEST_CASE("widgets: backgrounds, labels, state tints, focus ring and ScrollList 
 
     Image img = g.render(w);
     const Color clear = Color{0.08f, 0.08f, 0.12f, 1};
-    auto brightest = [&](int x0, int y0, int x1, int y1) {  // the brightest channel in a pixel box: text is white on dark
+    auto brightest = [&](int x0, int y0, int x1,
+                         int y1) {  // the brightest channel in a pixel box: text is white on dark
         float m = 0;
         for (int y = y0; y < y1; ++y)
             for (int x = x0; x < x1; ++x) m = std::max({m, img.pixel(x, y).r, img.pixel(x, y).g, img.pixel(x, y).b});
@@ -165,10 +172,10 @@ TEST_CASE("widgets: backgrounds, labels, state tints, focus ring and ScrollList 
     CHECK(hovered.b > normal.b + 0.03f);
     CHECK(near(disabled, clear, 0.08f));
     // labels
-    CHECK(brightest(30, 15, 90, 35) > 0.8f);   // "Play"
-    CHECK(brightest(140, 15, 200, 35) > 0.8f); // "Options"
-    CHECK(brightest(60, 55, 150, 75) > 0.8f);  // "Music"
-    CHECK(brightest(240, 95, 300, 115) > 0.8f); // "abc" and its caret
+    CHECK(brightest(30, 15, 90, 35) > 0.8f);     // "Play"
+    CHECK(brightest(140, 15, 200, 35) > 0.8f);   // "Options"
+    CHECK(brightest(60, 55, 150, 75) > 0.8f);    // "Music"
+    CHECK(brightest(240, 95, 300, 115) > 0.8f);  // "abc" and its caret
     // the focus ring is 3 px of accent colour just inside the focused widget only
     const Color accent = options.accentColor;
     CHECK(near(img.pixel(170, 11), accent, 0.03f));
@@ -180,9 +187,9 @@ TEST_CASE("widgets: backgrounds, labels, state tints, focus ring and ScrollList 
     // ScrollList: the item that crosses the bottom edge is cut there and the one after it is not drawn
     const Color itemRed = img.pixel(100, 150);
     CHECK(itemRed.r > 0.6f);
-    CHECK(img.pixel(100, 165).r > 0.6f);       // second item, inside the list (y < 168)
-    CHECK(near(img.pixel(100, 172), clear, 0.05f));  // second item below the list: clipped
-    CHECK(near(img.pixel(100, 178), clear, 0.05f));  // third item: entirely outside
+    CHECK(img.pixel(100, 165).r > 0.6f);                           // second item, inside the list (y < 168)
+    CHECK(near(img.pixel(100, 172), clear, 0.05f));                // second item below the list: clipped
+    CHECK(near(img.pixel(100, 178), clear, 0.05f));                // third item: entirely outside
     CHECK(near(img.pixel(40, 165), Color::hex(0x40e040), 0.03f));  // a Shape2D under the list is cut at the same edge
     CHECK(near(img.pixel(40, 172), clear, 0.05f));
     expect_golden_edges(img, "2d_widgets");
@@ -207,14 +214,14 @@ TEST_CASE("on-screen gamepad: discs, the knob follows the stick value, a hidden 
 
     Image img = g.render(w);
     const Color clear = Color{0.08f, 0.08f, 0.12f, 1};
-    CHECK(near(img.pixel(40, 60), Color::hex(0xe04040), 0.03f));  // the disc
-    CHECK(near(img.pixel(104, 60), Color::hex(0x40e040), 0.03f)); // the knob, moved right
-    CHECK(near(img.pixel(60, 60), Color::hex(0xe04040), 0.03f));  // the centre is uncovered
-    CHECK(near(img.pixel(12, 12), clear, 0.03f));                 // a corner of the box is outside the disc
+    CHECK(near(img.pixel(40, 60), Color::hex(0xe04040), 0.03f));   // the disc
+    CHECK(near(img.pixel(104, 60), Color::hex(0x40e040), 0.03f));  // the knob, moved right
+    CHECK(near(img.pixel(60, 60), Color::hex(0xe04040), 0.03f));   // the centre is uncovered
+    CHECK(near(img.pixel(12, 12), clear, 0.03f));                  // a corner of the box is outside the disc
     const Color pressed = img.pixel(160, 40);
     CHECK(pressed.b > clear.b + 0.2f);
-    CHECK(pressed.b < Color::hex(0x4040e0).b - 0.1f);             // held: darker than its colour
-    CHECK(near(img.pixel(240, 40), clear, 0.03f));                // not shown: not drawn
+    CHECK(pressed.b < Color::hex(0x4040e0).b - 0.1f);  // held: darker than its colour
+    CHECK(near(img.pixel(240, 40), clear, 0.03f));     // not shown: not drawn
 }
 
 TEST_CASE("Button: every line of a multi-line label is centred, and a label wider than the button is clipped to it") {
@@ -229,7 +236,8 @@ TEST_CASE("Button: every line of a multi-line label is centred, and a label wide
     narrow.text = "A label far wider than its button";
     narrow.color = Color{0, 0, 0, 1};
     const Image img = g.render(w);
-    auto extent = [&](int x0, int x1, int y0, int y1, int& lo, int& hi) {  // the columns with bright (text) pixels in a box
+    auto extent = [&](int x0, int x1, int y0, int y1, int& lo,
+                      int& hi) {  // the columns with bright (text) pixels in a box
         lo = 1 << 20;
         hi = -1;
         for (int y = y0; y < y1; ++y)
@@ -244,8 +252,9 @@ TEST_CASE("Button: every line of a multi-line label is centred, and a label wide
     extent(12, 308, 55, 98, lo2, hi2);  // the second line below it
     REQUIRE(hi1 >= lo1);
     REQUIRE(hi2 >= lo2);
-    CHECK(hi2 - lo2 > 2 * (hi1 - lo1));                          // the second line is much longer
-    CHECK(std::fabs(0.5f * float(lo1 + hi1) - 160.0f) <= 3.0f);  // both lines are centred on the button, not left-aligned
+    CHECK(hi2 - lo2 > 2 * (hi1 - lo1));  // the second line is much longer
+    CHECK(std::fabs(0.5f * float(lo1 + hi1) - 160.0f) <=
+          3.0f);  // both lines are centred on the button, not left-aligned
     CHECK(std::fabs(0.5f * float(lo2 + hi2) - 160.0f) <= 3.0f);
     int lo3, hi3;
     extent(51, 320, 110, 140, lo3, hi3);  // right of the narrow button: nothing is drawn
@@ -254,14 +263,16 @@ TEST_CASE("Button: every line of a multi-line label is centred, and a label wide
     CHECK(hi3 >= lo3);  // inside it the label is there
 }
 
-TEST_CASE("Captions: a block at the bottom of the rectangle, the speaker in its colour, long lines wrap, empty draws nothing") {
+TEST_CASE("Captions: a block at the bottom of the rectangle, the speaker in its colour, long lines wrap, empty draws "
+          "nothing") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
     w.add<Camera>(make(w, "cam"));
     Entity e = make(w, "subtitles", {0, -10, 0});
     Captions& c = w.add<Captions>(e);
-    c.size = {280, 110};  // anchor [0.5, 1] and pivot [0.5, 0] (the defaults): bottom centre, 10 px above the screen edge
+    c.size = {280,
+              110};  // anchor [0.5, 1] and pivot [0.5, 0] (the defaults): bottom centre, 10 px above the screen edge
     c.safeArea = false;
     c.fontSize = 16;
     c.textColor = Color::hex(0xffffff);
@@ -271,12 +282,14 @@ TEST_CASE("Captions: a block at the bottom of the rectangle, the speaker in its 
     Image empty = g.render(w);
     CHECK(near(empty.pixel(160, 150), clear, 0.01f));  // no lines: nothing is drawn, not even the background
 
-    c.lines = Json::array({Json::object({{"text", "The bridge is out."}, {"speaker", ""}}),
-                           Json::object({{"text", "Then we go around, and we go quickly before the water rises any higher."},
-                                         {"speaker", "Mara"}})});
+    c.lines =
+        Json::array({Json::object({{"text", "The bridge is out."}, {"speaker", ""}}),
+                     Json::object({{"text", "Then we go around, and we go quickly before the water rises any higher."},
+                                   {"speaker", "Mara"}})});
     Image img = g.render(w);
-    CHECK_FALSE(near(img.pixel(160, 165), clear, 0.02f));  // the background hugs the lines, at the bottom of the rectangle
-    CHECK(near(img.pixel(160, 5), clear, 0.01f));          // and not above them
+    CHECK_FALSE(
+        near(img.pixel(160, 165), clear, 0.02f));  // the background hugs the lines, at the bottom of the rectangle
+    CHECK(near(img.pixel(160, 5), clear, 0.01f));  // and not above them
     bool speakerColoured = false, whiteText = false;
     for (int y = 90; y < 170; ++y)
         for (int x = 0; x < 320; ++x) {
@@ -290,7 +303,8 @@ TEST_CASE("Captions: a block at the bottom of the rectangle, the speaker in its 
 
     c.align = Align::Left;
     Image left = g.render(w);
-    CHECK_FALSE(near(left.pixel(22, 165), clear, 0.02f));  // left aligned: the block starts at the rectangle's left edge (x = 20)
+    CHECK_FALSE(near(left.pixel(22, 165), clear,
+                     0.02f));  // left aligned: the block starts at the rectangle's left edge (x = 20)
     CHECK(near(left.pixel(10, 165), clear, 0.01f));
 }
 
@@ -321,7 +335,7 @@ TEST_CASE("Chart: bars scale to the maximum, a line passes through its points, t
     };
     const auto [t1, b1] = column(img, 26 + 47 + 20, 0, 180);  // the second bar, 100: the full height
     CHECK(t1 <= 17);
-    CHECK(b1 >= 122);  // stands on the bottom (zero) of the plot
+    CHECK(b1 >= 122);                                    // stands on the bottom (zero) of the plot
     const auto [t0, b0] = column(img, 26 + 20, 0, 180);  // the first bar, 50: half the height
     CHECK(b0 == b1);
     CHECK(std::abs((b0 - t0 + 1) - (b1 - t1 + 1) / 2) <= 2);
@@ -350,15 +364,16 @@ TEST_CASE("Chart: bars scale to the maximum, a line passes through its points, t
         return false;
     };
     const float px0 = 26, px1 = 26 + 94, px2 = 26 + 188, top = 16, bottom = 16 + 108;
-    CHECK(has_colour(int(px0 + 1), int(bottom - 1), red));         // point 0 (value 0) on the bottom
-    CHECK(has_colour(int(px1), int(top + 1), red));                 // point 1 (value 100) at the top
-    CHECK(has_colour(int(px2 - 1), int((top + bottom) / 2), red));  // point 2 (value 50) in the middle
+    CHECK(has_colour(int(px0 + 1), int(bottom - 1), red));                  // point 0 (value 0) on the bottom
+    CHECK(has_colour(int(px1), int(top + 1), red));                         // point 1 (value 100) at the top
+    CHECK(has_colour(int(px2 - 1), int((top + bottom) / 2), red));          // point 2 (value 50) in the middle
     CHECK(has_colour(int((px0 + px1) / 2), int((top + bottom) / 2), red));  // halfway up between the first two points
-    CHECK(has_colour(int(px2 - 30), int(bottom - 0.2f * 108), blue));  // the second series, flat at 20
-    CHECK(near(img.pixel(int(px0 + 20), int(top + 60)), clear, 0.01f));  // away from both lines: nothing
+    CHECK(has_colour(int(px2 - 30), int(bottom - 0.2f * 108), blue));       // the second series, flat at 20
+    CHECK(near(img.pixel(int(px0 + 20), int(top + 60)), clear, 0.01f));     // away from both lines: nothing
 }
 
-TEST_CASE("mirrored UI: in a right-to-left language the widgets are drawn as the mirror image of the left-to-right screen") {
+TEST_CASE(
+    "mirrored UI: in a right-to-left language the widgets are drawn as the mirror image of the left-to-right screen") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     auto scene = [&](bool rtl, bool mirrorOff) {
@@ -381,7 +396,8 @@ TEST_CASE("mirrored UI: in a right-to-left language the widgets are drawn as the
     int mirroredDiff = 0, offDiff = 0;
     for (int y = 0; y < ltr.height; ++y)
         for (int x = 0; x < ltr.width; ++x) {
-            const bool valueText = y >= 62 && y < 88 && x > 20 && x < 300;  // the Slider's value readout: text is not reflected
+            const bool valueText =
+                y >= 62 && y < 88 && x > 20 && x < 300;  // the Slider's value readout: text is not reflected
             if (!valueText && !near(rtl.pixel(x, y), ltr.pixel(ltr.width - 1 - x, y), 0.05f)) ++mirroredDiff;
             if (!near(off.pixel(x, y), ltr.pixel(x, y), 0.05f)) ++offDiff;
         }
@@ -390,7 +406,7 @@ TEST_CASE("mirrored UI: in a right-to-left language the widgets are drawn as the
     CHECK_FALSE(near(ltr.pixel(30, 75), ltr.pixel(150, 75), 0.05f));
     CHECK(near(rtl.pixel(ltr.width - 1 - 30, 75), ltr.pixel(30, 75), 0.05f));
     CHECK(near(rtl.pixel(ltr.width - 1 - 150, 75), ltr.pixel(150, 75), 0.05f));
-    CHECK(offDiff == 0);       // ui.mirrorRtl off: nothing moves
+    CHECK(offDiff == 0);  // ui.mirrorRtl off: nothing moves
     // and it is not the same picture: the panel is at the right now
     CHECK(near(rtl.pixel(ltr.width - 1 - 70, 20), Color{0.8f, 0.2f, 0.2f, 1}, 0.05f));
     CHECK_FALSE(near(rtl.pixel(70, 20), Color{0.8f, 0.2f, 0.2f, 1}, 0.05f));

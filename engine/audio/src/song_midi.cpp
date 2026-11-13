@@ -20,37 +20,149 @@ namespace {
 // The built-in instrument for each of the 128 programs, written per family of eight.
 const char* const kProgramInstrument[128] = {
     // 0-7 piano
-    "piano", "piano", "piano", "piano", "epiano", "epiano", "clav", "clav",
+    "piano",
+    "piano",
+    "piano",
+    "piano",
+    "epiano",
+    "epiano",
+    "clav",
+    "clav",
     // 8-15 chromatic percussion
-    "music_box", "bell_glass", "music_box", "vibraphone", "marimba", "marimba", "bell", "pluck_bright",
+    "music_box",
+    "bell_glass",
+    "music_box",
+    "vibraphone",
+    "marimba",
+    "marimba",
+    "bell",
+    "pluck_bright",
     // 16-23 organ
-    "organ", "organ", "organ", "organ", "organ", "organ", "organ", "organ",
+    "organ",
+    "organ",
+    "organ",
+    "organ",
+    "organ",
+    "organ",
+    "organ",
+    "organ",
     // 24-31 guitar
-    "guitar", "pluck", "pluck_soft", "pluck_soft", "pluck", "pluck_bright", "pluck_bright", "pluck",
+    "guitar",
+    "pluck",
+    "pluck_soft",
+    "pluck_soft",
+    "pluck",
+    "pluck_bright",
+    "pluck_bright",
+    "pluck",
     // 32-39 bass
-    "bass_pluck", "bass_pluck", "bass_pluck", "bass_sub", "bass_pluck", "bass_pluck", "bass", "bass_fm",
+    "bass_pluck",
+    "bass_pluck",
+    "bass_pluck",
+    "bass_sub",
+    "bass_pluck",
+    "bass_pluck",
+    "bass",
+    "bass_fm",
     // 40-47 strings
-    "strings", "strings", "strings", "strings", "strings_soft", "pluck", "harp", "bass_sub",
+    "strings",
+    "strings",
+    "strings",
+    "strings",
+    "strings_soft",
+    "pluck",
+    "harp",
+    "bass_sub",
     // 48-55 ensemble
-    "strings", "strings_soft", "strings", "strings_soft", "choir", "choir", "choir", "brass",
+    "strings",
+    "strings_soft",
+    "strings",
+    "strings_soft",
+    "choir",
+    "choir",
+    "choir",
+    "brass",
     // 56-63 brass
-    "brass", "brass", "brass", "brass", "horns", "brass", "brass", "brass",
+    "brass",
+    "brass",
+    "brass",
+    "brass",
+    "horns",
+    "brass",
+    "brass",
+    "brass",
     // 64-71 reed
-    "clarinet", "clarinet", "clarinet", "clarinet", "oboe", "oboe", "clarinet", "clarinet",
+    "clarinet",
+    "clarinet",
+    "clarinet",
+    "clarinet",
+    "oboe",
+    "oboe",
+    "clarinet",
+    "clarinet",
     // 72-79 pipe
-    "flute", "flute", "flute", "flute", "flute", "flute", "flute", "flute",
+    "flute",
+    "flute",
+    "flute",
+    "flute",
+    "flute",
+    "flute",
+    "flute",
+    "flute",
     // 80-87 synth lead
-    "lead", "lead_saw", "lead_soft", "lead_fm", "lead_acid", "lead_soft", "lead_saw", "lead_acid",
+    "lead",
+    "lead_saw",
+    "lead_soft",
+    "lead_fm",
+    "lead_acid",
+    "lead_soft",
+    "lead_saw",
+    "lead_acid",
     // 88-95 synth pad
-    "pad", "pad", "pad", "choir", "pad_glass", "pad_dark", "pad_glass", "pad_sweep",
+    "pad",
+    "pad",
+    "pad",
+    "choir",
+    "pad_glass",
+    "pad_dark",
+    "pad_glass",
+    "pad_sweep",
     // 96-103 synth effects
-    "pad_sweep", "pad_dark", "bell_glass", "pad_glass", "pad_glass", "pad_dark", "pad_glass", "pad_sweep",
+    "pad_sweep",
+    "pad_dark",
+    "bell_glass",
+    "pad_glass",
+    "pad_glass",
+    "pad_dark",
+    "pad_glass",
+    "pad_sweep",
     // 104-111 ethnic
-    "pluck_bright", "pluck_bright", "pluck", "harp", "music_box", "oboe", "strings", "oboe",
+    "pluck_bright",
+    "pluck_bright",
+    "pluck",
+    "harp",
+    "music_box",
+    "oboe",
+    "strings",
+    "oboe",
     // 112-119 percussive
-    "bell", "bell", "marimba", "marimba", "bass_sub", "bass_sub", "bass_sub", "pad_sweep",
+    "bell",
+    "bell",
+    "marimba",
+    "marimba",
+    "bass_sub",
+    "bass_sub",
+    "bass_sub",
+    "pad_sweep",
     // 120-127 sound effects
-    "pluck", "flute", "pad_dark", "bell_glass", "bell", "pad_dark", "pad_dark", "pad_dark",
+    "pluck",
+    "flute",
+    "pad_dark",
+    "bell_glass",
+    "bell",
+    "pad_dark",
+    "pad_dark",
+    "pad_dark",
 };
 
 struct InstrumentProgram {
@@ -58,14 +170,15 @@ struct InstrumentProgram {
     int program;
 };
 const InstrumentProgram kInstrumentPrograms[] = {
-    {"keys", 4},         {"piano", 0},       {"epiano", 4},       {"clav", 7},          {"organ", 16},        {"pluck", 25},
-    {"pluck_soft", 24},  {"pluck_bright", 26}, {"guitar", 24},    {"harp", 46},         {"bass", 38},         {"bass_sub", 35},
-    {"bass_pluck", 33},  {"bass_acid", 38},  {"bass_fm", 39},     {"bass_square", 38},  {"lead", 80},         {"lead_saw", 81},
-    {"lead_soft", 85},   {"lead_fm", 83},    {"lead_acid", 84},   {"pad", 88},         {"pad_glass", 92},    {"pad_dark", 93},
-    {"pad_sweep", 95},   {"bell", 14},       {"bell_glass", 9},   {"music_box", 10},   {"marimba", 12},      {"vibraphone", 11},
-    {"strings", 48},     {"strings_soft", 49}, {"brass", 61},     {"horns", 60},        {"choir", 52},        {"flute", 73},
-    {"clarinet", 71},    {"oboe", 68},       {"chiptune", 80},    {"chip_square", 80},  {"chip_pulse", 81},   {"chip_triangle", 79},
-    {"chip_wave", 82},   {"chip_noise", 120},
+    {"keys", 4},         {"piano", 0},          {"epiano", 4},        {"clav", 7},         {"organ", 16},
+    {"pluck", 25},       {"pluck_soft", 24},    {"pluck_bright", 26}, {"guitar", 24},      {"harp", 46},
+    {"bass", 38},        {"bass_sub", 35},      {"bass_pluck", 33},   {"bass_acid", 38},   {"bass_fm", 39},
+    {"bass_square", 38}, {"lead", 80},          {"lead_saw", 81},     {"lead_soft", 85},   {"lead_fm", 83},
+    {"lead_acid", 84},   {"pad", 88},           {"pad_glass", 92},    {"pad_dark", 93},    {"pad_sweep", 95},
+    {"bell", 14},        {"bell_glass", 9},     {"music_box", 10},    {"marimba", 12},     {"vibraphone", 11},
+    {"strings", 48},     {"strings_soft", 49},  {"brass", 61},        {"horns", 60},       {"choir", 52},
+    {"flute", 73},       {"clarinet", 71},      {"oboe", 68},         {"chiptune", 80},    {"chip_square", 80},
+    {"chip_pulse", 81},  {"chip_triangle", 79}, {"chip_wave", 82},    {"chip_noise", 120},
 };
 
 struct DrumKey {
@@ -74,16 +187,18 @@ struct DrumKey {
 };
 // The key each lane exports as.
 const DrumKey kDrumKeys[] = {
-    {"kick", 36},   {"snare", 38},  {"clap", 39},     {"rim", 37},      {"hat", 42},      {"openhat", 46}, {"hat_pedal", 44}, {"shaker", 70},
-    {"tambourine", 54}, {"tom_low", 43}, {"tom_mid", 47}, {"tom_high", 50}, {"ride", 51}, {"crash", 49},  {"cowbell", 56},
+    {"kick", 36},    {"snare", 38},     {"clap", 39},   {"rim", 37},        {"hat", 42},
+    {"openhat", 46}, {"hat_pedal", 44}, {"shaker", 70}, {"tambourine", 54}, {"tom_low", 43},
+    {"tom_mid", 47}, {"tom_high", 50},  {"ride", 51},   {"crash", 49},      {"cowbell", 56},
 };
 
 // Every General MIDI percussion key (35..81) that has a lane of the kit.
 const DrumKey kDrumImport[] = {
-    {"kick", 35}, {"kick", 36}, {"rim", 37}, {"snare", 38}, {"clap", 39}, {"snare", 40}, {"tom_low", 41}, {"hat", 42}, {"tom_low", 43},
-    {"hat_pedal", 44}, {"tom_mid", 45}, {"openhat", 46}, {"tom_mid", 47}, {"tom_high", 48}, {"crash", 49}, {"tom_high", 50}, {"ride", 51},
-    {"crash", 52}, {"ride", 53}, {"tambourine", 54}, {"crash", 55}, {"cowbell", 56}, {"crash", 57}, {"ride", 59}, {"shaker", 69},
-    {"shaker", 70}, {"shaker", 82},
+    {"kick", 35},    {"kick", 36},       {"rim", 37},     {"snare", 38},     {"clap", 39},    {"snare", 40},
+    {"tom_low", 41}, {"hat", 42},        {"tom_low", 43}, {"hat_pedal", 44}, {"tom_mid", 45}, {"openhat", 46},
+    {"tom_mid", 47}, {"tom_high", 48},   {"crash", 49},   {"tom_high", 50},  {"ride", 51},    {"crash", 52},
+    {"ride", 53},    {"tambourine", 54}, {"crash", 55},   {"cowbell", 56},   {"crash", 57},   {"ride", 59},
+    {"shaker", 69},  {"shaker", 70},     {"shaker", 82},
 };
 
 constexpr std::int64_t kBase = 20;  // finest step of the note text: a 64th-note triplet is 40 ticks, a 64th 60
@@ -147,11 +262,11 @@ struct Group {
     int channel = 0;
     int program = 0;
     bool drums = false;
-    int volume = 127;                 // controller 7 when the first note started
+    int volume = 127;  // controller 7 when the first note started
     int pan = 64;
     std::vector<Note> notes;
-    std::string trackName;            // the MIDI track's name
-    std::string instrumentName;       // the MIDI track's Instrument Name meta
+    std::string trackName;       // the MIDI track's name
+    std::string instrumentName;  // the MIDI track's Instrument Name meta
 };
 
 struct Marker {
@@ -162,8 +277,10 @@ struct Marker {
 std::string sanitize_name(const std::string& text) {
     std::string out;
     for (char c : text) {
-        if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-') out += c;
-        else if (!out.empty() && out.back() != '_') out += '_';
+        if (std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '-')
+            out += c;
+        else if (!out.empty() && out.back() != '_')
+            out += '_';
     }
     while (!out.empty() && out.back() == '_') out.pop_back();
     if (out.size() > 32) out.resize(32);
@@ -195,7 +312,9 @@ std::int64_t grid_ticks(const std::string& quantize, std::string& error) {
         digits.pop_back();
     }
     int den = 0;
-    if (!digits.empty() && digits.size() <= 2 && std::all_of(digits.begin(), digits.end(), [](char c) { return c >= '0' && c <= '9'; })) den = std::stoi(digits);
+    if (!digits.empty() && digits.size() <= 2 &&
+        std::all_of(digits.begin(), digits.end(), [](char c) { return c >= '0' && c <= '9'; }))
+        den = std::stoi(digits);
     if (den != 1 && den != 2 && den != 4 && den != 8 && den != 16 && den != 32 && den != 64) {
         error = "quantize `" + quantize + "` is not \"off\" or a note value";
         return 0;
@@ -219,18 +338,23 @@ struct PitchedEvent {
 };
 
 // `notes` start inside [from, from + length) and are cut at its end; positions become relative to `from`.
-std::string pitched_text(const std::vector<Note>& notes, std::int64_t from, std::int64_t length, std::int64_t barTicks) {
+std::string pitched_text(const std::vector<Note>& notes, std::int64_t from, std::int64_t length,
+                         std::int64_t barTicks) {
     std::vector<PitchedEvent> events;
     {
         std::vector<const Note*> sorted;
         for (const Note& n : notes) sorted.push_back(&n);
         std::sort(sorted.begin(), sorted.end(), [](const Note* a, const Note* b) {
-            return std::tie(a->start, a->end, a->velocity, a->pitch) < std::tie(b->start, b->end, b->velocity, b->pitch);
+            return std::tie(a->start, a->end, a->velocity, a->pitch) <
+                   std::tie(b->start, b->end, b->velocity, b->pitch);
         });
         for (const Note* n : sorted) {
             const std::int64_t s = n->start - from, e = std::min(n->end - from, length);
-            if (!events.empty() && events.back().start == s && events.back().end == e && events.back().velocity == n->velocity) events.back().pitches.push_back(n->pitch);
-            else events.push_back({s, std::max(e, s + 2 * kBase), n->velocity, {n->pitch}});
+            if (!events.empty() && events.back().start == s && events.back().end == e &&
+                events.back().velocity == n->velocity)
+                events.back().pitches.push_back(n->pitch);
+            else
+                events.push_back({s, std::max(e, s + 2 * kBase), n->velocity, {n->pitch}});
         }
     }
     std::vector<std::vector<PitchedEvent>> voices;
@@ -251,8 +375,10 @@ std::string pitched_text(const std::vector<Note>& notes, std::int64_t from, std:
         for (std::size_t k = 0; k < voice.size(); ++k) {
             const std::int64_t gap = voice[k].start - (k ? voice[k - 1].end : 0);
             if (gap == kBase) {
-                if (k) voice[k - 1].end += kBase;
-                else voice[k].start -= kBase;
+                if (k)
+                    voice[k - 1].end += kBase;
+                else
+                    voice[k].start -= kBase;
             }
         }
         if (length - voice.back().end == kBase) voice.back().end += kBase;
@@ -317,7 +443,7 @@ std::string pitched_text(const std::vector<Note>& notes, std::int64_t from, std:
 
 struct DrumHit {
     std::string lane;
-    std::int64_t tick = 0;            // relative to the start of the stretch
+    std::int64_t tick = 0;  // relative to the start of the stretch
     int velocity = 100;
 };
 
@@ -373,7 +499,7 @@ Json drum_pattern(const std::vector<DrumHit>& hits, std::int64_t bars, std::int6
 struct Chunk {
     std::int64_t bar0 = 0, bars = 1;
     bool rest = true;
-    Json pattern;                     // string (pitched) or object (drums); null for a rest
+    Json pattern;  // string (pitched) or object (drums); null for a rest
     std::string key;
 };
 
@@ -395,7 +521,8 @@ int key_sharps(int pitchClass, bool minor) {
 }
 
 bool minor_mode(const std::string& mode) {
-    static const std::set<std::string> minorModes = {"minor", "dorian", "phrygian", "locrian", "harmonic_minor", "melodic_minor", "pentatonic_minor", "blues"};
+    static const std::set<std::string> minorModes = {"minor",          "dorian",        "phrygian",         "locrian",
+                                                     "harmonic_minor", "melodic_minor", "pentatonic_minor", "blues"};
     return minorModes.count(mode) > 0;
 }
 
@@ -428,7 +555,9 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
     auto& warnings = result.warnings;
     std::string qerr;
     const std::int64_t grid = grid_ticks(options.quantize, qerr);
-    if (grid == 0) return make_error(qerr, "Use \"off\" (keep the timing), or a note value: \"4\" quarter, \"8\" eighth, \"16\" sixteenth, \"32\", \"8t\" or \"16t\" triplets.");
+    if (grid == 0)
+        return make_error(qerr, "Use \"off\" (keep the timing), or a note value: \"4\" quarter, \"8\" eighth, \"16\" "
+                                "sixteenth, \"32\", \"8t\" or \"16t\" triplets.");
     const double scale = double(kSongPpq) / double(file.division);
     auto to_song = [&](std::int64_t tick) { return std::int64_t(std::llround(double(tick) * scale)); };
 
@@ -448,8 +577,10 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
             if (e.metaType == kMetaTempo && e.data.size() == 3) {
                 const double us = double((e.data[0] << 16) | (e.data[1] << 8) | e.data[2]);
                 if (us <= 0) continue;
-                if (!tempo) tempo = std::round(60000000.0 / us * 1000.0) / 1000.0;
-                else if (std::abs(60000000.0 / us - *tempo) > 0.01) ++tempoChanges;
+                if (!tempo)
+                    tempo = std::round(60000000.0 / us * 1000.0) / 1000.0;
+                else if (std::abs(60000000.0 / us - *tempo) > 0.01)
+                    ++tempoChanges;
             } else if (e.metaType == kMetaTimeSignature && e.data.size() >= 2) {
                 const int beats = e.data[0], unit = 1 << std::min<int>(e.data[1], 6);
                 if (!meterSet) {
@@ -458,7 +589,10 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
                         meter.beats = beats;
                         meter.unit = unit;
                     } else {
-                        warnings.push_back(std::format("the time signature {}/{} is outside what songs hold (1 to 16 beats of a half, quarter, eighth or sixteenth note); 4/4 is used", beats, unit));
+                        warnings.push_back(
+                            std::format("the time signature {}/{} is outside what songs hold (1 to 16 beats of a half, "
+                                        "quarter, eighth or sixteenth note); 4/4 is used",
+                                        beats, unit));
                     }
                 } else if (beats != meter.beats || unit != meter.unit) {
                     ++meterChanges;
@@ -476,12 +610,20 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
                 markers.push_back({to_song(e.tick), e.text()});
             }
         }
-    if (tempoChanges > 0) warnings.push_back(std::format("the file changes tempo {} time(s); a song has one tempo, so only the first ({:g} BPM) is used and the notes keep their place in the bars", tempoChanges, tempo.value_or(120.0)));
-    if (meterChanges > 0) warnings.push_back(std::format("the file changes the time signature {} time(s); a song has one meter, so only the first ({}/{}) is used", meterChanges, meter.beats, meter.unit));
-    if (keyChanges > 0) warnings.push_back(std::format("the file changes key {} time(s); only the first is used", keyChanges));
+    if (tempoChanges > 0)
+        warnings.push_back(std::format("the file changes tempo {} time(s); a song has one tempo, so only the first "
+                                       "({:g} BPM) is used and the notes keep their place in the bars",
+                                       tempoChanges, tempo.value_or(120.0)));
+    if (meterChanges > 0)
+        warnings.push_back(std::format(
+            "the file changes the time signature {} time(s); a song has one meter, so only the first ({}/{}) is used",
+            meterChanges, meter.beats, meter.unit));
+    if (keyChanges > 0)
+        warnings.push_back(std::format("the file changes key {} time(s); only the first is used", keyChanges));
     double songTempo = tempo.value_or(120.0);
     if (songTempo < 20.0 || songTempo > 400.0) {
-        warnings.push_back(std::format("the tempo {:g} BPM is outside 20 to 400, which songs hold; {:g} is used", songTempo, std::clamp(songTempo, 20.0, 400.0)));
+        warnings.push_back(std::format("the tempo {:g} BPM is outside 20 to 400, which songs hold; {:g} is used",
+                                       songTempo, std::clamp(songTempo, 20.0, 400.0)));
         songTempo = std::clamp(songTempo, 20.0, 400.0);
     }
     const std::int64_t barTicks = meter.barTicks();
@@ -497,12 +639,13 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
         std::string trackName, instrumentName;
         for (const MidiEvent& e : track.events) {
             if (e.kind == kMidiMeta && e.metaType == kMetaTrackName && trackName.empty()) trackName = e.text();
-            if (e.kind == kMidiMeta && e.metaType == kMetaInstrumentName && instrumentName.empty()) instrumentName = e.text();
+            if (e.kind == kMidiMeta && e.metaType == kMetaInstrumentName && instrumentName.empty())
+                instrumentName = e.text();
         }
         struct Held {
             std::int64_t start = 0;
             int velocity = 0;
-            bool sustained = false;   // the key is up but the pedal holds the note
+            bool sustained = false;  // the key is up but the pedal holds the note
             std::size_t group = 0;
         };
         struct ChannelState {
@@ -556,8 +699,10 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
                 cs.program = e.data1;
                 cs.programSeen = true;
             } else if (e.kind == kMidiController) {
-                if (e.data1 == 7) cs.volume = e.data2;
-                else if (e.data1 == 10) cs.pan = e.data2;
+                if (e.data1 == 7)
+                    cs.volume = e.data2;
+                else if (e.data1 == 10)
+                    cs.pan = e.data2;
                 else if (e.data1 == 64) {
                     const bool down = e.data2 >= 64;
                     if (cs.pedal && !down) {
@@ -583,8 +728,10 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
             } else if (e.kind == kMidiNoteOff || (e.kind == kMidiNoteOn && e.data2 == 0)) {
                 auto it = cs.held.find(e.data1);
                 if (it == cs.held.end()) continue;
-                if (cs.pedal && e.channel != 9) it->second.sustained = true;
-                else finish(cs, e.data1, tick);
+                if (cs.pedal && e.channel != 9)
+                    it->second.sustained = true;
+                else
+                    finish(cs, e.data1, tick);
             }
         }
         for (int ch = 0; ch < 16; ++ch) {
@@ -598,11 +745,15 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
         }
     }
     (void)programChangesIgnored;
-    if (unterminated > 0) warnings.push_back(std::format("{} note(s) never got a note off; they end where their track ends", unterminated));
+    if (unterminated > 0)
+        warnings.push_back(
+            std::format("{} note(s) never got a note off; they end where their track ends", unterminated));
     if (droppedPerc > 0) {
         std::string keys;
         for (int k : droppedKeys) keys += (keys.empty() ? "" : ", ") + std::to_string(k);
-        warnings.push_back(std::format("{} percussion hit(s) on channel 10 use keys the built-in kit has no lane for (keys {}); they are left out", droppedPerc, keys));
+        warnings.push_back(std::format(
+            "{} percussion hit(s) on channel 10 use keys the built-in kit has no lane for (keys {}); they are left out",
+            droppedPerc, keys));
     }
 
     // Quantize, clip repeated strikes, drop empty groups.
@@ -613,9 +764,12 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
             n.start = snap(n.start, grid);
             n.end = snap(n.end, grid);
             if (g.drums) n.end = n.start + grid;
-            if (!g.drums && n.end - n.start < 2 * kBase) n.end = n.start + std::max(grid, 2 * kBase);  // the shortest value the note text writes is 40
+            if (!g.drums && n.end - n.start < 2 * kBase)
+                n.end = n.start + std::max(grid, 2 * kBase);  // the shortest value the note text writes is 40
         }
-        std::sort(g.notes.begin(), g.notes.end(), [](const Note& a, const Note& b) { return std::tie(a.start, a.pitch, a.end) < std::tie(b.start, b.pitch, b.end); });
+        std::sort(g.notes.begin(), g.notes.end(), [](const Note& a, const Note& b) {
+            return std::tie(a.start, a.pitch, a.end) < std::tie(b.start, b.pitch, b.end);
+        });
         // Two strikes of one key at one time are one; a strike ends the earlier note of its key.
         std::vector<Note> kept;
         std::map<int, std::size_t> lastOfPitch;
@@ -634,31 +788,45 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
             kept.push_back(n);
         }
         g.notes = std::move(kept);
-        std::sort(g.notes.begin(), g.notes.end(), [](const Note& a, const Note& b) { return std::tie(a.start, a.pitch) < std::tie(b.start, b.pitch); });
+        std::sort(g.notes.begin(), g.notes.end(),
+                  [](const Note& a, const Note& b) { return std::tie(a.start, a.pitch) < std::tie(b.start, b.pitch); });
         for (const Note& n : g.notes) songEnd = std::max(songEnd, g.drums ? n.start + 1 : n.end);
         total += g.notes.size();
     }
-    groups.erase(std::remove_if(groups.begin(), groups.end(), [](const Group& g) { return g.notes.empty(); }), groups.end());
+    groups.erase(std::remove_if(groups.begin(), groups.end(), [](const Group& g) { return g.notes.empty(); }),
+                 groups.end());
     if (total == 0)
-        return make_error("the MIDI file has no notes to import", "A file with only tempo or marker events gives no song. Check that the notes are not all on tracks the export left out.");
-    if (total > kSongMaxNotes) return make_error(std::format("the MIDI file has {} notes, more than a song holds ({})", total, kSongMaxNotes), "Import a shorter piece, or split the file.");
+        return make_error("the MIDI file has no notes to import",
+                          "A file with only tempo or marker events gives no song. Check that the notes are not all on "
+                          "tracks the export left out.");
+    if (total > kSongMaxNotes)
+        return make_error(std::format("the MIDI file has {} notes, more than a song holds ({})", total, kSongMaxNotes),
+                          "Import a shorter piece, or split the file.");
     if (groups.size() > kSongMaxTracks)
-        return make_error(std::format("the MIDI file plays {} different parts (a track, channel and program each); a song has at most {} tracks", groups.size(), kSongMaxTracks),
+        return make_error(std::format("the MIDI file plays {} different parts (a track, channel and program each); a "
+                                      "song has at most {} tracks",
+                                      groups.size(), kSongMaxTracks),
                           "Merge parts in your DAW (one program per channel), or split the file.");
     songEnd = std::max(songEnd, fileEnd);
     const int totalBars = int(std::max<std::int64_t>(1, (songEnd + barTicks - 1) / barTicks));
-    if (totalBars > kSongMaxBars) return make_error(std::format("the MIDI file lasts {} bars, more than a song holds ({})", totalBars, kSongMaxBars), "Import a shorter piece.");
+    if (totalBars > kSongMaxBars)
+        return make_error(
+            std::format("the MIDI file lasts {} bars, more than a song holds ({})", totalBars, kSongMaxBars),
+            "Import a shorter piece.");
 
     // Sections from the markers.
     std::vector<Section> sections;
     {
-        std::stable_sort(markers.begin(), markers.end(), [](const Marker& a, const Marker& b) { return a.tick < b.tick; });
+        std::stable_sort(markers.begin(), markers.end(),
+                         [](const Marker& a, const Marker& b) { return a.tick < b.tick; });
         std::set<std::string> usedNames;
         std::int64_t lastBar = -1;
         for (const Marker& m : markers) {
             const std::int64_t bar = std::clamp<std::int64_t>((m.tick + barTicks / 2) / barTicks, 0, totalBars - 1);
             if (bar == lastBar) {
-                warnings.push_back(std::format("the marker \"{}\" falls in bar {}, where there is already a section; it is left out", m.text, bar + 1));
+                warnings.push_back(
+                    std::format("the marker \"{}\" falls in bar {}, where there is already a section; it is left out",
+                                m.text, bar + 1));
                 continue;
             }
             std::string text = m.text;
@@ -673,7 +841,9 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
             }
             if (kind.empty()) {
                 const std::string l = lower(text);
-                kind = l.rfind("intro", 0) == 0 ? "intro" : l.rfind("loop", 0) == 0 ? "loop" : (l.rfind("outro", 0) == 0 ? "outro" : "section");
+                kind = l.rfind("intro", 0) == 0  ? "intro"
+                       : l.rfind("loop", 0) == 0 ? "loop"
+                                                 : (l.rfind("outro", 0) == 0 ? "outro" : "section");
             }
             std::string name = sanitize_name(text);
             if (name.empty()) name = kind == "section" ? "section" : kind;
@@ -705,7 +875,9 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
             if (s.kind == "loop") {
                 if (seenRun && !inRun) {
                     s.kind = "section";
-                    warnings.push_back(std::format("the section `{}` is named like a loop but a loop is one stretch of the song; it is a plain section", s.name));
+                    warnings.push_back(std::format("the section `{}` is named like a loop but a loop is one stretch of "
+                                                   "the song; it is a plain section",
+                                                   s.name));
                 } else {
                     inRun = true;
                     seenRun = true;
@@ -715,7 +887,9 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
             }
         }
         if (sections.size() > kSongMaxSections)
-            return make_error(std::format("the MIDI file has {} markers, more than the {} sections a song holds", sections.size(), kSongMaxSections), "Remove markers in your DAW, or import without them.");
+            return make_error(std::format("the MIDI file has {} markers, more than the {} sections a song holds",
+                                          sections.size(), kSongMaxSections),
+                              "Remove markers in your DAW, or import without them.");
     }
 
     // SoundFont for the pitched parts.
@@ -741,8 +915,11 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
             instrument = "kit";
             if (font) {
                 auto preset = font->find_preset(128, 0);
-                if (preset) instrument = options.soundfont + "#128:0";
-                else fontMisses.insert("the SoundFont has no percussion kit (bank 128), so the drums use the built-in kit");
+                if (preset)
+                    instrument = options.soundfont + "#128:0";
+                else
+                    fontMisses.insert(
+                        "the SoundFont has no percussion kit (bank 128), so the drums use the built-in kit");
             }
         } else {
             const std::string named = g.instrumentName;
@@ -751,9 +928,12 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
                 instrument = named;
             } else if (font) {
                 auto preset = font->find_preset(0, g.program);
-                if (preset) instrument = options.soundfont + "#0:" + std::to_string(g.program);
+                if (preset)
+                    instrument = options.soundfont + "#0:" + std::to_string(g.program);
                 else {
-                    fontMisses.insert(std::format("the SoundFont has no preset for program {} (bank 0); the built-in instrument {} plays it", g.program, gm_program_instrument(g.program)));
+                    fontMisses.insert(std::format(
+                        "the SoundFont has no preset for program {} (bank 0); the built-in instrument {} plays it",
+                        g.program, gm_program_instrument(g.program)));
                     instrument = gm_program_instrument(g.program);
                 }
             } else {
@@ -762,21 +942,25 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
         }
         std::string base = sanitize_name(g.trackName);
         if (g.drums) base = base.empty() || file.tracks.size() == 1 ? "drums" : base;
-        if (base.empty()) base = g.drums ? "drums" : sanitize_name(instrument.find('#') == std::string::npos ? instrument : "sf");
+        if (base.empty())
+            base = g.drums ? "drums" : sanitize_name(instrument.find('#') == std::string::npos ? instrument : "sf");
         const std::string name = unique_name(base, trackNames);
 
         Json track = Json::object();
         track["instrument"] = instrument;
         if (g.volume != 127) track["volume"] = std::round(double(g.volume) / 127.0 * 100.0) / 100.0;
-        if (g.pan != 64) track["pan"] = std::round(std::clamp((double(g.pan) - 64.0) / 63.0, -1.0, 1.0) * 100.0) / 100.0;
+        if (g.pan != 64)
+            track["pan"] = std::round(std::clamp((double(g.pan) - 64.0) / 63.0, -1.0, 1.0) * 100.0) / 100.0;
 
         // chunks: the bars of every section, written as patterns
         auto notes_in = [&](std::int64_t from, std::int64_t to, std::vector<Note>& out) {
             out.clear();
-            auto lo = std::lower_bound(g.notes.begin(), g.notes.end(), from, [](const Note& n, std::int64_t t) { return n.start < t; });
+            auto lo = std::lower_bound(g.notes.begin(), g.notes.end(), from,
+                                       [](const Note& n, std::int64_t t) { return n.start < t; });
             for (auto it = lo; it != g.notes.end() && it->start < to; ++it) out.push_back(*it);
         };
-        auto chunk_of = [&](std::int64_t bar0, std::int64_t bars, std::int64_t sectionEndBar, bool wholeSection) -> Chunk {
+        auto chunk_of = [&](std::int64_t bar0, std::int64_t bars, std::int64_t sectionEndBar,
+                            bool wholeSection) -> Chunk {
             Chunk c;
             c.bar0 = bar0;
             c.bars = bars;
@@ -809,7 +993,7 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
         };
         struct Plan {
             std::vector<std::vector<Chunk>> perSection;
-            std::map<std::string, std::string> names;   // key -> pattern name
+            std::map<std::string, std::string> names;  // key -> pattern name
             std::vector<std::pair<std::string, Json>> patterns;
         };
         auto build = [&](bool bySection) -> std::optional<Plan> {
@@ -819,7 +1003,11 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
                 std::vector<Chunk> chunks;
                 const std::int64_t end = s.bar0 + s.bars;
                 if (bySection) {
-                    if (s.bars > 256) { clipped = savedClipped; lossy = savedLossy; return std::nullopt; }
+                    if (s.bars > 256) {
+                        clipped = savedClipped;
+                        lossy = savedLossy;
+                        return std::nullopt;
+                    }
                     chunks.push_back(chunk_of(s.bar0, s.bars, end, true));
                 } else {
                     std::int64_t bar = s.bar0;
@@ -835,7 +1023,11 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
                                 if (maxEnd <= stop * barTicks) break;
                                 stop = std::min(end, (maxEnd + barTicks - 1) / barTicks);
                             }
-                            if (stop - bar > 256) { clipped = savedClipped; lossy = savedLossy; return std::nullopt; }
+                            if (stop - bar > 256) {
+                                clipped = savedClipped;
+                                lossy = savedLossy;
+                                return std::nullopt;
+                            }
                         }
                         chunks.push_back(chunk_of(bar, stop - bar, end, false));
                         bar = stop;
@@ -862,8 +1054,11 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
             plan = build(true);
         }
         if (!plan)
-            return make_error(std::format("the track `{}` has more than 64 different bars, even written as one pattern per section", name),
-                              "Import with a coarser quantize (\"16\" or \"8t\"), so repeated bars come out identical, or split the file.");
+            return make_error(
+                std::format("the track `{}` has more than 64 different bars, even written as one pattern per section",
+                            name),
+                "Import with a coarser quantize (\"16\" or \"8t\"), so repeated bars come out identical, or split the "
+                "file.");
         Json patterns = Json::object();
         for (auto& [pname, pj] : plan->patterns) patterns[pname] = pj;
         track["patterns"] = patterns;
@@ -877,7 +1072,8 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
             std::int64_t pendingCount = 0;
             auto flush = [&] {
                 if (pendingCount == 0) return;
-                play += (play.empty() ? "" : " ") + pending + (pendingCount > 1 ? "*" + std::to_string(pendingCount) : "");
+                play +=
+                    (play.empty() ? "" : " ") + pending + (pendingCount > 1 ? "*" + std::to_string(pendingCount) : "");
                 pendingCount = 0;
             };
             for (const Chunk& c : plan->perSection[si]) {
@@ -897,8 +1093,14 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
         }
     }
     for (const std::string& m : fontMisses) warnings.push_back(m);
-    if (clipped > 0) warnings.push_back(std::format("{} note(s) were held past the end of their section and are cut there", clipped));
-    if (lossy > 0) warnings.push_back(std::format("{} drum hit(s) did not fall on a step of the drum grid (8, 16, 8t, 16t, 32) and moved to the nearest one; import with quantize \"16\" to make it deliberate", lossy));
+    if (clipped > 0)
+        warnings.push_back(
+            std::format("{} note(s) were held past the end of their section and are cut there", clipped));
+    if (lossy > 0)
+        warnings.push_back(
+            std::format("{} drum hit(s) did not fall on a step of the drum grid (8, 16, 8t, 16t, 32) and moved to the "
+                        "nearest one; import with quantize \"16\" to make it deliberate",
+                        lossy));
 
     Json doc = Json::object();
     doc["format"] = kSongFormat;
@@ -924,7 +1126,8 @@ Result<MidiImportResult> midi_to_song(const MidiFile& file, const MidiImportOpti
     std::vector<SongIssue> issues;
     auto parsed = parse_song(doc, "the imported song", &issues);
     if (!parsed)
-        return make_error("the imported song does not pass the song checks (this is a bug in the importer): " + parsed.error().message,
+        return make_error("the imported song does not pass the song checks (this is a bug in the importer): " +
+                              parsed.error().message,
                           "Report it with the MIDI file; " + parsed.error().hint);
     result.song = std::move(doc);
     result.tracks = int(groups.size());
@@ -1000,7 +1203,8 @@ Result<MidiExportResult> song_to_midi(const SongDoc& song, const SongTimeline& t
     for (const SongSpan& span : timeline.spans) {
         if (span.pass != 0) continue;
         const SongSection& s = song.sections[std::size_t(span.section)];
-        put_text(conductor, span.startTick, kMetaMarker, (s.kind == "section" || s.kind == s.name) ? s.name : s.kind + ":" + s.name);
+        put_text(conductor, span.startTick, kMetaMarker,
+                 (s.kind == "section" || s.kind == s.name) ? s.name : s.kind + ":" + s.name);
     }
     file.tracks.push_back(std::move(conductor));
 
@@ -1012,7 +1216,8 @@ Result<MidiExportResult> song_to_midi(const SongDoc& song, const SongTimeline& t
     for (std::size_t ti = 0; ti < song.tracks.size(); ++ti) {
         const SongTrack& track = song.tracks[ti];
         if (track.mute || (anySolo && !track.solo)) {
-            out.warnings.push_back("the track `" + track.name + "` is " + (track.mute ? "muted" : "not soloed") + " and is not written");
+            out.warnings.push_back("the track `" + track.name + "` is " + (track.mute ? "muted" : "not soloed") +
+                                   " and is not written");
             continue;
         }
         int channel = 9;
@@ -1031,15 +1236,18 @@ Result<MidiExportResult> song_to_midi(const SongDoc& song, const SongTimeline& t
         put_text(mt, 0, kMetaInstrumentName, instrumentText);
         if (!track.drums) {
             int program = gm_instrument_program(track.instrument);
-            if (program < 0 && track.soundfont.present() && !track.soundfont.drums) program = std::clamp(track.soundfont.program, 0, 127);
+            if (program < 0 && track.soundfont.present() && !track.soundfont.drums)
+                program = std::clamp(track.soundfont.program, 0, 127);
             if (program < 0) program = 0;
             mt.events.push_back(channel_event(0, kMidiProgram, channel, program));
         }
-        mt.events.push_back(channel_event(0, kMidiController, channel, 7, std::clamp(int(std::lround(track.volume * 127.0)), 0, 127)));
-        mt.events.push_back(channel_event(0, kMidiController, channel, 10, std::clamp(int(std::lround((track.pan + 1.0) * 63.5)), 0, 127)));
+        mt.events.push_back(
+            channel_event(0, kMidiController, channel, 7, std::clamp(int(std::lround(track.volume * 127.0)), 0, 127)));
+        mt.events.push_back(channel_event(0, kMidiController, channel, 10,
+                                          std::clamp(int(std::lround((track.pan + 1.0) * 63.5)), 0, 127)));
         struct Timed {
             std::int64_t tick;
-            int order;                // 0 off, 1 on
+            int order;  // 0 off, 1 on
             MidiEvent e;
         };
         std::vector<Timed> notes;
@@ -1055,19 +1263,25 @@ Result<MidiExportResult> song_to_midi(const SongDoc& song, const SongTimeline& t
             }
             if (key < 0 || key > 127) continue;
             const std::int64_t length = track.drums ? std::min<std::int64_t>(n.gateTicks(), 120) : n.gateTicks();
-            notes.push_back({n.tick, 1, channel_event(n.tick, kMidiNoteOn, channel, key, std::clamp(n.velocity, 1, 127))});
+            notes.push_back(
+                {n.tick, 1, channel_event(n.tick, kMidiNoteOn, channel, key, std::clamp(n.velocity, 1, 127))});
             notes.push_back({n.tick + length, 0, channel_event(n.tick + length, kMidiNoteOff, channel, key, 0)});
             ++out.notes;
         }
-        std::stable_sort(notes.begin(), notes.end(), [](const Timed& a, const Timed& b) { return std::tie(a.tick, a.order) < std::tie(b.tick, b.order); });
+        std::stable_sort(notes.begin(), notes.end(), [](const Timed& a, const Timed& b) {
+            return std::tie(a.tick, a.order) < std::tie(b.tick, b.order);
+        });
         for (Timed& t : notes) mt.events.push_back(std::move(t.e));
         // the setup events are at tick 0, before any note
         file.tracks.push_back(std::move(mt));
         ++out.tracks;
     }
     for (const std::string& lane : skippedLanes)
-        out.warnings.push_back("the drum lane `" + lane + "` is not a General MIDI percussion lane of the built-in kit and is not written");
-    if (sharedChannels > 0) out.warnings.push_back("the song has more than 15 pitched tracks, so some share a MIDI channel (each is still its own MIDI track)");
+        out.warnings.push_back("the drum lane `" + lane +
+                               "` is not a General MIDI percussion lane of the built-in kit and is not written");
+    if (sharedChannels > 0)
+        out.warnings.push_back("the song has more than 15 pitched tracks, so some share a MIDI channel (each is still "
+                               "its own MIDI track)");
     auto bytes = write_midi(file);
     if (!bytes) return bytes.error();
     out.bytes = std::move(*bytes);

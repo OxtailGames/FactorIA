@@ -59,6 +59,7 @@ enum class StdioExit { Eof, Restart };
 // cancelled request that runs stops; one still queued is skipped (McpSession::expect_request); neither gets an answer.
 // At the end of the input, requests still running or queued `eofGrace` later are cancelled.
 // Returns at the end of the input, or when `restart_due` says so; the notification sink is cleared on return.
-StdioExit run_stdio_loop(McpServer& server, LineReader& reader, std::ostream& out, const StdioLoopOptions& options = {});
+StdioExit run_stdio_loop(McpServer& server, LineReader& reader, std::ostream& out,
+                         const StdioLoopOptions& options = {});
 
 }  // namespace fa

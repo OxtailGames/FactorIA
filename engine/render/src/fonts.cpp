@@ -26,11 +26,14 @@ struct GlyphKey {
     int px;
     std::uint32_t gid;
     bool synth;  // emboldened by the engine (no bold face)
-    bool operator==(const GlyphKey& o) const { return face == o.face && px == o.px && gid == o.gid && synth == o.synth; }
+    bool operator==(const GlyphKey& o) const {
+        return face == o.face && px == o.px && gid == o.gid && synth == o.synth;
+    }
 };
 struct GlyphKeyHash {
     std::size_t operator()(const GlyphKey& k) const {
-        return std::size_t(k.gid) * 2654435761u ^ std::size_t(k.px) * 40503u ^ std::size_t(k.face) * 977u ^ (k.synth ? 0x9e3779b9u : 0u);
+        return std::size_t(k.gid) * 2654435761u ^ std::size_t(k.px) * 40503u ^ std::size_t(k.face) * 977u ^
+               (k.synth ? 0x9e3779b9u : 0u);
     }
 };
 
@@ -46,9 +49,11 @@ struct Fonts::Impl {
     // every frame); upgrade to an LRU when that shows in a profile.
     std::unordered_map<std::string, TextLayout> layouts;
     int atlasSize = 1024;
-    unsigned atlasEpoch = 0;  // counts atlas resets: a layout made across one holds stale UVs
+    unsigned atlasEpoch = 0;            // counts atlas resets: a layout made across one holds stale UVs
     std::vector<unsigned char> pixels;  // R8
-    struct Shelf { int y, h, x; };
+    struct Shelf {
+        int y, h, x;
+    };
     std::vector<Shelf> shelves;
     bool dirty = true;
     explicit Impl(FontSet::FailureNote note) : set(std::move(note)) {}
@@ -63,25 +68,30 @@ struct Fonts::Impl {
         dirty = true;
     }
     bool pack(int w, int h, int& ox, int& oy) {
-        w += 1; h += 1;  // padding
+        w += 1;
+        h += 1;  // padding
         for (auto& s : shelves) {
             if (h <= s.h && h * 10 >= s.h * 6 && s.x + w <= atlasSize) {
-                ox = s.x; oy = s.y; s.x += w;
+                ox = s.x;
+                oy = s.y;
+                s.x += w;
                 return true;
             }
         }
         int y = shelves.empty() ? 0 : shelves.back().y + shelves.back().h;
         if (y + h > atlasSize || w > atlasSize) return false;
         shelves.push_back({y, h, w});
-        ox = 0; oy = y;
+        ox = 0;
+        oy = y;
         return true;
     }
 };
 
 Fonts::Fonts(Gpu& /*gpu*/, Assets& assets)
-    : impl_(std::make_unique<Impl>([&assets](const std::string& font, const std::string& error, const std::string& hint) {
-          assets.note_failure("font", font, error, hint);
-      })) {
+    : impl_(
+          std::make_unique<Impl>([&assets](const std::string& font, const std::string& error, const std::string& hint) {
+              assets.note_failure("font", font, error, hint);
+          })) {
     impl_->reset_atlas(1024);
     atlasTex_.path = "<glyph-atlas>";
 }
@@ -111,7 +121,9 @@ void Fonts::set_rich_style(const RichTextStyle& style) {
 
 bool Fonts::has_face(const std::string& font) const { return impl_->set.has_face(font); }
 
-void Fonts::adopt(std::unique_ptr<FontFace> f, std::vector<std::string> files) { impl_->set.adopt(std::move(f), std::move(files)); }
+void Fonts::adopt(std::unique_ptr<FontFace> f, std::vector<std::string> files) {
+    impl_->set.adopt(std::move(f), std::move(files));
+}
 
 FontFace* Fonts::face(const std::string& font) { return impl_->set.face(font); }
 
@@ -143,17 +155,23 @@ GlyphInfo Fonts::glyph(FontFace* ff, int px, std::uint32_t gid, bool synthBold) 
         // frame being gathered is gathered again (Renderer::Impl::render).
         if (im.atlasSize < kMaxAtlas) {
             const int next = im.atlasSize * 2;
-            FA_INFO("render", "glyph atlas is full ({0}x{0}); growing it to {1}x{1}. Every text lays out again.", im.atlasSize, next);
+            FA_INFO("render", "glyph atlas is full ({0}x{0}); growing it to {1}x{1}. Every text lays out again.",
+                    im.atlasSize, next);
             im.reset_atlas(next);
         } else {
-            FA_WARN("render", "glyph atlas is full ({0}x{0}); clearing it. Every text lays out again. Use fewer distinct font sizes "
-                              "and scripts on screen at once to avoid the cost.", im.atlasSize);
+            FA_WARN(
+                "render",
+                "glyph atlas is full ({0}x{0}); clearing it. Every text lays out again. Use fewer distinct font sizes "
+                "and scripts on screen at once to avoid the cost.",
+                im.atlasSize);
             im.reset_atlas(im.atlasSize);
         }
         if (!im.pack(w, h, ax, ay)) return g;
     }
-    stbtt_MakeGlyphBitmap(&ff->info, &im.pixels[std::size_t(ay) * im.atlasSize + ax], w0, h, im.atlasSize, s, s, stbGid);
-    if (extraCols > 0) {  // out[x] = max of in[x - k] for k = 0..whole, and the fraction of in[x - whole - 1]; right to left, in place
+    stbtt_MakeGlyphBitmap(&ff->info, &im.pixels[std::size_t(ay) * im.atlasSize + ax], w0, h, im.atlasSize, s, s,
+                          stbGid);
+    if (extraCols >
+        0) {  // out[x] = max of in[x - k] for k = 0..whole, and the fraction of in[x - whole - 1]; right to left, in place
         const float frac = extra - float(extraWhole);
         for (int yy = 0; yy < h; ++yy) {
             unsigned char* row = &im.pixels[std::size_t(ay + yy) * im.atlasSize + ax];
@@ -161,7 +179,8 @@ GlyphInfo Fonts::glyph(FontFace* ff, int px, std::uint32_t gid, bool synthBold) 
                 float v = 0;
                 for (int k = 0; k <= extraWhole; ++k)
                     if (xx - k >= 0 && xx - k < w0) v = std::max(v, float(row[xx - k]));
-                if (frac > 0 && xx - extraWhole - 1 >= 0 && xx - extraWhole - 1 < w0) v = std::max(v, frac * float(row[xx - extraWhole - 1]));
+                if (frac > 0 && xx - extraWhole - 1 >= 0 && xx - extraWhole - 1 < w0)
+                    v = std::max(v, frac * float(row[xx - extraWhole - 1]));
                 row[xx] = static_cast<unsigned char>(std::min(255.0f, v + 0.5f));
             }
         }
@@ -169,8 +188,14 @@ GlyphInfo Fonts::glyph(FontFace* ff, int px, std::uint32_t gid, bool synthBold) 
     im.dirty = true;
     const float inv = 1.0f / float(im.atlasSize);
     g.empty = false;
-    g.u0 = ax * inv; g.v0 = ay * inv; g.u1 = (ax + w) * inv; g.v1 = (ay + h) * inv;
-    g.x0 = float(x0); g.y0 = float(y0); g.x1 = float(x1 + extraCols); g.y1 = float(y1);
+    g.u0 = ax * inv;
+    g.v0 = ay * inv;
+    g.u1 = (ax + w) * inv;
+    g.v1 = (ay + h) * inv;
+    g.x0 = float(x0);
+    g.y0 = float(y0);
+    g.x1 = float(x1 + extraCols);
+    g.y1 = float(y1);
     im.glyphs[key] = g;
     return g;
 }
@@ -181,11 +206,19 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, boo
     if (!primary || !primary->ok) return {};
     const int px = text_raster_px(fontSize, pixelsPerUnit);
 
-    struct KeyHead { float fontSize, maxWidth, pivotX, pivotY; int px, align, wordBreak, direction; } head{};
-    head.fontSize = fontSize; head.maxWidth = t.maxWidth; head.pivotX = t.pivot.x; head.pivotY = t.pivot.y;
-    head.px = px; head.align = int(t.align) + (tightBox ? 1000 : 0) + (t.markup ? 2000 : 0) + (t.bold ? 4000 : 0);
+    struct KeyHead {
+        float fontSize, maxWidth, pivotX, pivotY;
+        int px, align, wordBreak, direction;
+    } head{};
+    head.fontSize = fontSize;
+    head.maxWidth = t.maxWidth;
+    head.pivotX = t.pivot.x;
+    head.pivotY = t.pivot.y;
+    head.px = px;
+    head.align = int(t.align) + (tightBox ? 1000 : 0) + (t.markup ? 2000 : 0) + (t.bold ? 4000 : 0);
     head.direction = int(t.direction);
-    head.wordBreak = int(t.wordBreak);  // visibleCharacters is not part of the key: it clips a layout, it never changes one
+    head.wordBreak =
+        int(t.wordBreak);  // visibleCharacters is not part of the key: it clips a layout, it never changes one
     std::string cacheKey(reinterpret_cast<const char*>(&head), sizeof head);
     cacheKey += t.font;
     cacheKey.push_back('\0');
@@ -200,10 +233,13 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, boo
     const ShapedText& shaped = prep.shaped;
     const std::vector<MarkupAttr>& attrs = prep.attrs;
     const std::vector<std::uint32_t> graphemeOf = grapheme_index(prep.text);
-    const auto grapheme_at = [&](std::uint32_t cluster) { return cluster < graphemeOf.size() ? std::int32_t(graphemeOf[cluster]) : std::int32_t(0); };
+    const auto grapheme_at = [&](std::uint32_t cluster) {
+        return cluster < graphemeOf.size() ? std::int32_t(graphemeOf[cluster]) : std::int32_t(0);
+    };
 
     TextLayout out;
-    for (int attempt = 0; attempt < 2; ++attempt) {  // a second pass when the atlas was reset halfway: UVs of the first are stale
+    for (int attempt = 0; attempt < 2;
+         ++attempt) {  // a second pass when the atlas was reset halfway: UVs of the first are stale
         const unsigned epoch = im.atlasEpoch;
         out = TextLayout{};
         out.iconDefs = prep.iconDefs;
@@ -221,8 +257,10 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, boo
         for (std::size_t li = 0; li < shaped.lines.size(); ++li) {
             const ShapedLine& l = shaped.lines[li];
             float x = 0;  // Align is explicit: Left is the left edge even for right-to-left text
-            if (t.align == Align::Center) x = (boxW - l.width) * 0.5f;
-            else if (t.align == Align::Right) x = boxW - l.width;
+            if (t.align == Align::Center)
+                x = (boxW - l.width) * 0.5f;
+            else if (t.align == Align::Right)
+                x = boxW - l.width;
             x = std::round(x);
             const float baselineY = top - std::round(fm.ascent) - lineH * float(li);  // y up
             for (const ShapedGlyph& sg : l.glyphs) {
@@ -231,7 +269,8 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, boo
                     if (def < 0) continue;
                     const float pen = std::round(x + sg.x);
                     out.icons.push_back({(ox + pen) * unitsPerPx, (top - lineH * float(li + 1)) * unitsPerPx,
-                                         (ox + pen + sg.advance) * unitsPerPx, (top - lineH * float(li)) * unitsPerPx, def, grapheme_at(sg.cluster)});
+                                         (ox + pen + sg.advance) * unitsPerPx, (top - lineH * float(li)) * unitsPerPx,
+                                         def, grapheme_at(sg.cluster)});
                     continue;
                 }
                 if (sg.gid == 0) continue;
@@ -240,9 +279,17 @@ TextLayout Fonts::layout(const Text& t, float fontSize, float pixelsPerUnit, boo
                 const float pen = std::round(x + sg.x), lift = std::round(sg.y);
                 const float gx0 = pen + g.x0, gx1 = pen + g.x1;
                 const float gy0 = baselineY - g.y1 + lift, gy1 = baselineY - g.y0 + lift;  // y up
-                TextQuad q{(ox + gx0) * unitsPerPx, gy0 * unitsPerPx, (ox + gx1) * unitsPerPx, gy1 * unitsPerPx, g.u0, g.v0, g.u1, g.v1};
+                TextQuad q{(ox + gx0) * unitsPerPx,
+                           gy0 * unitsPerPx,
+                           (ox + gx1) * unitsPerPx,
+                           gy1 * unitsPerPx,
+                           g.u0,
+                           g.v0,
+                           g.u1,
+                           g.v1};
                 q.grapheme = grapheme_at(sg.cluster);
-                if (t.markup && sg.cluster < attrs.size()) q.color = std::uint16_t(prep.colorSlot[std::size_t(attrs[sg.cluster].color)]);
+                if (t.markup && sg.cluster < attrs.size())
+                    q.color = std::uint16_t(prep.colorSlot[std::size_t(attrs[sg.cluster].color)]);
                 out.quads.push_back(q);
             }
         }
@@ -276,8 +323,6 @@ void Fonts::sync() {
     im.dirty = false;
 }
 
-Json Fonts::report() const {
-    return impl_->set.report();
-}
+Json Fonts::report() const { return impl_->set.report(); }
 
 }  // namespace fa::render

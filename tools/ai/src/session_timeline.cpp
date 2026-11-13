@@ -35,7 +35,10 @@ bool waits_for_user(const std::string& tool) {
 struct Bucket {
     double seconds = 0;
     int count = 0;
-    void add(double s) { seconds += s; ++count; }
+    void add(double s) {
+        seconds += s;
+        ++count;
+    }
     Json to_json() const { return Json::object({{"seconds", std::round(seconds * 10) / 10}, {"count", count}}); }
 };
 
@@ -44,7 +47,8 @@ struct Bucket {
 Json context_summary(const std::vector<ContextSplit>& steps) {
     Json out = Json::object({{"known", !steps.empty()}});
     if (steps.empty()) {
-        out["note"] = "This session has no context sizes: it was recorded by an engine that did not measure them, or by a CLI agent "
+        out["note"] = "This session has no context sizes: it was recorded by an engine that did not measure them, or "
+                      "by a CLI agent "
                       "(which sends its own tool list).";
         out["steps"] = Json::array();
         return out;
@@ -62,11 +66,12 @@ Json context_summary(const std::vector<ContextSplit>& steps) {
         list.push_back(std::move(step));
     }
     out["steps"] = list;
-    out["totals"] = Json::object({{"systemTokens", estimate_tokens(sum.systemBytes)},
-                                  {"toolTokens", estimate_tokens(sum.toolBytes)},
-                                  {"conversationTokens", estimate_tokens(sum.conversationBytes)},
-                                  {"totalTokens", estimate_tokens(sum.totalBytes())},
-                                  {"toolShare", sum.totalBytes() ? std::round(1000.0 * sum.toolBytes / sum.totalBytes()) / 1000 : 0.0}});
+    out["totals"] = Json::object(
+        {{"systemTokens", estimate_tokens(sum.systemBytes)},
+         {"toolTokens", estimate_tokens(sum.toolBytes)},
+         {"conversationTokens", estimate_tokens(sum.conversationBytes)},
+         {"totalTokens", estimate_tokens(sum.totalBytes())},
+         {"toolShare", sum.totalBytes() ? std::round(1000.0 * sum.toolBytes / sum.totalBytes()) / 1000 : 0.0}});
     return out;
 }
 
@@ -77,14 +82,16 @@ Result<std::string> find_session_file(const std::string& projectDir, const std::
     std::error_code ec;
     std::vector<std::pair<fsys::file_time_type, fsys::path>> files;
     for (const auto& e : fsys::directory_iterator(dir, ec)) {
-        if (e.is_regular_file(ec) && e.path().extension() == ".jsonl") files.push_back({e.last_write_time(ec), e.path()});
+        if (e.is_regular_file(ec) && e.path().extension() == ".jsonl")
+            files.push_back({e.last_write_time(ec), e.path()});
     }
     if (files.empty()) {
         return Error{"No AI session was recorded in " + dir.generic_string(),
                      "Sessions are written there while an agent runs (ai.run or the AI panel); run one first."};
     }
     if (session.empty()) {
-        return std::max_element(files.begin(), files.end(), [](auto& a, auto& b) { return a.first < b.first; })->second.generic_string();
+        return std::max_element(files.begin(), files.end(), [](auto& a, auto& b) { return a.first < b.first; })
+            ->second.generic_string();
     }
     std::string want = fsys::path(session).filename().string();
     if (!ends_with(want, ".jsonl")) want += ".jsonl";
@@ -95,7 +102,8 @@ Result<std::string> find_session_file(const std::string& projectDir, const std::
     }
     std::sort(names.begin(), names.end());
     return Error{"No session named '" + session + "' in " + dir.generic_string(),
-                 fa::did_you_mean(fsys::path(want).stem().string(), names) + " ai.session_timeline without `session` reads the newest."};
+                 fa::did_you_mean(fsys::path(want).stem().string(), names) +
+                     " ai.session_timeline without `session` reads the newest."};
 }
 
 Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
@@ -110,7 +118,8 @@ Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
         if (!j.is_object()) continue;
         ++total;
         if (str(j, "kind") == "assistant") {
-            if (const Json* c = child(j, "context"); c && c->is_object()) contexts.push_back(ContextSplit::from_json(*c));
+            if (const Json* c = child(j, "context"); c && c->is_object())
+                contexts.push_back(ContextSplit::from_json(*c));
         }
         std::int64_t t = 0;
         if (!parse_iso_utc_ms(str(j, "t"), t)) continue;
@@ -136,7 +145,8 @@ Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
     out["context"] = context_summary(contexts);
     if (lines.size() < 2) {
         out["hasTimes"] = false;
-        out["note"] = lines.empty() ? "This session has no times: it was recorded before every event carried \"t\", so no timeline can be made."
+        out["note"] = lines.empty() ? "This session has no times: it was recorded before every event carried \"t\", so "
+                                      "no timeline can be made."
                                     : "This session has only one timed event, so there is nothing to measure.";
         out["gaps"] = Json::array();
         out["totals"] = Json::object();
@@ -184,8 +194,11 @@ Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
             model.add(seconds);
         }
         if (seconds >= minGapSeconds) {
-            gaps.push_back(Json::object({{"start", iso_utc_ms(lines[i - 1].t)}, {"end", iso_utc_ms(e.t)},
-                                         {"seconds", std::round(seconds * 10) / 10}, {"activity", activity}, {"detail", detail},
+            gaps.push_back(Json::object({{"start", iso_utc_ms(lines[i - 1].t)},
+                                         {"end", iso_utc_ms(e.t)},
+                                         {"seconds", std::round(seconds * 10) / 10},
+                                         {"activity", activity},
+                                         {"detail", detail},
                                          {"endedBy", e.kind}}));
         }
     }
@@ -203,7 +216,8 @@ Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
     hookJson["failed"] = hooksFailed;
     Json byHookJson = Json::array();
     std::vector<std::pair<std::string, Bucket>> hooksSorted(byHook.begin(), byHook.end());
-    std::sort(hooksSorted.begin(), hooksSorted.end(), [](auto& a, auto& b) { return a.second.seconds > b.second.seconds; });
+    std::sort(hooksSorted.begin(), hooksSorted.end(),
+              [](auto& a, auto& b) { return a.second.seconds > b.second.seconds; });
     for (const auto& [name, b] : hooksSorted) {
         Json j = b.to_json();
         j["hook"] = name;
@@ -211,7 +225,10 @@ Json session_timeline_from_text(const std::string& text, double minGapSeconds) {
     }
     hookJson["byHook"] = byHookJson;
     out["gaps"] = gaps;
-    out["totals"] = Json::object({{"tool", toolJson}, {"thinking", thinking.to_json()}, {"model", model.to_json()}, {"user", user.to_json()},
+    out["totals"] = Json::object({{"tool", toolJson},
+                                  {"thinking", thinking.to_json()},
+                                  {"model", model.to_json()},
+                                  {"user", user.to_json()},
                                   {"hook", hookJson}});
     return out;
 }

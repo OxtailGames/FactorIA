@@ -30,8 +30,8 @@ struct TabInfo {
     const char* label;
     const char* platform;
 };
-constexpr TabInfo kTabs[kSettingsTabCount] = {{"General", ""},       {"Windows", "windows"}, {"macOS", "macos"},
-                                              {"Linux", "linux"},     {"Android", "android"}, {"iOS", "ios"}};
+constexpr TabInfo kTabs[kSettingsTabCount] = {{"General", ""},    {"Windows", "windows"}, {"macOS", "macos"},
+                                              {"Linux", "linux"}, {"Android", "android"}, {"iOS", "ios"}};
 
 }  // namespace
 
@@ -50,7 +50,9 @@ const std::vector<SettingsChoice>& android_formats() {
     static const std::vector<SettingsChoice> list = {
         {"apk", "APK", "An .apk you can install on a phone with adb or by copying it (and share outside Google Play)."},
         {"aab", "AAB (Google Play bundle)", "An .aab, the file Google Play asks for when you publish."},
-        {"gradle", "Gradle project only", "Only writes the Gradle project (open it in Android Studio); nothing is built, so no JDK or Android SDK is needed."},
+        {"gradle", "Gradle project only",
+         "Only writes the Gradle project (open it in Android Studio); nothing is built, so no JDK or Android SDK is "
+         "needed."},
     };
     return list;
 }
@@ -58,7 +60,9 @@ const std::vector<SettingsChoice>& android_formats() {
 const std::vector<SettingsChoice>& windows_formats() {
     static const std::vector<SettingsChoice> list = {
         {"folder", "Folder", "A folder with the game's .exe and files, ready to zip and share."},
-        {"msix", "Folder + MSIX (Microsoft Store)", "Also writes <name>-windows.msix next to the folder: the package of the Microsoft Store, built on any computer."},
+        {"msix", "Folder + MSIX (Microsoft Store)",
+         "Also writes <name>-windows.msix next to the folder: the package of the Microsoft Store, built on any "
+         "computer."},
     };
     return list;
 }
@@ -92,10 +96,18 @@ const std::vector<SettingsChoice>& mac_game_categories() {
 const std::vector<SettingsChoice>& linux_game_categories() {
     static const std::vector<SettingsChoice> list = {
         {"Game", "Game", "The main category of every game."},
-        {"ActionGame", "ActionGame", ""},      {"AdventureGame", "AdventureGame", ""}, {"ArcadeGame", "ArcadeGame", ""},
-        {"BoardGame", "BoardGame", ""},        {"BlocksGame", "BlocksGame", ""},       {"CardGame", "CardGame", ""},
-        {"KidsGame", "KidsGame", ""},          {"LogicGame", "LogicGame", ""},         {"RolePlaying", "RolePlaying", ""},
-        {"Shooter", "Shooter", ""},            {"Simulation", "Simulation", ""},       {"SportsGame", "SportsGame", ""},
+        {"ActionGame", "ActionGame", ""},
+        {"AdventureGame", "AdventureGame", ""},
+        {"ArcadeGame", "ArcadeGame", ""},
+        {"BoardGame", "BoardGame", ""},
+        {"BlocksGame", "BlocksGame", ""},
+        {"CardGame", "CardGame", ""},
+        {"KidsGame", "KidsGame", ""},
+        {"LogicGame", "LogicGame", ""},
+        {"RolePlaying", "RolePlaying", ""},
+        {"Shooter", "Shooter", ""},
+        {"Simulation", "Simulation", ""},
+        {"SportsGame", "SportsGame", ""},
         {"StrategyGame", "StrategyGame", ""},
     };
     return list;
@@ -158,8 +170,8 @@ std::string read_all(const stdfs::path& p) {
 }
 
 bool same_settings(const ProjectExportSettings& a, const ProjectExportSettings& b) {
-    return a.icon == b.icon && a.windows == b.windows && a.macos == b.macos && a.linux == b.linux && a.android == b.android &&
-           a.ios == b.ios;
+    return a.icon == b.icon && a.windows == b.windows && a.macos == b.macos && a.linux == b.linux &&
+           a.android == b.android && a.ios == b.ios;
 }
 
 // The settings as the `icon` / `export` keys of a factoria.json, every set field written: parse_export_settings then checks
@@ -250,7 +262,9 @@ std::string without_location(const std::string& message) {
     return colon == std::string::npos ? message : message.substr(colon + 2);
 }
 
-std::string join_hint(const std::string& message, const std::string& hint) { return hint.empty() ? message : message + " " + hint; }
+std::string join_hint(const std::string& message, const std::string& hint) {
+    return hint.empty() ? message : message + " " + hint;
+}
 
 // The folders an export leaves out (docs/EXPORTING.md, "What is shipped"): an icon there is not in the game that runs.
 bool in_unshipped_folder(const std::string& rel) {
@@ -269,7 +283,9 @@ IconCheck check_icon(const std::string& projectDir, const std::string& relPath, 
     if (rel.empty()) return c;
     c.set = true;
     if (is_absolute_text(rel) || rel == ".." || rel.rfind("../", 0) == 0 || rel.find("/../") != std::string::npos) {
-        c.error = "'" + rel + "' is not inside the project. Choose the file again (it is copied into assets/) or write a path like \"assets/icon.png\".";
+        c.error = "'" + rel +
+                  "' is not inside the project. Choose the file again (it is copied into assets/) or write a path like "
+                  "\"assets/icon.png\".";
         return c;
     }
     std::vector<ExportSettingsIssue> warnings;
@@ -282,7 +298,8 @@ IconCheck check_icon(const std::string& projectDir, const std::string& relPath, 
     c.size = img->width;
     for (const ExportSettingsIssue& w : warnings) c.warnings.push_back(join_hint(w.message, w.hint));
     if (in_unshipped_folder(rel))
-        c.warnings.push_back("'" + rel + "' is in a folder the export does not ship, so the window icon of a Windows or Linux "
+        c.warnings.push_back("'" + rel +
+                             "' is in a folder the export does not ship, so the window icon of a Windows or Linux "
                              "build (read from the game's files) will be missing. Keep it in assets/.");
     return c;
 }
@@ -293,23 +310,28 @@ Result<IconImport> import_icon_file(const std::string& projectDir, const std::st
     if (picked.empty() || !stdfs::is_regular_file(src, ec))
         return make_error("The file '" + picked + "' does not exist or is not a file.", "Choose a PNG or JPG image.");
     std::string ext = src.extension().string();
-    std::transform(ext.begin(), ext.end(), ext.begin(), [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    std::transform(ext.begin(), ext.end(), ext.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
     if (ext != ".png" && ext != ".jpg" && ext != ".jpeg")
         return make_error("'" + src.filename().string() + "' is not a PNG or JPG image.",
-                          "Icons are generated from one square PNG or JPG (1024x1024 recommended); export it from your image editor.");
+                          "Icons are generated from one square PNG or JPG (1024x1024 recommended); export it from your "
+                          "image editor.");
 
     const stdfs::path root = stdfs::weakly_canonical(stdfs::path(projectDir), ec);
     const stdfs::path full = stdfs::weakly_canonical(src, ec);
     const stdfs::path rel = full.lexically_relative(root);
     IconImport out;
-    if (!rel.empty() && rel.generic_string().rfind("..", 0) != 0 && !rel.is_absolute()) {  // inside the project: used where it is
+    if (!rel.empty() && rel.generic_string().rfind("..", 0) != 0 &&
+        !rel.is_absolute()) {  // inside the project: used where it is
         out.relPath = rel.generic_string();
         return out;
     }
 
     const stdfs::path assets = root / "assets";
     stdfs::create_directories(assets, ec);
-    if (ec) return make_error("Cannot create " + assets.generic_string() + ": " + ec.message(), "Check that the project folder is writable.");
+    if (ec)
+        return make_error("Cannot create " + assets.generic_string() + ": " + ec.message(),
+                          "Check that the project folder is writable.");
     const std::string stem = src.stem().string();
     const std::string bytes = read_all(src);
     for (int n = 1; n < 100; ++n) {
@@ -321,17 +343,21 @@ Result<IconImport> import_icon_file(const std::string& projectDir, const std::st
             return out;
         }
         stdfs::copy_file(src, target, stdfs::copy_options::none, ec);
-        if (ec) return make_error("Cannot copy '" + picked + "' into the project: " + ec.message(), "Check that the project's assets folder is writable.");
+        if (ec)
+            return make_error("Cannot copy '" + picked + "' into the project: " + ec.message(),
+                              "Check that the project's assets folder is writable.");
         out.relPath = "assets/" + name;
         out.copied = true;
-        out.note = "Copied " + src.filename().string() + " into the project as " + out.relPath + " (icons must be inside the project).";
+        out.note = "Copied " + src.filename().string() + " into the project as " + out.relPath +
+                   " (icons must be inside the project).";
         return out;
     }
     return make_error("assets/ already has many different files called " + stem + "*" + src.extension().string() + ".",
                       "Rename the image and choose it again.");
 }
 
-const IconCheck& IconChecks::get(const std::string& projectDir, const std::string& relPath, int recommendedSize, double now) {
+const IconCheck& IconChecks::get(const std::string& projectDir, const std::string& relPath, int recommendedSize,
+                                 double now) {
     const std::string rel = clean_path(relPath);
     const std::string key = rel + "|" + std::to_string(recommendedSize);
     Entry& e = entries_[key];
@@ -381,21 +407,27 @@ KeystoreForm default_keystore_form(const std::string& projectDir) {
     KeystoreForm f;
     std::error_code ec;
     f.path = "keys/upload.keystore";
-    for (int n = 2; n < 100 && stdfs::exists(stdfs::path(projectDir) / f.path, ec); ++n) f.path = "keys/upload-" + std::to_string(n) + ".keystore";
+    for (int n = 2; n < 100 && stdfs::exists(stdfs::path(projectDir) / f.path, ec); ++n)
+        f.path = "keys/upload-" + std::to_string(n) + ".keystore";
     return f;
 }
 
-Result<KeystoreRequest> make_keystore_request(const KeystoreForm& f, const std::string& projectDir, const std::string& jdk) {
+Result<KeystoreRequest> make_keystore_request(const KeystoreForm& f, const std::string& projectDir,
+                                              const std::string& jdk) {
     KeystoreRequest r;
     r.jdk = jdk;
     const std::string rel = clean_project_path(f.path);
-    if (!rel.empty()) r.path = (is_absolute_text(rel) ? stdfs::path(rel) : stdfs::path(projectDir) / rel).lexically_normal().generic_string();
+    if (!rel.empty())
+        r.path = (is_absolute_text(rel) ? stdfs::path(rel) : stdfs::path(projectDir) / rel)
+                     .lexically_normal()
+                     .generic_string();
     r.alias = f.alias;
     r.password = f.password;
     r.name = f.name;
     r.organization = f.organization;
     r.country = f.country;
-    if (f.password != f.repeat) return make_error("The two passwords are different.", "Type the same password in both boxes.");
+    if (f.password != f.repeat)
+        return make_error("The two passwords are different.", "Type the same password in both boxes.");
     if (std::string why = check_keystore_request(r); !why.empty()) return make_error(why);
     return r;
 }
@@ -403,9 +435,11 @@ Result<KeystoreRequest> make_keystore_request(const KeystoreForm& f, const std::
 std::string check_keystore_request(const KeystoreRequest& r) {
     std::error_code ec;
     if (r.jdk.empty())
-        return "No JDK was found: set the JDK folder under \"This computer\" first (keytool, which creates the keystore, is part of the JDK).";
+        return "No JDK was found: set the JDK folder under \"This computer\" first (keytool, which creates the "
+               "keystore, is part of the JDK).";
     if (!stdfs::exists(keytool_path(r.jdk), ec))
-        return "keytool is not in " + keytool_path(r.jdk).generic_string() + ": choose the folder of a JDK (it has bin/keytool) under \"This computer\".";
+        return "keytool is not in " + keytool_path(r.jdk).generic_string() +
+               ": choose the folder of a JDK (it has bin/keytool) under \"This computer\".";
     if (trim(r.path).empty()) return "Choose where to save the keystore file.";
     if (!stdfs::path(r.path).is_absolute()) return "The keystore path must be absolute: " + r.path;
     if (stdfs::exists(r.path, ec))
@@ -424,15 +458,27 @@ std::string check_keystore_request(const KeystoreRequest& r) {
 Result<KeytoolCommand> make_keytool_command(const KeystoreRequest& r) {
     if (std::string why = check_keystore_request(r); !why.empty()) return make_error(why);
     KeytoolCommand c;
-    c.argv = {keytool_path(r.jdk).string(), "-genkeypair", "-v",
-              "-keystore", r.path,
-              "-alias", trim(r.alias),
-              "-keyalg", "RSA", "-keysize", "2048",
-              "-validity", std::to_string(r.validityDays),
-              "-storetype", "PKCS12",
-              "-storepass:env", "FACTORIA_KEYSTORE_PASSWORD",
-              "-keypass:env", "FACTORIA_KEY_PASSWORD",
-              "-dname", distinguished_name(r)};
+    c.argv = {keytool_path(r.jdk).string(),
+              "-genkeypair",
+              "-v",
+              "-keystore",
+              r.path,
+              "-alias",
+              trim(r.alias),
+              "-keyalg",
+              "RSA",
+              "-keysize",
+              "2048",
+              "-validity",
+              std::to_string(r.validityDays),
+              "-storetype",
+              "PKCS12",
+              "-storepass:env",
+              "FACTORIA_KEYSTORE_PASSWORD",
+              "-keypass:env",
+              "FACTORIA_KEY_PASSWORD",
+              "-dname",
+              distinguished_name(r)};
     c.env["FACTORIA_KEYSTORE_PASSWORD"] = r.password;
     c.env["FACTORIA_KEY_PASSWORD"] = r.password;
     return c;
@@ -443,26 +489,33 @@ Result<void> create_keystore(const KeystoreRequest& r, const CancelFlag* cancel)
     if (!cmd.ok()) return cmd.error();
     std::error_code ec;
     stdfs::create_directories(stdfs::path(r.path).parent_path(), ec);
-    if (ec) return make_error("Cannot create the folder of the keystore: " + ec.message(), "Choose a folder you can write to.");
+    if (ec)
+        return make_error("Cannot create the folder of the keystore: " + ec.message(),
+                          "Choose a folder you can write to.");
     ProcessOptions po;
     po.argv = cmd->argv;
     po.env = cmd->env;
     po.cancel = cancel;
     po.timeoutSeconds = 60;
     auto run = run_process(po);
-    if (!run.ok()) return make_error("Cannot run keytool: " + run.error().message, "Check the JDK folder under \"This computer\".");
+    if (!run.ok())
+        return make_error("Cannot run keytool: " + run.error().message,
+                          "Check the JDK folder under \"This computer\".");
     if (run->exitCode != 0) {
         std::string said = trim(run->stderrText.empty() ? run->stdoutText : run->stderrText);
         if (said.size() > 600) said = said.substr(said.size() - 600);
         return make_error("keytool failed (exit code " + std::to_string(run->exitCode) + "): " + said,
                           "Check the name, alias and password; the keystore was not created.");
     }
-    if (!stdfs::exists(r.path, ec)) return make_error("keytool finished but " + r.path + " does not exist.", "Run it again.");
+    if (!stdfs::exists(r.path, ec))
+        return make_error("keytool finished but " + r.path + " does not exist.", "Run it again.");
     // The file holds a signing key: nobody but its owner needs to read it.
     // (0600 on Linux/macOS, an owner-only protected ACL on Windows.)
     if (auto priv = fa::fs::make_private(r.path); !priv.ok())
-        return make_error("The keystore " + r.path + " was created but could not be made readable by you only: " + priv.error().message,
-                          priv.error().hint.empty() ? "Restrict the file to your user account by hand." : priv.error().hint);
+        return make_error("The keystore " + r.path +
+                              " was created but could not be made readable by you only: " + priv.error().message,
+                          priv.error().hint.empty() ? "Restrict the file to your user account by hand."
+                                                    : priv.error().hint);
     return {};
 }
 
@@ -476,7 +529,8 @@ std::string add_to_gitignore(const std::string& projectDir, const std::string& r
     std::string text = stdfs::exists(ignore, ec) ? read_all(ignore) : std::string();
     // A line that already covers it: the file, or one of its folders.
     std::vector<std::string> covers = {rel};
-    for (std::size_t slash = rel.find('/'); slash != std::string::npos; slash = rel.find('/', slash + 1)) covers.push_back(rel.substr(0, slash));
+    for (std::size_t slash = rel.find('/'); slash != std::string::npos; slash = rel.find('/', slash + 1))
+        covers.push_back(rel.substr(0, slash));
     std::istringstream lines(text);
     for (std::string line; std::getline(lines, line);) {
         line = trim(line);
@@ -558,7 +612,8 @@ void PlatformSettings::read_project() {
     const stdfs::path path = stdfs::path(projectDir_) / kProjectFileName;
     std::error_code ec;
     if (!stdfs::is_regular_file(path, ec)) {
-        fileError = "Cannot read " + path.generic_string() + ": run the editor on a folder that contains factoria.json.";
+        fileError =
+            "Cannot read " + path.generic_string() + ": run the editor on a folder that contains factoria.json.";
         return;
     }
     auto parsed = parse_json(read_all(path), path.generic_string());
@@ -668,8 +723,8 @@ MachineExportConfig machine_to_save(const MachineExportConfig& m, bool remember)
 }
 
 bool same_machine(const MachineExportConfig& a, const MachineExportConfig& b) {
-    return a.androidSdk == b.androidSdk && a.androidJdk == b.androidJdk && a.androidKeystorePassword == b.androidKeystorePassword &&
-           a.androidKeyPassword == b.androidKeyPassword;
+    return a.androidSdk == b.androidSdk && a.androidJdk == b.androidJdk &&
+           a.androidKeystorePassword == b.androidKeystorePassword && a.androidKeyPassword == b.androidKeyPassword;
 }
 
 }  // namespace
@@ -703,7 +758,8 @@ Result<void> PlatformSettings::save() {
     };
     if (project_dirty()) {
         if (!fileError.empty()) {
-            fail(Error{"Cannot save the project settings: " + fileError, "Fix factoria.json first (or ask the AI), then press Revert."});
+            fail(Error{"Cannot save the project settings: " + fileError,
+                       "Fix factoria.json first (or ask the AI), then press Revert."});
         } else if (auto r = save_export_settings(projectDir_, effective_project()); !r.ok()) {
             fail(r.error());
         } else {
@@ -749,10 +805,14 @@ SecretStatus describe_secret(const std::string& from, bool set, bool isKey) {
     SecretStatus s;
     s.set = set;
     s.from = from;
-    if (!set) s.text = "Not set";
-    else if (from.rfind("FACTORIA_", 0) == 0) s.text = "Set by the environment variable " + from + " (it wins over this computer's file)";
-    else if (from == "export.json") s.text = "Saved on this computer";
-    else s.text = isKey ? "Same as the keystore password" : "Set";
+    if (!set)
+        s.text = "Not set";
+    else if (from.rfind("FACTORIA_", 0) == 0)
+        s.text = "Set by the environment variable " + from + " (it wins over this computer's file)";
+    else if (from == "export.json")
+        s.text = "Saved on this computer";
+    else
+        s.text = isKey ? "Same as the keystore password" : "Set";
     return s;
 }
 

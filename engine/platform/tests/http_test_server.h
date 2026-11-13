@@ -99,7 +99,9 @@ public:
 
     bool ok() const { return port_ != 0; }
     int port() const { return port_; }
-    std::string url(const std::string& path, const std::string& host = "127.0.0.1") const { return "http://" + host + ":" + std::to_string(port_) + path; }
+    std::string url(const std::string& path, const std::string& host = "127.0.0.1") const {
+        return "http://" + host + ":" + std::to_string(port_) + path;
+    }
     int requests() const { return requests_.load(); }
 
 private:
@@ -156,7 +158,8 @@ private:
         while (lineEnd != std::string::npos) {
             const std::size_t start = lineEnd + 2;
             lineEnd = head.find("\r\n", start);
-            const std::string line = head.substr(start, lineEnd == std::string::npos ? std::string::npos : lineEnd - start);
+            const std::string line =
+                head.substr(start, lineEnd == std::string::npos ? std::string::npos : lineEnd - start);
             const std::size_t colon = line.find(':');
             if (colon == std::string::npos) continue;
             std::string value = line.substr(colon + 1);
@@ -164,7 +167,8 @@ private:
             out.headers[lower(line.substr(0, colon))] = value;
         }
         std::size_t want = 0;
-        if (auto it = out.headers.find("content-length"); it != out.headers.end()) want = static_cast<std::size_t>(std::stoul(it->second));
+        if (auto it = out.headers.find("content-length"); it != out.headers.end())
+            want = static_cast<std::size_t>(std::stoul(it->second));
         while (body.size() < want) {
             const auto n = ::recv(c, buffer, sizeof(buffer), 0);
             if (n <= 0) return false;
@@ -183,7 +187,8 @@ private:
         }
     }
 
-    static std::string response(int status, const std::string& reason, const std::string& body, const std::string& extra = {}, bool length = true) {
+    static std::string response(int status, const std::string& reason, const std::string& body,
+                                const std::string& extra = {}, bool length = true) {
         std::string r = "HTTP/1.1 " + std::to_string(status) + " " + reason + "\r\n" + extra + "Connection: close\r\n";
         if (length) r += "Content-Length: " + std::to_string(body.size()) + "\r\n";
         return r + "\r\n" + body;
@@ -197,13 +202,16 @@ private:
             const std::string full = req.path;  // with the query: /echo answers it
             req.path = full.substr(0, full.find('?'));
             if (req.path == "/hello" && req.method == "GET") {
-                out = response(200, "OK", "hello", "X-Test: yes\r\nContent-Type: text/plain; charset=utf-8\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n");
+                out = response(
+                    200, "OK", "hello",
+                    "X-Test: yes\r\nContent-Type: text/plain; charset=utf-8\r\nSet-Cookie: a=1\r\nSet-Cookie: b=2\r\n");
             } else if (req.path == "/hello" && req.method == "HEAD") {
                 out = "HTTP/1.1 200 OK\r\nContent-Length: 5\r\nConnection: close\r\n\r\n";
             } else if (req.path == "/echo") {
                 Json headers = Json::object();
                 for (const auto& [k, v] : req.headers) headers[k] = v;
-                const Json body = Json::object({{"method", req.method}, {"path", full}, {"headers", headers}, {"body", req.body}});
+                const Json body =
+                    Json::object({{"method", req.method}, {"path", full}, {"headers", headers}, {"body", req.body}});
                 out = response(200, "OK", body.dump(), "Content-Type: application/json\r\n");
             } else if (req.path.rfind("/status/", 0) == 0) {
                 const int status = std::stoi(req.path.substr(8));
@@ -218,7 +226,9 @@ private:
                 std::this_thread::sleep_for(std::chrono::milliseconds(1500));
                 out = response(200, "OK", "late");
             } else if (req.path == "/binary") {
-                out = response(200, "OK", std::string("a\xFF" "b"));
+                out = response(200, "OK",
+                               std::string("a\xFF"
+                                           "b"));
             } else {
                 out = response(404, "Not Found", "no route");
             }

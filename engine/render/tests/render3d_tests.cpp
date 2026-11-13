@@ -14,7 +14,7 @@
 #include "fa/scene/animation.h"
 
 #include "mesh_batch.h"
-#include "render_internal.h"   // material_shader_desc
+#include "render_internal.h"    // material_shader_desc
 #include "shaders/mesh.glsl.h"  // mesh_mesh_shader_desc: what the converter of the twins must reproduce
 
 using namespace fa;
@@ -44,7 +44,10 @@ Entity add_light(World& w, LightType type, Vec3 pos, Vec3 rot, float intensity =
     Entity e = make(w, "light", pos);
     w.get<Transform>(e)->rotation = rot;
     auto& l = w.add<Light>(e);
-    l.type = type; l.intensity = intensity; l.color = c; l.range = 12;
+    l.type = type;
+    l.intensity = intensity;
+    l.color = c;
+    l.range = 12;
     return e;
 }
 }  // namespace
@@ -105,14 +108,26 @@ TEST_CASE("3D scene mixes billboard particles, text and sprites") {
     add_light(w, LightType::Directional, {0, 5, 0}, {-50, 30, 0}, 1.0f);
     Entity fx = make(w, "fx", {1.5f, 0, 1});
     auto& p = w.add<ParticleEmitter>(fx);
-    p.is3D = true; p.rate = 0; p.burst = 80; p.speed = 2; p.spread = 35; p.startSize = 0.3f; p.endSize = 0.05f;
-    p.gravity = {0, -1, 0}; p.startColor = Color::hex(0xffa020); p.endColor = Color{1, 0.3f, 0, 0};
+    p.is3D = true;
+    p.rate = 0;
+    p.burst = 80;
+    p.speed = 2;
+    p.spread = 35;
+    p.startSize = 0.3f;
+    p.endSize = 0.05f;
+    p.gravity = {0, -1, 0};
+    p.startColor = Color::hex(0xffa020);
+    p.endColor = Color{1, 0.3f, 0, 0};
     Entity label = make(w, "label", {-1, 2, 0});
     auto& t = w.add<Text>(label);
-    t.text = "3D label"; t.fontSize = 0.5f; t.pivot = {0.5f, 0.5f}; t.align = Align::Center;
+    t.text = "3D label";
+    t.fontSize = 0.5f;
+    t.pivot = {0.5f, 0.5f};
+    t.align = Align::Center;
     Entity spr = make(w, "spr", {-2, 0.5f, 1});
     auto& s = w.add<Sprite>(spr);
-    s.size = {1, 1}; s.color = Color::hex(0xff4080);
+    s.size = {1, 1};
+    s.color = Color::hex(0xff4080);
     Image img;
     for (int i = 0; i < 10; ++i) img = g.render(w, 1.0f / 30.0f);
     CHECK(g.renderer.stats().particles > 10);
@@ -160,7 +175,8 @@ void write_dome_normal_map(const char* path) {
     for (int y = 0; y < size; ++y) {
         for (int x = 0; x < size; ++x) {
             float lx = (float(x % cell) + 0.5f) / float(cell) * 2.0f - 1.0f;
-            float ly = -((float(y % cell) + 0.5f) / float(cell) * 2.0f - 1.0f);  // image y is down, tangent-space y is up
+            float ly =
+                -((float(y % cell) + 0.5f) / float(cell) * 2.0f - 1.0f);  // image y is down, tangent-space y is up
             float r2 = lx * lx + ly * ly;
             Vec3 n = r2 < 1.0f ? normalize(Vec3{lx * 1.6f, ly * 1.6f, 1.0f}) : Vec3{0, 0, 1};
             std::uint8_t* p = &img.rgba[(std::size_t(y) * size + x) * 4];
@@ -183,7 +199,8 @@ TEST_CASE("10 000 instanced cubes draw in one draw call per material part") {
     std::vector<Entity> cubes;
     for (int z = 0; z < 100; ++z)
         for (int x = 0; x < 100; ++x)
-            cubes.push_back(add_mesh(w, "cube", {float(x) - 49.5f, 0, float(z) - 49.5f}, Color::hex(0xe04040), {0.6f, 0.6f, 0.6f}));
+            cubes.push_back(
+                add_mesh(w, "cube", {float(x) - 49.5f, 0, float(z) - 49.5f}, Color::hex(0xe04040), {0.6f, 0.6f, 0.6f}));
     Image img = g.render(w);
     RenderStats s = g.renderer.stats();
     CHECK(s.meshes == 10000);
@@ -209,8 +226,8 @@ TEST_CASE("meshes outside the camera frustum are not submitted") {
     World w;
     add_camera(w, {0, 2, 8}, {0, 0, 0});
     add_mesh(w, "cube", {0, 0, 0}, Color::hex(0xc0c0c0));
-    for (int i = 0; i < 50; ++i) add_mesh(w, "cube", {float(i), 0, 30}, Color::hex(0xc0c0c0));        // behind the camera
-    for (int i = 0; i < 50; ++i) add_mesh(w, "cube", {-500, 0, float(i)}, Color::hex(0xc0c0c0));      // far to the left
+    for (int i = 0; i < 50; ++i) add_mesh(w, "cube", {float(i), 0, 30}, Color::hex(0xc0c0c0));    // behind the camera
+    for (int i = 0; i < 50; ++i) add_mesh(w, "cube", {-500, 0, float(i)}, Color::hex(0xc0c0c0));  // far to the left
     Entity sun = add_light(w, LightType::Directional, {0, 5, 0}, {-60, 20, 0}, 1.0f);
     g.render(w);
     RenderStats s = g.renderer.stats();
@@ -225,7 +242,7 @@ TEST_CASE("meshes outside the camera frustum are not submitted") {
     s = g.renderer.stats();
     CHECK(s.meshes == 1);
     CHECK(s.meshesCulled == 100);
-    CHECK(s.drawCalls == 3);  // shadow (one instanced draw) + sky + main
+    CHECK(s.drawCalls == 3);        // shadow (one instanced draw) + sky + main
     CHECK(s.shadowCasters == 101);  // the visible cube and the 100 off-screen ones that still cast
     CHECK(s.to_json()["shadowCasters"] == 101);
 }
@@ -235,10 +252,11 @@ TEST_CASE("frustum test of a box, both depth conventions") {
         Mat4 vp = Mat4::perspective(60.0f, 1.0f, 0.1f, 100.0f, z01);  // camera at the origin looking down -Z
         Vec3 lo{-0.5f, -0.5f, -0.5f}, hi{0.5f, 0.5f, 0.5f};
         CHECK(fa::render::box_in_frustum(vp, z01, lo, hi, Mat4::translate({0, 0, -10})));
-        CHECK_FALSE(fa::render::box_in_frustum(vp, z01, lo, hi, Mat4::translate({0, 0, 10})));      // behind
-        CHECK_FALSE(fa::render::box_in_frustum(vp, z01, lo, hi, Mat4::translate({100, 0, -10})));   // to the side
-        CHECK_FALSE(fa::render::box_in_frustum(vp, z01, lo, hi, Mat4::translate({0, 0, -200})));    // beyond far
-        CHECK(fa::render::box_in_frustum(vp, z01, lo * 50.0f, hi * 50.0f, Mat4::translate({0, 0, -20})));  // contains the camera
+        CHECK_FALSE(fa::render::box_in_frustum(vp, z01, lo, hi, Mat4::translate({0, 0, 10})));     // behind
+        CHECK_FALSE(fa::render::box_in_frustum(vp, z01, lo, hi, Mat4::translate({100, 0, -10})));  // to the side
+        CHECK_FALSE(fa::render::box_in_frustum(vp, z01, lo, hi, Mat4::translate({0, 0, -200})));   // beyond far
+        CHECK(fa::render::box_in_frustum(vp, z01, lo * 50.0f, hi * 50.0f,
+                                         Mat4::translate({0, 0, -20})));  // contains the camera
     }
 }
 
@@ -254,8 +272,8 @@ TEST_CASE("lights over the limit: the most relevant ones are kept") {
     int dropped = fa::render::select_lights(lights, fa::render::kMaxLights);
     CHECK(dropped == 8);
     REQUIRE(lights.size() == 32);
-    CHECK(lights[0].rank == 0);       // the shadow caster first
-    CHECK(lights[1].score == 38.0f);  // then the most relevant
+    CHECK(lights[0].rank == 0);          // the shadow caster first
+    CHECK(lights[1].score == 38.0f);     // then the most relevant
     CHECK(lights.back().score == 8.0f);  // scores 0..7 are the ones gone
     // Through the renderer: 40 point lights, 32 reach the shader.
     Gfx& g = gfx();
@@ -295,7 +313,8 @@ TEST_CASE("primitives have unit tangents across their normals, with a handedness
         REQUIRE(fa::render::build_primitive(name, v, idx));
         for (const auto& x : v) {
             Vec3 n{x.nx, x.ny, x.nz}, t{x.tx, x.ty, x.tz};
-            INFO(std::string(name) << " n=" << n.x << "," << n.y << "," << n.z << " t=" << t.x << "," << t.y << "," << t.z);
+            INFO(std::string(name) << " n=" << n.x << "," << n.y << "," << n.z << " t=" << t.x << "," << t.y << ","
+                                   << t.z);
             CHECK(length(t) == doctest::Approx(1.0f).epsilon(1e-3));
             CHECK(std::fabs(dot(n, t)) < 1e-3f);
             CHECK(std::fabs(std::fabs(x.tw) - 1.0f) < 1e-6f);
@@ -375,9 +394,9 @@ TEST_CASE("materialColors: one material of a two-material model changes colour, 
     const Color r0 = base.pixel(rx, ry), r1 = red.pixel(rx, ry);
     CHECK(l1.r == doctest::Approx(l0.r).epsilon(0.01));  // "Left" is not named: unchanged
     CHECK(l1.g == doctest::Approx(l0.g).epsilon(0.01));
-    CHECK(r1.r > r1.g * 3.0f);                            // red after
+    CHECK(r1.r > r1.g * 3.0f);  // red after
     CHECK(r1.r > r0.r);
-    CHECK(r0.r < r0.g * 2.0f);                            // not red before
+    CHECK(r0.r < r0.g * 2.0f);  // not red before
 
     // A name that is not in the model changes nothing.
     Image typo = frame(R"({"Rite": [1, 0, 0, 1]})");
@@ -399,7 +418,9 @@ TEST_CASE("materialColors: entities that differ only in materialColors do not sh
     render::build_batches(items, true, batches, mainMats, shadowMats);
     CHECK(batches.size() == 2);
     items[1].colorsHash = 0;
-    batches.clear(); mainMats.clear(); shadowMats.clear();
+    batches.clear();
+    mainMats.clear();
+    shadowMats.clear();
     render::build_batches(items, true, batches, mainMats, shadowMats);
     CHECK(batches.size() == 1);
 }
@@ -546,11 +567,12 @@ struct ErrorLog {
     };
     std::shared_ptr<Lines> shared = std::make_shared<Lines>();
     int id;
-    ErrorLog() : id(add_log_sink([l = shared](const LogEntry& e) {
-        if (e.level != LogLevel::Error) return;
-        std::lock_guard<std::mutex> lk(l->mu);
-        l->lines.push_back(e.message);
-    })) {}
+    ErrorLog()
+        : id(add_log_sink([l = shared](const LogEntry& e) {
+              if (e.level != LogLevel::Error) return;
+              std::lock_guard<std::mutex> lk(l->mu);
+              l->lines.push_back(e.message);
+          })) {}
     ~ErrorLog() { remove_log_sink(id); }
     ErrorLog(const ErrorLog&) = delete;
     ErrorLog& operator=(const ErrorLog&) = delete;
@@ -565,7 +587,8 @@ struct ErrorLog {
     }
 };
 
-Entity add_material_mesh(World& w, const char* mesh, const char* material, Vec3 pos, Color color = Color::hex(0x202020), Vec3 scale = {1.5f, 1.5f, 1.5f}) {
+Entity add_material_mesh(World& w, const char* mesh, const char* material, Vec3 pos, Color color = Color::hex(0x202020),
+                         Vec3 scale = {1.5f, 1.5f, 1.5f}) {
     Entity e = add_mesh(w, mesh, pos, color, scale);
     w.get<MeshRenderer>(e)->material = material;
     return e;
@@ -581,20 +604,54 @@ void add_stage(World& w, bool shadows = true) {
 // Everything of a shader desc that does not point at source text, as text.
 std::string describe_desc(const sg_shader_desc& d) {
     std::string o;
-    auto s = [&](const char* p) { o += p ? p : "<null>"; o += ';'; };
+    auto s = [&](const char* p) {
+        o += p ? p : "<null>";
+        o += ';';
+    };
     auto n = [&](long long v) { o += std::to_string(v) + ';'; };
-    for (const sg_shader_function* f : {&d.vertex_func, &d.fragment_func}) { s(f->entry); s(f->d3d11_target); }
-    for (const auto& a : d.attrs) { n(a.base_type); s(a.glsl_name); s(a.hlsl_sem_name); n(a.hlsl_sem_index); }
+    for (const sg_shader_function* f : {&d.vertex_func, &d.fragment_func}) {
+        s(f->entry);
+        s(f->d3d11_target);
+    }
+    for (const auto& a : d.attrs) {
+        n(a.base_type);
+        s(a.glsl_name);
+        s(a.hlsl_sem_name);
+        n(a.hlsl_sem_index);
+    }
     for (const auto& u : d.uniform_blocks) {
-        n(u.stage); n(u.size); n(u.hlsl_register_b_n); n(u.msl_buffer_n); n(u.layout);
-        for (const auto& g : u.glsl_uniforms) { n(g.type); n(g.array_count); s(g.glsl_name); }
+        n(u.stage);
+        n(u.size);
+        n(u.hlsl_register_b_n);
+        n(u.msl_buffer_n);
+        n(u.layout);
+        for (const auto& g : u.glsl_uniforms) {
+            n(g.type);
+            n(g.array_count);
+            s(g.glsl_name);
+        }
     }
     for (const auto& v : d.views) {
         const auto& t = v.texture;
-        n(t.stage); n(t.image_type); n(t.sample_type); n(t.multisampled); n(t.hlsl_register_t_n); n(t.msl_texture_n);
+        n(t.stage);
+        n(t.image_type);
+        n(t.sample_type);
+        n(t.multisampled);
+        n(t.hlsl_register_t_n);
+        n(t.msl_texture_n);
     }
-    for (const auto& m : d.samplers) { n(m.stage); n(m.sampler_type); n(m.hlsl_register_s_n); n(m.msl_sampler_n); }
-    for (const auto& p : d.texture_sampler_pairs) { n(p.stage); n(p.view_slot); n(p.sampler_slot); s(p.glsl_name); }
+    for (const auto& m : d.samplers) {
+        n(m.stage);
+        n(m.sampler_type);
+        n(m.hlsl_register_s_n);
+        n(m.msl_sampler_n);
+    }
+    for (const auto& p : d.texture_sampler_pairs) {
+        n(p.stage);
+        n(p.view_slot);
+        n(p.sampler_slot);
+        s(p.glsl_name);
+    }
     return o;
 }
 }  // namespace
@@ -627,7 +684,8 @@ TEST_CASE("materials: the shader desc built from a twin equals the generated one
     CHECK_FALSE(bad.error().hint.empty());
 }
 
-TEST_CASE("materials: a material with an empty surface() renders pixel-identical to the same mesh without a material, shadows on") {
+TEST_CASE("materials: a material with an empty surface() renders pixel-identical to the same mesh without a material, "
+          "shadows on") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
@@ -676,8 +734,12 @@ TEST_CASE("materials: 100 cubes with one material share one batch, two different
         add_camera(w, {0, 9, 14}, {0, 0, 0});
         add_light(w, LightType::Directional, {0, 5, 0}, {-50, 30, 0}, 0.8f);
         for (int i = 0; i < 100; ++i) {
-            Entity e = add_material_mesh(w, "cube", "materials/glow.material.json", {float(i % 10) - 4.5f, 0, float(i / 10) - 4.5f}, Color::hex(0x404040), {0.7f, 0.7f, 0.7f});
-            if (overrides) w.get<MeshRenderer>(e)->materialParams = Json::object({{"glow", Json::array({0.0, i % 2 ? 1.0 : 0.0, i % 2 ? 0.0 : 1.0, 1.0})}});
+            Entity e = add_material_mesh(w, "cube", "materials/glow.material.json",
+                                         {float(i % 10) - 4.5f, 0, float(i / 10) - 4.5f}, Color::hex(0x404040),
+                                         {0.7f, 0.7f, 0.7f});
+            if (overrides)
+                w.get<MeshRenderer>(e)->materialParams =
+                    Json::object({{"glow", Json::array({0.0, i % 2 ? 1.0 : 0.0, i % 2 ? 0.0 : 1.0, 1.0})}});
         }
         g.render(w);
         return g.renderer.stats();
@@ -727,8 +789,11 @@ TEST_CASE("materials: vertex() moves the shadow with the mesh") {
     auto frame = [&](bool lifted) {
         World w;
         add_stage(w);
-        if (lifted) add_material_mesh(w, "cube", "materials/lift.material.json", {-1.5f, 0, 0}, Color::hex(0xc08040), {1, 1, 1});
-        else add_mesh(w, "cube", {-1.5f + 0.8f, 1.2f, 0}, Color::hex(0xc08040));  // where the lift material puts it
+        if (lifted)
+            add_material_mesh(w, "cube", "materials/lift.material.json", {-1.5f, 0, 0}, Color::hex(0xc08040),
+                              {1, 1, 1});
+        else
+            add_mesh(w, "cube", {-1.5f + 0.8f, 1.2f, 0}, Color::hex(0xc08040));  // where the lift material puts it
         return g.render(w);
     };
     const Image lift = frame(true);
@@ -759,7 +824,8 @@ TEST_CASE("materials: alphaMode clip cuts holes in the mesh and in its shadow") 
     expect_golden_edges(cut, "3d_material_cutout");
 }
 
-TEST_CASE("materials: the alpha of a vertex color cuts a clip material's mesh and its shadow, and custom materials keep the tint") {
+TEST_CASE("materials: the alpha of a vertex color cuts a clip material's mesh and its shadow, and custom materials "
+          "keep the tint") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
@@ -807,10 +873,13 @@ TEST_CASE("materials: a material that does not compile is drawn magenta and logg
     Gfx& g = gfx();
     REQUIRE(g.ok);
     MaterialScope scope;
-    REQUIRE(fs::write_text("materials/broken.material.json", R"({"format": "factoria.material/1", "shader": "shaders/broken.surface.glsl"})").ok());
+    REQUIRE(fs::write_text("materials/broken.material.json",
+                           R"({"format": "factoria.material/1", "shader": "shaders/broken.surface.glsl"})")
+                .ok());
     g.renderer.set_shader_compiler([](const std::string&, const std::string&) -> Result<Json> {
         // As the tooling's compiler gives it: every diagnostic with its hint, and the first hint again.
-        return make_error("shaders/broken.surface.glsl:3:5: error: 'colour' : no such field in structure 'Surface'\n  hint: did you mean albedo?",
+        return make_error("shaders/broken.surface.glsl:3:5: error: 'colour' : no such field in structure 'Surface'\n  "
+                          "hint: did you mean albedo?",
                           "did you mean albedo?");
     });
     ErrorLog log;
@@ -840,12 +909,14 @@ TEST_CASE("materials: hot reload swaps the shader, keeps the last good one on a 
     const std::string dialect = g.renderer.shader_dialect();
     REQUIRE(fs::write_text("materials/hot.material.json",
                            R"({"format": "factoria.material/1", "shader": "shaders/hot.txt",
-                               "params": {"glow": {"type": "color", "default": [1.0, 0.35, 0.0, 1.0], "doc": "Glow."}}})").ok());
+                               "params": {"glow": {"type": "color", "default": [1.0, 0.35, 0.0, 1.0], "doc": "Glow."}}})")
+                .ok());
     // Stands in for the tooling: the snippet on disk names the fixture twin to use ("glow" or "empty"), or is broken.
     g.renderer.set_shader_compiler([dialect](const std::string&, const std::string&) -> Result<Json> {
         auto snippet = fs::read_text("shaders/hot.txt");
         if (!snippet.ok()) return snippet.error();
-        if (*snippet == "broken") return make_error("shaders/hot.txt:1:1: error: 'broken' : undeclared identifier", "Write glow or empty.");
+        if (*snippet == "broken")
+            return make_error("shaders/hot.txt:1:1: error: 'broken' : undeclared identifier", "Write glow or empty.");
         return load_json_file("materials/" + *snippet + ".material.json." + dialect + ".shader");
     });
     auto frame = [&]() {
@@ -887,8 +958,11 @@ TEST_CASE("materials: a twin from another factoria version is refused with the r
     auto twin = load_json_file("materials/empty.material.json." + g.renderer.shader_dialect() + ".shader");
     REQUIRE(twin.ok());
     (*twin)["engine"] = "0.0.0";
-    REQUIRE(fs::write_text("materials/old.material.json", R"({"format": "factoria.material/1", "shader": "shaders/empty.surface.glsl"})").ok());
-    REQUIRE(fs::write_text("materials/old.material.json." + g.renderer.shader_dialect() + ".shader", twin->dump()).ok());
+    REQUIRE(fs::write_text("materials/old.material.json",
+                           R"({"format": "factoria.material/1", "shader": "shaders/empty.surface.glsl"})")
+                .ok());
+    REQUIRE(
+        fs::write_text("materials/old.material.json." + g.renderer.shader_dialect() + ".shader", twin->dump()).ok());
     ErrorLog log;
     World w;
     add_stage(w);

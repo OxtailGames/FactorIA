@@ -24,7 +24,8 @@ struct InstrumentRuntime {
         auto acorn = bundled_read("external/acorn/dist/acorn.js");
         auto script = bundled_read("tools/common/src/js/instrument.js");
         if (!acorn || !script) {
-            failure = "the script instrumenter's JavaScript (external/acorn/dist/acorn.js, tools/common/src/js/instrument.js) "
+            failure = "the script instrumenter's JavaScript (external/acorn/dist/acorn.js, "
+                      "tools/common/src/js/instrument.js) "
                       "is not bundled in this build";
             return;
         }
@@ -178,8 +179,8 @@ Result<InstrumentedScript> instrument_script(const std::string& file, std::strin
     if (j.is_discarded()) return Error{file + ": the script instrumenter returned unreadable output", ""};
     if (j.contains("error")) {
         const Json& e = j["error"];
-        return Error{file + ":" + std::to_string(e.value("line", 1)) + ":" + std::to_string(e.value("column", 1)) + ": " +
-                         e.value("message", std::string("syntax error")),
+        return Error{file + ":" + std::to_string(e.value("line", 1)) + ":" + std::to_string(e.value("column", 1)) +
+                         ": " + e.value("message", std::string("syntax error")),
                      "Fix the syntax error; the module is compiled as written so QuickJS reports it too."};
     }
 
@@ -199,7 +200,8 @@ Result<InstrumentedScript> instrument_script(const std::string& file, std::strin
         for (const Json& n : s["names"]) sc.names.push_back(n.get<std::string>());
         d.scopes.push_back(std::move(sc));
     }
-    for (const Json& s : info["shifts"]) d.shifts.push_back({s.value("line", 0), s.value("column", 0), s.value("length", 0)});
+    for (const Json& s : info["shifts"])
+        d.shifts.push_back({s.value("line", 0), s.value("column", 0), s.value("length", 0)});
     return out;
 }
 

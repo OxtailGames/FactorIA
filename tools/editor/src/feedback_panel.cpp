@@ -15,7 +15,8 @@ namespace {
 // does not stall), so the text says to try again.
 std::string feedback_busy_text(const Error& e) {
     std::string text = e.to_string();
-    if (e.message.find("Another FactorIA process") != std::string::npos) text += " Nothing was changed: try again in a moment.";
+    if (e.message.find("Another FactorIA process") != std::string::npos)
+        text += " Nothing was changed: try again in a moment.";
     return text;
 }
 
@@ -30,7 +31,10 @@ bool combo_strings(const char* label, int* cur, const std::vector<std::string>& 
     if (ImGui::BeginCombo(label, preview.c_str())) {
         for (int i = 0; i < total; ++i) {
             std::string name = withAny ? (i == 0 ? "any" : items[size_t(i - 1)]) : items[size_t(i)];
-            if (ImGui::Selectable(name.c_str(), i == *cur)) { *cur = i; changed = true; }
+            if (ImGui::Selectable(name.c_str(), i == *cur)) {
+                *cur = i;
+                changed = true;
+            }
             if (onItem) onItem(name);
         }
         ImGui::EndCombo();
@@ -57,7 +61,8 @@ std::string status_author_text(const Json& en) {
 
 // What the table row and the detail say about a closed entry's reason: "rejected by the engine: <reason>".
 std::string status_reason_text(const Json& en) {
-    const std::string status = en.value("status", std::string("open")), reason = en.value("statusReason", std::string());
+    const std::string status = en.value("status", std::string("open")),
+                      reason = en.value("statusReason", std::string());
     if (reason.empty()) return {};
     return status + " by " + status_author_text(en) + ": " + reason;
 }
@@ -102,12 +107,17 @@ void Editor::draw_feedback_panel() {
         }
     }
     // (Read above, before Begin, so the detail windows stay current while the panel's tab is hidden.)
-    if (!ImGui::Begin("Engine Feedback")) { ImGui::End(); return; }
+    if (!ImGui::Begin("Engine Feedback")) {
+        ImGui::End();
+        return;
+    }
     ImGui::TextDisabled("%s", engine_->project().feedbackFile.c_str());
     ImGui::SetItemTooltip("What the engine lacked, recorded by you and by AIs");
     ImGui::SameLine();
-    ImGui::TextDisabled("sharing: %s", share_.mode == ShareMode::Always ? "always" : share_.mode == ShareMode::Ask ? "ask me each time"
-                                                                                 : share_.mode == ShareMode::Never ? "never" : "not chosen yet");
+    ImGui::TextDisabled("sharing: %s", share_.mode == ShareMode::Always  ? "always"
+                                       : share_.mode == ShareMode::Ask   ? "ask me each time"
+                                       : share_.mode == ShareMode::Never ? "never"
+                                                                         : "not chosen yet");
     ImGui::SetItemTooltip("Change it in File > Feedback Settings");
     if (!feedbackError_.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", feedbackError_.c_str());
 
@@ -126,9 +136,10 @@ void Editor::draw_feedback_panel() {
         if (ImGui::Button("Send feedback")) open_send_window();
         at_track("feedback:send", !never && !unavailable && !feedbackDoc_.is_null());
         ImGui::EndDisabled();
-        ImGui::SetItemTooltip("%s", unavailable ? "Sharing is not available in this build (File > Feedback Settings says why)."
-                                      : never   ? "Sharing is off. Turn it on in File > Feedback Settings."
-                                                : "Choose which open entries go to the engine developers, and read exactly what is sent");
+        ImGui::SetItemTooltip(
+            "%s", unavailable ? "Sharing is not available in this build (File > Feedback Settings says why)."
+                  : never     ? "Sharing is off. Turn it on in File > Feedback Settings."
+                              : "Choose which open entries go to the engine developers, and read exactly what is sent");
     }
     fit_same_line("Looking back...");  // the wider of the two labels the button has
     {
@@ -141,14 +152,17 @@ void Editor::draw_feedback_panel() {
         if (ImGui::Button(running ? "Looking back..." : "Retrospective")) feedback_start_retrospective();
         at_track("feedback:retrospective", !running && !feedbackDoc_.is_null() && !projectDir_.empty());
         ImGui::EndDisabled();
-        ImGui::SetItemTooltip("Look back at this project's recorded AI runs: where they wasted steps, minutes or tokens. One short call of the fast role "
-                              "files at most three efficiency entries here (nothing is sent anywhere). It costs a model call.");
+        ImGui::SetItemTooltip(
+            "Look back at this project's recorded AI runs: where they wasted steps, minutes or tokens. One short call "
+            "of the fast role "
+            "files at most three efficiency entries here (nothing is sent anywhere). It costs a model call.");
     }
     fit_same_line("[] closed");  // a checkbox: its box counts as one more character
     ImGui::Checkbox("closed", &fbShowClosed_);
     at_track("feedback:closed");
-    ImGui::SetItemTooltip("Also list the closed entries: fixed in the engine, won't fix, duplicate and rejected. They live in %s.",
-                          fs::filename(archivePath).c_str());
+    ImGui::SetItemTooltip(
+        "Also list the closed entries: fixed in the engine, won't fix, duplicate and rejected. They live in %s.",
+        fs::filename(archivePath).c_str());
     if (!fbMessage_.empty() && !fbAddOpen_) {
         // On its own line and wrapped: a retrospective's answer is a sentence or two, longer than the room left beside the buttons.
         ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
@@ -164,7 +178,8 @@ void Editor::draw_feedback_panel() {
         double tokens = 0;
         if (feedbackDoc_.is_object() && feedbackDoc_.contains("entries") && feedbackDoc_["entries"].is_array())
             for (const Json& e : feedbackDoc_["entries"]) {
-                if (e.value("kind", std::string()) != "efficiency" || e.value("status", std::string("open")) != "open") continue;
+                if (e.value("kind", std::string()) != "efficiency" || e.value("status", std::string("open")) != "open")
+                    continue;
                 const Json* sv = e.contains("saving") && e["saving"].is_object() ? &e["saving"] : nullptr;
                 if (!sv) continue;
                 ++n;
@@ -173,10 +188,11 @@ void Editor::draw_feedback_panel() {
             }
         if (n > 0) {
             ImGui::PushStyleColor(ImGuiCol_Text, ImGui::GetStyleColorVec4(ImGuiCol_TextDisabled));
-            ImGui::TextWrapped("Efficiency: %d open entr%s, fixes would save about %.0f min and %.0fk tokens per game", n, n == 1 ? "y" : "ies", minutes,
-                               tokens / 1000.0);
+            ImGui::TextWrapped("Efficiency: %d open entr%s, fixes would save about %.0f min and %.0fk tokens per game",
+                               n, n == 1 ? "y" : "ies", minutes, tokens / 1000.0);
             ImGui::PopStyleColor();
-            ImGui::SetItemTooltip("Added up over the open efficiency entries: what each fix would save, measured from the AI sessions' transcripts.");
+            ImGui::SetItemTooltip("Added up over the open efficiency entries: what each fix would save, measured from "
+                                  "the AI sessions' transcripts.");
             at_track("feedback:saving");
         }
     }
@@ -184,7 +200,8 @@ void Editor::draw_feedback_panel() {
     if (feedbackDoc_.is_null()) {
         ImGui::TextWrapped("No feedback file yet.");
         if (ImGui::Button("Create ENGINE_FEEDBACK.json")) {
-            const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread never waits seconds for another program's lock
+            const ShareWaitCap shortWait(
+                ui_lock_wait_sec());  // the UI thread never waits seconds for another program's lock
             if (auto r = create_feedback_file(path, projectName_); !r) notify(feedback_busy_text(r.error()), 2);
             feedbackMtime_ = INT64_MIN;
             feedbackPolled_ = -10;
@@ -217,7 +234,8 @@ void Editor::draw_feedback_panel() {
         for (const Json& e : list_feedback(fbArchive_, filter)) entries.push_back(e);
     // The panel keeps its size whatever an entry says: this area never scrolls or grows. Only the entries table and the
     // detail of the selected entry (their own children) scroll.
-    ImGui::BeginChild("##fbbody", ImVec2(0, 0), ImGuiChildFlags_None, ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
+    ImGui::BeginChild("##fbbody", ImVec2(0, 0), ImGuiChildFlags_None,
+                      ImGuiWindowFlags_NoScrollbar | ImGuiWindowFlags_NoScrollWithMouse);
     // The table takes the room its rows need (header and one line per entry) up to two thirds of the panel and scrolls inside when
     // there are more; the detail below gets the rest, at least a few lines.
     const float bodyH = ImGui::GetContentRegionAvail().y;
@@ -228,7 +246,9 @@ void Editor::draw_feedback_panel() {
     const float detailMin = std::min(bodyH * 0.45f, lineH * 8.0f);
     const float tableMax = std::max(tableMin, bodyH - detailMin - gap);
     const float tableH = std::clamp(lineH * float(entries.size() + 1) + 10.0f, tableMin, tableMax);
-    if (ImGui::BeginTable("##fbt", 5, ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp | ImGuiTableFlags_BordersInnerV,
+    if (ImGui::BeginTable("##fbt", 5,
+                          ImGuiTableFlags_RowBg | ImGuiTableFlags_ScrollY | ImGuiTableFlags_SizingStretchProp |
+                              ImGuiTableFlags_BordersInnerV,
                           ImVec2(0, tableH))) {
         ImGui::TableSetupScrollFreeze(0, 1);
         ImGui::TableSetupColumn("id", ImGuiTableColumnFlags_WidthFixed, 66);
@@ -244,8 +264,10 @@ void Editor::draw_feedback_panel() {
             if (ImGui::Selectable(id.c_str(), id == fbSelected_, ImGuiSelectableFlags_SpanAllColumns)) fbSelected_ = id;
             // A double click opens the entry in a window of its own (every field, resizable, with its actions).
             if (ImGui::IsItemHovered() && ImGui::IsMouseDoubleClicked(ImGuiMouseButton_Left)) {
-                if (std::find(fbWindows_.begin(), fbWindows_.end(), id) == fbWindows_.end()) fbWindows_.push_back(id);
-                else ImGui::SetWindowFocus(("Feedback " + id + "###fbwin-" + id).c_str());
+                if (std::find(fbWindows_.begin(), fbWindows_.end(), id) == fbWindows_.end())
+                    fbWindows_.push_back(id);
+                else
+                    ImGui::SetWindowFocus(("Feedback " + id + "###fbwin-" + id).c_str());
             }
             {  // the row spans every column: the autotest clicks it where the id is (the centre may lie in another column's clip)
                 const ImVec2 a = ImGui::GetItemRectMin(), b = ImGui::GetItemRectMax();
@@ -270,11 +292,13 @@ void Editor::draw_feedback_panel() {
             draw_feedback_share_cell(en);
             ImGui::TableSetColumnIndex(4);
             ImGui::TextUnformatted(en.value("title", "").c_str());
-            if (ImGui::IsItemHovered()) ImGui::SetTooltip("%s\noccurrences: %d", en.value("title", "").c_str(), en.value("occurrences", 1));
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip("%s\noccurrences: %d", en.value("title", "").c_str(), en.value("occurrences", 1));
         }
         ImGui::EndTable();
     }
-    at_track_at("feedback:table", Vec2{ImGui::GetItemRectMin().x + 20.0f, ImGui::GetItemRectMin().y + ImGui::GetItemRectSize().y * 0.5f});
+    at_track_at("feedback:table",
+                Vec2{ImGui::GetItemRectMin().x + 20.0f, ImGui::GetItemRectMin().y + ImGui::GetItemRectSize().y * 0.5f});
     // Detail of the selected entry: a child that takes what the table leaves, and scrolls by itself. It only reads; the status is
     // the one thing it changes.
     ImGui::BeginChild("##fbdetail", ImVec2(0, 0), ImGuiChildFlags_Borders);
@@ -316,7 +340,9 @@ void Editor::feedback_start_retrospective() {
         std::lock_guard<std::mutex> lock(job->mu);
         job->ok = res.ok;
         job->result = res.ok ? res.result : Json();
-        job->message = res.ok ? std::string() : res.error.value("message", std::string("The retrospective failed.")) + " " + res.error.value("hint", std::string());
+        job->message = res.ok ? std::string()
+                              : res.error.value("message", std::string("The retrospective failed.")) + " " +
+                                    res.error.value("hint", std::string());
         job->running = false;
         job->finished = true;
     });
@@ -338,7 +364,8 @@ void Editor::feedback_apply_retrospective() {
     }
     if (dir != projectDir_) return;  // another project is open now: this answer is about the one that was closed
     if (!ok) {
-        fbMessage_ = message.rfind("cancelled", 0) == 0 ? "Retrospective stopped: nothing was filed." : "Retrospective failed: " + message;
+        fbMessage_ = message.rfind("cancelled", 0) == 0 ? "Retrospective stopped: nothing was filed."
+                                                        : "Retrospective failed: " + message;
         return;
     }
     std::string text = result.value("note", std::string());
@@ -380,25 +407,30 @@ void Editor::draw_feedback_actions(const Json& en, const std::string& path) {
     for (size_t i = 0; i < st.size(); ++i)
         if (st[i] == curStatus) cur = int(i);
     ImGui::SetNextItemWidth(160);
-    if (combo_strings("status##detail", &cur, st, false, [this](const std::string& name) { at_track("feedback:status:item:" + name); }) &&
+    if (combo_strings("status##detail", &cur, st, false,
+                      [this](const std::string& name) { at_track("feedback:status:item:" + name); }) &&
         st[size_t(cur)] != curStatus) {
         if (st[size_t(cur)] == "rejected") {
             // A rejection says why: the reason is what the person (or the AI that filed it) reads in the table later.
             fbAsk_ = FbAsk{id, "rejected", en.value("statusReason", std::string()), {}, true};
             ImGui::OpenPopup("Reject this entry?###fb-reject");
         } else {
-            const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread never waits seconds for another program's lock
+            const ShareWaitCap shortWait(
+                ui_lock_wait_sec());  // the UI thread never waits seconds for another program's lock
             if (auto r = update_feedback_file(path, id, st[size_t(cur)], ""); !r) {
                 notify(feedback_busy_text(r.error()), 2);
             } else if (st[size_t(cur)] != "open") {
-                notify(id + " is " + st[size_t(cur)] + ": it moves to the archive next to " + engine_->project().feedbackFile + ".", 0);
+                notify(id + " is " + st[size_t(cur)] + ": it moves to the archive next to " +
+                           engine_->project().feedbackFile + ".",
+                       0);
             }
             feedback_reload_soon();
         }
     }
     at_track("feedback:status");
-    ImGui::SetItemTooltip("Change the status of this entry (saved immediately). An entry that is not open moves to the archive file. "
-                          "Rejected asks why first.");
+    ImGui::SetItemTooltip(
+        "Change the status of this entry (saved immediately). An entry that is not open moves to the archive file. "
+        "Rejected asks why first.");
     ImGui::SameLine();
     if (ImGui::Button("Copy")) {
         ImGui::SetClipboardText(en.dump(2).c_str());
@@ -421,25 +453,32 @@ void Editor::draw_feedback_actions(const Json& en, const std::string& path) {
     // The reason of a rejection.
     if (fbAsk_.open && fbAsk_.id == id && fbAsk_.status == "rejected") {
         ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        if (ImGui::BeginPopupModal("Reject this entry?###fb-reject", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        if (ImGui::BeginPopupModal("Reject this entry?###fb-reject", nullptr,
+                                   ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
             ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30);
-            ImGui::TextWrapped("%s: why is this not a gap in the engine? The reason stays with the entry and shows in the table.", id.c_str());
+            ImGui::TextWrapped(
+                "%s: why is this not a gap in the engine? The reason stays with the entry and shows in the table.",
+                id.c_str());
             ImGui::PopTextWrapPos();
-            ImGui::InputTextMultiline("##fbreason", &fbAsk_.reason, ImVec2(ImGui::GetFontSize() * 30, ImGui::GetTextLineHeight() * 4 + 8));
+            ImGui::InputTextMultiline("##fbreason", &fbAsk_.reason,
+                                      ImVec2(ImGui::GetFontSize() * 30, ImGui::GetTextLineHeight() * 4 + 8));
             at_track("feedback:reason");
             const int chars = text_chars(fbAsk_.reason);
-            ImGui::TextColored(chars > kFeedbackReasonMax ? ImVec4(1, 0.45f, 0.4f, 1) : ImVec4(0.6f, 0.6f, 0.6f, 1), "%d / %d characters", chars,
-                               kFeedbackReasonMax);
+            ImGui::TextColored(chars > kFeedbackReasonMax ? ImVec4(1, 0.45f, 0.4f, 1) : ImVec4(0.6f, 0.6f, 0.6f, 1),
+                               "%d / %d characters", chars, kFeedbackReasonMax);
             if (!fbAsk_.error.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", fbAsk_.error.c_str());
             const bool ready = !sanitize_status_reason(fbAsk_.reason).empty() && chars <= kFeedbackReasonMax;
             ImGui::BeginDisabled(!ready);
             if (ImGui::Button("Reject", ImVec2(110, 0))) {
-                const ShareWaitCap shortWait(ui_lock_wait_sec());  // the UI thread never waits seconds for another program's lock
+                const ShareWaitCap shortWait(
+                    ui_lock_wait_sec());  // the UI thread never waits seconds for another program's lock
                 if (auto r = update_feedback_file(path, id, "rejected", "", "", fbAsk_.reason, "user"); !r) {
                     fbAsk_.error = feedback_busy_text(r.error());
                 } else {
                     fbAsk_.open = false;
-                    notify(id + " is rejected: it moves to the archive next to " + engine_->project().feedbackFile + ".", 0);
+                    notify(id + " is rejected: it moves to the archive next to " + engine_->project().feedbackFile +
+                               ".",
+                           0);
                     feedback_reload_soon();
                     ImGui::CloseCurrentPopup();
                 }
@@ -460,15 +499,18 @@ void Editor::draw_feedback_actions(const Json& en, const std::string& path) {
     // The confirmation of a delete.
     if (fbAsk_.open && fbAsk_.id == id && fbAsk_.status == "delete") {
         ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
-        if (ImGui::BeginPopupModal("Delete this entry?###fb-delete", nullptr, ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
+        if (ImGui::BeginPopupModal("Delete this entry?###fb-delete", nullptr,
+                                   ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings)) {
             ImGui::PushTextWrapPos(ImGui::GetFontSize() * 30);
-            ImGui::TextWrapped("Delete %s \"%s\" for good? It is removed from %s and its archive; that cannot be undone. Its id is not used "
+            ImGui::TextWrapped("Delete %s \"%s\" for good? It is removed from %s and its archive; that cannot be "
+                               "undone. Its id is not used "
                                "again, and what was already sent to the engine developers stays with them.",
                                id.c_str(), en.value("title", "").c_str(), engine_->project().feedbackFile.c_str());
             ImGui::PopTextWrapPos();
             if (!fbAsk_.error.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", fbAsk_.error.c_str());
             if (ImGui::Button("Delete", ImVec2(110, 0))) {
-                const ShareWaitCap shortWait(ui_lock_wait_sec());  // the command takes the sharing lock; the UI thread never waits seconds for it
+                const ShareWaitCap shortWait(
+                    ui_lock_wait_sec());  // the command takes the sharing lock; the UI thread never waits seconds for it
                 const CommandResult r = engine_->commands().call("feedback.delete", Json::object({{"id", id}}));
                 if (!r.ok) {
                     fbAsk_.error = command_error_text(r.error);
@@ -499,7 +541,8 @@ void Editor::draw_feedback_actions(const Json& en, const std::string& path) {
 // ones a table row does not already tell.
 void Editor::draw_feedback_detail(const Json& en, const std::string& path, bool inWindow) {
     ImGui::PushTextWrapPos(0);
-    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1, 1), "%s  [%s]  x%d", en.value("title", "").c_str(), en.value("category", "").c_str(), en.value("occurrences", 1));
+    ImGui::TextColored(ImVec4(0.6f, 0.8f, 1, 1), "%s  [%s]  x%d", en.value("title", "").c_str(),
+                       en.value("category", "").c_str(), en.value("occurrences", 1));
     ImGui::PopTextWrapPos();
     auto field = [&](const char* label, const std::string& v, const char* track = nullptr) {
         if (v.empty()) return;
@@ -510,7 +553,8 @@ void Editor::draw_feedback_detail(const Json& en, const std::string& path, bool 
     auto list_field = [&](const char* label, const Json& arr) {
         if (!arr.is_array() || arr.empty()) return;
         std::string text;
-        for (const Json& v : arr) text += std::string(text.empty() ? "" : "\n") + (v.is_string() ? v.get<std::string>() : v.dump());
+        for (const Json& v : arr)
+            text += std::string(text.empty() ? "" : "\n") + (v.is_string() ? v.get<std::string>() : v.dump());
         field(label, text);
     };
     const std::string status = en.value("status", "open");
@@ -533,7 +577,8 @@ void Editor::draw_feedback_detail(const Json& en, const std::string& path, bool 
     if (inWindow) {
         std::string line = en.value("severity", "") + " severity";
         if (en.contains("effort")) line += ", " + en["effort"].dump() + " effort";
-        line += ", " + std::to_string(en.value("occurrences", 1)) + (en.value("occurrences", 1) == 1 ? " occurrence" : " occurrences");
+        line += ", " + std::to_string(en.value("occurrences", 1)) +
+                (en.value("occurrences", 1) == 1 ? " occurrence" : " occurrences");
         if (en.contains("date")) line += ", filed " + en.value("date", "");
         if (en.contains("reviewed")) line += en.value("reviewed", false) ? ", reviewed" : ", not reviewed";
         field("details", line);
@@ -563,8 +608,10 @@ void Editor::draw_feedback_detail(const Json& en, const std::string& path, bool 
     // (a popup belongs to the window that opened it).
     if (!inWindow) {
         const std::string id = en.value("id", std::string());
-        if (std::find(fbWindows_.begin(), fbWindows_.end(), id) == fbWindows_.end()) draw_feedback_actions(en, path);
-        else ImGui::TextDisabled("This entry is open in its own window.");
+        if (std::find(fbWindows_.begin(), fbWindows_.end(), id) == fbWindows_.end())
+            draw_feedback_actions(en, path);
+        else
+            ImGui::TextDisabled("This entry is open in its own window.");
     }
 }
 
@@ -585,7 +632,8 @@ void Editor::draw_feedback_windows() {
         bool open = true;
         const std::string title = "Feedback " + id + "###fbwin-" + id;
         const float step = 28.0f * float(i % 6);
-        ImGui::SetNextWindowSize(ImVec2(std::min(560.0f, display.x - 40.0f), std::min(440.0f, display.y - 80.0f)), ImGuiCond_Appearing);
+        ImGui::SetNextWindowSize(ImVec2(std::min(560.0f, display.x - 40.0f), std::min(440.0f, display.y - 80.0f)),
+                                 ImGuiCond_Appearing);
         ImGui::SetNextWindowPos(ImVec2(display.x * 0.5f - 280.0f + step, display.y * 0.3f + step), ImGuiCond_Appearing);
         ImGui::SetNextWindowSizeConstraints(ImVec2(300, 200), ImVec2(FLT_MAX, FLT_MAX));
         if (ImGui::Begin(title.c_str(), &open, ImGuiWindowFlags_NoDocking | ImGuiWindowFlags_NoSavedSettings)) {
@@ -680,16 +728,19 @@ void Editor::draw_feedback_add_window() {
             in.suggestion = std::string(trim(fbNewSuggestion_));
             in.reporter = Json::object({{"kind", "human"}, {"agent", "factoria-editor"}});
             // The same check as feedback.report and `factoria feedback add`: a gap the engine already covers is not filed.
-            const ClaimResult claim = check_feedback_claim(ClaimInput{in.title, in.missing, in.suggestion}, &engine_->commands());
+            const ClaimResult claim =
+                check_feedback_claim(ClaimInput{in.title, in.missing, in.suggestion}, &engine_->commands());
             Result<FeedbackAddResult> r = make_error(claim.message(), claim.hint());
             if (!claim.refused()) {
                 // Under the lock the other writers take; this is the UI thread, so a busy lock is waited for 0.3 s at most.
                 const ShareWaitCap shortWait(ui_lock_wait_sec());
                 FeedbackFileLock lock(ui_share_env(), path);
-                r = lock.held() ? add_feedback_entry_to_file(path, in, projectName_) : Result<FeedbackAddResult>(make_error(lock.error(), "Try again in a moment."));
+                r = lock.held() ? add_feedback_entry_to_file(path, in, projectName_)
+                                : Result<FeedbackAddResult>(make_error(lock.error(), "Try again in a moment."));
             }
             if (r) {
-                fbMessage_ = (r->merged ? "Merged into " : "Added ") + r->id + (r->merged ? " (occurrences " + std::to_string(r->occurrences) + ")" : "");
+                fbMessage_ = (r->merged ? "Merged into " : "Added ") + r->id +
+                             (r->merged ? " (occurrences " + std::to_string(r->occurrences) + ")" : "");
                 fbSelected_ = r->id;
                 close_form();
                 share_.tickAt = -10;

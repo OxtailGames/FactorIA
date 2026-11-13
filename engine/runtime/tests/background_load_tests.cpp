@@ -41,8 +41,10 @@ struct ScopedEnv {
 #ifdef _WIN32
         _putenv_s(name.c_str(), value ? value : "");
 #else
-        if (value) setenv(name.c_str(), value, 1);
-        else unsetenv(name.c_str());
+        if (value)
+            setenv(name.c_str(), value, 1);
+        else
+            unsetenv(name.c_str());
 #endif
     }
 };
@@ -89,11 +91,13 @@ export default class Boss extends Behaviour {
 )JS";
 
 std::string wav(int samples) {  // 16-bit mono PCM at 22050 Hz
-    auto u32 = [](std::uint32_t v) { return std::string{char(v & 255), char((v >> 8) & 255), char((v >> 16) & 255), char(v >> 24)}; };
+    auto u32 = [](std::uint32_t v) {
+        return std::string{char(v & 255), char((v >> 8) & 255), char((v >> 16) & 255), char(v >> 24)};
+    };
     auto u16 = [](std::uint16_t v) { return std::string{char(v & 255), char(v >> 8)}; };
     const std::uint32_t data = std::uint32_t(samples) * 2;
-    std::string s = "RIFF" + u32(36 + data) + "WAVEfmt " + u32(16) + u16(1) + u16(1) + u32(22050) + u32(44100) + u16(2) + u16(16) +
-                    "data" + u32(data);
+    std::string s = "RIFF" + u32(36 + data) + "WAVEfmt " + u32(16) + u16(1) + u16(1) + u32(22050) + u32(44100) +
+                    u16(2) + u16(16) + "data" + u32(data);
     for (int i = 0; i < samples; ++i) s += u16(std::uint16_t((i * 977) & 0x3fff));
     return s;
 }
@@ -165,7 +169,7 @@ bool running_done(const Json& status) { return status["state"] != "loading" && s
 struct LoadRun {
     std::vector<double> progress;  // load.status progress after each frame until the scene switched
     int frames = 0;
-    Json hash;                     // game.state_hash {perEntity} three frames after the switch
+    Json hash;  // game.state_hash {perEntity} three frames after the switch
     LoadOrder order;
 };
 
@@ -319,7 +323,9 @@ TEST_CASE("background load: cancel in the middle, a newer scene.load wins, and t
         REQUIRE_MESSAGE(e.init(p.config(mode), nullptr, &err), err);
         e.step(1);
         // A command's load, cancelled after one frame.
-        const int id = call(e, "scene.load", Json::object({{"path", "scenes/level.scene.json"}, {"async", true}}))["loadId"].get<int>();
+        const int id =
+            call(e, "scene.load", Json::object({{"path", "scenes/level.scene.json"}, {"async", true}}))["loadId"]
+                .get<int>();
         e.step(1);
         CHECK(call(e, "load.status", Json::object({{"id", id}}))["state"] == "loading");
         CHECK(call(e, "load.cancel", Json::object({{"id", id}}))["cancelled"].get<bool>());
@@ -455,7 +461,8 @@ TEST_CASE("background load: a broken scene fails the load with the parse error; 
     e.shutdown();
 }
 
-TEST_CASE("background load: scene.preload in a script, then scene.load reads nothing; the files go at the second load") {
+TEST_CASE(
+    "background load: scene.preload in a script, then scene.load reads nothing; the files go at the second load") {
     ScopedEnv env("FA_JOB_THREADS", nullptr);
     TempProject p("preload");
     for (const std::string& mode : kModes) {
@@ -490,7 +497,9 @@ TEST_CASE("background load: scene.preload in a script, then scene.load reads not
 TEST_CASE("background load: assets.preload brings a glTF's buffer and texture; release gives the files back") {
     ScopedEnv env("FA_JOB_THREADS", nullptr);
     TempProject p("assets");
-    p.write("assets/boss.gltf", R"({"asset":{"version":"2.0"},"buffers":[{"uri":"boss.bin","byteLength":4}],"images":[{"uri":"boss.png"}]})");
+    p.write(
+        "assets/boss.gltf",
+        R"({"asset":{"version":"2.0"},"buffers":[{"uri":"boss.bin","byteLength":4}],"images":[{"uri":"boss.png"}]})");
     p.write("assets/boss.bin", "1234");
     p.write("assets/boss.png", png(8, 10));
     Engine e;
@@ -554,7 +563,8 @@ TEST_CASE("background load: two engines loading at once keep their loads apart")
         CHECK(call(a, "load.status")["jobs"].size() == 1);
         CHECK(call(b, "load.status")["jobs"][0]["paths"][0] == "scenes/other.scene.json");
         int frames = 0;
-        while ((a.world().scene_path() != "scenes/level.scene.json" || b.world().scene_path() != "scenes/other.scene.json") &&
+        while ((a.world().scene_path() != "scenes/level.scene.json" ||
+                b.world().scene_path() != "scenes/other.scene.json") &&
                frames < 500) {
             a.step(1);
             b.step(1);
@@ -627,7 +637,8 @@ export default class Go extends Behaviour {
     }
     REQUIRE(replay.contains("frames"));
     int withUnits = 0;
-    for (auto it = replay["frames"].begin(); it != replay["frames"].end(); ++it) withUnits += it->contains("loadUnits") ? 1 : 0;
+    for (auto it = replay["frames"].begin(); it != replay["frames"].end(); ++it)
+        withUnits += it->contains("loadUnits") ? 1 : 0;
     CHECK(withUnits >= 1);
     // Replayed with the exact budget and another pool: each frame takes the recorded count of files.
     for (const std::string& mode : {std::string("0"), std::string("inline"), std::string("8")}) {
@@ -720,8 +731,9 @@ TEST_CASE("background load: cancel() in the frame an async scene load's files we
             REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
             e.step(1);
             // The promise resolves inside the frame the files are ready, before the switch at its end.
-            eval(e, "globalThis.h = scene.load('scenes/level.scene.json', {n: 1}, {async: true}); globalThis.ready = -1;"
-                    "h.promise.then(() => { globalThis.ready = h.progress; h.cancel(); });");
+            eval(e,
+                 "globalThis.h = scene.load('scenes/level.scene.json', {n: 1}, {async: true}); globalThis.ready = -1;"
+                 "h.promise.then(() => { globalThis.ready = h.progress; h.cancel(); });");
             int frames = 0;
             while (eval(e, "globalThis.ready").get<double>() < 0 && frames < 500) {
                 e.step(1);
@@ -754,7 +766,8 @@ TEST_CASE("background load: a script's loads end with its JavaScript context; a 
         e.step(1);
         eval(e, "globalThis.h = scene.load('scenes/level.scene.json', null, {async: true});"
                 "globalThis.j = assets.preload(['sounds/hit.wav']);");
-        const int tool = call(e, "scene.preload", Json::object({{"path", "scenes/other.scene.json"}}))["loadId"].get<int>();
+        const int tool =
+            call(e, "scene.preload", Json::object({{"path", "scenes/other.scene.json"}}))["loadId"].get<int>();
         e.step(1);
         const Json before = call(e, "load.status");
         REQUIRE(before["jobs"].size() == 3);

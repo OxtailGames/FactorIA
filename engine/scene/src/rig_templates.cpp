@@ -23,9 +23,11 @@ std::vector<std::string> split_words(const std::string& s) {
     for (std::size_t i = 0; i < s.size(); ++i) {
         const unsigned char c = static_cast<unsigned char>(s[i]);
         if (std::isalpha(c)) {
-            if (std::isupper(c) && !cur.empty() && std::islower(static_cast<unsigned char>(cur.back()))) flush();  // camelCase
+            if (std::isupper(c) && !cur.empty() && std::islower(static_cast<unsigned char>(cur.back())))
+                flush();  // camelCase
             cur += char(std::tolower(c));
-        } else flush();  // digits and punctuation separate words and are dropped
+        } else
+            flush();  // digits and punctuation separate words and are dropped
     }
     flush();
     return out;
@@ -52,7 +54,8 @@ struct Builder {
         bones.push_back(std::move(b));
         return bones.back();
     }
-    static void hint(TBone& b, const char* alternatives, char mode, float head, float tail = kNone, const std::string& ref = {}) {
+    static void hint(TBone& b, const char* alternatives, char mode, float head, float tail = kNone,
+                     const std::string& ref = {}) {
         std::string alts = alternatives, cur;
         auto flush = [&] {
             if (cur.empty()) return;
@@ -66,8 +69,10 @@ struct Builder {
             cur.clear();
         };
         for (char c : alts) {
-            if (c == '|') flush();
-            else cur += c;
+            if (c == '|')
+                flush();
+            else
+                cur += c;
         }
         flush();
     }
@@ -75,17 +80,21 @@ struct Builder {
 
 // A chain of `n` bones `role_1..role_n` hanging from `parent`: the first has its own proportions, the others sit evenly between it and the
 // tail of the last. The last bone's tail is the tip. Hints: the first bone's head and the last bone's tail come from a "tail" part.
-void add_tail_chain(Builder& B, const std::string& role, int n, const std::string& parent, Vec3 start, Vec3 tip, Vec3 tipExt, const char* words) {
+void add_tail_chain(Builder& B, const std::string& role, int n, const std::string& parent, Vec3 start, Vec3 tip,
+                    Vec3 tipExt, const char* words) {
     if (n <= 0) return;
     const std::string first = bone_name(role, 1, n, 0), last = bone_name(role, n, n, 0);
     for (int k = 1; k <= n; ++k) {
-        TBone& b = B.add(role, k, n, 0, k == 1 ? parent : bone_name(role, k - 1, n, 0), k == 1 ? start : Vec3{0, 0.5f, 0.5f});
+        TBone& b =
+            B.add(role, k, n, 0, k == 1 ? parent : bone_name(role, k - 1, n, 0), k == 1 ? start : Vec3{0, 0.5f, 0.5f});
         if (k > 1) {
             b.lerpA = first;
             b.lerpB = last + ".tail";
             b.lerpT = float(k - 1) / float(n);
         }
-        if (k == 1) Builder::hint(b, words, 'L', 0.0f, n == 1 ? 1.0f : kNone, parent);  // the end nearer to the body (the parent's default head) is the base
+        if (k == 1)
+            Builder::hint(b, words, 'L', 0.0f, n == 1 ? 1.0f : kNone,
+                          parent);  // the end nearer to the body (the parent's default head) is the base
         if (k == n) {
             b.hasTailProp = true;
             b.tailProp = tip;
@@ -100,8 +109,9 @@ struct LimbProps {
     Vec3 clavicle, upper, lower, hand, handTail;
 };
 
-void add_front_limb(Builder& B, char side, const std::string& parent, const std::string& neckBase, const LimbProps& p, Vec3 handExt, const char* upperWords,
-                    const char* lowerWords, const char* handWords, const char* wholeWords) {
+void add_front_limb(Builder& B, char side, const std::string& parent, const std::string& neckBase, const LimbProps& p,
+                    Vec3 handExt, const char* upperWords, const char* lowerWords, const char* handWords,
+                    const char* wholeWords) {
     const float sg = side == 'l' ? 1.0f : -1.0f;
     auto sgn = [&](Vec3 v) { return Vec3{v.x * sg, v.y, v.z}; };
     const std::string up = bone_name("arm_upper", 1, 1, side);
@@ -136,8 +146,9 @@ struct LegProps {
     Vec3 thigh, shin, foot, toe, toeTail;
 };
 
-void add_hind_limb(Builder& B, char side, const std::string& parent, const LegProps& p, bool toes, float underOffset, bool underHead, const char* thighWords, const char* shinWords,
-                   const char* footWords, const char* toeWords, const char* wholeWords, bool footByY) {
+void add_hind_limb(Builder& B, char side, const std::string& parent, const LegProps& p, bool toes, float underOffset,
+                   bool underHead, const char* thighWords, const char* shinWords, const char* footWords,
+                   const char* toeWords, const char* wholeWords, bool footByY) {
     const float sg = side == 'l' ? 1.0f : -1.0f;
     auto sgn = [&](Vec3 v) { return Vec3{v.x * sg, v.y, v.z}; };
     const std::string th = bone_name("thigh", 1, 1, side);
@@ -160,9 +171,12 @@ void add_hind_limb(Builder& B, char side, const std::string& parent, const LegPr
             b.tailProp = sgn(p.toeTail);
             b.tailExt = Vec3{0, -1, 0};
         }
-        if (footByY) Builder::hint(b, footWords, 'Y', 0.75f, toes ? kNone : 0.0f);
-        else Builder::hint(b, footWords, 'L', 0.0f, toes ? kNone : 1.0f);
-        Builder::hint(b, wholeWords, 'L', footByY ? 0.93f : 0.75f, toes ? kNone : 1.0f, th);  // a plain leg: the humanoid's ankle is near the floor
+        if (footByY)
+            Builder::hint(b, footWords, 'Y', 0.75f, toes ? kNone : 0.0f);
+        else
+            Builder::hint(b, footWords, 'L', 0.0f, toes ? kNone : 1.0f);
+        Builder::hint(b, wholeWords, 'L', footByY ? 0.93f : 0.75f, toes ? kNone : 1.0f,
+                      th);  // a plain leg: the humanoid's ankle is near the floor
     }
     if (toes) {
         TBone& b = B.add("toe", 1, 1, side, bone_name("foot", 1, 1, side), sgn(p.toe));
@@ -180,7 +194,9 @@ void add_chain_bones(Builder& B, const RigDoc& doc, const char* role, const char
     B.add("root", 1, 1, 0, "", Vec3{0, 0, 0.5f});
     for (int k = 1; k <= n; ++k) {
         TBone& b = B.add(role, k, n, 0, k == 1 ? "root" : bone_name(role, k - 1, n, 0), Vec3{0, 0.5f, 0.5f});
-        Builder::hint(b, words, 'L', 0.0f);  // the chain's region is decided by the fit; these only record that a part of that name is used
+        Builder::hint(
+            b, words, 'L',
+            0.0f);  // the chain's region is decided by the fit; these only record that a part of that name is used
     }
 }
 
@@ -222,13 +238,27 @@ std::vector<TBone> humanoid(const RigDoc& doc, bool armsOut) {
         Builder::hint(h, "head|skull|face|helmet|hat", 'Y', 0.0f, 1.0f);
     }
     const std::string armParent = lastSpine;
-    LimbProps arm = armsOut ? LimbProps{{0.06f, 0.83f, 0.5f}, {0.13f, 0.82f, 0.5f}, {0.28f, 0.82f, 0.5f}, {0.42f, 0.82f, 0.5f}, {0.5f, 0.82f, 0.5f}}
-                            : LimbProps{{0.08f, 0.83f, 0.5f}, {0.27f, 0.82f, 0.5f}, {0.42f, 0.62f, 0.5f}, {0.42f, 0.46f, 0.5f}, {0.42f, 0.37f, 0.5f}};
+    LimbProps arm = armsOut ? LimbProps{{0.06f, 0.83f, 0.5f},
+                                        {0.13f, 0.82f, 0.5f},
+                                        {0.28f, 0.82f, 0.5f},
+                                        {0.42f, 0.82f, 0.5f},
+                                        {0.5f, 0.82f, 0.5f}}
+                            : LimbProps{{0.08f, 0.83f, 0.5f},
+                                        {0.27f, 0.82f, 0.5f},
+                                        {0.42f, 0.62f, 0.5f},
+                                        {0.42f, 0.46f, 0.5f},
+                                        {0.42f, 0.37f, 0.5f}};
     for (char s : {'l', 'r'})
-        add_front_limb(B, s, armParent, neck1, arm, armsOut ? Vec3{1, 0, 0} : Vec3{0, 0, 0}, "upper arm|bicep|humerus", "forearm|lower arm", "hand|fist|palm", "arm");
-    LegProps leg{{0.22f, 0.50f, 0.5f}, {0.22f, 0.27f, 0.52f}, {0.22f, 0.05f, 0.46f}, {0.22f, 0.02f, 0.62f}, {0.22f, 0.0f, 0.72f}};
+        add_front_limb(B, s, armParent, neck1, arm, armsOut ? Vec3{1, 0, 0} : Vec3{0, 0, 0}, "upper arm|bicep|humerus",
+                       "forearm|lower arm", "hand|fist|palm", "arm");
+    LegProps leg{{0.22f, 0.50f, 0.5f},
+                 {0.22f, 0.27f, 0.52f},
+                 {0.22f, 0.05f, 0.46f},
+                 {0.22f, 0.02f, 0.62f},
+                 {0.22f, 0.0f, 0.72f}};
     for (char s : {'l', 'r'})
-        add_hind_limb(B, s, "root", leg, toes, 0.02f, true, "thigh|upper leg", "shin|calf|lower leg", "foot|feet|ankle", "toe", "leg", true);
+        add_hind_limb(B, s, "root", leg, toes, 0.02f, true, "thigh|upper leg", "shin|calf|lower leg", "foot|feet|ankle",
+                      "toe", "leg", true);
     // the shin sits half way between the hip and the ankle unless a part says otherwise
     for (TBone& b : B.bones)
         if (b.role == "shin") {
@@ -275,13 +305,20 @@ std::vector<TBone> quadruped(const RigDoc& doc) {
         Builder::hint(h, "snout|muzzle|nose", 'L', kNone, 1.0f);
         Builder::hint(h, "head|skull|face", 'L', 0.0f, 1.0f);
     }
-    LimbProps front{{0.08f, 0.62f, 0.68f}, {0.16f, 0.58f, 0.7f}, {0.16f, 0.38f, 0.68f}, {0.16f, 0.18f, 0.72f}, {0.16f, 0.0f, 0.78f}};
+    LimbProps front{{0.08f, 0.62f, 0.68f},
+                    {0.16f, 0.58f, 0.7f},
+                    {0.16f, 0.38f, 0.68f},
+                    {0.16f, 0.18f, 0.72f},
+                    {0.16f, 0.0f, 0.78f}};
     for (char s : {'l', 'r'})
-        add_front_limb(B, s, lastSpine, neck1, front, Vec3{0, -1, 0}, "upper arm|upper foreleg|shoulder", "forearm|lower foreleg", "hand|front paw|front hoof|forepaw",
+        add_front_limb(B, s, lastSpine, neck1, front, Vec3{0, -1, 0}, "upper arm|upper foreleg|shoulder",
+                       "forearm|lower foreleg", "hand|front paw|front hoof|forepaw",
                        "foreleg|fore leg|front leg|forelimb");
-    LegProps hind{{0.16f, 0.56f, 0.2f}, {0.16f, 0.36f, 0.27f}, {0.16f, 0.18f, 0.14f}, {0.16f, 0.04f, 0.2f}, {0.16f, 0.0f, 0.26f}};
+    LegProps hind{
+        {0.16f, 0.56f, 0.2f}, {0.16f, 0.36f, 0.27f}, {0.16f, 0.18f, 0.14f}, {0.16f, 0.04f, 0.2f}, {0.16f, 0.0f, 0.26f}};
     for (char s : {'l', 'r'})
-        add_hind_limb(B, s, "root", hind, true, 0, false, "thigh|upper leg", "shin|lower leg|stifle", "foot|hock|metatarsus", "toe|hind paw|hind hoof|hindpaw|rear paw|back paw",
+        add_hind_limb(B, s, "root", hind, true, 0, false, "thigh|upper leg", "shin|lower leg|stifle",
+                      "foot|hock|metatarsus", "toe|hind paw|hind hoof|hindpaw|rear paw|back paw",
                       "hind leg|hindleg|back leg|rear leg|leg", false);
     add_tail_chain(B, "tail", Nt, "root", Vec3{0, 0.62f, 0.14f}, Vec3{0, 0.4f, 0.0f}, Vec3{0, 0, -1}, "tail");
     return B.bones;
@@ -322,14 +359,25 @@ std::vector<TBone> bird(const RigDoc& doc, bool spread) {
         Builder::hint(h, "beak|bill", 'L', kNone, 1.0f);
         Builder::hint(h, "head|skull", 'L', 0.0f, 1.0f);
     }
-    LimbProps wing = spread ? LimbProps{{0.04f, 0.6f, 0.5f}, {0.12f, 0.62f, 0.48f}, {0.3f, 0.62f, 0.46f}, {0.44f, 0.62f, 0.44f}, {0.5f, 0.62f, 0.42f}}
-                            : LimbProps{{0.05f, 0.6f, 0.52f}, {0.14f, 0.6f, 0.5f}, {0.17f, 0.56f, 0.34f}, {0.17f, 0.52f, 0.18f}, {0.17f, 0.5f, 0.04f}};
+    LimbProps wing = spread ? LimbProps{{0.04f, 0.6f, 0.5f},
+                                        {0.12f, 0.62f, 0.48f},
+                                        {0.3f, 0.62f, 0.46f},
+                                        {0.44f, 0.62f, 0.44f},
+                                        {0.5f, 0.62f, 0.42f}}
+                            : LimbProps{{0.05f, 0.6f, 0.52f},
+                                        {0.14f, 0.6f, 0.5f},
+                                        {0.17f, 0.56f, 0.34f},
+                                        {0.17f, 0.52f, 0.18f},
+                                        {0.17f, 0.5f, 0.04f}};
     for (char s : {'l', 'r'})
-        add_front_limb(B, s, lastSpine, neck1, wing, spread ? Vec3{1, 0, 0} : Vec3{0, 0, 0}, "upper wing|humerus|upper arm", "forewing|forearm|lower wing",
-                       "hand|primaries|wingtip|wing tip", "wing");
-    LegProps leg{{0.1f, 0.38f, 0.42f}, {0.1f, 0.24f, 0.45f}, {0.1f, 0.1f, 0.42f}, {0.1f, 0.015f, 0.5f}, {0.1f, 0.0f, 0.6f}};
+        add_front_limb(B, s, lastSpine, neck1, wing, spread ? Vec3{1, 0, 0} : Vec3{0, 0, 0},
+                       "upper wing|humerus|upper arm", "forewing|forearm|lower wing", "hand|primaries|wingtip|wing tip",
+                       "wing");
+    LegProps leg{
+        {0.1f, 0.38f, 0.42f}, {0.1f, 0.24f, 0.45f}, {0.1f, 0.1f, 0.42f}, {0.1f, 0.015f, 0.5f}, {0.1f, 0.0f, 0.6f}};
     for (char s : {'l', 'r'})
-        add_hind_limb(B, s, "root", leg, true, 0, false, "thigh|upper leg", "shin|tibia|lower leg", "foot|tarsus|ankle", "toe|claw|talon", "leg", false);
+        add_hind_limb(B, s, "root", leg, true, 0, false, "thigh|upper leg", "shin|tibia|lower leg", "foot|tarsus|ankle",
+                      "toe|claw|talon", "leg", false);
     add_tail_chain(B, "tail", Nt, "root", Vec3{0, 0.42f, 0.2f}, Vec3{0, 0.3f, 0.0f}, Vec3{0, 0, -1}, "tail");
     return B.bones;
 }
@@ -353,7 +401,10 @@ std::vector<TBone> generic(const RigDoc& doc) {
             h.head = 0;
             h.tail = 1;
             h.aHead = g.anchor;
-            h.aTail = g.tailAnchor ? *g.tailAnchor : (g.anchor.x == 0 && g.anchor.y == 0 && g.anchor.z == 0 ? Vec3{0, 1, 0} : Vec3{-g.anchor.x, -g.anchor.y, -g.anchor.z});
+            h.aTail = g.tailAnchor ? *g.tailAnchor
+                                   : (g.anchor.x == 0 && g.anchor.y == 0 && g.anchor.z == 0
+                                          ? Vec3{0, 1, 0}
+                                          : Vec3{-g.anchor.x, -g.anchor.y, -g.anchor.z});
             b.hints.push_back(h);
         }
         B.bones.push_back(std::move(b));
@@ -367,9 +418,12 @@ std::vector<std::string> name_tokens(const std::string& name, char* side) {
     std::vector<std::string> out;
     char s = 0;
     for (const std::string& w : split_words(name)) {
-        if (w == "l" || w == "left") s = 'l';
-        else if (w == "r" || w == "right") s = 'r';
-        else out.push_back(stem(w));
+        if (w == "l" || w == "left")
+            s = 'l';
+        else if (w == "r" || w == "right")
+            s = 'r';
+        else
+            out.push_back(stem(w));
     }
     if (side) *side = s;
     return out;
@@ -377,14 +431,19 @@ std::vector<std::string> name_tokens(const std::string& name, char* side) {
 
 std::vector<TBone> build_template(const RigDoc& doc, bool armsOut, bool wingsSpread) {
     std::vector<TBone> bones;
-    if (doc.templateName == "humanoid") bones = humanoid(doc, armsOut);
-    else if (doc.templateName == "quadruped") bones = quadruped(doc);
-    else if (doc.templateName == "bird") bones = bird(doc, wingsSpread);
+    if (doc.templateName == "humanoid")
+        bones = humanoid(doc, armsOut);
+    else if (doc.templateName == "quadruped")
+        bones = quadruped(doc);
+    else if (doc.templateName == "bird")
+        bones = bird(doc, wingsSpread);
     else if (doc.templateName == "tail" || doc.templateName == "chain") {
         Builder B;
-        add_chain_bones(B, doc, doc.templateName == "tail" ? "tail" : "chain", doc.templateName == "tail" ? "tail|tentacle|antenna|whip" : "chain|rope|cable|link");
+        add_chain_bones(B, doc, doc.templateName == "tail" ? "tail" : "chain",
+                        doc.templateName == "tail" ? "tail|tentacle|antenna|whip" : "chain|rope|cable|link");
         bones = B.bones;
-    } else bones = generic(doc);
+    } else
+        bones = generic(doc);
     return bones;
 }
 

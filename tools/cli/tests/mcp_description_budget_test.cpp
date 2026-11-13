@@ -72,9 +72,13 @@ TEST_CASE("mcp: no tool description passes 1.5 KB as it is sent") {
         cli::register_cli_commands(session->registry(), dir, &session->engine());
         SimpleMcpHost host(session->registry(), dir);
         McpServer server(host);
-        Json init = Json::object({{"jsonrpc", "2.0"}, {"id", 1}, {"method", "initialize"},
-                                  {"params", {{"protocolVersion", "2025-06-18"}, {"capabilities", Json::object()},
-                                              {"clientInfo", {{"name", "test"}, {"version", "1"}}}}}});
+        Json init = Json::object({{"jsonrpc", "2.0"},
+                                  {"id", 1},
+                                  {"method", "initialize"},
+                                  {"params",
+                                   {{"protocolVersion", "2025-06-18"},
+                                    {"capabilities", Json::object()},
+                                    {"clientInfo", {{"name", "test"}, {"version", "1"}}}}}});
         server.handle_message(init.dump());
         Json list = Json::object({{"jsonrpc", "2.0"}, {"id", 2}, {"method", "tools/list"}, {"params", Json::object()}});
         auto resp = server.handle_message(list.dump());
@@ -84,10 +88,12 @@ TEST_CASE("mcp: no tool description passes 1.5 KB as it is sent") {
         const std::string reference = export_commands_markdown(session->registry());
         std::size_t withDetails = 0;
         for (const CommandInfo* c : session->registry().list()) {
-            CHECK_MESSAGE(c->description.find(kCommandDetailsMark) == std::string::npos, c->name << ": a marker is left in the description");
+            CHECK_MESSAGE(c->description.find(kCommandDetailsMark) == std::string::npos,
+                          c->name << ": a marker is left in the description");
             if (c->details.empty()) continue;
             ++withDetails;
-            CHECK_MESSAGE(reference.find(c->details) != std::string::npos, c->name << ": its details are not in the docs reference");
+            CHECK_MESSAGE(reference.find(c->details) != std::string::npos,
+                          c->name << ": its details are not in the docs reference");
             CHECK_MESSAGE(command_details_pointer(*c).find("docs_commands") != std::string::npos, c->name);
         }
         CHECK(withDetails > 50);
@@ -106,16 +112,19 @@ TEST_CASE("mcp: no tool description passes 1.5 KB as it is sent") {
         for (const Json& t : tools) {
             const std::string desc = t["description"].get<std::string>();
             const std::size_t bytes = sent_bytes(desc);
-            CHECK_MESSAGE(bytes <= kBudget,
-                          t["name"].get<std::string>()
-                              << ": the description is " << bytes << " bytes as sent (JSON escaped), over " << kBudget
-                              << ". Keep the first sentence and the essentials, move the rest to `details` (cut at a sentence "
-                                 "with FA_COMMAND_DETAILS), and end the description by naming that section (doc and heading).");
+            CHECK_MESSAGE(
+                bytes <= kBudget,
+                t["name"].get<std::string>()
+                    << ": the description is " << bytes << " bytes as sent (JSON escaped), over " << kBudget
+                    << ". Keep the first sentence and the essentials, move the rest to `details` (cut at a sentence "
+                       "with FA_COMMAND_DETAILS), and end the description by naming that section (doc and heading).");
         }
         // A sentence glued to the next one ("{mask}.Without") is a text that lost its space when it was split or joined.
         for (const CommandInfo* c : session->registry().list()) {
-            CHECK_MESSAGE(!has_glued_sentence(c->description), c->name << ": a sentence starts right after a full stop, with no space");
-            CHECK_MESSAGE(!has_glued_sentence(c->details), c->name << ": a sentence of `details` starts right after a full stop, with no space");
+            CHECK_MESSAGE(!has_glued_sentence(c->description),
+                          c->name << ": a sentence starts right after a full stop, with no space");
+            CHECK_MESSAGE(!has_glued_sentence(c->details),
+                          c->name << ": a sentence of `details` starts right after a full stop, with no space");
         }
     }
 }

@@ -63,14 +63,14 @@ struct EngineConfig {
     // Props of the start scene (a JSON object; null = none): what its scripts read with game.sceneProps() from their first
     // start(). `factoria run --props` sets it. Like scene.load(path, {props}), a reload keeps them.
     Json sceneProps;
-    bool headless = false;         // no window; offscreen GPU (HeadlessGpu)
-    bool graphics = true;          // false = no GPU at all (pure logic tests); renderer() == nullptr
+    bool headless = false;  // no window; offscreen GPU (HeadlessGpu)
+    bool graphics = true;   // false = no GPU at all (pure logic tests); renderer() == nullptr
     // The graphics context was opened before init by Renderer::open_context (run_windowed does, so the window shows a first
     // frame before the game's files are read): the renderer uses it instead of opening one. Ignored without a window.
     bool adoptGraphicsContext = false;
-    bool audioDevice = true;       // false = null audio device (always false when headless)
-    int width = 0, height = 0;     // override design resolution (0 = project)
-    std::uint64_t seed = 1;        // world RNG seed
+    bool audioDevice = true;    // false = null audio device (always false when headless)
+    int width = 0, height = 0;  // override design resolution (0 = project)
+    std::uint64_t seed = 1;     // world RNG seed
     // Worker threads of the job system (fa/core/jobs.h): "auto", "inline" or a number 0..32; "" = the FA_JOB_THREADS
     // environment variable, else factoria.json runtime.jobThreads, else "auto". The first engine of a process starts the
     // pool with it; an engine started while another runs shares that pool (jobs.info says what runs). A bad value makes
@@ -84,7 +84,8 @@ struct EngineConfig {
     // Show the touch interface on a desktop: touch-only controls (TouchStick, TouchButton) are drawn and Input::last_device()
     // says touch (`factoria run --touch`). Same setting as the ui.force_touch command and game.screenshot {forceTouch}.
     bool forceTouch = false;
-    int dateUtcOffsetMinutes = 0;  // the player's offset from UTC in minutes (utcOffsetMinutes of game.today()); 0 for a fixed date
+    int dateUtcOffsetMinutes =
+        0;  // the player's offset from UTC in minutes (utcOffsetMinutes of game.today()); 0 for a fixed date
     // Windowed runs only (run_windowed / make_app_desc): draw this many frames, then close the window; the exit code is 1 when
     // a script recorded an error by then. For smoke-testing an exported game (factoria_player --frames N). 0 = run until closed.
     int maxFrames = 0;
@@ -100,12 +101,12 @@ struct EngineConfig {
     // player is older than the game's engine (ScriptSystem::set_exported_player). `factoria test` / `run` / `mcp` and the
     // editor leave it false: engine and player are one binary there.
     bool exportedPlayer = false;
-    bool hotReload = true;         // watch scripts/scenes/assets (desktop, not headless)
+    bool hotReload = true;  // watch scripts/scenes/assets (desktop, not headless)
     // Watch only the files that are replaced in place (materials, shader snippets, textures, fonts, models, audio clips and songs:
     // a song reloads in the MusicPlayers that play it) and leave scripts, scenes and locales alone. For hosts that manage those themselves (the editor). Ignored when
     // hotReload is on, which already watches everything.
     bool hotReloadAssets = false;
-    bool editorMode = false;       // editor drives the loop; game starts paused
+    bool editorMode = false;  // editor drives the loop; game starts paused
     RenderMode renderMode = RenderMode::Always;
     // Isolate script storage (the `storage` module) in memory: nothing is read from or written to disk. Headless
     // runs and tests set this so runs do not leak state into each other (needs ScriptSystem::set_storage_mode).
@@ -210,7 +211,8 @@ public:
     bool screenshot_scaled(std::string_view path, double scale, std::string* error) override;
     // Same, with the colour-vision simulation `simulate` ("", "none", "greyscale", "protanopia", "deuteranopia",
     // "tritanopia") applied to the saved pixels on the CPU. What the game draws is not changed.
-    bool screenshot_simulated(std::string_view path, double scale, std::string_view simulate, std::string* error) override;
+    bool screenshot_simulated(std::string_view path, double scale, std::string_view simulate,
+                              std::string* error) override;
     // The picture now at the held render scale as pixels (ScriptHost::capture_frame: render.captureTexture).
     bool capture_frame(Image& out, std::string* error) override;
     // The same picture as screenshot_scaled, as pixels (row 0 = top).
@@ -224,9 +226,9 @@ public:
     // The checks of capture_region on their own, for the arguments of a command: `region` clamped to a view of
     // `viewSize` design pixels, and the size in pixels of the result. `error` is empty when the request is valid.
     struct RegionPlan {
-        std::string error;            // what is wrong and how to fix it; empty = valid
+        std::string error;                      // what is wrong and how to fix it; empty = valid
         double x0 = 0, y0 = 0, x1 = 0, y1 = 0;  // the clamped region in design pixels
-        int width = 0, height = 0;    // the size of the result
+        int width = 0, height = 0;              // the size of the result
     };
     static RegionPlan plan_region(Vec2 viewSize, const Rect& region, double zoom);
     // Keeps the render scale at `scale` between captures (a video draws every frame at one scale; without it each
@@ -276,18 +278,20 @@ public:
     void step_frames(int n) override;
     // Forces the touch interface on or off (Input::set_force_touch) and shows the touch-only controls at once, without a step.
     void set_force_touch(bool on);
-    void set_text_scale(float scale) override;  // also the renderer's
-    void set_ui_scale(float scale) override;    // also the renderer's (text measuring)
+    void set_text_scale(float scale) override;    // also the renderer's
+    void set_ui_scale(float scale) override;      // also the renderer's (text measuring)
     bool default_ui_mirror_rtl() const override;  // the ui.mirrorRtl of factoria.json
-    float default_ui_scale() const override;    // the ui.scale of factoria.json
-    double render_scale() const override;       // window.renderScale: the held render scale
+    float default_ui_scale() const override;      // the ui.scale of factoria.json
+    double render_scale() const override;         // window.renderScale: the held render scale
     std::string set_render_scale(double scale) override;
-    void device_overridden(const Json& device) override;  // game.setDevice: a MusicPlayer in "auto" follows the pretended device
-    Json device_info() const override;          // a game window reports the real device; headless runs the fixed values
+    void device_overridden(
+        const Json& device) override;   // game.setDevice: a MusicPlayer in "auto" follows the pretended device
+    Json device_info() const override;  // a game window reports the real device; headless runs the fixed values
     Json render_stats_now() override;
     std::string load_scene_now(std::string_view scenePath) override;
     std::string load_scene_now_with_props(std::string_view scenePath, const Json& props) override;
-    std::string load_scene_json_now_with_props(const Json& scene, std::string_view sourceName, const Json& props) override;
+    std::string load_scene_json_now_with_props(const Json& scene, std::string_view sourceName,
+                                               const Json& props) override;
     std::string load_scene_json_now(const Json& scene, std::string_view sourceName) override;
 
     ScriptSystem& scripts();
@@ -365,13 +369,15 @@ int run_windowed(const EngineConfig& config);
 // drawCalls, entities, triangles, lights and textureMB (max over the run), graphics (the GPU in use or "none")}}.
 struct HeadlessRunOptions {
     int frames = 60;
-    std::string inputReplayPath;          // optional
-    std::vector<int> screenshotFrames;    // frame indices to capture
+    std::string inputReplayPath;        // optional
+    std::vector<int> screenshotFrames;  // frame indices to capture
     std::string screenshotPattern = ".factoria/screenshots/frame_{frame}.png";
-    std::string screenshotSimulate;       // "" / none, greyscale, protanopia, deuteranopia, tritanopia: screenshots (not the video) are converted to what a colour-blind viewer sees
-    double renderScale = 1.0;             // screenshots are design size * this (0.25 .. 4), drawn natively: 1.5 on 1280x720 = 1920x1080
-    std::string stateOutPath;             // optional JSON state dump at the end
-    std::string audioOutPath;             // optional WAV recording
+    std::string
+        screenshotSimulate;  // "" / none, greyscale, protanopia, deuteranopia, tritanopia: screenshots (not the video) are converted to what a colour-blind viewer sees
+    double renderScale =
+        1.0;  // screenshots are design size * this (0.25 .. 4), drawn natively: 1.5 on 1280x720 = 1920x1080
+    std::string stateOutPath;  // optional JSON state dump at the end
+    std::string audioOutPath;  // optional WAV recording
     // Video of the run: every frame is drawn (at renderScale) and written to a .avi (Motion-JPEG, plus the PCM audio of
     // the run when it is not silent) at the project's fixedHz frames per second. A .mp4 (H.264 + AAC) is made by
     // ffmpeg from that, so it needs `ffmpegPath` (the CLI looks it up); without it a .mp4 request fails before the run.

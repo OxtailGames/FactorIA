@@ -34,14 +34,17 @@ struct Extent {
 
 }  // namespace
 
-ModelVertexColorReport model_apply_vertex_colors(ModelMesh& mesh, const std::vector<std::string>& partNames, const ModelVertexColors& settings,
+ModelVertexColorReport model_apply_vertex_colors(ModelMesh& mesh, const std::vector<std::string>& partNames,
+                                                 const ModelVertexColors& settings,
                                                  const std::vector<Vec4>& stylePalette) {
     ModelVertexColorReport rep;
     rep.verticesBefore = rep.verticesAfter = mesh.vertex_count();
     const std::vector<Vec4>& palette = settings.style ? stylePalette : settings.palette;
     rep.paletteSize = palette.size();
     if (settings.style && stylePalette.empty())
-        rep.warnings.push_back("vertexColors.palette is \"style\" but the project's style guide has no palette (assets.json style.palette): colours are used as written. Run `style.set` with a palette, or list the colours here.");
+        rep.warnings.push_back(
+            "vertexColors.palette is \"style\" but the project's style guide has no palette (assets.json "
+            "style.palette): colours are used as written. Run `style.set` with a palette, or list the colours here.");
 
     auto part_name = [&](std::uint32_t group) -> const std::string& {
         static const std::string none;
@@ -61,11 +64,14 @@ ModelVertexColorReport model_apply_vertex_colors(ModelMesh& mesh, const std::vec
                 std::vector<std::string> named;
                 for (const std::string& p : present)
                     if (!p.empty()) named.push_back(p);
-                rep.warnings.push_back(std::format("vertexColors.parts names \"{}\", which no node makes: it has no effect. {}", n, named.empty() ? "No node names a part (set `part` on a node)." : did_you_mean(n, named)));
+                rep.warnings.push_back(std::format(
+                    "vertexColors.parts names \"{}\", which no node makes: it has no effect. {}", n,
+                    named.empty() ? "No node names a part (set `part` on a node)." : did_you_mean(n, named)));
             }
     }
     bool anyWork = settings.color.has_value() || settings.variation > 0;
-    for (const auto& [n, pc] : settings.parts) anyWork = anyWork || pc.color || pc.gradient || (pc.variation && *pc.variation > 0);
+    for (const auto& [n, pc] : settings.parts)
+        anyWork = anyWork || pc.color || pc.gradient || (pc.variation && *pc.variation > 0);
     if (!anyWork || mesh.empty()) return rep;
 
     auto resolve = [&](const ModelColorRef& c) -> Vec4 {
@@ -169,7 +175,8 @@ ModelVertexColorReport model_apply_vertex_colors(ModelMesh& mesh, const std::vec
     };
     auto finish_color = [&](Vec4 base, Vec4 spec, float variation, float j) {
         const float f = 1.0f + j * variation;
-        return Vec4{std::clamp(base.x * spec.x * f, 0.0f, 1.0f), std::clamp(base.y * spec.y * f, 0.0f, 1.0f), std::clamp(base.z * spec.z * f, 0.0f, 1.0f), std::clamp(base.w * spec.w, 0.0f, 1.0f)};
+        return Vec4{std::clamp(base.x * spec.x * f, 0.0f, 1.0f), std::clamp(base.y * spec.y * f, 0.0f, 1.0f),
+                    std::clamp(base.z * spec.z * f, 0.0f, 1.0f), std::clamp(base.w * spec.w, 0.0f, 1.0f)};
     };
     for (std::size_t t = 0; t < mesh.triangle_count(); ++t) {
         const std::uint32_t group = mesh.triParts[t];
@@ -177,7 +184,9 @@ ModelVertexColorReport model_apply_vertex_colors(ModelMesh& mesh, const std::vec
         const float variation = variation_of(name);
         bool has = false;
         if (settings.flat) {
-            const Vec3 centre = (mesh.positions[mesh.indices[t * 3]] + mesh.positions[mesh.indices[t * 3 + 1]] + mesh.positions[mesh.indices[t * 3 + 2]]) / 3.0f;
+            const Vec3 centre = (mesh.positions[mesh.indices[t * 3]] + mesh.positions[mesh.indices[t * 3 + 1]] +
+                                 mesh.positions[mesh.indices[t * 3 + 2]]) /
+                                3.0f;
             const Vec4 spec = spec_color(name, centre, has);
             if (has) ++rep.coloredTriangles;
             const float j = variation > 0 ? hash_signed(settings.seed, t) : 0.0f;
@@ -195,7 +204,8 @@ ModelVertexColorReport model_apply_vertex_colors(ModelMesh& mesh, const std::vec
                 if (it == remap.end()) {
                     const Vec4 spec = spec_color(name, mesh.positions[old], has);
                     anyHas = anyHas || has;
-                    const float j = variation > 0 ? hash_signed(settings.seed, (std::uint64_t(old) << 20) ^ group) : 0.0f;
+                    const float j =
+                        variation > 0 ? hash_signed(settings.seed, (std::uint64_t(old) << 20) ^ group) : 0.0f;
                     const Vec4 base = hadColors ? mesh.colors[old] : Vec4{1, 1, 1, 1};
                     it = remap.emplace(key, push_vertex(old, finish_color(base, spec, variation, j))).first;
                 } else

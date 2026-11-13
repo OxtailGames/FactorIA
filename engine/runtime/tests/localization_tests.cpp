@@ -57,7 +57,8 @@ const char* kScene = R"({
   ]
 })";
 
-const char* kEn = R"({ "$name": "English", "menu": { "title": "My Game", "play": "Play", "music": "Music" }, "only_en": "Only English" })";
+const char* kEn =
+    R"({ "$name": "English", "menu": { "title": "My Game", "play": "Play", "music": "Music" }, "only_en": "Only English" })";
 const char* kEs = R"({ "$name": "Español", "menu": { "title": "Mi juego", "play": "Jugar", "music": "Música" } })";
 const char* kPt = R"json({ "$name": "Português (Brasil)", "menu": { "title": "Meu jogo", "play": "Jogar" } })json";
 
@@ -65,7 +66,8 @@ struct Game {
     stdfs::path dir;
     Engine engine;
 
-    explicit Game(const std::string& name, const char* project = kProject, EngineConfig cfg = {}, bool tables = true, bool hot = false) {
+    explicit Game(const std::string& name, const char* project = kProject, EngineConfig cfg = {}, bool tables = true,
+                  bool hot = false) {
         dir = fs::make_temp_dir("fa_loc_test_" + name).value();
         write("factoria.json", project);
         write("scenes/main.scene.json", kScene);
@@ -111,15 +113,19 @@ TEST_CASE("project: the \"localization\" section is read, and every mistake has 
     CHECK(ok.settings.enabled());
     CHECK(ok.settings.languages == std::vector<std::string>{"en", "zh-Hans", "ja"});
     // The language's own fonts first, then the common ones.
-    CHECK(ok.settings.fallback_fonts_for("ja") == std::vector<std::string>{"assets/fonts/NotoSansJP.ttf", "assets/fonts/NotoSans.ttf"});
-    CHECK(ok.settings.fallback_fonts_for("zh-Hans") == std::vector<std::string>{"assets/fonts/NotoSansSC.ttf", "assets/fonts/NotoSans.ttf"});
+    CHECK(ok.settings.fallback_fonts_for("ja") ==
+          std::vector<std::string>{"assets/fonts/NotoSansJP.ttf", "assets/fonts/NotoSans.ttf"});
+    CHECK(ok.settings.fallback_fonts_for("zh-Hans") ==
+          std::vector<std::string>{"assets/fonts/NotoSansSC.ttf", "assets/fonts/NotoSans.ttf"});
     CHECK(ok.settings.fallback_fonts_for("en") == std::vector<std::string>{"assets/fonts/NotoSans.ttf"});
 
     CHECK_FALSE(parse_localization(Json()).settings.enabled());  // no section: localization is off
-    const LocalizationParse single = parse_localization(Json::parse(R"({"defaultLanguage":"fr"})"));  // one language is enough
+    const LocalizationParse single =
+        parse_localization(Json::parse(R"({"defaultLanguage":"fr"})"));  // one language is enough
     REQUIRE(single.ok());
     CHECK(single.settings.languages == std::vector<std::string>{"fr"});
-    CHECK(parse_localization(Json::parse(R"({"languages":["de","en"]})")).settings.defaultLanguage == "de");  // first by default
+    CHECK(parse_localization(Json::parse(R"({"languages":["de","en"]})")).settings.defaultLanguage ==
+          "de");  // first by default
 
     struct Case {
         const char* section;
@@ -133,11 +139,16 @@ TEST_CASE("project: the \"localization\" section is read, and every mistake has 
         {R"({"languages":["en","es","en"]})", "/localization/languages/2", "listed twice"},
         {R"({"languages":["en","pt_br"]})", "/localization/languages/1", "Did you mean \"pt-BR\""},
         {R"({"languages":["en",7]})", "/localization/languages/1", "expected a language tag"},
-        {R"({"defaultLanguage":"fr","languages":["en","es"]})", "/localization/defaultLanguage", "not one of \"languages\""},
-        {R"({"languages":["en"],"fallbackFonts":"a.ttf"})", "/localization/fallbackFonts", "expected an array of font paths"},
-        {R"({"languages":["en"],"fallbackFonts":["a.ttf",""]})", "/localization/fallbackFonts/1", "path of a font file"},
-        {R"({"languages":["en"],"fallbackFonts":["C:/Windows/Fonts/a.ttf"]})", "/localization/fallbackFonts/0", "not a path inside the project"},
-        {R"({"languages":["en","es"],"languageFonts":{"fr":["a.ttf"]}})", "/localization/languageFonts/fr", "not one of \"languages\""},
+        {R"({"defaultLanguage":"fr","languages":["en","es"]})", "/localization/defaultLanguage",
+         "not one of \"languages\""},
+        {R"({"languages":["en"],"fallbackFonts":"a.ttf"})", "/localization/fallbackFonts",
+         "expected an array of font paths"},
+        {R"({"languages":["en"],"fallbackFonts":["a.ttf",""]})", "/localization/fallbackFonts/1",
+         "path of a font file"},
+        {R"({"languages":["en"],"fallbackFonts":["C:/Windows/Fonts/a.ttf"]})", "/localization/fallbackFonts/0",
+         "not a path inside the project"},
+        {R"({"languages":["en","es"],"languageFonts":{"fr":["a.ttf"]}})", "/localization/languageFonts/fr",
+         "not one of \"languages\""},
         {R"({"languages":["en"],"languageFonts":[]})", "/localization/languageFonts", "expected an object"},
     };
     for (const Case& c : bad) {
@@ -169,7 +180,8 @@ TEST_CASE("project: load_project reads the localization section, reports the fir
     CHECK(again->localization.languages == loaded->localization.languages);
 
     REQUIRE(fs::write_text((dir / "factoria.json").generic_string(),
-                           R"({"name":"x","localization":{"languages":["en","es","en"],"fallbackFonts":"a.ttf"}})").ok());
+                           R"({"name":"x","localization":{"languages":["en","es","en"],"fallbackFonts":"a.ttf"}})")
+                .ok());
     auto bad = load_project(dir.generic_string());
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().message.find("/localization/languages/2") != std::string::npos);
@@ -182,21 +194,28 @@ TEST_CASE("project: load_project reads the localization section, reports the fir
     stdfs::remove_all(dir, ec);
 }
 
-TEST_CASE("choose_start_language: the override beats the environment, which beats the system, which beats the default") {
+TEST_CASE(
+    "choose_start_language: the override beats the environment, which beats the system, which beats the default") {
     I18n i18n;
     i18n.configure("en", {"en", "es", "pt-BR"});
     const std::vector<std::string> system = {"pt-PT", "es-MX"};
     std::vector<std::string> problems;
 
-    CHECK(choose_start_language(i18n, "", "", false, system, &problems) == "en");  // headless: always the default language
-    CHECK(choose_start_language(i18n, "", "", true, system, &problems) == "pt-BR");  // best match of the system languages
-    CHECK(choose_start_language(i18n, "", "es", true, system, &problems) == "es");   // FA_LANGUAGE
-    CHECK(choose_start_language(i18n, "pt_br", "es", true, system, &problems) == "pt-BR");  // EngineConfig::language, loosely written
-    CHECK(choose_start_language(i18n, "", "es", false, system, &problems) == "es");  // the environment also reaches a headless run
-    CHECK(choose_start_language(i18n, "", "", true, {"fr-FR", "de"}, &problems) == "en");  // nothing matches: the default
+    CHECK(choose_start_language(i18n, "", "", false, system, &problems) ==
+          "en");  // headless: always the default language
+    CHECK(choose_start_language(i18n, "", "", true, system, &problems) ==
+          "pt-BR");  // best match of the system languages
+    CHECK(choose_start_language(i18n, "", "es", true, system, &problems) == "es");  // FA_LANGUAGE
+    CHECK(choose_start_language(i18n, "pt_br", "es", true, system, &problems) ==
+          "pt-BR");  // EngineConfig::language, loosely written
+    CHECK(choose_start_language(i18n, "", "es", false, system, &problems) ==
+          "es");  // the environment also reaches a headless run
+    CHECK(choose_start_language(i18n, "", "", true, {"fr-FR", "de"}, &problems) ==
+          "en");  // nothing matches: the default
     CHECK(problems.empty());
 
-    CHECK(choose_start_language(i18n, "", "klingon", true, system, &problems) == "pt-BR");  // a wrong override is ignored, with a reason
+    CHECK(choose_start_language(i18n, "", "klingon", true, system, &problems) ==
+          "pt-BR");  // a wrong override is ignored, with a reason
     REQUIRE(problems.size() == 1);
     CHECK(problems[0].find("FA_LANGUAGE") != std::string::npos);
     CHECK(problems[0].find("klingon") != std::string::npos);
@@ -249,17 +268,21 @@ TEST_CASE("engine: a headless game starts in the default language and translates
     }
 
     SUBCASE("a text a script or a command changed is translated again, a key that is removed leaves the text alone") {
-        g.call("scene.set_component", Json{{"id", "title"}, {"component", "Text"}, {"fields", Json{{"text", "changed"}}}});
+        g.call("scene.set_component",
+               Json{{"id", "title"}, {"component", "Text"}, {"fields", Json{{"text", "changed"}}}});
         e.step(1);
         CHECK(g.text("title") == "My Game");
-        g.call("scene.set_component", Json{{"id", "title"}, {"component", "Text"}, {"fields", Json{{"key", ""}, {"text", "free text"}}}});
+        g.call("scene.set_component",
+               Json{{"id", "title"}, {"component", "Text"}, {"fields", Json{{"key", ""}, {"text", "free text"}}}});
         e.step(1);
         CHECK(g.text("title") == "free text");
     }
 
     SUBCASE("a spawned entity with a key is translated before it is drawn") {
         g.call("i18n.set_language", Json{{"language", "es"}});
-        Json r = g.call("scene.spawn", Json{{"name", "late"}, {"components", Json{{"Button", Json{{"text", "x"}, {"key", "menu.play"}}}}}});
+        Json r =
+            g.call("scene.spawn",
+                   Json{{"name", "late"}, {"components", Json{{"Button", Json{{"text", "x"}, {"key", "menu.play"}}}}}});
         REQUIRE(r.contains("id"));
         e.step(1);
         CHECK(e.world().get<Button>(e.world().find_by_id(r["id"].get<std::string>()))->text == "Jugar");
@@ -302,7 +325,8 @@ TEST_CASE("engine: i18n.state lists the languages, their tables and what each la
 }
 
 TEST_CASE("engine: a game without a \"localization\" section is not localized and says how to turn it on") {
-    Game g("off", R"({"name":"Plain","mainScene":"scenes/main.scene.json","display":{"width":320,"height":180}})", {}, false);
+    Game g("off", R"({"name":"Plain","mainScene":"scenes/main.scene.json","display":{"width":320,"height":180}})", {},
+           false);
     CHECK_FALSE(g.engine.i18n()->enabled());
     CHECK(g.text("title") == "scene text");  // untouched; the missing table is warned about once, not a failure
     Json s = g.call("i18n.state");
@@ -313,7 +337,8 @@ TEST_CASE("engine: a game without a \"localization\" section is not localized an
     CHECK(r["error"]["message"].get<std::string>().find("Localization is off") != std::string::npos);
 }
 
-TEST_CASE("engine: EngineConfig::language and FA_LANGUAGE choose the start language, a wrong one is reported and ignored") {
+TEST_CASE(
+    "engine: EngineConfig::language and FA_LANGUAGE choose the start language, a wrong one is reported and ignored") {
     {
         EngineConfig cfg;
         cfg.language = "es";
@@ -366,8 +391,10 @@ TEST_CASE("engine: editing locales/<language>.json while the game runs reloads t
     Game g("hot", kProject, {}, true, true);
     g.call("i18n.set_language", Json{{"language", "es"}});
     CHECK(g.text("title") == "Mi juego");
-    g.write("locales/es.json", R"({ "$name": "Español", "menu": { "title": "Mi videojuego", "play": "Jugar", "music": "Música" } })");
-    const auto future = stdfs::file_time_type::clock::now() + std::chrono::seconds(10);  // whatever the file system's resolution
+    g.write("locales/es.json",
+            R"({ "$name": "Español", "menu": { "title": "Mi videojuego", "play": "Jugar", "music": "Música" } })");
+    const auto future =
+        stdfs::file_time_type::clock::now() + std::chrono::seconds(10);  // whatever the file system's resolution
     stdfs::last_write_time(g.dir / "locales" / "es.json", future);
     g.engine.step(30);  // the watcher polls four times a second
     CHECK(g.text("title") == "Mi videojuego");
@@ -379,9 +406,11 @@ TEST_CASE("engine: hotReloadAssets (the editor) leaves locales, scenes and scrip
     cfg.hotReloadAssets = true;
     Game g("hot_assets", kProject, cfg, true, false);
     g.call("i18n.set_language", Json{{"language", "es"}});
-    g.write("locales/es.json", R"({ "$name": "Español", "menu": { "title": "Mi videojuego", "play": "Jugar", "music": "Música" } })");
-    stdfs::last_write_time(g.dir / "locales" / "es.json", stdfs::file_time_type::clock::now() + std::chrono::seconds(10));
-    g.engine.step(30);  // the watcher would have polled several times
+    g.write("locales/es.json",
+            R"({ "$name": "Español", "menu": { "title": "Mi videojuego", "play": "Jugar", "music": "Música" } })");
+    stdfs::last_write_time(g.dir / "locales" / "es.json",
+                           stdfs::file_time_type::clock::now() + std::chrono::seconds(10));
+    g.engine.step(30);                     // the watcher would have polled several times
     CHECK(g.text("title") == "Mi juego");  // not reloaded: only materials, snippets, textures, fonts and models are
 }
 
@@ -402,10 +431,12 @@ struct FontGame {
         const stdfs::path to = dir / "assets" / "fonts";
         stdfs::create_directories(to);
         for (const char* font : {"NotoSansJP-Regular-subset.ttf", "NotoSansArabic-Regular-subset.ttf"})
-            stdfs::copy_file(stdfs::path(FA_RENDER_DATA_DIR) / "fonts" / font, to / font, stdfs::copy_options::overwrite_existing);
+            stdfs::copy_file(stdfs::path(FA_RENDER_DATA_DIR) / "fonts" / font, to / font,
+                             stdfs::copy_options::overwrite_existing);
         write("factoria.json", R"({ "format": "factoria.project/1", "name": "Fonts", "id": "com.example.fonts",
             "mainScene": "scenes/main.scene.json", "display": { "width": 320, "height": 180 })" +
-                                   (localization.empty() ? std::string() : ", \"localization\": " + localization) + "}");
+                                   (localization.empty() ? std::string() : ", \"localization\": " + localization) +
+                                   "}");
         write("scenes/main.scene.json", R"({ "format": "factoria.scene/1", "entities": [
             { "id": "cam", "components": { "Camera": {} } },
             { "id": "jp", "components": { "Text": { "text": "日本語", "fontSize": 40, "space": "screen" } } } ] })");
@@ -448,8 +479,11 @@ struct FontGame {
 
 }  // namespace
 
-TEST_CASE("engine: the renderer's fallback fonts follow the language, so a Japanese Text with font \"\" draws only in Japanese") {
-    FontGame g("follow", R"({ "defaultLanguage": "en", "languages": ["en", "ja"], "fallbackFonts": ["assets/fonts/NotoSansArabic-Regular-subset.ttf"],
+TEST_CASE("engine: the renderer's fallback fonts follow the language, so a Japanese Text with font \"\" draws only in "
+          "Japanese") {
+    FontGame g(
+        "follow",
+        R"({ "defaultLanguage": "en", "languages": ["en", "ja"], "fallbackFonts": ["assets/fonts/NotoSansArabic-Regular-subset.ttf"],
                               "languageFonts": { "ja": ["assets/fonts/NotoSansJP-Regular-subset.ttf"] } })");
     // The game starts in English (headless): the common fonts only, so the Japanese characters have no glyph.
     CHECK(g.fonts() == std::vector<std::string>{kArFont});
@@ -473,7 +507,9 @@ TEST_CASE("engine: the renderer's fallback fonts follow the language, so a Japan
 }
 
 TEST_CASE("engine: a game with one language gets its fallback fonts at start, with no language switch") {
-    FontGame g("single", R"({ "defaultLanguage": "ja", "languages": ["ja"], "fallbackFonts": ["assets/fonts/NotoSansJP-Regular-subset.ttf"] })");
+    FontGame g(
+        "single",
+        R"({ "defaultLanguage": "ja", "languages": ["ja"], "fallbackFonts": ["assets/fonts/NotoSansJP-Regular-subset.ttf"] })");
     CHECK(g.fonts() == std::vector<std::string>{kJpFont});
     CHECK(g.ink() > 200);
 }

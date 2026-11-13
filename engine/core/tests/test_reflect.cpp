@@ -29,8 +29,10 @@ const TypeInfo& probe_type() {
         auto& reg = TypeRegistry::global();
         if (!reg.of<Probe>()) {
             reg.add<Probe>("ProbeTest", "A test component.", "Test")
-                .field("speed", &Probe::speed, "Speed in units/s.").range(0, 10)
-                .field("lives", &Probe::lives, "Lives left.").range(0, 9)
+                .field("speed", &Probe::speed, "Speed in units/s.")
+                .range(0, 10)
+                .field("lives", &Probe::lives, "Lives left.")
+                .range(0, 9)
                 .field("alive", &Probe::alive, "Is alive.")
                 .field("label", &Probe::label, "Label text.")
                 .asset_field("icon", &Probe::icon, "texture", "Icon texture.")
@@ -42,8 +44,10 @@ const TypeInfo& probe_type() {
                 .enum_field("mode", &Probe::mode, {"idle", "walk", "run"}, "Movement mode.")
                 .field("target", &Probe::target, "Target entity.")
                 .field("extra", &Probe::extra, "Free-form data.")
-                .field("timer", &Probe::timer, "Runtime timer.").runtime_only()
-                .field("locked", &Probe::locked, "Engine-managed.").read_only();
+                .field("timer", &Probe::timer, "Runtime timer.")
+                .runtime_only()
+                .field("locked", &Probe::locked, "Engine-managed.")
+                .read_only();
         }
         return reg.of<Probe>();
     }();

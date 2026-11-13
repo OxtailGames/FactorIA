@@ -65,7 +65,8 @@ TEST_CASE("joint2d: a revolute pendulum keeps its period") {
     Entity bob = pendulum(s.world, {0, 100}, L, 5.0f);
     // Physical pendulum of a thin box about a pivot d away: T = 2 pi sqrt(I / (m g d)), I = m (d^2 + (w^2 + h^2) / 12).
     const float d = L / 100.0f, w = 0.08f, g = 9.8f;
-    const float period = 2.0f * kPi * std::sqrt((d * d + (w * w + w * w) / 12.0f) / (g * d)) * (1.0f + radians(5.0f) * radians(5.0f) / 16.0f);
+    const float period = 2.0f * kPi * std::sqrt((d * d + (w * w + w * w) / 12.0f) / (g * d)) *
+                         (1.0f + radians(5.0f) * radians(5.0f) / 16.0f);
     // Zero crossings of the horizontal offset, linearly interpolated.
     std::vector<double> crossings;
     float prev = pos(s.world, bob).x - 0.0f;
@@ -73,7 +74,8 @@ TEST_CASE("joint2d: a revolute pendulum keeps its period") {
     for (int i = 1; i <= steps; ++i) {
         s.run(1);
         const float x = pos(s.world, bob).x;
-        if (prev > 0.0f && x <= 0.0f) crossings.push_back((double(i - 1) + double(prev / (prev - x))) * kDt);  // downward through the middle
+        if (prev > 0.0f && x <= 0.0f)
+            crossings.push_back((double(i - 1) + double(prev / (prev - x))) * kDt);  // downward through the middle
         prev = x;
     }
     REQUIRE(crossings.size() >= 4);
@@ -167,13 +169,15 @@ TEST_CASE("joint2d: a weld holds two bodies together") {
     for (int i = 0; i < 5; ++i) {
         s.run(60);
         const Vec3 pa = pos(s.world, a), pb = pos(s.world, b);
-        CHECK(std::sqrt((pb.x - pa.x) * (pb.x - pa.x) + (pb.y - pa.y) * (pb.y - pa.y)) == doctest::Approx(60.0f).epsilon(0.02));
+        CHECK(std::sqrt((pb.x - pa.x) * (pb.x - pa.x) + (pb.y - pa.y) * (pb.y - pa.y)) ==
+              doctest::Approx(60.0f).epsilon(0.02));
         CHECK(rot(s.world, b) - rot(s.world, a) == doctest::Approx(0.0f).epsilon(0.05).scale(10.0));
         // the welded pair turned together: b stays on a's local +x axis
         const float ang = radians(rot(s.world, a));
         CHECK(std::fabs((pb.x - pa.x) * -std::sin(ang) + (pb.y - pa.y) * std::cos(ang)) < 3.0f);
     }
-    CHECK(std::fabs(s.world.get<RigidBody2D>(a)->angularVelocity) > 1.0f);  // it really spun (the rotation itself wraps)
+    CHECK(std::fabs(s.world.get<RigidBody2D>(a)->angularVelocity) >
+          1.0f);  // it really spun (the rotation itself wraps)
     CHECK(std::fabs(s.world.get<Joint2D>(b)->angle) < 3.0f);
 }
 
@@ -189,7 +193,7 @@ TEST_CASE("joint2d: a distance joint keeps its length") {
         const Vec3 p = pos(s.world, ball);
         CHECK(std::sqrt(p.x * p.x + (p.y - 100) * (p.y - 100)) == doctest::Approx(150.0f).epsilon(0.01));
     }
-    CHECK(pos(s.world, ball).y < 99.0f);  // it fell and swings
+    CHECK(pos(s.world, ball).y < 99.0f);                                                      // it fell and swings
     CHECK(s.world.get<Joint2D>(ball)->translation == doctest::Approx(150.0f).epsilon(0.01));  // current length
 }
 
@@ -275,8 +279,10 @@ TEST_CASE("joint2d: collideConnected decides whether the joined bodies collide")
         s.run(60);
         const float x = pos(s.world, b).x;
         INFO("collideConnected " << collide << " x " << x);
-        if (collide) CHECK(std::fabs(x - 20.0f) < 25.0f);  // pushed apart or held: still a valid state, no crash
-        else CHECK(x == doctest::Approx(20.0f).epsilon(0.02));
+        if (collide)
+            CHECK(std::fabs(x - 20.0f) < 25.0f);  // pushed apart or held: still a valid state, no crash
+        else
+            CHECK(x == doctest::Approx(20.0f).epsilon(0.02));
     }
 }
 

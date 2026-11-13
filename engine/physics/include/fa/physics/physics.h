@@ -220,7 +220,9 @@ PhysicsJobThresholds physics_job_thresholds();
 void set_physics_job_thresholds(const PhysicsJobThresholds& t);
 class ScopedPhysicsJobThresholds {
 public:
-    explicit ScopedPhysicsJobThresholds(const PhysicsJobThresholds& t) : old_(physics_job_thresholds()) { set_physics_job_thresholds(t); }
+    explicit ScopedPhysicsJobThresholds(const PhysicsJobThresholds& t) : old_(physics_job_thresholds()) {
+        set_physics_job_thresholds(t);
+    }
     ~ScopedPhysicsJobThresholds() { set_physics_job_thresholds(old_); }
     ScopedPhysicsJobThresholds(const ScopedPhysicsJobThresholds&) = delete;
     ScopedPhysicsJobThresholds& operator=(const ScopedPhysicsJobThresholds&) = delete;
@@ -268,11 +270,11 @@ Result<CastShape> cast_shape_from_json(const Json& j, bool is3d);
 
 // Result of Physics::move_character: where the character ended up and what it stands on.
 struct CharacterMoveResult {
-    Vec3 position;        // entity world position after the move
-    Vec3 moved;           // the displacement actually done
+    Vec3 position;  // entity world position after the move
+    Vec3 moved;     // the displacement actually done
     bool isGrounded = false;
     Vec3 groundNormal{0, 1, 0};
-    Entity ground;        // entity under the feet (null when airborne)
+    Entity ground;            // entity under the feet (null when airborne)
     bool hitWall = false;     // slid along a wall or a slope too steep to climb
     bool hitCeiling = false;  // bumped its head
 };
@@ -280,10 +282,10 @@ struct CharacterMoveResult {
 // A dynamic 3D body that starts inside a static collider (Physics::start_overlaps3d, the first step's warning and
 // `factoria validate`).
 struct StartOverlap {
-    Entity body;           // the dynamic body
-    Entity collider;       // the static collider it overlaps
-    float depth = 0.0f;    // how far it is inside, meters
-    std::string message;   // one teaching sentence naming both entities, the depth and the fix
+    Entity body;          // the dynamic body
+    Entity collider;      // the static collider it overlaps
+    float depth = 0.0f;   // how far it is inside, meters
+    std::string message;  // one teaching sentence naming both entities, the depth and the fix
 };
 
 class Physics {

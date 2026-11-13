@@ -40,20 +40,20 @@ inline constexpr int kAndroidKeyButton1 = 188, kAndroidKeyButton16 = 203;  // BU
 // The axes of one joystick motion event (AMotionEvent_getAxisValue), each read by its Android name. Sticks run -1..1
 // with +Y DOWN, triggers 0..1, hats -1/0/1.
 struct AndroidMotionAxes {
-    float x = 0, y = 0;            // AXIS_X, AXIS_Y: left stick
-    float z = 0, rz = 0;           // AXIS_Z, AXIS_RZ: right stick on most pads
-    float rx = 0, ry = 0;          // AXIS_RX, AXIS_RY: right stick on the others
-    float hatX = 0, hatY = 0;      // AXIS_HAT_X, AXIS_HAT_Y: the D-pad (-1 left/up, 1 right/down)
+    float x = 0, y = 0;                // AXIS_X, AXIS_Y: left stick
+    float z = 0, rz = 0;               // AXIS_Z, AXIS_RZ: right stick on most pads
+    float rx = 0, ry = 0;              // AXIS_RX, AXIS_RY: right stick on the others
+    float hatX = 0, hatY = 0;          // AXIS_HAT_X, AXIS_HAT_Y: the D-pad (-1 left/up, 1 right/down)
     float ltrigger = 0, rtrigger = 0;  // AXIS_LTRIGGER, AXIS_RTRIGGER
-    float brake = 0, gas = 0;      // AXIS_BRAKE, AXIS_GAS: the triggers of the pads that use these names
+    float brake = 0, gas = 0;          // AXIS_BRAKE, AXIS_GAS: the triggers of the pads that use these names
 };
 
 // Which motion axes an input device reports: whether InputDevice.getMotionRange(axis) is non-null for each of them.
 struct AndroidAxisCaps {
-    bool z = false, rz = false;              // AXIS_Z, AXIS_RZ
-    bool rx = false, ry = false;             // AXIS_RX, AXIS_RY
-    bool ltrigger = false, rtrigger = false; // AXIS_LTRIGGER, AXIS_RTRIGGER
-    bool brake = false, gas = false;         // AXIS_BRAKE, AXIS_GAS
+    bool z = false, rz = false;               // AXIS_Z, AXIS_RZ
+    bool rx = false, ry = false;              // AXIS_RX, AXIS_RY
+    bool ltrigger = false, rtrigger = false;  // AXIS_LTRIGGER, AXIS_RTRIGGER
+    bool brake = false, gas = false;          // AXIS_BRAKE, AXIS_GAS
 };
 
 // Where a pad's right stick is.
@@ -116,7 +116,7 @@ public:
     int device_id(int slot) const;      // the Android device id of the pad in the slot, or -1
     bool needs_layout(int slot) const;  // a pad is there and nobody has called set_layout() for it yet
     bool any_needs_layout() const;
-    int pad_count() const;              // slots in use
+    int pad_count() const;  // slots in use
     GamepadState state(int slot) const;
 
 private:
@@ -134,7 +134,8 @@ private:
         bool motionSeen = false;                                // at least one motion event: `axes` is real
         AndroidMotionAxes axes;
     };
-    Pad& pad_for(int deviceId);  // the pad of a device; a new device takes the first free slot or the longest silent one
+    Pad&
+    pad_for(int deviceId);  // the pad of a device; a new device takes the first free slot or the longest silent one
     Pad* find(int deviceId);
 
     std::array<Pad, kMaxGamepads> pads_;

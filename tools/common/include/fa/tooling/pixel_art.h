@@ -33,7 +33,8 @@ struct PixelPoint {
 // ---- the text form of indices -----------------------------------------------------------------------------------------------
 
 // The character that stands for palette index i in the rows of an indexed layer: 0-9, a-z, A-Z, then !#$%&*+-/:;<=>?@^_~ (81).
-inline constexpr std::string_view kPixelIndexChars = "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!#$%&*+-/:;<=>?@^_~";
+inline constexpr std::string_view kPixelIndexChars =
+    "0123456789abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ!#$%&*+-/:;<=>?@^_~";
 inline constexpr int kMaxIndexedColours = 81;
 inline constexpr char kPixelTransparentChar = '.';
 // The character of an index (-1 = transparent = '.'), or '?' when the index has none.
@@ -45,7 +46,7 @@ int pixel_char_index(char c);
 
 struct PixelPalette {
     struct Entry {
-        std::string name;                 // "" = unnamed
+        std::string name;  // "" = unnamed
         std::array<std::uint8_t, 3> rgb{};
     };
     std::vector<Entry> entries;
@@ -57,7 +58,7 @@ struct PixelPalette {
     // "name" when it has one, else "#rrggbb".
     std::string label(int index) const;
     std::string hex(int index) const;
-    std::optional<int> find_name(std::string_view name) const;     // exact, then ignoring case
+    std::optional<int> find_name(std::string_view name) const;  // exact, then ignoring case
     std::optional<int> find_rgb(std::uint8_t r, std::uint8_t g, std::uint8_t b) const;
     // The palette colour nearest to (r, g, b) by Euclidean distance in OKLab; a tie takes the earlier entry. Needs a non-empty palette.
     int nearest(std::uint8_t r, std::uint8_t g, std::uint8_t b) const;
@@ -79,12 +80,14 @@ Result<int> pixel_palette_find(const PixelPalette& palette, const Json& ref, boo
 
 struct IndexGrid {
     int w = 0, h = 0;
-    std::vector<int> v;   // row by row; -1 = transparent, 0.. = palette index
+    std::vector<int> v;  // row by row; -1 = transparent, 0.. = palette index
     IndexGrid() = default;
     IndexGrid(int width, int height) : w(width), h(height), v(std::size_t(width) * height, -1) {}
     bool inside(int x, int y) const { return x >= 0 && y >= 0 && x < w && y < h; }
-    int at(int x, int y) const { return inside(x, y) ? v[std::size_t(y) * w + x] : -2; }   // -2 = outside
-    void set(int x, int y, int index) { if (inside(x, y)) v[std::size_t(y) * w + x] = index; }
+    int at(int x, int y) const { return inside(x, y) ? v[std::size_t(y) * w + x] : -2; }  // -2 = outside
+    void set(int x, int y, int index) {
+        if (inside(x, y)) v[std::size_t(y) * w + x] = index;
+    }
 };
 // The text rows of a grid ('.' = transparent). Every index must be below kMaxIndexedColours.
 std::vector<std::string> index_grid_rows(const IndexGrid& grid);
@@ -134,32 +137,38 @@ int pixel_bayer(int n, int x, int y);
 
 struct PixelOutline {
     enum class Colour {
-        Flat,         // `color`
+        Flat,  // `color`
         RampDarkest,  // the darkest colour of the ramp of the fill colour it touches (a colour in no ramp: the darkest derived one)
-        Selective     // sel-out: the fill colour it touches, `shade` steps darker; `litShade` on the side facing the light
+        Selective  // sel-out: the fill colour it touches, `shade` steps darker; `litShade` on the side facing the light
     };
-    bool inner = false;           // false: outside the shape, on transparent pixels next to it. true: the shape's own edge pixels
-    bool eightConnected = false;  // false: pixels touching by an edge count as next to each other (a thin outline); true: corners too
+    bool inner =
+        false;  // false: outside the shape, on transparent pixels next to it. true: the shape's own edge pixels
+    bool eightConnected =
+        false;  // false: pixels touching by an edge count as next to each other (a thin outline); true: corners too
     Colour colour = Colour::Flat;
-    int color = 0;                // Flat: the palette index
-    int shade = 2;                // Selective: steps darker on the shadow side
-    int litShade = 1;             // Selective: steps darker on the side facing the light (needs `light`)
+    int color = 0;     // Flat: the palette index
+    int shade = 2;     // Selective: steps darker on the shadow side
+    int litShade = 1;  // Selective: steps darker on the side facing the light (needs `light`)
     bool hasLight = false;
     double lightDegrees = 135;
 };
 // Outlines the shape (every pixel that is not transparent). Returns the pixels it changed.
-int pixel_outline(IndexGrid& grid, const PixelPalette& palette, const PixelOutline& options, const PixelMask& mask = {});
+int pixel_outline(IndexGrid& grid, const PixelPalette& palette, const PixelOutline& options,
+                  const PixelMask& mask = {});
 
 // -- shading
 
 struct PixelShade {
     double lightDegrees = 135;
-    int shadowWidth = 2;      // pixels per shadow band, measured along the light's axis from the edge facing away from the light
-    int shadowLevels = 1;     // bands: the one at the edge is `shadowLevels` steps darker, the next one less
+    int shadowWidth =
+        2;  // pixels per shadow band, measured along the light's axis from the edge facing away from the light
+    int shadowLevels = 1;  // bands: the one at the edge is `shadowLevels` steps darker, the next one less
     int highlightWidth = 1;
     int highlightLevels = 1;  // 0 = no highlight
-    int dither = 0;           // pixels of dithered transition at the inner edge of each band (0 = hard bands, at most the band width)
-    PixelPoint origin{0, 0};  // canvas position of the grid's top-left pixel (the dither pattern lines up with the canvas)
+    int dither =
+        0;  // pixels of dithered transition at the inner edge of each band (0 = hard bands, at most the band width)
+    PixelPoint origin{0,
+                      0};  // canvas position of the grid's top-left pixel (the dither pattern lines up with the canvas)
 };
 // Shades the shape (the non-transparent pixels in `mask`): the colour of each pixel steps along its ramp (PixelPalette::step). Returns
 // the pixels changed.
@@ -172,27 +181,31 @@ enum class DitherPattern { Checker, Bayer2, Bayer4, Bayer8 };
 // `level` 0..1 is the share of b. Bayer2 has 5 levels, Bayer4 17, Bayer8 65; Checker is a and b alternating (anything between a quarter and
 // three quarters), or one colour alone.
 // `origin` is the canvas position of the grid's top-left pixel, so the pattern lines up with the canvas, not with the layer.
-int pixel_dither_blend(IndexGrid& grid, int a, int b, double level, DitherPattern pattern, const PixelMask& mask = {}, bool onlyFilled = false,
-                       PixelPoint origin = {0, 0});
+int pixel_dither_blend(IndexGrid& grid, int a, int b, double level, DitherPattern pattern, const PixelMask& mask = {},
+                       bool onlyFilled = false, PixelPoint origin = {0, 0});
 // A gradient through `colors` (two or more palette indices, evenly spaced) along the line from `from` to `to`, dithered between
 // neighbouring colours; pixels before `from` take the first colour, after `to` the last.
-int pixel_dither_gradient(IndexGrid& grid, const std::vector<int>& colors, PixelPoint from, PixelPoint to, DitherPattern pattern, const PixelMask& mask = {},
-                          bool onlyFilled = false, PixelPoint origin = {0, 0});
+int pixel_dither_gradient(IndexGrid& grid, const std::vector<int>& colors, PixelPoint from, PixelPoint to,
+                          DitherPattern pattern, const PixelMask& mask = {}, bool onlyFilled = false,
+                          PixelPoint origin = {0, 0});
 
 // -- clean-up
 
 struct PixelCleanup {
-    bool orphans = true;           // a pixel with no neighbour of its colour takes the commonest opaque colour around it (none: it is removed)
-    bool doubles = true;           // the corner pixel of a one-pixel line where it bends in an L (two pixels thick at the bend) is removed
-    bool jaggies = true;           // a nearly straight one-pixel line with uneven steps is redrawn as an even one
-    bool holes = false;            // orphans: a transparent pixel with no transparent neighbour is filled too
-    bool eightConnected = true;    // orphans: a diagonal neighbour of the same colour keeps a pixel
-    double tolerance = 1.0;        // jaggies: the most a line may stray from the straight line between its ends (pixels) to be redrawn
-    std::vector<int> keep;         // palette indices the clean-up never touches (a one-pixel highlight on purpose)
+    bool orphans =
+        true;  // a pixel with no neighbour of its colour takes the commonest opaque colour around it (none: it is removed)
+    bool doubles =
+        true;  // the corner pixel of a one-pixel line where it bends in an L (two pixels thick at the bend) is removed
+    bool jaggies = true;         // a nearly straight one-pixel line with uneven steps is redrawn as an even one
+    bool holes = false;          // orphans: a transparent pixel with no transparent neighbour is filled too
+    bool eightConnected = true;  // orphans: a diagonal neighbour of the same colour keeps a pixel
+    double tolerance =
+        1.0;  // jaggies: the most a line may stray from the straight line between its ends (pixels) to be redrawn
+    std::vector<int> keep;  // palette indices the clean-up never touches (a one-pixel highlight on purpose)
 };
 struct PixelCleanupReport {
-    int orphans = 0, doubles = 0, jaggies = 0;     // pixels changed by each pass
-    std::vector<PixelPoint> changed;               // every pixel that changed, row by row
+    int orphans = 0, doubles = 0, jaggies = 0;  // pixels changed by each pass
+    std::vector<PixelPoint> changed;            // every pixel that changed, row by row
 };
 PixelCleanupReport pixel_cleanup(IndexGrid& grid, const PixelCleanup& options, const PixelMask& mask = {});
 
@@ -205,7 +218,7 @@ IndexGrid pixel_scale3x(const IndexGrid& grid);
 
 enum class PixelResample {
     Nearest,  // each new pixel takes the pixel under its centre
-    Mode      // each new pixel takes the commonest colour of the old pixels it covers (opaque wins a tie): a clean downscale
+    Mode  // each new pixel takes the commonest colour of the old pixels it covers (opaque wins a tie): a clean downscale
 };
 // The picture at newWidth x newHeight (>= 1). No new colour appears.
 IndexGrid pixel_resample(const IndexGrid& grid, int newWidth, int newHeight, PixelResample method);
@@ -226,6 +239,7 @@ Image pixel_area_downscale(const Image& src, int width, int height);
 // The picture as palette indices at width x height: every old pixel takes its nearest palette colour first, then each new pixel the
 // commonest colour of the old pixels it covers, so the result has palette colours only and no blends. A new pixel whose covered area is less
 // than `alphaThreshold` opaque is transparent.
-IndexGrid pixel_dominant_downscale(const Image& src, const PixelPalette& palette, int width, int height, double alphaThreshold);
+IndexGrid pixel_dominant_downscale(const Image& src, const PixelPalette& palette, int width, int height,
+                                   double alphaThreshold);
 
 }  // namespace fa

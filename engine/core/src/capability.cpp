@@ -17,7 +17,8 @@ constexpr std::array<CapabilityRow, kCapabilityCount> kRows{{
     {Capability::Read, "read", "reads project or engine state"},
     {Capability::State, "state", "changes the running game or the open scene in memory only, writes no file"},
     {Capability::WriteProject, "writeProject", "writes files inside the project"},
-    {Capability::WriteAnywhere, "writeAnywhere", "writes outside the project (absolute paths, the user's folders and settings)"},
+    {Capability::WriteAnywhere, "writeAnywhere",
+     "writes outside the project (absolute paths, the user's folders and settings)"},
     {Capability::Network, "network", "talks to a remote service"},
     {Capability::Process, "process", "starts an external program"},
     {Capability::Spend, "spend", "can cost money (paid APIs, store fees)"},
@@ -30,8 +31,10 @@ constexpr bool rows_match_enum() {
         if (static_cast<std::size_t>(kRows[i].capability) != i) return false;
     return true;
 }
-static_assert(rows_match_enum(), "capability.cpp: kRows must list the capabilities in the order of the Capability enum");
-static_assert(static_cast<int>(Capability::Publish) + 1 == kCapabilityCount, "capability.cpp: kCapabilityCount does not match the Capability enum");
+static_assert(rows_match_enum(),
+              "capability.cpp: kRows must list the capabilities in the order of the Capability enum");
+static_assert(static_cast<int>(Capability::Publish) + 1 == kCapabilityCount,
+              "capability.cpp: kCapabilityCount does not match the Capability enum");
 
 Error unknown_capability(std::string_view name, const std::string& where) {
     const std::vector<std::string> valid = capability_names();
@@ -99,7 +102,8 @@ Result<CapabilitySet> CapabilitySet::parse(const Json& json, std::string_view po
     for (std::size_t i = 0; i < json.size(); ++i) {
         const std::string at = base + "/" + std::to_string(i);
         if (!json[i].is_string())
-            return make_error("Capability at " + at + " must be a string.", "Use a name like \"read\" or \"writeProject\".");
+            return make_error("Capability at " + at + " must be a string.",
+                              "Use a name like \"read\" or \"writeProject\".");
         const std::string name = json[i].get<std::string>();
         const std::optional<Capability> c = capability_from_name(name);
         if (!c) return unknown_capability(name, at);
@@ -112,10 +116,13 @@ Result<CapabilitySet> CapabilitySet::parse_declaration(const Json& json, std::st
     Result<CapabilitySet> set = parse(json, pointer);
     if (!set.ok()) return set;
     if (set->empty())
-        return make_error(std::string(pointer.empty() ? "A command declares no capabilities" : "No capabilities at " + std::string(pointer)) +
+        return make_error(std::string(pointer.empty() ? "A command declares no capabilities"
+                                                      : "No capabilities at " + std::string(pointer)) +
                               ": a command needs at least \"read\".",
-                          "Declare [\"read\"] for a command that only reads, [\"read\", \"state\"] for one that also changes the running "
-                          "game, and add what else it does (\"writeProject\", \"network\", ...). Leave the declaration out to get a set "
+                          "Declare [\"read\"] for a command that only reads, [\"read\", \"state\"] for one that also "
+                          "changes the running "
+                          "game, and add what else it does (\"writeProject\", \"network\", ...). Leave the declaration "
+                          "out to get a set "
                           "derived from readOnly.");
     return set;
 }

@@ -36,7 +36,8 @@ PoseFrame pose_frame(const SkeletonAsset& sk, const Pose& pose) {
 
 void set_global_rotation(const SkeletonAsset& sk, Pose& pose, PoseFrame& frame, int node, Quat global) {
     const int p = sk.nodes[std::size_t(node)].parent;
-    pose.rotation[std::size_t(node)] = p < 0 ? normalize(global) : normalize(frame.rot[std::size_t(p)].conjugate() * global);
+    pose.rotation[std::size_t(node)] =
+        p < 0 ? normalize(global) : normalize(frame.rot[std::size_t(p)].conjugate() * global);
     refresh_frame(sk, pose, frame);
 }
 
@@ -68,9 +69,12 @@ bool parse_axis_name(std::string_view text, Vec3& out) {
     }
     if (text.size() != 1) return false;
     switch (text[0]) {
-        case 'x': case 'X': out = {sign, 0, 0}; return true;
-        case 'y': case 'Y': out = {0, sign, 0}; return true;
-        case 'z': case 'Z': out = {0, 0, sign}; return true;
+        case 'x':
+        case 'X': out = {sign, 0, 0}; return true;
+        case 'y':
+        case 'Y': out = {0, sign, 0}; return true;
+        case 'z':
+        case 'Z': out = {0, 0, sign}; return true;
         default: return false;
     }
 }
@@ -95,8 +99,9 @@ std::vector<int> Rig3D::chain(std::string_view role, std::string_view side) cons
         const SkelNode& k = skeleton->nodes[std::size_t(n)];
         if (k.role == role && k.side == side) out.push_back(n);
     }
-    std::stable_sort(out.begin(), out.end(),
-                     [&](int a, int b) { return skeleton->nodes[std::size_t(a)].roleIndex < skeleton->nodes[std::size_t(b)].roleIndex; });
+    std::stable_sort(out.begin(), out.end(), [&](int a, int b) {
+        return skeleton->nodes[std::size_t(a)].roleIndex < skeleton->nodes[std::size_t(b)].roleIndex;
+    });
     return out;
 }
 
@@ -125,7 +130,8 @@ Rig3D make_rig3d(const SkeletonAsset& sk, int skin) {
             r.boneOfNode[std::size_t(n)] = int(j);
             if (!sk.nodes[std::size_t(n)].role.empty()) r.hasRoles = true;
             const Quat q = sk.nodes[std::size_t(n)].rotation;
-            if (std::fabs(q.x) > 1e-4f || std::fabs(q.y) > 1e-4f || std::fabs(q.z) > 1e-4f || q.w < 0.9999f) r.identityRest = false;
+            if (std::fabs(q.x) > 1e-4f || std::fabs(q.y) > 1e-4f || std::fabs(q.z) > 1e-4f || q.w < 0.9999f)
+                r.identityRest = false;
         }
     }
     // Rest directions: the stored axis (rig.bake), else towards the first child that is a joint, else unknown.
@@ -152,7 +158,8 @@ Rig3D make_rig3d(const SkeletonAsset& sk, int skin) {
 std::string rig_generator_problem(const Rig3D& rig) {
     if (rig.bones.empty()) return "the model has no skin";
     if (!rig.hasRoles)
-        return "its joints carry no bone roles (the skin was not made by rig.bake, so there is no (role, index, side) to find the legs, "
+        return "its joints carry no bone roles (the skin was not made by rig.bake, so there is no (role, index, side) "
+               "to find the legs, "
                "spine or arms by)";
     if (!rig.identityRest) return "its joints do not rest with identity rotations (rig.bake skeletons do)";
     return {};

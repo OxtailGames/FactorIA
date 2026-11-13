@@ -43,27 +43,28 @@ struct RecentChanges {
     std::string newest;            // its path relative to the project
     bool complete = true;
 };
-RecentChanges recent_file_changes(const std::string& projectDir, double withinSeconds, int maxVisited = 20000, int maxMillis = 150);
+RecentChanges recent_file_changes(const std::string& projectDir, double withinSeconds, int maxVisited = 20000,
+                                  int maxMillis = 150);
 
 struct ActivityInput {
-    double runSeconds = 0;        // since the run started
-    double idleSeconds = 0;       // since the last event of the agent
-    std::string lastEvent;        // describe_agent_event() of the last event ("" = none yet)
-    std::string tool;             // the tool call in flight ("running Bash (cmake --build build)"), "" = none
-    double toolSeconds = 0;       // how long it has been in flight
-    bool trackedProcess = false;  // a CLI agent process is known (an API provider has none)
+    double runSeconds = 0;                // since the run started
+    double idleSeconds = 0;               // since the last event of the agent
+    std::string lastEvent;                // describe_agent_event() of the last event ("" = none yet)
+    std::string tool;                     // the tool call in flight ("running Bash (cmake --build build)"), "" = none
+    double toolSeconds = 0;               // how long it has been in flight
+    bool trackedProcess = false;          // a CLI agent process is known (an API provider has none)
     std::vector<ProcessEntry> processes;  // those processes and everything they started, now (empty = all gone)
-    int roots = 0;                // how many tracked agent processes there are (the rest of `processes` are their children)
-    double cpuPercent = -1;       // CpuSampler::percent(), -1 = unknown
+    int roots = 0;           // how many tracked agent processes there are (the rest of `processes` are their children)
+    double cpuPercent = -1;  // CpuSampler::percent(), -1 = unknown
     double cpuWindowSeconds = 0;  // what that percentage was measured over
     RecentChanges changes;        // project files changed lately, newest first
     double changesWithinSeconds = 0;
 };
 
 struct ActivityVerdict {
-    bool stuck = false;       // "looks stuck": the panel keeps the warning and suggests Stop
-    bool processGone = false; // the agent's process no longer exists
-    std::string summary;      // one sentence: "Still working: ..." / "Looks stuck: ..." / "The agent process is gone ..."
+    bool stuck = false;        // "looks stuck": the panel keeps the warning and suggests Stop
+    bool processGone = false;  // the agent's process no longer exists
+    std::string summary;  // one sentence: "Still working: ..." / "Looks stuck: ..." / "The agent process is gone ..."
     std::vector<std::string> details;  // one line each: process, CPU, children, tool, files, last event
 };
 

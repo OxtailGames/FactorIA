@@ -8,8 +8,8 @@
 
 namespace fa {
 
-Result<TextOutline> outline_text(std::string_view utf8, const std::string& font, float size, TextAnchor anchor, float letterSpacing,
-                                 float lineSpacing) {
+Result<TextOutline> outline_text(std::string_view utf8, const std::string& font, float size, TextAnchor anchor,
+                                 float letterSpacing, float lineSpacing) {
     auto primary = render::load_font_face(font);
     if (!primary->ok) return make_error(primary->error, primary->hint);
     std::unique_ptr<render::FontFace> fallback;

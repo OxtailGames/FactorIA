@@ -21,7 +21,8 @@ I18n spanish_game() {
         REQUIRE(i.add_table(std::move(t)).ok());
     };
     add("en", {{"menu.play", "Play"}, {"menu.volume", "Volume"}, {"menu.sound", "Sound"}, {"menu.name", "Your name"}});
-    add("es", {{"menu.play", "Jugar"}, {"menu.volume", "Volumen"}, {"menu.sound", "Sonido"}, {"menu.name", "Tu nombre"}});
+    add("es",
+        {{"menu.play", "Jugar"}, {"menu.volume", "Volumen"}, {"menu.sound", "Sonido"}, {"menu.name", "Tu nombre"}});
     return i;
 }
 
@@ -167,7 +168,8 @@ TEST_CASE("localize: a TouchButton takes a key and keyArgs") {
     CHECK(w.get<TouchButton>(plain)->text == "B");
 }
 
-TEST_CASE("Text.direction: auto follows the first strong character, a localization key takes the language's direction") {
+TEST_CASE(
+    "Text.direction: auto follows the first strong character, a localization key takes the language's direction") {
     Text plain;
     CHECK(plain.direction == TextDirection::Auto);
     CHECK(text_paragraph_direction(plain, true) == TextDirection::Auto);  // no key: the text decides
@@ -185,10 +187,11 @@ TEST_CASE("Text.direction: auto follows the first strong character, a localizati
     CHECK(text_starts_right(forced, false));
 }
 
-TEST_CASE("World: the UI is mirrored when a right-to-left language meets ui.mirrorRtl, and UiBox.mirror false opts a widget out") {
+TEST_CASE("World: the UI is mirrored when a right-to-left language meets ui.mirrorRtl, and UiBox.mirror false opts a "
+          "widget out") {
     World w;
-    CHECK(w.ui_mirror_rtl());       // on by default
-    CHECK_FALSE(w.ui_mirror());     // but English is left to right
+    CHECK(w.ui_mirror_rtl());    // on by default
+    CHECK_FALSE(w.ui_mirror());  // but English is left to right
     w.set_rtl(true);
     CHECK(w.ui_mirror());
     w.set_ui_mirror_rtl(false);

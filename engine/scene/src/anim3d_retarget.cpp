@@ -21,7 +21,8 @@ Quat key_rotation(const Anim3DClip& clip, const std::array<float, 4>& v) {
 float leg_length(const Rig3D& rig, bool& found) {
     found = false;
     for (const char* side : {"l", "r"}) {
-        const int a = rig.find_role("thigh", 0, side), b = rig.find_role("shin", 0, side), c = rig.find_role("foot", 0, side);
+        const int a = rig.find_role("thigh", 0, side), b = rig.find_role("shin", 0, side),
+                  c = rig.find_role("foot", 0, side);
         if (a >= 0 && b >= 0 && c >= 0) {
             found = true;
             return length(rig.rest_head(b) - rig.rest_head(a)) + length(rig.rest_head(c) - rig.rest_head(b));
@@ -29,7 +30,8 @@ float leg_length(const Rig3D& rig, bool& found) {
     }
     // A quadruped's fore leg, or a rig with no legs at all: the height of the root.
     for (const char* side : {"l", "r"}) {
-        const int a = rig.find_role("arm_upper", 0, side), b = rig.find_role("arm_lower", 0, side), c = rig.find_role("hand", 0, side);
+        const int a = rig.find_role("arm_upper", 0, side), b = rig.find_role("arm_lower", 0, side),
+                  c = rig.find_role("hand", 0, side);
         if (a >= 0 && b >= 0 && c >= 0 && rig.templateName == "quadruped") {
             found = true;
             return length(rig.rest_head(b) - rig.rest_head(a)) + length(rig.rest_head(c) - rig.rest_head(b));
@@ -43,7 +45,8 @@ std::string role_label(const SkelNode& n) { return n.role + (n.side.empty() ? ""
 
 }  // namespace
 
-Result<RetargetResult> retarget_anim3d(const Anim3DClip& clip, const Rig3D& from, const Rig3D& to, const RetargetOptions& opt) {
+Result<RetargetResult> retarget_anim3d(const Anim3DClip& clip, const Rig3D& from, const Rig3D& to,
+                                       const RetargetOptions& opt) {
     if (std::string why = rig_generator_problem(from); !why.empty())
         return make_error("cannot retarget: the source rig is not a rig.bake skeleton: " + why,
                           "Bake both models with rig.create (docs/RIGGING.md): retargeting matches bones by role.");
@@ -68,11 +71,14 @@ Result<RetargetResult> retarget_anim3d(const Anim3DClip& clip, const Rig3D& from
     const float fl = leg_length(from, fromLegs), tl = leg_length(to, toLegs);
     float scale = opt.scale;
     if (scale <= 0.0f) {
-        if (fl > 1e-4f && tl > 1e-4f) scale = tl / fl;
-        else scale = 1.0f;
+        if (fl > 1e-4f && tl > 1e-4f)
+            scale = tl / fl;
+        else
+            scale = 1.0f;
         if (!fromLegs || !toLegs)
-            res.notes.push_back(fl > 1e-4f && tl > 1e-4f ? "a rig has no legs: the height of the root scaled the motion"
-                                                          : "the rigs have no legs or root height to scale by: scale 1 (pass `scale`)");
+            res.notes.push_back(fl > 1e-4f && tl > 1e-4f
+                                    ? "a rig has no legs: the height of the root scaled the motion"
+                                    : "the rigs have no legs or root height to scale by: scale 1 (pass `scale`)");
     }
     res.scale = scale;
     out.groundSpeed = clip.groundSpeed * scale;
@@ -84,7 +90,8 @@ Result<RetargetResult> retarget_anim3d(const Anim3DClip& clip, const Rig3D& from
 
     // Group the tracks by source bone.
     std::set<std::string> droppedSet, resampledSet;
-    std::map<std::pair<std::string, std::string>, std::vector<std::size_t>> chainsToResample;  // (role, side) -> track indices
+    std::map<std::pair<std::string, std::string>, std::vector<std::size_t>>
+        chainsToResample;  // (role, side) -> track indices
     for (std::size_t i = 0; i < clip.tracks.size(); ++i) {
         const Anim3DTrack& tr = clip.tracks[i];
         const int sn = from.find(tr.bone);
@@ -106,7 +113,10 @@ Result<RetargetResult> retarget_anim3d(const Anim3DClip& clip, const Rig3D& from
                 for (ClipKey& key : t.keys)
                     for (int c = 0; c < 3; ++c) key.value[std::size_t(c)] *= k;
                 for (ClipKey& key : t.keys)
-                    for (int c = 0; c < 3; ++c) { key.inTan[std::size_t(c)] *= k; key.outTan[std::size_t(c)] *= k; }
+                    for (int c = 0; c < 3; ++c) {
+                        key.inTan[std::size_t(c)] *= k;
+                        key.outTan[std::size_t(c)] *= k;
+                    }
             }
             out.tracks.push_back(std::move(t));
             ++res.mapped;
@@ -151,7 +161,11 @@ Result<RetargetResult> retarget_anim3d(const Anim3DClip& clip, const Rig3D& from
                 } else {
                     Vec3 e = part.to_euler_deg();
                     if (!first) {
-                        auto wrap = [](float v, float p) { while (v - p > 180.0f) v -= 360.0f; while (v - p < -180.0f) v += 360.0f; return v; };
+                        auto wrap = [](float v, float p) {
+                            while (v - p > 180.0f) v -= 360.0f;
+                            while (v - p < -180.0f) v += 360.0f;
+                            return v;
+                        };
                         e = {wrap(e.x, prev[j].x), wrap(e.y, prev[j].y), wrap(e.z, prev[j].z)};
                     }
                     prev[j] = e;
@@ -163,7 +177,8 @@ Result<RetargetResult> retarget_anim3d(const Anim3DClip& clip, const Rig3D& from
         }
         for (Anim3DTrack& t : made) out.tracks.push_back(std::move(t));
         ++res.mapped;
-        res.resampled.push_back(key.first + (key.second.empty() ? "" : "_" + key.second) + std::format(" ({} bones -> {})", srcChain.size(), dstChain.size()));
+        res.resampled.push_back(key.first + (key.second.empty() ? "" : "_" + key.second) +
+                                std::format(" ({} bones -> {})", srcChain.size(), dstChain.size()));
     }
     res.dropped.assign(droppedSet.begin(), droppedSet.end());
     // Contacts follow their bones.
@@ -181,21 +196,28 @@ Result<RetargetResult> retarget_anim3d(const Anim3DClip& clip, const Rig3D& from
 
     // Planted feet: solve the legs with a contact again.
     if (opt.plantFeet && !out.contacts.empty()) {
-        struct Leg { int sc, sb, sa, dc, db, da; std::string name; };
+        struct Leg {
+            int sc, sb, sa, dc, db, da;
+            std::string name;
+        };
         std::vector<Leg> legs;
         for (const Anim3DContact& c : clip.contacts) {
             const int sc = from.find(c.bone);
             const int dc = sc >= 0 ? dst_of(sc) : -1;
             if (sc < 0 || dc < 0) continue;
             const int sb = fsk.nodes[std::size_t(sc)].parent, db = tsk.nodes[std::size_t(dc)].parent;
-            const int sa = sb >= 0 ? fsk.nodes[std::size_t(sb)].parent : -1, da = db >= 0 ? tsk.nodes[std::size_t(db)].parent : -1;
+            const int sa = sb >= 0 ? fsk.nodes[std::size_t(sb)].parent : -1,
+                      da = db >= 0 ? tsk.nodes[std::size_t(db)].parent : -1;
             if (sb < 0 || db < 0 || sa < 0 || da < 0) {
-                res.notes.push_back(std::format("the feet of '{}' were not re-planted: it is not the end of a two-bone limb", c.bone));
+                res.notes.push_back(
+                    std::format("the feet of '{}' were not re-planted: it is not the end of a two-bone limb", c.bone));
                 continue;
             }
             // The limb joins on the same roles on both sides.
-            if (fsk.nodes[std::size_t(sb)].role != tsk.nodes[std::size_t(db)].role || fsk.nodes[std::size_t(sa)].role != tsk.nodes[std::size_t(da)].role) {
-                res.notes.push_back(std::format("the feet of '{}' were not re-planted: the limb has other bones in the target", c.bone));
+            if (fsk.nodes[std::size_t(sb)].role != tsk.nodes[std::size_t(db)].role ||
+                fsk.nodes[std::size_t(sa)].role != tsk.nodes[std::size_t(da)].role) {
+                res.notes.push_back(std::format(
+                    "the feet of '{}' were not re-planted: the limb has other bones in the target", c.bone));
                 continue;
             }
             legs.push_back({sc, sb, sa, dc, db, da, tsk.nodes[std::size_t(dc)].name});
@@ -233,19 +255,26 @@ Result<RetargetResult> retarget_anim3d(const Anim3DClip& clip, const Rig3D& from
                             made[slot][0].bone = tsk.nodes[std::size_t(nodes[k])].name;
                             made[slot][0].channel = Anim3DChannel::Rotation;
                         }
-                        Quat q = normalize(to.rest.rotation[std::size_t(nodes[k])].conjugate() * tp.rotation[std::size_t(nodes[k])]);
+                        Quat q = normalize(to.rest.rotation[std::size_t(nodes[k])].conjugate() *
+                                           tp.rotation[std::size_t(nodes[k])]);
                         ClipKey key;
                         key.t = t;
                         if (clip.quat) {
-                            if (i > 0 && dot(Vec4{q.x, q.y, q.z, q.w}, Vec4{prevQuat[slot].x, prevQuat[slot].y, prevQuat[slot].z, prevQuat[slot].w}) < 0)
+                            if (i > 0 && dot(Vec4{q.x, q.y, q.z, q.w}, Vec4{prevQuat[slot].x, prevQuat[slot].y,
+                                                                            prevQuat[slot].z, prevQuat[slot].w}) < 0)
                                 q = {-q.x, -q.y, -q.z, -q.w};
                             prevQuat[slot] = q;
                             key.value = {q.x, q.y, q.z, q.w};
                         } else {
                             Vec3 e = q.to_euler_deg();
                             if (i > 0) {
-                                auto wrap = [](float v, float p) { while (v - p > 180.0f) v -= 360.0f; while (v - p < -180.0f) v += 360.0f; return v; };
-                                e = {wrap(e.x, prevEuler[slot].x), wrap(e.y, prevEuler[slot].y), wrap(e.z, prevEuler[slot].z)};
+                                auto wrap = [](float v, float p) {
+                                    while (v - p > 180.0f) v -= 360.0f;
+                                    while (v - p < -180.0f) v += 360.0f;
+                                    return v;
+                                };
+                                e = {wrap(e.x, prevEuler[slot].x), wrap(e.y, prevEuler[slot].y),
+                                     wrap(e.z, prevEuler[slot].z)};
                             }
                             prevEuler[slot] = e;
                             key.value = {e.x, e.y, e.z, 0.0f};
@@ -258,13 +287,17 @@ Result<RetargetResult> retarget_anim3d(const Anim3DClip& clip, const Rig3D& from
             std::set<std::string> replaced;
             for (auto& m : made) replaced.insert(m[0].bone);
             out.tracks.erase(std::remove_if(out.tracks.begin(), out.tracks.end(),
-                                            [&](const Anim3DTrack& t) { return t.channel == Anim3DChannel::Rotation && replaced.count(t.bone); }),
+                                            [&](const Anim3DTrack& t) {
+                                                return t.channel == Anim3DChannel::Rotation && replaced.count(t.bone);
+                                            }),
                              out.tracks.end());
             for (auto& m : made) out.tracks.push_back(std::move(m[0]));
             for (const Leg& l : legs) res.planted.push_back(l.name);
             if (worst > 0.01f * std::max(tl, 1e-3f))
-                res.notes.push_back(std::format("a leg could not reach the foot's path (off by {:.3f}): the target's legs are shorter than the scaled path needs; "
-                                                "pass a smaller `scale`", worst));
+                res.notes.push_back(std::format("a leg could not reach the foot's path (off by {:.3f}): the target's "
+                                                "legs are shorter than the scaled path needs; "
+                                                "pass a smaller `scale`",
+                                                worst));
         }
     }
     out.doc = out.doc.empty() ? std::string("retargeted") : out.doc;

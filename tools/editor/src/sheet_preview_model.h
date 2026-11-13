@@ -22,14 +22,15 @@ std::vector<std::string> sheet_preview_choices(const assets::Sheet& sheet);
 SpriteAnimPlan sheet_preview_plan(const assets::Sheet& sheet, const std::string& choice);
 
 struct SheetPreviewFrame {
-    int frame = 0;        // grid index (row-major) shown
-    int step = 0;         // 0-based position in the pass
-    int steps = 1;        // frames in one pass
-    Rect rect;            // pixel rectangle of the frame in the texture (top-left origin), the gutter skipped
+    int frame = 0;           // grid index (row-major) shown
+    int step = 0;            // 0-based position in the pass
+    int steps = 1;           // frames in one pass
+    Rect rect;               // pixel rectangle of the frame in the texture (top-left origin), the gutter skipped
     Vec2 pivot{0.5f, 0.5f};  // 0..1 from the TOP-left of the frame (the sheet's convention)
-    bool ended = false;   // a clip that does not loop has reached its last frame
+    bool ended = false;      // a clip that does not loop has reached its last frame
 };
 // The frame shown `seconds` after the preview started, for a texture of texW x texH pixels.
-SheetPreviewFrame sheet_preview_frame(const assets::Sheet& sheet, const std::string& choice, double seconds, int texW, int texH);
+SheetPreviewFrame sheet_preview_frame(const assets::Sheet& sheet, const std::string& choice, double seconds, int texW,
+                                      int texH);
 
 }  // namespace fa::editor

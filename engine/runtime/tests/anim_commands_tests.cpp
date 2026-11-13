@@ -104,8 +104,11 @@ TEST_CASE("anim.create_clip writes a valid file, refuses to replace it, and undo
     auto neg = c.call("anim.create_clip", Json{{"path", "anim/x.anim.json"}, {"duration", -1}});
     CHECK_FALSE(neg.ok);
     CHECK_FALSE(file_exists(p, "anim/x.anim.json"));
-    auto bad_track = c.call("anim.create_clip", Json{{"path", "anim/y.anim.json"}, {"duration", 1.0},
-                                                     {"tracks", Json::array({Json::object({{"field", "nope"}, {"keys", Json::array({key(0, 1)})}})})}});
+    auto bad_track =
+        c.call("anim.create_clip",
+               Json{{"path", "anim/y.anim.json"},
+                    {"duration", 1.0},
+                    {"tracks", Json::array({Json::object({{"field", "nope"}, {"keys", Json::array({key(0, 1)})}})})}});
     CHECK_FALSE(bad_track.ok);
     CHECK_FALSE(file_exists(p, "anim/y.anim.json"));
 
@@ -128,8 +131,10 @@ TEST_CASE("anim.set_keys / remove_keys / move_keys / set_interp edit a track and
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
     auto& c = e.commands();
     REQUIRE(c.call("anim.create_clip", Json{{"path", kWalk}, {"duration", 1.0}}).ok);
-    auto s = c.call("anim.set_keys", Json{{"path", kWalk}, {"track", track("body/arm", "rotation.z")},
-                                          {"keys", Json::array({key(0.5, 30), key(0, -30), key(1, -30)})}, {"entity", "hero"}});
+    auto s = c.call("anim.set_keys", Json{{"path", kWalk},
+                                          {"track", track("body/arm", "rotation.z")},
+                                          {"keys", Json::array({key(0.5, 30), key(0, -30), key(1, -30)})},
+                                          {"entity", "hero"}});
     REQUIRE_MESSAGE(s.ok, s.error.dump());
     CHECK(s.result["added"] == 3);
     CHECK(s.result["track"] == 0);
@@ -140,34 +145,55 @@ TEST_CASE("anim.set_keys / remove_keys / move_keys / set_interp edit a track and
 
     // Replace a key; a key past the duration is refused unless extendDuration.
     auto rep = c.call("anim.set_keys", Json{{"path", kWalk}, {"track", 0}, {"keys", Json::array({key(0.5, 45)})}});
-    if (!rep.ok) rep = c.call("anim.set_keys", Json{{"path", kWalk}, {"track", track("body/arm", "rotation.z")}, {"keys", Json::array({key(0.5, 45)})}});
+    if (!rep.ok)
+        rep = c.call(
+            "anim.set_keys",
+            Json{{"path", kWalk}, {"track", track("body/arm", "rotation.z")}, {"keys", Json::array({key(0.5, 45)})}});
     REQUIRE_MESSAGE(rep.ok, rep.error.dump());
     CHECK(rep.result["replaced"] == 1);
-    auto past = c.call("anim.set_keys", Json{{"path", kWalk}, {"track", track("body/arm", "rotation.z")}, {"keys", Json::array({key(2, 0)})}});
+    auto past =
+        c.call("anim.set_keys",
+               Json{{"path", kWalk}, {"track", track("body/arm", "rotation.z")}, {"keys", Json::array({key(2, 0)})}});
     CHECK_FALSE(past.ok);
-    auto ext = c.call("anim.set_keys", Json{{"path", kWalk}, {"track", track("body/arm", "rotation.z")}, {"keys", Json::array({key(2, 0)})}, {"extendDuration", true}});
+    auto ext = c.call("anim.set_keys", Json{{"path", kWalk},
+                                            {"track", track("body/arm", "rotation.z")},
+                                            {"keys", Json::array({key(2, 0)})},
+                                            {"extendDuration", true}});
     REQUIRE_MESSAGE(ext.ok, ext.error.dump());
     CHECK(read_file_json(p, kWalk)["duration"] == 2.0);
 
     // A part that does not exist on the entity: teaching error.
-    auto unk = c.call("anim.set_keys", Json{{"path", kWalk}, {"track", track("body/arn", "rotation.z")}, {"keys", Json::array({key(0, 0)})}, {"entity", "hero"}});
+    auto unk = c.call("anim.set_keys", Json{{"path", kWalk},
+                                            {"track", track("body/arn", "rotation.z")},
+                                            {"keys", Json::array({key(0, 0)})},
+                                            {"entity", "hero"}});
     CHECK_FALSE(unk.ok);
     CHECK(unk.error.dump().find("arm") != std::string::npos);  // did you mean
 
     // set_interp
-    auto in = c.call("anim.set_interp", Json{{"path", kWalk}, {"keys", Json::array({Json::object({{"track", 0}, {"t", 0.5}})})}, {"interp", "quadOut"}});
+    auto in = c.call("anim.set_interp", Json{{"path", kWalk},
+                                             {"keys", Json::array({Json::object({{"track", 0}, {"t", 0.5}})})},
+                                             {"interp", "quadOut"}});
     REQUIRE_MESSAGE(in.ok, in.error.dump());
     CHECK(read_file_json(p, kWalk)["tracks"][0]["keys"][1]["interp"] == "quadOut");
-    auto badin = c.call("anim.set_interp", Json{{"path", kWalk}, {"keys", Json::array({Json::object({{"track", 0}, {"t", 0.5}})})}, {"interp", "quadOutt"}});
+    auto badin = c.call("anim.set_interp", Json{{"path", kWalk},
+                                                {"keys", Json::array({Json::object({{"track", 0}, {"t", 0.5}})})},
+                                                {"interp", "quadOutt"}});
     CHECK_FALSE(badin.ok);
 
     // move_keys: scale about the first key; refused when landing on another key.
-    auto mv = c.call("anim.move_keys", Json{{"path", kWalk}, {"keys", Json::array({Json::object({{"track", 0}, {"t", 0.5}})})}, {"offset", 0.1}});
+    auto mv = c.call(
+        "anim.move_keys",
+        Json{{"path", kWalk}, {"keys", Json::array({Json::object({{"track", 0}, {"t", 0.5}})})}, {"offset", 0.1}});
     REQUIRE_MESSAGE(mv.ok, mv.error.dump());
     CHECK(read_file_json(p, kWalk)["tracks"][0]["keys"][1]["t"] == doctest::Approx(0.6));
-    auto clash = c.call("anim.move_keys", Json{{"path", kWalk}, {"keys", Json::array({Json::object({{"track", 0}, {"t", 0.6}})})}, {"offset", 0.4}});
+    auto clash = c.call(
+        "anim.move_keys",
+        Json{{"path", kWalk}, {"keys", Json::array({Json::object({{"track", 0}, {"t", 0.6}})})}, {"offset", 0.4}});
     CHECK_FALSE(clash.ok);
-    auto neg = c.call("anim.move_keys", Json{{"path", kWalk}, {"keys", Json::array({Json::object({{"track", 0}, {"t", 0.6}})})}, {"offset", -5}});
+    auto neg = c.call(
+        "anim.move_keys",
+        Json{{"path", kWalk}, {"keys", Json::array({Json::object({{"track", 0}, {"t", 0.6}})})}, {"offset", -5}});
     CHECK_FALSE(neg.ok);
 
     // remove_keys, then undo brings the key back.
@@ -195,7 +221,8 @@ TEST_CASE("anim tracks, events and clip settings") {
     auto& c = e.commands();
     REQUIRE(c.call("anim.create_clip", Json{{"path", kWalk}, {"duration", 1.0}}).ok);
 
-    auto at = c.call("anim.add_track", Json{{"path", kWalk}, {"track", track("body", "rotation.z")}, {"entity", "hero"}});
+    auto at =
+        c.call("anim.add_track", Json{{"path", kWalk}, {"track", track("body", "rotation.z")}, {"entity", "hero"}});
     REQUIRE_MESSAGE(at.ok, at.error.dump());
     CHECK(read_file_json(p, kWalk)["tracks"].size() == 1);
     auto rt = c.call("anim.remove_track", Json{{"path", kWalk}, {"track", 0}});
@@ -205,7 +232,8 @@ TEST_CASE("anim tracks, events and clip settings") {
     CHECK(read_file_json(p, kWalk)["tracks"].size() == 1);
     CHECK_FALSE(c.call("anim.remove_track", Json{{"path", kWalk}, {"track", 5}}).ok);
 
-    auto ev = c.call("anim.add_event", Json{{"path", kWalk}, {"t", 0.5}, {"name", "footstep"}, {"data", Json{{"foot", "left"}}}});
+    auto ev = c.call("anim.add_event",
+                     Json{{"path", kWalk}, {"t", 0.5}, {"name", "footstep"}, {"data", Json{{"foot", "left"}}}});
     REQUIRE_MESSAGE(ev.ok, ev.error.dump());
     CHECK(ev.result["event"] == 0);
     REQUIRE(c.call("anim.add_event", Json{{"path", kWalk}, {"t", 0.1}, {"name", "start"}}).ok);
@@ -213,7 +241,8 @@ TEST_CASE("anim tracks, events and clip settings") {
     CHECK_FALSE(c.call("anim.add_event", Json{{"path", kWalk}, {"t", 3.0}, {"name", "late"}}).ok);
     CHECK_FALSE(c.call("anim.add_event", Json{{"path", kWalk}, {"t", 0.2}, {"name", ""}}).ok);
 
-    auto mv = c.call("anim.move_event", Json{{"path", kWalk}, {"event", Json{{"t", 0.5}, {"name", "footstep"}}}, {"to", 0.05}});
+    auto mv = c.call("anim.move_event",
+                     Json{{"path", kWalk}, {"event", Json{{"t", 0.5}, {"name", "footstep"}}}, {"to", 0.05}});
     REQUIRE_MESSAGE(mv.ok, mv.error.dump());
     CHECK(read_file_json(p, kWalk)["events"][0]["name"] == "footstep");
     auto se = c.call("anim.set_event", Json{{"path", kWalk}, {"event", 0}, {"name", "step"}});
@@ -231,12 +260,15 @@ TEST_CASE("anim tracks, events and clip settings") {
     CHECK(doc["loop"] == false);
     CHECK_FALSE(c.call("anim.set_clip", Json{{"path", kWalk}}).ok);
     // Shorter than the last event/key is refused.
-    REQUIRE(c.call("anim.set_keys", Json{{"path", kWalk}, {"track", track("body", "rotation.z")}, {"keys", Json::array({key(1.5, 10)})}}).ok);
+    REQUIRE(c.call("anim.set_keys",
+                   Json{{"path", kWalk}, {"track", track("body", "rotation.z")}, {"keys", Json::array({key(1.5, 10)})}})
+                .ok);
     CHECK_FALSE(c.call("anim.set_clip", Json{{"path", kWalk}, {"duration", 1.0}}).ok);
     CHECK(c.call("anim.restore", sc.result["undo"]["args"]).ok);  // undo is whole-document
 }
 
-TEST_CASE("anim events carry game feel actions: add, replace, remove, undo, and a typo is refused with the option names") {
+TEST_CASE(
+    "anim events carry game feel actions: add, replace, remove, undo, and a typo is refused with the option names") {
     TempProject p("eventfeel");
     Engine e;
     std::string err;
@@ -245,7 +277,10 @@ TEST_CASE("anim events carry game feel actions: add, replace, remove, undo, and 
     REQUIRE(c.call("anim.create_clip", Json{{"path", kWalk}, {"duration", 1.0}}).ok);
 
     // a feel-only event: no name needed, one action object or an array
-    auto add = c.call("anim.add_event", Json{{"path", kWalk}, {"t", 0.3}, {"feel", Json::array({Json{{"action", "hitStop"}, {"duration", 0.06}}, Json{{"action", "shake"}, {"amount", 0.3}}})}});
+    auto add = c.call("anim.add_event", Json{{"path", kWalk},
+                                             {"t", 0.3},
+                                             {"feel", Json::array({Json{{"action", "hitStop"}, {"duration", 0.06}},
+                                                                   Json{{"action", "shake"}, {"amount", 0.3}}})}});
     REQUIRE_MESSAGE(add.ok, add.error.dump());
     Json doc = read_file_json(p, kWalk);
     REQUIRE(doc["events"].size() == 1);
@@ -257,7 +292,8 @@ TEST_CASE("anim events carry game feel actions: add, replace, remove, undo, and 
     CHECK((*loaded)->events[0].feel.size() == 2);
 
     // a typo is refused and nothing is written
-    auto bad = c.call("anim.add_event", Json{{"path", kWalk}, {"t", 0.5}, {"feel", Json{{"action", "shake"}, {"amout", 0.3}}}});
+    auto bad = c.call("anim.add_event",
+                      Json{{"path", kWalk}, {"t", 0.5}, {"feel", Json{{"action", "shake"}, {"amout", 0.3}}}});
     REQUIRE_FALSE(bad.ok);
     CHECK(bad.error.dump().find("amount") != std::string::npos);
     CHECK(read_file_json(p, kWalk)["events"].size() == 1);
@@ -267,12 +303,15 @@ TEST_CASE("anim events carry game feel actions: add, replace, remove, undo, and 
     CHECK(empty.error.dump().find("feel") != std::string::npos);
 
     // set_event replaces the feel and can name the event; a nameless, feel-less event is refused
-    auto named = c.call("anim.set_event", Json{{"path", kWalk}, {"event", 0}, {"name", "swing"}, {"feel", Json{{"action", "flash"}, {"duration", 0.1}}}});
+    auto named = c.call(
+        "anim.set_event",
+        Json{{"path", kWalk}, {"event", 0}, {"name", "swing"}, {"feel", Json{{"action", "flash"}, {"duration", 0.1}}}});
     REQUIRE_MESSAGE(named.ok, named.error.dump());
     doc = read_file_json(p, kWalk);
     CHECK(doc["events"][0]["name"] == "swing");
     CHECK(doc["events"][0]["feel"]["action"] == "flash");
-    auto both_gone = c.call("anim.set_event", Json{{"path", kWalk}, {"event", 0}, {"name", nullptr}, {"feel", nullptr}});
+    auto both_gone =
+        c.call("anim.set_event", Json{{"path", kWalk}, {"event", 0}, {"name", nullptr}, {"feel", nullptr}});
     CHECK_FALSE(both_gone.ok);
     auto no_feel = c.call("anim.set_event", Json{{"path", kWalk}, {"event", 0}, {"feel", nullptr}});
     REQUIRE_MESSAGE(no_feel.ok, no_feel.error.dump());
@@ -299,8 +338,14 @@ TEST_CASE("anim.list, anim.pose and anim.check") {
     auto& c = e.commands();
     // A clip with a swinging arm that does not return (loop_jump), a constant track (no_change), and a part that is not there.
     REQUIRE(c.call("anim.create_clip", Json{{"path", kWalk}, {"duration", 1.0}, {"loop", true}}).ok);
-    REQUIRE(c.call("anim.set_keys", Json{{"path", kWalk}, {"track", track("body/arm", "rotation.z")}, {"keys", Json::array({key(0, 0), key(1, 90)})}}).ok);
-    REQUIRE(c.call("anim.set_keys", Json{{"path", kWalk}, {"track", track("body", "position.y")}, {"keys", Json::array({key(0, 5), key(1, 5)})}}).ok);
+    REQUIRE(c.call("anim.set_keys", Json{{"path", kWalk},
+                                         {"track", track("body/arm", "rotation.z")},
+                                         {"keys", Json::array({key(0, 0), key(1, 90)})}})
+                .ok);
+    REQUIRE(c.call("anim.set_keys", Json{{"path", kWalk},
+                                         {"track", track("body", "position.y")},
+                                         {"keys", Json::array({key(0, 5), key(1, 5)})}})
+                .ok);
 
     auto list = c.call("anim.list", Json{{"entity", "hero"}});
     REQUIRE_MESSAGE(list.ok, list.error.dump());
@@ -320,7 +365,10 @@ TEST_CASE("anim.list, anim.pose and anim.check") {
     CHECK_FALSE(c.call("anim.pose", Json{{"entity", "nobody"}, {"clip", "walk"}}).ok);
 
     // A track that names a part the character does not have: anim.list shows it as a problem, anim.pose refuses, anim.check finds it.
-    REQUIRE(c.call("anim.set_keys", Json{{"path", kWalk}, {"track", track("body/hand", "rotation.z")}, {"keys", Json::array({key(0, 0), key(1, 10)})}}).ok);
+    REQUIRE(c.call("anim.set_keys", Json{{"path", kWalk},
+                                         {"track", track("body/hand", "rotation.z")},
+                                         {"keys", Json::array({key(0, 0), key(1, 10)})}})
+                .ok);
     CHECK(c.call("anim.list", Json{{"entity", "hero"}}).result.dump().find("body/hand") != std::string::npos);
     CHECK_FALSE(c.call("anim.pose", Json{{"entity", "hero"}, {"clip", "walk"}, {"t", 0.5}}).ok);
 
@@ -341,14 +389,18 @@ TEST_CASE("anim.list, anim.pose and anim.check") {
 
     // A clean clip passes.
     REQUIRE(c.call("anim.create_clip", Json{{"path", "anim/ok.anim.json"}, {"duration", 1.0}}).ok);
-    REQUIRE(c.call("anim.set_keys", Json{{"path", "anim/ok.anim.json"}, {"track", track("body/arm", "rotation.z")}, {"keys", Json::array({key(0, -20), key(0.5, 20), key(1, -20)})}}).ok);
+    REQUIRE(c.call("anim.set_keys", Json{{"path", "anim/ok.anim.json"},
+                                         {"track", track("body/arm", "rotation.z")},
+                                         {"keys", Json::array({key(0, -20), key(0.5, 20), key(1, -20)})}})
+                .ok);
     auto ok = c.call("anim.check", Json{{"path", "anim/ok.anim.json"}});
     REQUIRE_MESSAGE(ok.ok, ok.error.dump());
     CHECK(ok.result["ok"] == true);
 
     // A broken file is an invalid_clip finding, not a command failure.
     stdfs::create_directories(p.dir / "anim");
-    std::ofstream(p.dir / "anim/broken.anim.json", std::ios::binary) << R"({"format":"factoria.anim/1","duration":1,"tracks":[{"field":"nope","keys":[]}]})";
+    std::ofstream(p.dir / "anim/broken.anim.json", std::ios::binary)
+        << R"({"format":"factoria.anim/1","duration":1,"tracks":[{"field":"nope","keys":[]}]})";
     auto broken = c.call("anim.check", Json{{"path", "anim/broken.anim.json"}});
     REQUIRE_MESSAGE(broken.ok, broken.error.dump());
     CHECK(broken.result["findings"][0]["kind"] == "invalid_clip");
@@ -362,7 +414,10 @@ TEST_CASE("anim.check: a part that leaves the view, and an IK target out of reac
     auto& c = e.commands();
     REQUIRE(c.call("anim.create_clip", Json{{"path", kWalk}, {"duration", 1.0}}).ok);
     // The body walks 1000 px to the right: out of the 320 px view.
-    REQUIRE(c.call("anim.set_keys", Json{{"path", kWalk}, {"track", track("body", "position.x")}, {"keys", Json::array({key(0, 0), key(1, 1000)})}}).ok);
+    REQUIRE(c.call("anim.set_keys", Json{{"path", kWalk},
+                                         {"track", track("body", "position.x")},
+                                         {"keys", Json::array({key(0, 0), key(1, 1000)})}})
+                .ok);
     auto chk = c.call("anim.check", Json{{"entity", "hero"}});
     REQUIRE_MESSAGE(chk.ok, chk.error.dump());
     bool leaves = false;
@@ -370,14 +425,28 @@ TEST_CASE("anim.check: a part that leaves the view, and an IK target out of reac
     CHECK(leaves);
 
     // IK: a two-bone chain of 2 x 20 px with a target that the clip drags 100 px away.
-    REQUIRE(c.call("bones.create", Json{{"parent", "leg"}, {"points", Json::array({Json::array({0, 0}), Json::array({0, -20}), Json::array({0, -40})})}, {"names", Json::array({"thigh", "shin"})}}).ok);
-    REQUIRE_MESSAGE(c.call("scene.spawn", Json{{"name", "foot_target"}, {"id", "foot_target"}, {"parent", "leg"}}).ok, "spawn");
-    REQUIRE_MESSAGE(c.call("scene.set_component", Json{{"id", "shin"}, {"component", "IK2D"}, {"fields", Json{{"target", "foot_target"}}}}).ok, "ik");
-    REQUIRE_MESSAGE(c.call("scene.set_component", Json{{"id", "leg"}, {"component", "Animator"},
-                                                       {"fields", Json{{"clips", Json{{"reach", "anim/reach.anim.json"}}}}}}).ok, "animator");
+    REQUIRE(c.call("bones.create",
+                   Json{{"parent", "leg"},
+                        {"points", Json::array({Json::array({0, 0}), Json::array({0, -20}), Json::array({0, -40})})},
+                        {"names", Json::array({"thigh", "shin"})}})
+                .ok);
+    REQUIRE_MESSAGE(c.call("scene.spawn", Json{{"name", "foot_target"}, {"id", "foot_target"}, {"parent", "leg"}}).ok,
+                    "spawn");
+    REQUIRE_MESSAGE(c.call("scene.set_component",
+                           Json{{"id", "shin"}, {"component", "IK2D"}, {"fields", Json{{"target", "foot_target"}}}})
+                        .ok,
+                    "ik");
+    REQUIRE_MESSAGE(
+        c.call("scene.set_component", Json{{"id", "leg"},
+                                           {"component", "Animator"},
+                                           {"fields", Json{{"clips", Json{{"reach", "anim/reach.anim.json"}}}}}})
+            .ok,
+        "animator");
     REQUIRE(c.call("anim.create_clip", Json{{"path", "anim/reach.anim.json"}, {"duration", 1.0}}).ok);
-    REQUIRE(c.call("anim.set_keys", Json{{"path", "anim/reach.anim.json"}, {"track", track("foot_target", "position.y")},
-                                         {"keys", Json::array({key(0, -30), key(1, -300)})}}).ok);
+    REQUIRE(c.call("anim.set_keys", Json{{"path", "anim/reach.anim.json"},
+                                         {"track", track("foot_target", "position.y")},
+                                         {"keys", Json::array({key(0, -30), key(1, -300)})}})
+                .ok);
     auto ik = c.call("anim.check", Json{{"entity", "leg"}});
     REQUIRE_MESSAGE(ik.ok, ik.error.dump());
     bool unreachable = false;
@@ -391,8 +460,11 @@ TEST_CASE("bones.create, skin.bind, skin.auto_weights and skin.set_weights") {
     std::string err;
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
     auto& c = e.commands();
-    auto bones = c.call("bones.create", Json{{"parent", "leg"}, {"points", Json::array({Json::array({0, 0}), Json::array({0, -20}), Json::array({0, -40})})},
-                                              {"names", Json::array({"thigh", "shin"})}});
+    auto bones =
+        c.call("bones.create",
+               Json{{"parent", "leg"},
+                    {"points", Json::array({Json::array({0, 0}), Json::array({0, -20}), Json::array({0, -40})})},
+                    {"names", Json::array({"thigh", "shin"})}});
     REQUIRE_MESSAGE(bones.ok, bones.error.dump());
     REQUIRE(bones.result["bones"].size() == 2);
     CHECK(bones.result["bones"][0]["length"].get<double>() == doctest::Approx(20));
@@ -404,8 +476,13 @@ TEST_CASE("bones.create, skin.bind, skin.auto_weights and skin.set_weights") {
     CHECK(e.world().get<Transform>(thigh)->rotation.z == doctest::Approx(-90).epsilon(0.05));  // faces down
 
     CHECK_FALSE(c.call("bones.create", Json{{"parent", "leg"}, {"points", Json::array({Json::array({0, 0})})}}).ok);
-    CHECK_FALSE(c.call("bones.create", Json{{"parent", "leg"}, {"points", Json::array({Json::array({0, 0}), Json::array({0, 5})})}, {"names", Json::array({"thigh"})}}).ok);  // duplicate name
-    CHECK_FALSE(c.call("bones.create", Json{{"parent", "legg"}, {"points", Json::array({Json::array({0, 0}), Json::array({0, 5})})}}).ok);
+    CHECK_FALSE(c.call("bones.create", Json{{"parent", "leg"},
+                                            {"points", Json::array({Json::array({0, 0}), Json::array({0, 5})})},
+                                            {"names", Json::array({"thigh"})}})
+                    .ok);  // duplicate name
+    CHECK_FALSE(c.call("bones.create",
+                       Json{{"parent", "legg"}, {"points", Json::array({Json::array({0, 0}), Json::array({0, 5})})}})
+                    .ok);
 
     CHECK_FALSE(c.call("skin.bind", Json{{"entity", "hero"}, {"root", "thigh"}}).ok);  // no Sprite
     CHECK_FALSE(c.call("skin.bind", Json{{"entity", "leg"}}).ok);
@@ -424,13 +501,15 @@ TEST_CASE("bones.create, skin.bind, skin.auto_weights and skin.set_weights") {
     CHECK(e.world().get<SpriteSkin>(leg)->weights.is_array());
     CHECK(e.world().get<SpriteSkin>(leg)->weights.size() == 15);
 
-    auto set = c.call("skin.set_weights", Json{{"entity", "leg"}, {"vertices", Json::array({0, 1})}, {"bone", "shin"}, {"weight", 1.0}});
+    auto set = c.call("skin.set_weights",
+                      Json{{"entity", "leg"}, {"vertices", Json::array({0, 1})}, {"bone", "shin"}, {"weight", 1.0}});
     REQUIRE_MESSAGE(set.ok, set.error.dump());
     const Json w0 = e.world().get<SpriteSkin>(leg)->weights[0];
     REQUIRE(w0.size() == 2);
     CHECK(w0[0] == 1);  // bone index of shin
     CHECK(w0[1].get<double>() == doctest::Approx(1.0));
-    auto add = c.call("skin.set_weights", Json{{"entity", "leg"}, {"vertices", "all"}, {"bone", 0}, {"weight", 0.25}, {"mode", "add"}});
+    auto add = c.call("skin.set_weights",
+                      Json{{"entity", "leg"}, {"vertices", "all"}, {"bone", 0}, {"weight", 0.25}, {"mode", "add"}});
     REQUIRE_MESSAGE(add.ok, add.error.dump());
     for (const Json& v : e.world().get<SpriteSkin>(leg)->weights) {
         double sum = 0;
@@ -438,11 +517,18 @@ TEST_CASE("bones.create, skin.bind, skin.auto_weights and skin.set_weights") {
         CHECK(sum == doctest::Approx(1.0).epsilon(0.01));
         CHECK(v.size() <= 8);
     }
-    auto smooth = c.call("skin.set_weights", Json{{"entity", "leg"}, {"vertices", Json{{"rect", Json::array({-10, -40, 10, 0})}}}, {"mode", "smooth"}});
+    auto smooth = c.call(
+        "skin.set_weights",
+        Json{{"entity", "leg"}, {"vertices", Json{{"rect", Json::array({-10, -40, 10, 0})}}}, {"mode", "smooth"}});
     CHECK_MESSAGE(smooth.ok, smooth.error.dump());
-    CHECK_FALSE(c.call("skin.set_weights", Json{{"entity", "leg"}, {"vertices", Json::array({999})}, {"bone", 0}, {"weight", 1}}).ok);
-    CHECK_FALSE(c.call("skin.set_weights", Json{{"entity", "leg"}, {"vertices", "all"}, {"bone", "thig"}, {"weight", 1}}).ok);
-    CHECK_FALSE(c.call("skin.set_weights", Json{{"entity", "leg"}, {"vertices", "all"}, {"bone", 0}, {"weight", 1}, {"mode", "paint"}}).ok);
+    CHECK_FALSE(c.call("skin.set_weights",
+                       Json{{"entity", "leg"}, {"vertices", Json::array({999})}, {"bone", 0}, {"weight", 1}})
+                    .ok);
+    CHECK_FALSE(
+        c.call("skin.set_weights", Json{{"entity", "leg"}, {"vertices", "all"}, {"bone", "thig"}, {"weight", 1}}).ok);
+    CHECK_FALSE(c.call("skin.set_weights",
+                       Json{{"entity", "leg"}, {"vertices", "all"}, {"bone", 0}, {"weight", 1}, {"mode", "paint"}})
+                    .ok);
 }
 
 TEST_CASE("anim.filmstrip draws the poses of a clip into one picture") {
@@ -452,9 +538,13 @@ TEST_CASE("anim.filmstrip draws the poses of a clip into one picture") {
     REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
     auto& c = e.commands();
     REQUIRE(c.call("anim.create_clip", Json{{"path", kWalk}, {"duration", 1.0}}).ok);
-    REQUIRE(c.call("anim.set_keys", Json{{"path", kWalk}, {"track", track("body/arm", "rotation.z")}, {"keys", Json::array({key(0, -40), key(0.5, 40), key(1, -40)})}}).ok);
+    REQUIRE(c.call("anim.set_keys", Json{{"path", kWalk},
+                                         {"track", track("body/arm", "rotation.z")},
+                                         {"keys", Json::array({key(0, -40), key(0.5, 40), key(1, -40)})}})
+                .ok);
     const std::string png = (p.dir / "film.png").generic_string();
-    auto r = c.call("anim.filmstrip", Json{{"entity", "hero"}, {"clip", "walk"}, {"frames", 4}, {"onionSkin", true}, {"path", png}});
+    auto r = c.call("anim.filmstrip",
+                    Json{{"entity", "hero"}, {"clip", "walk"}, {"frames", 4}, {"onionSkin", true}, {"path", png}});
     if (!r.ok && r.error.dump().find("unavailable") != std::string::npos) return;  // no graphics on this machine
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["frames"].size() == 4);

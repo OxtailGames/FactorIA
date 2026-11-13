@@ -10,7 +10,8 @@ namespace fa {
 namespace {
 
 std::int64_t now_ms() {
-    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::system_clock::now().time_since_epoch())
+        .count();
 }
 
 }  // namespace
@@ -33,8 +34,9 @@ std::string McpResume::to_string() const {
 Result<McpResume> McpResume::parse(std::string_view text) {
     auto parsed = parse_json(text, "--resume-session");
     if (!parsed)
-        return make_error("--resume-session is not JSON: " + parsed.error().message,
-                          "this option is the hidden hand-over of a server that restarted itself; do not pass it by hand");
+        return make_error(
+            "--resume-session is not JSON: " + parsed.error().message,
+            "this option is the hidden hand-over of a server that restarted itself; do not pass it by hand");
     const Json& j = parsed.value();
     if (!j.is_object()) return make_error("--resume-session must be a JSON object");
     McpResume r;
@@ -53,7 +55,8 @@ Result<McpResume> McpResume::parse(std::string_view text) {
 
 // ---- McpUpdateMonitor ------------------------------------------------------------------------------------------------
 
-McpUpdateMonitor::McpUpdateMonitor(McpServer& server, UpdateWatch& watch, McpUpdateOptions options, const McpResume* resume)
+McpUpdateMonitor::McpUpdateMonitor(McpServer& server, UpdateWatch& watch, McpUpdateOptions options,
+                                   const McpResume* resume)
     : server_(server), watch_(watch), opt_(std::move(options)), startedMs_(now_ms()) {
     if (!resume) return;
     resumed_ = true;
@@ -70,10 +73,13 @@ void McpUpdateMonitor::announce_resume() {
     for (const std::string& n : resume_.notices) server_.add_tool_notice("carried" + std::to_string(i++), n);
     std::string text = "FactorIA was updated to " + watch_.running().label();
     if (!resume_.previousBuild.empty()) text += " (the server was running " + resume_.previousBuild + ")";
-    text += "; the MCP server restarted itself in place, so the connection to the client was kept and the tools are those of "
+    text += "; the MCP server restarted itself in place, so the connection to the client was kept and the tools are "
+            "those of "
             "the new version (tools/list may differ).";
-    if (!resume_.lost.empty()) text += " Lost in the restart: " + resume_.lost;
-    else text += " Nothing the client may count on was lost.";
+    if (!resume_.lost.empty())
+        text += " Lost in the restart: " + resume_.lost;
+    else
+        text += " Nothing the client may count on was lost.";
     server_.add_tool_notice("restarted", text);
     server_.notify_tools_changed();
     server_.notify_resources_changed();
@@ -83,7 +89,8 @@ void McpUpdateMonitor::announce_resume() {
 bool McpUpdateMonitor::client_reads_mcp_json() const {
     std::string name = server_.client_name();
     std::transform(name.begin(), name.end(), name.begin(), [](unsigned char c) { return char(std::tolower(c)); });
-    return name.find("claude") != std::string::npos;  // Claude Code reads the project's .mcp.json; Codex has its own config.toml
+    return name.find("claude") !=
+           std::string::npos;  // Claude Code reads the project's .mcp.json; Codex has its own config.toml
 }
 
 void McpUpdateMonitor::poll() {
@@ -99,11 +106,13 @@ void McpUpdateMonitor::poll() {
 }
 
 void McpUpdateMonitor::notice_stale_server(const std::string& detail) {
-    const std::string text =
-        "FactorIA was updated on disk (" + watch_.running().label() + " -> " + watch_.on_disk().label() +
-        ") but this MCP server still runs the old code" + (detail.empty() ? std::string() : " and " + detail) +
-        ". Ask the user to reconnect the factoria server (in Claude Code: /mcp) or to restart the AI client; until then the "
-        "tools behave as in " + watch_.running().label() + ".";
+    const std::string text = "FactorIA was updated on disk (" + watch_.running().label() + " -> " +
+                             watch_.on_disk().label() + ") but this MCP server still runs the old code" +
+                             (detail.empty() ? std::string() : " and " + detail) +
+                             ". Ask the user to reconnect the factoria server (in Claude Code: /mcp) or to restart the "
+                             "AI client; until then the "
+                             "tools behave as in " +
+                             watch_.running().label() + ".";
     server_.add_tool_notice("update", text);
     server_.log("warning", "factoria.update", text);
 }
@@ -123,10 +132,14 @@ void McpUpdateMonitor::check_executable() {
     if (stamp == reportedStamp_) return;  // said once per update
     reportedStamp_ = stamp;
     std::string why;
-    if (!failedReason_.empty()) why = "the restart in place failed (" + failedReason_ + ")";
-    else if (restarts_ >= opt_.maxRestarts) why = "it already restarted itself " + std::to_string(restarts_) + " times in a row";
-    else if (!can_restart_in_place()) why = "Windows cannot replace a running program, and the client owns its stdio";
-    else why = "restarting in place is off";
+    if (!failedReason_.empty())
+        why = "the restart in place failed (" + failedReason_ + ")";
+    else if (restarts_ >= opt_.maxRestarts)
+        why = "it already restarted itself " + std::to_string(restarts_) + " times in a row";
+    else if (!can_restart_in_place())
+        why = "Windows cannot replace a running program, and the client owns its stdio";
+    else
+        why = "restarting in place is off";
     notice_stale_server(why);
 }
 
@@ -184,20 +197,25 @@ void McpUpdateMonitor::check_client_config() {
     }
     if (!timeoutError_.empty() && !timeoutErrorReported_) {
         timeoutErrorReported_ = true;
-        server_.add_tool_notice("config-timeout",
-                                "The factoria server of the project's .mcp.json has no \"timeout\" and FactorIA could not add it (" +
-                                    timeoutError_ + "). Add \"timeout\": " + std::to_string(kClaudeCodeMcpToolTimeoutMs) +
-                                    " to it by hand, or long tool calls such as ai_run are aborted by Claude Code after minutes.");
+        server_.add_tool_notice(
+            "config-timeout",
+            "The factoria server of the project's .mcp.json has no \"timeout\" and FactorIA could not add it (" +
+                timeoutError_ + "). Add \"timeout\": " + std::to_string(kClaudeCodeMcpToolTimeoutMs) +
+                " to it by hand, or long tool calls such as ai_run are aborted by Claude Code after minutes.");
     }
-    if (!config_changed_after_start(st) || st.modifiedMs == configReportedMs_) return;  // the client read the file as it is
+    if (!config_changed_after_start(st) || st.modifiedMs == configReportedMs_)
+        return;  // the client read the file as it is
     configReportedMs_ = st.modifiedMs;
-    std::string text = "The project's .mcp.json (" + st.path + ") changed after the AI client started this factoria server, so "
+    std::string text = "The project's .mcp.json (" + st.path +
+                       ") changed after the AI client started this factoria server, so "
                        "the client may still run with the old settings";
     if (addedTimeout_)
-        text += ": it had no \"timeout\" for the factoria server, which Claude Code needs to let long tool calls such as ai_run "
+        text += ": it had no \"timeout\" for the factoria server, which Claude Code needs to let long tool calls such "
+                "as ai_run "
                 "run for hours instead of aborting them after minutes; FactorIA added \"timeout\": " +
                 std::to_string(kClaudeCodeMcpToolTimeoutMs) + " to it just now";
-    text += ". Ask the user to restart the client, or to reconnect the factoria server (in Claude Code: /mcp), so that it reads "
+    text += ". Ask the user to restart the client, or to reconnect the factoria server (in Claude Code: /mcp), so that "
+            "it reads "
             "the file again.";
     server_.add_tool_notice("config", text);
 }
@@ -219,7 +237,8 @@ Json McpUpdateMonitor::status() const {
         cfg["timeoutAddedByFactoria"] = addedTimeout_;
         cfg["timeoutError"] = timeoutError_;
         cfg["advice"] = config_changed_after_start(st) && client_reads_mcp_json()
-                            ? "the client may run with an older .mcp.json: ask the user to restart it or reconnect (Claude Code: /mcp)"
+                            ? "the client may run with an older .mcp.json: ask the user to restart it or reconnect "
+                              "(Claude Code: /mcp)"
                             : "the client started with the .mcp.json on disk";
         j["projectConfig"] = cfg;
     }

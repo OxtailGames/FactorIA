@@ -12,7 +12,8 @@ using namespace fa::ai::test;
 
 namespace {
 
-const char* kGoodShare = R"({"title":"No one-way platforms","missing":"Collider2D has no oneWay option, so a body cannot pass up through a platform and land on it.","suggestion":"Add Collider2D.oneWay (bool)."})";
+const char* kGoodShare =
+    R"({"title":"No one-way platforms","missing":"Collider2D has no oneWay option, so a body cannot pass up through a platform and land on it.","suggestion":"Add Collider2D.oneWay (bool)."})";
 
 // The commands write the feedback file under a lock in the user's folder: a temporary one, never the real ~/.factoria.
 struct ScratchHome {
@@ -20,7 +21,9 @@ struct ScratchHome {
     ScopedShareEnv scoped;
     static ShareEnv make(const std::string& h) {
         ShareEnv env;
-        env.env = [h](const std::string& name) -> std::string { return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? h : ""; };
+        env.env = [h](const std::string& name) -> std::string {
+            return name == "HOME" || name == "USERPROFILE" || name == "APPDATA" ? h : "";
+        };
         return env;
     }
     ScratchHome() : scoped(make(home.str())) {}
@@ -67,7 +70,8 @@ struct Fixture {
     }
 };
 
-const char* kAllOk = R"({"real":{"ok":true,"why":""},"aboutEngine":{"ok":true,"why":""},"notPossibleYet":{"ok":true,"why":"","use":""},"share":null,"fix":""})";
+const char* kAllOk =
+    R"({"real":{"ok":true,"why":""},"aboutEngine":{"ok":true,"why":""},"notPossibleYet":{"ok":true,"why":"","use":""},"share":null,"fix":""})";
 
 }  // namespace
 
@@ -111,8 +115,10 @@ TEST_CASE("ai.review_feedback: the commands that look related are found by their
     CHECK(text.find("- zzfx.helper: Does something unrelated.", related) != std::string::npos);
 }
 
-TEST_CASE("ai.review_feedback: a rewrite of share is stored when the model gives a better one, and the model's JSON may be wrapped in prose") {
-    Fixture f(R"({"title":"Knight cannot jump through ledges","missing":"The knight needs to pass up through ledges in the crypt level."})");
+TEST_CASE("ai.review_feedback: a rewrite of share is stored when the model gives a better one, and the model's JSON "
+          "may be wrapped in prose") {
+    Fixture f(
+        R"({"title":"Knight cannot jump through ledges","missing":"The knight needs to pass up through ledges in the crypt level."})");
     const std::string reply =
         "Here is my verdict:\n```json\n"
         R"({"real":{"ok":true},"aboutEngine":{"ok":true},"notPossibleYet":{"ok":true},)"
@@ -159,7 +165,8 @@ TEST_CASE("ai.review_feedback: a given share text is reviewed instead of the sav
     CHECK_FALSE(f.entry().contains("reviewed"));
 
     f.provider->calls = 0;
-    f.provider->script = {text_response(R"({"real":{"ok":false,"why":"The docs list it."},"aboutEngine":{"ok":true},"notPossibleYet":{"ok":true}})")};
+    f.provider->script = {text_response(
+        R"({"real":{"ok":false,"why":"The docs list it."},"aboutEngine":{"ok":true},"notPossibleYet":{"ok":true}})")};
     r = f.registry.call("ai.review_feedback", Json::object({{"id", "FB-0002"}, {"share", candidate}}));
     REQUIRE(r.ok);
     CHECK(r.result["pass"] == false);
@@ -186,18 +193,21 @@ TEST_CASE("ai.review_feedback: a failed check explains why and suggests a fix, a
     CHECK(f.entry()["share"] == Json::parse(kGoodShare));
 }
 
-TEST_CASE("ai.review_feedback: not real and not about the engine are separate reasons; a missing check counts as failed") {
+TEST_CASE(
+    "ai.review_feedback: not real and not about the engine are separate reasons; a missing check counts as failed") {
     Fixture f;
-    f.provider->script = {text_response(R"({"real":{"ok":false,"why":"The docs list Collider2D.oneWay."},"notPossibleYet":{"ok":true}})")};
+    f.provider->script = {text_response(
+        R"({"real":{"ok":false,"why":"The docs list Collider2D.oneWay."},"notPossibleYet":{"ok":true}})")};
     auto r = f.registry.call("ai.review_feedback", Json::object({{"id", "FB-0001"}}));
     REQUIRE(r.ok);
     CHECK(r.result["pass"] == false);
-    CHECK(r.result["reasons"].size() == 2);  // not real, and the model said nothing about aboutEngine
+    CHECK(r.result["reasons"].size() == 2);                 // not real, and the model said nothing about aboutEngine
     CHECK(r.result["fix"].get<std::string>().size() > 20);  // a fix is always given
 }
 
 TEST_CASE("ai.review_feedback: the sanitizer decides too, whatever the model says") {
-    Fixture f(R"({"title":"see 'Dungeon of Ash'","missing":"'the knight' must pass up through 'crypt ledges' in 'level 3'"})");
+    Fixture f(
+        R"({"title":"see 'Dungeon of Ash'","missing":"'the knight' must pass up through 'crypt ledges' in 'level 3'"})");
     f.provider->script = {text_response(kAllOk)};
     auto r = f.registry.call("ai.review_feedback", Json::object({{"id", "FB-0001"}}));
     REQUIRE(r.ok);
@@ -215,7 +225,7 @@ TEST_CASE("ai.review_feedback: a rewrite the sanitizer refuses is not stored") {
     CHECK(r.result["rewritten"] == false);
     CHECK(f.entry()["share"] == Json::parse(kGoodShare));  // the original stands (it passes)
     CHECK(r.result["pass"] == true);
-    CHECK(r.result["reasons"].size() == 1);                 // and the refused rewrite is explained
+    CHECK(r.result["reasons"].size() == 1);  // and the refused rewrite is explained
 }
 
 TEST_CASE("ai.review_feedback: errors teach: unknown id (did you mean), no share, no JSON, no model") {
@@ -251,12 +261,15 @@ TEST_CASE("ai.review_feedback: errors teach: unknown id (did you mean), no share
     }
 }
 
-TEST_CASE("ai.review_feedback: the fast role answers, the orchestrator when fast is off; the sharing mode is never touched") {
+TEST_CASE(
+    "ai.review_feedback: the fast role answers, the orchestrator when fast is off; the sharing mode is never touched") {
     Fixture f;
     f.cfg.roles["fast"].enabled = false;
     f.provider->script = {text_response(kAllOk)};
     ShareEnv env;
-    env.env = [&](const std::string& n) { return n == "FACTORIA_AI_CONFIG" ? (f.dir.path / "ai.json").string() : std::string(); };
+    env.env = [&](const std::string& n) {
+        return n == "FACTORIA_AI_CONFIG" ? (f.dir.path / "ai.json").string() : std::string();
+    };
     env.transport = [](const fa::HttpRequest&) -> fa::HttpResponse {
         FAIL("ai.review_feedback must not reach the network");
         return {};

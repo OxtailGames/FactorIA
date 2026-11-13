@@ -58,10 +58,14 @@ void check_kept_picture(const std::string& projectDir, const Json& args, const c
     const std::string out = arg_string(args, "pictureOut", false);
     if (out.empty()) return;
     if (!tooling_detail::arg_bool(args, "picture", pictureDefault))
-        fail("invalid_argument", "`pictureOut` asks to keep the picture, but no picture is made " +
-                                     std::string(args.contains("picture") ? "(`picture` is false)." : "(`picture` defaults to false for this command)."),
+        fail("invalid_argument",
+             "`pictureOut` asks to keep the picture, but no picture is made " +
+                 std::string(args.contains("picture") ? "(`picture` is false)."
+                                                      : "(`picture` defaults to false for this command)."),
              "Add \"picture\": true to keep the picture at pictureOut, or drop `pictureOut`.");
-    if (to_lower(fs::extension(out)) != ".png") fail("invalid_argument", "`pictureOut` must end in .png.", "Example: \"pictureOut\": \"assets/music/theme.png\".");
+    if (to_lower(fs::extension(out)) != ".png")
+        fail("invalid_argument", "`pictureOut` must end in .png.",
+             "Example: \"pictureOut\": \"assets/music/theme.png\".");
     (void)caller_output_file(projectDir, out, command);
 }
 
@@ -70,8 +74,9 @@ void require_usable_manifest(const std::string& projectDir) {
     if (!text) return;
     auto parsed = parse_json(*text, assets::kManifestFile);
     if (!parsed.ok() || !parsed->is_object())
-        fail("failed", std::string(assets::kManifestFile) + " is not valid, so it cannot record this asset: " +
-                           (parsed.ok() ? "it must be a JSON object." : parsed.error().message),
+        fail("failed",
+             std::string(assets::kManifestFile) + " is not valid, so it cannot record this asset: " +
+                 (parsed.ok() ? "it must be a JSON object." : parsed.error().message),
              "Run project.validate and fix the file (schemas/assets.schema.json), then try again.");
 }
 
@@ -123,7 +128,9 @@ std::string plan_destination(const std::string& arg, const stdfs::path& source, 
     std::string dest = default_folder(route.outExt) + name;
     if (!arg.empty()) {
         auto norm = fs::normalize_checked(arg);
-        if (!norm.ok() || norm->empty()) fail("invalid_argument", "Invalid path '" + arg + "'.", "Use a project-relative path such as \"assets/hero.png\".");
+        if (!norm.ok() || norm->empty())
+            fail("invalid_argument", "Invalid path '" + arg + "'.",
+                 "Use a project-relative path such as \"assets/hero.png\".");
         dest = ends_with(arg, "/") || ends_with(arg, "\\") ? *norm + "/" + name : *norm;
     }
     if (!starts_with(dest, "assets/"))
@@ -131,7 +138,8 @@ std::string plan_destination(const std::string& arg, const stdfs::path& source, 
              "Use a path such as \"" + default_folder(route.outExt) + name + "\".");
     if (to_lower(fs::extension(dest)) != route.outExt)
         fail("invalid_argument",
-             std::format("A {} file is imported as '{}', so `path` must end in '{}' (got '{}').", srcExt, route.outExt, route.outExt, dest),
+             std::format("A {} file is imported as '{}', so `path` must end in '{}' (got '{}').", srcExt, route.outExt,
+                         route.outExt, dest),
              "Change the extension, or leave `path` out for assets/" + name + ".");
     return dest;
 }
@@ -139,13 +147,16 @@ std::string plan_destination(const std::string& arg, const stdfs::path& source, 
 stdfs::path resolve_source(const std::string& projectDir, const std::string& arg) {
     if (arg.find("://") != std::string::npos)
         fail("invalid_argument", "assets.import reads files on this machine, and '" + arg + "' is a URL.",
-             "Download the file first, then import its local path. Pass the page it came from as `sourceUrl` so the credits keep it.");
+             "Download the file first, then import its local path. Pass the page it came from as `sourceUrl` so the "
+             "credits keep it.");
     stdfs::path path = stdfs::path(arg).is_absolute() ? stdfs::path(arg) : project_file(projectDir, arg);
     std::error_code ec;
     if (!stdfs::is_regular_file(path, ec))
-        fail("not_found", "The file '" + arg + "' does not exist" + (stdfs::is_directory(path, ec) ? " (it is a folder)." : "."),
+        fail("not_found",
+             "The file '" + arg + "' does not exist" + (stdfs::is_directory(path, ec) ? " (it is a folder)." : "."),
              "Pass the absolute path of the file, or a path relative to the project folder.");
-    if (stdfs::file_size(path, ec) > kMaxSourceBytes) fail("too_large", "'" + arg + "' is larger than 512 MB.", "Reduce it before importing.");
+    if (stdfs::file_size(path, ec) > kMaxSourceBytes)
+        fail("too_large", "'" + arg + "' is larger than 512 MB.", "Reduce it before importing.");
     return path;
 }
 
@@ -159,7 +170,8 @@ Result<ImportOutput> import_copy(const ImportRequest& request) {
     if (assets::kind_of(request.dest) == assets::AssetKind::Texture) {
         auto image = decode_image(bytes->data(), bytes->size());
         if (!image.ok())
-            return make_error("'" + request.source.filename().string() + "' is not an image the engine can read: " + image.error().message,
+            return make_error("'" + request.source.filename().string() +
+                                  "' is not an image the engine can read: " + image.error().message,
                               "Open it in an image editor and save it again as PNG.");
         out.details = Json::object({{"width", image->width}, {"height", image->height}});
     }
@@ -183,21 +195,29 @@ std::string uri_decode(const std::string& uri) {
 
 // The JSON chunk of a binary glTF (.glb), or an error that says what is wrong with the file.
 Result<std::string> glb_json(const std::vector<std::uint8_t>& b, const std::string& file) {
-    auto u32 = [&](std::size_t at) { return std::uint32_t(b[at]) | (std::uint32_t(b[at + 1]) << 8) | (std::uint32_t(b[at + 2]) << 16) | (std::uint32_t(b[at + 3]) << 24); };
+    auto u32 = [&](std::size_t at) {
+        return std::uint32_t(b[at]) | (std::uint32_t(b[at + 1]) << 8) | (std::uint32_t(b[at + 2]) << 16) |
+               (std::uint32_t(b[at + 3]) << 24);
+    };
     if (b.size() < 20 || std::string_view(reinterpret_cast<const char*>(b.data()), 4) != "glTF")
-        return make_error("'" + file + "' is not a binary glTF (.glb) file.", "Export the model as glTF Binary (.glb) or glTF Separate (.gltf).");
+        return make_error("'" + file + "' is not a binary glTF (.glb) file.",
+                          "Export the model as glTF Binary (.glb) or glTF Separate (.gltf).");
     if (u32(16) != 0x4E4F534Au || 20 + std::size_t(u32(12)) > b.size())
         return make_error("'" + file + "' has no readable JSON chunk.", "Export the model again as glTF 2.0.");
     return std::string(reinterpret_cast<const char*>(b.data()) + 20, u32(12));
 }
 
 // A .gltf (or .glb) with the .bin buffers and images it refers to, which sit next to it (or in subfolders) and are copied along.
-Result<ImportOutput> import_gltf_text(const ImportRequest& request, std::vector<std::uint8_t> bytes, const std::string& jsonText) {
+Result<ImportOutput> import_gltf_text(const ImportRequest& request, std::vector<std::uint8_t> bytes,
+                                      const std::string& jsonText) {
     const std::string file = request.source.filename().string();
     auto doc = parse_json(jsonText, file);
-    if (!doc.ok()) return make_error("'" + file + "' is not valid JSON: " + doc.error().message, "A .gltf is a JSON file; for a binary model use a .glb.");
+    if (!doc.ok())
+        return make_error("'" + file + "' is not valid JSON: " + doc.error().message,
+                          "A .gltf is a JSON file; for a binary model use a .glb.");
     if (!doc->is_object() || !doc->contains("asset"))
-        return make_error("'" + file + "' is not a glTF file (it has no \"asset\" section).", "Export the model as glTF 2.0 (.gltf or .glb) from your 3D tool.");
+        return make_error("'" + file + "' is not a glTF file (it has no \"asset\" section).",
+                          "Export the model as glTF 2.0 (.gltf or .glb) from your 3D tool.");
     ImportOutput out;
     out.files.push_back({request.dest, std::move(bytes)});
     const stdfs::path from = request.source.parent_path();
@@ -212,14 +232,20 @@ Result<ImportOutput> import_gltf_text(const ImportRequest& request, std::vector<
             if (starts_with(raw, "data:")) continue;
             const std::string uri = uri_decode(raw);
             const bool buffer = std::string(key) == "buffers";
-            if (uri.find("://") != std::string::npos || fs::normalize(uri).empty() || stdfs::path(uri).is_absolute() || starts_with(uri, "/"))
+            if (uri.find("://") != std::string::npos || fs::normalize(uri).empty() || stdfs::path(uri).is_absolute() ||
+                starts_with(uri, "/"))
                 return make_error("'" + file + "' refers to '" + raw + "', which is not a file next to the model.",
-                                  "Put the file in the folder of the .gltf (or a subfolder) and make the uri relative, e.g. \"textures/wood.png\".");
+                                  "Put the file in the folder of the .gltf (or a subfolder) and make the uri relative, "
+                                  "e.g. \"textures/wood.png\".");
             const std::string norm = fs::normalize(uri);
             std::error_code ec;
             if (!stdfs::is_regular_file(from / norm, ec)) {
-                if (buffer) return make_error("'" + file + "' needs the buffer '" + raw + "', which is not next to it.", "Copy the .bin file next to the .gltf and import again.");
-                out.warnings.push_back("The texture '" + raw + "' is not next to the model, so it was not imported: the model will show the missing-texture checker.");
+                if (buffer)
+                    return make_error("'" + file + "' needs the buffer '" + raw + "', which is not next to it.",
+                                      "Copy the .bin file next to the .gltf and import again.");
+                out.warnings.push_back("The texture '" + raw +
+                                       "' is not next to the model, so it was not imported: the model will show the "
+                                       "missing-texture checker.");
                 continue;
             }
             if (!seen.insert(norm).second) continue;
@@ -250,8 +276,9 @@ Result<ImportOutput> import_glb(const ImportRequest& request) {
 
 // The layers of a PSD as an image document (documentPath) with one PNG per layer in <name>.layers/. files[0] stays the PNG the file
 // always imported to (its merged image, which the document's bake replaces with the same picture drawn from the layers).
-void psd_layer_json(const imgedit::PsdLayer& l, const std::string& layersDir, std::set<std::string>& usedNames, std::set<std::string>& usedFiles,
-                    std::vector<OutFile>& files, Json& out, std::vector<std::string>& warnings, bool bottom) {
+void psd_layer_json(const imgedit::PsdLayer& l, const std::string& layersDir, std::set<std::string>& usedNames,
+                    std::set<std::string>& usedFiles, std::vector<OutFile>& files, Json& out,
+                    std::vector<std::string>& warnings, bool bottom) {
     std::string name = l.name;
     for (int n = 2; usedNames.count(to_lower(name)); ++n) name = l.name + " " + std::to_string(n);
     usedNames.insert(to_lower(name));
@@ -282,8 +309,12 @@ void psd_layer_json(const imgedit::PsdLayer& l, const std::string& layersDir, st
     if (!l.visible) j["visible"] = false;
     if (l.blend != "normal") j["blend"] = l.blend;
     if (l.clip) {
-        if (bottom) warnings.push_back("Layer '" + name + "' was clipped to a layer below it that is not in the same group; it was imported unclipped.");
-        else j["clip"] = true;
+        if (bottom)
+            warnings.push_back(
+                "Layer '" + name +
+                "' was clipped to a layer below it that is not in the same group; it was imported unclipped.");
+        else
+            j["clip"] = true;
     }
     out.push_back(std::move(j));
 }
@@ -293,7 +324,8 @@ Result<ImportOutput> import_psd(const ImportRequest& request) {
     if (!bytes.ok()) return bytes.error();
     const std::string file = request.source.filename().string();
     if (bytes->size() < 4 || std::string_view(reinterpret_cast<const char*>(bytes->data()), 4) != "8BPS")
-        return make_error("'" + file + "' is not a Photoshop (.psd) file.", "Large documents (.psb) are not supported: flatten and save a PNG.");
+        return make_error("'" + file + "' is not a Photoshop (.psd) file.",
+                          "Large documents (.psb) are not supported: flatten and save a PNG.");
     auto merged = decode_image(bytes->data(), bytes->size());
     auto layered = imgedit::read_psd_layers(*bytes, file);
     ImportOutput out;
@@ -322,23 +354,34 @@ Result<ImportOutput> import_psd(const ImportRequest& request) {
             out.files.push_back({request.dest, encode_png(placeholder)});
             for (OutFile& f : layerFiles) out.files.push_back(std::move(f));
             out.documentPath = stem + ".image.json";
-            out.document = Json::object({{"width", psd.width}, {"height", psd.height}, {"description", "Imported from " + file + "."}, {"layers", layers}});
-            out.details = Json::object({{"width", psd.width}, {"height", psd.height}, {"layers", out.files.size() - 1}, {"document", out.documentPath}});
+            out.document = Json::object({{"width", psd.width},
+                                         {"height", psd.height},
+                                         {"description", "Imported from " + file + "."},
+                                         {"layers", layers}});
+            out.details = Json::object({{"width", psd.width},
+                                        {"height", psd.height},
+                                        {"layers", out.files.size() - 1},
+                                        {"document", out.documentPath}});
             out.warnings = warnings;
-            out.nextSteps.push_back("The layers are an image document: image.info {\"path\":\"" + out.documentPath + "\"} lists them, image.layer.set / image.edit / image.paint change them, and the PNG at \"" +
-                                    request.dest + "\" is baked from it (a Sprite can use that PNG).");
+            out.nextSteps.push_back(
+                "The layers are an image document: image.info {\"path\":\"" + out.documentPath +
+                "\"} lists them, image.layer.set / image.edit / image.paint change them, and the PNG at \"" +
+                request.dest + "\" is baked from it (a Sprite can use that PNG).");
             return out;
         }
     }
     if (!merged.ok())
-        return make_error("Cannot read the merged image of '" + file + "': " + merged.error().message,
-                          "Only 8 and 16 bit RGB PSDs are read, from their saved merged image. In Photoshop turn on "
-                          "Edit > Preferences > File Handling > Maximize PSD and PSB File Compatibility and save again, convert the "
-                          "mode to RGB, or export a PNG (File > Export > Quick Export as PNG).");
+        return make_error(
+            "Cannot read the merged image of '" + file + "': " + merged.error().message,
+            "Only 8 and 16 bit RGB PSDs are read, from their saved merged image. In Photoshop turn on "
+            "Edit > Preferences > File Handling > Maximize PSD and PSB File Compatibility and save again, convert the "
+            "mode to RGB, or export a PNG (File > Export > Quick Export as PNG).");
     out.files.push_back({request.dest, encode_png(*merged)});
     out.details = Json::object({{"width", merged->width}, {"height", merged->height}, {"layersFlattened", true}});
-    if (!layered.ok()) out.warnings.push_back("Layers were flattened: " + layered.error().message + " " + layered.error().hint);
-    else out.warnings.push_back("The file has no layers, so the PNG is its merged image.");
+    if (!layered.ok())
+        out.warnings.push_back("Layers were flattened: " + layered.error().message + " " + layered.error().hint);
+    else
+        out.warnings.push_back("The file has no layers, so the PNG is its merged image.");
     return out;
 }
 
@@ -359,8 +402,10 @@ ModelUri resolve_model_uri(const std::string& modelDir, const std::string& uri) 
     for (const std::string& part : split(norm, '/')) {
         if (part == ".") continue;
         if (part == "..") {
-            if (stack.empty()) ++r.climbs;
-            else stack.pop_back();
+            if (stack.empty())
+                ++r.climbs;
+            else
+                stack.pop_back();
             r.rest.clear();
             continue;
         }
@@ -374,18 +419,24 @@ ModelUri resolve_model_uri(const std::string& modelDir, const std::string& uri) 
 std::string encode_uri_path(const std::string& p) {
     std::string out;
     for (char c : p) {
-        if (c == ' ') out += "%20";
-        else if (c == '%') out += "%25";
-        else if (c == '#') out += "%23";
-        else if (c == '?') out += "%3F";
-        else out += c;
+        if (c == ' ')
+            out += "%20";
+        else if (c == '%')
+            out += "%25";
+        else if (c == '#')
+            out += "%23";
+        else if (c == '?')
+            out += "%3F";
+        else
+            out += c;
     }
     return out;
 }
 
 // "Did you mean 'x'? " (with the trailing space), a short list of same-named files, or "": the uri that would work
 // from the model's folder.
-std::string suggest_model_uri(const stdfs::path& root, const std::string& modelDir, const ModelUri& res, const std::string& fileName) {
+std::string suggest_model_uri(const stdfs::path& root, const std::string& modelDir, const ModelUri& res,
+                              const std::string& fileName) {
     std::error_code ec;
     auto uri_to = [&](const std::string& target) {
         return encode_uri_path(stdfs::relative(root / target, root / modelDir, ec).generic_string());
@@ -393,13 +444,16 @@ std::string suggest_model_uri(const stdfs::path& root, const std::string& modelD
     // (a) Too many leading '..': read what follows them from the project root.
     if (res.climbs > 0 && !res.rest.empty()) {
         const std::string fromRoot = join(res.rest, "/");
-        if (stdfs::is_regular_file(root / fromRoot, ec)) return "Did you mean '" + uri_to(fromRoot) + "' (" + fromRoot + ")? ";
+        if (stdfs::is_regular_file(root / fromRoot, ec))
+            return "Did you mean '" + uri_to(fromRoot) + "' (" + fromRoot + ")? ";
     }
     // (b) The same file name elsewhere under assets/.
     if (fileName.empty()) return "";
     std::vector<std::string> found;
     const std::string lower = to_lower(fileName);
-    for (stdfs::recursive_directory_iterator it(root / "assets", stdfs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec))
+    for (stdfs::recursive_directory_iterator it(root / "assets", stdfs::directory_options::skip_permission_denied, ec),
+         end;
+         !ec && it != end; it.increment(ec))
         if (it->is_regular_file(ec) && to_lower(it->path().filename().string()) == lower)
             found.push_back(stdfs::relative(it->path(), root, ec).generic_string());
     if (found.empty()) return "";
@@ -420,7 +474,9 @@ void check_model_files_impl(const std::string& projectDir, std::vector<Validatio
     std::error_code ec;
     if (!stdfs::is_directory(root / "assets", ec)) return;
     std::vector<stdfs::path> models;
-    for (stdfs::recursive_directory_iterator it(root / "assets", stdfs::directory_options::skip_permission_denied, ec), end; !ec && it != end; it.increment(ec)) {
+    for (stdfs::recursive_directory_iterator it(root / "assets", stdfs::directory_options::skip_permission_denied, ec),
+         end;
+         !ec && it != end; it.increment(ec)) {
         const std::string ext = to_lower(it->path().extension().string());
         if ((ext == ".gltf" || ext == ".glb") && it->is_regular_file(ec)) models.push_back(it->path());
     }
@@ -453,15 +509,18 @@ void check_model_files_impl(const std::string& projectDir, std::vector<Validatio
                 const std::string folder = where.empty() ? "the project folder" : "'" + where + "/'";
                 std::string message;
                 if (res.climbs > 0) {
-                    message = "This model refers to the " + what + " '" + raw + "', which climbs out of the project folder: " +
-                              std::to_string(res.climbs + res.depth) + " '..' from " + folder + " reach " + std::to_string(res.climbs) +
-                              " level" + (res.climbs == 1 ? "" : "s") + " above the project.";
+                    message = "This model refers to the " + what + " '" + raw +
+                              "', which climbs out of the project folder: " + std::to_string(res.climbs + res.depth) +
+                              " '..' from " + folder + " reach " + std::to_string(res.climbs) + " level" +
+                              (res.climbs == 1 ? "" : "s") + " above the project.";
                 } else {
                     message = "This model refers to the " + what + " '" + raw + "', and '" + res.path +
                               "' does not exist: it draws untextured or fails to load.";
                 }
-                const std::string suggestion = suggest_model_uri(root, where, res, stdfs::path(uri_decode(raw)).filename().string());
-                const std::string hint = suggestion + "Copy the file there (assets.import of the model copies the files its uris point at), or edit the uri in the model.";
+                const std::string suggestion =
+                    suggest_model_uri(root, where, res, stdfs::path(uri_decode(raw)).filename().string());
+                const std::string hint = suggestion + "Copy the file there (assets.import of the model copies the "
+                                                      "files its uris point at), or edit the uri in the model.";
                 errors.push_back({rel, std::string("/") + key + "/" + std::to_string(i) + "/uri", message, hint});
             }
         }
@@ -469,20 +528,32 @@ void check_model_files_impl(const std::string& projectDir, std::vector<Validatio
 }
 
 const std::map<std::string, Route>& routes() {
-    static const std::map<std::string, Route> r = {
-        {".aseprite", {"aseprite", ".png", import_aseprite}}, {".ase", {"aseprite", ".png", import_aseprite}},
-        {".psd", {"psd", ".png", import_psd}},                {".obj", {"obj", ".gltf", import_obj}},
-        {".fbx", {"fbx", ".glb", import_fbx}},                {".gltf", {"gltf", ".gltf", import_gltf}},
-        {".glb", {"glb", ".glb", import_glb}},              {".png", {"copy", ".png", import_copy}},
-        {".jpg", {"copy", ".jpg", import_copy}},              {".jpeg", {"copy", ".jpeg", import_copy}},
-        {".tga", {"copy", ".tga", import_copy}},              {".bmp", {"copy", ".bmp", import_copy}},
-        {".wav", {"copy", ".wav", import_copy}},              {".ogg", {"copy", ".ogg", import_copy}},
-        {".mp3", {"copy", ".mp3", import_copy}},              {".ttf", {"copy", ".ttf", import_copy}},
-        {".otf", {"copy", ".otf", import_copy}},              {".qoa", {"copy", ".qoa", import_copy}},
-        {".mpg", {"video", ".mpg", import_video}},            {".mpeg", {"video", ".mpeg", import_video}},
-        {".mp4", {"video", ".mpg", import_video}},            {".m4v", {"video", ".mpg", import_video}},
-        {".mov", {"video", ".mpg", import_video}},            {".webm", {"video", ".mpg", import_video}},
-        {".mkv", {"video", ".mpg", import_video}},            {".avi", {"video", ".mpg", import_video}}};
+    static const std::map<std::string, Route> r = {{".aseprite", {"aseprite", ".png", import_aseprite}},
+                                                   {".ase", {"aseprite", ".png", import_aseprite}},
+                                                   {".psd", {"psd", ".png", import_psd}},
+                                                   {".obj", {"obj", ".gltf", import_obj}},
+                                                   {".fbx", {"fbx", ".glb", import_fbx}},
+                                                   {".gltf", {"gltf", ".gltf", import_gltf}},
+                                                   {".glb", {"glb", ".glb", import_glb}},
+                                                   {".png", {"copy", ".png", import_copy}},
+                                                   {".jpg", {"copy", ".jpg", import_copy}},
+                                                   {".jpeg", {"copy", ".jpeg", import_copy}},
+                                                   {".tga", {"copy", ".tga", import_copy}},
+                                                   {".bmp", {"copy", ".bmp", import_copy}},
+                                                   {".wav", {"copy", ".wav", import_copy}},
+                                                   {".ogg", {"copy", ".ogg", import_copy}},
+                                                   {".mp3", {"copy", ".mp3", import_copy}},
+                                                   {".ttf", {"copy", ".ttf", import_copy}},
+                                                   {".otf", {"copy", ".otf", import_copy}},
+                                                   {".qoa", {"copy", ".qoa", import_copy}},
+                                                   {".mpg", {"video", ".mpg", import_video}},
+                                                   {".mpeg", {"video", ".mpeg", import_video}},
+                                                   {".mp4", {"video", ".mpg", import_video}},
+                                                   {".m4v", {"video", ".mpg", import_video}},
+                                                   {".mov", {"video", ".mpg", import_video}},
+                                                   {".webm", {"video", ".mpg", import_video}},
+                                                   {".mkv", {"video", ".mpg", import_video}},
+                                                   {".avi", {"video", ".mpg", import_video}}};
     return r;
 }
 
@@ -499,11 +570,17 @@ std::string supported_extensions() {
 std::vector<std::string> default_next_steps(const std::string& path) {
     switch (assets::kind_of(path)) {
         case assets::AssetKind::Texture:
-            return {"Draw it: a Sprite with \"texture\": \"" + path + "\" (or a MeshRenderer \"texture\", a Tilemap \"tileset\"). A sheet of several frames needs assets.slice_sheet first."};
+            return {"Draw it: a Sprite with \"texture\": \"" + path +
+                    "\" (or a MeshRenderer \"texture\", a Tilemap \"tileset\"). A sheet of several frames needs "
+                    "assets.slice_sheet first."};
         case assets::AssetKind::Model: return {"Show it: a MeshRenderer with \"mesh\": \"" + path + "\"."};
-        case assets::AssetKind::Audio: return {"Play it: audio.play(\"" + path + "\") in a script, an AudioSource \"clip\", or SceneSettings \"music\"."};
+        case assets::AssetKind::Audio:
+            return {"Play it: audio.play(\"" + path +
+                    "\") in a script, an AudioSource \"clip\", or SceneSettings \"music\"."};
         case assets::AssetKind::Font: return {"Use it: a Text with \"font\": \"" + path + "\"."};
-        case assets::AssetKind::Video: return {"Show it: a Video component with \"path\": \"" + path + "\" and a \"size\"; entity.video.play() / seek() / on(\"ended\") in a script."};
+        case assets::AssetKind::Video:
+            return {"Show it: a Video component with \"path\": \"" + path +
+                    "\" and a \"size\"; entity.video.play() / seek() / on(\"ended\") in a script."};
         default: return {};
     }
 }
@@ -525,23 +602,36 @@ Json import_asset(const std::string& projectDir, const Json& a) {
     const auto route = routes().find(ext);
     if (route == routes().end()) {
         std::string hint = "Supported: " + supported_extensions() + ".";
-        if (ext == ".blend") hint = "Export the model from Blender as glTF (File > Export > glTF 2.0) and import that. " + hint;
-        else if (ext == ".svg") hint = "Rasterize it with assets.rasterize_svg {\"source\": <the .svg in the project>, \"path\": \"assets/<name>.png\"} (copy the file into the project first). " + hint;
-        else if (ext == ".webp" || ext == ".gif" || ext == ".psb") hint = "Convert it to PNG first. " + hint;
-        else if (ext == ".gif" || ext == ".flv" || ext == ".wmv") hint = "Convert it to .mp4 with ffmpeg first (factoria setup ffmpeg). " + hint;
-        else if (ext == ".flac" || ext == ".m4a" || ext == ".aac") hint = "Convert it to OGG or WAV first. " + hint;
+        if (ext == ".blend")
+            hint = "Export the model from Blender as glTF (File > Export > glTF 2.0) and import that. " + hint;
+        else if (ext == ".svg")
+            hint = "Rasterize it with assets.rasterize_svg {\"source\": <the .svg in the project>, \"path\": "
+                   "\"assets/<name>.png\"} (copy the file into the project first). " +
+                   hint;
+        else if (ext == ".webp" || ext == ".gif" || ext == ".psb")
+            hint = "Convert it to PNG first. " + hint;
+        else if (ext == ".gif" || ext == ".flv" || ext == ".wmv")
+            hint = "Convert it to .mp4 with ffmpeg first (factoria setup ffmpeg). " + hint;
+        else if (ext == ".flac" || ext == ".m4a" || ext == ".aac")
+            hint = "Convert it to OGG or WAV first. " + hint;
         fail("invalid_argument", "assets.import cannot read '" + ext + "' files.", hint);
     }
     ImportRequest request;
     request.source = source;
     request.dest = plan_destination(arg_string(a, "path", false), source, route->second);
-    (void)project_write_file(projectDir, request.dest);  // refused before the importer (ffmpeg, a converter) runs: managed folders, links out
+    (void)project_write_file(
+        projectDir,
+        request.dest);  // refused before the importer (ffmpeg, a converter) runs: managed folders, links out
     request.columns = int(tooling_detail::arg_int(a, "columns", 0));
     request.flat = arg_bool(a, "flat", false);
     const bool overwrite = arg_bool(a, "overwrite", false);
-    auto exists = [&](const std::string& rel) { std::error_code ec; return stdfs::exists(project_file(projectDir, rel), ec); };
+    auto exists = [&](const std::string& rel) {
+        std::error_code ec;
+        return stdfs::exists(project_file(projectDir, rel), ec);
+    };
     if (!overwrite && exists(request.dest))
-        fail("exists", "'" + request.dest + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
+        fail("exists", "'" + request.dest + "' already exists.",
+             "Pass overwrite: true to replace it, or choose another `path`.");
     require_usable_manifest(projectDir);
 
     Result<ImportOutput> done = route->second.run(request);
@@ -567,19 +657,25 @@ Json import_asset(const std::string& projectDir, const Json& a) {
             } else if (to_lower(fs::extension(f.path)) == ".bin" || !out.documentPath.empty()) {
                 clashes.push_back(f.path);
             } else {
-                out.warnings.push_back("'" + f.path + "' already exists and is a DIFFERENT file (another model's?), so it was kept and the "
-                                       "model will draw with that one. Import this model into its own folder (`path`, e.g. "
-                                       "\"" + fs::parent(f.path) + "/<pack>/\") or pass overwrite: true to replace it.");
+                out.warnings.push_back(
+                    "'" + f.path +
+                    "' already exists and is a DIFFERENT file (another model's?), so it was kept and the "
+                    "model will draw with that one. Import this model into its own folder (`path`, e.g. "
+                    "\"" +
+                    fs::parent(f.path) + "/<pack>/\") or pass overwrite: true to replace it.");
             }
             continue;
         }
         toWrite.push_back(std::move(f));
     }
     if (!clashes.empty())
-        fail("exists", "These files already exist: " + join(clashes, ", ") + ".", "Pass overwrite: true to replace them, or choose another `path` (the files next to a model follow its folder).");
+        fail("exists", "These files already exist: " + join(clashes, ", ") + ".",
+             "Pass overwrite: true to replace them, or choose another `path` (the files next to a model follow its "
+             "folder).");
     out.files = std::move(toWrite);
     if (!out.documentPath.empty() && !overwrite && exists(out.documentPath))
-        fail("exists", "'" + out.documentPath + "' already exists.", "Pass overwrite: true to replace it, or choose another `path`.");
+        fail("exists", "'" + out.documentPath + "' already exists.",
+             "Pass overwrite: true to replace it, or choose another `path`.");
 
     Json provenance = Json::object({{"origin", "imported"}, {"date", assets::today()}});
     provenance["source"] = arg_string(a, "sourceUrl", false, replace_all(sourceArg, "\\", "/"));
@@ -590,9 +686,12 @@ Json import_asset(const std::string& projectDir, const Json& a) {
     Json written = Json::array();
     for (const OutFile& f : out.files) {
         std::string err;
-        if (!tooling_detail::write_file(project_write_file(projectDir, f.path), std::string_view(reinterpret_cast<const char*>(f.bytes.data()), f.bytes.size()), &err))
+        if (!tooling_detail::write_file(project_write_file(projectDir, f.path),
+                                        std::string_view(reinterpret_cast<const char*>(f.bytes.data()), f.bytes.size()),
+                                        &err))
             fail("failed", err);
-        written.push_back(Json::object({{"path", f.path}, {"bytes", f.bytes.size()}, {"kind", assets::kind_name(assets::kind_of(f.path))}}));
+        written.push_back(Json::object(
+            {{"path", f.path}, {"bytes", f.bytes.size()}, {"kind", assets::kind_name(assets::kind_of(f.path))}}));
     }
     {
         ProjectRootGuard root(projectDir);
@@ -600,18 +699,24 @@ Json import_asset(const std::string& projectDir, const Json& a) {
             auto r = assets::update_entry(out.files[i].path, [&](Json& e) {
                 // Importing a file again keeps what it is for (the style role of its old record).
                 Json role;
-                if (e.contains("provenance") && e["provenance"].is_object() && e["provenance"].contains("role")) role = e["provenance"]["role"];
+                if (e.contains("provenance") && e["provenance"].is_object() && e["provenance"].contains("role"))
+                    role = e["provenance"]["role"];
                 e["provenance"] = provenance;
                 if (!role.is_null()) e["provenance"]["role"] = role;
                 if (i == 0 && !out.sheet.is_null()) e["sheet"] = out.sheet;
             });
-            if (!r.ok()) fail("failed", "The files were written, but assets.json was not updated: " + r.error().message, r.error().hint);
+            if (!r.ok())
+                fail("failed", "The files were written, but assets.json was not updated: " + r.error().message,
+                     r.error().hint);
         }
     }
 
     if (!out.documentPath.empty()) {
         auto saved = save_image_document(projectDir, out.documentPath, out.document, true);
-        if (!saved.ok()) fail("failed", "The layers were written, but the image document could not be saved: " + saved.error().message, saved.error().hint);
+        if (!saved.ok())
+            fail("failed",
+                 "The layers were written, but the image document could not be saved: " + saved.error().message,
+                 saved.error().hint);
         written.push_back(Json::object({{"path", out.documentPath}, {"kind", "image document"}}));
         for (const std::string& w : saved->warnings) out.warnings.push_back(w);
         if (out.sheet.is_null() && saved->sheet.is_object()) {
@@ -622,14 +727,18 @@ Json import_asset(const std::string& projectDir, const Json& a) {
         }
     }
 
-    Json result = Json::object({{"importer", route->second.importer}, {"path", request.dest}, {"written", written}, {"provenance", provenance}});
+    Json result = Json::object({{"importer", route->second.importer},
+                                {"path", request.dest},
+                                {"written", written},
+                                {"provenance", provenance}});
     if (!out.sheet.is_null()) result["sheet"] = out.sheet;
     if (out.details.is_object() && !out.details.empty()) result["details"] = out.details;
     if (!out.warnings.empty()) result["warnings"] = out.warnings;
     std::vector<std::string> steps = out.nextSteps.empty() ? default_next_steps(request.dest) : out.nextSteps;
-    steps.push_back(a.contains("license") ? "Credits: the license and author are in assets.json (provenance)." :
-                    "Record the license: pass `license` (and `author`) when you import a file you did not make, e.g. \"CC0\" or \"CC-BY 4.0\"; "
-                    "the credits and store disclosures read assets.json.");
+    steps.push_back(a.contains("license") ? "Credits: the license and author are in assets.json (provenance)."
+                                          : "Record the license: pass `license` (and `author`) when you import a file "
+                                            "you did not make, e.g. \"CC0\" or \"CC-BY 4.0\"; "
+                                            "the credits and store disclosures read assets.json.");
     result["nextSteps"] = steps;
     return result;
 }
@@ -637,7 +746,9 @@ Json import_asset(const std::string& projectDir, const Json& a) {
 }  // namespace
 
 namespace assets_detail {
-void check_model_files(const std::string& projectDir, std::vector<ValidationIssue>& errors) { check_model_files_impl(projectDir, errors); }
+void check_model_files(const std::string& projectDir, std::vector<ValidationIssue>& errors) {
+    check_model_files_impl(projectDir, errors);
+}
 }  // namespace assets_detail
 
 void register_asset_commands(CommandRegistry& registry, const std::string& projectDir) {
@@ -645,7 +756,8 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
     info.name = "assets.import";
     info.category = "assets";
     info.readOnly = false;
-    info.summary = "Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF, MP4...) into the project's assets/ folder and record where it came from.";
+    info.summary = "Bring a file made elsewhere (Aseprite, PSD, OBJ, FBX, PNG, WAV, glTF, MP4...) into the project's "
+                   "assets/ folder and record where it came from.";
     info.description =
         "Copies or converts `source` (an absolute path on this machine, or relative to the project) into "
         "assets/ and writes its provenance (origin imported, source, license, author, ai, date) in "
@@ -660,8 +772,7 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
         "or pass overwrite), and a DIFFERENT buffer is an `exists` error. project.validate reports a model "
         "whose texture or buffer is missing.\n"
         "\n"
-        "Example: {\"source\":\"C:/art/hero.aseprite\",\"license\":\"CC0\",\"author\":\"Ana\"}."
-        FA_COMMAND_DETAILS
+        "Example: {\"source\":\"C:/art/hero.aseprite\",\"license\":\"CC0\",\"author\":\"Ana\"}." FA_COMMAND_DETAILS
         "- .aseprite .ase: becomes an image document (<name>.image.json, one PNG per layer and changing cel "
         "in <name>.layers/) and the sprite sheet is baked from it: layers (hidden ones kept hidden; groups "
         "are flattened, their visibility and opacity kept), cels (a cel the file links to an earlier frame "
@@ -719,7 +830,8 @@ void register_asset_commands(CommandRegistry& registry, const std::string& proje
     registry.add(info, [projectDir](const Json& args) { return import_asset(projectDir, args); });
     // Capabilities (capability.h): the imported files and their assets.json entries are project files; a video or an FBX/OBJ model
     // is converted by a child process (ffmpeg, a converter), hence process.
-    declare_command_capabilities(registry, {{"assets.import", capability_sets::writes_project().with(Capability::Process)}});
+    declare_command_capabilities(registry,
+                                 {{"assets.import", capability_sets::writes_project().with(Capability::Process)}});
     register_slice_sheet_command(registry, projectDir);
     register_pack_atlas_command(registry, projectDir);
     register_draw_icon_command(registry, projectDir);

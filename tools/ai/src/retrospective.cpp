@@ -57,7 +57,9 @@ std::string category_of(const std::string& command) {
     const std::size_t dot = command.find('.');
     return dot == std::string::npos ? std::string() : command.substr(0, dot);
 }
-bool is_engine_command(const EfficiencyToolCall& c) { return c.command.find('.') != std::string::npos && c.command.find(' ') == std::string::npos; }
+bool is_engine_command(const EfficiencyToolCall& c) {
+    return c.command.find('.') != std::string::npos && c.command.find(' ') == std::string::npos;
+}
 
 bool is_doc_read(const EfficiencyToolCall& c) { return starts_with(c.command, "docs.") && !c.ref.empty(); }
 bool is_file_read(const EfficiencyToolCall& c) {
@@ -65,7 +67,8 @@ bool is_file_read(const EfficiencyToolCall& c) {
     return (n == "read" || n == "read_file" || c.command == "file.read" || c.command == "fs.read") && !c.ref.empty();
 }
 bool is_screenshot(const EfficiencyToolCall& c) {
-    return to_lower(c.command).find("screenshot") != std::string::npos || to_lower(c.name).find("screenshot") != std::string::npos;
+    return to_lower(c.command).find("screenshot") != std::string::npos ||
+           to_lower(c.name).find("screenshot") != std::string::npos;
 }
 
 // A piece of evidence a detector found, with the share of its numbers a fix could remove.
@@ -79,10 +82,10 @@ struct Acc {
     RetroCandidate c;
     std::vector<Part> parts;
     std::set<std::string> sessions;
-    std::uint64_t maxBytes = 0;     // big_result: the largest result
-    std::int64_t waitMs = 0;        // long_wait: the time the calls took
-    int streaks = 0;                // screenshots
-    int loopSteps = 0;              // loop
+    std::uint64_t maxBytes = 0;  // big_result: the largest result
+    std::int64_t waitMs = 0;     // long_wait: the time the calls took
+    int streaks = 0;             // screenshots
+    int loopSteps = 0;           // loop
 };
 
 using Map = std::map<std::string, Acc>;
@@ -127,12 +130,15 @@ void detect_failures(const EfficiencySession& s, Map& out) {
     std::map<std::pair<std::string, std::string>, std::vector<int>> failures;
     for (const EfficiencyStep& st : s.steps)
         for (const EfficiencyToolCall& c : st.calls)
-            if (c.failed && !c.code.empty() && is_engine_command(c) && c.code != "cancelled") failures[{c.command, c.code}].push_back(st.number);
+            if (c.failed && !c.code.empty() && is_engine_command(c) && c.code != "cancelled")
+                failures[{c.command, c.code}].push_back(st.number);
     for (const auto& [key, steps] : failures) {
         if (static_cast<int>(steps.size()) < kRetroMinFailures) continue;
         int last = steps.back();
         for (const EfficiencyStep& st : s.steps)
-            if (st.number > last && std::any_of(st.calls.begin(), st.calls.end(), [&](const auto& c) { return c.command == key.first; })) last = st.number;
+            if (st.number > last &&
+                std::any_of(st.calls.begin(), st.calls.end(), [&](const auto& c) { return c.command == key.first; }))
+                last = st.number;
         const int spanSteps = last - steps.front() + 1;
         Acc& a = acc_for(out, "failure:" + key.first + ":" + key.second, "failure");
         a.c.command = key.first;
@@ -167,7 +173,8 @@ void detect_rereads(const EfficiencySession& s, Map& out) {
         a.c.count += static_cast<int>(steps.size());
         const int spanSteps = steps.back() - steps.front() + 1;
         // Everything after the first read was a repeat.
-        add_part(a, s, steps.front(), steps.back(), std::min(0.8, static_cast<double>(steps.size() - 1) / std::max(1, spanSteps)));
+        add_part(a, s, steps.front(), steps.back(),
+                 std::min(0.8, static_cast<double>(steps.size() - 1) / std::max(1, spanSteps)));
     }
 }
 
@@ -176,7 +183,8 @@ void detect_big_results(const EfficiencySession& s, Map& out) {
     std::map<std::string, std::vector<std::pair<int, std::uint64_t>>> big;  // command -> (step, bytes)
     for (const EfficiencyStep& st : s.steps)
         for (const EfficiencyToolCall& c : st.calls)
-            if (is_engine_command(c) && c.resultBytes >= kRetroBigResultBytes) big[c.command].push_back({st.number, c.resultBytes});
+            if (is_engine_command(c) && c.resultBytes >= kRetroBigResultBytes)
+                big[c.command].push_back({st.number, c.resultBytes});
     for (const auto& [command, hits] : big) {
         if (static_cast<int>(hits.size()) < kRetroMinBigResults) continue;
         Acc& a = acc_for(out, "big_result:" + command, "big_result");
@@ -205,13 +213,16 @@ void detect_screenshots(const EfficiencySession& s, Map& out) {
             a.c.suggestedFix = "commandOption";
             a.c.appliesTo = "every-game";
             a.c.count += run;
-            if (add_part(a, s, endStep - run + 1, endStep, static_cast<double>(run - 2) / run)) ++a.streaks;  // the first two are the check
+            if (add_part(a, s, endStep - run + 1, endStep, static_cast<double>(run - 2) / run))
+                ++a.streaks;  // the first two are the check
         }
         run = 0;
     };
     for (const EfficiencyStep& st : s.steps) {
-        if (std::any_of(st.calls.begin(), st.calls.end(), is_screenshot)) ++run;
-        else close(st.number - 1);
+        if (std::any_of(st.calls.begin(), st.calls.end(), is_screenshot))
+            ++run;
+        else
+            close(st.number - 1);
     }
     close(static_cast<int>(s.steps.size()));
 }
@@ -266,7 +277,10 @@ void detect_loops(const EfficiencySession& s, Map& out) {
     int i = 0;
     while (i < n) {
         std::set<std::string> cats = categories(i);
-        if (cats.empty()) { ++i; continue; }
+        if (cats.empty()) {
+            ++i;
+            continue;
+        }
         int j = i + 1;
         while (j < n) {
             std::set<std::string> next = categories(j);
@@ -322,7 +336,8 @@ void detect_workarounds(const EfficiencySession& s, const Json& entries, Map& ou
             a.c.appliesTo = "feature";
             a.c.count += static_cast<int>(steps.size());
             const int spanSteps = steps.back() - steps.front() + 1;
-            add_part(a, s, steps.front(), steps.back(), std::min(0.5, static_cast<double>(steps.size()) / std::max(1, spanSteps)));
+            add_part(a, s, steps.front(), steps.back(),
+                     std::min(0.5, static_cast<double>(steps.size()) / std::max(1, spanSteps)));
         }
     }
 }
@@ -330,21 +345,25 @@ void detect_workarounds(const EfficiencySession& s, const Json& entries, Map& ou
 std::string summarize(const Acc& a, int sessionCount) {
     const RetroCandidate& c = a.c;
     const std::string in = sessionCount > 1 ? " in " + std::to_string(sessionCount) + " sessions" : std::string();
-    if (c.pattern == "failure") return "`" + c.command + "` failed with `" + c.code + "` " + std::to_string(c.count) + " times" + in;
+    if (c.pattern == "failure")
+        return "`" + c.command + "` failed with `" + c.code + "` " + std::to_string(c.count) + " times" + in;
     if (c.pattern == "reread")
         return "`" + c.command + " " + c.ref + "` was read " + std::to_string(c.count) + " times" + in;
     if (c.pattern == "big_result")
-        return "`" + c.command + "` returned " + std::to_string(c.count) + " results over " + fmt_kb(kRetroBigResultBytes) + " (the largest " +
-               fmt_kb(a.maxBytes) + ")" + in;
+        return "`" + c.command + "` returned " + std::to_string(c.count) + " results over " +
+               fmt_kb(kRetroBigResultBytes) + " (the largest " + fmt_kb(a.maxBytes) + ")" + in;
     if (c.pattern == "screenshots")
-        return std::to_string(c.count) + " steps in a row took a screenshot (" + std::to_string(a.streaks) + (a.streaks == 1 ? " streak)" : " streaks)") + in;
+        return std::to_string(c.count) + " steps in a row took a screenshot (" + std::to_string(a.streaks) +
+               (a.streaks == 1 ? " streak)" : " streaks)") + in;
     if (c.pattern == "long_wait")
-        return "`" + c.command + "` kept the run waiting " + fmt_minutes(a.waitMs) + " minutes in total, " + std::to_string(c.count) +
-               " calls of a minute or more" + in;
+        return "`" + c.command + "` kept the run waiting " + fmt_minutes(a.waitMs) + " minutes in total, " +
+               std::to_string(c.count) + " calls of a minute or more" + in;
     if (c.pattern == "loop")
-        return std::to_string(a.loopSteps) + " steps stayed on " + c.command + " calling one command again and again (edit, run, check)" + in;
+        return std::to_string(a.loopSteps) + " steps stayed on " + c.command +
+               " calling one command again and again (edit, run, check)" + in;
     if (c.pattern == "workaround")
-        return "`" + c.command + "` was called in " + std::to_string(c.count) + " steps, the workaround " + c.relatedEntry + " of ENGINE_FEEDBACK records" + in;
+        return "`" + c.command + "` was called in " + std::to_string(c.count) + " steps, the workaround " +
+               c.relatedEntry + " of ENGINE_FEEDBACK records" + in;
     return c.id;
 }
 
@@ -372,9 +391,17 @@ std::uint64_t rank_score(const RetroCandidate& c) { return cost_weight(c.potenti
 Json RetroCandidate::to_json() const {
     Json spanList = Json::array();
     for (const EfficiencySpan& sp : spans) spanList.push_back(sp.to_json());
-    Json j = Json::object({{"id", id}, {"pattern", pattern}, {"summary", summary}, {"count", count}, {"spans", spanList},
-                           {"measured", measured.to_json()}, {"maxShare", maxShare}, {"potentialSaving", potential.to_json()},
-                           {"suggestedFix", suggestedFix}, {"appliesTo", appliesTo}, {"projectOnly", projectOnly}});
+    Json j = Json::object({{"id", id},
+                           {"pattern", pattern},
+                           {"summary", summary},
+                           {"count", count},
+                           {"spans", spanList},
+                           {"measured", measured.to_json()},
+                           {"maxShare", maxShare},
+                           {"potentialSaving", potential.to_json()},
+                           {"suggestedFix", suggestedFix},
+                           {"appliesTo", appliesTo},
+                           {"projectOnly", projectOnly}});
     if (!command.empty()) j["command"] = command;
     if (!ref.empty()) j["ref"] = ref;
     if (!code.empty()) j["code"] = code;
@@ -382,8 +409,8 @@ Json RetroCandidate::to_json() const {
     return j;
 }
 
-std::vector<RetroCandidate> find_retro_candidates(const std::vector<EfficiencySession>& sessions, const Json& feedbackEntries,
-                                                  bool keepBelowThreshold) {
+std::vector<RetroCandidate> find_retro_candidates(const std::vector<EfficiencySession>& sessions,
+                                                  const Json& feedbackEntries, bool keepBelowThreshold) {
     Map map;
     for (const EfficiencySession& s : sessions) {
         if (s.steps.empty()) continue;
@@ -420,7 +447,8 @@ std::vector<RetroCandidate> find_retro_candidates(const std::vector<EfficiencySe
         }
         a.c.maxShare = std::clamp(round2(den > 0 ? num / den : 0.0), 0.01, 1.0);
         a.c.potential = scale_measure(a.c.measured, a.c.maxShare);
-        if (!keepBelowThreshold && !(a.c.potential.minutes >= minMinutes || a.c.potential.tokens >= minTokens)) continue;  // not worth a fix of any kind
+        if (!keepBelowThreshold && !(a.c.potential.minutes >= minMinutes || a.c.potential.tokens >= minTokens))
+            continue;  // not worth a fix of any kind
         a.c.summary = summarize(a, static_cast<int>(a.sessions.size()));
         out.push_back(a.c);
     }
@@ -432,9 +460,12 @@ std::vector<RetroCandidate> find_retro_candidates(const std::vector<EfficiencySe
                                  return std::all_of(c.spans.begin(), c.spans.end(), [&](const EfficiencySpan& sp) {
                                      return std::any_of(out.begin(), out.end(), [&](const RetroCandidate& other) {
                                          return other.pattern != "loop" &&
-                                                std::any_of(other.spans.begin(), other.spans.end(), [&](const EfficiencySpan& o) {
-                                                    return o.session == sp.session && sp.fromStep <= o.toStep && sp.toStep >= o.fromStep;
-                                                });
+                                                std::any_of(other.spans.begin(), other.spans.end(),
+                                                            [&](const EfficiencySpan& o) {
+                                                                return o.session == sp.session &&
+                                                                       sp.fromStep <= o.toStep &&
+                                                                       sp.toStep >= o.fromStep;
+                                                            });
                                      });
                                  });
                              }),
@@ -458,11 +489,21 @@ bool retrospective_running_here() { return t_runningHere; }
 Json RetrospectiveResult::to_json() const {
     Json cands = Json::array();
     for (const RetroCandidate& c : candidates) cands.push_back(c.to_json());
-    Json j = Json::object({{"sessions", sessions}, {"candidates", cands}, {"alreadyFiled", alreadyFiled}, {"filed", filed},
-                           {"fixChecks", fixChecks}, {"dropped", dropped}, {"skipped", skipped}, {"facts", facts}, {"model", model}, {"costUsd", std::round(costUsd * 1e6) / 1e6},
-                           {"usage", usage.to_json()}, {"note", note}});
+    Json j = Json::object({{"sessions", sessions},
+                           {"candidates", cands},
+                           {"alreadyFiled", alreadyFiled},
+                           {"filed", filed},
+                           {"fixChecks", fixChecks},
+                           {"dropped", dropped},
+                           {"skipped", skipped},
+                           {"facts", facts},
+                           {"model", model},
+                           {"costUsd", std::round(costUsd * 1e6) / 1e6},
+                           {"usage", usage.to_json()},
+                           {"note", note}});
     std::string text = note;
-    if (!skipped.empty()) text += " " + std::to_string(skipped.size()) + " transcript(s) were not read (see `skipped`).";
+    if (!skipped.empty())
+        text += " " + std::to_string(skipped.size()) + " transcript(s) were not read (see `skipped`).";
     if (!fixCheckProblem.empty()) text += " " + fixCheckProblem;
     j["note"] = text;
     return j;
@@ -473,28 +514,45 @@ Json RetrospectiveResult::to_json() const {
 namespace {
 
 const char* kSystem =
-    "You turn measured waste in the AI sessions that build games with the FactorIA game engine into efficiency feedback for the "
-    "engine's developers. The numbers were measured by the engine from the session transcripts: you never change them, and you do not "
-    "choose steps. You are given candidates (c1, c2, ...) with what happened, the measured steps, minutes and tokens, the largest "
+    "You turn measured waste in the AI sessions that build games with the FactorIA game engine into efficiency "
+    "feedback for the "
+    "engine's developers. The numbers were measured by the engine from the session transcripts: you never change them, "
+    "and you do not "
+    "choose steps. You are given candidates (c1, c2, ...) with what happened, the measured steps, minutes and tokens, "
+    "the largest "
     "share of them a fix could remove (maxShare), and the cheapest fix type that usually helps.\n"
-    "Pick AT MOST THREE candidates that a fix in the ENGINE (not in this game) would really remove, and write each as an entry. The "
-    "fix is part of the entry and its cost decides: the cheapest one that removes the waste wins, in this order: doc (a section in an "
-    "existing doc, or its title and keywords), guide (an on-demand topic guide), example, commandOption (an option on a command that "
-    "exists), newCommand, engineChange. commandOption, newCommand and engineChange need `whyNotCheaper`: why a doc section, a guide "
-    "and an example would not have removed the waste. A guide is not free: text loaded on every step costs on every step, so propose "
+    "Pick AT MOST THREE candidates that a fix in the ENGINE (not in this game) would really remove, and write each as "
+    "an entry. The "
+    "fix is part of the entry and its cost decides: the cheapest one that removes the waste wins, in this order: doc "
+    "(a section in an "
+    "existing doc, or its title and keywords), guide (an on-demand topic guide), example, commandOption (an option on "
+    "a command that "
+    "exists), newCommand, engineChange. commandOption, newCommand and engineChange need `whyNotCheaper`: why a doc "
+    "section, a guide "
+    "and an example would not have removed the waste. A guide is not free: text loaded on every step costs on every "
+    "step, so propose "
     "on-demand guides, not lines in the system prompt.\n"
-    "Do NOT write an entry for: a different model, effort or limit (those are the user's settings); something true only of this game "
-    "(a file of the project read again and again, a name, a layout): that is a project fact, give it in `facts` as one line for the "
+    "Do NOT write an entry for: a different model, effort or limit (those are the user's settings); something true "
+    "only of this game "
+    "(a file of the project read again and again, a name, a layout): that is a project fact, give it in `facts` as one "
+    "line for the "
     "project's AGENTS.md instead; or a saving you cannot explain in one sentence. Skip a candidate when in doubt.\n"
-    "Write in engine terms only: command, component and field names. No names of the game, its levels, characters or files.\n"
+    "Write in engine terms only: command, component and field names. No names of the game, its levels, characters or "
+    "files.\n"
     "Answer with ONE JSON object and nothing else:\n"
-    "{\"entries\":[{\"candidate\":\"c1\",\"category\":\"<engine area>\",\"title\":\"<short noun phrase>\",\"suggestion\":\"<the fix, one sentence>\","
-    "\"waste\":\"<what took the time, in engine terms, one or two sentences>\",\"fixType\":\"doc\",\"appliesTo\":\"every-game|genre|feature\","
-    "\"saveShare\":0.5,\"saveWhy\":\"<one line: why the fix removes that share>\",\"whyNotCheaper\":\"\",\"searched\":[],"
+    "{\"entries\":[{\"candidate\":\"c1\",\"category\":\"<engine area>\",\"title\":\"<short noun "
+    "phrase>\",\"suggestion\":\"<the fix, one sentence>\","
+    "\"waste\":\"<what took the time, in engine terms, one or two "
+    "sentences>\",\"fixType\":\"doc\",\"appliesTo\":\"every-game|genre|feature\","
+    "\"saveShare\":0.5,\"saveWhy\":\"<one line: why the fix removes that "
+    "share>\",\"whyNotCheaper\":\"\",\"searched\":[],"
     "\"factLine\":\"\"}],\"facts\":[{\"candidate\":\"c2\",\"line\":\"- one line for AGENTS.md\"}]}\n"
-    "`saveShare` is the share (0.01 to 1) of the candidate's measured span the fix removes; it can not be above maxShare. Leave "
-    "`searched` empty unless the candidate is a doc that exists but was not found: then list the words that did not find it, and make "
-    "the fix the doc's title and keywords. `factLine` is only for an entry that turns out to be about this game alone. Empty lists are "
+    "`saveShare` is the share (0.01 to 1) of the candidate's measured span the fix removes; it can not be above "
+    "maxShare. Leave "
+    "`searched` empty unless the candidate is a doc that exists but was not found: then list the words that did not "
+    "find it, and make "
+    "the fix the doc's title and keywords. `factLine` is only for an entry that turns out to be about this game alone. "
+    "Empty lists are "
     "fine.";
 
 std::string json_object_in(const std::string& text) {
@@ -507,8 +565,10 @@ std::string slug(const std::string& id) {
     std::string out;
     for (char c : id) {
         const unsigned char u = static_cast<unsigned char>(c);
-        if (std::isalnum(u) || c == '.' || c == '_' || c == '-') out += c;
-        else if (!out.empty() && out.back() != '-') out += '-';
+        if (std::isalnum(u) || c == '.' || c == '_' || c == '-')
+            out += c;
+        else if (!out.empty() && out.back() != '-')
+            out += '-';
     }
     if (out.size() > 80) out.resize(80);
     return out;
@@ -523,12 +583,16 @@ std::string prompt_for(const std::vector<RetroCandidate>& list) {
     for (std::size_t i = 0; i < list.size(); ++i) {
         const RetroCandidate& c = list[i];
         o << "c" << (i + 1) << ": " << c.summary << "\n"
-          << "  pattern: " << c.pattern << (c.projectOnly ? " (about the project's own files: a project fact)" : "") << "\n"
-          << "  measured: " << c.measured.steps << " steps, " << c.measured.toolCalls << " tool calls, " << c.measured.minutes << " minutes, "
-          << c.measured.tokens << " tokens" << (c.measured.estimated ? " (estimated from bytes)" : "") << "\n"
-          << "  maxShare: " << c.maxShare << " (a fix removes at most " << c.potential.minutes << " minutes, " << c.potential.tokens << " tokens)\n"
+          << "  pattern: " << c.pattern << (c.projectOnly ? " (about the project's own files: a project fact)" : "")
+          << "\n"
+          << "  measured: " << c.measured.steps << " steps, " << c.measured.toolCalls << " tool calls, "
+          << c.measured.minutes << " minutes, " << c.measured.tokens << " tokens"
+          << (c.measured.estimated ? " (estimated from bytes)" : "") << "\n"
+          << "  maxShare: " << c.maxShare << " (a fix removes at most " << c.potential.minutes << " minutes, "
+          << c.potential.tokens << " tokens)\n"
           << "  usual fix: " << c.suggestedFix << ", applies to " << c.appliesTo << "\n";
-        if (!c.relatedEntry.empty()) o << "  the workaround is recorded in ENGINE_FEEDBACK entry " << c.relatedEntry << "\n";
+        if (!c.relatedEntry.empty())
+            o << "  the workaround is recorded in ENGINE_FEEDBACK entry " << c.relatedEntry << "\n";
     }
     return o.str();
 }
@@ -542,7 +606,8 @@ bool evidence_held(const RetroCandidate& c, const Json& entries) {
         const Json* ev = child(e, "evidence");
         if (!ev || !ev->is_array()) continue;
         for (const Json& sp : *ev)
-            held.push_back({str(sp, "session"), static_cast<int>(num(sp, "fromStep")), static_cast<int>(num(sp, "toStep"))});
+            held.push_back(
+                {str(sp, "session"), static_cast<int>(num(sp, "fromStep")), static_cast<int>(num(sp, "toStep"))});
     }
     return std::all_of(c.spans.begin(), c.spans.end(), [&](const EfficiencySpan& s) {
         return std::any_of(held.begin(), held.end(), [&](const EfficiencySpan& h) {
@@ -561,12 +626,14 @@ std::int64_t since_ms(const std::string& text, Error& error, bool& bad) {
         return 0;
     }
     const CalendarDate& c = d.value();
-    return static_cast<std::int64_t>(c.days_since_epoch()) * 86400000LL + (static_cast<std::int64_t>(c.hour) * 3600 + c.minute * 60 + c.second) * 1000LL;
+    return static_cast<std::int64_t>(c.days_since_epoch()) * 86400000LL +
+           (static_cast<std::int64_t>(c.hour) * 3600 + c.minute * 60 + c.second) * 1000LL;
 }
 
 }  // namespace
 
-Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const RetrospectiveOptions& options, const std::string& projectDir) {
+Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const RetrospectiveOptions& options,
+                                              const std::string& projectDir) {
     if (projectDir.empty())
         return make_error("A retrospective needs a project: its transcripts are in <project>/.factoria/ai/sessions.",
                           "Run it from a project folder (--project) or open one in the editor.");
@@ -579,7 +646,8 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
     bool badSince = false;
     const std::int64_t sinceUnixMs = since_ms(options.since, sinceError, badSince);
     if (badSince)
-        return make_error("since: " + sinceError.message, "Write a UTC date like 2026-11-01, or a date and time like 2026-11-01T09:30.");
+        return make_error("since: " + sinceError.message,
+                          "Write a UTC date like 2026-11-01, or a date and time like 2026-11-01T09:30.");
 
     // Which transcripts.
     std::vector<std::string> ids;
@@ -589,11 +657,14 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
         std::vector<std::string> all = list_efficiency_sessions(projectDir);
         std::string sinceDay;
         if (sinceUnixMs > 0) {
-            std::string iso = iso_utc_ms(sinceUnixMs - 86400000LL);  // the id's own stamp is local time: look one day further back
+            std::string iso =
+                iso_utc_ms(sinceUnixMs - 86400000LL);  // the id's own stamp is local time: look one day further back
             sinceDay = iso.substr(0, 4) + iso.substr(5, 2) + iso.substr(8, 2);
         }
         int examined = 0;
-        for (auto it = all.rbegin(); it != all.rend() && static_cast<int>(ids.size()) < kRetroMaxSessions && examined < kRetroMaxSessionsExamined; ++it) {
+        for (auto it = all.rbegin(); it != all.rend() && static_cast<int>(ids.size()) < kRetroMaxSessions &&
+                                     examined < kRetroMaxSessionsExamined;
+             ++it) {
             ++examined;
             if (!options.idPrefix.empty() && !starts_with(*it, options.idPrefix)) continue;
             // A run's ids are <stamp>-<role>[-<n>] and a second run begun in the same second is <stamp>-2: with the stamp and its dash as the
@@ -601,14 +672,18 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
             if (!options.idPrefix.empty() && options.idPrefix.back() == '-' && it->size() > options.idPrefix.size() &&
                 std::isdigit(static_cast<unsigned char>((*it)[options.idPrefix.size()])))
                 continue;
-            if (!sinceDay.empty() && it->size() >= 8 && std::isdigit(static_cast<unsigned char>((*it)[0])) && it->substr(0, 8) < sinceDay) continue;
+            if (!sinceDay.empty() && it->size() >= 8 && std::isdigit(static_cast<unsigned char>((*it)[0])) &&
+                it->substr(0, 8) < sinceDay)
+                continue;
             ids.push_back(*it);
         }
     }
 
     RetrospectiveResult result;
     std::vector<EfficiencySession> sessions;
-    EfficiencyLoadBudget budget(options.maxTotalBytes, options.maxTranscriptBytes);  // the transcripts of the whole pass are read within one total limit
+    EfficiencyLoadBudget budget(
+        options.maxTotalBytes,
+        options.maxTranscriptBytes);  // the transcripts of the whole pass are read within one total limit
     for (const std::string& id : ids) {
         if (is_cancelled(options.cancel)) return make_error("cancelled", "");
         auto loaded = load_efficiency_session(projectDir, id, &budget);
@@ -622,8 +697,13 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
         if (s.steps.empty()) continue;
         if (sinceUnixMs > 0 && s.startMs > 0 && s.startMs < sinceUnixMs) continue;
         const EfficiencyMeasure all = measure_span(s, 1, static_cast<int>(s.steps.size()));
-        Json info = Json::object({{"id", s.id}, {"agent", s.agent}, {"steps", all.steps}, {"minutes", all.minutes}, {"tokens", all.tokens},
-                                  {"costUsd", all.costUsd}, {"estimated", all.estimated}});
+        Json info = Json::object({{"id", s.id},
+                                  {"agent", s.agent},
+                                  {"steps", all.steps},
+                                  {"minutes", all.minutes},
+                                  {"tokens", all.tokens},
+                                  {"costUsd", all.costUsd},
+                                  {"estimated", all.estimated}});
         if (s.truncated) info["truncated"] = true;
         result.sessions.push_back(std::move(info));
         sessions.push_back(std::move(s));
@@ -631,18 +711,21 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
 
     const std::string feedbackPath = feedback_file_for_project(projectDir);
     Json entries = Json::array();
-    if (auto doc = load_feedback(feedbackPath); doc.ok() && doc.value().is_object() && doc.value().contains("entries") && doc.value()["entries"].is_array())
+    if (auto doc = load_feedback(feedbackPath);
+        doc.ok() && doc.value().is_object() && doc.value().contains("entries") && doc.value()["entries"].is_array())
         entries = doc.value()["entries"];
 
     // How the fixes of earlier entries did: their pattern in the transcripts since the fix, against what it cost before. The entries that
     // were fixed are closed, so they are in the file or in its archive.
     Json closed = entries;
     if (const std::string archivePath = feedback_archive_path(feedbackPath); archivePath != feedbackPath) {
-        if (auto archive = load_feedback(archivePath); archive.ok() && archive.value().is_object() && archive.value().contains("entries") &&
+        if (auto archive = load_feedback(archivePath); archive.ok() && archive.value().is_object() &&
+                                                       archive.value().contains("entries") &&
                                                        archive.value()["entries"].is_array())
             for (const Json& e : archive.value()["entries"]) closed.push_back(e);
     }
-    const std::vector<FixCheck> checks = check_efficiency_fixes(sessions, closed, options.engineVersion.empty() ? std::string(engine_version()) : options.engineVersion);
+    const std::vector<FixCheck> checks = check_efficiency_fixes(
+        sessions, closed, options.engineVersion.empty() ? std::string(engine_version()) : options.engineVersion);
     std::map<std::string, std::string> afterFix;  // pattern -> the version whose fix did not remove it
     // The notes on the entries are written under the lock every writer of the file takes, taken once for all of them: a lock that stays
     // busy ends the writing at the first failure (each try would wait the whole time again), and the result says so.
@@ -658,14 +741,17 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
         if (!checkLock) {
             checkLock = std::make_unique<FeedbackFileLock>(share_env(), feedbackPath);
             if (!checkLock->held()) {
-                result.fixCheckProblem = "The fix checks were not written on the entries (" + checkLock->error() + ") Run the retrospective again later.";
+                result.fixCheckProblem = "The fix checks were not written on the entries (" + checkLock->error() +
+                                         ") Run the retrospective again later.";
                 recording = false;
                 continue;
             }
         }
         Json stored = c.to_json();
         for (const char* key : {"entry", "pattern", "fixedIn", "fixedAt"}) stored.erase(key);
-        (void)record_fix_check(feedbackPath, c.entry, stored);  // a file that cannot be written only loses the note: the result is returned anyway
+        (void)record_fix_check(
+            feedbackPath, c.entry,
+            stored);  // a file that cannot be written only loses the note: the result is returned anyway
     }
     checkLock.reset();
     if (is_cancelled(options.cancel)) return make_error("cancelled", "");
@@ -676,24 +762,30 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
     if (!options.candidatesOnly) {
         std::vector<RetroCandidate> fresh;
         for (RetroCandidate& c : found) {
-            if (evidence_held(c, entries)) ++result.alreadyFiled;
-            else fresh.push_back(std::move(c));
+            if (evidence_held(c, entries))
+                ++result.alreadyFiled;
+            else
+                fresh.push_back(std::move(c));
         }
         found = std::move(fresh);
     }
     result.candidates = std::move(found);
 
     if (result.sessions.empty()) {
-        result.note = "No transcript to look at: no AI run of this project was recorded" + std::string(options.since.empty() ? "" : " since " + options.since) + ".";
+        result.note = "No transcript to look at: no AI run of this project was recorded" +
+                      std::string(options.since.empty() ? "" : " since " + options.since) + ".";
         return result;
     }
     if (result.candidates.empty()) {
-        result.note = result.alreadyFiled > 0 ? "Nothing new: what the runs wasted is already in efficiency entries of ENGINE_FEEDBACK.json."
-                                              : "Nothing measured reaches the smallest saving that justifies a fix: the runs look efficient.";
+        result.note =
+            result.alreadyFiled > 0
+                ? "Nothing new: what the runs wasted is already in efficiency entries of ENGINE_FEEDBACK.json."
+                : "Nothing measured reaches the smallest saving that justifies a fix: the runs look efficient.";
         return result;
     }
     if (options.candidatesOnly) {
-        result.note = std::to_string(result.candidates.size()) + " candidate(s) found by the mechanical pass; no model was asked and nothing was filed.";
+        result.note = std::to_string(result.candidates.size()) +
+                      " candidate(s) found by the mechanical pass; no model was asked and nothing was filed.";
         return result;
     }
     if (is_cancelled(options.cancel)) return make_error("cancelled", "");
@@ -714,22 +806,26 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
     TextModelInfo modelInfo;
     auto model = make_text_model(cfg, mo, &modelInfo);
     if (!model.ok()) {
-        result.note = std::to_string(result.candidates.size()) + " candidate(s) found, but no model could be asked to write them up: " + model.error().message +
+        result.note = std::to_string(result.candidates.size()) +
+                      " candidate(s) found, but no model could be asked to write them up: " + model.error().message +
                       (model.error().hint.empty() ? "" : " " + model.error().hint);
         return result;
     }
-    result.model = Json::object({{"role", modelInfo.role}, {"provider", modelInfo.provider}, {"model", modelInfo.model}});
+    result.model =
+        Json::object({{"role", modelInfo.role}, {"provider", modelInfo.provider}, {"model", modelInfo.model}});
     auto answer = (*model)(kSystem, prompt_for(asked));
     // A stop pressed while the model worked: whatever it answered (or the partial answer of a call that was cut) is not filed, and the
     // caller is told the run was cancelled, not that it finished with a note.
     if (is_cancelled(options.cancel)) return make_error("cancelled", "");
     if (!answer.ok()) {
-        result.note = "The " + modelInfo.role + " model did not answer (" + answer.error().message + "); the candidates are returned and nothing was filed.";
+        result.note = "The " + modelInfo.role + " model did not answer (" + answer.error().message +
+                      "); the candidates are returned and nothing was filed.";
         return result;
     }
     const Json reply = parse(json_object_in(*answer));
     if (!reply.is_object()) {
-        result.note = "The " + modelInfo.role + " model did not answer with the JSON object the retrospective needs; nothing was filed.";
+        result.note = "The " + modelInfo.role +
+                      " model did not answer with the JSON object the retrospective needs; nothing was filed.";
         return result;
     }
 
@@ -745,10 +841,20 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
         result.dropped.push_back(Json::object({{"candidate", candidate}, {"code", code}, {"reason", reason}}));
     };
     auto add_fact = [&](const RetroCandidate& c, const std::string& line) {
-        if (factCount >= kRetroMaxFacts) { drop(c.id, "over_limit", "more than " + std::to_string(kRetroMaxFacts) + " project facts in one retrospective"); return; }
-        if (!cfg.savers.projectFacts) { drop(c.id, "facts_off", "savers.projectFacts is off, so no project fact is proposed"); return; }
+        if (factCount >= kRetroMaxFacts) {
+            drop(c.id, "over_limit",
+                 "more than " + std::to_string(kRetroMaxFacts) + " project facts in one retrospective");
+            return;
+        }
+        if (!cfg.savers.projectFacts) {
+            drop(c.id, "facts_off", "savers.projectFacts is off, so no project fact is proposed");
+            return;
+        }
         const std::string id = "retro:" + slug(c.id);
-        if (!propose_fact(projectDir, id, c.command, line)) { drop(c.id, "failed", "the project's .factoria/ai/savers.json could not be written"); return; }
+        if (!propose_fact(projectDir, id, c.command, line)) {
+            drop(c.id, "failed", "the project's .factoria/ai/savers.json could not be written");
+            return;
+        }
         ++factCount;
         result.facts.push_back(Json::object({{"candidate", c.id}, {"id", id}, {"line", line}}));
     };
@@ -758,15 +864,25 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
             if (!e.is_object()) continue;
             const std::string name = str(e, "candidate");
             const RetroCandidate* c = candidate_of(name);
-            if (!c) { drop(name, "unknown_candidate", "the model named a candidate that does not exist"); continue; }
+            if (!c) {
+                drop(name, "unknown_candidate", "the model named a candidate that does not exist");
+                continue;
+            }
             if (!used.insert(c->id).second) continue;
-            if (filedCount >= kRetroMaxEntries) { drop(c->id, "over_limit", "more than " + std::to_string(kRetroMaxEntries) + " entries in one retrospective"); continue; }
+            if (filedCount >= kRetroMaxEntries) {
+                drop(c->id, "over_limit",
+                     "more than " + std::to_string(kRetroMaxEntries) + " entries in one retrospective");
+                continue;
+            }
             Json spans = Json::array();
             for (const EfficiencySpan& sp : c->spans) spans.push_back(sp.to_json());
             const double share = std::clamp(num(e, "saveShare", c->maxShare), 0.01, c->maxShare);
-            Json args = Json::object({{"waste", str(e, "waste")}, {"evidence", spans}, {"fixType", str(e, "fixType")},
-                                      {"appliesTo", str(e, "appliesTo")},
-                                      {"expectedSaving", Json::object({{"share", round2(share)}, {"why", str(e, "saveWhy")}})}});
+            Json args = Json::object(
+                {{"waste", str(e, "waste")},
+                 {"evidence", spans},
+                 {"fixType", str(e, "fixType")},
+                 {"appliesTo", str(e, "appliesTo")},
+                 {"expectedSaving", Json::object({{"share", round2(share)}, {"why", str(e, "saveWhy")}})}});
             if (!str(e, "whyNotCheaper").empty()) args["whyNotCheaper"] = str(e, "whyNotCheaper");
             if (const Json* s = child(e, "searched"); s && s->is_array()) args["searched"] = *s;
             FeedbackInput base;
@@ -782,14 +898,24 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
             EfficiencyFiling f = file_efficiency_feedback(projectDir, feedbackPath, base, args, projectName, origin);
             if (f.refusal) {
                 const std::string line = str(e, "factLine");
-                if (f.refusal->code == "project_fact" && !line.empty()) add_fact(*c, line);
-                else drop(c->id, f.refusal->code, f.refusal->message + " " + f.refusal->hint);
+                if (f.refusal->code == "project_fact" && !line.empty())
+                    add_fact(*c, line);
+                else
+                    drop(c->id, f.refusal->code, f.refusal->message + " " + f.refusal->hint);
                 continue;
             }
-            if (f.added.alreadyCounted) { drop(c->id, "already_counted", "an entry already counts this evidence"); continue; }
+            if (f.added.alreadyCounted) {
+                drop(c->id, "already_counted", "an entry already counts this evidence");
+                continue;
+            }
             ++filedCount;
-            Json row = Json::object({{"candidate", c->id}, {"id", f.added.id}, {"merged", f.added.merged}, {"alreadyCounted", false},
-                                     {"title", base.title}, {"fixType", str(e, "fixType")}, {"saving", f.verdict.saving.to_json()},
+            Json row = Json::object({{"candidate", c->id},
+                                     {"id", f.added.id},
+                                     {"merged", f.added.merged},
+                                     {"alreadyCounted", false},
+                                     {"title", base.title},
+                                     {"fixType", str(e, "fixType")},
+                                     {"saving", f.verdict.saving.to_json()},
                                      {"measured", f.verdict.measured.to_json()}});
             result.filed.push_back(std::move(row));
         }
@@ -807,13 +933,15 @@ Result<RetrospectiveResult> run_retrospective(const AiConfig& cfg, const Retrosp
         if (!used.count(asked[i].id)) drop(asked[i].id, "not_chosen", "the model did not pick this candidate");
 
     std::ostringstream note;
-    note << result.filed.size() << " efficiency entr" << (result.filed.size() == 1 ? "y" : "ies") << " filed, " << result.facts.size()
-         << " project-fact proposal" << (result.facts.size() == 1 ? "" : "s") << ", " << result.dropped.size() << " candidate"
-         << (result.dropped.size() == 1 ? "" : "s") << " dropped";
-    if (!result.dropped.empty()) {  // the first reasons, so a panel or a terminal shows why without the full `dropped` list
+    note << result.filed.size() << " efficiency entr" << (result.filed.size() == 1 ? "y" : "ies") << " filed, "
+         << result.facts.size() << " project-fact proposal" << (result.facts.size() == 1 ? "" : "s") << ", "
+         << result.dropped.size() << " candidate" << (result.dropped.size() == 1 ? "" : "s") << " dropped";
+    if (!result.dropped
+             .empty()) {  // the first reasons, so a panel or a terminal shows why without the full `dropped` list
         note << " (";
         for (std::size_t i = 0; i < result.dropped.size() && i < 3; ++i)
-            note << (i ? "; " : "") << result.dropped[i].value("candidate", std::string()) << ": " << result.dropped[i].value("code", std::string());
+            note << (i ? "; " : "") << result.dropped[i].value("candidate", std::string()) << ": "
+                 << result.dropped[i].value("code", std::string());
         note << (result.dropped.size() > 3 ? "; ..." : "") << "; the reasons are in `dropped`)";
     }
     note << ".";

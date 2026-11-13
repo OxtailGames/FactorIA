@@ -57,7 +57,8 @@ Recording record(Fixture& fx, const char* clip, const PlayParams& p, double seco
 float max_difference(const Recording& a, const Recording& b) {
     REQUIRE(a.frames() == b.frames());
     float worst = 0.0f;
-    for (std::size_t i = 0; i < a.frames(); ++i) worst = std::max({worst, std::fabs(a.l[i] - b.l[i]), std::fabs(a.r[i] - b.r[i])});
+    for (std::size_t i = 0; i < a.frames(); ++i)
+        worst = std::max({worst, std::fabs(a.l[i] - b.l[i]), std::fabs(a.r[i] - b.r[i])});
     return worst;
 }
 
@@ -92,7 +93,12 @@ TEST_CASE("audio streaming: a streamed clip plays exactly like the same clip dec
     looped.loop = true;
     looped.volume = 0.5f;
     looped.pitch = 0.81f;
-    struct Case { const char* whole; const char* streamed; PlayParams params; double seconds; };
+    struct Case {
+        const char* whole;
+        const char* streamed;
+        PlayParams params;
+        double seconds;
+    };
     for (const Case& c : {Case{"sounds/whole.wav", "sounds/streamed.wav", plain, 3.0},
                           Case{"sounds/whole.wav", "sounds/streamed.wav", bent, 2.5},
                           Case{"sounds/whole44.wav", "sounds/streamed44.wav", looped, 7.0}}) {
@@ -161,7 +167,8 @@ TEST_CASE("audio streaming: a streamed mp3 plays to its end like the same mp3 de
 TEST_CASE("audio streaming: music, scene music and AudioSource stream too, pitch included") {
     Fixture fx;
     install(fx.dir, "sounds/streamed.wav", stereo_wav(44100));
-    fx.write_assets(R"({"format": "factoria.assets/1", "assets": {"sounds/streamed.wav": {"import": {"stream": "always"}}}})");
+    fx.write_assets(
+        R"({"format": "factoria.assets/1", "assets": {"sounds/streamed.wav": {"import": {"stream": "always"}}}})");
 
     // play_music: fades in, loops past the clip's 2.5 seconds, fades out
     fx.audio.start_recording();

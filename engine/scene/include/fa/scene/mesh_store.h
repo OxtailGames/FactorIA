@@ -29,13 +29,13 @@ namespace fa {
 // is keyed by.
 struct MeshMaterial {
     std::string name;
-    Color color{1, 1, 1, 1};            // base color factor
-    std::string texture;                // base color texture: a project-relative image path ("" = none)
-    std::optional<float> metallic;      // 0..1; with `roughness`, replaces MeshRenderer.metallic/roughness for this submesh
-    std::optional<float> roughness;     // 0..1
-    Color emissive{0, 0, 0, 1};         // emissive factor (rgb)
-    bool doubleSided = false;           // draw back faces too
-    bool blend = false;                 // alpha-blended (drawn far to near with the other transparent meshes)
+    Color color{1, 1, 1, 1};        // base color factor
+    std::string texture;            // base color texture: a project-relative image path ("" = none)
+    std::optional<float> metallic;  // 0..1; with `roughness`, replaces MeshRenderer.metallic/roughness for this submesh
+    std::optional<float> roughness;  // 0..1
+    Color emissive{0, 0, 0, 1};      // emissive factor (rgb)
+    bool doubleSided = false;        // draw back faces too
+    bool blend = false;              // alpha-blended (drawn far to near with the other transparent meshes)
 };
 
 // A run of the index list drawn with one material.
@@ -43,41 +43,45 @@ struct MeshSubmesh {
     MeshMaterial material;
     std::uint32_t start = 0;  // first index, a multiple of 3
     std::uint32_t count = 0;  // number of indices, a multiple of 3
-    std::string part;         // the part of a model this run is (model documents, fa/scene/model_doc.h); "" = none. Saved in the .glb as the primitive's extras {"part"}
+    std::string
+        part;  // the part of a model this run is (model documents, fa/scene/model_doc.h); "" = none. Saved in the .glb as the primitive's extras {"part"}
 };
 
 constexpr std::uint32_t kSubmeshToEnd = 0xFFFFFFFFu;  // MeshSubmesh::count in an input: up to the end of the index list
 
 // What a caller gives: flat float arrays (x,y,z,x,y,z...). Empty = not given.
 struct MeshInput {
-    std::vector<float> positions;   // 3 per vertex
-    std::vector<float> normals;     // 3 per vertex; computed (smooth, area-weighted) when absent
-    std::vector<float> uvs;         // 2 per vertex; zeros when absent
-    std::vector<float> tangents;    // 4 (xyzw) or 3 (xyz, w = 1) per vertex; computed from the uvs when absent
-    std::vector<float> colors;      // 4 (rgba) or 3 (rgb) per vertex; multiply the base color when drawn (glTF COLOR_0) and are saved as COLOR_0
+    std::vector<float> positions;  // 3 per vertex
+    std::vector<float> normals;    // 3 per vertex; computed (smooth, area-weighted) when absent
+    std::vector<float> uvs;        // 2 per vertex; zeros when absent
+    std::vector<float> tangents;   // 4 (xyzw) or 3 (xyz, w = 1) per vertex; computed from the uvs when absent
+    std::vector<float>
+        colors;  // 4 (rgba) or 3 (rgb) per vertex; multiply the base color when drawn (glTF COLOR_0) and are saved as COLOR_0
     std::vector<std::uint32_t> indices;  // three per triangle; when absent on create: 0,1,2,3,4,5... (a triangle soup)
     std::vector<MeshSubmesh> submeshes;  // absent = one submesh with a default material over all the indices
-    bool hasIndices = false;        // `indices` was given (an empty list is then an error, not "absent")
+    bool hasIndices = false;             // `indices` was given (an empty list is then an error, not "absent")
 };
 
 // A validated mesh: every array complete and consistent.
 struct MeshData {
     std::vector<float> positions;
-    std::vector<float> normals;     // unit length
-    std::vector<float> uvs;         // 2 per vertex (zeros when never given)
-    std::vector<float> tangents;    // 4 per vertex
-    std::vector<float> colors;      // 4 per vertex, or empty
+    std::vector<float> normals;   // unit length
+    std::vector<float> uvs;       // 2 per vertex (zeros when never given)
+    std::vector<float> tangents;  // 4 per vertex
+    std::vector<float> colors;    // 4 per vertex, or empty
     std::vector<std::uint32_t> indices;
-    std::vector<MeshSubmesh> submeshes;  // at least one; each inside the index list (indices outside every submesh are not drawn)
-    bool hasUvs = false;            // the uvs were given (an update keeps them; otherwise they are zeros again for any vertex count)
+    std::vector<MeshSubmesh>
+        submeshes;  // at least one; each inside the index list (indices outside every submesh are not drawn)
+    bool hasUvs =
+        false;  // the uvs were given (an update keeps them; otherwise they are zeros again for any vertex count)
     Vec3 bmin{}, bmax{};
     std::size_t vertex_count() const { return positions.size() / 3; }
     std::size_t triangle_count() const { return indices.size() / 3; }
 };
 
-constexpr std::size_t kMaxProceduralMeshes = 256;           // live meshes per scene
-constexpr std::size_t kMaxProceduralVertices = 1u << 20;    // vertices per mesh
-constexpr std::size_t kMaxProceduralIndices = 6u << 20;     // indices per mesh
+constexpr std::size_t kMaxProceduralMeshes = 256;         // live meshes per scene
+constexpr std::size_t kMaxProceduralVertices = 1u << 20;  // vertices per mesh
+constexpr std::size_t kMaxProceduralIndices = 6u << 20;   // indices per mesh
 
 // Checks `in` (array lengths, index and submesh ranges, finite numbers) and completes it. Errors name the field and the
 // value and say how to fix it. `base`, when given, supplies the arrays `in` leaves out (positions, uvs, colors, indices
@@ -93,7 +97,8 @@ public:
         MeshData data;
         std::shared_ptr<const MeshGeometry> geometry;  // positions + triangles for physics and picking; built on demand
         std::uint64_t geometryVersion = 0;
-        std::shared_ptr<const MeshSurface> surface;  // positions + uvs + triangles for the pointer through a render target; on demand
+        std::shared_ptr<const MeshSurface>
+            surface;  // positions + uvs + triangles for the pointer through a render target; on demand
         std::uint64_t surfaceVersion = 0;
     };
 
@@ -128,7 +133,8 @@ private:
 
 // The geometry of any MeshRenderer.mesh value for picking and colliders: a procedural id through `store`, else
 // load_mesh_geometry (primitive or glTF). nullptr when it cannot be had; `error` (optional) gets why.
-std::shared_ptr<const MeshGeometry> mesh_geometry_for(MeshStore& store, const std::string& mesh, std::string* error = nullptr);
+std::shared_ptr<const MeshGeometry> mesh_geometry_for(MeshStore& store, const std::string& mesh,
+                                                      std::string* error = nullptr);
 
 // The nearest hit of the ray origin + t * dir (t >= 0, `dir` need not be unit length) with the triangles of `g`, both faces
 // (Moeller-Trumbore): the editor's picking of a procedural mesh. False when it misses; `t` is then left alone.

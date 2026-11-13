@@ -20,11 +20,13 @@ constexpr const char* kPngBase64 =
 
 std::string write_png(const std::filesystem::path& file) {
     auto bytes = fa::base64_decode(kPngBase64);
-    std::ofstream(file, std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    std::ofstream(file, std::ios::binary)
+        .write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
     return file.string();
 }
 
-const AgentEvent* find_usage(const std::vector<AgentEvent>& events, const std::function<bool(const AgentEvent&)>& pred) {
+const AgentEvent* find_usage(const std::vector<AgentEvent>& events,
+                             const std::function<bool(const AgentEvent&)>& pred) {
     for (const auto& e : events) {
         if (e.type == AgentEvent::Type::Usage && pred(e)) return &e;
     }
@@ -36,15 +38,15 @@ const AgentEvent* find_usage(const std::vector<AgentEvent>& events, const std::f
 TEST_CASE("argv template: {session} adds --resume, an empty one removes it") {
     CliRunRequest req{"do it", "sonnet", "/proj dir"};
     auto first = expand_cli_argv(default_cli_argv(ProviderKind::ClaudeCode), req, "/proj dir/mcp.json", "factoria");
-    CHECK(first == std::vector<std::string>{"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose",
-                                            "--model", "sonnet", "--mcp-config", "/proj dir/mcp.json", "--allowedTools",
-                                            "mcp__factoria"});
+    CHECK(first == std::vector<std::string>{"-p", "--output-format", "stream-json", "--input-format", "stream-json",
+                                            "--verbose", "--model", "sonnet", "--mcp-config", "/proj dir/mcp.json",
+                                            "--allowedTools", "mcp__factoria"});
 
     req.sessionId = "abc-123";
     auto follow = expand_cli_argv(default_cli_argv(ProviderKind::ClaudeCode), req, "/proj dir/mcp.json", "factoria");
-    CHECK(follow == std::vector<std::string>{"-p", "--output-format", "stream-json", "--input-format", "stream-json", "--verbose",
-                                             "--model", "sonnet", "--resume", "abc-123", "--mcp-config", "/proj dir/mcp.json",
-                                             "--allowedTools", "mcp__factoria"});
+    CHECK(follow == std::vector<std::string>{"-p", "--output-format", "stream-json", "--input-format", "stream-json",
+                                             "--verbose", "--model", "sonnet", "--resume", "abc-123", "--mcp-config",
+                                             "/proj dir/mcp.json", "--allowedTools", "mcp__factoria"});
 
     // user templates: an element with an empty {session} goes away, and so does a bare flag right before it
     CliRunRequest none{"x", "", "/p"};
@@ -59,7 +61,8 @@ TEST_CASE("argv template: {session} adds --resume, an empty one removes it") {
 
     // the rest of the placeholders keep working
     auto c = expand_cli_argv(default_cli_argv(ProviderKind::Codex), req, "", "factoria");
-    CHECK(c == std::vector<std::string>{"exec", "--json", "-m", "sonnet", "-c", "mcp_servers.factoria.command=\"factoria\"", "-c",
+    CHECK(c == std::vector<std::string>{"exec", "--json", "-m", "sonnet", "-c",
+                                        "mcp_servers.factoria.command=\"factoria\"", "-c",
                                         "mcp_servers.factoria.args=[\"mcp\",\"--project\",\"/proj dir\"]", "-c",
                                         "mcp_servers.factoria.tool_timeout_sec=14400", "-"});
     CliRunRequest nomodel{"x", "", "/p"};
@@ -71,7 +74,8 @@ TEST_CASE("argv template: {session} adds --resume, an empty one removes it") {
 }
 
 TEST_CASE("stream-json stdin: one JSON line with the text and the images; the text fallback names the files") {
-    const std::string line = make_stream_json_input("Look at \"this\"\nplease", {{"image/png", kPngBase64}, {"image/jpeg", "QUJD"}});
+    const std::string line =
+        make_stream_json_input("Look at \"this\"\nplease", {{"image/png", kPngBase64}, {"image/jpeg", "QUJD"}});
     CHECK(line.find('\n') == std::string::npos);  // ONE line, whatever the text holds
     Json j = Json::parse(line);
     CHECK(j["type"] == "user");
@@ -82,12 +86,14 @@ TEST_CASE("stream-json stdin: one JSON line with the text and the images; the te
     const Json expectedText = Json::parse(R"({"type":"text","text":"Look at \"this\"\nplease"})");
     CHECK(content[0] == expectedText);
     CHECK(content[1]["type"] == "image");
-    const Json expectedSource = Json::parse(std::string(R"({"type":"base64","media_type":"image/png","data":")") + kPngBase64 + "\"}");
+    const Json expectedSource =
+        Json::parse(std::string(R"({"type":"base64","media_type":"image/png","data":")") + kPngBase64 + "\"}");
     CHECK(content[1]["source"] == expectedSource);
     CHECK(content[2]["source"]["media_type"] == "image/jpeg");
     CHECK(Json::parse(make_stream_json_input("just text", {}))["message"]["content"].size() == 1);
 
-    CHECK(prompt_with_image_paths("Task", {"/a/b.png", "/c/d.jpg"}) == "Task\n\nAttached images (read them): /a/b.png, /c/d.jpg");
+    CHECK(prompt_with_image_paths("Task", {"/a/b.png", "/c/d.jpg"}) ==
+          "Task\n\nAttached images (read them): /a/b.png, /c/d.jpg");
     CHECK(prompt_with_image_paths("Task", {}) == "Task");
 
     CHECK(argv_wants_stream_json_input({"-p", "--input-format", "stream-json", "--verbose"}));
@@ -128,7 +134,9 @@ TEST_CASE("claude stream: plan windows, context tokens and window size") {
     ev.clear();
 
     // context = input + cache creation + cache read of the model's last call
-    p.feed_line(R"({"type":"assistant","message":{"content":[{"type":"text","text":"OK"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":19156,"cache_read_input_tokens":27810,"output_tokens":5}},"parent_tool_use_id":null})", ev);
+    p.feed_line(
+        R"({"type":"assistant","message":{"content":[{"type":"text","text":"OK"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":19156,"cache_read_input_tokens":27810,"output_tokens":5}},"parent_tool_use_id":null})",
+        ev);
     const AgentEvent* ctx = find_usage(ev, [](const AgentEvent& e) { return e.contextTokens > 0; });
     REQUIRE(ctx);
     CHECK(ctx->contextTokens == 46968);
@@ -136,12 +144,16 @@ TEST_CASE("claude stream: plan windows, context tokens and window size") {
     CHECK(ctx->contextWindow == 0);  // only the final result says
     ev.clear();
     // a sub-agent's call has its own context: not the chat's context (its tokens do count, see the live usage test)
-    p.feed_line(R"({"type":"assistant","message":{"content":[],"usage":{"input_tokens":9,"cache_read_input_tokens":99999}},"parent_tool_use_id":"toolu_1"})", ev);
+    p.feed_line(
+        R"({"type":"assistant","message":{"content":[],"usage":{"input_tokens":9,"cache_read_input_tokens":99999}},"parent_tool_use_id":"toolu_1"})",
+        ev);
     for (const AgentEvent& e : ev) CHECK(e.contextTokens == 46968);
     ev.clear();
 
     // every entry of unifiedWindows is taken, whatever its name
-    p.feed_line(R"({"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792021800,"rateLimitType":"five_hour","overageStatus":"rejected","isUsingOverage":false,"unifiedWindows":{"five_hour":{"utilization":0.06,"resetsAt":1792021800},"seven_day":{"utilization":0.07,"resetsAt":1792584000},"seven_day_opus":{"utilization":0.5,"resetsAt":1792584001}}},"session_id":"s-1"})", ev);
+    p.feed_line(
+        R"({"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792021800,"rateLimitType":"five_hour","overageStatus":"rejected","isUsingOverage":false,"unifiedWindows":{"five_hour":{"utilization":0.06,"resetsAt":1792021800},"seven_day":{"utilization":0.07,"resetsAt":1792584000},"seven_day_opus":{"utilization":0.5,"resetsAt":1792584001}}},"session_id":"s-1"})",
+        ev);
     const AgentEvent* lim = find_usage(ev, [](const AgentEvent& e) { return !e.limits.empty(); });
     REQUIRE(lim);
     REQUIRE(lim->limits.size() == 3);
@@ -154,7 +166,9 @@ TEST_CASE("claude stream: plan windows, context tokens and window size") {
     CHECK(lim->contextTokens == 46968);  // the snapshot keeps what is known
     ev.clear();
     // a newer event carries only the windows it reports (the consumer merges them by name: merge_limit_windows)
-    p.feed_line(R"({"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.1,"resetsAt":1792021800}}}})", ev);
+    p.feed_line(
+        R"({"type":"rate_limit_event","rate_limit_info":{"unifiedWindows":{"five_hour":{"utilization":0.1,"resetsAt":1792021800}}}})",
+        ev);
     const AgentEvent* newer = find_usage(ev, [](const AgentEvent& e) { return !e.limits.empty(); });
     REQUIRE(newer);
     REQUIRE(newer->limits.size() == 1);
@@ -162,7 +176,9 @@ TEST_CASE("claude stream: plan windows, context tokens and window size") {
     ev.clear();
     // old shape: only the window that applies, with no utilization
     CliStreamParser old(ProviderKind::ClaudeCode);
-    old.feed_line(R"({"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792021800,"rateLimitType":"five_hour"}})", ev);
+    old.feed_line(
+        R"({"type":"rate_limit_event","rate_limit_info":{"status":"allowed","resetsAt":1792021800,"rateLimitType":"five_hour"}})",
+        ev);
     const AgentEvent* oldLim = find_usage(ev, [](const AgentEvent& e) { return !e.limits.empty(); });
     REQUIRE(oldLim);
     REQUIRE(oldLim->limits.size() == 1);
@@ -172,7 +188,9 @@ TEST_CASE("claude stream: plan windows, context tokens and window size") {
     ev.clear();
 
     // the context window arrives with the result (the model that used the most tokens is the main one)
-    p.feed_line(R"({"type":"result","subtype":"success","is_error":false,"result":"OK","total_cost_usd":0.004112,"num_turns":1,"session_id":"s-1","usage":{"input_tokens":2,"output_tokens":5,"cache_creation_input_tokens":19156,"cache_read_input_tokens":27810},"modelUsage":{"claude-haiku-5-5":{"inputTokens":2,"outputTokens":5,"cacheReadInputTokens":27810,"cacheCreationInputTokens":19156,"costUSD":0.004112,"contextWindow":1000000,"maxOutputTokens":128000},"claude-tiny":{"inputTokens":1,"outputTokens":1,"contextWindow":200000}}})", ev);
+    p.feed_line(
+        R"({"type":"result","subtype":"success","is_error":false,"result":"OK","total_cost_usd":0.004112,"num_turns":1,"session_id":"s-1","usage":{"input_tokens":2,"output_tokens":5,"cache_creation_input_tokens":19156,"cache_read_input_tokens":27810},"modelUsage":{"claude-haiku-5-5":{"inputTokens":2,"outputTokens":5,"cacheReadInputTokens":27810,"cacheCreationInputTokens":19156,"costUSD":0.004112,"contextWindow":1000000,"maxOutputTokens":128000},"claude-tiny":{"inputTokens":1,"outputTokens":1,"contextWindow":200000}}})",
+        ev);
     CHECK(p.cost_usd() == doctest::Approx(0.004112));
     const AgentEvent* done = find_usage(ev, [](const AgentEvent& e) { return e.contextWindow > 0; });
     REQUIRE(done);
@@ -185,7 +203,9 @@ TEST_CASE("claude stream: plan windows, context tokens and window size") {
 TEST_CASE("claude stream: an error result without `result` explains itself through `errors`") {
     CliStreamParser p(ProviderKind::ClaudeCode);
     std::vector<AgentEvent> ev;
-    p.feed_line(R"({"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"x","total_cost_usd":0,"usage":{},"modelUsage":{},"errors":["No conversation found with session ID: x"]})", ev);
+    p.feed_line(
+        R"({"type":"result","subtype":"error_during_execution","is_error":true,"num_turns":0,"session_id":"x","total_cost_usd":0,"usage":{},"modelUsage":{},"errors":["No conversation found with session ID: x"]})",
+        ev);
     CHECK(p.result_is_error());
     CHECK(p.error_text() == "No conversation found with session ID: x");
 }
@@ -202,27 +222,34 @@ TEST_CASE("codex rate limits: windows are named by their length") {
     CHECK(w[1].usedFraction == doctest::Approx(0.12));
     CHECK(w[1].resetsAt == 1792584000);
 
-    auto other = parse_codex_rate_limits(Json::parse(R"({"primary":{"used_percent":1,"window_minutes":60},"secondary":{"window_minutes":1440},"tertiary":{"used_percent":250}})"), 0);
+    auto other = parse_codex_rate_limits(
+        Json::parse(
+            R"({"primary":{"used_percent":1,"window_minutes":60},"secondary":{"window_minutes":1440},"tertiary":{"used_percent":250}})"),
+        0);
     REQUIRE(other.size() == 3);
     CHECK(other[0].name == "primary");  // other lengths than 5 h / 7 days: the key names the window
     CHECK(other[1].name == "secondary");
-    CHECK(other[1].usedFraction < 0);  // no used_percent
-    CHECK(other[2].name == "tertiary");  // no window_minutes: the key stays
+    CHECK(other[1].usedFraction < 0);     // no used_percent
+    CHECK(other[2].name == "tertiary");   // no window_minutes: the key stays
     CHECK(other[2].usedFraction == 1.0);  // clamped
     CHECK(parse_codex_rate_limits(Json::parse("[]"), 0).empty());
 
     // on the stream: the legacy token_count event, and the same object on newer events
     CliStreamParser legacy(ProviderKind::Codex);
     std::vector<AgentEvent> ev;
-    legacy.feed_line(R"({"id":"1","msg":{"type":"token_count","input_tokens":10,"output_tokens":2,"rate_limits":{"primary":{"used_percent":3,"window_minutes":300,"resets_at":1792021800}}}})", ev);
+    legacy.feed_line(
+        R"({"id":"1","msg":{"type":"token_count","input_tokens":10,"output_tokens":2,"rate_limits":{"primary":{"used_percent":3,"window_minutes":300,"resets_at":1792021800}}}})",
+        ev);
     const AgentEvent* lim = find_usage(ev, [](const AgentEvent& e) { return !e.limits.empty(); });
     REQUIRE(lim);
     CHECK(lim->limits[0].name == "five_hour");
     CHECK(lim->limits[0].usedFraction == doctest::Approx(0.03));
     CHECK(lim->limits.size() == 1);
 
-    for (const char* line : {R"({"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":1},"rate_limits":{"secondary":{"used_percent":40,"window_minutes":10080,"resets_at":1792584000}}})",
-                             R"({"type":"event_msg","payload":{"type":"token_count","rate_limits":{"secondary":{"used_percent":40,"window_minutes":10080,"resets_at":1792584000}}}})"}) {
+    for (
+        const char* line :
+        {R"({"type":"turn.completed","usage":{"input_tokens":5,"output_tokens":1},"rate_limits":{"secondary":{"used_percent":40,"window_minutes":10080,"resets_at":1792584000}}})",
+         R"({"type":"event_msg","payload":{"type":"token_count","rate_limits":{"secondary":{"used_percent":40,"window_minutes":10080,"resets_at":1792584000}}}})"}) {
         CliStreamParser modern(ProviderKind::Codex);
         ev.clear();
         modern.feed_line(line, ev);
@@ -247,17 +274,19 @@ TEST_CASE("merge_limit_windows replaces by name and appends new windows") {
 TEST_CASE("user images are serialised for Anthropic and OpenAI") {
     ChatRequest r;
     r.model = "claude-opus-5-5";
-    r.messages = {Message::user("what is this?", {{"image/png", "QUJD"}, {"image/webp", "REVG"}}), Message::user("plain")};
+    r.messages = {Message::user("what is this?", {{"image/png", "QUJD"}, {"image/webp", "REVG"}}),
+                  Message::user("plain")};
 
     Json a = anthropic::build_request(r);
     const Json& parts = a["messages"][0]["content"];
     REQUIRE(parts.is_array());
     REQUIRE(parts.size() == 3);
-    const Json imageBlock = Json::parse(R"({"type":"image","source":{"type":"base64","media_type":"image/png","data":"QUJD"}})");
+    const Json imageBlock =
+        Json::parse(R"({"type":"image","source":{"type":"base64","media_type":"image/png","data":"QUJD"}})");
     const Json textBlock = Json::parse(R"({"type":"text","text":"what is this?"})");
     CHECK(parts[0] == imageBlock);
     CHECK(parts[1]["source"]["media_type"] == "image/webp");
-    CHECK(parts[2] == textBlock);  // the question follows the pictures
+    CHECK(parts[2] == textBlock);                   // the question follows the pictures
     CHECK(a["messages"][1]["content"] == "plain");  // no image: still a plain string
 
     ProviderConfig cfg;
@@ -277,7 +306,8 @@ TEST_CASE("message JSON: the saved form keeps the history but not the base64 pic
     Message assistant;
     assistant.role = Role::Assistant;
     assistant.text = "I see";
-    assistant.raw = Json::array({Json::object({{"type", "thinking"}, {"signature", "sig"}}), Json::object({{"type", "text"}, {"text", "I see"}})});
+    assistant.raw = Json::array({Json::object({{"type", "thinking"}, {"signature", "sig"}}),
+                                 Json::object({{"type", "text"}, {"text", "I see"}})});
     ToolCall tc;
     tc.id = "t1";
     tc.name = "scene_list_entities";
@@ -406,14 +436,17 @@ const AgentEvent& last_usage(const std::vector<AgentEvent>& ev) {
 }
 }  // namespace
 
-TEST_CASE("claude stream: tokens and cost update live; a message counts once; sub-agents count; the result replaces the estimate") {
+TEST_CASE("claude stream: tokens and cost update live; a message counts once; sub-agents count; the result replaces "
+          "the estimate") {
     CliStreamParser p(ProviderKind::ClaudeCode);
     std::vector<AgentEvent> ev;
     p.feed_line(R"({"type":"system","subtype":"init","session_id":"s-1","model":"claude-sonnet-5-5"})", ev);
     ev.clear();
 
     // m1: two events (thinking, tool_use) with the same id; output_tokens grows between them
-    p.feed_line(R"({"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"thinking","thinking":"hm"}],"usage":{"input_tokens":10,"cache_creation_input_tokens":1000,"cache_read_input_tokens":4000,"output_tokens":5}},"parent_tool_use_id":null})", ev);
+    p.feed_line(
+        R"({"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"thinking","thinking":"hm"}],"usage":{"input_tokens":10,"cache_creation_input_tokens":1000,"cache_read_input_tokens":4000,"output_tokens":5}},"parent_tool_use_id":null})",
+        ev);
     const AgentEvent first = last_usage(ev);
     CHECK(first.usage.inputTokens == 10);
     CHECK(first.usage.outputTokens == 5);
@@ -424,7 +457,9 @@ TEST_CASE("claude stream: tokens and cost update live; a message counts once; su
     const double c1 = (10 * 2.0 + 5 * 10.0 + 4000 * 0.20 + 1000 * 2.5) / 1e6;
     CHECK(first.costUsd == doctest::Approx(c1));
     ev.clear();
-    p.feed_line(R"({"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"tool_use","id":"t1","name":"Task","input":{}}],"usage":{"input_tokens":10,"cache_creation_input_tokens":1000,"cache_read_input_tokens":4000,"output_tokens":25}},"parent_tool_use_id":null})", ev);
+    p.feed_line(
+        R"({"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"tool_use","id":"t1","name":"Task","input":{}}],"usage":{"input_tokens":10,"cache_creation_input_tokens":1000,"cache_read_input_tokens":4000,"output_tokens":25}},"parent_tool_use_id":null})",
+        ev);
     const AgentEvent second = last_usage(ev);
     CHECK(second.usage.inputTokens == 10);  // not counted twice
     CHECK(second.usage.cacheReadTokens == 4000);
@@ -432,12 +467,16 @@ TEST_CASE("claude stream: tokens and cost update live; a message counts once; su
     CHECK(second.costUsd == doctest::Approx((10 * 2.0 + 25 * 10.0 + 4000 * 0.20 + 1000 * 2.5) / 1e6));
     ev.clear();
     // the same event again changes nothing: no new Usage event
-    p.feed_line(R"({"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":10,"cache_creation_input_tokens":1000,"cache_read_input_tokens":4000,"output_tokens":25}},"parent_tool_use_id":null})", ev);
+    p.feed_line(
+        R"({"type":"assistant","message":{"id":"m1","model":"claude-sonnet-5-5","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":10,"cache_creation_input_tokens":1000,"cache_read_input_tokens":4000,"output_tokens":25}},"parent_tool_use_id":null})",
+        ev);
     for (const AgentEvent& e : ev) CHECK(e.type != AgentEvent::Type::Usage);
     ev.clear();
 
     // a sub-agent's message: its tokens count, the context stays the main agent's
-    p.feed_line(R"({"type":"assistant","message":{"id":"s1","model":"claude-haiku-5-5","content":[{"type":"text","text":"sub"}],"usage":{"input_tokens":100,"cache_read_input_tokens":2000,"output_tokens":50}},"parent_tool_use_id":"t1"})", ev);
+    p.feed_line(
+        R"({"type":"assistant","message":{"id":"s1","model":"claude-haiku-5-5","content":[{"type":"text","text":"sub"}],"usage":{"input_tokens":100,"cache_read_input_tokens":2000,"output_tokens":50}},"parent_tool_use_id":"t1"})",
+        ev);
     const AgentEvent third = last_usage(ev);
     CHECK(third.usage.inputTokens == 110);
     CHECK(third.usage.outputTokens == 75);
@@ -449,12 +488,16 @@ TEST_CASE("claude stream: tokens and cost update live; a message counts once; su
     ev.clear();
 
     // m2
-    p.feed_line(R"({"type":"assistant","message":{"id":"m2","model":"claude-sonnet-5-5","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":2,"cache_read_input_tokens":5000,"output_tokens":6}},"parent_tool_use_id":null})", ev);
+    p.feed_line(
+        R"({"type":"assistant","message":{"id":"m2","model":"claude-sonnet-5-5","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":2,"cache_read_input_tokens":5000,"output_tokens":6}},"parent_tool_use_id":null})",
+        ev);
     CHECK(last_usage(ev).usage.inputTokens == 112);
     ev.clear();
 
     // the result: the CLI's own totals replace the estimate
-    p.feed_line(R"({"type":"result","subtype":"success","is_error":false,"result":"ok","total_cost_usd":0.0123,"num_turns":2,"session_id":"s-1","usage":{"input_tokens":120,"cache_creation_input_tokens":1000,"cache_read_input_tokens":9000,"output_tokens":400}})", ev);
+    p.feed_line(
+        R"({"type":"result","subtype":"success","is_error":false,"result":"ok","total_cost_usd":0.0123,"num_turns":2,"session_id":"s-1","usage":{"input_tokens":120,"cache_creation_input_tokens":1000,"cache_read_input_tokens":9000,"output_tokens":400}})",
+        ev);
     const AgentEvent fin = last_usage(ev);
     CHECK_FALSE(fin.costIsEstimate);
     CHECK(fin.costUsd == doctest::Approx(0.0123));
@@ -469,18 +512,25 @@ TEST_CASE("claude stream: 1-hour cache writes are priced at twice the input, as 
     CliStreamParser p(ProviderKind::ClaudeCode);
     std::vector<AgentEvent> ev;
     // opus-5: in 4.0, out 20.0, cache read 0.20, 5-minute cache write 5.0 USD per 1M; a 1-hour write is 8.0
-    p.feed_line(R"({"type":"assistant","message":{"id":"m1","model":"claude-opus-5-5","content":[],"usage":{"input_tokens":10,"cache_creation_input_tokens":3000,"cache_read_input_tokens":1000,"output_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":1000,"ephemeral_1h_input_tokens":2000}}},"parent_tool_use_id":null})", ev);
-    CHECK(last_usage(ev).costUsd == doctest::Approx((10 * 4.0 + 5 * 20.0 + 1000 * 0.20 + 1000 * 5.0 + 2000 * 8.0) / 1e6));
+    p.feed_line(
+        R"({"type":"assistant","message":{"id":"m1","model":"claude-opus-5-5","content":[],"usage":{"input_tokens":10,"cache_creation_input_tokens":3000,"cache_read_input_tokens":1000,"output_tokens":5,"cache_creation":{"ephemeral_5m_input_tokens":1000,"ephemeral_1h_input_tokens":2000}}},"parent_tool_use_id":null})",
+        ev);
+    CHECK(last_usage(ev).costUsd ==
+          doctest::Approx((10 * 4.0 + 5 * 20.0 + 1000 * 0.20 + 1000 * 5.0 + 2000 * 8.0) / 1e6));
     ev.clear();
     // a later event of the same message counts it once, with the same split
-    p.feed_line(R"({"type":"assistant","message":{"id":"m1","model":"claude-opus-5-5","content":[],"usage":{"input_tokens":10,"cache_creation_input_tokens":3000,"cache_read_input_tokens":1000,"output_tokens":45,"cache_creation":{"ephemeral_5m_input_tokens":1000,"ephemeral_1h_input_tokens":2000}}},"parent_tool_use_id":null})", ev);
-    CHECK(last_usage(ev).costUsd == doctest::Approx((10 * 4.0 + 45 * 20.0 + 1000 * 0.20 + 1000 * 5.0 + 2000 * 8.0) / 1e6));
+    p.feed_line(
+        R"({"type":"assistant","message":{"id":"m1","model":"claude-opus-5-5","content":[],"usage":{"input_tokens":10,"cache_creation_input_tokens":3000,"cache_read_input_tokens":1000,"output_tokens":45,"cache_creation":{"ephemeral_5m_input_tokens":1000,"ephemeral_1h_input_tokens":2000}}},"parent_tool_use_id":null})",
+        ev);
+    CHECK(last_usage(ev).costUsd ==
+          doctest::Approx((10 * 4.0 + 45 * 20.0 + 1000 * 0.20 + 1000 * 5.0 + 2000 * 8.0) / 1e6));
 }
 
 TEST_CASE("claude stream: a model with no price in the table uses the provider's price, else no cost") {
     CliStreamParser p(ProviderKind::ClaudeCode);
     std::vector<AgentEvent> ev;
-    const char* line = R"({"type":"assistant","message":{"id":"m1","model":"my-model","content":[],"usage":{"input_tokens":1000000,"output_tokens":0}},"parent_tool_use_id":null})";
+    const char* line =
+        R"({"type":"assistant","message":{"id":"m1","model":"my-model","content":[],"usage":{"input_tokens":1000000,"output_tokens":0}},"parent_tool_use_id":null})";
     p.feed_line(line, ev);
     CHECK(last_usage(ev).costUsd == 0);
     CHECK(last_usage(ev).usage.inputTokens == 1000000);
@@ -503,7 +553,9 @@ TEST_CASE("codex stream: every turn adds its usage, with an estimate when the pr
     price.known = true;
     p.set_pricing(price);
     std::vector<AgentEvent> ev;
-    p.feed_line(R"({"type":"turn.completed","usage":{"input_tokens":1000000,"cached_input_tokens":200000,"output_tokens":100000}})", ev);
+    p.feed_line(
+        R"({"type":"turn.completed","usage":{"input_tokens":1000000,"cached_input_tokens":200000,"output_tokens":100000}})",
+        ev);
     const AgentEvent& e = last_usage(ev);
     CHECK(e.usage.inputTokens == 800000);
     CHECK(e.usage.cacheReadTokens == 200000);

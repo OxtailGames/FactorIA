@@ -15,12 +15,12 @@ namespace fa {
 
 struct CalendarDate {
     int year = 2026;
-    int month = 1;  // 1..12
-    int day = 1;    // 1..days in the month
+    int month = 1;             // 1..12
+    int day = 1;               // 1..days in the month
     int utcOffsetMinutes = 0;  // minutes east of UTC of the player's time zone; 0 for a fixed date
-    int hour = 0;    // 0..23, the local time of day (00:00:00 for a fixed date)
-    int minute = 0;  // 0..59
-    int second = 0;  // 0..59
+    int hour = 0;              // 0..23, the local time of day (00:00:00 for a fixed date)
+    int minute = 0;            // 0..59
+    int second = 0;            // 0..59
 
     // 0 = Sunday .. 6 = Saturday (the proleptic Gregorian calendar).
     int weekday() const;

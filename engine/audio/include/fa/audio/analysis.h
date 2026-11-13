@@ -52,7 +52,8 @@ struct DecodedAudio {
     std::size_t frames() const { return channels > 0 ? samples.size() / std::size_t(channels) : 0; }
 };
 // Decodes the clip into memory (a 3-minute stereo track holds about 60 MB); `maxSeconds` > 0 stops reading there.
-Result<DecodedAudio> decode_audio(std::span<const std::uint8_t> encoded, std::string_view extension, double maxSeconds = 0.0);
+Result<DecodedAudio> decode_audio(std::span<const std::uint8_t> encoded, std::string_view extension,
+                                  double maxSeconds = 0.0);
 
 // Loudness over time, K-weighted like measure_loudness: one value per 100 ms hop. `momentary[i]` is the loudness of the
 // 400 ms ending at the end of hop i (a shorter window at the start), `shortTerm[i]` that of the 3 s ending there. LUFS,

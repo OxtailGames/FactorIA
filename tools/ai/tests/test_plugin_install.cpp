@@ -33,21 +33,30 @@ struct FakeClaude {
     TempDir dir;
     FakeClaude() {
         const std::string d = dir.str();
-        write_exec(dir.path / "claude",
-                   "#!/bin/sh\n"
-                   "D='" + d + "'\n"
-                   "echo \"$*\" >> \"$D/argv.log\"\n"
-                   "case \"$*\" in\n"
-                   "  \"plugin marketplace list --json\") [ -f \"$D/nojson\" ] && exit 1; cat \"$D/marketplaces.json\" ;;\n"
-                   "  \"plugin list --json\") [ -f \"$D/nojson\" ] && exit 1; cat \"$D/plugins.json\" ;;\n"
-                   "  \"plugin marketplace list\") [ -f \"$D/listfails\" ] && { echo 'unknown command' >&2; exit 2; }; cat \"$D/marketplaces.txt\" ;;\n"
-                   "  \"plugin list\") cat \"$D/plugins.txt\" ;;\n"
-                   "  \"plugin marketplace add \"*) [ -f \"$D/fail_add\" ] && { echo 'fatal: repository not found' >&2; exit 3; }\n"
-                   "     echo '[{\"name\":\"tokeneconomizer\",\"source\":\"github\",\"repo\":\"microsoft/TokenEconomizer\"}]' > \"$D/marketplaces.json\"; echo added ;;\n"
-                   "  \"plugin install \"*) [ -f \"$D/fail_install\" ] && { echo 'plugin not found' >&2; exit 4; }\n"
-                   "     echo '[{\"id\":\"tokeneconomizer@tokeneconomizer\",\"version\":\"1.0\"}]' > \"$D/plugins.json\"; echo installed ;;\n"
-                   "  *) echo \"unexpected: $*\" >&2; exit 9 ;;\n"
-                   "esac\n");
+        write_exec(
+            dir.path / "claude",
+            "#!/bin/sh\n"
+            "D='" +
+                d +
+                "'\n"
+                "echo \"$*\" >> \"$D/argv.log\"\n"
+                "case \"$*\" in\n"
+                "  \"plugin marketplace list --json\") [ -f \"$D/nojson\" ] && exit 1; cat \"$D/marketplaces.json\" "
+                ";;\n"
+                "  \"plugin list --json\") [ -f \"$D/nojson\" ] && exit 1; cat \"$D/plugins.json\" ;;\n"
+                "  \"plugin marketplace list\") [ -f \"$D/listfails\" ] && { echo 'unknown command' >&2; exit 2; }; "
+                "cat \"$D/marketplaces.txt\" ;;\n"
+                "  \"plugin list\") cat \"$D/plugins.txt\" ;;\n"
+                "  \"plugin marketplace add \"*) [ -f \"$D/fail_add\" ] && { echo 'fatal: repository not found' >&2; "
+                "exit 3; }\n"
+                "     echo "
+                "'[{\"name\":\"tokeneconomizer\",\"source\":\"github\",\"repo\":\"microsoft/TokenEconomizer\"}]' > "
+                "\"$D/marketplaces.json\"; echo added ;;\n"
+                "  \"plugin install \"*) [ -f \"$D/fail_install\" ] && { echo 'plugin not found' >&2; exit 4; }\n"
+                "     echo '[{\"id\":\"tokeneconomizer@tokeneconomizer\",\"version\":\"1.0\"}]' > \"$D/plugins.json\"; "
+                "echo installed ;;\n"
+                "  *) echo \"unexpected: $*\" >&2; exit 9 ;;\n"
+                "esac\n");
         write_exec(dir.path / "py_new", "#!/bin/sh\necho 'Python 3.12.1'\n");
         write_exec(dir.path / "py_old", "#!/bin/sh\necho 'Python 3.8.10'\n");
         std::ofstream(dir.path / "marketplaces.json") << "[]";
@@ -122,7 +131,9 @@ TEST_CASE("plugin_install: runs the CLI's own commands in order and adds the ai.
     req.roles = {"orchestrator", "worker"};
     std::vector<std::string> seen;
     PluginInstallHooks hooks = s.cli.hooks();
-    hooks.onStep = [&](const Json& step) { seen.push_back(step["id"].get<std::string>() + ":" + step["status"].get<std::string>()); };
+    hooks.onStep = [&](const Json& step) {
+        seen.push_back(step["id"].get<std::string>() + ":" + step["status"].get<std::string>());
+    };
     auto r = plugin_install(s.config(), req, hooks);
     REQUIRE(r);
     CHECK((*r)["entry"]["added"] == true);
@@ -132,12 +143,13 @@ TEST_CASE("plugin_install: runs the CLI's own commands in order and adds the ai.
     REQUIRE(addAt != std::string::npos);
     REQUIRE(installAt != std::string::npos);
     CHECK(addAt < installAt);
-    CHECK(seen == std::vector<std::string>{"marketplace:running", "marketplace:done", "plugin:running", "plugin:done", "entry:running",
-                                           "entry:done"});
+    CHECK(seen == std::vector<std::string>{"marketplace:running", "marketplace:done", "plugin:running", "plugin:done",
+                                           "entry:running", "entry:done"});
     auto after = load_config(s.aiJson);
     REQUIRE(after);
     CHECK(after->limits.maxTurns == 7);  // the other keys stay
-    const auto it = std::ranges::find_if(after->extensions.entries, [](const Extension& e) { return e.plugin == "tokeneconomizer@tokeneconomizer"; });
+    const auto it = std::ranges::find_if(
+        after->extensions.entries, [](const Extension& e) { return e.plugin == "tokeneconomizer@tokeneconomizer"; });
     REQUIRE(it != after->extensions.entries.end());
     CHECK(it->name == "tokeneconomizer");
     CHECK(it->roles == std::vector<std::string>{"orchestrator", "worker"});
@@ -161,7 +173,8 @@ TEST_CASE("plugin_install: runs the CLI's own commands in order and adds the ai.
 
 TEST_CASE("plugin_install: a marketplace that is already listed is not added again; an installed plugin runs nothing") {
     Setup s;
-    std::ofstream(s.cli.dir.path / "marketplaces.json") << R"([{"name":"tokeneconomizer","repo":"microsoft/TokenEconomizer"}])";
+    std::ofstream(s.cli.dir.path / "marketplaces.json")
+        << R"([{"name":"tokeneconomizer","repo":"microsoft/TokenEconomizer"}])";
     auto r = plugin_install(s.config(), token_economizer_request(), s.cli.hooks());
     REQUIRE(r);
     CHECK((*r)["steps"][0]["status"] == "skipped");
@@ -183,10 +196,12 @@ TEST_CASE("plugin_install: a marketplace that is already listed is not added aga
     CHECK_FALSE(has(t.cli.log(), "plugin install"));
 }
 
-TEST_CASE("plugin_install: an install for another folder (scope local or project) does not count; it installs for the user") {
+TEST_CASE(
+    "plugin_install: an install for another folder (scope local or project) does not count; it installs for the user") {
     Setup s;
     // The shape of `claude plugin list --json` (Claude Code 2.1): one object per install, with its scope and folder.
-    std::ofstream(s.cli.dir.path / "marketplaces.json") << R"([{"name":"tokeneconomizer","repo":"microsoft/TokenEconomizer"}])";
+    std::ofstream(s.cli.dir.path / "marketplaces.json")
+        << R"([{"name":"tokeneconomizer","repo":"microsoft/TokenEconomizer"}])";
     std::ofstream(s.cli.dir.path / "plugins.json")
         << R"([{"id":"tokeneconomizer@tokeneconomizer","version":"0.1.0","scope":"local","enabled":true,"projectPath":"/elsewhere"},
               {"id":"notes@mine","version":"1.0","scope":"user","enabled":true}])";
@@ -198,8 +213,10 @@ TEST_CASE("plugin_install: an install for another folder (scope local or project
 
     // Installed for the user: nothing to install.
     Setup t;
-    std::ofstream(t.cli.dir.path / "marketplaces.json") << R"([{"name":"tokeneconomizer","repo":"microsoft/TokenEconomizer"}])";
-    std::ofstream(t.cli.dir.path / "plugins.json") << R"([{"id":"tokeneconomizer@tokeneconomizer","scope":"user","enabled":true}])";
+    std::ofstream(t.cli.dir.path / "marketplaces.json")
+        << R"([{"name":"tokeneconomizer","repo":"microsoft/TokenEconomizer"}])";
+    std::ofstream(t.cli.dir.path / "plugins.json")
+        << R"([{"id":"tokeneconomizer@tokeneconomizer","scope":"user","enabled":true}])";
     auto only = plugin_install(t.config(), token_economizer_request(), t.cli.hooks());
     REQUIRE(only);
     CHECK((*only)["steps"][1]["status"] == "skipped");
@@ -317,7 +334,9 @@ TEST_CASE("ai.plugin_install: the command takes the preset, is for the user only
 
     // A generic plugin: its own marketplace and plugin, no Python needed.
     std::ofstream(s.cli.dir.path / "marketplaces.json") << "[]";
-    auto generic = registry.call("ai.plugin_install", Json::object({{"marketplace", "owner/repo"}, {"plugin", "tool@repo"}, {"roles", Json::array({"fast"})}}));
+    auto generic = registry.call(
+        "ai.plugin_install",
+        Json::object({{"marketplace", "owner/repo"}, {"plugin", "tool@repo"}, {"roles", Json::array({"fast"})}}));
     REQUIRE_MESSAGE(generic.ok, generic.error.dump());
     CHECK(has(s.cli.log(), "plugin marketplace add owner/repo"));
     CHECK(has(s.cli.log(), "plugin install tool@repo"));

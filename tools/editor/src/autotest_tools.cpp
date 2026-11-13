@@ -99,27 +99,28 @@ Json Editor::at_section_report() {
     Json list = Json::array();
     std::uint64_t frames = 0;
     double seconds = 0;
-    std::printf("\nautotest sections (FA_EDITOR_AUTOTEST_SECTIONS=<ids> runs only some):\n  %-4s %7s %8s %8s  %s\n", "id", "frames",
-                "seconds", "failures", "title");
+    std::printf("\nautotest sections (FA_EDITOR_AUTOTEST_SECTIONS=<ids> runs only some):\n  %-4s %7s %8s %8s  %s\n",
+                "id", "frames", "seconds", "failures", "title");
     for (const AtSectionCost& c : atCosts_) {
         std::string title;
         for (const AutotestSection& s : kAutotestSections)
             if (c.id == s.id) title = s.title;
         list.push_back(Json::object(
             {{"id", c.id}, {"title", title}, {"frames", c.frames}, {"seconds", c.seconds}, {"failures", c.failures}}));
-        std::printf("  %-4s %7llu %8.1f %8zu  %s\n", c.id.c_str(), static_cast<unsigned long long>(c.frames), c.seconds, c.failures,
-                    title.c_str());
+        std::printf("  %-4s %7llu %8.1f %8zu  %s\n", c.id.c_str(), static_cast<unsigned long long>(c.frames), c.seconds,
+                    c.failures, title.c_str());
         frames += c.frames;
         seconds += c.seconds;
     }
-    std::printf("  %-4s %7llu %8.1f %8zu\n\n", "all", static_cast<unsigned long long>(frames), seconds, atFailures_.size());
+    std::printf("  %-4s %7llu %8.1f %8zu\n\n", "all", static_cast<unsigned long long>(frames), seconds,
+                atFailures_.size());
     std::fflush(stdout);
     return list;
 }
 
 void Editor::at_build_tools_script() {
     using Fn = std::function<void()>;
-    AtScript at;       // what the sections write their steps with (autotest_common.h); the lambdas below fill it in
+    AtScript at;           // what the sections write their steps with (autotest_common.h); the lambdas below fill it in
     bool& keep = at.keep;  // false while the script passes over a section FA_EDITOR_AUTOTEST_SECTIONS did not ask for
     auto step = [this, &keep](int wait, Fn fn) {
         if (keep) atSteps_.push_back(AtStep{wait, std::move(fn)});
@@ -145,7 +146,8 @@ void Editor::at_build_tools_script() {
     // that is scrolled out of its window: at_widget refuses it. dy is the way to try first (> 0 up); when the widget does not
     // move (the window is already at that end, as a section run alone finds it), the wheel turns the other way.
     // `at` may be a function: the point is looked up each frame (over a panel whose position depends on the window size).
-    auto scroll_until_at = [this, &step](std::function<std::string()> nameOf, float dy, std::function<Vec2()> at, float maxY, float minY = 120) {
+    auto scroll_until_at = [this, &step](std::function<std::string()> nameOf, float dy, std::function<Vec2()> at,
+                                         float maxY, float minY = 120) {
         step(2, [this, at] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at()); });
         struct Wheel {
             float dy, lastY = -1e9f;
@@ -194,8 +196,10 @@ void Editor::at_build_tools_script() {
     // Scroll the window `window` until `name` is shown: the way to try first is down (a form's buttons are at its end).
     // `window` is copied: the steps run later, after the code that built the script returned (a `const char*` into a local
     // std::string of the caller dangled; found by the ASan run as a heap-use-after-free).
-    auto scroll_to = [&scroll_until_at, window_middle](const std::string& name, const std::string& window, float dy = -6) {
-        scroll_until_at([name] { return name; }, dy, [window_middle, window] { return window_middle(window.c_str()); }, 100000, -1e9f);
+    auto scroll_to = [&scroll_until_at, window_middle](const std::string& name, const std::string& window,
+                                                       float dy = -6) {
+        scroll_until_at([name] { return name; }, dy, [window_middle, window] { return window_middle(window.c_str()); },
+                        100000, -1e9f);
     };
     // The lambdas above live as long as this function, which calls every section: the sections get them through `at`.
     at.step = step;
@@ -227,7 +231,8 @@ void Editor::at_build_tools_script() {
         step(4, [this] {
             const SetupComponent* c = setupStatus_.status().find("cmake");
             at_check(c != nullptr, "the Set Up window lists CMake");
-            at_check(at_visible("setup:install:cmake") && at_enabled("setup:install:cmake"), "...with a button to install it");
+            at_check(at_visible("setup:install:cmake") && at_enabled("setup:install:cmake"),
+                     "...with a button to install it");
             at_check(setupStatus_.status().home == (std::filesystem::path(atOutDir_) / "factoria_home").string(),
                      "...into the autotest's own FACTORIA_HOME (" + setupStatus_.status().home + ")");
         });
@@ -238,7 +243,10 @@ void Editor::at_build_tools_script() {
             atWaitCount_ = 0;
             atWaitUntil_ = [this] { return !setupJob_.running() || setupJob_.fraction() >= 0.3; };
         });
-        step(3, [this] { at_check(true, "the install runs on its worker thread while the window keeps drawing (" + setupJob_.progress_line() + ")"); });
+        step(3, [this] {
+            at_check(true, "the install runs on its worker thread while the window keeps drawing (" +
+                               setupJob_.progress_line() + ")");
+        });
         snap("editor_setup_cmake_progress.png");
         step(1, [this] {
             atWaitCount_ = 0;
@@ -246,10 +254,13 @@ void Editor::at_build_tools_script() {
         });
         step(1, [this] {
             atWaitCount_ = 0;
-            atWaitUntil_ = [this] { return !setupRefreshAgain_ && !setupStatus_.refreshing(); };  // the window looks again
+            atWaitUntil_ = [this] {
+                return !setupRefreshAgain_ && !setupStatus_.refreshing();
+            };  // the window looks again
         });
         step(6, [this] {
-            at_check(setupLast_.has_value() && setupLast_->ok, "CMake was installed: " + (setupLast_ ? setupLast_->error : std::string("no result")));
+            at_check(setupLast_.has_value() && setupLast_->ok,
+                     "CMake was installed: " + (setupLast_ ? setupLast_->error : std::string("no result")));
             if (setupLast_) at_check(!setupLast_->report.steps.empty(), "...the report lists its steps");
             std::string installed;
             if (setupLast_)
@@ -288,37 +299,39 @@ void Editor::at_build_tools_script() {
             showExport_ = showPlatformSettings_ = platformCloseAsk_ = keystoreOpen_ = false;
             showSetup_ = setupLicenseOpen_ = showProjectDialog_ = showAudio_ = showProfiler_ = false;
             showProject_ = showHierarchy_ = showInspector_ = true;
-            if (showAnimation_ || anim_.posed) anim_unpose();  // sections B2 and C2: the panels, the pose and the tools are not carried over
+            if (showAnimation_ || anim_.posed)
+                anim_unpose();  // sections B2 and C2: the panels, the pose and the tools are not carried over
             anim_ = AnimUi{};
             bone_ = BoneUi{};
             showAnimation_ = showBoneTools_ = showImage_ = showVector_ = showSound_ = showMusic_ = showModeler_ = false;
-            particle_close_document();   // section P3: the Particles panel, its effect and its preview are not carried over
+            particle_close_document();  // section P3: the Particles panel, its effect and its preview are not carried over
             particle_ = ParticleUi{};
             showParticle_ = false;
-            reset_auto_play_state();   // section S3: the Play sessions window, its list and a run still going are not carried over
-            reset_review_state();   // section R4: the Review window, its sheet, its pictures and a sheet of seeds still being made are not carried over
-            showLevelGen_ = false;   // section R3: the Level generator window, its sample, its preview and its history are not carried over
+            reset_auto_play_state();  // section S3: the Play sessions window, its list and a run still going are not carried over
+            reset_review_state();  // section R4: the Review window, its sheet, its pictures and a sheet of seeds still being made are not carried over
+            showLevelGen_ =
+                false;  // section R3: the Level generator window, its sample, its preview and its history are not carried over
             levelGen_.clear(level_gen_caller());
             levelGenOpt_ = LevelGenOptions{};
             levelGenMessage_.clear();
             levelGenSelId_.clear();
-            sound_close_document();   // section K3: the Sound panel, its sound and its playback are not carried over
+            sound_close_document();  // section K3: the Sound panel, its sound and its playback are not carried over
             sound_release_textures();
             if (sound_.player) sound_.player->stop();
             sound_ = SoundUi{};
-            music_close_document();   // section M3: the Music panel, its song and its playback are not carried over
+            music_close_document();  // section M3: the Music panel, its song and its playback are not carried over
             music_.preview.reset();
             music_.model.reset();
             music_ = MusicUi{};
-            modeler_close_document();   // section N3: the Model panel and its document are not carried over
+            modeler_close_document();  // section N3: the Model panel and its document are not carried over
             modeler_release_textures();
             modeler_.model.reset();
             modeler_ = ModelerUi{};
             vector_release_textures();
-            vector_ = VectorUi{};   // section J2: the Vector panel, its drawing and its tools are not carried over
-            image_release_textures();   // section I2: the Image panel, its document and its tools are not carried over
+            vector_ = VectorUi{};      // section J2: the Vector panel, its drawing and its tools are not carried over
+            image_release_textures();  // section I2: the Image panel, its document and its tools are not carried over
             image_ = ImageUi{};
-            anim3d_release_textures();   // section O3: the Animation panel's 3D mode, its clip and its sheets are not carried over
+            anim3d_release_textures();  // section O3: the Animation panel's 3D mode, its clip and its sheets are not carried over
             anim3d_ = Anim3DUi{};
             projBrowser_.query = BrowserQuery{};
             exportLast_.reset();
@@ -329,13 +342,16 @@ void Editor::at_build_tools_script() {
             focus_window("Console");  // the tab in front where the Console is docked: the same in every section
         });
         step(2, [this, id, project_file, projectJson] {
-            gizmoMode_ = GizmoMode::Select;  // the sections before M click and compare pictures: no handles over the selection
-            if (read_file(project_file("factoria.json")) != projectJson) write_file(project_file("factoria.json"), projectJson);
+            gizmoMode_ =
+                GizmoMode::Select;  // the sections before M click and compare pictures: no handles over the selection
+            if (read_file(project_file("factoria.json")) != projectJson)
+                write_file(project_file("factoria.json"), projectJson);
             write_file(project_file(scenePath_), kFixtureScene);
             reload_scene_from_disk();  // the fixture is the open scene, clean (no unsaved changes, no undo history)
             write_file(project_file("assets/blip.wav"), silence_wav());
             focus_window("###Viewport");
-            at_check(!dirty() && undo_depth() == 0 && !world().find_by_id("player").is_null() && !world().find_by_id("coin_3").is_null(),
+            at_check(!dirty() && undo_depth() == 0 && !world().find_by_id("player").is_null() &&
+                         !world().find_by_id("coin_3").is_null(),
                      std::string("section ") + id + " starts on the clean 2D fixture");
         });
     };
@@ -447,7 +463,8 @@ void Editor::at_build_tools_script() {
     keep = true;
     step(2, [this] {
         select_id("");
-        Json report = Json::object({{"failures", atFailures_}, {"log", atLog_}, {"frames", atFrame_}, {"sections", at_section_report()}});
+        Json report = Json::object(
+            {{"failures", atFailures_}, {"log", atLog_}, {"frames", atFrame_}, {"sections", at_section_report()}});
         (void)save_json_file(atOutDir_ + "/autotest_result.json", report);
         FA_INFO("autotest", "finished: {} failure(s)", atFailures_.size());
         sapp_request_quit();

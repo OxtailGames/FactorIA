@@ -36,7 +36,8 @@ void check_same_geometry(const ModelMesh& before, const ModelMesh& after) {
             const std::uint32_t a = before.indices[t * 3 + std::size_t(k)], b = after.indices[t * 3 + std::size_t(k)];
             if (std::memcmp(&before.positions[a], &after.positions[b], sizeof(Vec3)) != 0) same = false;
             if (std::memcmp(&before.normals[a], &after.normals[b], sizeof(Vec3)) != 0) same = false;
-            if (!before.colors.empty() && std::memcmp(&before.colors[a], &after.colors[b], sizeof(Vec4)) != 0) same = false;
+            if (!before.colors.empty() && std::memcmp(&before.colors[a], &after.colors[b], sizeof(Vec4)) != 0)
+                same = false;
         }
     }
     CHECK(same);
@@ -49,7 +50,8 @@ ModelUvSettings with_method(ModelUvMethod m, const char* layout = "atlas") {
     return s;
 }
 
-ModelUvResult apply_ok(const ModelMesh& mesh, const ModelUvSettings& s, const std::vector<std::string>& parts = {"a"}, ModelUvOptions o = {}) {
+ModelUvResult apply_ok(const ModelMesh& mesh, const ModelUvSettings& s, const std::vector<std::string>& parts = {"a"},
+                       ModelUvOptions o = {}) {
     auto r = model_uv_apply(mesh, parts, s, o);
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
     return std::move(*r);
@@ -73,7 +75,8 @@ ModelMesh moved(ModelMesh m, Vec3 by) {
 }
 
 bool same_bits(const ModelMesh& a, const ModelMesh& b) {
-    return a.indices == b.indices && a.uvs.size() == b.uvs.size() && std::memcmp(a.uvs.data(), b.uvs.data(), a.uvs.size() * sizeof(Vec2)) == 0 &&
+    return a.indices == b.indices && a.uvs.size() == b.uvs.size() &&
+           std::memcmp(a.uvs.data(), b.uvs.data(), a.uvs.size() * sizeof(Vec2)) == 0 &&
            std::memcmp(a.positions.data(), b.positions.data(), a.positions.size() * sizeof(Vec3)) == 0;
 }
 
@@ -345,12 +348,14 @@ TEST_CASE("packing: pieces stay apart by the padding and inside the texture") {
     const float pad = 3.9f / 512;
     for (std::size_t i = 0; i < rects.size(); ++i)
         for (std::size_t j = i + 1; j < rects.size(); ++j) {
-            const bool apart = rects[i].x1 + pad <= rects[j].x0 || rects[j].x1 + pad <= rects[i].x0 || rects[i].y1 + pad <= rects[j].y0 || rects[j].y1 + pad <= rects[i].y0;
+            const bool apart = rects[i].x1 + pad <= rects[j].x0 || rects[j].x1 + pad <= rects[i].x0 ||
+                               rects[i].y1 + pad <= rects[j].y0 || rects[j].y1 + pad <= rects[i].y0;
             CHECK(apart);
         }
 }
 
-TEST_CASE("packing: the texture size is the smallest power of two the pieces fit in, and a bigger density needs a bigger one") {
+TEST_CASE("packing: the texture size is the smallest power of two the pieces fit in, and a bigger density needs a "
+          "bigger one") {
     const ModelMesh sphere = model_sphere({});
     ModelUvSettings s = with_method(ModelUvMethod::Unwrap);
     s.texelsPerUnit = 32.0f;
@@ -364,7 +369,8 @@ TEST_CASE("packing: the texture size is the smallest power of two the pieces fit
     CHECK(big.report.texelsPerUnitUsed == doctest::Approx(512));
 }
 
-TEST_CASE("density: the style's density is the default, the document's wins, a texture too small lowers it with a warning") {
+TEST_CASE(
+    "density: the style's density is the default, the document's wins, a texture too small lowers it with a warning") {
     const ModelMesh sphere = model_sphere({});
     ModelUvOptions style;
     style.defaultTexelsPerMeter = 256;
@@ -455,7 +461,8 @@ TEST_CASE("model_uv_measure: overlap, mirroring and out-of-range uvs are reporte
 TEST_CASE("determinism: the same mesh and settings give the same bits, and the same layout") {
     std::vector<std::string> names;
     const ModelMesh mesh = three_parts(names);
-    for (ModelUvMethod m : {ModelUvMethod::Unwrap, ModelUvMethod::Box, ModelUvMethod::Cylinder, ModelUvMethod::Sphere}) {
+    for (ModelUvMethod m :
+         {ModelUvMethod::Unwrap, ModelUvMethod::Box, ModelUvMethod::Cylinder, ModelUvMethod::Sphere}) {
         const ModelUvResult a = apply_ok(mesh, with_method(m), names);
         const ModelUvResult b = apply_ok(mesh, with_method(m), names);
         CHECK(same_bits(a.mesh, b.mesh));
@@ -476,10 +483,11 @@ TEST_CASE("determinism: the layout of a fixed model has a known fingerprint (the
 }
 
 TEST_CASE("the uv section of a model document: unwrap by default, per-part methods, reported in the build") {
-    auto doc = parse_model_doc(J(R"({"format":"factoria.model/1","uv":{"texelsPerUnit":64,"parts":{"wheel":{"method":"cylinder","axis":"x"}}},
+    auto doc = parse_model_doc(
+        J(R"({"format":"factoria.model/1","uv":{"texelsPerUnit":64,"parts":{"wheel":{"method":"cylinder","axis":"x"}}},
         "nodes":[{"op":"box","part":"body","size":[2,0.5,1]},
                  {"op":"cylinder","part":"wheel","rotation":[0,0,90],"radius":0.3,"height":0.2,"position":[0,-0.3,0.6]}]})"),
-                               "t.model.json");
+        "t.model.json");
     REQUIRE_MESSAGE(doc.ok(), (doc.ok() ? std::string() : doc.error().to_string()));
     REQUIRE(doc->uv.has_value());
     auto built = evaluate_model(*doc);
@@ -507,7 +515,8 @@ TEST_CASE("the uv section of a model document: unwrap by default, per-part metho
 
 TEST_CASE("the uv section names a part no node makes: a warning with a suggestion") {
     auto doc = parse_model_doc(J(R"({"format":"factoria.model/1","uv":{"parts":{"whel":{"method":"box"}}},
-        "nodes":[{"op":"cylinder","part":"wheel"}]})"), "t.model.json");
+        "nodes":[{"op":"cylinder","part":"wheel"}]})"),
+                               "t.model.json");
     REQUIRE(doc.ok());
     auto built = evaluate_model(*doc);
     REQUIRE(built.ok());
@@ -524,7 +533,12 @@ TEST_CASE("sdf results: the uv section replaces the default box uvs, per part") 
     REQUIRE(plain.ok());
     auto before = evaluate_model(*plain);
     REQUIRE(before.ok());
-    auto doc = parse_model_doc(J((std::string(R"({"format":"factoria.model/1","uv":{"method":"unwrap","parts":{"head":{"method":"sphere"}}},)") + sdf).c_str()), "t.model.json");
+    auto doc = parse_model_doc(
+        J((std::string(
+               R"({"format":"factoria.model/1","uv":{"method":"unwrap","parts":{"head":{"method":"sphere"}}},)") +
+           sdf)
+              .c_str()),
+        "t.model.json");
     REQUIRE(doc.ok());
     auto built = evaluate_model(*doc);
     REQUIRE_MESSAGE(built.ok(), (built.ok() ? std::string() : built.error().to_string()));
@@ -537,7 +551,9 @@ TEST_CASE("sdf results: the uv section replaces the default box uvs, per part") 
     CHECK(built->uv->outsideTriangles == 0);
     CHECK(built->uv->flippedTriangles <= built->uv->triangles / 100);
     {
-        auto unwrapped = parse_model_doc(J((std::string(R"({"format":"factoria.model/1","uv":{"method":"unwrap"},)") + sdf).c_str()), "t.model.json");
+        auto unwrapped =
+            parse_model_doc(J((std::string(R"({"format":"factoria.model/1","uv":{"method":"unwrap"},)") + sdf).c_str()),
+                            "t.model.json");
         REQUIRE(unwrapped.ok());
         auto all = evaluate_model(*unwrapped);
         REQUIRE(all.ok());
@@ -561,7 +577,9 @@ TEST_CASE("sdf results: the uv section replaces the default box uvs, per part") 
 namespace {
 std::vector<ModelIssue> uv_issues(const char* uvJson) {
     std::vector<ModelIssue> issues;
-    (void)parse_model_doc(J((std::string(R"({"format":"factoria.model/1","nodes":[{"op":"box"}],"uv":)") + uvJson + "}").c_str()), "t.model.json", &issues);
+    (void)parse_model_doc(
+        J((std::string(R"({"format":"factoria.model/1","nodes":[{"op":"box"}],"uv":)") + uvJson + "}").c_str()),
+        "t.model.json", &issues);
     return issues;
 }
 }  // namespace
@@ -590,7 +608,10 @@ TEST_CASE("uv section errors: pointer, what is wrong, how to fix it, did you mea
     auto g = uv_issues("7");
     REQUIRE(g.size() == 1);
     CHECK(g[0].pointer == "/uv");
-    CHECK(uv_issues(R"({"layout":"tile","method":"box","parts":{"a":{"method":"sphere"}},"textureSize":2048,"padding":0,"seams":"few","rotate":false})").empty());
+    CHECK(
+        uv_issues(
+            R"({"layout":"tile","method":"box","parts":{"a":{"method":"sphere"}},"textureSize":2048,"padding":0,"seams":"few","rotate":false})")
+            .empty());
 }
 
 TEST_CASE("model_doc_schema() lists the uv section") {

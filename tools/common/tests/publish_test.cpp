@@ -46,8 +46,10 @@ struct ScopedEnv {
 #ifdef _WIN32
         _putenv_s(name.c_str(), value.c_str());
 #else
-        if (value.empty()) unsetenv(name.c_str());
-        else setenv(name.c_str(), value.c_str(), 1);
+        if (value.empty())
+            unsetenv(name.c_str());
+        else
+            setenv(name.c_str(), value.c_str(), 1);
 #endif
     }
 };
@@ -62,8 +64,10 @@ std::vector<Call> read_calls(const std::string& record) {
     std::istringstream in(testing::read_all(record));
     for (std::string line; std::getline(in, line);) {
         if (!line.empty() && line.back() == '\r') line.pop_back();
-        if (line == "call") calls.emplace_back();
-        else if (line.rfind("arg: ", 0) == 0 && !calls.empty()) calls.back().args.push_back(line.substr(5));
+        if (line == "call")
+            calls.emplace_back();
+        else if (line.rfind("arg: ", 0) == 0 && !calls.empty())
+            calls.back().args.push_back(line.substr(5));
         else if (line.rfind("env: ", 0) == 0 && !calls.empty()) {
             const std::string kv = line.substr(5);
             calls.back().env[kv.substr(0, kv.find('='))] = kv.substr(kv.find('=') + 1);
@@ -86,12 +90,10 @@ struct Fixture {
     std::string dir = tmp.sub("space");
     std::string record = tmp.sub("record.txt");
     std::string config = tmp.sub("no-export-config.json");  // does not exist: the machine's own file is never read
-    std::map<std::string, std::string> vars = {{"FACTORIA_STEAMCMD", kFakeTool},
-                                               {"FACTORIA_BUTLER", kFakeTool},
-                                               {"FACTORIA_BUILDPATCHTOOL", kFakeTool},
-                                               {"FACTORIA_GOG_PIPELINE_BUILDER", kFakeTool},
-                                               {"FACTORIA_XCRUN", kFakeTool},
-                                               {"FACTORIA_FASTLANE", kFakeTool}};
+    std::map<std::string, std::string> vars = {
+        {"FACTORIA_STEAMCMD", kFakeTool},       {"FACTORIA_BUTLER", kFakeTool},
+        {"FACTORIA_BUILDPATCHTOOL", kFakeTool}, {"FACTORIA_GOG_PIPELINE_BUILDER", kFakeTool},
+        {"FACTORIA_XCRUN", kFakeTool},          {"FACTORIA_FASTLANE", kFakeTool}};
 
     explicit Fixture(const char* publishJson = kFullPublish) {
         ScaffoldOptions so;
@@ -131,7 +133,9 @@ struct Fixture {
         return o;
     }
 
-    std::string export_dir(const std::string& platform) const { return stdfs::weakly_canonical(dir + "/build/export/space-dodge-" + platform).generic_string(); }
+    std::string export_dir(const std::string& platform) const {
+        return stdfs::weakly_canonical(dir + "/build/export/space-dodge-" + platform).generic_string();
+    }
 
     PublishReport ok(const PublishOptions& o) const {
         auto r = publish_project(o);
@@ -178,7 +182,8 @@ TEST_CASE("publish settings: every mistake names its JSON pointer, says what is 
         "epic": {"artifacts": {"windows": 7}},
         "gog": {"productId": "abc", "languages": []},
         "stem": {}}})"));
-    auto find = [&](const std::vector<ExportSettingsIssue>& list, const std::string& pointer) -> const ExportSettingsIssue* {
+    auto find = [&](const std::vector<ExportSettingsIssue>& list,
+                    const std::string& pointer) -> const ExportSettingsIssue* {
         for (const auto& i : list)
             if (i.pointer == pointer) return &i;
         return nullptr;
@@ -219,7 +224,9 @@ TEST_CASE("validate: the publish section is checked once, with the settings' own
     Fixture good;
     const ValidationReport clean = validate_project(good.dir);
     CHECK_MESSAGE(clean.errors.empty(), clean.to_text());
-    for (const auto& w : clean.warnings) CHECK_MESSAGE(w.pointer.rfind("/publish", 0) != 0, w.pointer << ": " << w.message);  // other warnings are not about publish
+    for (const auto& w : clean.warnings)
+        CHECK_MESSAGE(w.pointer.rfind("/publish", 0) != 0,
+                      w.pointer << ": " << w.message);  // other warnings are not about publish
 
     Fixture bad(R"({"publish": {"steam": {"depots": {"windws": 1}}, "itch": {"gam": "a/b"}}})");
     const ValidationReport r = validate_project(bad.dir);
@@ -257,7 +264,8 @@ TEST_CASE("publish.steam dry run: the build scripts, the exact steamcmd command 
     REQUIRE(r.steps.size() == 1);
     REQUIRE(r.files.size() == 4);  // the app script first, then one depot script per platform
     const std::string appVdf = r.files[0];
-    CHECK(r.steps[0].command == std::vector<std::string>{kFakeTool, "+login", "mystudio_build", "+run_app_build", appVdf, "+quit"});
+    CHECK(r.steps[0].command ==
+          std::vector<std::string>{kFakeTool, "+login", "mystudio_build", "+run_app_build", appVdf, "+quit"});
     CHECK(has(appVdf, ".factoria/publish/steam/app_build_1234560.vdf"));
     CHECK_FALSE(r.steps[0].ran);
 
@@ -265,7 +273,8 @@ TEST_CASE("publish.steam dry run: the build scripts, the exact steamcmd command 
     CHECK(r.uploads[0].platform == "windows");
     CHECK(r.uploads[0].folder == f.export_dir("windows"));
     CHECK(r.uploads[0].destination == "Steam app 1234560, depot 1234561 (windows)");
-    CHECK(r.uploads[0].files == 3);  // the exe, the notices and game/factoria.json: the export's marker and AI disclosure stay behind
+    CHECK(r.uploads[0].files ==
+          3);  // the exe, the notices and game/factoria.json: the export's marker and AI disclosure stay behind
     CHECK(r.uploads[0].bytes == std::string("exe").size() + std::string("licenses").size() + 2);
     CHECK(r.uploads[1].destination == "Steam app 1234560, depot 1234562 (macos)");
     CHECK(r.uploads[2].files == 1);
@@ -384,7 +393,8 @@ TEST_CASE("publish.steam: a missing account, depot, export or platform name is a
     CHECK(has(e.hint, "project.export"));
 }
 
-TEST_CASE("publish tools: found by environment variable, ~/.factoria/export.json or PATH; a missing one says where to get it") {
+TEST_CASE("publish tools: found by environment variable, ~/.factoria/export.json or PATH; a missing one says where to "
+          "get it") {
     Fixture f;
     PublishOptions o = f.options("steam");
     o.dryRun = true;
@@ -399,11 +409,13 @@ TEST_CASE("publish tools: found by environment variable, ~/.factoria/export.json
         CHECK(has(e.hint, "Nothing is downloaded"));
     }
     // ~/.factoria/export.json: "publish": {"steamcmd": ...}, a file or the folder that holds it
-    testing::write_all(f.config, "{\"format\": \"factoria.export-config/1\", \"publish\": {\"steamcmd\": \"" + kFakeTool + "\"}}");
+    testing::write_all(f.config, "{\"format\": \"factoria.export-config/1\", \"publish\": {\"steamcmd\": \"" +
+                                     kFakeTool + "\"}}");
     PublishReport r = f.ok(o);
     CHECK(r.tool == kFakeTool);
     CHECK(r.toolFrom == "export.json");
-    testing::write_all(f.config, "{\"publish\": {\"steamcmd\": \"" + stdfs::path(f.tmp.sub("nothing-here")).generic_string() + "\"}}");
+    testing::write_all(f.config, "{\"publish\": {\"steamcmd\": \"" +
+                                     stdfs::path(f.tmp.sub("nothing-here")).generic_string() + "\"}}");
     Error e = f.fails(o);
     CHECK(has(e.message, "#/publish/steamcmd"));
     CHECK(has(e.message, "which is not steamcmd"));
@@ -518,7 +530,8 @@ TEST_CASE("publish.itch dry run: one butler push per platform, with its channel 
     REQUIRE(r.steps.size() == 3);
     const std::vector<std::string> ignore = {"--ignore", ".factoria-export", "--ignore", "AI_CONTENT_DISCLOSURE.md"};
     auto expected = [&](const std::string& platform, const std::string& channel) {
-        std::vector<std::string> argv = {kFakeTool, "push", f.export_dir(platform), "mystudio/space-dodge:" + channel, "--userversion", "1.2.3"};
+        std::vector<std::string> argv = {
+            kFakeTool, "push", f.export_dir(platform), "mystudio/space-dodge:" + channel, "--userversion", "1.2.3"};
         argv.insert(argv.end(), ignore.begin(), ignore.end());
         return argv;
     };
@@ -551,7 +564,8 @@ TEST_CASE("publish.itch: channels come from factoria.json, a missing game says h
     CHECK(has(e.hint, "mystudio.itch.io/space-dodge"));
 }
 
-TEST_CASE("publish.itch: a run stops at the first failing push and says which platforms were uploaded; the API key is never shown") {
+TEST_CASE("publish.itch: a run stops at the first failing push and says which platforms were uploaded; the API key is "
+          "never shown") {
     Fixture f;
     f.vars["BUTLER_API_KEY"] = "butler-key-1234";
     ScopedEnv record("FA_FAKE_TOOL_RECORD", f.record);
@@ -575,7 +589,8 @@ TEST_CASE("publish.itch: a run stops at the first failing push and says which pl
     CHECK(has(r.failureHint, "butler login"));
 
     const std::string log = testing::read_all(r.log);
-    for (const std::string& shown : {log, everythingShown, r.to_json().dump(), r.failure}) CHECK_FALSE(has(shown, "butler-key-1234"));
+    for (const std::string& shown : {log, everythingShown, r.to_json().dump(), r.failure})
+        CHECK_FALSE(has(shown, "butler-key-1234"));
     CHECK(has(log, "echo BUTLER_API_KEY=<redacted>"));
 }
 
@@ -591,31 +606,27 @@ TEST_CASE("publish.epic dry run: BuildPatchTool UploadBinary per platform, the s
     REQUIRE(r.files.size() == 3);  // the ignore list, once per run
     const std::string work = stdfs::path(r.files[0]).parent_path().generic_string();
     CHECK(has(work, "/.factoria/publish/epic"));
-    CHECK(r.steps[0].command == std::vector<std::string>{kFakeTool,
-                                                         "-OrganizationId=o-abc",
-                                                         "-ProductId=prod1",
-                                                         "-ArtifactId=art-win",
-                                                         "-ClientId=xyzclient",
-                                                         "-ClientSecretEnvVar=FACTORIA_EPIC_CLIENT_SECRET",
-                                                         "-mode=UploadBinary",
-                                                         "-BuildRoot=" + f.export_dir("windows"),
-                                                         "-CloudDir=" + work + "/cloud/windows",
-                                                         "-BuildVersion=1.2.3",
-                                                         "-AppLaunch=space-dodge.exe",
-                                                         "-AppArgs=",
-                                                         "-FileIgnoreList=" + work + "/ignore.txt"});
+    CHECK(r.steps[0].command ==
+          std::vector<std::string>{
+              kFakeTool, "-OrganizationId=o-abc", "-ProductId=prod1", "-ArtifactId=art-win", "-ClientId=xyzclient",
+              "-ClientSecretEnvVar=FACTORIA_EPIC_CLIENT_SECRET", "-mode=UploadBinary",
+              "-BuildRoot=" + f.export_dir("windows"), "-CloudDir=" + work + "/cloud/windows", "-BuildVersion=1.2.3",
+              "-AppLaunch=space-dodge.exe", "-AppArgs=", "-FileIgnoreList=" + work + "/ignore.txt"});
     CHECK(has(r.steps[1].command[3], "art-mac"));
     CHECK(r.steps[1].command[10] == "-AppLaunch=Space Dodge.app/Contents/MacOS/space-dodge");
     CHECK(r.steps[2].command[10] == "-AppLaunch=space-dodge");
     CHECK(testing::read_all(r.files[0]) == ".factoria-export\nAI_CONTENT_DISCLOSURE.md\n");
     CHECK(stdfs::is_directory(work + "/cloud/windows"));
     CHECK_FALSE(has(r.to_json().dump(), "epic-secret-5678"));
-    CHECK(r.steps[0].env == std::vector<std::string>{"FACTORIA_EPIC_CLIENT_SECRET"});  // the NAME of the variable the tool reads, never its value
+    CHECK(r.steps[0].env ==
+          std::vector<std::string>{
+              "FACTORIA_EPIC_CLIENT_SECRET"});  // the NAME of the variable the tool reads, never its value
     CHECK(has(r.to_json().dump(), "\"env\":[\"FACTORIA_EPIC_CLIENT_SECRET\"]"));
     CHECK(r.uploads[0].destination == "Epic artifact art-win (build 1.2.3)");
 }
 
-TEST_CASE("publish.epic: a game named \"Game\" is launched through game-bin on Linux, the name the export gives its executable") {
+TEST_CASE("publish.epic: a game named \"Game\" is launched through game-bin on Linux, the name the export gives its "
+          "executable") {
     Fixture f;
     f.vars["FACTORIA_EPIC_CLIENT_SECRET"] = "epic-secret-5678";
     auto j = load_json_file(f.dir + "/factoria.json");
@@ -679,7 +690,8 @@ TEST_CASE("publish.epic: missing ids, secret, artifacts, or an invalid version a
     CHECK(has(e.message, "has no space-dodge.exe, the game's executable"));
 }
 
-TEST_CASE("publish.epic: a real run passes the secret to the tool in its environment, and scrubs it from everything shown") {
+TEST_CASE(
+    "publish.epic: a real run passes the secret to the tool in its environment, and scrubs it from everything shown") {
     Fixture f;
     f.vars["FACTORIA_EPIC_CLIENT_SECRET"] = "epic-secret-5678";
     ScopedEnv record("FA_FAKE_TOOL_RECORD", f.record);
@@ -694,8 +706,10 @@ TEST_CASE("publish.epic: a real run passes the secret to the tool in its environ
     const auto calls = read_calls(f.record);
     REQUIRE(calls.size() == 1);
     CHECK(calls[0].env.at("FACTORIA_EPIC_CLIENT_SECRET") == "epic-secret-5678");  // the tool gets it
-    for (const std::string& arg : calls[0].args) CHECK_FALSE(has(arg, "epic-secret-5678"));  // but never on its command line
-    for (const std::string& shown : {testing::read_all(r.log), progress, r.to_json().dump()}) CHECK_FALSE(has(shown, "epic-secret-5678"));
+    for (const std::string& arg : calls[0].args)
+        CHECK_FALSE(has(arg, "epic-secret-5678"));  // but never on its command line
+    for (const std::string& shown : {testing::read_all(r.log), progress, r.to_json().dump()})
+        CHECK_FALSE(has(shown, "epic-secret-5678"));
     CHECK(has(progress, "FACTORIA_EPIC_CLIENT_SECRET=<redacted>"));
 }
 
@@ -710,7 +724,8 @@ TEST_CASE("publish.gog dry run: one Pipeline Builder project file per platform a
     REQUIRE(r.steps.size() == 3);
     REQUIRE(r.files.size() == 6);  // the project file and the ignore list of each run
     CHECK(has(r.files[0], "/.factoria/publish/gog/gog-windows.json"));
-    CHECK(r.steps[0].command == std::vector<std::string>{kFakeTool, "build-game", r.files[0], "--ignore_list", r.files[1], "--version", "1.2.3", "--branch", "testing"});
+    CHECK(r.steps[0].command == std::vector<std::string>{kFakeTool, "build-game", r.files[0], "--ignore_list",
+                                                         r.files[1], "--version", "1.2.3", "--branch", "testing"});
     CHECK(r.steps[1].command[2] == r.files[2]);
     CHECK(testing::read_all(r.files[1]) == ".factoria-export\nAI_CONTENT_DISCLOSURE.md\n");
     CHECK(has(r.to_json()["warnings"].dump(), "cached from an earlier sign-in"));  // no credentials in this environment
@@ -750,7 +765,8 @@ TEST_CASE("publish.gog: the password is redacted wherever FactorIA shows anythin
     o.platforms = {"linux"};
     PublishReport dry = f.ok(o);
     const std::vector<std::string>& shown = dry.steps[0].command;
-    CHECK(std::vector<std::string>(shown.end() - 4, shown.end()) == std::vector<std::string>{"--username", "maker", "--password", "<redacted>"});
+    CHECK(std::vector<std::string>(shown.end() - 4, shown.end()) ==
+          std::vector<std::string>{"--username", "maker", "--password", "<redacted>"});
     CHECK_FALSE(has(dry.to_json().dump(), "hunter2-secret"));
     // Pipeline Builder has no other way to receive the password: the plan says so (and how to avoid it)
     REQUIRE(dry.warnings.size() == 1);
@@ -769,7 +785,8 @@ TEST_CASE("publish.gog: the password is redacted wherever FactorIA shows anythin
     REQUIRE(calls.size() == 1);
     CHECK(calls[0].args.back() == "hunter2-secret");  // the real password reached the tool
     CHECK(calls[0].args[calls[0].args.size() - 2] == "--password");
-    for (const std::string& text : {testing::read_all(r.log), progress, r.to_json().dump()}) CHECK_FALSE(has(text, "hunter2-secret"));
+    for (const std::string& text : {testing::read_all(r.log), progress, r.to_json().dump()})
+        CHECK_FALSE(has(text, "hunter2-secret"));
     CHECK(has(progress, "argument 10: <redacted>"));
 }
 
@@ -810,13 +827,16 @@ struct MobileFixture : Fixture {
     std::string p8 = stdfs::path(keys + "/AuthKey_ABCDE12345.p8").generic_string();
     std::string serviceAccount = stdfs::path(keys + "/play.json").generic_string();
     std::string ipa = stdfs::weakly_canonical(dir + "/build/export/space-dodge.ipa").generic_string();
-    std::string aab = stdfs::weakly_canonical(dir + "/build/export/space-dodge-android/space-dodge.aab").generic_string();
+    std::string aab =
+        stdfs::weakly_canonical(dir + "/build/export/space-dodge-android/space-dodge.aab").generic_string();
 
     MobileFixture() : Fixture(kMobilePublish) {
         testing::write_all(ipa, "PK\x03\x04 ipa");
         testing::write_all(aab, "PK\x03\x04 aab");
         testing::write_all(p8, "-----BEGIN PRIVATE KEY-----\nAPPSTORE-KEY-BODY\n-----END PRIVATE KEY-----\n");
-        testing::write_all(serviceAccount, R"({"type": "service_account", "client_email": "up@proj.iam.gserviceaccount.com", "private_key": "PLAY-KEY-BODY"})");
+        testing::write_all(
+            serviceAccount,
+            R"({"type": "service_account", "client_email": "up@proj.iam.gserviceaccount.com", "private_key": "PLAY-KEY-BODY"})");
         testing::write_all(dir + "/store/whats-new-en.txt", "Faster levels.\nNew boss.\n");
         testing::write_all(dir + "/store/whats-new-es.txt", "Niveles mas rapidos.");
         vars["FACTORIA_APPSTORE_API_KEY"] = p8;
@@ -841,7 +861,9 @@ struct MobileFixture : Fixture {
     }
 };
 
-bool leaks_keys(const std::string& text) { return has(text, "APPSTORE-KEY-BODY") || has(text, "PLAY-KEY-BODY") || has(text, "BEGIN PRIVATE KEY"); }
+bool leaks_keys(const std::string& text) {
+    return has(text, "APPSTORE-KEY-BODY") || has(text, "PLAY-KEY-BODY") || has(text, "BEGIN PRIVATE KEY");
+}
 
 TEST_CASE("publish settings: appstore and googleplay are read, and every mistake teaches") {
     auto parsed = parse_publish_settings(*parse_json(kMobilePublish));
@@ -881,24 +903,29 @@ TEST_CASE("publish.appstore dry run: the exact altool command line, what is uplo
     CHECK(r.dryRun);
     CHECK_FALSE(r.uploaded);
     REQUIRE(r.steps.size() == 1);
-    CHECK(r.steps[0].command == std::vector<std::string>{kFakeTool, "altool", "--upload-package", f.ipa, "--type", "ios", "--apple-id", "6448277777", "--bundle-id", "com.mystudio.spacedodge",
-                                                         "--bundle-version", "42", "--bundle-short-version-string", "1.2.3", "--apiKey", "ABCDE12345", "--apiIssuer",
-                                                         "11111111-2222-3333-4444-555555555555"});
+    CHECK(r.steps[0].command ==
+          std::vector<std::string>{kFakeTool, "altool", "--upload-package", f.ipa, "--type", "ios", "--apple-id",
+                                   "6448277777", "--bundle-id", "com.mystudio.spacedodge", "--bundle-version", "42",
+                                   "--bundle-short-version-string", "1.2.3", "--apiKey", "ABCDE12345", "--apiIssuer",
+                                   "11111111-2222-3333-4444-555555555555"});
     REQUIRE(r.uploads.size() == 1);
     CHECK(r.uploads[0].platform == "ios");
     CHECK(r.uploads[0].folder == f.ipa);
     CHECK(r.uploads[0].files == 1);
     CHECK(r.uploads[0].bytes > 0);
-    CHECK(has(r.uploads[0].destination, "App Store Connect app 6448277777 (com.mystudio.spacedodge), version 1.2.3 build 42"));
+    CHECK(has(r.uploads[0].destination,
+              "App Store Connect app 6448277777 (com.mystudio.spacedodge), version 1.2.3 build 42"));
     CHECK(has(r.to_json()["nextSteps"].dump(), "TestFlight"));
     CHECK(has(r.to_json()["warnings"].dump(), "read from factoria.json"));
     CHECK_FALSE(leaks_keys(r.to_json().dump()));
     CHECK(f.export_dir("windows").size() > 0);  // desktop exports exist and are not what appstore uploads
 }
 
-TEST_CASE("publish.appstore: the notarization variables of sign.macos also work, and the newest .ipa of the export folder is used") {
+TEST_CASE("publish.appstore: the notarization variables of sign.macos also work, and the newest .ipa of the export "
+          "folder is used") {
     MobileFixture f;
-    for (const char* v : {"FACTORIA_APPSTORE_API_KEY", "FACTORIA_APPSTORE_API_KEY_ID", "FACTORIA_APPSTORE_API_ISSUER"}) f.vars.erase(v);
+    for (const char* v : {"FACTORIA_APPSTORE_API_KEY", "FACTORIA_APPSTORE_API_KEY_ID", "FACTORIA_APPSTORE_API_ISSUER"})
+        f.vars.erase(v);
     f.vars["FACTORIA_NOTARY_API_KEY"] = f.p8;
     f.vars["FACTORIA_NOTARY_API_KEY_ID"] = "ABCDE12345";
     f.vars["FACTORIA_NOTARY_API_ISSUER"] = "issuer-uuid";
@@ -925,7 +952,8 @@ TEST_CASE("publish.appstore: a real run starts altool with the key folder in its
     CHECK(calls[0].args[0] == "altool");
     CHECK(calls[0].args[2] == f.ipa);
     CHECK(calls[0].env.at("API_PRIVATE_KEYS_DIR") == stdfs::path(f.keys).generic_string());
-    for (const std::string& text : {testing::read_all(r.log), progress, r.to_json().dump()}) CHECK_FALSE(leaks_keys(text));
+    for (const std::string& text : {testing::read_all(r.log), progress, r.to_json().dump()})
+        CHECK_FALSE(leaks_keys(text));
 }
 
 TEST_CASE("publish.appstore uploads the Mac App Store .pkg with --type macos and the macOS build number") {
@@ -942,9 +970,11 @@ TEST_CASE("publish.appstore uploads the Mac App Store .pkg with --type macos and
     o.platforms = {"mac"};
     PublishReport r = f.ok(o);
     REQUIRE(r.steps.size() == 1);
-    CHECK(r.steps[0].command == std::vector<std::string>{kFakeTool, "altool", "--upload-package", pkg, "--type", "macos", "--apple-id", "6448277777", "--bundle-id",
-                                                         "com.mystudio.spacedodge", "--bundle-version", "7", "--bundle-short-version-string", "1.2.3", "--apiKey", "ABCDE12345",
-                                                         "--apiIssuer", "11111111-2222-3333-4444-555555555555"});
+    CHECK(r.steps[0].command ==
+          std::vector<std::string>{kFakeTool, "altool", "--upload-package", pkg, "--type", "macos", "--apple-id",
+                                   "6448277777", "--bundle-id", "com.mystudio.spacedodge", "--bundle-version", "7",
+                                   "--bundle-short-version-string", "1.2.3", "--apiKey", "ABCDE12345", "--apiIssuer",
+                                   "11111111-2222-3333-4444-555555555555"});
     CHECK(r.uploads[0].platform == "macos");
     CHECK(has(r.uploads[0].destination, "build 7"));
     CHECK(has(r.to_json()["warnings"].dump(), "sign.macos distribution appStore"));
@@ -1013,7 +1043,8 @@ TEST_CASE("publish.appstore: missing settings, key, .ipa or Mac are teaching err
         f.vars.erase("FACTORIA_APPSTORE_API_KEY_ID");
         f.vars.erase("FACTORIA_APPSTORE_API_ISSUER");
         const Error e = f.fails(f.store("appstore"));
-        CHECK(has(e.message, "FACTORIA_APPSTORE_API_KEY_ID (the Key ID), FACTORIA_APPSTORE_API_ISSUER (the Issuer ID)"));
+        CHECK(
+            has(e.message, "FACTORIA_APPSTORE_API_KEY_ID (the Key ID), FACTORIA_APPSTORE_API_ISSUER (the Issuer ID)"));
         CHECK_FALSE(has(e.message, "FACTORIA_APPSTORE_API_KEY (the path"));
         CHECK(has(e.hint, "App Manager"));
     }
@@ -1052,7 +1083,8 @@ TEST_CASE("publish.appstore: missing settings, key, .ipa or Mac are teaching err
         CHECK(has(f.fails(play).message, "`platforms` and `folders` do not apply"));
     }
     {
-        MobileFixture f;  // xcrun and altool exist only on macOS: a real run elsewhere is refused, a dry run still shows the plan
+        MobileFixture
+            f;  // xcrun and altool exist only on macOS: a real run elsewhere is refused, a dry run still shows the plan
         PublishOptions o = f.store("appstore", false);
         o.host = "windows";
         const Error e = f.fails(o);
@@ -1075,22 +1107,44 @@ TEST_CASE("publish.appstore: a missing xcrun says how to get Xcode") {
     }
 }
 
-TEST_CASE("publish.googleplay dry run: the exact fastlane supply command line, the release notes files and no secret anywhere") {
+TEST_CASE("publish.googleplay dry run: the exact fastlane supply command line, the release notes files and no secret "
+          "anywhere") {
     MobileFixture f;
     const PublishReport r = f.ok(f.store("googleplay"));
     CHECK(r.dryRun);
     REQUIRE(r.steps.size() == 1);
-    const std::string metadata = stdfs::weakly_canonical(f.dir).generic_string() + "/.factoria/publish/googleplay/metadata";
-    CHECK(r.steps[0].command == std::vector<std::string>{kFakeTool, "supply", "--aab", f.aab, "--track", "internal", "--release_status", "draft", "--package_name",
-                                                         "com.mystudio.spacedodge", "--json_key", f.serviceAccount, "--skip_upload_apk", "true", "--skip_upload_metadata",
-                                                         "true", "--skip_upload_images", "true", "--skip_upload_screenshots", "true", "--metadata_path", metadata});
+    const std::string metadata =
+        stdfs::weakly_canonical(f.dir).generic_string() + "/.factoria/publish/googleplay/metadata";
+    CHECK(r.steps[0].command == std::vector<std::string>{kFakeTool,
+                                                         "supply",
+                                                         "--aab",
+                                                         f.aab,
+                                                         "--track",
+                                                         "internal",
+                                                         "--release_status",
+                                                         "draft",
+                                                         "--package_name",
+                                                         "com.mystudio.spacedodge",
+                                                         "--json_key",
+                                                         f.serviceAccount,
+                                                         "--skip_upload_apk",
+                                                         "true",
+                                                         "--skip_upload_metadata",
+                                                         "true",
+                                                         "--skip_upload_images",
+                                                         "true",
+                                                         "--skip_upload_screenshots",
+                                                         "true",
+                                                         "--metadata_path",
+                                                         metadata});
     REQUIRE(r.files.size() == 2);
     CHECK(r.files[0] == metadata + "/en-US/changelogs/default.txt");
     CHECK(testing::read_all(r.files[0]) == "Faster levels.\nNew boss.");
     CHECK(testing::read_all(r.files[1]) == "Niveles mas rapidos.");
     CHECK(r.uploads[0].platform == "android");
     CHECK(r.uploads[0].folder == f.aab);
-    CHECK(has(r.uploads[0].destination, "Google Play com.mystudio.spacedodge, track internal (draft, version code 10203)"));
+    CHECK(has(r.uploads[0].destination,
+              "Google Play com.mystudio.spacedodge, track internal (draft, version code 10203)"));
     CHECK(has(r.to_json()["nextSteps"].dump(), "The release is a draft"));
     CHECK_FALSE(leaks_keys(r.to_json().dump()));
 
@@ -1101,7 +1155,8 @@ TEST_CASE("publish.googleplay dry run: the exact fastlane supply command line, t
     CHECK_FALSE(stdfs::exists(metadata + "/es-419"));
 }
 
-TEST_CASE("publish.googleplay: track and status come from the arguments or factoria.json; without release notes none are uploaded") {
+TEST_CASE("publish.googleplay: track and status come from the arguments or factoria.json; without release notes none "
+          "are uploaded") {
     MobileFixture f;
     f.edit([](Json& j) {
         j["publish"]["googleplay"] = Json::object({{"track", "beta"}, {"releaseStatus", "completed"}});
@@ -1144,10 +1199,12 @@ TEST_CASE("publish.googleplay: a real run starts fastlane once and shows no secr
     REQUIRE(calls.size() == 1);
     CHECK(calls[0].args[0] == "supply");
     CHECK(calls[0].args[2] == f.aab);
-    for (const std::string& text : {testing::read_all(r.log), progress, r.to_json().dump()}) CHECK_FALSE(leaks_keys(text));
+    for (const std::string& text : {testing::read_all(r.log), progress, r.to_json().dump()})
+        CHECK_FALSE(leaks_keys(text));
 }
 
-TEST_CASE("publish.googleplay: a debug-signed bundle is refused, a missing key, bundle or release note is a teaching error") {
+TEST_CASE(
+    "publish.googleplay: a debug-signed bundle is refused, a missing key, bundle or release note is a teaching error") {
     {
         MobileFixture f;  // the debug export is named <slug>-debug.aab
         stdfs::rename(f.aab, f.dir + "/build/export/space-dodge-android/space-dodge-debug.aab");
@@ -1162,7 +1219,8 @@ TEST_CASE("publish.googleplay: a debug-signed bundle is refused, a missing key, 
         CHECK(has(e.message, "export/android/signing/keystore is not set"));
         CHECK(has(e.message, "debug key"));
         CHECK(has(e.hint, "keytool"));
-        PublishOptions o = f.store("googleplay");  // a bundle signed some other way: passed by hand, FactorIA only warns
+        PublishOptions o =
+            f.store("googleplay");  // a bundle signed some other way: passed by hand, FactorIA only warns
         o.artifact = f.aab;
         const PublishReport r = f.ok(o);
         CHECK(has(r.to_json()["warnings"].dump(), "cannot tell how space-dodge.aab was signed"));
@@ -1254,11 +1312,15 @@ TEST_CASE("publish commands: documented, in the publish area, and their argument
 
     // explicit folders and a different out
     stdfs::rename(f.dir + "/build/export", f.dir + "/dist");
-    c = reg.call("publish.steam", Json::object({{"dryRun", true}, {"out", "dist"}, {"platforms", Json::array({"linux"})}}));
+    c = reg.call("publish.steam",
+                 Json::object({{"dryRun", true}, {"out", "dist"}, {"platforms", Json::array({"linux"})}}));
     REQUIRE(c.ok);
     CHECK(has(c.result["uploads"][0]["folder"].get<std::string>(), "/dist/space-dodge-linux"));
     stdfs::rename(f.dir + "/dist/space-dodge-windows", f.dir + "/elsewhere-win");
-    c = reg.call("publish.steam", Json::object({{"dryRun", true}, {"out", "dist"}, {"folders", Json::object({{"win", "elsewhere-win"}})}, {"platforms", Json::array({"windows"})}}));
+    c = reg.call("publish.steam", Json::object({{"dryRun", true},
+                                                {"out", "dist"},
+                                                {"folders", Json::object({{"win", "elsewhere-win"}})},
+                                                {"platforms", Json::array({"windows"})}}));
     REQUIRE(c.ok);
     CHECK(has(c.result["uploads"][0]["folder"].get<std::string>(), "/elsewhere-win"));
 }
@@ -1281,7 +1343,10 @@ TEST_CASE("publish commands: the mobile stores take a file inside the project, n
     CommandResult c = reg.call("publish.googleplay", Json::object({{"artifact", "../elsewhere.aab"}}));
     CHECK_FALSE(c.ok);
     CHECK(c.error["code"] == "invalid_argument");
-    c = reg.call("publish.googleplay", Json::object({{"dryRun", true}, {"track", "beta"}, {"artifact", "build/export/space-dodge-android/space-dodge.aab"}}));
+    c = reg.call(
+        "publish.googleplay",
+        Json::object(
+            {{"dryRun", true}, {"track", "beta"}, {"artifact", "build/export/space-dodge-android/space-dodge.aab"}}));
     REQUIRE_MESSAGE(c.ok, c.error.dump());
     CHECK(c.result["store"] == "googleplay");
     CHECK(c.result["steps"][0]["command"][1] == "supply");
@@ -1293,7 +1358,9 @@ TEST_CASE("publish commands: they are registered with the other tooling commands
     Fixture f;
     CommandRegistry reg;
     register_tooling_commands(reg, f.dir);
-    for (const char* name : {"publish.steam", "publish.itch", "publish.epic", "publish.gog", "publish.appstore", "publish.googleplay", "publish.microsoft"}) CHECK_MESSAGE(reg.has(name), name);
+    for (const char* name : {"publish.steam", "publish.itch", "publish.epic", "publish.gog", "publish.appstore",
+                             "publish.googleplay", "publish.microsoft"})
+        CHECK_MESSAGE(reg.has(name), name);
 }
 
 TEST_CASE("publish dry run: a missing uploader, secret or app id is a warning and the plan is still returned") {
@@ -1360,29 +1427,59 @@ std::string tiny_msix(const std::string& manifest) {
     const std::string name = "AppxManifest.xml";
     const auto size = static_cast<std::uint32_t>(manifest.size());
     std::string z;
-    put32(z, 0x04034b50); put16(z, 20); put16(z, 0); put16(z, 0); put16(z, 0); put16(z, 0x21);
-    put32(z, crc32_of(manifest)); put32(z, size); put32(z, size);
-    put16(z, static_cast<unsigned>(name.size())); put16(z, 0);
+    put32(z, 0x04034b50);
+    put16(z, 20);
+    put16(z, 0);
+    put16(z, 0);
+    put16(z, 0);
+    put16(z, 0x21);
+    put32(z, crc32_of(manifest));
+    put32(z, size);
+    put32(z, size);
+    put16(z, static_cast<unsigned>(name.size()));
+    put16(z, 0);
     z += name + manifest;
     const auto central = static_cast<std::uint32_t>(z.size());
     std::string c;
-    put32(c, 0x02014b50); put16(c, 20); put16(c, 20); put16(c, 0); put16(c, 0); put16(c, 0); put16(c, 0x21);
-    put32(c, crc32_of(manifest)); put32(c, size); put32(c, size);
-    put16(c, static_cast<unsigned>(name.size())); put16(c, 0); put16(c, 0); put16(c, 0); put16(c, 0); put32(c, 0); put32(c, 0);
+    put32(c, 0x02014b50);
+    put16(c, 20);
+    put16(c, 20);
+    put16(c, 0);
+    put16(c, 0);
+    put16(c, 0);
+    put16(c, 0x21);
+    put32(c, crc32_of(manifest));
+    put32(c, size);
+    put32(c, size);
+    put16(c, static_cast<unsigned>(name.size()));
+    put16(c, 0);
+    put16(c, 0);
+    put16(c, 0);
+    put16(c, 0);
+    put32(c, 0);
+    put32(c, 0);
     c += name;
     z += c;
-    put32(z, 0x06054b50); put16(z, 0); put16(z, 0); put16(z, 1); put16(z, 1);
-    put32(z, static_cast<std::uint32_t>(c.size())); put32(z, central); put16(z, 0);
+    put32(z, 0x06054b50);
+    put16(z, 0);
+    put16(z, 0);
+    put16(z, 1);
+    put16(z, 1);
+    put32(z, static_cast<std::uint32_t>(c.size()));
+    put32(z, central);
+    put16(z, 0);
     return z;
 }
 
-const char* const kMicrosoftPublish = R"({"id": "com.mystudio.spacedodge", "publish": {"microsoft": {"productId": "9NBLGGH4NNS1"}}})";
+const char* const kMicrosoftPublish =
+    R"({"id": "com.mystudio.spacedodge", "publish": {"microsoft": {"productId": "9NBLGGH4NNS1"}}})";
 
 struct MicrosoftFixture : Fixture {
     std::string msix = stdfs::weakly_canonical(dir + "/build/export").generic_string() + "/space-dodge-windows.msix";
 
     MicrosoftFixture() : Fixture(kMicrosoftPublish) {
-        testing::write_all(msix, tiny_msix("<Package><Identity Name=\"12345Studio.SpaceDodge\" Publisher=\"CN=ABC\"/></Package>"));
+        testing::write_all(
+            msix, tiny_msix("<Package><Identity Name=\"12345Studio.SpaceDodge\" Publisher=\"CN=ABC\"/></Package>"));
         vars["FACTORIA_MSSTORE"] = kFakeTool;
         vars["FACTORIA_MSSTORE_TENANT_ID"] = "11111111-1111-1111-1111-111111111111";
         vars["FACTORIA_MSSTORE_SELLER_ID"] = "123456789";
@@ -1410,7 +1507,8 @@ TEST_CASE("publish settings: microsoft productId is read, a wrong one teaches") 
     auto parsed = parse_publish_settings(*parse_json(kMicrosoftPublish));
     CHECK(parsed.errors.empty());
     CHECK(parsed.settings.microsoft.productId == "9NBLGGH4NNS1");
-    parsed = parse_publish_settings(*parse_json(R"({"publish": {"microsoft": {"productId": "my-app", "tenant": "x"}}})"));
+    parsed =
+        parse_publish_settings(*parse_json(R"({"publish": {"microsoft": {"productId": "my-app", "tenant": "x"}}})"));
     REQUIRE(parsed.errors.size() == 1);
     CHECK(parsed.errors[0].pointer == "/publish/microsoft/productId");
     CHECK(has(parsed.errors[0].hint, "Store ID"));
@@ -1423,14 +1521,18 @@ TEST_CASE("publish.microsoft dry run: the msstore command lines, and the client 
     const PublishReport r = f.ok(f.store());
     CHECK(r.dryRun);
     REQUIRE(r.steps.size() == 2);
-    CHECK(r.steps[0].command == std::vector<std::string>{kFakeTool, "reconfigure", "--tenantId", "11111111-1111-1111-1111-111111111111", "--sellerId", "123456789",
-                                                         "--clientId", "22222222-2222-2222-2222-222222222222", "--clientSecret", "<redacted>"});
+    CHECK(r.steps[0].command ==
+          std::vector<std::string>{kFakeTool, "reconfigure", "--tenantId", "11111111-1111-1111-1111-111111111111",
+                                   "--sellerId", "123456789", "--clientId", "22222222-2222-2222-2222-222222222222",
+                                   "--clientSecret", "<redacted>"});
     const std::string folder = stdfs::path(f.msix).parent_path().generic_string();
-    CHECK(r.steps[1].command == std::vector<std::string>{kFakeTool, "publish", folder, "--inputFile", f.msix, "--appId", "9NBLGGH4NNS1", "--noCommit"});
+    CHECK(r.steps[1].command == std::vector<std::string>{kFakeTool, "publish", folder, "--inputFile", f.msix, "--appId",
+                                                         "9NBLGGH4NNS1", "--noCommit"});
     CHECK(r.uploads[0].platform == "windows");
     CHECK(has(r.uploads[0].destination, "Microsoft Store 9NBLGGH4NNS1 (draft)"));
     CHECK_FALSE(has(r.to_json().dump(), kMsSecret));
-    REQUIRE(r.warnings.size() == 1);  // msstore takes the client secret only as an argument of `reconfigure`: the plan says so
+    REQUIRE(r.warnings.size() ==
+            1);  // msstore takes the client secret only as an argument of `reconfigure`: the plan says so
     CHECK(has(r.warnings[0], "only as the argument --clientSecret"));
     CHECK(has(r.warnings[0], "visible in the process list"));
     CHECK(has(r.to_json()["nextSteps"].dump(), "unsigned"));
@@ -1458,17 +1560,20 @@ TEST_CASE("publish.microsoft: a real run starts msstore twice and shows no secre
     CHECK(calls[0].args[0] == "reconfigure");
     CHECK(calls[1].args[0] == "publish");
     CHECK(calls[1].args[3] == f.msix);
-    for (const std::string& text : {testing::read_all(r.log), progress, r.to_json().dump()}) CHECK_FALSE(has(text, kMsSecret));
+    for (const std::string& text : {testing::read_all(r.log), progress, r.to_json().dump()})
+        CHECK_FALSE(has(text, kMsSecret));
 }
 
-TEST_CASE("publish.microsoft: a missing id, credential or package is a teaching error; the placeholder identity is a warning") {
+TEST_CASE("publish.microsoft: a missing id, credential or package is a teaching error; the placeholder identity is a "
+          "warning") {
     {
         MicrosoftFixture f;
         f.vars.erase("FACTORIA_MSSTORE_CLIENT_SECRET");
         const Error e = f.fails(f.store());
         CHECK(has(e.message, "FACTORIA_MSSTORE_CLIENT_SECRET"));
         CHECK(has(e.hint, "Azure AD"));
-        CHECK(has(f.ok(f.store()).to_json()["warnings"].dump(), "FACTORIA_MSSTORE_CLIENT_SECRET"));  // a dry run only warns
+        CHECK(has(f.ok(f.store()).to_json()["warnings"].dump(),
+                  "FACTORIA_MSSTORE_CLIENT_SECRET"));  // a dry run only warns
     }
     {
         MicrosoftFixture f;
@@ -1490,7 +1595,10 @@ TEST_CASE("publish.microsoft: a missing id, credential or package is a teaching 
     }
     {
         MicrosoftFixture f;
-        testing::write_all(f.msix, tiny_msix("<Package><Identity Name=\"FactorIA.spacedodge\" Publisher=\"CN=FactorIA Developer\"/></Package>"));
+        testing::write_all(
+            f.msix,
+            tiny_msix(
+                "<Package><Identity Name=\"FactorIA.spacedodge\" Publisher=\"CN=FactorIA Developer\"/></Package>"));
         CHECK(has(f.ok(f.store()).to_json()["warnings"].dump(), "placeholder identity"));
     }
 }
@@ -1511,9 +1619,11 @@ constexpr const char* kSentinel = "SENTINEL-pw-7f3a91c2";
 
 // Every secret variable of every store holds the sentinel. Then each store is planned (dry run) and run (fake uploader), and the
 // sentinel is searched in the command lines and in everything FactorIA shows.
-void check_sentinel(const std::string& store, Fixture& f, const std::vector<std::string>& platforms, bool argvMayCarryIt) {
+void check_sentinel(const std::string& store, Fixture& f, const std::vector<std::string>& platforms,
+                    bool argvMayCarryIt) {
     const std::string who = "store " + store;
-    for (const char* v : {"FACTORIA_EPIC_CLIENT_SECRET", "FACTORIA_GOG_PASSWORD", "FACTORIA_MSSTORE_CLIENT_SECRET"}) f.vars[v] = kSentinel;
+    for (const char* v : {"FACTORIA_EPIC_CLIENT_SECRET", "FACTORIA_GOG_PASSWORD", "FACTORIA_MSSTORE_CLIENT_SECRET"})
+        f.vars[v] = kSentinel;
     f.vars["FACTORIA_GOG_USERNAME"] = "maker";
     f.vars["BUTLER_API_KEY"] = kSentinel;
     ScopedEnv butler("BUTLER_API_KEY", kSentinel);  // the fake uploader inherits what the real one would
@@ -1561,7 +1671,8 @@ void check_sentinel(const std::string& store, Fixture& f, const std::vector<std:
 
 }  // namespace
 
-TEST_CASE("publish: no store password is ever an argument of a child process, except the two uploaders that offer no other way (and say so)") {
+TEST_CASE("publish: no store password is ever an argument of a child process, except the two uploaders that offer no "
+          "other way (and say so)") {
     {
         Fixture f;
         // The fake uploader is not told to print anything: it records its arguments and the variable names asked for.

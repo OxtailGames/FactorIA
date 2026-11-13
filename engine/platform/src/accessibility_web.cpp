@@ -6,7 +6,7 @@
 
 // Bit 0: prefers-reduced-motion: reduce. Bit 1: prefers-contrast: more or forced-colors: active.
 EM_JS(int, fa_web_accessibility_bits, (), {
-    if (typeof matchMedia !== 'function') return 0;
+    if (typeof matchMedia != = 'function') return 0;
     let bits = 0;
     if (matchMedia('(prefers-reduced-motion: reduce)').matches) bits |= 1;
     if (matchMedia('(prefers-contrast: more)').matches || matchMedia('(forced-colors: active)').matches) bits |= 2;

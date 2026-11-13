@@ -31,8 +31,9 @@ AudioSpectrogram audio_spectrogram(const DecodedAudio& audio, int columns, int r
 struct AudioViewMetrics {
     double seconds = 0.0;
     double samplePeakDb = -200.0, truePeakDb = -200.0;  // -200 for silence
-    std::size_t clippedSamples = 0;                      // samples inside runs of 2 or more at full scale (a flattened wave)
-    double seamJumpRatio = 0.0;                          // the jump from the last sample to the first, over the typical step: a loop click when large
+    std::size_t clippedSamples = 0;  // samples inside runs of 2 or more at full scale (a flattened wave)
+    double seamJumpRatio =
+        0.0;  // the jump from the last sample to the first, over the typical step: a loop click when large
     bool silent = true;
 };
 AudioViewMetrics audio_view_metrics(const DecodedAudio& audio);
@@ -47,14 +48,14 @@ std::vector<unsigned char> audio_spectrogram_pixels(const AudioSpectrogram& s, f
 // or a sound file of the project.
 struct SoundSpec {
     enum class Kind { Patch, Document, File } kind = Kind::Patch;
-    Json json;                                  // Patch, Document
-    std::string file;                           // project-relative: names the document in messages; for Kind::File the sound to read
-    std::uint64_t seed = 0;                     // patch: another take of the noise; document: replaces the document's seed when seedSet
+    Json json;               // Patch, Document
+    std::string file;        // project-relative: names the document in messages; for Kind::File the sound to read
+    std::uint64_t seed = 0;  // patch: another take of the noise; document: replaces the document's seed when seedSet
     bool seedSet = false;
-    std::map<std::string, double> macros;       // patch: macro values that replace the declared ones
-    int variant = -1;                           // patch: 0-based variant of its variations
-    int stopAfter = -1;                         // document: apply only steps 0..stopAfter
-    double maxSeconds = 0.0;                    // file: stop decoding there (0 = the whole file)
+    std::map<std::string, double> macros;  // patch: macro values that replace the declared ones
+    int variant = -1;                      // patch: 0-based variant of its variations
+    int stopAfter = -1;                    // document: apply only steps 0..stopAfter
+    double maxSeconds = 0.0;               // file: stop decoding there (0 = the whole file)
 };
 
 // Interleaved float frames (1 or 2 channels) and what was measured on them.
@@ -64,10 +65,10 @@ struct RenderedSound {
     std::vector<float> samples;
     double lufs = kSilentLufs;
     double peakDb = -200.0;
-    std::optional<AudioLoop> loop;              // documents with a loop step
-    std::vector<AudioStepReport> steps;         // documents
-    std::vector<std::string> inputs;            // documents: the project files the render read
-    bool truncated = false;                     // file: longer than maxSeconds
+    std::optional<AudioLoop> loop;       // documents with a loop step
+    std::vector<AudioStepReport> steps;  // documents
+    std::vector<std::string> inputs;     // documents: the project files the render read
+    bool truncated = false;              // file: longer than maxSeconds
     std::size_t frames() const { return channels > 0 ? samples.size() / std::size_t(channels) : 0; }
 };
 

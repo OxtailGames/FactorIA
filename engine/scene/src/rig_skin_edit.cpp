@@ -24,8 +24,8 @@ std::string mirror_name(const std::string& n) {
 
 }  // namespace
 
-Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit, const MeshData& mesh, const SkinModel& model, std::vector<Infl>& W,
-                              RigSkinReport& report) {
+Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit, const MeshData& mesh,
+                              const SkinModel& model, std::vector<Infl>& W, RigSkinReport& report) {
     if (settings.edits.empty()) return {};
     const std::size_t nv = mesh.vertex_count();
     const std::size_t nb = fit.bones.size();
@@ -36,7 +36,8 @@ Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit
     for (const std::string& p : model.partNames)
         if (!p.empty() && std::find(named.begin(), named.end(), p) == named.end()) named.push_back(p);
 
-    Vec3 lo{mesh.positions.size() >= 3 ? mesh.positions[0] : 0, mesh.positions.size() >= 3 ? mesh.positions[1] : 0, mesh.positions.size() >= 3 ? mesh.positions[2] : 0};
+    Vec3 lo{mesh.positions.size() >= 3 ? mesh.positions[0] : 0, mesh.positions.size() >= 3 ? mesh.positions[1] : 0,
+            mesh.positions.size() >= 3 ? mesh.positions[2] : 0};
     Vec3 hi = lo;
     for (std::size_t v = 0; v < nv; ++v) {
         const Vec3 p{mesh.positions[v * 3], mesh.positions[v * 3 + 1], mesh.positions[v * 3 + 2]};
@@ -44,7 +45,9 @@ Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit
         hi = {std::max(hi.x, p.x), std::max(hi.y, p.y), std::max(hi.z, p.z)};
     }
     const float diag = length(hi - lo);
-    auto position = [&](std::size_t v) { return Vec3{mesh.positions[v * 3], mesh.positions[v * 3 + 1], mesh.positions[v * 3 + 2]}; };
+    auto position = [&](std::size_t v) {
+        return Vec3{mesh.positions[v * 3], mesh.positions[v * 3 + 1], mesh.positions[v * 3 + 2]};
+    };
 
     // the surface graph of the whole mesh, built when the first smooth or mirror needs it
     std::vector<char> allOn(tris, 1);
@@ -69,7 +72,8 @@ Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit
         for (std::size_t v = 0; v < nv; ++v) {
             soup.positions.push_back(position(v));
             soup.normals.push_back({mesh.normals[v * 3], mesh.normals[v * 3 + 1], mesh.normals[v * 3 + 2]});
-            soup.uvs.push_back({mesh.uvs.size() > v * 2 + 1 ? mesh.uvs[v * 2] : 0.0f, mesh.uvs.size() > v * 2 + 1 ? mesh.uvs[v * 2 + 1] : 0.0f});
+            soup.uvs.push_back({mesh.uvs.size() > v * 2 + 1 ? mesh.uvs[v * 2] : 0.0f,
+                                mesh.uvs.size() > v * 2 + 1 ? mesh.uvs[v * 2 + 1] : 0.0f});
         }
         for (std::size_t t = 0; t < tris; ++t) {
             for (int k = 0; k < 3; ++k) soup.indices.push_back(mesh.indices[t * 3 + std::size_t(k)]);
@@ -85,12 +89,16 @@ Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit
     for (const RigSkinEdit& e : settings.edits) {
         for (const std::string& part : e.parts)
             if (std::find(named.begin(), named.end(), part) == named.end())
-                return make_error(std::format("{}: the edit works on the part '{}', which the model does not have", e.pointer, part),
-                                  did_you_mean(part, named) + " The parts of the model: " + join(named, ", ") + ".");
+                return make_error(
+                    std::format("{}: the edit works on the part '{}', which the model does not have", e.pointer, part),
+                    did_you_mean(part, named) + " The parts of the model: " + join(named, ", ") + ".");
         int bone = -1;
         if (e.op == "set" || e.op == "add") {
             bone = fit.find(e.bone);
-            if (bone < 0) return make_error(std::format("{}: '{}' is not a bone of the {} rig", e.pointer, e.bone, fit.templateName), did_you_mean(e.bone, bone_names));
+            if (bone < 0)
+                return make_error(
+                    std::format("{}: '{}' is not a bone of the {} rig", e.pointer, e.bone, fit.templateName),
+                    did_you_mean(e.bone, bone_names));
         }
         // the triangles the edit works on, then their vertices
         std::vector<char> triSel(tris, 1);
@@ -99,7 +107,8 @@ Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit
             restricted = true;
             for (std::size_t t = 0; t < tris; ++t) {
                 const std::uint32_t s = model.triSub[t];
-                triSel[t] = s != kNone && std::find(e.parts.begin(), e.parts.end(), model.partNames[s]) != e.parts.end();
+                triSel[t] =
+                    s != kNone && std::find(e.parts.begin(), e.parts.end(), model.partNames[s]) != e.parts.end();
             }
         }
         if (!e.select.is_null()) {
@@ -190,7 +199,10 @@ Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit
             const float tol = std::max(diag * 2e-3f, 1e-6f);
             const float cell = std::max(diag * 0.01f, tol);
             using Key = std::tuple<long long, long long, long long>;
-            auto key_of = [&](Vec3 p) { return Key{std::llround(double(p.x / cell)), std::llround(double(p.y / cell)), std::llround(double(p.z / cell))}; };
+            auto key_of = [&](Vec3 p) {
+                return Key{std::llround(double(p.x / cell)), std::llround(double(p.y / cell)),
+                           std::llround(double(p.z / cell))};
+            };
             std::map<Key, std::vector<std::uint32_t>> grid;
             for (std::size_t v = 0; v < nv; ++v)
                 if (model.vertSub[v] != kNone) grid[key_of(position(v))].push_back(std::uint32_t(v));
@@ -206,8 +218,8 @@ Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit
                 if (!sel[v] || model.vertSub[v] == kNone) continue;
                 const Vec3 p = position(v);
                 const float side = p.x - plane;
-                if (std::fabs(side) <= tol) continue;      // on the plane: it is its own mirror
-                if ((side > 0) == fromLeft) continue;      // this is the source side, it stays
+                if (std::fabs(side) <= tol) continue;  // on the plane: it is its own mirror
+                if ((side > 0) == fromLeft) continue;  // this is the source side, it stays
                 const Vec3 q{2 * plane - p.x, p.y, p.z};
                 const int span = int(std::ceil(reach / cell));
                 const Key kq = key_of(q);
@@ -225,7 +237,8 @@ Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit
                                 const float d = length_sq(position(u) - q);
                                 const bool right = model.partNames[model.vertSub[u]] == wantedPart;
                                 if (d > reach * reach) continue;
-                                if (found == kNone || (right && !foundRight) || (right == foundRight && (d < best || (d == best && u < found)))) {
+                                if (found == kNone || (right && !foundRight) ||
+                                    (right == foundRight && (d < best || (d == best && u < found)))) {
                                     best = d;
                                     found = u;
                                     foundRight = right;
@@ -242,8 +255,10 @@ Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit
                 std::sort(m.begin(), m.end());
                 Infl merged;
                 for (const auto& x : m) {
-                    if (!merged.empty() && merged.back().first == x.first) merged.back().second += x.second;
-                    else merged.push_back(x);
+                    if (!merged.empty() && merged.back().first == x.first)
+                        merged.back().second += x.second;
+                    else
+                        merged.push_back(x);
                 }
                 next[v] = std::move(merged);
             }
@@ -252,7 +267,8 @@ Result<void> apply_skin_edits(const RigSkinSettings& settings, const RigFit& fit
         ++report.editsApplied;
     }
     if (report.mirrorUnmatched)
-        report.warnings.push_back(std::format("{} vertex(es) had no mirror partner within 2% of the model's size and keep their weights. The model is not symmetric "
+        report.warnings.push_back(std::format("{} vertex(es) had no mirror partner within 2% of the model's size and "
+                                              "keep their weights. The model is not symmetric "
                                               "there: edit them by hand, or fit the rig's symmetryX.",
                                               report.mirrorUnmatched));
     return {};

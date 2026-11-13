@@ -28,7 +28,7 @@ struct LoopRedirect;  // savers.h
 struct Conversation {
     std::string key;
     std::string cliSessionId;
-    double cliCostUsd = 0;             // running total the CLI reported for the session (Claude Code counts cumulatively)
+    double cliCostUsd = 0;  // running total the CLI reported for the session (Claude Code counts cumulatively)
     std::vector<Message> history;
     bool empty() const { return cliSessionId.empty() && history.empty(); }
     Json to_json() const;
@@ -36,22 +36,22 @@ struct Conversation {
 };
 
 struct SessionOptions {
-    std::string projectDir;            // project root (context, transcripts, MCP --project)
-    Conversation conversation;         // continue this conversation (empty = start a new one)
+    std::string projectDir;     // project root (context, transcripts, MCP --project)
+    Conversation conversation;  // continue this conversation (empty = start a new one)
     std::string role = kRoleOrchestrator;
-    std::string providerOverride;      // replaces the role's provider (depth 0 only)
-    std::string modelOverride;         // replaces the role's model (depth 0 only)
-    int maxTurns = 0;                  // 0 = config limits.maxTurns
-    double maxCostUsd = -1;            // <0 = config limits; 0 = unlimited
-    u64 maxTotalTokens = 0;            // 0 = config limits
+    std::string providerOverride;  // replaces the role's provider (depth 0 only)
+    std::string modelOverride;     // replaces the role's model (depth 0 only)
+    int maxTurns = 0;              // 0 = config limits.maxTurns
+    double maxCostUsd = -1;        // <0 = config limits; 0 = unlimited
+    u64 maxTotalTokens = 0;        // 0 = config limits
     bool stream = true;
-    bool saveTranscript = true;        // <project>/.factoria/ai/sessions/*.jsonl
-    bool allowDelegation = true;       // orchestrator gets agent_delegate
+    bool saveTranscript = true;   // <project>/.factoria/ai/sessions/*.jsonl
+    bool allowDelegation = true;  // orchestrator gets agent_delegate
     // false = the built-in agent gets every command as a tool with its full definition (about 80k tokens on every step); the
     // default offers the core commands and a catalog (tool_catalog.h). Tests and measurements set it.
     bool toolCatalog = true;
-    std::string extraSystem;           // appended to the system prompt
-    std::string mcpUrl;                // CLI agents attach this MCP endpoint (the editor's) instead of `factoria mcp`
+    std::string extraSystem;  // appended to the system prompt
+    std::string mcpUrl;       // CLI agents attach this MCP endpoint (the editor's) instead of `factoria mcp`
     // A CLI agent's process started (any depth): its pid (fa/core/process.h process_tree()) and role. Runs on the thread
     // that runs the session. The editor's "check activity" asks the OS about these processes.
     std::function<void(long long pid, const std::string& role)> onProcessStart;
@@ -67,18 +67,18 @@ struct SessionOptions {
 struct SessionResult {
     bool ok = false;
     std::string finalText;
-    std::string stopReason;            // end_turn | max_turns | budget | refusal | cancelled | error | cli
+    std::string stopReason;  // end_turn | max_turns | budget | refusal | cancelled | error | cli
     std::string error;
     std::string hint;
-    std::string cancelCause;           // stopReason "cancelled": why (cancel_cause_text() words it), "" when nobody said
+    std::string cancelCause;  // stopReason "cancelled": why (cancel_cause_text() words it), "" when nobody said
     Usage usage;
     double costUsd = 0;
     // The ESTIMATED dollars the run's tool calls spent on generated assets (images, sounds, voices, models): the sum of the
     // estimatedCostUsd of their results, never an invoice. Not part of costUsd (that is the model's price) or of the cost budget.
     double assetCostUsd = 0;
     int turns = 0;
-    std::string transcriptPath;        // main session transcript ("" when disabled)
-    Conversation conversation;         // pass it back in SessionOptions::conversation to continue the chat
+    std::string transcriptPath;  // main session transcript ("" when disabled)
+    Conversation conversation;   // pass it back in SessionOptions::conversation to continue the chat
     Json to_json() const;
 };
 
@@ -118,8 +118,10 @@ struct PromptContext {
     std::string role;
     bool canDelegate = false;
     std::string extra;
-    std::string delegateTool;  // the tool the orchestrator delegates with; "" = agent_delegate (CLI agents: ai_run over MCP)
-    AssetSources assetSources; // the sites the user listed for assets (ai.json "assetSources"); roles that look for assets read them
+    std::string
+        delegateTool;  // the tool the orchestrator delegates with; "" = agent_delegate (CLI agents: ai_run over MCP)
+    AssetSources
+        assetSources;  // the sites the user listed for assets (ai.json "assetSources"); roles that look for assets read them
     // Delegable roles the user turned off (AiConfig::disabled_delegable_roles). The orchestrator's prompt lists only the
     // others and says it does the work of these itself, with the art/audio guidance the role's own prompt would give.
     std::vector<std::string> disabledRoles;
@@ -211,7 +213,7 @@ private:
     SessionOptions opt_;
     EventHandler onEvent_;
     ProviderFactory factory_;
-    bool factoryInjected_ = false;           // set_provider_factory was called: the automatic retrospective uses it too (tests)
+    bool factoryInjected_ = false;  // set_provider_factory was called: the automatic retrospective uses it too (tests)
     const CancelFlag* cancel_ = nullptr;
     std::function<std::string()> cancelCause_;
     std::map<std::string, std::shared_ptr<ChatProvider>> providers_;
@@ -222,7 +224,7 @@ private:
     int delegateCount_ = 0;
     std::string stamp_;
     std::string systemCache_;
-    std::vector<ImageData> images_;          // the attached pictures of the current run (depth 0 only)
+    std::vector<ImageData> images_;  // the attached pictures of the current run (depth 0 only)
     std::vector<std::string> imagePaths_;
 };
 

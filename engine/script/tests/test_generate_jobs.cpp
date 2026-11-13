@@ -12,14 +12,16 @@ TEST_CASE("tilemap.generate jobs: shutting the script system down drops the jobs
     TestHost h("generate_jobs");
     int nextJob = 40;
     // A stand-in for the engine's commands: it only numbers the jobs, so the test checks which numbers the script system reports.
-    const Json anyObject = Json::object({{"type", "object"}, {"properties", Json::object()}, {"additionalProperties", true}});
+    const Json anyObject =
+        Json::object({{"type", "object"}, {"properties", Json::object()}, {"additionalProperties", true}});
     h.cmds.add({"tilemap.generate_start", "builtin", "", anyObject, false, "scene"}, [&](const Json&) {
         return Json::object({{"job", ++nextJob}, {"width", 4}, {"height", 4}, {"seed", 1}});
     });
     h.cmds.add({"tilemap.generate_step", "builtin", "", anyObject, false, "scene"}, [](const Json&) {
         return Json::object({{"done", false}, {"progress", 0.0}, {"attempts", 1}, {"work", 0}});
     });
-    h.cmds.add({"tilemap.generate_cancel", "builtin", "", anyObject, false, "scene"}, [](const Json&) { return Json::object({{"cancelled", true}}); });
+    h.cmds.add({"tilemap.generate_cancel", "builtin", "", anyObject, false, "scene"},
+               [](const Json&) { return Json::object({{"cancelled", true}}); });
     // The real commands change memory only ({read, state}): the stand-ins say so, as a game script is granted no more.
     for (const char* name : {"tilemap.generate_start", "tilemap.generate_step", "tilemap.generate_cancel"})
         REQUIRE(h.cmds.declare_capabilities(name, capability_sets::changes_state()));

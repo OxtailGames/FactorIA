@@ -65,7 +65,8 @@ TEST_CASE("export: the shipped assets.json keeps import settings and drops prove
     CHECK(testing::read_all(stdfs::path(f.proj) / "assets.json") == manifest);
 }
 
-TEST_CASE("export: the sheet entry (grid, padding, pivot, clips) ships, and the game reads its clips from the shipped file") {
+TEST_CASE(
+    "export: the sheet entry (grid, padding, pivot, clips) ships, and the game reads its clips from the shipped file") {
     ExportFixture f;
     testing::write_all(stdfs::path(f.proj) / "assets.json", R"({
       "format": "factoria.assets/1",

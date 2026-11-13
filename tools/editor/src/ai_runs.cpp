@@ -170,7 +170,9 @@ std::string slashes(std::string s) {
     return s;
 }
 
-bool absolute_path(const std::string& s) { return !s.empty() && (s[0] == '/' || (s.size() > 2 && s[1] == ':' && s[2] == '/')); }
+bool absolute_path(const std::string& s) {
+    return !s.empty() && (s[0] == '/' || (s.size() > 2 && s[1] == ':' && s[2] == '/'));
+}
 
 void add_path(std::set<std::string>& out, const Json& v, const std::string& projectDir) {
     if (v.is_string()) {
@@ -201,12 +203,14 @@ std::string project_relative(const std::string& path, const std::string& project
     return out;
 }
 
-std::vector<std::string> command_touched_files(const std::string& name, const Json& args, const Json& result, bool readOnly,
-                                               bool editsScene, const std::string& openScene, const std::string& projectDir) {
+std::vector<std::string> command_touched_files(const std::string& name, const Json& args, const Json& result,
+                                               bool readOnly, bool editsScene, const std::string& openScene,
+                                               const std::string& projectDir) {
     if (readOnly) return {};
     std::set<std::string> out;
     if (editsScene) add_path(out, Json(openScene), projectDir);
-    static const char* const kPathKeys[] = {"path", "file", "from", "to", "dest", "destination", "output", "outPath", "savePath"};
+    static const char* const kPathKeys[] = {"path",        "file",   "from",    "to",      "dest",
+                                            "destination", "output", "outPath", "savePath"};
     if (args.is_object()) {
         for (const char* k : kPathKeys)
             if (args.contains(k)) add_path(out, args[k], projectDir);
@@ -224,11 +228,14 @@ std::vector<std::string> command_touched_files(const std::string& name, const Js
     return std::vector<std::string>(out.begin(), out.end());
 }
 
-std::vector<std::string> tool_touched_files(const std::string& toolName, const Json& input, const std::string& projectDir) {
+std::vector<std::string> tool_touched_files(const std::string& toolName, const Json& input,
+                                            const std::string& projectDir) {
     if (!input.is_object()) return {};
     const char* key = nullptr;
-    if (toolName == "Write" || toolName == "Edit" || toolName == "MultiEdit") key = "file_path";
-    else if (toolName == "NotebookEdit") key = "notebook_path";
+    if (toolName == "Write" || toolName == "Edit" || toolName == "MultiEdit")
+        key = "file_path";
+    else if (toolName == "NotebookEdit")
+        key = "notebook_path";
     if (!key || !input.contains(key)) return {};
     std::set<std::string> out;
     add_path(out, input[key], projectDir);
@@ -352,7 +359,8 @@ void RunTouchTracker::clear() {
 std::vector<ConflictNote> group_conflicts(const std::vector<FileConflict>& conflicts) {
     std::vector<ConflictNote> out;
     for (const FileConflict& c : conflicts) {
-        auto it = std::ranges::find_if(out, [&](const ConflictNote& n) { return n.run == c.run && n.other == c.other; });
+        auto it =
+            std::ranges::find_if(out, [&](const ConflictNote& n) { return n.run == c.run && n.other == c.other; });
         if (it == out.end()) {
             out.push_back(ConflictNote{c.run, c.other, {}});
             it = std::prev(out.end());
@@ -368,8 +376,10 @@ std::string conflict_text(const std::string& otherTitle, bool otherRunning, cons
     for (std::size_t i = 0; i < files.size() && i < kShown; ++i) list += (i ? ", " : "") + files[i];
     if (files.size() > kShown) list += " and " + std::to_string(files.size() - kShown) + " more";
     return "Chat \"" + (otherTitle.empty() ? std::string("New chat") : otherTitle) + "\" " +
-           (otherRunning ? "is running at the same time and also changed " : "ran at the same time and also changed ") + list +
-           ". Both runs' edits are in the file now; check the result, and Revert keeps the other chat's changes unless you ask otherwise.";
+           (otherRunning ? "is running at the same time and also changed " : "ran at the same time and also changed ") +
+           list +
+           ". Both runs' edits are in the file now; check the result, and Revert keeps the other chat's changes unless "
+           "you ask otherwise.";
 }
 
 std::vector<std::string> attribute_files(const std::vector<std::string>& changed, const std::set<std::string>& own,

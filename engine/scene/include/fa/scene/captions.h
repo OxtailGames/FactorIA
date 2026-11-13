@@ -14,12 +14,12 @@
 namespace fa {
 
 struct CaptionLine {
-    std::string text;      // what is shown; rewritten from `key` in the current language while a key is set
-    std::string speaker;   // name shown before the line, "" = none
-    std::string key;       // localization key, "" = plain text
-    std::string source;    // "audio:<clip path>" for a sound's caption, "ui" for ui.caption
+    std::string text;         // what is shown; rewritten from `key` in the current language while a key is set
+    std::string speaker;      // name shown before the line, "" = none
+    std::string key;          // localization key, "" = plain text
+    std::string source;       // "audio:<clip path>" for a sound's caption, "ui" for ui.caption
     std::uint32_t voice = 0;  // the sound it lives with (fa::VoiceId), 0 = none
-    double endsAt = -1.0;  // world time it ends at, < 0 = only when the sound ends
+    double endsAt = -1.0;     // world time it ends at, < 0 = only when the sound ends
 };
 
 class CaptionList {
@@ -28,8 +28,8 @@ public:
 
     // With `i18n`, a keyed line is translated at once (game.captions() right after the call); update() does it again every frame.
     void add(CaptionLine line, const I18n* i18n = nullptr);
-    void remove_voice(std::uint32_t voice);   // audio.stop(voice)
-    void remove_all_voices();                 // audio.stopAll()
+    void remove_voice(std::uint32_t voice);  // audio.stop(voice)
+    void remove_all_voices();                // audio.stopAll()
     void clear() { lines_.clear(); }
     const std::vector<CaptionLine>& lines() const { return lines_; }  // oldest first
     std::size_t size() const { return lines_.size(); }

@@ -19,7 +19,7 @@ struct CommandHooksOptions {
     std::function<Result<AiConfig>()> loadConfig;
     std::function<std::string()> projectDir;
     EnvLookup env;
-    std::string trustPath;          // ai-trust.json; "" = next to the config file
+    std::string trustPath;  // ai-trust.json; "" = next to the config file
     const CancelFlag* cancel = nullptr;
     // How often the configuration is read again, at most (seconds): a call after that much time sees an edited ai.json or
     // extensions file. 0 = on every call (tests).
@@ -52,12 +52,14 @@ std::shared_ptr<CommandHooks> install_command_hooks(CommandRegistry& registry, C
 
 // `ai.hooks`: every hooks entry (user and project) with its events, matchers, handlers, trust and problems, the handlers FactorIA's
 // loop does not run, and the recent runs of every handler in this process.
-Json hooks_report(const AiConfig& cfg, const ExtensionContext& ctx, std::string_view roleFilter, std::size_t recentRuns);
+Json hooks_report(const AiConfig& cfg, const ExtensionContext& ctx, std::string_view roleFilter,
+                  std::size_t recentRuns);
 
 // `ai.hooks_test`: runs the configured handlers of `event` for `matchValue` (a tool name, a command name, a source) with `input`,
 // and returns what they decided. The handlers really run: a hook that changes files will change them. For the engine's command
 // events the entries of every role count; for the others, those of `role`.
-Result<Json> test_hooks(const AiConfig& cfg, const ExtensionContext& ctx, HookEvent event, const std::string& matchValue, const Json& input,
-                        const std::string& role, const CancelFlag* cancel);
+Result<Json> test_hooks(const AiConfig& cfg, const ExtensionContext& ctx, HookEvent event,
+                        const std::string& matchValue, const Json& input, const std::string& role,
+                        const CancelFlag* cancel);
 
 }  // namespace fa::ai

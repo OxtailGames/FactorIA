@@ -19,7 +19,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
         auto again = fa::parse_json(*text, "fuzz-again.json");
         if (!again) fa::fuzz::fail("what dump_json wrote does not parse");
         // Scalars are not compared: 1e999 is infinity and is written as null. A container keeps its type and its size.
-        if ((value.is_object() || value.is_array()) && (again.value().type() != value.type() || again.value().size() != value.size()))
+        if ((value.is_object() || value.is_array()) &&
+            (again.value().type() != value.type() || again.value().size() != value.size()))
             fa::fuzz::fail("a dump and a parse changed the size of the top-level value");
     }
     (void)fa::json_at(value, "/a/0/b");

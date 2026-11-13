@@ -14,8 +14,7 @@ namespace {
 void report_failure(std::string_view name, const std::string& message) {
     static std::atomic<bool> warned{false};
     if (!warned.exchange(true))
-        FA_ERROR("render", "{}: a chunk failed ({}); this frame draws what the other chunks gathered", name,
-                 message);
+        FA_ERROR("render", "{}: a chunk failed ({}); this frame draws what the other chunks gathered", name, message);
 }
 
 }  // namespace

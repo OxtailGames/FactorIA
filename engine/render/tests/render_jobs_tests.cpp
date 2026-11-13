@@ -108,7 +108,8 @@ void build_2d(World& w) {
         w.get<Transform>(e)->rotation.z = frac(i, 3) * 360;
         auto& s = w.add<Sprite>(e);
         s.size = {4 + frac(i, 4) * 14, 4 + frac(i, 5) * 14};
-        s.color = Color{0.3f + frac(i, 6) * 0.7f, 0.3f + frac(i, 7) * 0.7f, 0.3f + frac(i, 8) * 0.7f, 0.5f + frac(i, 9) * 0.5f};
+        s.color = Color{0.3f + frac(i, 6) * 0.7f, 0.3f + frac(i, 7) * 0.7f, 0.3f + frac(i, 8) * 0.7f,
+                        0.5f + frac(i, 9) * 0.5f};
         s.layer = i % 7 - 3;
         const int kind = i % 10;
         if (kind != 0) s.texture = checker;
@@ -181,7 +182,8 @@ void build_2d(World& w) {
 // camera (culled from the main pass, still casting), and 220 skinned rigs whose poses the animators build as jobs.
 void build_3d(World& w) {
     {
-        std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/tests/data/skinned_two_bone.gltf", std::ios::binary);
+        std::ifstream in(std::string(FA_REPO_ROOT) + "/engine/render/tests/data/skinned_two_bone.gltf",
+                         std::ios::binary);
         std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
         REQUIRE(!text.empty());
         REQUIRE(fs::write_text("assets/jobs_rig.gltf", text).ok());
@@ -206,7 +208,8 @@ void build_3d(World& w) {
     const char* shapes[] = {"cube", "sphere", "cylinder", "cone"};
     for (int i = 0; i < 600; ++i) {
         const bool behind = i % 9 == 0;
-        Entity e = make(w, "m", {frac(i, 40) * 30 - 15, frac(i, 41) * 3, behind ? 20 + frac(i, 42) * 10 : frac(i, 42) * 24 - 16});
+        Entity e = make(
+            w, "m", {frac(i, 40) * 30 - 15, frac(i, 41) * 3, behind ? 20 + frac(i, 42) * 10 : frac(i, 42) * 24 - 16});
         w.get<Transform>(e)->rotation = {frac(i, 43) * 90, frac(i, 44) * 360, 0};
         w.get<Transform>(e)->scale = {0.3f + frac(i, 45) * 0.5f, 0.3f + frac(i, 46) * 0.5f, 0.3f + frac(i, 47) * 0.5f};
         auto& m = w.add<MeshRenderer>(e);
@@ -310,8 +313,10 @@ void check_same_frames(Build build, int frames, bool animate, const std::vector<
             REQUIRE(it != run.chunks.end());
             CHECK(it->second >= 2 * frames);
         }
-        if (firstChunks) CHECK(run.chunks == *firstChunks);
-        else firstChunks = &run.chunks;
+        if (firstChunks)
+            CHECK(run.chunks == *firstChunks);
+        else
+            firstChunks = &run.chunks;
         // Whether a worker took a chunk before the waiting thread ran them all depends on timing: only reported.
         if (!run.workerRan)
             MESSAGE("jobs: " << std::string(ms[i].name) << ": every chunk ran on the main thread this time");
@@ -320,11 +325,13 @@ void check_same_frames(Build build, int frames, bool animate, const std::vector<
 
 }  // namespace
 
-TEST_CASE("render jobs: a big 2D frame (sprites, meshes, skins, tilemap, particles) is the same with 0, 1, 2, 8 threads and inline") {
+TEST_CASE("render jobs: a big 2D frame (sprites, meshes, skins, tilemap, particles) is the same with 0, 1, 2, 8 "
+          "threads and inline") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    check_same_frames(build_2d, 4, false, {"render.gather_sprites", "render.gather_tilemap", "scene.particles",
-                                          "render.gather_particles", "render.flatten_quads"});
+    check_same_frames(build_2d, 4, false,
+                      {"render.gather_sprites", "render.gather_tilemap", "scene.particles", "render.gather_particles",
+                       "render.flatten_quads"});
     // The scene is far above every 2D threshold, so these frames were split into many chunks.
     World w;
     build_2d(w);
@@ -335,11 +342,12 @@ TEST_CASE("render jobs: a big 2D frame (sprites, meshes, skins, tilemap, particl
     g.renderer.clear_asset_cache();
 }
 
-TEST_CASE("render jobs: a big 3D frame (meshes, blending, culling, shadows, skinned rigs) is the same with 0, 1, 2, 8 threads and inline") {
+TEST_CASE("render jobs: a big 3D frame (meshes, blending, culling, shadows, skinned rigs) is the same with 0, 1, 2, 8 "
+          "threads and inline") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
-    check_same_frames(build_3d, 3, true, {"render.mesh_matrices", "render.mesh_cull", "render.shadow_bounds",
-                                         "render.shadow_cull"});
+    check_same_frames(build_3d, 3, true,
+                      {"render.mesh_matrices", "render.mesh_cull", "render.shadow_bounds", "render.shadow_cull"});
     World w;
     build_3d(w);
     update_animators(w, 1.0f / 30.0f);
@@ -405,8 +413,9 @@ TEST_CASE("render jobs: the chunked stable sort gives std::stable_sort's order, 
     for (const Mode& m : modes()) {
         INFO("jobs: " << std::string(m.name));
         PoolScope pool(m);
-        for (std::size_t n : {std::size_t(0), std::size_t(1), std::size_t(7), std::size_t(64), std::size_t(1000), std::size_t(1023),
-                              std::size_t(1024), std::size_t(1025), std::size_t(5000), std::size_t(33333)}) {
+        for (std::size_t n :
+             {std::size_t(0), std::size_t(1), std::size_t(7), std::size_t(64), std::size_t(1000), std::size_t(1023),
+              std::size_t(1024), std::size_t(1025), std::size_t(5000), std::size_t(33333)}) {
             INFO("n = " << n);
             std::vector<Item> v(n);
             for (std::size_t i = 0; i < n; ++i) v[i] = {int(frac(int(i), 60) * 50), int(i)};  // many equal keys
@@ -414,7 +423,8 @@ TEST_CASE("render jobs: the chunked stable sort gives std::stable_sort's order, 
             std::stable_sort(ref.begin(), ref.end(), less);
             render::rjobs::stable_sort("test.sort", v, less, 100, 64);
             bool same = v.size() == ref.size();
-            for (std::size_t i = 0; same && i < n; ++i) same = v[i].key == ref[i].key && v[i].original == ref[i].original;
+            for (std::size_t i = 0; same && i < n; ++i)
+                same = v[i].key == ref[i].key && v[i].original == ref[i].original;
             CHECK(same);
         }
     }
@@ -455,7 +465,8 @@ TEST_CASE("render jobs: parts of a QuadList appended in order give the stream of
     using namespace fa::render;
     TextureAsset texA, texB;
     auto vert = [](float x, float y, int i) {
-        const std::uint32_t c = 0xff000000u | (std::uint32_t(frac(i, 1) * 255) << 16) | (std::uint32_t(frac(i, 2) * 255) << 8);
+        const std::uint32_t c =
+            0xff000000u | (std::uint32_t(frac(i, 1) * 255) << 16) | (std::uint32_t(frac(i, 2) * 255) << 8);
         return Vertex2D{x, y, 0, frac(i, 3), frac(i, 4), c, float(kModeTextured), 0};
     };
     auto quad = [&](QuadList& l, int i) {
@@ -463,7 +474,8 @@ TEST_CASE("render jobs: parts of a QuadList appended in order give the stream of
         l.quad(vert(x, y, i), vert(x, y + 1, i), vert(x + 1, y + 1, i), vert(x + 1, y, i));
     };
     auto item = [&](QuadList& l, int i) {
-        l.begin_item(i % 5, frac(i, 9) * 100, i % 3 ? &texA : &texB, SamplerKind::Nearest, i % 4 ? BlendMode::Alpha : BlendMode::Additive);
+        l.begin_item(i % 5, frac(i, 9) * 100, i % 3 ? &texA : &texB, SamplerKind::Nearest,
+                     i % 4 ? BlendMode::Alpha : BlendMode::Additive);
         quad(l, i);
         if (i % 7 == 0) quad(l, i + 1);
         l.end_item();
@@ -506,8 +518,9 @@ TEST_CASE("render jobs: parts of a QuadList appended in order give the stream of
         REQUIRE(batches.size() == refBatches.size());
         bool same = true;
         for (std::size_t i = 0; i < batches.size(); ++i)
-            same = same && batches[i].firstQuad == refBatches[i].firstQuad && batches[i].quadCount == refBatches[i].quadCount &&
-                   batches[i].tex == refBatches[i].tex && batches[i].blend == refBatches[i].blend;
+            same = same && batches[i].firstQuad == refBatches[i].firstQuad &&
+                   batches[i].quadCount == refBatches[i].quadCount && batches[i].tex == refBatches[i].tex &&
+                   batches[i].blend == refBatches[i].blend;
         CHECK(same);
     }
 }

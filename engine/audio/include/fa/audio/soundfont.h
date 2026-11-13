@@ -18,9 +18,9 @@
 namespace fa {
 
 struct SoundfontPreset {
-    std::string name;                 // "Acoustic Grand Piano"
-    int bank = 0;                     // 0..127 melodic, 128 percussion (General MIDI)
-    int program = 0;                  // 0..127: the preset number inside the bank
+    std::string name;  // "Acoustic Grand Piano"
+    int bank = 0;      // 0..127 melodic, 128 percussion (General MIDI)
+    int program = 0;   // 0..127: the preset number inside the bank
 };
 
 // One note for the renderer: `startFrame` and `heldFrames` count samples at the render rate; the note is released after `heldFrames`
@@ -28,8 +28,8 @@ struct SoundfontPreset {
 struct SoundfontNote {
     std::int64_t startFrame = 0;
     std::int64_t heldFrames = 1;
-    int key = 60;                     // MIDI note 0..127
-    float velocity = 0.8f;            // 0..1 (MIDI velocity / 127)
+    int key = 60;           // MIDI note 0..127
+    float velocity = 0.8f;  // 0..1 (MIDI velocity / 127)
 };
 
 class Soundfont {
@@ -50,8 +50,8 @@ public:
 
     // Renders `notes` with preset `preset` into `left` and `right` (resized to `frames`; the notes are added in sequence, so the voices
     // of overlapping notes sum). Notes that start after `frames` are ignored. Nothing is shared with other renders, so several can run.
-    Result<void> render(int preset, int rate, const std::vector<SoundfontNote>& notes, std::size_t frames, std::vector<double>& left,
-                        std::vector<double>& right) const;
+    Result<void> render(int preset, int rate, const std::vector<SoundfontNote>& notes, std::size_t frames,
+                        std::vector<double>& left, std::vector<double>& right) const;
 
 private:
     struct Impl;

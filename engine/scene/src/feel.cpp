@@ -18,7 +18,6 @@ namespace fa {
 
 namespace {
 
-
 bool is_finite(float v) { return std::isfinite(v); }
 
 std::uint32_t hash32(std::uint32_t x) {
@@ -41,8 +40,10 @@ float lattice(std::uint32_t seed, std::uint32_t channel, std::int64_t i) {
 FeelEntity& record_of(World& w, Entity e) { return w.feel().entities[e.bits()]; }
 
 Error bad_entity(const char* what, Entity e, const World& w) {
-    return make_error(std::format("{}: entity {} does not exist", what, e.is_null() ? "(none)" : std::to_string(e.index)),
-                      w.alive(e) ? "" : "Pass a live entity: a script holds a handle that dies with its entity or with a scene load.");
+    return make_error(
+        std::format("{}: entity {} does not exist", what, e.is_null() ? "(none)" : std::to_string(e.index)),
+        w.alive(e) ? ""
+                   : "Pass a live entity: a script holds a handle that dies with its entity or with a scene load.");
 }
 
 bool has_mesh(const World& w, Entity e) { return w.has<MeshRenderer>(e); }
@@ -53,7 +54,8 @@ Vec3 local_to_world(const World& w, Entity e, Vec3 v) {
     const Mat4 m = w.world_matrix(e);
     auto axis = [&](int c) {
         const Vec3 a{m.at(c, 0), m.at(c, 1), m.at(c, 2)};
-        return length_sq(a) > 1e-12f ? normalize(a) : Vec3{c == 0 ? 1.0f : 0.0f, c == 1 ? 1.0f : 0.0f, c == 2 ? 1.0f : 0.0f};
+        return length_sq(a) > 1e-12f ? normalize(a)
+                                     : Vec3{c == 0 ? 1.0f : 0.0f, c == 1 ? 1.0f : 0.0f, c == 2 ? 1.0f : 0.0f};
     };
     return axis(0) * v.x + axis(1) * v.y + axis(2) * v.z;
 }
@@ -67,9 +69,11 @@ Result<void> check_options(const ShakeOptions& o) {
     if (!is_finite(o.duration) || o.duration <= 0.0f)
         return make_error(std::format("shake: duration must be a number of seconds above 0, got {}", o.duration));
     if (!is_finite(o.frequency) || o.frequency <= 0.0f)
-        return make_error(std::format("shake: frequency must be above 0, got {}", o.frequency), "Samples of noise per second; 25 is the default.");
+        return make_error(std::format("shake: frequency must be above 0, got {}", o.frequency),
+                          "Samples of noise per second; 25 is the default.");
     if (!is_finite(o.maxOffset) || o.maxOffset < 0.0f)
-        return make_error(std::format("shake: maxOffset must be 0 (the camera's default) or more, got {}", o.maxOffset));
+        return make_error(
+            std::format("shake: maxOffset must be 0 (the camera's default) or more, got {}", o.maxOffset));
     if (!is_finite(o.maxAngle) || o.maxAngle < 0.0f)
         return make_error(std::format("shake: maxAngle must be 0 or more degrees, got {}", o.maxAngle));
     if (!is_finite(o.cap) || o.cap <= 0.0f || o.cap > 1.0f)
@@ -82,8 +86,9 @@ Result<void> check_options(const HitStopOptions& o) {
         return make_error(std::format("hitStop: duration must be a number of seconds above 0, got {}", o.duration),
                           "0.05 to 0.12 is a hit; the stop runs in real time.");
     if (o.duration > kMaxHitStopSeconds)
-        return make_error(std::format("hitStop: {} seconds is longer than the {} s limit", o.duration, kMaxHitStopSeconds),
-                          "The duration is in seconds, not milliseconds.");
+        return make_error(
+            std::format("hitStop: {} seconds is longer than the {} s limit", o.duration, kMaxHitStopSeconds),
+            "The duration is in seconds, not milliseconds.");
     if (!is_finite(o.scale) || o.scale < 0.0f || o.scale > 1.0f)
         return make_error(std::format("hitStop: scale must be from 0 (frozen) to 1 (no effect), got {}", o.scale));
     return {};
@@ -114,29 +119,40 @@ Result<void> check_options(const KnockbackOptions& o) {
         return make_error(std::format("knockback: speed must be 0 or more, got {}", *o.speed));
     if (!is_finite(o.lockTime) || o.lockTime < 0.0f)
         return make_error(std::format("knockback: lockTime must be 0 or more seconds, got {}", o.lockTime));
-    if (!is_finite(o.decay) || o.decay < 0.0f) return make_error(std::format("knockback: decay must be 0 or more, got {}", o.decay));
+    if (!is_finite(o.decay) || o.decay < 0.0f)
+        return make_error(std::format("knockback: decay must be 0 or more, got {}", o.decay));
     if (length(o.direction) < 1e-6f)
-        return make_error("knockback: direction has no length",
-                          "Pass the way to push, e.g. the vector from the attacker to the victim: [1, 0] pushes right.");
+        return make_error(
+            "knockback: direction has no length",
+            "Pass the way to push, e.g. the vector from the attacker to the victim: [1, 0] pushes right.");
     return {};
 }
 
 Result<void> check_options(const SpawnOptions& o) {
     if (o.prefab.empty())
-        return make_error("spawn: 'prefab' is required", "The prefab to instantiate, e.g. {\"action\": \"spawn\", \"prefab\": \"prefabs/hit_spark.prefab.json\"}.");
-    if (!is_finite(o.offset.x) || !is_finite(o.offset.y) || !is_finite(o.offset.z)) return make_error("spawn: offset must be finite numbers");
+        return make_error(
+            "spawn: 'prefab' is required",
+            "The prefab to instantiate, e.g. {\"action\": \"spawn\", \"prefab\": \"prefabs/hit_spark.prefab.json\"}.");
+    if (!is_finite(o.offset.x) || !is_finite(o.offset.y) || !is_finite(o.offset.z))
+        return make_error("spawn: offset must be finite numbers");
     if (!is_finite(o.lifetime) || o.lifetime < 0.0f)
-        return make_error(std::format("spawn: lifetime must be 0 (the prefab ends itself) or a number of seconds, got {}", o.lifetime));
+        return make_error(std::format(
+            "spawn: lifetime must be 0 (the prefab ends itself) or a number of seconds, got {}", o.lifetime));
     return {};
 }
 
 Result<void> check_options(const SoundOptions& o) {
     if (o.path.empty())
-        return make_error("sound: 'path' is required", "The clip to play, e.g. {\"action\": \"sound\", \"path\": \"audio/hit.wav\"}.");
-    if (!is_finite(o.volume) || o.volume < 0.0f || o.volume > 4.0f) return make_error(std::format("sound: volume must be from 0 to 4, got {}", o.volume));
-    if (!is_finite(o.pitch) || o.pitch < 0.1f || o.pitch > 4.0f) return make_error(std::format("sound: pitch must be from 0.1 to 4, got {}", o.pitch));
-    if (!is_finite(o.pan) || o.pan < -1.0f || o.pan > 1.0f) return make_error(std::format("sound: pan must be from -1 (left) to 1 (right), got {}", o.pan));
-    if (o.bus.empty()) return make_error("sound: bus must not be empty", "\"sfx\", \"music\", \"ui\" or a bus of the project.");
+        return make_error("sound: 'path' is required",
+                          "The clip to play, e.g. {\"action\": \"sound\", \"path\": \"audio/hit.wav\"}.");
+    if (!is_finite(o.volume) || o.volume < 0.0f || o.volume > 4.0f)
+        return make_error(std::format("sound: volume must be from 0 to 4, got {}", o.volume));
+    if (!is_finite(o.pitch) || o.pitch < 0.1f || o.pitch > 4.0f)
+        return make_error(std::format("sound: pitch must be from 0.1 to 4, got {}", o.pitch));
+    if (!is_finite(o.pan) || o.pan < -1.0f || o.pan > 1.0f)
+        return make_error(std::format("sound: pan must be from -1 (left) to 1 (right), got {}", o.pan));
+    if (o.bus.empty())
+        return make_error("sound: bus must not be empty", "\"sfx\", \"music\", \"ui\" or a bus of the project.");
     return {};
 }
 
@@ -187,7 +203,8 @@ std::optional<Color> FeelState::flash_of(Entity e) const {
     const FeelEntity* r = find(e);
     if (!r || !r->flash || r->flash->remaining <= 0.0f) return std::nullopt;
     const FeelFlash& f = *r->flash;
-    const float amount = f.strength * (f.fade && f.duration > 0.0f ? std::clamp(f.remaining / f.duration, 0.0f, 1.0f) : 1.0f);
+    const float amount =
+        f.strength * (f.fade && f.duration > 0.0f ? std::clamp(f.remaining / f.duration, 0.0f, 1.0f) : 1.0f);
     if (amount <= 0.0f) return std::nullopt;
     return Color{f.color.r, f.color.g, f.color.b, amount};
 }
@@ -235,7 +252,8 @@ Result<void> feel_shake(World& w, Entity camera, const ShakeOptions& o) {
             FeelState& st = w.feel();
             if (!st.warnedNoCamera) {
                 st.warnedNoCamera = true;
-                FA_WARN("feel", "shake ignored: the scene has no active camera to shake. Hint: add an entity with a Camera component, "
+                FA_WARN("feel", "shake ignored: the scene has no active camera to shake. Hint: add an entity with a "
+                                "Camera component, "
                                 "or pass the camera entity to shake");
             }
             return {};
@@ -253,7 +271,8 @@ Result<void> feel_shake(World& w, Entity camera, const ShakeOptions& o) {
         FeelShake s;
         // The noise is seeded from the world's RNG state WITHOUT drawing from it, so a shake (or the player's reduce motion,
         // which scales it) never changes the random numbers the game gets; a counter makes every shake of a run different.
-        s.seed = hash32(static_cast<std::uint32_t>(w.rng().state() ^ (w.rng().state() >> 32)) + 0x9e3779b9U * (++fs.counter));
+        s.seed = hash32(static_cast<std::uint32_t>(w.rng().state() ^ (w.rng().state() >> 32)) +
+                        0x9e3779b9U * (++fs.counter));
         rec.shake = s;
     }
     FeelShake& s = *rec.shake;
@@ -325,12 +344,14 @@ Result<void> feel_knockback(World& w, Entity e, const KnockbackOptions& o) {
     if (body2) d.z = 0.0f;
     const float len = length(d);
     if (len < 1e-6f)
-        return make_error("knockback: direction has no length" + std::string(body2 ? " (a 2D body ignores z)" : ""),
-                          "Pass the way to push, e.g. the vector from the attacker to the victim: [1, 0] pushes right.");
+        return make_error(
+            "knockback: direction has no length" + std::string(body2 ? " (a 2D body ignores z)" : ""),
+            "Pass the way to push, e.g. the vector from the attacker to the victim: [1, 0] pushes right.");
     d = d * (1.0f / len);
     // The default is metres per second: units for a 3D entity, pixels (times pixelsPerMeter) for a 2D one.
     const bool is3d = body3 || w.has<RigidBody3D>(e) || w.has<MeshRenderer>(e);
-    const float speed = o.speed ? *o.speed : kDefaultKnockbackSpeed * (is3d ? 1.0f : std::max(w.feel().pixelsPerMeter, 1.0f));
+    const float speed =
+        o.speed ? *o.speed : kDefaultKnockbackSpeed * (is3d ? 1.0f : std::max(w.feel().pixelsPerMeter, 1.0f));
 
     if (body2) {
         rb2->velocity = {rb2->velocity.x + d.x * speed, rb2->velocity.y + d.y * speed};
@@ -354,9 +375,12 @@ Result<void> feel_spawn(World& w, Entity e, const SpawnOptions& o) {
     FeelState& fs = w.feel();
     if (fs.spawns.size() >= kMaxQueuedSpawns) {
         // A loop or a very short clip event cannot fill the scene with effects in one frame: the rest of this frame's spawns are refused.
-        return make_error(std::format("spawn: {} spawn actions are already waiting for this frame, so '{}' was not queued", kMaxQueuedSpawns, o.prefab),
-                          "A clip event that fires on every step, or a script that calls feel.spawn in a loop, makes this. Fire it less often, "
-                          "or spawn one prefab that holds the whole effect and give it a `lifetime`.");
+        return make_error(
+            std::format("spawn: {} spawn actions are already waiting for this frame, so '{}' was not queued",
+                        kMaxQueuedSpawns, o.prefab),
+            "A clip event that fires on every step, or a script that calls feel.spawn in a loop, makes this. Fire it "
+            "less often, "
+            "or spawn one prefab that holds the whole effect and give it a `lifetime`.");
     }
     FeelSpawn sp;
     sp.options = o;
@@ -370,8 +394,11 @@ Result<void> feel_sound(World& w, Entity source, const SoundOptions& o) {
     if (auto r = check_options(o); !r.ok()) return r;
     FeelState& fs = w.feel();
     if (fs.sounds.size() >= kMaxQueuedSounds) {
-        const std::string text = std::format("more than {} sound actions waited for the audio system: the oldest were dropped. Nothing plays sounds in this world "
-                                             "(no Audio::update), or a clip event / script fires `sound` on every step (fire it less often)", kMaxQueuedSounds);
+        const std::string text =
+            std::format("more than {} sound actions waited for the audio system: the oldest were dropped. Nothing "
+                        "plays sounds in this world "
+                        "(no Audio::update), or a clip event / script fires `sound` on every step (fire it less often)",
+                        kMaxQueuedSounds);
         if (fs.warnedClipActions.size() < 64 && fs.warnedClipActions.insert(text).second) FA_WARN("feel", "{}", text);
         fs.sounds.erase(fs.sounds.begin());
     }
@@ -401,7 +428,8 @@ void feel_cancel(World& w, Entity e) {
 
 // ------------------------------------------------------------------------------------------------ JSON actions
 const std::vector<std::string>& feel_action_names() {
-    static const std::vector<std::string> names = {"shake", "hitStop", "flash", "knockback", "push", "squash", "spawn", "sound"};
+    static const std::vector<std::string> names = {"shake", "hitStop", "flash", "knockback",
+                                                   "push",  "squash",  "spawn", "sound"};
     return names;
 }
 
@@ -489,11 +517,14 @@ struct Reader {
 // An action read and checked: its name as written and its options.
 struct ParsedAction {
     std::string name;
-    std::variant<ShakeOptions, HitStopOptions, FlashOptions, KnockbackOptions, SquashOptions, SpawnOptions, SoundOptions> options;
+    std::variant<ShakeOptions, HitStopOptions, FlashOptions, KnockbackOptions, SquashOptions, SpawnOptions,
+                 SoundOptions>
+        options;
 };
 
 Result<ParsedAction> parse_action(const Json& action) {
-    if (!action.is_object()) return make_error("feel action must be an object like {\"action\": \"shake\", \"amount\": 0.4}");
+    if (!action.is_object())
+        return make_error("feel action must be an object like {\"action\": \"shake\", \"amount\": 0.4}");
     auto it = action.find("action");
     if (it == action.end() || !it->is_string())
         return make_error("feel action needs an \"action\" string", "One of: " + join(feel_action_names(), ", ") + ".");
@@ -509,21 +540,22 @@ Result<ParsedAction> parse_action(const Json& action) {
     };
     if (name == "shake") {
         ShakeOptions o;
-        if (!r.keys({"amount", "duration", "frequency", "maxOffset", "maxAngle", "cap"}) || !r.number("amount", o.amount) ||
-            !r.number("duration", o.duration) || !r.number("frequency", o.frequency) || !r.number("maxOffset", o.maxOffset) ||
-            !r.number("maxAngle", o.maxAngle) || !r.number("cap", o.cap))
+        if (!r.keys({"amount", "duration", "frequency", "maxOffset", "maxAngle", "cap"}) ||
+            !r.number("amount", o.amount) || !r.number("duration", o.duration) || !r.number("frequency", o.frequency) ||
+            !r.number("maxOffset", o.maxOffset) || !r.number("maxAngle", o.maxAngle) || !r.number("cap", o.cap))
             return fail();
         return checked(o);
     }
     if (name == "hitStop") {
         HitStopOptions o;
-        if (!r.keys({"duration", "scale"}) || !r.number("duration", o.duration) || !r.number("scale", o.scale)) return fail();
+        if (!r.keys({"duration", "scale"}) || !r.number("duration", o.duration) || !r.number("scale", o.scale))
+            return fail();
         return checked(o);
     }
     if (name == "flash") {
         FlashOptions o;
-        if (!r.keys({"color", "duration", "fade", "strength"}) || !r.color("color", o.color) || !r.number("duration", o.duration) ||
-            !r.boolean("fade", o.fade) || !r.number("strength", o.strength))
+        if (!r.keys({"color", "duration", "fade", "strength"}) || !r.color("color", o.color) ||
+            !r.number("duration", o.duration) || !r.boolean("fade", o.fade) || !r.number("strength", o.strength))
             return fail();
         return checked(o);
     }
@@ -537,26 +569,30 @@ Result<ParsedAction> parse_action(const Json& action) {
     }
     if (name == "squash") {
         SquashOptions o;
-        if (!r.keys({"amount", "duration", "axis"}) || !r.number("amount", o.amount) || !r.number("duration", o.duration)) return fail();
+        if (!r.keys({"amount", "duration", "axis"}) || !r.number("amount", o.amount) ||
+            !r.number("duration", o.duration))
+            return fail();
         auto ax = action.find("axis");
         if (ax != action.end()) {
             if (!ax->is_string() || (ax->get<std::string>() != "x" && ax->get<std::string>() != "y"))
-                return make_error(std::format("squash: 'axis' must be \"x\" or \"y\", got {}", describe_json_value(*ax)));
+                return make_error(
+                    std::format("squash: 'axis' must be \"x\" or \"y\", got {}", describe_json_value(*ax)));
             o.axis = ax->get<std::string>()[0];
         }
         return checked(o);
     }
     if (name == "spawn") {
         SpawnOptions o;
-        if (!r.keys({"prefab", "offset", "local", "lifetime"}) || !r.string("prefab", o.prefab) || !r.vec("offset", o.offset) ||
-            !r.boolean("local", o.local) || !r.number("lifetime", o.lifetime))
+        if (!r.keys({"prefab", "offset", "local", "lifetime"}) || !r.string("prefab", o.prefab) ||
+            !r.vec("offset", o.offset) || !r.boolean("local", o.local) || !r.number("lifetime", o.lifetime))
             return fail();
         return checked(o);
     }
     if (name == "sound") {
         SoundOptions o;
-        if (!r.keys({"path", "volume", "pitch", "pan", "bus"}) || !r.string("path", o.path) || !r.number("volume", o.volume) ||
-            !r.number("pitch", o.pitch) || !r.number("pan", o.pan) || !r.string("bus", o.bus))
+        if (!r.keys({"path", "volume", "pitch", "pan", "bus"}) || !r.string("path", o.path) ||
+            !r.number("volume", o.volume) || !r.number("pitch", o.pitch) || !r.number("pan", o.pan) ||
+            !r.string("bus", o.bus))
             return fail();
         return checked(o);
     }
@@ -593,8 +629,10 @@ std::vector<Json> feel_event_actions(const Json& event) {
     if (!event.is_object()) return out;
     auto it = event.find("feel");
     if (it == event.end()) return out;
-    if (it->is_array()) out.assign(it->begin(), it->end());
-    else if (it->is_object()) out.push_back(*it);
+    if (it->is_array())
+        out.assign(it->begin(), it->end());
+    else if (it->is_object())
+        out.push_back(*it);
     return out;
 }
 
@@ -619,7 +657,8 @@ void feel_begin_frame(World& w, double realDt, bool systemReduceMotion) {
     if (fs.hitStops.empty()) return;
     const float dt = static_cast<float>(std::max(0.0, realDt));
     for (FeelHitStop& h : fs.hitStops) h.remaining -= dt;
-    fs.hitStops.erase(std::remove_if(fs.hitStops.begin(), fs.hitStops.end(), [](const FeelHitStop& h) { return h.remaining <= 1e-6f; }),
+    fs.hitStops.erase(std::remove_if(fs.hitStops.begin(), fs.hitStops.end(),
+                                     [](const FeelHitStop& h) { return h.remaining <= 1e-6f; }),
                       fs.hitStops.end());
 }
 
@@ -666,14 +705,16 @@ void run_spawns(World& w, float dt) {
         const Entity e = instantiate_prefab(w, sp.options.prefab, kNullEntity, report);
         if (!report.ok() || e.is_null()) {
             const std::string text = std::format("spawn '{}' failed: {}", sp.options.prefab, report.summary());
-            if (fs.warnedClipActions.size() < 64 && fs.warnedClipActions.insert(text).second) FA_WARN("feel", "{}", text);
+            if (fs.warnedClipActions.size() < 64 && fs.warnedClipActions.insert(text).second)
+                FA_WARN("feel", "{}", text);
             // A prefab that loaded only in part (a child with a wrong component) must not stay in the scene: nothing owns it and no lifetime would end it.
             for (auto it = report.created.rbegin(); it != report.created.rend(); ++it)
                 if (w.alive(*it) && !w.pending_destroy(*it)) w.destroy(*it);
             if (!e.is_null() && w.alive(e) && !w.pending_destroy(e)) w.destroy(e);
             continue;
         }
-        for (Entity c : report.created) w.info(c).scriptSpawned = true;  // scene.save leaves them out: the action makes them again
+        for (Entity c : report.created)
+            w.info(c).scriptSpawned = true;  // scene.save leaves them out: the action makes them again
         w.set_world_position(e, sp.position);
         if (sp.options.lifetime > 0.0f) fs.lifetimes.push_back({e.bits(), sp.options.lifetime});
     }
@@ -717,11 +758,12 @@ void feel_update(World& w, double clockDtD, double gameDtD) {
         if (rec.shake) {
             const FeelShake& s = *rec.shake;
             const float m = s.trauma * s.trauma;
-            const float nx = feel_noise(s.seed, 0, s.phase), ny = feel_noise(s.seed, 1, s.phase), nz = feel_noise(s.seed, 2, s.phase);
+            const float nx = feel_noise(s.seed, 0, s.phase), ny = feel_noise(s.seed, 1, s.phase),
+                        nz = feel_noise(s.seed, 2, s.phase);
             pose.position = {nx * s.maxOffset * m, ny * s.maxOffset * m, 0.0f};
             if (s.perspective) {
-                pose.rotation = {feel_noise(s.seed, 3, s.phase) * s.maxAngle * m * 0.5f, feel_noise(s.seed, 4, s.phase) * s.maxAngle * m * 0.5f,
-                                 nz * s.maxAngle * m};
+                pose.rotation = {feel_noise(s.seed, 3, s.phase) * s.maxAngle * m * 0.5f,
+                                 feel_noise(s.seed, 4, s.phase) * s.maxAngle * m * 0.5f, nz * s.maxAngle * m};
             } else {
                 pose.rotation = {0.0f, 0.0f, nz * s.maxAngle * m};
             }
@@ -734,15 +776,19 @@ void feel_update(World& w, double clockDtD, double gameDtD) {
             const float pulse = (1.0f - u) * (1.0f - u) * det::cos(3.0f * kPi * u);
             const float k = det::exp(q.amount * pulse);  // x * y stays 1 (with a mesh: x * y * z)
             const float other = q.volume3d ? std::sqrt(k) : 1.0f;
-            if (q.axis == 'y') pose.scale = {q.volume3d ? other : k, 1.0f / k, other};
-            else pose.scale = {1.0f / k, q.volume3d ? other : k, other};
+            if (q.axis == 'y')
+                pose.scale = {q.volume3d ? other : k, 1.0f / k, other};
+            else
+                pose.scale = {1.0f / k, q.volume3d ? other : k, other};
             any = true;
         }
         rec.pose = pose;
         rec.hasPose = any;
         if (any) ++poses;
-        if (!rec.shake && !rec.flash && !rec.squash && !rec.knock) it = fs.entities.erase(it);
-        else ++it;
+        if (!rec.shake && !rec.flash && !rec.squash && !rec.knock)
+            it = fs.entities.erase(it);
+        else
+            ++it;
     }
     fs.poseCount = poses;
 }
@@ -755,7 +801,8 @@ Json feel_state_json(const World& w) {
     j["reducedEffects"] = fs.reduced_effects();
     j["reduceMotionSetting"] = fs.reduceMotionSetting ? Json(*fs.reduceMotionSetting) : Json(nullptr);
     j["reducedEffectsSetting"] = fs.reducedEffectsSetting ? Json(*fs.reducedEffectsSetting) : Json(nullptr);
-    j["hitStop"] = {{"remaining", fs.hit_stop_remaining()}, {"scale", fs.hit_stop_factor()}, {"running", fs.hitStops.size()}};
+    j["hitStop"] = {
+        {"remaining", fs.hit_stop_remaining()}, {"scale", fs.hit_stop_factor()}, {"running", fs.hitStops.size()}};
     j["queued"] = {{"sounds", fs.sounds.size()}, {"spawns", fs.spawns.size()}, {"spawnLifetimes", fs.lifetimes.size()}};
     Json list = Json::array();
     for (const auto& [bits, rec] : fs.entities) {
@@ -763,12 +810,23 @@ Json feel_state_json(const World& w) {
         if (!w.alive(e)) continue;
         Json o = Json::object();
         o["entity"] = w.id_of(e);
-        if (rec.shake) o["shake"] = {{"trauma", rec.shake->trauma}, {"remaining", rec.shake->remaining}, {"maxOffset", rec.shake->maxOffset}};
-        if (rec.flash) o["flash"] = {{"remaining", rec.flash->remaining}, {"strength", rec.flash->strength}, {"fade", rec.flash->fade}};
-        if (rec.squash) o["squash"] = {{"amount", rec.squash->amount}, {"time", rec.squash->time}, {"duration", rec.squash->duration}};
+        if (rec.shake)
+            o["shake"] = {{"trauma", rec.shake->trauma},
+                          {"remaining", rec.shake->remaining},
+                          {"maxOffset", rec.shake->maxOffset}};
+        if (rec.flash)
+            o["flash"] = {
+                {"remaining", rec.flash->remaining}, {"strength", rec.flash->strength}, {"fade", rec.flash->fade}};
+        if (rec.squash)
+            o["squash"] = {
+                {"amount", rec.squash->amount}, {"time", rec.squash->time}, {"duration", rec.squash->duration}};
         if (rec.knock)
-            o["knockback"] = {{"remaining", std::max(0.0f, rec.knock->lockRemaining)}, {"velocity", to_json(rec.knock->velocity)}};
-        if (rec.hasPose) o["pose"] = {{"position", to_json(rec.pose.position)}, {"rotation", to_json(rec.pose.rotation)}, {"scale", to_json(rec.pose.scale)}};
+            o["knockback"] = {{"remaining", std::max(0.0f, rec.knock->lockRemaining)},
+                              {"velocity", to_json(rec.knock->velocity)}};
+        if (rec.hasPose)
+            o["pose"] = {{"position", to_json(rec.pose.position)},
+                         {"rotation", to_json(rec.pose.rotation)},
+                         {"scale", to_json(rec.pose.scale)}};
         list.push_back(std::move(o));
     }
     j["entities"] = std::move(list);

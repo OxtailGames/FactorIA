@@ -11,7 +11,8 @@
 using namespace fa;
 namespace stdfs = std::filesystem;
 
-TEST_CASE("validate: target:<name> is accepted in texture fields; a malformed name is an error that says how to write it") {
+TEST_CASE(
+    "validate: target:<name> is accepted in texture fields; a malformed name is an error that says how to write it") {
     testing::TempDir tmp;
     REQUIRE(create_project(tmp.sub("game"), "2d-empty").ok());
     const stdfs::path dir = tmp.path / "game";

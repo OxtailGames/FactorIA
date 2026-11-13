@@ -43,12 +43,14 @@ TEST_CASE("export: a game that names no built-in font file ships none of them, a
     CHECK_FALSE(stdfs::exists(f.game() / kBuiltinFontDir));
     const std::string notices = testing::read_all(f.game().parent_path() / kExportNoticesFile);
     CHECK(notices.find("Press Start 2P") != std::string::npos);  // the fonts inside the player are always listed
-    for (const char* name : {"Crimson Text", "Kalam", "UnifrakturMaguntia", "IM Fell English"}) CHECK(notices.find(name) == std::string::npos);
+    for (const char* name : {"Crimson Text", "Kalam", "UnifrakturMaguntia", "IM Fell English"})
+        CHECK(notices.find(name) == std::string::npos);
 }
 
 TEST_CASE("export: only the built-in font families a scene or script names are copied, with their licenses") {
     FontExport f;
-    testing::write_all(stdfs::path(f.proj) / "scripts/title.js", "const f = 'builtin:hand'; // 'builtin:handwriting' is not a font\n");
+    testing::write_all(stdfs::path(f.proj) / "scripts/title.js",
+                       "const f = 'builtin:hand'; // 'builtin:handwriting' is not a font\n");
     testing::write_all(stdfs::path(f.proj) / "scenes/story.scene.json",
                        R"({"entities":[{"name":"t","components":{"Text":{"text":"x","font":"builtin:serif"}}}]})");
     auto r = f.export_linux();
@@ -56,8 +58,8 @@ TEST_CASE("export: only the built-in font families a scene or script names are c
     std::vector<std::string> shipped = r->builtinFonts;
     std::sort(shipped.begin(), shipped.end());
     CHECK(shipped == std::vector<std::string>{"builtin:hand", "builtin:serif"});
-    for (const char* file : {"CrimsonText-Regular.ttf", "CrimsonText-Bold.ttf", "CrimsonText-Italic.ttf", "CrimsonText-BoldItalic.ttf",
-                             "Kalam-Regular.ttf", "Kalam-Bold.ttf"}) {
+    for (const char* file : {"CrimsonText-Regular.ttf", "CrimsonText-Bold.ttf", "CrimsonText-Italic.ttf",
+                             "CrimsonText-BoldItalic.ttf", "Kalam-Regular.ttf", "Kalam-Bold.ttf"}) {
         CAPTURE(file);
         CHECK(stdfs::file_size(f.game() / kBuiltinFontDir / file) > 50000);
     }
@@ -69,5 +71,6 @@ TEST_CASE("export: only the built-in font families a scene or script names are c
     CHECK(notices.find("\nKalam (") != std::string::npos);
     CHECK(notices.find("UnifrakturMaguntia") == std::string::npos);
     CHECK(notices.find("IM Fell English") == std::string::npos);
-    CHECK(third_party_notices(NoticeScope::All).find("\nUnifrakturMaguntia (") != std::string::npos);  // the full list has all of them
+    CHECK(third_party_notices(NoticeScope::All).find("\nUnifrakturMaguntia (") !=
+          std::string::npos);  // the full list has all of them
 }

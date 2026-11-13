@@ -18,7 +18,8 @@ Json parse(const std::string& text) {
 std::string with_replaced(std::string text, const std::string& from, const std::string& to) {
     REQUIRE_FALSE(from.empty());
     REQUIRE(text.find(from) != std::string::npos);
-    for (std::size_t pos = 0; (pos = text.find(from, pos)) != std::string::npos; pos += to.size()) text.replace(pos, from.size(), to);
+    for (std::size_t pos = 0; (pos = text.find(from, pos)) != std::string::npos; pos += to.size())
+        text.replace(pos, from.size(), to);
     return text;
 }
 
@@ -139,7 +140,8 @@ January 16, 2019
   <remotePackage path="platforms;android-36">
     <archives><archive><complete><size>65878410</size><checksum type="sha1">2c1a80dd4d9f7d0e6dd336ec603d9b5c55a6f576</checksum><url>platform-36_r02.zip</url></complete></archive></archives>
   </remotePackage>
-)") + packages + "</sdk:sdk-repository>\n";
+)") + packages +
+           "</sdk:sdk-repository>\n";
 }
 
 const std::string kRepoXml = repo_xml(std::string(kPkg22) + kPkgLatest);  // what Google lists today: both
@@ -170,7 +172,8 @@ TEST_CASE("setup parse: the pinned classic cmdline-tools archive of each host an
     CHECK(arm->cmdlineToolsPinned);
     CHECK(arm->cmdlineToolsRevision == "22.0");
     CHECK(arm->warnings.empty());
-    CHECK(arm->cmdlineTools.url == "https://dl.google.com/android/repository/commandlinetools-mac_arm64-15859902_latest.zip");
+    CHECK(arm->cmdlineTools.url ==
+          "https://dl.google.com/android/repository/commandlinetools-mac_arm64-15859902_latest.zip");
     CHECK(arm->cmdlineTools.checksumType == "sha1");
     CHECK(arm->cmdlineTools.checksum == "c4e0dbc53f1a4ce04fc2b11d4e2c4675001a95af");  // lowercased
     CHECK(arm->cmdlineTools.size == 156083281);
@@ -178,7 +181,8 @@ TEST_CASE("setup parse: the pinned classic cmdline-tools archive of each host an
     CHECK(arm->license.title == "Android Software Development Kit License Agreement");
     CHECK(starts_with(arm->license.text, "Terms and Conditions"));
     CHECK(ends_with(arm->license.text, "January 16, 2019"));  // trimmed
-    CHECK(arm->license.text.find("License Agreement & its \"terms\" (<1>) \xC2\xA9 2019") != std::string::npos);  // entities decoded
+    CHECK(arm->license.text.find("License Agreement & its \"terms\" (<1>) \xC2\xA9 2019") !=
+          std::string::npos);                                             // entities decoded
     CHECK(arm->license.text.find("Preview terms") == std::string::npos);  // the other license is not mixed in
 
     auto intel = parse_sdk_repository(kRepoXml, "macos", "x64");
@@ -203,7 +207,8 @@ TEST_CASE("setup parse: the pinned classic cmdline-tools archive of each host an
 }
 
 TEST_CASE("setup parse: the pinned package missing falls back to latest, with a warning") {
-    for (const auto& [os, arch] : std::vector<std::pair<std::string, std::string>>{{"macos", "aarch64"}, {"macos", "x64"}, {"windows", "x64"}, {"linux", "x64"}}) {
+    for (const auto& [os, arch] : std::vector<std::pair<std::string, std::string>>{
+             {"macos", "aarch64"}, {"macos", "x64"}, {"windows", "x64"}, {"linux", "x64"}}) {
         INFO(os << "/" << arch);
         auto r = parse_sdk_repository(kLatestOnlyXml, os, arch);
         REQUIRE(r.ok());
@@ -222,13 +227,15 @@ TEST_CASE("setup parse: the pinned package missing falls back to latest, with a 
         CHECK(w.find("usage statistics") != std::string::npos);
     }
     // The host selection is as strict as ever on the fallback: the Mac archive of the other CPU is no match.
-    auto latestMac = parse_sdk_repository(with_replaced(kMacOnlyXml, "cmdline-tools;22.0", "cmdline-tools;latest"), "macos", "x64");
+    auto latestMac =
+        parse_sdk_repository(with_replaced(kMacOnlyXml, "cmdline-tools;22.0", "cmdline-tools;latest"), "macos", "x64");
     REQUIRE_FALSE(latestMac.ok());
     CHECK(latestMac.error().message.find("macos/x64") != std::string::npos);
 }
 
 TEST_CASE("setup parse: an obsolete pinned package is not used either") {
-    auto r = parse_sdk_repository(with_replaced(kRepoXml, "<remotePackage path=\"cmdline-tools;22.0\">", "<remotePackage obsolete=\"true\" path=\"cmdline-tools;22.0\">"),
+    auto r = parse_sdk_repository(with_replaced(kRepoXml, "<remotePackage path=\"cmdline-tools;22.0\">",
+                                                "<remotePackage obsolete=\"true\" path=\"cmdline-tools;22.0\">"),
                                   "macos", "aarch64");
     REQUIRE(r.ok());
     CHECK(r->cmdlineToolsPackage == "cmdline-tools;latest");
@@ -239,8 +246,11 @@ TEST_CASE("setup parse: an obsolete pinned package is not used either") {
     CHECK(r->warnings[0].find("cmdline-tools;22.0") != std::string::npos);
 
     // A pinned package without a download for this host: the same fallback, and the warning says what the package lists.
-    const std::string noWindows = with_replaced(kRepoXml, "<host-os>windows</host-os>\n      </archive>\n    </archives>\n  </remotePackage>\n  <remotePackage path=\"cmdline-tools;latest\">",
-                                                "<host-os>solaris</host-os>\n      </archive>\n    </archives>\n  </remotePackage>\n  <remotePackage path=\"cmdline-tools;latest\">");
+    const std::string noWindows = with_replaced(kRepoXml,
+                                                "<host-os>windows</host-os>\n      </archive>\n    </archives>\n  "
+                                                "</remotePackage>\n  <remotePackage path=\"cmdline-tools;latest\">",
+                                                "<host-os>solaris</host-os>\n      </archive>\n    </archives>\n  "
+                                                "</remotePackage>\n  <remotePackage path=\"cmdline-tools;latest\">");
     auto w = parse_sdk_repository(noWindows, "windows", "x64");
     REQUIRE(w.ok());
     CHECK_FALSE(w->cmdlineToolsPinned);
@@ -274,24 +284,38 @@ TEST_CASE("setup parse: a repository that lacks what we need says so") {
 
     // An address outside Google's download server is refused, not followed: for the pinned package it is an error, not a reason to
     // fall back to `latest`.
-    auto refused = parse_sdk_repository(with_replaced(kRepoXml, "commandlinetools-linux-15859902_latest.zip", "https://evil.example/tools.zip"), "linux", "x64");
+    auto refused = parse_sdk_repository(
+        with_replaced(kRepoXml, "commandlinetools-linux-15859902_latest.zip", "https://evil.example/tools.zip"),
+        "linux", "x64");
     REQUIRE_FALSE(refused.ok());
     CHECK(refused.error().message.find("evil.example") != std::string::npos);
     // ... and the same for the fallback.
-    auto refusedLatest = parse_sdk_repository(with_replaced(kLatestOnlyXml, "commandlinetools-linux-16111833_latest.zip", "https://evil.example/tools.zip"), "linux", "x64");
+    auto refusedLatest = parse_sdk_repository(
+        with_replaced(kLatestOnlyXml, "commandlinetools-linux-16111833_latest.zip", "https://evil.example/tools.zip"),
+        "linux", "x64");
     REQUIRE_FALSE(refusedLatest.ok());
     CHECK(refusedLatest.error().message.find("evil.example") != std::string::npos);
 
     // A checksum that is not a SHA-1 is refused (pinned and fallback).
-    CHECK_FALSE(parse_sdk_repository(with_replaced(kRepoXml, "040d3996a65543d22ec4bf73e4c37aa37a8d4af4", "not-a-checksum"), "linux", "x64").ok());
-    CHECK_FALSE(parse_sdk_repository(with_replaced(kLatestOnlyXml, "e025545c62a8e64c7559119566a569fb1dec5f60", "not-a-checksum"), "linux", "x64").ok());
+    CHECK_FALSE(
+        parse_sdk_repository(with_replaced(kRepoXml, "040d3996a65543d22ec4bf73e4c37aa37a8d4af4", "not-a-checksum"),
+                             "linux", "x64")
+            .ok());
+    CHECK_FALSE(
+        parse_sdk_repository(
+            with_replaced(kLatestOnlyXml, "e025545c62a8e64c7559119566a569fb1dec5f60", "not-a-checksum"), "linux", "x64")
+            .ok());
     // An archive of this host without its checksum or its address is a damaged listing, not a missing package.
-    auto noSum = parse_sdk_repository(with_replaced(kRepoXml, "<checksum type=\"sha1\">040d3996a65543d22ec4bf73e4c37aa37a8d4af4</checksum>", ""), "linux", "x64");
+    auto noSum = parse_sdk_repository(
+        with_replaced(kRepoXml, "<checksum type=\"sha1\">040d3996a65543d22ec4bf73e4c37aa37a8d4af4</checksum>", ""),
+        "linux", "x64");
     REQUIRE_FALSE(noSum.ok());
     CHECK(noSum.error().message.find("cmdline-tools;22.0") != std::string::npos);
 
     // A listing without the license text is refused too: the user could not be shown what they agree to.
-    auto missing = parse_sdk_repository(with_replaced(kRepoXml, "<license id=\"android-sdk-license\"", "<license id=\"other-license\""), "linux", "x64");
+    auto missing = parse_sdk_repository(
+        with_replaced(kRepoXml, "<license id=\"android-sdk-license\"", "<license id=\"other-license\""), "linux",
+        "x64");
     REQUIRE_FALSE(missing.ok());
     CHECK(missing.error().message.find("android-sdk-license") != std::string::npos);
 }
@@ -302,7 +326,8 @@ TEST_CASE("setup parse: the hash that records a license agreement") {
     // 16, 2019) hashes to 24333f8a63b6825ea9c5514f83c2829b004d1fee, the line every SDK holds in licenses/android-sdk-license.
     CHECK(sdk_license_hash("Terms and Conditions") == "894031ed8d341b5ecab5e23002585055f0b7ee4d");
     // Indentation dropped, a lone line break is a space, blank lines stay, runs of spaces are one, ends trimmed.
-    CHECK(sdk_license_hash("  Terms and Conditions\n\n   This is the first paragraph,\n   wrapped over two lines.\n\n\n1.\tIntroduction  with  spaces\n  \n") ==
+    CHECK(sdk_license_hash("  Terms and Conditions\n\n   This is the first paragraph,\n   wrapped over two "
+                           "lines.\n\n\n1.\tIntroduction  with  spaces\n  \n") ==
           "c0d12db53cbd172135fb28953eee965ffada9d84");
     CHECK(sdk_license_hash("a\nb") == sdk_license_hash("a b"));
     CHECK(sdk_license_hash("a\nb") == "7dbde93504122a707f849f2c12bdd9de71b41929");
@@ -325,8 +350,8 @@ TEST_CASE("setup parse: XML entities") {
 }
 
 namespace {
-const char* kJdkLink =
-    "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12.1_1.tar.gz";
+const char* kJdkLink = "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.12.1%2B1/"
+                       "OpenJDK21U-jdk_aarch64_mac_hotspot_21.0.12.1_1.tar.gz";
 const char* kAdoptiumSample = R"([{
   "binary": {
     "architecture": "aarch64", "image_type": "jdk", "os": "mac",
@@ -357,14 +382,22 @@ TEST_CASE("setup parse: Adoptium picks the archive package") {
     CHECK(empty.error().message.find("no Eclipse Temurin JDK 21") != std::string::npos);
     CHECK(empty.error().hint.find("adoptium.net") != std::string::npos);
 
-    auto refused = parse_adoptium_assets(parse(with_replaced(kAdoptiumSample, kJdkLink, "https://evil.example/jdk.tar.gz")));
+    auto refused =
+        parse_adoptium_assets(parse(with_replaced(kAdoptiumSample, kJdkLink, "https://evil.example/jdk.tar.gz")));
     REQUIRE_FALSE(refused.ok());
     CHECK(refused.error().message.find("evil.example") != std::string::npos);
 
-    CHECK_FALSE(parse_adoptium_assets(parse(with_replaced(kAdoptiumSample, "3623232f33a9c3baadf304480b2535f9a3cba8a58d42ecbb438ba267315d9998", ""))).ok());
+    CHECK_FALSE(parse_adoptium_assets(
+                    parse(with_replaced(kAdoptiumSample,
+                                        "3623232f33a9c3baadf304480b2535f9a3cba8a58d42ecbb438ba267315d9998", "")))
+                    .ok());
 
     // Only a .pkg installer: nothing we can unpack.
-    CHECK_FALSE(parse_adoptium_assets(parse(R"([{"binary":{"package":{"checksum":"575bb8d9d604821d8f350325b28a35e49bcffd7ec33727b41edc8d709537dada","link":"https://github.com/adoptium/x/x.pkg","name":"x.pkg","size":1}}}])")).ok());
+    CHECK_FALSE(
+        parse_adoptium_assets(
+            parse(
+                R"([{"binary":{"package":{"checksum":"575bb8d9d604821d8f350325b28a35e49bcffd7ec33727b41edc8d709537dada","link":"https://github.com/adoptium/x/x.pkg","name":"x.pkg","size":1}}}])"))
+            .ok());
 }
 
 TEST_CASE("setup parse: a GitHub release with digests") {
@@ -395,7 +428,8 @@ TEST_CASE("setup parse: a GitHub release with digests") {
     REQUIRE_FALSE(notFound.ok());
     CHECK_FALSE(notFound.error().hint.empty());
 
-    const std::string evil = with_replaced(sample, "https://github.com/OxtailGames/", "https://github.com/someoneelse/");
+    const std::string evil =
+        with_replaced(sample, "https://github.com/OxtailGames/", "https://github.com/someoneelse/");
     auto refused = parse_github_release(parse(evil));
     REQUIRE_FALSE(refused.ok());
     CHECK(refused.error().message.find("someoneelse") != std::string::npos);
@@ -406,7 +440,8 @@ TEST_CASE("setup parse: a GitHub release with digests") {
 
 TEST_CASE("setup parse: Kitware's checksum file and CMake versions") {
     const std::string a(64, 'a'), b(64, 'b'), c(64, 'c');
-    const std::string sums = a + "  cmake-3.31.6-files-v1.json\n" + b + "  cmake-3.31.6-macos-universal.tar.gz\r\n" + c +
+    const std::string sums = a + "  cmake-3.31.6-files-v1.json\n" + b + "  cmake-3.31.6-macos-universal.tar.gz\r\n" +
+                             c +
                              " *cmake-3.31.6-windows-x86_64.zip\n"
                              "not a checksum line\n"
                              "tooshort  cmake.txt\n";
@@ -416,7 +451,8 @@ TEST_CASE("setup parse: Kitware's checksum file and CMake versions") {
     CHECK(table.at("cmake-3.31.6-windows-x86_64.zip") == c);  // the "*" of binary mode is dropped
     CHECK(parse_sha256_sums("").empty());
 
-    CHECK(parse_cmake_version("cmake version 3.31.6\n\nCMake suite maintained and supported by Kitware") == std::vector<int>{3, 31, 6});
+    CHECK(parse_cmake_version("cmake version 3.31.6\n\nCMake suite maintained and supported by Kitware") ==
+          std::vector<int>{3, 31, 6});
     CHECK(parse_cmake_version("cmake version 4.4.4-rc1") == std::vector<int>{4, 4, 4});
     CHECK(parse_cmake_version("something else").empty());
     CHECK(version_at_least({3, 31, 6}, "3.24"));
@@ -430,8 +466,10 @@ TEST_CASE("setup parse: Kitware's checksum file and CMake versions") {
 TEST_CASE("setup parse: only the official download addresses are trusted") {
     CHECK(is_trusted_download_url("https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21/x.tar.gz"));
     CHECK(is_trusted_download_url("https://dl.google.com/android/repository/commandlinetools-win-1_latest.zip"));
-    CHECK(is_trusted_download_url("https://github.com/OxtailGames/FactorIA/releases/download/v0.1.3/FactorIA-windows-x64.zip"));
-    CHECK(is_trusted_download_url("https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-macos-universal.tar.gz"));
+    CHECK(is_trusted_download_url(
+        "https://github.com/OxtailGames/FactorIA/releases/download/v0.1.3/FactorIA-windows-x64.zip"));
+    CHECK(is_trusted_download_url(
+        "https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-macos-universal.tar.gz"));
     CHECK_FALSE(is_trusted_download_url("http://dl.google.com/android/repository/x.zip"));  // not https
     CHECK_FALSE(is_trusted_download_url("https://dl.google.com.evil.example/android/repository/x.zip"));
     CHECK_FALSE(is_trusted_download_url("https://github.com/adoptium-evil/x"));

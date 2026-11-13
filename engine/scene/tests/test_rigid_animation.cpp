@@ -26,7 +26,8 @@ struct Glb {
         while (bin.size() % 4) bin.push_back(0);
         views.push_back({{"buffer", 0}, {"byteOffset", bin.size()}, {"byteLength", bytes}});
         bin.insert(bin.end(), static_cast<const std::uint8_t*>(data), static_cast<const std::uint8_t*>(data) + bytes);
-        accessors.push_back({{"bufferView", views.size() - 1}, {"componentType", componentType}, {"count", count}, {"type", type}});
+        accessors.push_back(
+            {{"bufferView", views.size() - 1}, {"componentType", componentType}, {"count", count}, {"type", type}});
         return int(accessors.size()) - 1;
     }
     int floats(const std::vector<float>& v, std::size_t comps, const char* type) {
@@ -43,7 +44,9 @@ struct Glb {
         while (js.size() % 4) js += ' ';
         std::vector<std::uint8_t> bytes2 = bin;
         while (bytes2.size() % 4) bytes2.push_back(0);
-        auto u32 = [](std::vector<std::uint8_t>& o, std::uint32_t v) { for (int i = 0; i < 4; ++i) o.push_back(std::uint8_t(v >> (8 * i))); };
+        auto u32 = [](std::vector<std::uint8_t>& o, std::uint32_t v) {
+            for (int i = 0; i < 4; ++i) o.push_back(std::uint8_t(v >> (8 * i)));
+        };
         std::vector<std::uint8_t> out;
         u32(out, 0x46546C67);
         u32(out, 2);
@@ -68,14 +71,19 @@ Json triangle_mesh(Glb& g, int joints = -1, int weights = -1) {
 }
 
 // A LINEAR animation channel: node, path, times and values.
-void add_channel(Glb& g, Json& anim, int node, const char* path, const std::vector<float>& times, const std::vector<float>& values) {
+void add_channel(Glb& g, Json& anim, int node, const char* path, const std::vector<float>& times,
+                 const std::vector<float>& values) {
     const int in = g.floats(times, 1, "SCALAR");
-    const int out = g.floats(values, std::strcmp(path, "rotation") == 0 ? 4 : 3, std::strcmp(path, "rotation") == 0 ? "VEC4" : "VEC3");
+    const int out = g.floats(values, std::strcmp(path, "rotation") == 0 ? 4 : 3,
+                             std::strcmp(path, "rotation") == 0 ? "VEC4" : "VEC3");
     anim["samplers"].push_back({{"input", in}, {"output", out}, {"interpolation", "LINEAR"}});
-    anim["channels"].push_back({{"sampler", anim["samplers"].size() - 1}, {"target", {{"node", node}, {"path", path}}}});
+    anim["channels"].push_back(
+        {{"sampler", anim["samplers"].size() - 1}, {"target", {{"node", node}, {"path", path}}}});
 }
 
-Json new_anim(const char* name) { return Json{{"name", name}, {"samplers", Json::array()}, {"channels", Json::array()}}; }
+Json new_anim(const char* name) {
+    return Json{{"name", name}, {"samplers", Json::array()}, {"channels", Json::array()}};
+}
 
 const float kQ90Z[4] = {0, 0, 0.70710678f, 0.70710678f};  // 90 degrees about Z
 
@@ -133,8 +141,9 @@ TEST_CASE("rigid: an animated mesh node with no skin is its own bone") {
     Glb g;
     Json doc;
     doc["meshes"] = Json::array({triangle_mesh(g), triangle_mesh(g)});
-    doc["nodes"] = Json::array({Json{{"name", "Body"}, {"translation", {2, 0, 0}}, {"mesh", 0}, {"children", Json::array({1})}},
-                                Json{{"name", "Head"}, {"translation", {0, 1, 0}}, {"mesh", 1}}});
+    doc["nodes"] =
+        Json::array({Json{{"name", "Body"}, {"translation", {2, 0, 0}}, {"mesh", 0}, {"children", Json::array({1})}},
+                     Json{{"name", "Head"}, {"translation", {0, 1, 0}}, {"mesh", 1}}});
     doc["scenes"] = Json::array({Json{{"nodes", Json::array({0})}}});
     Json anim = new_anim("Walk");
     add_channel(g, anim, 0, "translation", {0, 1}, {2, 0, 0, 4, 0, 0});
@@ -180,10 +189,9 @@ TEST_CASE("skins: every mesh keeps its own skin and the Animator writes one pale
     for (const Mat4& m : {ibB, Mat4::identity()}) ibm1.insert(ibm1.end(), m.m, m.m + 16);
     const int ib0 = g.floats(ibm0, 16, "MAT4"), ib1 = g.floats(ibm1, 16, "MAT4");
     doc["meshes"] = Json::array({triangle_mesh(g, j0, w), triangle_mesh(g, j1, w)});
-    doc["nodes"] = Json::array({Json{{"name", "A"}, {"children", Json::array({1})}},
-                                Json{{"name", "B"}, {"translation", {0, 1, 0}}},
-                                Json{{"name", "Skin0"}, {"mesh", 0}, {"skin", 0}},
-                                Json{{"name", "Skin1"}, {"mesh", 1}, {"skin", 1}}});
+    doc["nodes"] = Json::array(
+        {Json{{"name", "A"}, {"children", Json::array({1})}}, Json{{"name", "B"}, {"translation", {0, 1, 0}}},
+         Json{{"name", "Skin0"}, {"mesh", 0}, {"skin", 0}}, Json{{"name", "Skin1"}, {"mesh", 1}, {"skin", 1}}});
     doc["skins"] = Json::array({Json{{"joints", Json::array({0, 1})}, {"inverseBindMatrices", ib0}},
                                 Json{{"joints", Json::array({1, 0})}, {"inverseBindMatrices", ib1}}});
     doc["scenes"] = Json::array({Json{{"nodes", Json::array({0, 2, 3})}}});

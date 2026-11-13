@@ -57,13 +57,14 @@ TEST_CASE("prefab instances: every example scene with a prefab keeps its instanc
             World w;
             LoadReport report = load_scene(w, doc.value(), file);
             INFO(label << "\n" << report.summary());
-            if (!report.ok()) continue;   // the example's own validate test reports it
+            if (!report.ok()) continue;  // the example's own validate test reports it
             SaveSceneOptions keep;
             keep.prefabs = PrefabSave::Keep;
             std::vector<PrefabExpanded> expanded;
             keep.prefabsExpanded = &expanded;
             const Json first = save_scene(w, keep);
-            for (const PrefabExpanded& x : expanded) MESSAGE(label << ": '" << x.id << "' written inline: " << x.reason);
+            for (const PrefabExpanded& x : expanded)
+                MESSAGE(label << ": '" << x.id << "' written inline: " << x.reason);
             CHECK_MESSAGE(expanded.empty(), label);
             // Every instance of the file is still one (the hand-written layout, number style and key order of the file
             // are what the saver normalizes; the instances are what must not be lost).

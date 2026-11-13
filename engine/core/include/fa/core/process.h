@@ -24,22 +24,22 @@ using CancelFlag = std::atomic<bool>;
 inline bool is_cancelled(const CancelFlag* f) { return f && f->load(std::memory_order_relaxed); }
 
 struct ProcessOptions {
-    std::vector<std::string> argv;               // argv[0] is looked up in PATH if it has no separator
-    std::string workingDir;                      // empty = inherit
-    std::map<std::string, std::string> env;      // overrides added to the inherited environment
-    std::vector<std::string> unsetEnv;           // variables removed from the child environment
+    std::vector<std::string> argv;           // argv[0] is looked up in PATH if it has no separator
+    std::string workingDir;                  // empty = inherit
+    std::map<std::string, std::string> env;  // overrides added to the inherited environment
+    std::vector<std::string> unsetEnv;       // variables removed from the child environment
     // Allow-list mode. nullopt (the default) = the child inherits the whole environment of this process. A list = only the
     // variables whose names match an entry are inherited (see env_name_matches: exact names, case-insensitive on Windows, a
     // trailing '*' makes a prefix: "LC_*"); `env` is added to them and `unsetEnv` still removes. Programs that run what an AI
     // wrote (hooks, agent CLIs) use base_child_env() so signing passwords and other providers' API keys stay out of their
     // reach.
     std::optional<std::vector<std::string>> inheritEnv;
-    std::string stdinText;                       // the child's standard input (empty = no input)
-    std::function<void(std::string_view line)> onStdoutLine;   // complete lines, '\n'/'\r\n' stripped
-    std::function<void(std::string_view chunk)> onStdoutChunk; // raw bytes as they arrive (optional)
-    std::function<void(std::string_view line)> onStderrLine;   // optional
-    const CancelFlag* cancel = nullptr;          // set to true => child tree is killed
-    double timeoutSeconds = 0;                   // 0 = none
+    std::string stdinText;                                      // the child's standard input (empty = no input)
+    std::function<void(std::string_view line)> onStdoutLine;    // complete lines, '\n'/'\r\n' stripped
+    std::function<void(std::string_view chunk)> onStdoutChunk;  // raw bytes as they arrive (optional)
+    std::function<void(std::string_view line)> onStderrLine;    // optional
+    const CancelFlag* cancel = nullptr;                         // set to true => child tree is killed
+    double timeoutSeconds = 0;                                  // 0 = none
     // Called once, on the calling thread, right after the program started, with its process id (process_tree()).
     std::function<void(long long pid)> onStart;
     // Return when the program itself exits, even if a descendant it started still holds its output pipes (a background
@@ -53,12 +53,12 @@ struct ProcessOptions {
     // endWithChild still signal the whole tree (SIGTERM, SIGKILL after 2 s). Windows: does nothing (a child has no controlling
     // terminal there to begin with; its job object already ends the whole tree).
     bool newSession = false;
-    bool captureStdout = true;                   // keep stdout in ProcessResult (capped at maxCapture)
+    bool captureStdout = true;  // keep stdout in ProcessResult (capped at maxCapture)
     std::size_t maxCapture = 8u << 20;
 };
 
 struct ProcessResult {
-    int exitCode = -1;       // -1 when killed / not exited normally
+    int exitCode = -1;  // -1 when killed / not exited normally
     bool cancelled = false;
     bool timedOut = false;
     std::string stdoutText;  // if captureStdout
@@ -89,8 +89,8 @@ Result<ProcessResult> run_process(const ProcessOptions& options);
 struct ProcessEntry {
     long long pid = 0;
     long long parentPid = 0;
-    std::string name;         // the program's name ("claude", "cmake"), as short as the OS gives it
-    double cpuSeconds = -1;   // user + system CPU time used so far; -1 = the OS did not tell
+    std::string name;        // the program's name ("claude", "cmake"), as short as the OS gives it
+    double cpuSeconds = -1;  // user + system CPU time used so far; -1 = the OS did not tell
 };
 
 // The process `rootPid` and every process it started that still lives, the root first. Empty when the root is gone
