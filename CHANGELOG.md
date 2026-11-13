@@ -33,6 +33,11 @@ Older versions, one file per minor version with its patch releases: [0.24](chang
 - `PackReader::open_memory` opens a game pack from bytes in memory (the fuzz target of the pack format uses it) and gives the same errors as `open` for a damaged one.
 - A JSON number outside the range of a double (`1e999`) is now an `invalid JSON` error with a hint instead of an exception that ended the program (found by the `json` fuzz target); it affected every file the engine parses with `parse_json`.
 - JSON nested more than 256 levels deep (`kMaxJsonDepth`) is now an `invalid JSON: nesting deeper than 256 levels` error with its line and column, from `parse_json` and from the MCP server's message readers, instead of a stack overflow when the value is printed or copied (found by the fuzz targets; a 64 KB file of `[` crashed the process). Real files nest a dozen levels. `json_nesting_overflow` and `parse_json_lenient` are the checks for code that reads untrusted text with `Json::parse` directly.
+- ThreadSanitizer over the threaded tests (M93.1): the job system, background loading, the audio mixer and its streams,
+  the MCP server, platform HTTP, scripts, services, tooling and AI test programs ran clean under TSan (macOS arm64) with
+  `halt_on_error=1`; the one race found was in a test (`process: onStart gives the pid...` read a pid written by another
+  thread without synchronization) and is fixed. `tools/ci/sanitizers/tsan.supp` is the suppressions file for races inside
+  `external/` (none needed so far).
 
 ## 0.25.0
 

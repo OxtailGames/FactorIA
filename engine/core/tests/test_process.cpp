@@ -10,6 +10,7 @@
 #include <unistd.h>
 #endif
 
+#include <atomic>
 #include <chrono>
 #include <cstdlib>
 #include <filesystem>
@@ -170,7 +171,7 @@ TEST_CASE("process runner: a program still open for writing (ETXTBSY) starts onc
 TEST_CASE("process: onStart gives the pid, process_tree sees the program and what it started, and sees it end") {
     ProcessOptions po;
     po.argv = {"/bin/sh", "-c", "sleep 3 & wait"};
-    long long pid = 0;
+    std::atomic<long long> pid{0};  // written by run_process on this thread, read by the watcher thread
     std::vector<ProcessEntry> during;
     po.onStart = [&](long long p) { pid = p; };
     po.onStdoutLine = [](std::string_view) {};
