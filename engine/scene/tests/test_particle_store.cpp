@@ -92,10 +92,8 @@ TEST_CASE("particle store: a settle pass (dt 0) keeps the motion an emitter made
     em->worldSpace = true;
     em->inheritVelocity = 1.0f;
     em->speed = 0;
-    Transform* t = w.get<Transform>(e);
-    REQUIRE(t);
     w.particles().update(w, 1.0f / 60.0f);  // the emitter is seen at x = 0
-    t->position.x += 6.0f;                  // a script or a tween moves it during the next step ...
+    w.get<Transform>(e)->position.x += 6.0f;  // a script or a tween moves it during the next step ...
     w.particles().update(w, 0.0f);          // ... and the end-of-frame settle pass must not forget where it was
     w.particles().queue_burst(w, e, 1);
     w.particles().update(w, 1.0f / 60.0f);

@@ -270,6 +270,91 @@ Bench sprite_mesh_data() {
     return b;
 }
 
+// The tree of hierarchy.wide, with the 900 nodes of its middle level kept: a root, 30 children, 900 grandchildren,
+// 20000 leaves.
+struct Tree {
+    std::shared_ptr<World> world;
+    std::vector<Entity> mids;
+    std::vector<Entity> leaves;
+};
+
+std::shared_ptr<Tree> make_tree() {
+    ensure_builtin_components();
+    auto tree = std::make_shared<Tree>();
+    tree->world = std::make_shared<World>();
+    World* w = tree->world.get();
+    Rng rng(99);
+    Entity root = w->create();
+    for (int a = 0; a < 30; ++a) {
+        Entity ea = w->create();
+        w->get<Transform>(ea)->position = {float(a), 0, 0};
+        w->set_parent(ea, root);
+        for (int c = 0; c < 30; ++c) {
+            Entity ec = w->create();
+            Transform* tc = w->get<Transform>(ec);
+            tc->position = {0, float(c), 0};
+            tc->rotation = {0, 0, float(rng.next_u32() % 90)};
+            w->set_parent(ec, ea);
+            tree->mids.push_back(ec);
+            for (int d = 0; d < 22; ++d) {
+                Entity ed = w->create();
+                w->get<Transform>(ed)->position = {float(d), 1, 0};
+                w->set_parent(ed, ec);
+                tree->leaves.push_back(ed);
+            }
+        }
+    }
+    return tree;
+}
+
+Bench hierarchy_moving() {
+    Bench b;
+    b.name = "hierarchy.moving";
+    b.summary = "The tree of hierarchy.wide, 4 passes: one node of the middle level moves (a mutable Transform), then "
+                "World::world_position of its 20000 leaves is read through a const World (one change per frame)";
+    b.make = [] {
+        auto tree = make_tree();
+        Prepared p;
+        p.items = std::int64_t(tree->leaves.size()) * 4;
+        p.unit = "leaves";
+        p.run = [tree] {
+            double sum = 0;
+            const World& cw = *tree->world;
+            for (int pass = 0; pass < 4; ++pass) {
+                tree->world->get<Transform>(tree->mids[std::size_t(pass) * 37])->position.x = float(pass + 1);
+                for (Entity e : tree->leaves) sum += cw.world_position(e).x;
+            }
+            return sum;
+        };
+        return p;
+    };
+    return b;
+}
+
+Bench hierarchy_active() {
+    Bench b;
+    b.name = "hierarchy.active";
+    b.summary = "The tree of hierarchy.wide, 4 passes: one node of the middle level is switched off or on "
+                "(World::set_active), then World::active_in_hierarchy of its 20000 leaves is read";
+    b.make = [] {
+        auto tree = make_tree();
+        Prepared p;
+        p.items = std::int64_t(tree->leaves.size()) * 4;
+        p.unit = "leaves";
+        p.run = [tree] {
+            double sum = 0;
+            for (int pass = 0; pass < 4; ++pass) {
+                tree->world->set_active(tree->mids[std::size_t(pass) * 37], pass % 2 == 1);
+                const World& cw = *tree->world;
+                for (Entity e : tree->leaves) sum += cw.active_in_hierarchy(e) ? 1.0 : 0.0;
+            }
+            return sum;
+        };
+        return p;
+    };
+    return b;
+}
+
 }  // namespace
 
 void add_ecs_benches(std::vector<Bench>& out) {
@@ -284,6 +369,8 @@ void add_ecs_benches(std::vector<Bench>& out) {
 void add_hierarchy_benches(std::vector<Bench>& out) {
     out.push_back(hierarchy_deep());
     out.push_back(hierarchy_wide());
+    out.push_back(hierarchy_moving());
+    out.push_back(hierarchy_active());
 }
 
 }  // namespace fa::bench
