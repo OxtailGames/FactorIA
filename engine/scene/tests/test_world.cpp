@@ -291,6 +291,60 @@ TEST_CASE("world: active in hierarchy") {
     CHECK(w.active_in_hierarchy(c));
 }
 
+TEST_CASE("world: count and any follow entities_with through add, remove, destroy and clear") {
+    World w;
+    const TypeInfo* sprite = &World::type_of<Sprite>();
+    CHECK(w.count<Sprite>() == 0);
+    CHECK(!w.any<Sprite>());
+    CHECK(w.count(nullptr) == 0);
+    CHECK(!w.any(nullptr));
+
+    Entity a = w.create("a", "a");
+    Entity b = w.create("b", "b");
+    Entity c = w.create("c", "c");
+    w.add<Sprite>(a);
+    w.add<Sprite>(b);
+    w.add<Sprite>(c);
+    w.add<Sprite>(a);  // already there: not counted twice
+    CHECK(w.count<Sprite>() == 3);
+    CHECK(w.any<Sprite>());
+    CHECK(w.count(sprite) == w.entities_with(sprite).size());
+
+    // Removing leaves a tombstone in the pool; it is not counted.
+    w.remove<Sprite>(b);
+    CHECK(w.count<Sprite>() == 2);
+    CHECK(w.count(sprite) == w.entities_with(sprite).size());
+    w.remove<Sprite>(b);  // nothing to remove
+    CHECK(w.count<Sprite>() == 2);
+
+    // A deferred destroy still counts (as in entities_with) until flush().
+    w.destroy(a);
+    CHECK(w.count<Sprite>() == 2);
+    CHECK(w.count(sprite) == w.entities_with(sprite).size());
+    w.flush();
+    CHECK(w.count<Sprite>() == 1);
+    CHECK(w.count(sprite) == w.entities_with(sprite).size());
+    w.destroy(c);
+    w.flush();
+    CHECK(w.count<Sprite>() == 0);
+    CHECK(!w.any<Sprite>());
+
+    // Many adds and removes (the pool compacts its tombstones).
+    std::vector<Entity> many;
+    for (int i = 0; i < 500; ++i) many.push_back(w.create());
+    for (Entity e : many) w.add<Sprite>(e);
+    for (std::size_t i = 0; i < many.size(); i += 2) w.remove<Sprite>(many[i]);
+    CHECK(w.count<Sprite>() == 250);
+    CHECK(w.entities_with(sprite).size() == 250);
+
+    w.clear();
+    CHECK(w.count<Sprite>() == 0);
+    CHECK(!w.any<Sprite>());
+    w.add<Sprite>(w.create());
+    CHECK(w.count<Sprite>() == 1);
+    CHECK(w.count<Transform>() == w.entity_count());
+}
+
 TEST_CASE("world: clear resets everything") {
     World w;
     Entity e = w.create("a", "a");

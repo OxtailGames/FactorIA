@@ -80,6 +80,29 @@ Bench ecs_entities_with() {
     return b;
 }
 
+Bench ecs_count() {
+    Bench b;
+    b.name = "ecs.count";
+    b.summary = "World::count<T>() and any<T>() 200 times for a pool of 20000 and 200 times for one of 2500 (O(1), "
+                "no copy; compare ecs.entities_with)";
+    b.make = [] {
+        auto w = make_populated_world();
+        Prepared p;
+        p.items = 400;
+        p.unit = "queries";
+        p.run = [w] {
+            std::size_t n = 0;
+            for (int i = 0; i < 200; ++i) {
+                n += w->count<Sprite>() + (w->any<Sprite>() ? 1 : 0);
+                n += w->count<Collider2D>() + (w->any<Collider2D>() ? 1 : 0);
+            }
+            return double(n);
+        };
+        return p;
+    };
+    return b;
+}
+
 Bench ecs_spawn_destroy() {
     Bench b;
     b.name = "ecs.spawn_destroy";
@@ -100,10 +123,10 @@ Bench ecs_spawn_destroy() {
                 w->add<Collider2D>(e).size = {8, 8};
                 made.push_back(e);
             }
-            double sum = double(w->entities_with(&World::type_of<Sprite>()).size());
+            double sum = double(w->count<Sprite>());
             for (Entity e : made) w->destroy(e);
             w->flush();
-            return sum + double(w->entities_with(&World::type_of<Sprite>()).size());
+            return sum + double(w->count<Sprite>());
         };
         return p;
     };
@@ -191,6 +214,7 @@ Bench hierarchy_wide() {
 void add_ecs_benches(std::vector<Bench>& out) {
     out.push_back(ecs_each());
     out.push_back(ecs_entities_with());
+    out.push_back(ecs_count());
     out.push_back(ecs_spawn_destroy());
 }
 

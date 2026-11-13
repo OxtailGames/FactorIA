@@ -355,8 +355,8 @@ UiClickAim UiSystem::click_aim(const World& w, Entity e, Vec2 design, const Visu
 }
 
 void UiSystem::sync_interactables(World& w, Vec2 design, const VisualMeasure& measure) {
-    const bool anyIa = !w.entities_with(&World::type_of<Interactable>()).empty();
-    const bool anyVis = !w.entities_with(&World::type_of<InteractableVisual>()).empty();
+    const bool anyIa = w.any<Interactable>();
+    const bool anyVis = w.any<InteractableVisual>();
     if (!anyIa && !anyVis) return;
     w.each<Interactable>([&](Entity e, Interactable& ia) {
         if (!ia.enabled) ia.hovered = ia.pressed = ia.focused = false;
