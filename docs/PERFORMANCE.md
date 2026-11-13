@@ -566,3 +566,76 @@ CPU time and can make a wide step slower than on one thread; the sizes in the ta
 
 `cpuMsAvg` of `perf.measure` is the CPU time of the whole process: work moved to another thread does not lower it, it
 lowers the wall time of the frame. Compare frames per second, or `jobs.info` (how busy each thread was), to see the gain.
+
+## Microbenchmarks (`fa_bench`)
+
+The budgets above watch whole games. `fa_bench` watches the engine's own hot paths, so a change that makes the ECS, the
+hierarchy, a physics step, the renderer's gather, a command call, the script bridge or the mixer slower is found in the
+pull request that did it, not when an example later goes over its budget. It is a program of the engine's repository
+(`tools/bench/`, target `fa_bench`, built with the tools); it has its own small harness and no dependency.
+
+| Benchmark | What one run does |
+| --- | --- |
+| `ecs.each`, `ecs.entities_with`, `ecs.spawn_destroy` | `World::each` over 20000 entities (two, three and a small pool's worth of components), `World::entities_with`, creating and destroying 30000 entities |
+| `hierarchy.deep`, `hierarchy.wide` | `World::world_matrix` for every entity of a chain 400 deep, and `World::world_position` for 20000 leaves of a tree 4 levels deep |
+| `physics.step2d`, `physics.step3d` | 60 `Physics::step`s of 576 falling 2D bodies (Box2D) and 20 of 196 3D bodies (the engine's solver, which costs more per body); the scene is rebuilt before every run, because bodies fall asleep |
+| `render.frame2d`, `render.frame3d` | 8 headless frames of 5000 sprites and 120 texts, and of 1600 meshes with a sun and 4 point lights, at 640x360 |
+| `command.call` | 20000 `CommandRegistry::call`s over 300 commands with a schema, every 50th with arguments that are refused |
+| `script.native_calls`, `script.component_access`, `script.behaviours` | JS to C++ calls, component fields read and written from JS, and 30 frames of 300 behaviours |
+| `audio.mix_voices`, `audio.mix_bus_fx` | Two seconds of the software mixer with 48 looping voices (pitch and pan), without and with a low-pass and a reverb on the buses (the null device, offline) |
+
+Every input is built from a fixed seed (`fa::Rng`), so two runs do the same work (the report says when the repeats did not).
+A run takes about 10 to 110 ms (macOS, Release). The render benchmarks need a graphics context (EGL with Mesa on Linux, Metal, D3D11) and are
+skipped, with the reason, when there is none; the others need nothing.
+
+```bash
+fa_bench                            # all of them: median, spread (p75 - p25 over the median), min, max and CPU time of 9 runs
+fa_bench --filter ecs,physics.step3d   # the benchmarks whose name contains one of these words; --list shows them
+fa_bench --repeats 21 --warmup 3 --out numbers.json   # more runs; --json prints the file instead of the table
+```
+
+The job system runs inline by default (`--jobs inline`, one thread: the steadiest numbers); `--jobs auto` or `--jobs 4`
+measures the pool (big physics steps use it, see "Job threads"), and a baseline is only compared with a run made with the same
+`--jobs`. A benchmark that fails the comparison is measured up to two more times (`--retries`) and the best run counts, so a
+slow second on a shared machine does not fail it.
+
+### Baselines
+
+`tools/bench/baselines/<runner>.json` (format `factoria.bench/1`) holds the medians of one kind of machine. The runner id is
+`<os>-<compiler>`, with `-debug` at the end for a build without `NDEBUG` (no graphics part, unlike the ids above: these
+benchmarks do not measure the GPU): `linux-gcc`, `windows-msvc`, `macos-clang`. `FACTORIA_BENCH_RUNNER=name` sets your own.
+A baseline from a Mac's own CPU is not the baseline of GitHub's Linux runner, so each runner has its file, and only the
+Linux one is enforced by CI.
+
+```bash
+fa_bench --compare                # against tools/bench/baselines/<this runner>.json, found from the working directory upwards
+fa_bench --baseline other.json    # against this file
+fa_bench --update-baseline        # write (merge into) the baseline file of this runner; --filter updates one benchmark
+```
+
+The limit of a benchmark is its baseline median times a ratio, or the baseline plus a few tenths of a millisecond when that
+is more (a time under a millisecond moves by more than a ratio from one run to the next). Past the **warning** ratio (x1.4;
+x1.6 for the render benchmarks, which run a GPU driver beside the engine) the run passes and prints a warning, in CI an
+annotation; past the **fail** ratio (x2, render x2.5) `fa_bench --compare` exits with status 1 and the message names the
+benchmark, the baseline, the measured value and how to refresh the baseline. A run under 70% of the baseline passes and
+says that the baseline can be refreshed. An entry can carry its own `"warnRatio"` and `"failRatio"`; `--update-baseline`
+keeps them. The bands are wide on purpose: the check is for a regression of a half or more, which a shared machine cannot
+fake, not for a few percent.
+
+A benchmark with no entry in the baseline, a runner with no baseline file, a file of another format and a file measured with
+another `--jobs` are not failures: the comparison says so, the numbers are printed and `--out` still writes them.
+`--require-baseline` turns a missing entry into a failure.
+
+### In CI
+
+The `bench` job of `.github/workflows/ci.yml` builds `fa_bench` in Release on the Linux runner, runs it under Xvfb with
+Mesa's llvmpipe like the tests, compares with `tools/bench/baselines/linux-gcc.json` and uploads `measurements.json` and
+`comparison.json` as the artifact `bench-linux` (the job summary has the table). It is part of `CI result`. While
+`linux-gcc.json` does not exist it only warns and uploads the numbers.
+
+Refreshing a baseline is a decision, not a way to make a check pass: do it when the code got slower or faster on purpose.
+The Mac, Windows PC or runner of that baseline measures it: on your machine `fa_bench --update-baseline` from a Release
+build; for the CI runner, "Run workflow" with **benchBaselines** ticked builds nothing else and runs the `Bench baselines`
+job on Linux, Windows and macOS, whose artifacts `bench-baselines-<os>` hold the files to copy into `tools/bench/baselines/`.
+The first `linux-gcc.json` is made that way, or from the `measurements.json` of a `bench-linux` artifact (`fa_bench --out`
+writes the baseline format).

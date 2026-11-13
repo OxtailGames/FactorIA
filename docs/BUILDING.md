@@ -410,20 +410,81 @@ every race of the run and fails the test with its exit code.
   test of a sanitizer tree `ASAN_OPTIONS`, `UBSAN_OPTIONS`, `LSAN_OPTIONS` (Linux only: LeakSanitizer does not exist on
   macOS, where the runtime refuses `detect_leaks`) or `TSAN_OPTIONS`, with the suppression files of `tools/ci/sanitizers/`.
   So any `ctest` of such a tree has them, with a preset or without. A program you run by hand needs them exported.
+- **Timeouts are scaled:** instrumented code is 2-3x slower (ASan + UBSan) or 5-15x slower (TSan), so `add_test()` also
+  multiplies the `TIMEOUT` of every test by `FA_SANITIZE_TIMEOUT_FACTOR` (3 for ASan + UBSan, 5 for TSan; a CMake cache
+  variable); a test with no `TIMEOUT` gets ctest's 1500 s times the factor. The limits inside the programs are not scaled:
+  the script limits (60 s per `factoria test` test, 5 s of `script.eval`, 2 s of a callback) count CPU time of the script
+  thread, which the sanitizers slow down too, and a few tests assert wall-clock bounds (for example the 1.4 s of
+  `http_tests.cpp` for a 0.3 s request timeout). If such a test fails only in the sanitizer job, check its time first.
 - **CI:** `Linux (Clang, ASan + UBSan)` (`linux-asan`) runs the whole Debug suite under Xvfb like the `linux` job does, with
   the example games' tests off as in any Debug build. `Linux (Clang, TSan, threaded tests)` (`linux-tsan`) builds only the
   four test programs with threads and runs the tests of the CTest label `tsan`: the job system and the background reads of
   core, the jobs engine and the background loads of runtime, and all of audio and mcp. Both are part of `CI result` and run
-  when the change touches anything but docs.
-- **Suppressions policy:** `tools/ci/sanitizers/` (`asan.supp`, `lsan.supp`, `tsan.supp`, and `ubsan_ignorelist.txt`). A finding in our own code (engine, tools,
-  player, tests) is fixed, never listed, with the doctest case that catches it. A finding inside `external/`, which is never
-  edited, may be suppressed by file pattern, one entry each with the reason above it (`ubsan_ignorelist.txt`, a Clang
-  `-fsanitize-ignorelist` that compiles the listed files without the check, because the UBSan runtime ignores its
-  suppression file in a `-fno-sanitize-recover` build: Dear ImGui casts a NaN table width to an integer); `asan.supp` names an Apple system library whose own code ASan flags (CoreGraphics' PDF parser,
-  reached from the editor window's controls); LeakSanitizer suppressions name system libraries we cannot free (Mesa, X11,
-  ALSA). A suppression you add says why, in the file and in the commit.
+  when the change touches anything but docs. Each runs `sudo sysctl vm.mmap_rnd_bits=28` before the tests: the runner's kernel
+  randomizes mappings with more bits than the sanitizers' shadow memory layout supports, and the programs would not start.
+- **Suppressions policy:** `tools/ci/sanitizers/` (`asan.supp`, `lsan.supp`, `tsan.supp`, and `ubsan_ignorelist.txt`). A finding
+  in our own code (engine, tools, player, tests) is fixed, never listed, with the doctest case that catches it. A finding inside
+  `external/`, which is never edited, may be suppressed by file pattern, one entry each with the reason above it
+  (`ubsan_ignorelist.txt` is a Clang `-fsanitize-ignorelist` that compiles the listed files without the check, because the UBSan
+  runtime ignores its suppression file in a `-fno-sanitize-recover` build: Dear ImGui casts a NaN table width to an integer).
+  `asan.supp` names an Apple system library whose own code ASan flags (CoreGraphics' PDF parser, reached from the editor
+  window's controls); LeakSanitizer suppressions name system libraries we cannot free (Mesa, X11, ALSA). A suppression you add
+  says why, in the file and in the commit.
 - **Reading a report:** `llvm-symbolizer` on the `PATH` (the CI job installs `llvm`; Apple's toolchain has it) gives file
   and line in the stack. `UBSAN_OPTIONS=print_stacktrace=1` is already set.
+
+## Fuzzing
+
+`tools/fuzz/` holds the fuzz targets: each feeds arbitrary bytes to one reader of data other people wrote, and the contract
+is that every input is a result or an error, never a crash, a hang, runaway memory or undefined behaviour. The targets are
+`json` (`parse_json`), `json_schema` (`validate_json` and the schema helpers), `scene` (`load_scene`), `prefab`
+(`entity_from_json`), `pak` (`PackReader::open_memory`, the reader of `game.pak`), `mcp_jsonrpc` (`McpServer::handle_message`
+with the read-only capabilities of `factoria mcp --read-only`, over an empty temporary project) and `translations`
+(`read_csv`, `read_xliff`). Each is one `tools/fuzz/targets/<name>.cpp` that defines
+`extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t*, std::size_t)`, and a corpus folder of small seed files in
+`tools/fuzz/corpus/<name>/`.
+
+**Every build replays the corpus.** Without `FA_FUZZ` (every compiler and platform, MSVC included) each target is linked
+with a small `main()` (`tools/fuzz/replay_main.cpp`) and registered as a ctest `fuzz_<name>` with the label `fuzz`: it runs
+every file of the corpus once, so the seeds and every crash ever found stay regression tests of the normal suite
+(`ctest --test-dir build/dev -L fuzz`). The same program also mutates: `build/dev/tools/fuzz/fa_fuzz_pak --mutate 20000 --seed 3
+tools/fuzz/corpus/pak` runs 20000 deterministic mutations of the corpus files (set `FA_FUZZ_LAST_INPUT=<file>` to have each
+input written there before it runs, so the one that crashed is left behind). That is no coverage-guided fuzzing, but in a
+build with `-fsanitize=address,undefined` (AppleClang has no libFuzzer) it is a quick smoke test.
+
+**Real fuzzing needs Clang with libFuzzer** (Linux: `apt install clang libclang-rt-<version>-dev`; Apple's Clang does not
+ship libFuzzer, Homebrew's LLVM does):
+
+```bash
+cmake -S . -B build/fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DCMAKE_C_COMPILER=clang \
+      -DCMAKE_CXX_COMPILER=clang++ -DFA_FUZZ=ON -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
+cmake --build build/fuzz --target fa_fuzz_all
+tools/fuzz/run.sh build/fuzz 60            # every target, 60 s each
+tools/fuzz/run.sh build/fuzz 600 pak json  # two targets, ten minutes each
+```
+
+`FA_FUZZ` builds the whole tree with AddressSanitizer, UndefinedBehaviorSanitizer (a finding aborts) and coverage
+instrumentation, and each target as a libFuzzer program `build/fuzz/tools/fuzz/fa_fuzz_<name>`. `run.sh` runs them over a copy
+of the corpus (new inputs land in `build/fuzz/fuzz-work/<name>/`, the repository's corpus is never written) with a 20 s
+timeout per input, a 4 GB memory limit and inputs up to 64 KiB; a crash, timeout, out-of-memory or leak leaves its input in
+`build/fuzz/fuzz-crashes/` and the script exits 1 after running the other targets. CMake refuses `FA_FUZZ` with any
+compiler but Clang.
+
+**Add a target:** write `tools/fuzz/targets/<name>.cpp` (include `fuzz_support.h` for quiet logging, `fa::fuzz::fail()` and
+`fa::fuzz::empty_project()`; a target must not write outside a temporary folder, open sockets or start programs), put a few
+small seed files (a few KB in all, taken from fixtures, schemas or examples) in `tools/fuzz/corpus/<name>/`, and add
+`fa_add_fuzz_target(<name> DEPS <library>)` to `tools/fuzz/CMakeLists.txt`. The ctest, the libFuzzer program and `run.sh`
+pick it up.
+
+**Add a crash to the corpus:** reproduce it with `build/fuzz/tools/fuzz/fa_fuzz_<name> build/fuzz/fuzz-crashes/crash-<hash>`,
+shrink it with `fa_fuzz_<name> -minimize_crash=1 -runs=100000 crash-<hash>` (it writes `minimized-from-*`), fix the code,
+write the doctest for the cause in the module's `tests/` (the fix is not finished without one), and copy the minimized file
+to `tools/fuzz/corpus/<name>/` under a name that says what it is. Then `ctest -L fuzz` keeps the bug fixed on every
+platform.
+
+**CI:** the job `linux-fuzz` of `.github/workflows/ci.yml` (Clang, `FA_FUZZ=ON`, whenever code changed) runs
+`tools/fuzz/run.sh build/fuzz 60` and uploads `build/fuzz/fuzz-crashes` as the artifact `fuzz-crashes` when a target fails.
+It is part of `CI result`.
 
 ## Golden images
 
@@ -732,7 +793,9 @@ and prints the physics replay hash. `python scripts/ctest_shard.py --preset <pre
 on your machine too. The performance
 budgets have the `RUN_SERIAL` property, so `ctest` runs each of them alone and the other tests cannot skew their times.
 A newer push to the same pull request or branch cancels the older run (not a manual "Perf baselines" run
-of that ref: the event and the `perfBaselines` tick are part of the concurrency group). A `_perf` test that passes inside
+of that ref: the event and the `perfBaselines` and `benchBaselines` ticks are part of the concurrency group). The `bench`
+job builds only `fa_bench` and compares the engine's microbenchmarks with `tools/bench/baselines/linux-gcc.json`
+(docs/PERFORMANCE.md, "Microbenchmarks"). A `_perf` test that passes inside
 the warning band is invisible to ctest; the step "Performance warnings" of the Linux, Windows and macOS jobs lists those
 in the job summary (`scripts/ci-perf-warnings.sh`, docs/PERFORMANCE.md "The band").
 Each job that compiles restores a ccache and saves it again with only the entries its build used, right after the build,

@@ -22,11 +22,16 @@ on:
         description: 'Only record the examples'' performance baselines on each runner (the "Perf baselines" job); builds and tests nothing else'
         type: boolean
         default: false
+      benchBaselines:
+        description: 'Only record the microbenchmark baselines (fa_bench) on each runner (the "Bench baselines" job); builds and tests nothing else'
+        type: boolean
+        default: false
 
-# Keep only the newest run per branch or pull request. The event and the perfBaselines tick are part of the group, so a
-# manual "Perf baselines" run and a push or pull request run on the same ref do not cancel each other.
+# Keep only the newest run per branch or pull request. The event and the perfBaselines and benchBaselines ticks are part of
+# the group, so a manual "Perf baselines" or "Bench baselines" run and a push or pull request run on the same ref do not
+# cancel each other.
 concurrency:
-  group: ci-${{ github.ref }}-${{ github.event_name }}-${{ inputs.perfBaselines || false }}
+  group: ci-${{ github.ref }}-${{ github.event_name }}-${{ inputs.perfBaselines || false }}-${{ inputs.benchBaselines || false }}
   cancel-in-progress: true
 
 permissions:
@@ -49,9 +54,10 @@ jobs:
       - id: diff
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-          PERF_ONLY: ${{ github.event_name == 'workflow_dispatch' && inputs.perfBaselines }}
+          PERF_ONLY: ${{ github.event_name == 'workflow_dispatch' && (inputs.perfBaselines || inputs.benchBaselines) }}
         run: |
-          # "Run workflow" with perfBaselines ticked builds and tests nothing: only the `perf-baselines` job runs.
+          # "Run workflow" with perfBaselines ticked builds and tests nothing: only the `perf-baselines` job runs (with
+          # benchBaselines ticked, only the `bench-baselines` job).
           if [[ "$PERF_ONLY" == "true" ]]; then
             echo "Only the perf baselines run"
             { echo "code=false"; echo "mobile=false"; echo "web=false"; } >> "$GITHUB_OUTPUT"
@@ -168,7 +174,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
-    timeout-minutes: 120  # instrumented code runs 2-3x slower than the Debug build of the linux job; a cold ccache adds the build
+    timeout-minutes: 150  # instrumented code runs 2-3x slower than the Debug build of the linux job; a cold ccache adds the build
     steps:
       - uses: actions/checkout@v4
 
@@ -208,6 +214,9 @@ jobs:
           cli=$(find build/linux-asan/tools/cli -maxdepth 2 -type f \( -name factoria -o -name factoria.exe \) | head -n 1)
           test -n "$cli" || { echo "::error::factoria was not built under build/linux-asan/tools/cli"; exit 1; }
           "$cli" setup shaders
+
+      - name: Fewer ASLR bits (the sanitizers' shadow memory fails to map on the runner's newer kernels otherwise)
+        run: sudo sysctl vm.mmap_rnd_bits=28
 
       - name: Test under Xvfb (Mesa llvmpipe), ASan + UBSan + LSan
         env:
@@ -267,6 +276,9 @@ jobs:
         with:
           path: ~/.cache/ccache
           key: ccache-${{ runner.os }}-linux-tsan-${{ github.run_id }}
+
+      - name: Fewer ASLR bits (the sanitizers' shadow memory fails to map on the runner's newer kernels otherwise)
+        run: sudo sysctl vm.mmap_rnd_bits=28
 
       - name: Test under Xvfb (Mesa llvmpipe), ThreadSanitizer
         run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-tsan -L tsan --parallel 2
@@ -503,6 +515,113 @@ jobs:
             build/**/test-output/**/*.png
           if-no-files-found: ignore
           retention-days: 7
+
+  # Microbenchmarks (fa_bench, docs/PERFORMANCE.md, "Microbenchmarks"): a Release build of the benchmark program only, run
+  # under Xvfb with Mesa llvmpipe like the tests, and compared with tools/bench/baselines/<runner>.json (runner linux-gcc).
+  # A benchmark over its fail limit (x2, x2.5 for the render ones, on the median) fails the job; one in the warning band is
+  # annotated. A benchmark or a whole runner without a baseline entry only warns and the numbers are still uploaded, so the
+  # first linux-gcc.json comes from this job's artifact (or from the `bench-baselines` job below). ccache is restored from the
+  # `linux` job's newest cache and not saved here.
+  bench:
+    name: Microbenchmarks (Linux)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: ./scripts/bootstrap-linux.sh
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-linux-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-linux-
+
+      - name: Configure and build fa_bench (linux-release)
+        run: |
+          cmake --preset linux-release
+          cmake --build --preset linux-release --target fa_bench --parallel
+
+      - name: Run the microbenchmarks
+        run: |
+          mkdir -p bench-results
+          xvfb-run -a -s "-screen 0 1280x720x24" build/linux-release/tools/bench/fa_bench --compare \
+              --out bench-results/measurements.json --report bench-results/comparison.json
+
+      - name: Upload the numbers
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-linux
+          path: bench-results
+          if-no-files-found: warn
+          retention-days: 30
+
+  # Bench baselines: "Run workflow" with benchBaselines ticked (the `changes` job then skips every other job). Builds fa_bench
+  # on each runner and runs `fa_bench --update-baseline`, which merges its numbers into tools/bench/baselines/<runner>.json
+  # (linux-gcc, windows-msvc, macos-clang), uploaded as the artifact bench-baselines-<os>. Nothing is committed: copy the
+  # file into tools/bench/baselines/. Not part of `CI result`: it only runs on request.
+  bench-baselines:
+    name: Bench baselines (${{ matrix.os }})
+    if: github.event_name == 'workflow_dispatch' && inputs.benchBaselines
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: linux, runner: ubuntu-24.04, preset: linux-release }
+          - { os: windows, runner: windows-2022, preset: windows-release }
+          - { os: macos, runner: macos-latest, preset: macos-release }
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies (linux)
+        if: matrix.os == 'linux'
+        run: ./scripts/bootstrap-linux.sh
+
+      - name: Install Ninja and ccache (macos)
+        if: matrix.os == 'macos'
+        run: brew install ninja ccache
+
+      - name: Restore ccache
+        if: matrix.os != 'windows'
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ matrix.os == 'linux' && '~/.cache/ccache' || '~/Library/Caches/ccache' }}
+          key: ccache-${{ runner.os }}-${{ matrix.os }}-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-${{ matrix.os }}-
+
+      - name: Configure and build fa_bench (${{ matrix.preset }})
+        shell: bash
+        run: |
+          cmake --preset ${{ matrix.preset }}
+          cmake --build --preset ${{ matrix.preset }} --target fa_bench --parallel
+
+      - name: Measure the baseline
+        shell: bash
+        run: |
+          bench=$(find build/${{ matrix.preset }}/tools/bench -maxdepth 2 -type f \( -name fa_bench -o -name fa_bench.exe \) | head -n 1)
+          test -n "$bench" || { echo "::error::fa_bench was not built under build/${{ matrix.preset }}/tools/bench"; exit 1; }
+          if [[ "${{ matrix.os }}" == "linux" ]]; then
+            xvfb-run -a -s "-screen 0 1280x720x24" "$bench" --update-baseline
+          else
+            "$bench" --update-baseline
+          fi
+          mkdir -p bench-baselines && cp tools/bench/baselines/${{ matrix.os }}-*.json bench-baselines/
+
+      - name: Upload the baseline
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bench-baselines-${{ matrix.os }}
+          path: bench-baselines
+          if-no-files-found: warn
+          retention-days: 30
 
   # Perf baselines: "Run workflow" with perfBaselines ticked (the `changes` job then skips every other job). Builds factoria
   # the way the jobs above do and runs scripts/perf-baselines.sh on each runner: `perf.baseline` for every example scene,
@@ -1176,11 +1295,77 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+  # libFuzzer with AddressSanitizer and UBSan (Clang, -DFA_FUZZ=ON) on the data-format targets of tools/fuzz: each one runs
+  # for about a minute over a copy of its corpus (tools/fuzz/run.sh). A crash, a sanitizer report or a timeout fails the job
+  # and its input is uploaded. The ordinary builds replay the same corpus as the ctests labelled `fuzz` (docs/BUILDING.md,
+  # "Fuzzing"). Nothing here runs the editor, a GPU or the tests: only the fuzz programs are built.
+  linux-fuzz:
+    name: Fuzz (Clang, libFuzzer, ASan + UBSan)
+    needs: changes
+    if: needs.changes.outputs.code == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90  # a cold-ccache build of the engine and the tools with sanitizers, then about a minute per target
+    env:
+      FA_FUZZ_SECONDS: '60'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: ./scripts/bootstrap-linux.sh
+
+      # libFuzzer's runtime is in the compiler-rt package of the compiler's version.
+      - name: Install Clang and libFuzzer
+        run: |
+          sudo apt-get install -y clang lld
+          ver=$(clang --version | sed -n 's/.*version \([0-9]*\)\..*/\1/p' | head -n 1)
+          sudo apt-get install -y "libclang-rt-${ver}-dev"
+
+      - name: Restore ccache
+        uses: actions/cache/restore@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-linux-fuzz-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-linux-fuzz-
+
+      - name: Configure and build the fuzz targets
+        run: |
+          ccache --zero-stats
+          cmake -S . -B build/fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+              -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
+              -DFA_FUZZ=ON -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
+          cmake --build build/fuzz --target fa_fuzz_all
+          ccache --show-stats --verbose
+
+      - name: Trim ccache to what this build used
+        if: ${{ !cancelled() }}
+        run: ccache --evict-older-than 7200s
+
+      - name: Save ccache
+        if: ${{ !cancelled() }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-linux-fuzz-${{ github.run_id }}
+
+      - name: Fuzz every target
+        run: tools/fuzz/run.sh build/fuzz "$FA_FUZZ_SECONDS"
+
+      # crash-*, timeout-*, oom-* and leak-* files: `build/fuzz/tools/fuzz/fa_fuzz_<target> <file>` reproduces one; to keep it,
+      # copy it into tools/fuzz/corpus/<target>/ (docs/BUILDING.md, "Fuzzing").
+      - name: Upload the inputs that failed
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-crashes
+          path: build/fuzz/fuzz-crashes
+          if-no-files-found: ignore
+          retention-days: 14
+
   # The one check main's branch protection requires: every job that ran passed (a skipped job had nothing to check).
   result:
     name: CI result
     if: always()
-    needs: [changes, linux, linux-asan, linux-tsan, linux-sniper, windows, macos, ios-build, ios, android, android-apk, android-emulator, web]
+    needs: [changes, linux, linux-asan, linux-tsan, linux-fuzz, linux-sniper, windows, macos, bench, ios-build, ios, android, android-apk, android-emulator, web]
     runs-on: ubuntu-24.04
     permissions:
       actions: write  # gh cache delete

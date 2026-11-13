@@ -146,5 +146,8 @@ function(add_test)
     if(FA_SANITIZE AND "${ARGV0}" STREQUAL "NAME")
         fa_sanitizer_test_environment(_fa_san_env)
         set_property(TEST ${ARGV1} APPEND PROPERTY ENVIRONMENT ${_fa_san_env})
+        # Its TIMEOUT times FA_SANITIZE_TIMEOUT_FACTOR, once the directory has set it (fa_sanitizer_scale_test_timeout).
+        # (EVAL: the name has to be in the deferred call itself; a ${} in it would be read when the call runs, after this function)
+        cmake_language(EVAL CODE "cmake_language(DEFER CALL fa_sanitizer_scale_test_timeout ${ARGV1})")
     endif()
 endfunction()
