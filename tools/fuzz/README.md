@@ -10,7 +10,7 @@ looking for crashes, hangs, runaway memory and undefined behaviour. Full instruc
 | `corpus/<name>/` | small seed files of the target, and every input that ever crashed it |
 | `fuzz_support.h` | what the targets share: quiet logging, an empty project folder, `fail()` |
 | `replay_main.cpp` | the `main()` of a target in a normal build: runs each corpus file once (and `--mutate N`) |
-| `run.sh` | runs the libFuzzer programs of an `FA_FUZZ` build for N seconds each; CI uses it |
+| `run.sh` | runs the libFuzzer programs of an `FA_FUZZ` build for N seconds each; CI uses it. Exit 0: nothing found; 1: an input crashed a target (left in `fuzz-crashes/`); 2: the run itself is broken |
 | `CMakeLists.txt` | one `fa_add_fuzz_target(<name> DEPS <library>)` line per target |
 
 Targets: `json` (parse_json), `json_schema` (validate_json and the schema helpers), `scene` (load_scene), `prefab`

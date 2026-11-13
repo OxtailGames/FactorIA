@@ -448,19 +448,28 @@ tools/fuzz/run.sh build/fuzz 600 pak json  # two targets, ten minutes each
 instrumentation, and each target as a libFuzzer program `build/fuzz/tools/fuzz/fa_fuzz_<name>`. `run.sh` runs them over a copy
 of the corpus (new inputs land in `build/fuzz/fuzz-work/<name>/`, the repository's corpus is never written) with a 20 s
 timeout per input, a 4 GB memory limit and inputs up to 64 KiB; a crash, timeout, out-of-memory or leak leaves its input in
-`build/fuzz/fuzz-crashes/` and the script exits 1 after running the other targets. CMake refuses `FA_FUZZ` with any
-compiler but Clang.
+`build/fuzz/fuzz-crashes/` and the script exits 1 after running the other targets. It exits 2 when the run itself is
+broken (no program, an unknown target, a program that failed without leaving an input); that wins over 1. CI treats 1 as a
+warning with the inputs listed in the job summary and 2 as a failed job. CMake refuses `FA_FUZZ` with any compiler but
+Clang.
 
 **The decoders wrap code in `external/`** (stb_image, stb_truetype, cgltf, the Basis Universal transcoder, dr_libs,
 stb_vorbis, TinySoundFont): it is not ours to edit, so the engine validates before it calls it. The wrappers cap what a
 header can ask for (`kMaxImagePixels` for images, plus a side of at most `kMaxImageSide` for KTX2, 32 audio channels, 8 million
 reserved frames, `kMaxProceduralVertices` for a glTF once its nodes are placed), `gltf_check` runs `cgltf_validate` before
 any glTF accessor is read, and `check_font_bytes` walks the tables stb_truetype would follow (stb_truetype has no length
-parameter): it refuses table offsets, glyph offsets and `cmap` segments outside the file, a glyph that includes itself,
-composite glyphs placed by matching points, contours that do not end at rising points, a `cmap` subtable format the
-engine does not read and a font with no glyphs. Smaller checks of the same kind: a picture with no rows is an error, a KTX2
+parameter). It refuses the whole font for table offsets, glyph offsets and `cmap` segments outside the file, a `cmap`
+subtable format the engine does not read, a font with no glyphs and a glyph 0 that is itself unsafe. A format 4 `cmap`
+search header is not required to equal the specification (a few system fonts, such as Shree714.ttc, write other values):
+the check runs stb_truetype's binary search on it and refuses it only when the entries it can reach lie outside the
+subtable. What is wrong with one glyph does not condemn the font: a glyph that includes itself or nests more than 32
+levels, composite glyphs placed by matching points, contours that do not end at rising points, a last contour of a single
+point off the curve, or a composite that draws more than 20000 glyphs is listed as unsafe, `FontFace::stb_glyph` hands
+stb_truetype glyph 0 (the `.notdef` box) in its place, and everything else in the font still loads. Smaller checks of
+the same kind: a picture with no rows is an error, a KTX2
 level whose stored size differs from its unpacked size is refused before the Basis transcoder asserts on it, the comment
-header of an Ogg Vorbis file is walked before stb_vorbis allocates from its lengths (it reads them as signed), and
+header of an Ogg Vorbis file is walked before stb_vorbis allocates from its lengths (it reads them as signed; a header over
+16 MB, such as one with a huge cover picture, is refused with an error that says it is a size limit, not damage), and
 `sf2_problem` follows the index chains of a SoundFont (preset, instrument and sample numbers, zone and generator ranges)
 before TinySoundFont, which trusts them, reads it. What stays inside `external/` and is only fuzzed: the CFF outline reader
 of stb_truetype (an `.otf` with PostScript outlines; the file check covers its place in the file, not its contents), the

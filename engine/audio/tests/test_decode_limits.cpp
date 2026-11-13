@@ -99,6 +99,33 @@ TEST_CASE("decode_audio: an OGG whose comment lengths lie is refused before stb_
     CHECK_FALSE(decode_audio(cut, ".ogg").ok());
 }
 
+TEST_CASE("decode_audio: an OGG with more than 16 MB of comments says it is a size limit, not damage") {
+    const std::vector<std::uint8_t> good = read_ogg();
+    // The identification page of the real file, then 300 pages that all continue the comment packet (255 lacing values of 255
+    // bytes, so the packet never ends): about 19 MB, as a file with a huge cover picture in its tags has.
+    const char capture[] = "OggS";
+    const auto second = std::search(good.begin() + 4, good.end(), capture, capture + 4);
+    REQUIRE(second != good.end());
+    std::vector<std::uint8_t> big(good.begin(), second);
+    for (int page = 0; page < 300; ++page) {
+        std::vector<std::uint8_t> p(27 + 255 + 255 * 255, 0x41);
+        std::copy(capture, capture + 4, p.begin());
+        std::fill(p.begin() + 4, p.begin() + 26, std::uint8_t(0));
+        p[26] = 255;
+        std::fill(p.begin() + 27, p.begin() + 27 + 255, std::uint8_t(255));
+        big.insert(big.end(), p.begin(), p.end());
+    }
+    const auto clip = decode_audio(big, ".ogg");
+    REQUIRE_FALSE(clip.ok());
+    CHECK(clip.error().message.find("16 MB") != std::string::npos);
+    CHECK(clip.error().message.find("not a valid") == std::string::npos);
+    // Damage keeps its own message.
+    const std::vector<std::uint8_t> cut(good.begin(), good.begin() + std::ptrdiff_t(comment_header(good) + 9));
+    const auto damaged = decode_audio(cut, ".ogg");
+    REQUIRE_FALSE(damaged.ok());
+    CHECK(damaged.error().message.find("not a valid") != std::string::npos);
+}
+
 TEST_CASE("decode_audio: damaged OGG, MP3 and QOA are errors, empty input too") {
     const std::vector<std::uint8_t> junk(64, 0x55);
     for (const char* ext : {".wav", ".ogg", ".mp3", ".qoa"}) CHECK_FALSE(decode_audio(junk, ext).ok());
