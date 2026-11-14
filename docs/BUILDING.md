@@ -178,7 +178,7 @@ the full check before a push, `--examples-only` skips the Debug part.
 is first configured). Assertions stay on and a crash still names functions and lines. Measured on a MacBook Air M5,
 all 64 tests passing either way:
 
-| Debug flags | Full build, empty compiler cache | Debug suite (`ctest -j3`) | `tooling` test | Build tree |
+| Debug flags | Full build, empty compiler cache | Debug suite (`ctest -j3`) | `tooling` test (one process, before it was split into `tooling_1` ... `tooling_5`) | Build tree |
 |---|---|---|---|---|
 | `-g` (CMake's default) | 348 s | 414 s | 315 s | 8.0 GB |
 | `-O1 -g1` | 449 s | 188 s | 92 s | 2.6 GB |
@@ -963,9 +963,12 @@ so a new test runs in exactly one shard (the script checks that before it runs a
 physics replay hash. `python scripts/ctest_shard.py --preset <preset> --shard 1 --of 3` runs one third on your machine too.
 The `linux-asan` job is split the same way into two (`--preset linux-asan --of 2`, each shard with `ctest --parallel 4`, only
 shard 1 trims, saves and prunes the ccache, the failure artifacts are `linux-asan-test-output-1` and `-2`); its table holds the
-times of the run with all tests on one machine, measured four tests at a time. The `tooling` test took 19 of that run's 21
-minutes of testing, so the shard that holds it sets the length of the round; a second machine takes the other tests off it.
-The performance
+times of the run with all tests on one machine, measured four tests at a time. The `tooling` test, then one process, took
+19 of that run's 21 minutes of testing and so set the length of the round; it is now the five entries `tooling_1` ...
+`tooling_5` (`ctest -L tooling` runs them; `tools/common/CMakeLists.txt`, docs/ARCHITECTURE.md "Testing"), which the table
+lists with estimates (a fifth of the old time each) until a green run of the split gives real ones. With them the two
+shards are expected to take about 6.6 and 6.7 minutes of testing, and a third machine would only bring that to 5.3 (the
+longest test, `runtime`, is the floor), so two stay. The performance
 budgets have the `RUN_SERIAL` property, so `ctest` runs each of them alone and the other tests cannot skew their times.
 A newer push to the same pull request or branch cancels the older run (not a manual "Perf baselines" run
 of that ref: the event and the `perfBaselines` and `benchBaselines` ticks are part of the concurrency group). The `bench`

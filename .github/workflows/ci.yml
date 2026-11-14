@@ -195,7 +195,8 @@ jobs:
   # tools/ci/sanitizers/*.supp. Debug: the example games' tests are disabled, as in any Debug build.
   # Two machines, each builds (a warm ccache makes that quick) and runs half of the tests: scripts/ctest_shard.py gives every
   # test to exactly one shard, balanced by the times of its linux-asan table. The `tooling` test alone took 19 minutes when
-  # the whole suite ran on one machine (four tests at a time), so the shard that holds it sets the length of the round.
+  # the whole suite ran on one machine (four tests at a time), so it is now five entries (tooling_1 ... tooling_5) that
+  # the shards share.
   linux-asan:
     name: Linux (Clang, ASan + UBSan, tests ${{ matrix.shard }}/2)
     needs: changes
@@ -504,7 +505,7 @@ jobs:
       - name: Test (windows-release, shard ${{ matrix.shard }}/3)
         env:
           FA_REQUIRE_SHDC: '1'
-        # One test at a time: the software D3D11 (WARP) of the editor autotests and the tooling suite already fill the 4
+        # One test at a time: the software D3D11 (WARP) of the editor autotests and the tooling suite (tooling_1 ... tooling_5) already fill the 4
         # vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the timing-sensitive tests failed.
         run: python scripts/ctest_shard.py --preset windows-release --shard ${{ matrix.shard }} --of 3
 
