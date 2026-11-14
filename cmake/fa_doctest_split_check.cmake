@@ -81,6 +81,10 @@ if(NOT "${together}" STREQUAL "${whole}")
             math(EXPR shown "${shown} + 1")
         endif()
     endwhile()
+    # The names as doctest printed them.
+    string(REPLACE "<semicolon>" ";" report "${report}")
+    string(REPLACE "<lbracket>" "[" report "${report}")
+    string(REPLACE "<rbracket>" "]" report "${report}")
     message(FATAL_ERROR "The ctest entries do not run what ${FA_TEST_EXE} runs: ${together_count} test cases in the entries, "
         "${whole_count} in the executable. First differences:\n${report}"
         "Every test file must be in exactly one entry: fix the lists in tools/common/CMakeLists.txt.")

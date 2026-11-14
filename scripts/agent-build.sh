@@ -28,8 +28,8 @@
 # A Mac whose displays are all asleep (lid closed, or idle for longer than the display sleep time) draws no frame in any
 # window, so a test that opens one waits until its time limit (five minutes each). Those tests (ctest label `window`)
 # are left out then and listed as SKIPPED, never as passed; FA_TEST_NO_WINDOW=1 is set for the others (a test case that
-# runs a windowed program skips that step), and the job ends as `DONE INCOMPLETE`. Wake the display and run the listed
-# tests, or leave them to CI. FA_AGENT_WINDOW_TESTS=run runs them whatever the display says.
+# runs a windowed program skips that step and is listed too), and the job ends as `DONE INCOMPLETE`. Wake the display
+# and run the listed tests, or leave them to CI. FA_AGENT_WINDOW_TESTS=run runs them whatever the display says.
 #
 # Environment: FA_AGENT_JOBS (build jobs, default 8 or the CPU count), FA_AGENT_CTEST_JOBS (parallel tests, default 3:
 # some tests are timing sensitive), FA_AGENT_WAIT_S, FA_AGENT_DEBUG_FLAGS, FA_AGENT_WINDOW_TESTS. bash 3.2 (macOS) runs
@@ -249,29 +249,48 @@ build() {  # build <dir> <label> [target...]
     return $rc
 }
 
-# Status 0: every test passed. 1: a test failed or none matched. 77: none failed, but the tests that open a window
-# were left out (displays_asleep).
+# What a test run could not do without a window: window_note <label> <asleep 0|1> <tests left out> <steps skipped>.
+window_note() {
+    local label="$1" asleep="$2" tests="$3" steps="$4" note
+    note="$label: SKIPPED (not passed):"
+    if [ -n "$tests" ]; then
+        note="$note $(printf '%s\n' "$tests" | wc -w | tr -d ' ') test(s) that open a window ($tests);"
+    fi
+    if [ -n "$steps" ]; then
+        note="$note the step that runs a windowed program, in $(printf '%s\n' "$steps" | wc -w | tr -d ' ') test"
+        note="$note case(s) ($steps);"
+    fi
+    if [ "$asleep" = 1 ]; then
+        note="${note%;}. Every display of this Mac is asleep (lid closed or idle), so a window gets no frame. Wake the"
+        note="$note display and run the same tests again"
+        [ -n "$tests" ] && note="$note (the ones left out: --tests '^(${tests// /|})\$')"
+        note="$note, or say in your report that only CI runs them."
+    else
+        note="${note%;}. FA_TEST_NO_WINDOW is set in the environment: unset it and run them again."
+    fi
+    printf '%s\n' "$note"
+}
+
+# Status 0: every test passed. 1: a test failed or none matched. 77: none failed, but tests that open a window were
+# left out (displays_asleep) or a test case skipped the step that runs a windowed program (FA_TEST_NO_WINDOW).
 run_ctest() {  # run_ctest <dir> <label> <log> <ctest arguments...>
     local dir="$1" label="$2" log="$3"; shift 3
-    local t0=$SECONDS rc=0 disabled skipped="" skipped_n=0 skipped_note=""
+    local t0=$SECONDS rc=0 disabled asleep=0 skipped="" steps=""
     set_phase "$label" "$log"
     if displays_asleep; then
+        # No window gets a frame. The tests that open one (label `window`) are left out; a test case of another test
+        # that runs a windowed program skips that step and says so (FA_TEST_NO_WINDOW), which is counted below.
+        asleep=1
+        export FA_TEST_NO_WINDOW=1
         skipped="$(ctest --test-dir "$dir" -N "$@" -L '^window$' 2>/dev/null | sed -n 's/^ *Test *#[0-9]*: *//p' |
             tr '\n' ' ' | sed 's/ *$//')"
-    fi
-    if [ -n "$skipped" ]; then
-        skipped_n="$(printf '%s\n' "$skipped" | wc -w | tr -d ' ')"
-        skipped_note="$label: SKIPPED (not passed) $skipped_n test(s) that open a window: $skipped. Every display"
-        skipped_note="$skipped_note of this Mac is asleep (lid closed or idle), so a window gets no frame; a test"
-        skipped_note="$skipped_note case that runs a windowed program skipped that step too (FA_TEST_NO_WINDOW). Wake"
-        skipped_note="$skipped_note the display and run them (--tests '^(${skipped// /|})\$'), or say in your report"
-        skipped_note="$skipped_note that only CI runs them."
-        set -- "$@" -LE '^window$'
-        export FA_TEST_NO_WINDOW=1
-        if ctest --test-dir "$dir" -N "$@" 2>/dev/null | grep -q '^Total Tests: 0$'; then
-            : > "$log"
-            say "$skipped_note"
-            return 77
+        if [ -n "$skipped" ]; then
+            set -- "$@" -LE '^window$'
+            if ctest --test-dir "$dir" -N "$@" 2>/dev/null | grep -q '^Total Tests: 0$'; then
+                : > "$log"
+                say "$(window_note "$label" 1 "$skipped" "")"
+                return 77
+            fi
         fi
     fi
     with_display ctest --test-dir "$dir" --output-on-failure "$@" > "$log" 2>&1 || rc=$?
@@ -321,13 +340,19 @@ run_ctest() {  # run_ctest <dir> <label> <log> <ctest arguments...>
         say "$label: FAILED: no test matches (the names: ctest --test-dir $dir -N)"
         return 1
     fi
-    [ -n "$skipped" ] && say "$skipped_note"
+    if [ -n "${FA_TEST_NO_WINDOW:-}" ]; then
+        # ctest keeps what every test printed, the passing ones too: the places (file:line) where a test case said it
+        # skipped its windowed step.
+        steps="$(grep -o '[^/\\ ]*:[0-9]*: MESSAGE: FA_TEST_NO_WINDOW is set' "$dir/Testing/Temporary/LastTest.log" \
+            2>/dev/null | sed 's/: MESSAGE: .*//' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+    fi
+    [ -n "$skipped$steps" ] && say "$(window_note "$label" $asleep "$skipped" "$steps")"
     if [ $rc -ne 0 ]; then
         say "$label: FAILED ($((SECONDS - t0)) s). Full log: $log"
         return 1
     fi
-    if [ -n "$skipped" ]; then
-        say "$label: the other tests passed ($((SECONDS - t0)) s)"
+    if [ -n "$skipped$steps" ]; then
+        say "$label: everything else passed ($((SECONDS - t0)) s)"
         return 77
     fi
     say "$label: ok ($((SECONDS - t0)) s)"
@@ -400,7 +425,7 @@ report() {  # report <seconds to wait>
         cat "$OUT_FILE" 2>/dev/null
         case "$(cat "$RC_FILE")" in
             0)  echo "agent-build: DONE ok"; exit 0 ;;
-            77) echo "agent-build: DONE INCOMPLETE (nothing failed, but the tests listed as SKIPPED did not run)"
+            77) echo "agent-build: DONE INCOMPLETE (nothing failed, but what is listed as SKIPPED did not run)"
                 exit 77 ;;
         esac
         echo "agent-build: DONE FAILED"
