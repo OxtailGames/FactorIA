@@ -6,44 +6,49 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 
 ## Unreleased
 
-- 3D physics at scale (M94.4, summary of the 3D physics entries below): a world of a thousand bodies steps in the time of
-  the bodies that are awake and near each other. The solver has a broad phase (a dynamic tree of boxes), contacts are
+- Script fixes (M94): setting a vector field from an object whose getter throws (`entity.get('Transform').position =
+  {get 0() { throw ... }}`) now throws that error and writes nothing (it used to return with the exception pending); a
+  range bound in an array field's error reads with every digit that matters (`0.00001`, not `0`); `null` is refused on
+  an array field both in JSON and from a script, with the message that names the field and what it takes.
+- 3D physics at scale (M94.4, summary of the 3D physics entries below): a world of a thousand bodies steps in the time
+  of the bodies that are awake and near each other. The solver has a broad phase (a dynamic tree of boxes), contacts are
   manifolds of up to four points, soft contacts let columns of 100 boxes and piles of 1000 shapes stand still and fall
   asleep, sleeping bodies are out of the solver, scene queries use the tree, and heightfields are terrain. Final polish
-  (M94.4g): the step reuses its working vectors (a settled step makes a fixed number of allocations that does not grow with the bodies, and
-  `physics.step3d_mostly_asleep` went from 4.6 to 3.0 ms), the contact-event and wake-up queries use a wider margin for
-  turning bodies, a moved platform carries its riders before the first tree query, a body that creeps without resting on
-  anything no longer counts as a straggler, and the pair scans run on the job threads from 256 rows instead of 64 (with
-  fewer, the jobs cost more than they save: 196 bodies took 12.5 ms against 9.2 per 20 steps). Results are unchanged
-  (the determinism hashes did not move); new tests cover a static body moved by hand, deleting and renumbering bodies with
-  sleeping pairs, a reused entity slot, layers changed at run time and the allocations of a step.
+  (M94.4g): the step reuses its working vectors (a settled step makes a fixed number of allocations that does not grow
+  with the bodies, and `physics.step3d_mostly_asleep` went from 4.6 to 3.0 ms), the contact-event and wake-up queries
+  use a wider margin for turning bodies, a moved platform carries its riders before the first tree query, a body that
+  creeps without resting on anything no longer counts as a straggler, and the pair scans run on the job threads from 256
+  rows instead of 64 (with fewer, the jobs cost more than they save: 196 bodies took 12.5 ms against 9.2 per 20 steps).
+  Results are unchanged (the determinism hashes did not move); new tests cover a static body moved by hand, deleting and
+  renumbering bodies with sleeping pairs, a reused entity slot, layers changed at run time and the allocations of a
+  step.
 - 3D heightfield colliders (M94.4f): a `Collider3D` with shape `heightfield` plus a `Heightfield3D` component (`rows` x
-  `columns` samples, `cellSize`, `heightScale`, `heightOffset`, `heights` as a plain array of numbers row by row, `holes`
-  as one 0 or 1 per cell) is static terrain, the data a terrain editor can write later. Spheres, capsules, boxes and convex
-  bodies rest, roll, slide and sleep on it with up to four contact points for a box, and a ball sliding over the seams
-  between triangles does not bump (a contact on an edge or corner only counts when its normal lies between those of the
-  triangles that meet there). A hole cell has no collision: a body over it falls and one beside it is held. Only the cells
-  under the other body's bounds are tested. `raycast3d`, `raycast3dAll` (the ray walks the grid cell by cell),
-  `shapeCast`, `overlapSphere`, `isTouching` and `moveCharacter` work on it and go through the broad phase's tree like any
-  collider. Editing the `heights` or `holes` array (assigning it again from a script, a brush, a bulk write) updates only
-  the samples that differ, in a time that follows the edit and not the size of the grid (one sample of a 1025 x 1025 field: about
-  0.003 ms), and wakes only the sleeping bodies near it. A grid that cannot be used (wrong array length, a sample that
-  is not a number, fewer than 2 rows or columns, a heightfield on a moving body, no `Heightfield3D`) is reported once with
-  how to fix it and has no collider. The NavMesh bake sees the field as ground. New `fa_bench` entries
-  `physics.heightfield_step` (200 bodies on 256 x 256 samples) and `physics.heightfield_edit`. Ride-along: the end-of-step
-  cover of the broad phase walks only the awake bodies (`physics.step3d_mostly_asleep` 4.64 -> 4.61 ms, within noise).
-  The ground is solid 8 m deep: a body that ends up wholly under a solid cell (the terrain was raised under it in one edit,
-  or it was put there) within 8 m of the surface is pushed back up; under a hole cell, outside the grid or deeper it keeps
-  falling. The collider's bounds reach 8 m below its lowest sample for that.
-- Typed arrays (`ArrayI32`, `ArrayF32`, `ArrayU8`) track changes per consumer (M94.4f fix): `dirty_since(seen, begin, end)`
-  replaces `dirty_begin()`, `dirty_end()`, `has_dirty()` and `acknowledge()`. The array remembers its last 8 writes, every
-  consumer keeps the version it last read, and false means "compare everything", so two readers (physics and a renderer or
-  a nav cache) never hide an edit from each other. Engine C++ only: scripts and files are unchanged.
-- 3D scene queries use the broad phase's tree (M94.4c2): `physics.raycast3d`, `raycast3dAll`, `shapeCast`, `overlapSphere`,
-  `isTouching` (3D) and `moveCharacter` no longer test every body. A ray walks the tree nearest first and is
-  cut at the best hit so far; the other queries test only the bodies near the query's box. The answers are the same as
-  before (same hit, same order of equal distances; a randomized test compares both with sleeping, static, trigger,
-  disabled and just-spawned or just-teleported bodies). New `fa_bench` entries `physics.raycast3d_1000` and
+  `columns` samples, `cellSize`, `heightScale`, `heightOffset`, `heights` as a plain array of numbers row by row,
+  `holes` as one 0 or 1 per cell) is static terrain, the data a terrain editor can write later. Spheres, capsules, boxes
+  and convex bodies rest, roll, slide and sleep on it with up to four contact points for a box, and a ball sliding over
+  the seams between triangles does not bump (a contact on an edge or corner only counts when its normal lies between
+  those of the triangles that meet there). A hole cell has no collision: a body over it falls and one beside it is held.
+  Only the cells under the other body's bounds are tested. `raycast3d`, `raycast3dAll` (the ray walks the grid cell by
+  cell), `shapeCast`, `overlapSphere`, `isTouching` and `moveCharacter` work on it and go through the broad phase's tree
+  like any collider. Editing the `heights` or `holes` array (assigning it again from a script, a brush, a bulk write)
+  updates only the samples that differ, in a time that follows the edit and not the size of the grid (one sample of a
+  1025 x 1025 field: about 0.003 ms), and wakes only the sleeping bodies near it. A grid that cannot be used (wrong
+  array length, a sample that is not a number, fewer than 2 rows or columns, a heightfield on a moving body, no
+  `Heightfield3D`) is reported once with how to fix it and has no collider. The NavMesh bake sees the field as ground.
+  New `fa_bench` entries `physics.heightfield_step` (200 bodies on 256 x 256 samples) and `physics.heightfield_edit`.
+  Ride-along: the end-of-step cover of the broad phase walks only the awake bodies (`physics.step3d_mostly_asleep` 4.64
+  -> 4.61 ms, within noise). The ground is solid 8 m deep: a body that ends up wholly under a solid cell (the terrain
+  was raised under it in one edit, or it was put there) within 8 m of the surface is pushed back up; under a hole cell,
+  outside the grid or deeper it keeps falling. The collider's bounds reach 8 m below its lowest sample for that.
+- Typed arrays (`ArrayI32`, `ArrayF32`, `ArrayU8`) track changes per consumer (M94.4f fix): `dirty_since(seen, begin,
+  end)` replaces `dirty_begin()`, `dirty_end()`, `has_dirty()` and `acknowledge()`. The array remembers its last 8
+  writes, every consumer keeps the version it last read, and false means "compare everything", so two readers (physics
+  and a renderer or a nav cache) never hide an edit from each other. Engine C++ only: scripts and files are unchanged.
+- 3D scene queries use the broad phase's tree (M94.4c2): `physics.raycast3d`, `raycast3dAll`, `shapeCast`,
+  `overlapSphere`, `isTouching` (3D) and `moveCharacter` no longer test every body. A ray walks the tree nearest first
+  and is cut at the best hit so far; the other queries test only the bodies near the query's box. The answers are the
+  same as before (same hit, same order of equal distances; a randomized test compares both with sleeping, static,
+  trigger, disabled and just-spawned or just-teleported bodies). New `fa_bench` entries `physics.raycast3d_1000` and
   `physics.overlap3d_1000`.
 - 3D physics: bodies asleep cost almost nothing while others are awake (M94.4e). The solver walks lists of the awake
   bodies in every stage and skips pairs of two bodies at rest (their contact state is kept aside and comes back when a
@@ -59,26 +64,50 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 - `Sprite.vertexOffsets`, `Sprite.vertexColors` and `SpriteSkin.bindPose` are float arrays (`fa::ArrayF32`) instead of
   `Json` (M94.2d): the JSON on disk is the same flat list of numbers, a script reads a `Float32Array`, and the renderer,
   `entity.bounds()` and the skinning read floats instead of walking JSON values for every deformable sprite every frame
-  (new `fa_bench` entry `sprite.mesh_data`). One difference: an element that is not a number (`"x"`, `null`) used to count
-  as 0 (offsets), 1 (colours) or left the skin unbound; it is now a load error that names the element's index, and
+  (new `fa_bench` entry `sprite.mesh_data`). One difference: an element that is not a number (`"x"`, `null`) used to
+  count as 0 (offsets), 1 (colours) or left the skin unbound; it is now a load error that names the element's index, and
   `null` for the whole field (`"vertexColors": null`) is refused too: write `[]` for none.
-- Hierarchy cache (M94.1c): `World::world_matrix`, `world_position`, `drawn_matrix` and `active_in_hierarchy` keep their result per entity and recompute only what a write dropped, instead of walking every ancestor on every call; `pending_destroy` is O(1). Any mutable access invalidates: the non-const `get`/`get<Transform>`/`get<EntityInfo>`, `add`, `info`, `each` over Transform or EntityInfo, `set_parent`, `set_active`, `set_world_position`, so scripts, reflection, commands, the inspector and animation need no code of their own; a write drops the entity and what hangs below it. Code that only reads must use the const `get` / `std::as_const(world)` (a read through a mutable reference counts as a write; the script bridge's `transform.x` reads and `getName`/`getTags`/`getActive` now do). A `Transform&` kept from an earlier `get` and written after a `world_matrix` read is not seen: get it again after the read (docs/ARCHITECTURE.md, "The hierarchy cache"). Jobs may read the cache at the same time (the fill is lock-protected). `World::hierarchy_version()` counts the writes that dropped a valid entry (not each entry of the subtree below it). The world matrix is now the product taken from the root down (`parent_world * local`), which can differ in the last bit from earlier versions at depth 2 or more; the state hash does not read matrices and replays are unchanged. A randomized test compares the cache bit for bit with the plain calculation through every write path. `fa_bench` on macOS, Release, median: `hierarchy.deep` 32.9 ms -> 0.006 ms, `hierarchy.wide` 22.6 -> 0.21 ms, new `hierarchy.moving` (one subtree moved per pass) 43.2 -> 0.4 ms and `hierarchy.active` 1.03 -> 0.15 ms; `ecs.each` and `ecs.spawn_destroy` stay where they were.
+- Hierarchy cache (M94.1c): `World::world_matrix`, `world_position`, `drawn_matrix` and `active_in_hierarchy` keep their
+  result per entity and recompute only what a write dropped, instead of walking every ancestor on every call;
+  `pending_destroy` is O(1). Any mutable access invalidates: the non-const `get`/`get<Transform>`/`get<EntityInfo>`,
+  `add`, `info`, `each` over Transform or EntityInfo, `set_parent`, `set_active`, `set_world_position`, so scripts,
+  reflection, commands, the inspector and animation need no code of their own; a write drops the entity and what hangs
+  below it. Code that only reads must use the const `get` / `std::as_const(world)` (a read through a mutable reference
+  counts as a write; the script bridge's `transform.x` reads and `getName`/`getTags`/`getActive` now do). A `Transform&`
+  kept from an earlier `get` and written after a `world_matrix` read is not seen: get it again after the read
+  (docs/ARCHITECTURE.md, "The hierarchy cache"). Jobs may read the cache at the same time (the fill is lock-protected).
+  `World::hierarchy_version()` counts the writes that dropped a valid entry (not each entry of the subtree below it).
+  The world matrix is now the product taken from the root down (`parent_world * local`), which can differ in the last
+  bit from earlier versions at depth 2 or more; the state hash does not read matrices and replays are unchanged. A
+  randomized test compares the cache bit for bit with the plain calculation through every write path. `fa_bench` on
+  macOS, Release, median: `hierarchy.deep` 32.9 ms -> 0.006 ms, `hierarchy.wide` 22.6 -> 0.21 ms, new `hierarchy.moving`
+  (one subtree moved per pass) 43.2 -> 0.4 ms and `hierarchy.active` 1.03 -> 0.15 ms; `ecs.each` and `ecs.spawn_destroy`
+  stay where they were.
 - Navigation: a path query whose goal is in another connected area (a walled-in room, an island, a passage closed by a
   moving obstacle) fails at once from reachability labels instead of running A* over the whole map (M94.5a). The labels
   follow moving obstacles, walkable bodies and links, and are recomputed only after a search has failed since the last
   change; the answers, `closest` included, are the same bits as before (a randomized test compares both paths). New
   `fa_bench` entries `nav.unreachable` and `nav.unreachable_astar`. A failed query answered from the labels keeps them
-  being recomputed, so an obstacle that moves every frame while queries fail has its labels every frame (and does not run
-  A* every other frame); the labels cost 5 bytes a span, and a failing query is answered from the labels without running A* over the whole map.
-- `World::each<A, B, ...>` walks the pool with the fewest owners in place, instead of copying the first type's owner list and looking the others up for each entity: `each<Sprite, Collider2D>` costs what the colliders cost. With several types the order is therefore the smallest pool's insertion order, not always the first type's (use `entities_with(type)` when one type's order matters; no engine system depends on it). Adding or removing components of any type (the walked one too), `destroy()` and a nested `each` over the same type stay safe inside the callback; the pool holds its compaction back until the walk ends. Entities that gain the walked component during the walk are not visited. The UI autosize, camera lookup, `vfx.list`, `anim.list`, bone and IK2D loops use it.
-- `World::count<T>()` / `any<T>()` (and `count(type)` / `any(type)`) answer "how many / is there any entity with this component" in O(1) from the pool, instead of copying every owner with `entities_with(...).size()`; the UI, 2D render and validation checks use them.
+  being recomputed, so an obstacle that moves every frame while queries fail has its labels every frame (and does not
+  run A* every other frame); the labels cost 5 bytes a span, and a failing query is answered from the labels without
+  running A* over the whole map.
+- `World::each<A, B, ...>` walks the pool with the fewest owners in place, instead of copying the first type's owner
+  list and looking the others up for each entity: `each<Sprite, Collider2D>` costs what the colliders cost. With several
+  types the order is therefore the smallest pool's insertion order, not always the first type's (use
+  `entities_with(type)` when one type's order matters; no engine system depends on it). Adding or removing components of
+  any type (the walked one too), `destroy()` and a nested `each` over the same type stay safe inside the callback; the
+  pool holds its compaction back until the walk ends. Entities that gain the walked component during the walk are not
+  visited. The UI autosize, camera lookup, `vfx.list`, `anim.list`, bone and IK2D loops use it.
+- `World::count<T>()` / `any<T>()` (and `count(type)` / `any(type)`) answer "how many / is there any entity with this
+  component" in O(1) from the pool, instead of copying every owner with `entities_with(...).size()`; the UI, 2D render
+  and validation checks use them.
 - Command arguments are checked against a schema compiled at registration (M94.3a): `fa::CompiledSchema`
-  (core/json_schema.h) resolves the `$ref`s, reads the keywords, collects the defaults and compiles each `pattern` once, and
-  `CommandRegistry::call` uses it instead of walking the JSON schema on every call; it also copies the arguments only when
-  it has to remove `_meta` or fill defaults. The errors are the same, byte for byte (the tests and the `json_schema` fuzz
-  target compare both paths). The validator's depth limit of 64 levels is exact now: a schema position that
-  holds a value that is not a schema (for example `"properties": {"a": "string"}`) used to lower the depth counter by one
-  for the rest of the validation.
+  (core/json_schema.h) resolves the `$ref`s, reads the keywords, collects the defaults and compiles each `pattern` once,
+  and `CommandRegistry::call` uses it instead of walking the JSON schema on every call; it also copies the arguments
+  only when it has to remove `_meta` or fill defaults. The errors are the same, byte for byte (the tests and the
+  `json_schema` fuzz target compare both paths). The validator's depth limit of 64 levels is exact now: a schema
+  position that holds a value that is not a schema (for example `"properties": {"a": "string"}`) used to lower the depth
+  counter by one for the rest of the validation.
 - Component fields can now be typed number arrays (`FieldKind::ArrayI32`, `ArrayF32`, `ArrayU8`, C++ `fa::ArrayI32`
   etc. in `core/typed_array.h`): the JSON on disk is a flat array of numbers, in memory it is contiguous and counts its
   writes (`version()` and a dirty index range, so a system rebuilds only what changed), and in scripts it reads as an
@@ -94,52 +123,55 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   Polish (M94): a wait drops the queue entry of the job it took (with 0 workers every job a wait ran stayed allocated
   until the frame end), `Owner::wait` scans the queues under their locks without copying their entries, a worker told
   that a job is queued that it cannot find naps after 64 looks instead of yielding for as long as it takes, and the
-  `jobs.tiny`, `jobs.graph`, `jobs.nested_wait` and `jobs.main_queue` benchmarks do two to three times the work per run, so a run lasts a few milliseconds.
+  `jobs.tiny`, `jobs.graph`, `jobs.nested_wait` and `jobs.main_queue` benchmarks do two to three times the work per run,
+  so a run lasts a few milliseconds.
 - Script component access is cheaper (M94.3b): `entity.get("Sprite")`, `entity.transform` and `entity.position` give the
   same view object every time (kept on the entity's JS object; a view is only a handle, so it never goes stale: after
-  `remove` or `destroy` its fields still throw the same teaching errors), a view no longer sits behind a Proxy (the fields
-  are accessors with their index fixed once per type, and only a name that does not exist reaches the Proxy that says
-  "did you mean"), the views of vector and colour fields are kept too, and `entity.get` asks the engine for the
+  `remove` or `destroy` its fields still throw the same teaching errors), a view no longer sits behind a Proxy (the
+  fields are accessors with their index fixed once per type, and only a name that does not exist reaches the Proxy that
+  says "did you mean"), the views of vector and colour fields are kept too, and `entity.get` asks the engine for the
   component by type index instead of by name. `Object.keys`, spread, JSON and the debugger's variables show the same
-  fields as before. New benchmarks `script.field_read`, `script.field_write` and `script.component_get`. Measured
-  before and after on the same loaded MacBook (Release, two A/B runs each, medians in ms): 100000 field reads 13 -> 8.7,
-  100000 field writes 18 -> 10.6, 40000 `entity.get` + read 29 -> 17, 10000 entity passes of `script.component_access`
-  43 -> 17 and 300 behaviours for 30 frames (`script.behaviours`) 42.5 -> 30.3.
+  fields as before. New benchmarks `script.field_read`, `script.field_write` and `script.component_get`. Measured before
+  and after on the same loaded MacBook (Release, two A/B runs each, medians in ms): 100000 field reads 13 -> 8.7, 100000
+  field writes 18 -> 10.6, 40000 `entity.get` + read 29 -> 17, 10000 entity passes of `script.component_access` 43 -> 17
+  and 300 behaviours for 30 frames (`script.behaviours`) 42.5 -> 30.3.
 - Polish of the ECS, the typed arrays and the script bridge (M94.P1): the script bridge's `name`, `tags`, `addTag`,
   `removeTag` and `spawn` flag writes no longer drop the hierarchy cache (only a write that can move or hide an entity
-  does); `drawn_matrix` allocates nothing for a chain up to 32 levels (and is `world_matrix` when no game feel pose is on its chain); the SpriteAnimator
-  step walks the animators in their own insertion order whatever the number of sprites (the order of its `clipEnded`
-  events no longer depends on the counts); `Object.keys(entity)`, a spread and the member list of a "did you mean" no longer show
-  the private `$h` and `$v`, an entity's view cache is a dense array, and `view.$type = x` says it is read-only. A script
-  writing a sparse `new Array(1 << 24)` into an array field fails at its first hole without allocating 64 MiB, and the
-  range of a float array field is printed as written (`0.1 to 0.3`). A schema nested deeper than 64 levels (a command
-  registered from JavaScript) compiles with the deep part unchecked instead of using the native stack, and the defaults
-  of a compiled schema are found in linear time. A mutable `data()` of an empty typed array is no write. `fa_bench`:
-  `ecs.entities_with` and `ecs.count` run 20000 rounds of four calls (80000 queries) for a stable median, new `script.first_views`.
+  does); `drawn_matrix` allocates nothing for a chain up to 32 levels (and is `world_matrix` when no game feel pose is
+  on its chain); the SpriteAnimator step walks the animators in their own insertion order whatever the number of sprites
+  (the order of its `clipEnded` events no longer depends on the counts); `Object.keys(entity)`, a spread and the member
+  list of a "did you mean" no longer show the private `$h` and `$v`, an entity's view cache is a dense array, and
+  `view.$type = x` says it is read-only. A script writing a sparse `new Array(1 << 24)` into an array field fails at its
+  first hole without allocating 64 MiB, and the range of a float array field is printed as written (`0.1 to 0.3`). A
+  schema nested deeper than 64 levels (a command registered from JavaScript) compiles with the deep part unchecked
+  instead of using the native stack, and the defaults of a compiled schema are found in linear time. A mutable `data()`
+  of an empty typed array is no write. `fa_bench`: `ecs.entities_with` and `ecs.count` run 20000 rounds of four calls
+  (80000 queries) for a stable median, new `script.first_views`.
 - 3D physics: contact manifolds with several persistent points (M94.4d). Two boxes in face contact are clipped (the
-  incident face against the side planes of the reference face) and touch in up to 4 points, reduced in a way that depends
-  only on the geometry; two crossing edges give one point. A box on a mesh or a static box has one point per low corner, a
-  capsule lying on a surface or on another capsule two (one per end). Every point carries the id of its feature (a corner of
-  the clipped face, an end of a capsule), and the warm start gives each point the impulses its id carried in the previous
-  sub-step, so the load stays at the right corner while a box slides or turns. The position pass is per point and also turns
-  a tilted body back flat (it only translated the pair before). A block of 100 boxes (5 x 5 x 4) falls asleep after
-  40 steps (it was still moving after 600); tall stacks are fixed by the next entry.
-- 3D physics: tall stacks and big piles stand still and fall asleep (M94.4h). The contacts are soft (Box2D v3's soft step:
-  a 60 Hz spring with damping ratio 10 per contact, push-out at up to 3 m/s before the sub-step's motion, a relax pass
-  after it), and the points of one manifold are solved together (all from the same velocities, each update scaled by the
-  manifold's coupling), so the result no longer leans a stack toward the first corner of its manifolds. A soft contact sags
-  under load by weight / stiffness (about 1.5 cm per joint at the bottom of a column of 100 boxes, 0.8% of its height). A
-  column of 100 boxes (spacing 1.02) stands and sleeps after 240 steps, one of 50 after 140 (neither leans: drift 0.000),
-  and a walled pit of 1000 spheres, capsules and boxes is asleep after about 1600 steps (the scale tests no longer
-  `may_fail`). Three more changes made the pit sleep: a slow rotating body pressed against another dynamic body loses
-  speed (`kRestDamping`), so a capsule rolling on a pile stops (a body alone on the ground keeps its motion); a pile of N bodies may fall asleep with up to N / 64 of them still creeping slower
-  than 0.3 m/s (a pile of a thousand never stops completely); and a capsule no longer wakes itself every step (the
-  signature that detects an edited collider compared its length exactly, and it wobbles in the last bits while the capsule
-  turns a hair, which reset its sleep timer). A world with nothing awake skips the sub-steps and the broad phase (unless gameplay created or teleported a static or
-  kinematic body in that step, which wakes the pile it lands in): a step of
-  the sleeping pit costs 0.4 ms (it cost 16 ms). `FA_PHYSICS_REPLAY_HASH` and the `physics3d` hash of
-  `tools/cli/tests/determinism_expected.txt` changed on purpose (the same inline and with 1, 2, 4 and 8 job threads); the
-  examples' graphics hashes and perf budgets did not. Measured (Release, macOS, medians in ms, before / after):
+  incident face against the side planes of the reference face) and touch in up to 4 points, reduced in a way that
+  depends only on the geometry; two crossing edges give one point. A box on a mesh or a static box has one point per low
+  corner, a capsule lying on a surface or on another capsule two (one per end). Every point carries the id of its
+  feature (a corner of the clipped face, an end of a capsule), and the warm start gives each point the impulses its id
+  carried in the previous sub-step, so the load stays at the right corner while a box slides or turns. The position pass
+  is per point and also turns a tilted body back flat (it only translated the pair before). A block of 100 boxes (5 x 5
+  x 4) falls asleep after 40 steps (it was still moving after 600); tall stacks are fixed by the next entry.
+- 3D physics: tall stacks and big piles stand still and fall asleep (M94.4h). The contacts are soft (Box2D v3's soft
+  step: a 60 Hz spring with damping ratio 10 per contact, push-out at up to 3 m/s before the sub-step's motion, a relax
+  pass after it), and the points of one manifold are solved together (all from the same velocities, each update scaled
+  by the manifold's coupling), so the result no longer leans a stack toward the first corner of its manifolds. A soft
+  contact sags under load by weight / stiffness (about 1.5 cm per joint at the bottom of a column of 100 boxes, 0.8% of
+  its height). A column of 100 boxes (spacing 1.02) stands and sleeps after 240 steps, one of 50 after 140 (neither
+  leans: drift 0.000), and a walled pit of 1000 spheres, capsules and boxes is asleep after about 1600 steps (the scale
+  tests no longer `may_fail`). Three more changes made the pit sleep: a slow rotating body pressed against another
+  dynamic body loses speed (`kRestDamping`), so a capsule rolling on a pile stops (a body alone on the ground keeps its
+  motion); a pile of N bodies may fall asleep with up to N / 64 of them still creeping slower than 0.3 m/s (a pile of a
+  thousand never stops completely); and a capsule no longer wakes itself every step (the signature that detects an
+  edited collider compared its length exactly, and it wobbles in the last bits while the capsule turns a hair, which
+  reset its sleep timer). A world with nothing awake skips the sub-steps and the broad phase (unless gameplay created or
+  teleported a static or kinematic body in that step, which wakes the pile it lands in): a step of the sleeping pit
+  costs 0.4 ms (it cost 16 ms). `FA_PHYSICS_REPLAY_HASH` and the `physics3d` hash of
+  `tools/cli/tests/determinism_expected.txt` changed on purpose (the same inline and with 1, 2, 4 and 8 job threads);
+  the examples' graphics hashes and perf budgets did not. Measured (Release, macOS, medians in ms, before / after):
   `physics.step3d` 12.8 / 12.5, `physics.step3d_1000` 100.6 / 100.2, `physics.step3d_stack100` 52.7 / 16.8.
 - 3D physics: the solver has a broad phase. A dynamic AABB tree with fat boxes finds the candidate pairs of the
   sub-step, the first impacts, the contact events, the sleeping bodies a mover wakes, the bodies a moving platform
@@ -151,37 +183,39 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   element. `Tilemap.tiles` is the first (M94.2b).
 - `Tilemap.tiles` is a flat `ArrayI32` (M94.2b). Scene and prefab files may still write an array of rows: the loader
   flattens it (the rows set `width` and `height`; a ragged row, a different `height` or a tile that is not an integer is
-  an error with a JSON pointer) and the file is always saved flat. Consumers compare `tilemap_stamp()` (array id, version
-  and size) or the array's dirty range instead of hashing every tile, so a script's `Tilemap.tiles` reads as an
-  `Int32Array` copy (`const t = comp.tiles; t[3] = 5; comp.tiles = t`; `comp.tiles[i] = x` writes only into the copy) and
-  `nav.tileVersion` no longer reads the tiles. `TypedArray::id()` tells two arrays apart where `version()` cannot (a
-  copy starts again at 0). The inspector no longer builds the JSON of a big array every frame
-  (`component_to_json(..., summarizeArraysOver)`).
+  an error with a JSON pointer) and the file is always saved flat. Consumers compare `tilemap_stamp()` (array id,
+  version and size) or the array's dirty range instead of hashing every tile, so a script's `Tilemap.tiles` reads as an
+  `Int32Array` copy (`const t = comp.tiles; t[3] = 5; comp.tiles = t`; `comp.tiles[i] = x` writes only into the copy)
+  and `nav.tileVersion` no longer reads the tiles. `TypedArray::id()` tells two arrays apart where `version()` cannot (a
+  copy starts again at 0). The inspector no longer builds the JSON of a big array every frame (`component_to_json(...,
+  summarizeArraysOver)`).
 - Tilemap colliders and tile paths follow edits (M94.2c). 2D physics keeps a Tilemap's static colliders as one
-  decomposition of the solid cells whatever the edits that led there (every row cut into its maximal runs, identical runs
-  of consecutive rows stacked, so a long floor is one box and has no seam for a body to catch on), and an edit takes apart
-  and stacks again only the boxes it touches, found through a cell-to-box index (4 bytes per cell), keeping the boxes that
-  did not change and with them the contacts of bodies standing on them; the boxes and the collision are the ones a fresh
-  build gives (a randomized test compares overlaps, ray hits and the boxes). `Tilemap::edits` (empty in a copy, kept by a
-  move) is a
-  log that consumers read with `tilemap_edits_since(tm, stamp, edits)` and nobody empties; it is bounded, ties to the
-  array's id and proves it covers every version step, so a whole-array write, a write that bypassed `set_tilemap_tile` or
-  `tm = other` is detected and the consumer reads the map again instead of replaying edits that do not explain the change.
-  The stamp is refreshed even when an edit changed no collider, and a map without `solidTiles` no longer hashes its tiles
-  every step. `nav.findTilePath`, `findTilePaths` and `flow_field` on a Tilemap of 1024 cells or more keep the cost grid
-  between calls and patch the cells written since (`nav_tile_cache_stats()`). New `fa_bench` entries
-  `physics.tilemap_edit_large` (512 x 512: 0.43 ms before, 0.075 ms) and `nav.tilemap_edit` (55.9 ms before, 0.16 ms).
-  Editing a long run recreates its whole box, so a body resting on the other end of that floor gets an End and a Begin
-  collision event that frame. The boxes of a map that was edited are the ones a fresh build makes but are created in a
-  different order in Box2D, so a replay recorded on an edited world and one on a freshly loaded world can differ in the last
-  bits of contacts (each is deterministic on its own). Stacking the runs of consecutive rows is one sweep a row instead of
-  every run against every run (a 4096 x 16 checkerboard builds in 11 ms, 20 ms before). A Tilemap that moves keeps correct
-  debug boxes after an edit, `Physics::reset` (a scene load) lets go of the kept nav cost grids, and a rows form with
-  whole numbers written as floats (`3.0`) loads. `comp.tiles = [[...]]` from a script is refused (flat only).
+  decomposition of the solid cells whatever the edits that led there (every row cut into its maximal runs, identical
+  runs of consecutive rows stacked, so a long floor is one box and has no seam for a body to catch on), and an edit
+  takes apart and stacks again only the boxes it touches, found through a cell-to-box index (4 bytes per cell), keeping
+  the boxes that did not change and with them the contacts of bodies standing on them; the boxes and the collision are
+  the ones a fresh build gives (a randomized test compares overlaps, ray hits and the boxes). `Tilemap::edits` (empty in
+  a copy, kept by a move) is a log that consumers read with `tilemap_edits_since(tm, stamp, edits)` and nobody empties;
+  it is bounded, ties to the array's id and proves it covers every version step, so a whole-array write, a write that
+  bypassed `set_tilemap_tile` or `tm = other` is detected and the consumer reads the map again instead of replaying
+  edits that do not explain the change. The stamp is refreshed even when an edit changed no collider, and a map without
+  `solidTiles` no longer hashes its tiles every step. `nav.findTilePath`, `findTilePaths` and `flow_field` on a Tilemap
+  of 1024 cells or more keep the cost grid between calls and patch the cells written since (`nav_tile_cache_stats()`).
+  New `fa_bench` entries `physics.tilemap_edit_large` (512 x 512: 0.43 ms before, 0.075 ms) and `nav.tilemap_edit` (55.9
+  ms before, 0.16 ms). Editing a long run recreates its whole box, so a body resting on the other end of that floor gets
+  an End and a Begin collision event that frame. The boxes of a map that was edited are the ones a fresh build makes but
+  are created in a different order in Box2D, so a replay recorded on an edited world and one on a freshly loaded world
+  can differ in the last bits of contacts (each is deterministic on its own). Stacking the runs of consecutive rows is
+  one sweep a row instead of every run against every run (a 4096 x 16 checkerboard builds in 11 ms, 20 ms before). A
+  Tilemap that moves keeps correct debug boxes after an edit, `Physics::reset` (a scene load) lets go of the kept nav
+  cost grids, and a rows form with whole numbers written as floats (`3.0`) loads. `comp.tiles = [[...]]` from a script
+  is refused (flat only).
 - The game project guide (`AGENTS.md` of new projects and of the examples) asks to record engine gaps as soon as
   they are met and to check first that the engine lacks them, without the emphasis that made agents report what
   exists; `play.auto` before asking the user to play is one sentence.
-- Video import works with ffmpeg 9: a clip at a frame rate MPEG-1 lacks (15 fps) is converted again at 30 fps after any failure but a timeout, since ffmpeg 9 no longer names the rate in its error. The ffmpeg setup test no longer fails on a machine with ffmpeg on PATH.
+- Video import works with ffmpeg 9: a clip at a frame rate MPEG-1 lacks (15 fps) is converted again at 30 fps after any
+  failure but a timeout, since ffmpeg 9 no longer names the rate in its error. The ffmpeg setup test no longer fails on
+  a machine with ffmpeg on PATH.
 
 ## 0.26.0
 

@@ -492,6 +492,8 @@ private:
         Contact c;
     };
     using PairList = std::vector<std::pair<PairKey, PairState>>;
+    // The vectors a step reuses so a step allocates nothing. They only grow: after a scene of thousands of bodies they
+    // keep that capacity until the physics world is destroyed (docs/PERFORMANCE.md, "Physics on jobs").
     struct StepScratch {
         std::vector<JointLink> jlinks;
         std::unordered_set<std::uint64_t> joinTargets;  // sync: bodies another entity's Joint3D is attached to
