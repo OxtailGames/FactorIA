@@ -19,7 +19,10 @@
 // Rules for the writers:
 //   * `a[i] = x` on a non-const array counts as a write of index i even when x equals the old value (the array cannot
 //     see the store). `set(i, x)` writes only when the value differs, so use it where a no-op must not rebuild.
-//   * A mutable data() / begin() / end() counts as a write of the WHOLE array. To read, call it on a const reference
+//   * The comparison of assign() and the assignments is `==` on the elements: a NaN is never equal to anything, so
+//     assigning an array that holds one always counts as a change, and -0.0 equals +0.0, so replacing one by the other
+//     is no change.
+//   * A mutable data() / begin() / end() counts as a write of the WHOLE array (of an empty one: nothing). To read, call it on a const reference
 //     (std::as_const(a).data(), or cdata()).
 //   * Copy/move assignment and assign() compare first: assigning identical contents changes nothing; otherwise the
 //     write covers the span between the first and last element that differ (the whole array when the size changes).
@@ -125,7 +128,7 @@ public:
     }
     // Mutable pointer: counts as a write of the whole array.
     T* data() {
-        touch(0, v_.size());
+        if (!v_.empty()) touch(0, v_.size());  // an empty array has nothing to write: not a change
         return v_.data();
     }
     T* begin() { return data(); }

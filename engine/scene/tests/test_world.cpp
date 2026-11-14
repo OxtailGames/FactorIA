@@ -336,9 +336,27 @@ TEST_CASE("world: count and any follow entities_with through add, remove, destro
     std::vector<Entity> many;
     for (int i = 0; i < 500; ++i) many.push_back(w.create());
     for (Entity e : many) w.add<Sprite>(e);
-    for (std::size_t i = 0; i < many.size(); i += 2) w.remove<Sprite>(many[i]);
-    CHECK(w.count<Sprite>() == 250);
-    CHECK(w.entities_with(sprite).size() == 250);
+    // 400 of 500 removed: past 64 tombstones and past half of the list, so compact() really runs (it does not at 250).
+    std::vector<Entity> kept;
+    for (std::size_t i = 0; i < many.size(); ++i) {
+        if (i % 5 == 0) kept.push_back(many[i]);
+        else w.remove<Sprite>(many[i]);
+    }
+    CHECK(w.count<Sprite>() == 100);
+    CHECK(w.entities_with(sprite) == kept);  // compaction keeps the insertion order
+
+    // A pending destroy whose component is removed afterwards: counted until the removal, and not twice at the flush.
+    w.destroy(kept[0]);
+    CHECK(w.count<Sprite>() == 100);
+    w.remove<Sprite>(kept[0]);
+    CHECK(w.count<Sprite>() == 99);
+    w.flush();
+    CHECK(w.count<Sprite>() == 99);
+    CHECK(w.count(sprite) == w.entities_with(sprite).size());
+
+    // A registered type nobody ever added has no pool yet: 0, and any() is false.
+    CHECK(w.count<Camera>() == 0);
+    CHECK(!w.any<Camera>());
 
     w.clear();
     CHECK(w.count<Sprite>() == 0);

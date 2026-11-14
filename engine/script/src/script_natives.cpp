@@ -282,14 +282,26 @@ JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& wha
         hi = std::min(hi, double(f.maxValue));
     }
     // What an element must be, for the error text.
+    // A bound as the field's author wrote it (0.3, not the 0.30000001192092896 of the float widened to a double).
+    auto bound = [](double v) {
+        if constexpr (integral) {
+            return std::format("{}", std::int64_t(v));
+        } else {
+            const Json j = to_json(float(v));
+            const double d = j.get<double>();
+            return d == std::floor(d) && std::fabs(d) < 1e15 ? std::format("{}", std::int64_t(d)) : j.dump();
+        }
+    };
     auto must_be = [&] {
         if constexpr (integral)
-            return std::format("an integer from {} to {}", lo, hi);
+            return std::format("an integer from {} to {}", bound(lo), bound(hi));
         else
-            return ranged ? std::format("a number from {} to {}", lo, hi) : std::string("a finite number");
+            return ranged ? std::format("a number from {} to {}", bound(lo), bound(hi)) : std::string("a finite number");
     };
     auto bad = [&](double d) { return !std::isfinite(d) || d < lo || d > hi || (integral && d != std::floor(d)); };
-    std::vector<T> out(n);
+    // `out` is sized only where the JS side already holds that memory (a typed array); an Array is read element by element and
+    // may be sparse (`new Array(1 << 24)` holds nothing and fails at [0]), so it grows as the elements are accepted.
+    std::vector<T> out;
     // Fast path: a typed array of the field's own element type is copied as bytes, then checked in place.
     const bool sameType = typed && (jsType == int(js_array_type<T>()) ||
                                     (std::is_same_v<T, std::uint8_t> && jsType == JS_TYPED_ARRAY_UINT8C));
@@ -302,7 +314,9 @@ JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& wha
         } else {
             std::size_t size = 0;
             const std::uint8_t* data = JS_GetArrayBuffer(ctx, &size, buf);
+            if (!data) JS_FreeValue(ctx, JS_GetException(ctx));  // a detached buffer: the element loop below reports it
             if (data && per == sizeof(T) && len == n * sizeof(T) && off + len <= size) {
+                out.resize(n);
                 std::memcpy(out.data(), data + off, len);
                 copied = true;
             }
@@ -315,6 +329,7 @@ JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& wha
         }
     }
     if (!copied) {
+        out.reserve(std::min<std::size_t>(n, 65536));
         for (std::size_t i = 0; i < n; ++i) {
             JSValue x = JS_GetPropertyUint32(ctx, v, static_cast<uint32_t>(i));
             double d = 0;
@@ -327,7 +342,7 @@ JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& wha
                 return throw_err(ctx, std::format("{}[{}] must be {}, got {}", what, i, must_be(), got));
             }
             JS_FreeValue(ctx, x);
-            out[i] = static_cast<T>(d);
+            out.push_back(static_cast<T>(d));
         }
     }
     dst.assign(out.data(), out.size());
