@@ -631,6 +631,40 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     read the tree and the bodies, like before (they are called from the thread that steps the world, never during a step).
     Measured (Release, macOS, 15 runs): `physics.raycast3d_1000` (10 000 rays in a settled pile of 1000 bodies)
     318 ms before, 13.4 ms after; `physics.overlap3d_1000` (2000 spheres) 21.8 ms before, 3.9 ms after.
+  - *3D heightfield* (`heightfield3d.h`, `physics3d_heightfield.cpp`, M94.4f): `Collider3D.shape = heightfield` with a
+    `Heightfield3D` on the same entity (rows x columns samples, `cellSize`, `heightScale`/`heightOffset`, `heights` and
+    optional `holes` as typed arrays, `fa/core/typed_array.h`; plain arrays in scene files) is one static body of kind
+    `Heightfield`. Model space has the grid centred on the entity origin: sample (r, c) is at x = x0 + c dx, z = z0 + r dz,
+    y = raw * heightScale + heightOffset, and cell (r, c) is the triangles (r,c) (r+1,c) (r+1,c+1) and (r,c) (r+1,c+1) (r,c+1),
+    both facing up; a hole cell has neither. The body keeps its own scaled copy of the heights, so the solver and the
+    queries never read the component that gameplay writes, and 16 x 16-cell blocks keep the lowest and highest sample (the
+    field's bounds come from them). `update_heightfield` brings the copy in line: if the arrays have the id and version it
+    built from it costs two integer compares; otherwise it reads only the dirty range, copies only the samples whose value
+    differs, recomputes the blocks they touch and reports the edited cells and the heights they span (old and new). A
+    changed size, spacing, scale or array object rebuilds all of it. The component is acknowledged only when the copy was
+    taken, so a consumer other than physics must keep its own copy of the arrays. The collider's bounds are the field's
+    (`boxStale` only when the lowest or highest sample moved, so the tree leaf is kept for most edits), and the `Sig` of the
+    body leaves out the height of the box, so an edit does not wake the contacts of the whole field. After the tree is
+    updated, `wake_near_edit` turns the edited cells and heights (+0.1 m) into a world box, asks the tree for the bodies
+    whose box overlaps it and wakes the sleeping ones that really do; contacts elsewhere keep their state. Contacts
+    (`heightfield_contact`, called by `collide_general` like a mesh): the other shape's bounds, in model space, pick the
+    cells (blocks and cells whose height range misses the bounds are skipped, so a body falling through a hole is not pushed
+    back up); each triangle is tested with GJK and the deepest result wins. A face contact is kept; a contact on an edge or
+    corner counts only when its normal lies in the cone of the normals of the triangles that share it (an open border or a
+    hole beside it always counts), so a shape sliding over a seam of a flat or planar field sees only the face normal and
+    cannot bump. A shape that sank below a triangle with its closest point inside it is pushed up (solid ground). Boxes and
+    hulls get one point per low corner, probed onto the field with `ray_heightfield` (up to four points, feature ids
+    like the mesh manifolds). `ray_heightfield` walks the cells along the ray (Amanatides-Woo, bounded by rows + cols + 8
+    steps, testing the triangles of a cell only when the ray's height inside the cell overlaps the cell's samples) so its
+    cost follows the ray's length and not the grid; `ray_body`, `shape_cast3d` (which uses `collide`), `overlap_sphere3d` and `move_character` use
+    these through the tree, where the field is one leaf. The NavMesh bake treats a field like a ground plate (one ray down per
+    column) and its signature includes the field's `revision`. A grid that cannot be used (the messages are in
+    `update_heightfield`; rows or columns outside 2..4096; a heightfield on a dynamic or kinematic body; no `Heightfield3D`)
+    is a problem like a mesh on a moving body: logged once, listed in `Physics::problems3d()`, no collider. Determinism: the
+    block order, the cell order and the triangle order are fixed, and nothing depends on the thread count (the hash with
+    0, 1, 2 and 8 job threads is tested). Measured (Release, macOS): `physics.heightfield_step` (200 bodies on 256 x 256
+    samples, 20 steps) 19.3 ms, `physics.heightfield_edit` (40 one-sample edits, 100 bodies asleep) 3.8 ms; one edit and
+    `sync` in a 1025 x 1025 field: about 0.003 ms.
   - *Navigation*: `nav.find_paths` and `nav.find_tile_paths` (and the script calls) answer many queries at once. With 8 or
     more queries (`kNavBatchMinQueries`) they run as `parallel_for` with 4 queries per chunk; each chunk owns a
     `NavGrid::Scratch` (its open list and visited marks; a search never writes the grid), writes only its own slots of the

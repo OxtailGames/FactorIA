@@ -1,6 +1,8 @@
 // Physics benchmarks: one second (60 steps) of a pile of falling bodies in 2D (Box2D) and in 3D (the engine's own solver).
+#include <cmath>
 #include <format>
 #include <memory>
+#include <vector>
 
 #include "benches.h"
 #include "fa/core/math.h"
@@ -305,6 +307,105 @@ Bench physics_tilemap_edit(int n) {
     return b;
 }
 
+// A `side` x `side` heightfield (cells of 0.5 m, rolling hills up to 0.8 m) with `bodies` spheres, capsules and boxes
+// dropped on it from 2 to 6 m. `lock` makes the spheres and capsules slide instead of roll, so they stay where they land
+// and fall asleep (the edit bench).
+void build_heightfield_3d(World& w, int side, int bodies, bool lock) {
+    Entity f = w.create();
+    w.add<Collider3D>(f).shape = ColliderShape3D::Heightfield;
+    Heightfield3D& g = w.add<Heightfield3D>(f);
+    g.rows = side;
+    g.columns = side;
+    g.cellSize = {0.5f, 0.5f};
+    std::vector<float> h(std::size_t(side) * std::size_t(side));
+    for (int r = 0; r < side; ++r)
+        for (int c = 0; c < side; ++c)
+            h[std::size_t(r) * std::size_t(side) + std::size_t(c)] =
+                0.8f * std::sin(0.15f * float(c)) * std::cos(0.12f * float(r));
+    g.heights.assign(h.data(), h.size());
+    Rng rng(2024);
+    auto unit = [&] { return float(rng.next_u32() >> 8) / float(1u << 24); };
+    const float half = 0.0625f * float(side - 1);  // the bodies start over the middle eighth of the field
+    for (int i = 0; i < bodies; ++i) {
+        Entity e = w.create();
+        const float x = (unit() * 2.0f - 1.0f) * half, z = (unit() * 2.0f - 1.0f) * half;
+        w.get<Transform>(e)->position = {x, 2.0f + 4.0f * unit() + 0.8f, z};
+        Collider3D& c = w.add<Collider3D>(e);
+        RigidBody3D& rb = w.add<RigidBody3D>(e);
+        if (i % 3 == 0) {
+            c.shape = ColliderShape3D::Sphere;
+            c.radius = 0.4f;
+            rb.lockRotation = lock;
+            rb.rollWithMotion = !lock;
+        } else if (i % 3 == 1) {
+            c.shape = ColliderShape3D::Capsule;
+            c.radius = 0.3f;
+            c.height = 1.2f;
+            rb.lockRotation = lock;
+        } else {
+            c.size = {0.8f, 0.8f, 0.8f};
+        }
+    }
+}
+
+// 200 bodies fall onto a 256 x 256 field of hills and roll around on it.
+Bench physics_heightfield_step() {
+    Bench b;
+    b.name = "physics.heightfield_step";
+    b.summary = std::format("Physics::step x{}: 200 spheres, capsules and boxes falling onto a 256 x 256 heightfield (3D)",
+                            k3dSteps);
+    b.make = [] {
+        auto sim = std::make_shared<Sim>();
+        Prepared p;
+        p.items = 200 * k3dSteps;
+        p.unit = "body steps";
+        p.prepare = [sim] {
+            sim->reset();
+            build_heightfield_3d(*sim->world, 256, 200, false);
+            sim->physics.sync(*sim->world);  // the grid is read before the clock starts
+            sim->run_steps(30);              // the first bodies are down and in contact
+        };
+        p.run = [sim] { return sim->run_steps(k3dSteps); };
+        return p;
+    };
+    return b;
+}
+
+// One sample of a 256 x 256 field changes per step (a brush stroke), with 100 sleeping bodies on it: the cost follows what
+// the edit touches, not the 65536 samples.
+Bench physics_heightfield_edit() {
+    Bench b;
+    b.name = "physics.heightfield_edit";
+    b.summary = "Heightfield3D.heights.set + Physics::step x40: one height of a 256 x 256 field changes per step (3D collision)";
+    b.warnRatio = 2.5;  // a run lasts a fraction of a millisecond: the clock and a busy machine move it more than the work
+    b.failRatio = 6.0;
+    b.make = [] {
+        auto sim = std::make_shared<Sim>();
+        Prepared p;
+        p.items = 40;
+        p.unit = "height edits";
+        p.prepare = [sim] {
+            sim->reset();
+            build_heightfield_3d(*sim->world, 256, 100, true);
+            sim->physics.sync(*sim->world);
+            sim->run_steps(300);  // the bodies land and fall asleep
+        };
+        p.run = [sim] {
+            Entity field = sim->world->entities_with(&World::type_of<Heightfield3D>()).front();
+            Heightfield3D& g = *sim->world->get<Heightfield3D>(field);
+            double sum = 0;
+            for (int i = 0; i < 40; ++i) {
+                const std::size_t at = std::size_t(20 + 5 * i) * 256 + std::size_t(31 + 5 * i);  // a stroke across the field
+                g.heights.set(at, g.heights.cdata()[at] + 0.05f);  // cdata: reading does not dirty the array
+                sum += sim->run_steps(1);
+            }
+            return sum + double(g.heights.version());
+        };
+        return p;
+    };
+    return b;
+}
+
 Bench physics_2d() {
     Bench b;
     b.name = "physics.step2d";
@@ -406,6 +507,8 @@ void add_physics_benches(std::vector<Bench>& out) {
     out.push_back(physics_3d_queries(QueryKind::Overlaps));
     out.push_back(physics_tilemap_edit(256));
     out.push_back(physics_tilemap_edit(512));
+    out.push_back(physics_heightfield_step());
+    out.push_back(physics_heightfield_edit());
 }
 
 }  // namespace fa::bench

@@ -6,6 +6,21 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 
 ## Unreleased
 
+- 3D heightfield colliders (M94.4f): a `Collider3D` with shape `heightfield` plus a `Heightfield3D` component (`rows` x
+  `columns` samples, `cellSize`, `heightScale`, `heightOffset`, `heights` as a plain array of numbers row by row, `holes`
+  as one 0 or 1 per cell) is static terrain, the data a terrain editor can write later. Spheres, capsules, boxes and convex
+  bodies rest, roll, slide and sleep on it with up to four contact points for a box, and a ball sliding over the seams
+  between triangles does not bump (a contact on an edge or corner only counts when its normal lies between those of the
+  triangles that meet there). A hole cell has no collision: a body over it falls and one beside it is held. Only the cells
+  under the other body's bounds are tested. `raycast3d`, `raycast3dAll` (the ray walks the grid cell by cell),
+  `shapeCast`, `overlapSphere`, `isTouching` and `moveCharacter` work on it and go through the broad phase's tree like any
+  collider. Editing the `heights` or `holes` array (assigning it again from a script, a brush, a bulk write) updates only
+  the samples that differ, in a time that follows the edit and not the size of the grid (one sample of a 1025 x 1025 field: about
+  0.003 ms), and wakes only the sleeping bodies near it. A grid that cannot be used (wrong array length, a sample that
+  is not a number, fewer than 2 rows or columns, a heightfield on a moving body, no `Heightfield3D`) is reported once with
+  how to fix it and has no collider. The NavMesh bake sees the field as ground. New `fa_bench` entries
+  `physics.heightfield_step` (200 bodies on 256 x 256 samples) and `physics.heightfield_edit`. Ride-along: the end-of-step
+  cover of the broad phase walks only the awake bodies (`physics.step3d_mostly_asleep` 4.64 -> 4.61 ms, within noise).
 - 3D scene queries use the broad phase's tree (M94.4c2): `physics.raycast3d`, `raycast3dAll`, `shapeCast`, `overlapSphere`,
   `isTouching` (3D) and `moveCharacter` no longer test every body. A ray walks the tree nearest first and is
   cut at the best hit so far; the other queries test only the bodies near the query's box. The answers are the same as
