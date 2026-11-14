@@ -198,10 +198,22 @@ waits for it for at most `--wait-s` seconds (default 100). The last line tells w
 |---|---|---|
 | `agent-build: DONE ok` | 0 | Everything asked for passed. |
 | `agent-build: DONE FAILED` | 1 | The lines above say what failed. |
+| `agent-build: DONE INCOMPLETE` | 77 | Nothing failed, but the tests listed as `SKIPPED` did not run (see below). |
 | `agent-build: RUNNING (<step>: <last line of its log>)` | 3 | Still working: run `scripts/agent-build.sh <build dir> --wait` again until it says `DONE`. |
 
 `--status` reports without waiting and `--stop` ends the job with everything it started. One job runs per build
 directory: the same command again waits for the job that is running, a different one is refused until it ends.
+
+**A Mac with its displays asleep.** When the lid is closed, or the Mac has been idle for longer than its display sleep
+time, no window gets a frame, and every test that opens one (ctest label `window`: `editor_autotest_*`,
+`cli_player_frames`, `cli_plugin`) waits until its time limit: five minutes each, at least twelve minutes of a full run,
+for failures that say nothing about the code. The script checks before it runs the tests (`system_profiler
+SPDisplaysDataType`: every display reports `Display Asleep: Yes`), leaves those tests out, lists them as `SKIPPED` (not
+passed) and ends as `DONE INCOMPLETE` when nothing else failed. It also sets `FA_TEST_NO_WINDOW=1` for the tests that
+do run: a test case that starts a windowed program (the sandboxed app of `sign.macos`) skips that step. Wake the
+display and run the listed tests (the note gives the `--tests` regex), or say in the report that only CI ran them; a
+push still needs them green somewhere. `FA_AGENT_WINDOW_TESTS=run` runs them whatever the display says. Nothing wakes
+the display or changes a power setting.
 `FA_AGENT_JOBS`, `FA_AGENT_CTEST_JOBS` and `FA_AGENT_WAIT_S` set the defaults of `--jobs`, `--ctest-jobs` and
 `--wait-s`.
 

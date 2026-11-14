@@ -3,6 +3,7 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <map>
@@ -591,7 +592,13 @@ TEST_CASE("sign.macos appStore on a Mac: the sandboxed app is valid, runs, and l
     REQUIRE(d.ok());
     CHECK_MESSAGE(has_text(d->stdoutText, "com.apple.security.app-sandbox"), (d->stdoutText + d->stderrText));
 
-    // Run it for a few frames. If this machine cannot open a window (no session), the launch fails before anything runs: skip then.
+    // Run it for a few frames. A Mac whose displays are asleep (lid closed) gives a window no frame, so the app would
+    // sit there until the timeout: scripts/agent-build.sh sets FA_TEST_NO_WINDOW then, leaves the tests that open a
+    // window out and reports the run as incomplete, never as passed.
+    if (std::getenv("FA_TEST_NO_WINDOW") != nullptr) {
+        MESSAGE("FA_TEST_NO_WINDOW is set: the sandboxed app was signed and verified but not run");
+        return;
+    }
     ProcessOptions run;
     stdfs::path exe;
     for (const auto& f : stdfs::directory_iterator(app / "Contents" / "MacOS")) exe = f.path();
