@@ -1748,10 +1748,10 @@ TEST_CASE("music player: the callback, the game and the music service thread sha
         // one. Free-running, the audio time between two jumps depended on how long a loaded machine left the game thread
         // alone: a jump to "outro" (a section that ends the song, two seconds = 188 blocks) followed by 190 blocks before
         // the jump back to "main" ended the song and `playing` went false (the CI's GCC job). Here a jump is followed by at
-        // most 5 frames of blocks (80, under a half of the outro) whatever the machine's speed, and the two threads still
+        // most 5 frames of blocks (20, a tenth of the outro) whatever the machine's speed, and the two threads still
         // overlap in every frame, which a free-running callback thread did not promise either (the same job once ran all
         // 400 frames before the first block).
-        constexpr std::uint64_t kBlocksPerFrame = 16;
+        constexpr std::uint64_t kBlocksPerFrame = 4;
         std::atomic<std::uint64_t> allowed{0};
         std::thread callback([&] {
             std::vector<float> buf(512 * 2);
@@ -1773,7 +1773,8 @@ TEST_CASE("music player: the callback, the game and the music service thread sha
         MusicStingerSpec spec;
         spec.section = "outro";
         spec.quantize = MusicQuantize::Beat;
-        const auto mixEnd = std::chrono::steady_clock::now() + std::chrono::seconds(60);  // a safety net far above the load
+        const auto mixEnd =
+            std::chrono::steady_clock::now() + std::chrono::seconds(60);  // a safety net far above the load
         for (int i = 0; i < 400; ++i) {
             allowed.store(std::uint64_t(i + 1) * kBlocksPerFrame, std::memory_order_release);
             fx.audio.update(fx.world, 1.0f / 60.0f);
@@ -1789,7 +1790,8 @@ TEST_CASE("music player: the callback, the game and the music service thread sha
         }
         stopMixing.store(true, std::memory_order_release);
         callback.join();
-        CHECK(blocks.load() > 0);
+        // Every frame had its blocks mixed: the 60 s safety net of the lockstep did not end it early with less coverage.
+        CHECK(blocks.load() == 400 * kBlocksPerFrame);
         CHECK_MESSAGE(allocs.load() == 0, "the device callback allocated " << allocs.load() << " times");
         CHECK(fx.mp().playing);
         const Json st = fx.audio.stats();

@@ -6,11 +6,10 @@ Older versions, one file per minor version with its patch releases: [0.26](chang
 
 ## Unreleased
 
-- Flaky tests made deterministic (CI T-1): the MCP HTTP server marks a keep-alive connection idle before it sends the
-  answer, so the eviction of the longest-idle connection can no longer pick a connection that is still answering (new
-  `McpHttpServer::idle_connections()`); the tests of the HTTP server, the music transport, the file retries
-  (`fs::sharing_retries()`), the script watchdog and `cli_mcp_update` wait for events and counts with generous
-  deadlines instead of wall-clock budgets and fixed sleeps.
+- Flaky tests made deterministic (CI T-1): the tests of the MCP HTTP server, the music transport, the file retries
+  (new `fs::sharing_retries()` counter), the script watchdog and `cli_mcp_update` wait for events and counts with
+  generous deadlines instead of wall-clock budgets and fixed sleeps. The HTTP server's behaviour is unchanged; it only
+  gains `McpHttpServer::idle_connections()`, which a test waits on.
 
 ## 0.27.0
 

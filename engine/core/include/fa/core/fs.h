@@ -163,8 +163,9 @@ bool windows_rules();  // true when file operations follow Windows rules: on Win
 void set_windows_rules(
     bool on);  // turns the emulation on or off for the rest of the process (tests); a no-op on Windows
 // How many times replace_file, remove_file and file_in_use have waited and tried again after a sharing violation, since the
-// process started (up to about a second per call before giving up). A test that says "this write needed no retry" compares
-// it before and after instead of measuring a time, which a loaded machine stretches.
+// process started (up to about a second per call before giving up). The counter is process-wide: another thread that retries
+// at the same time changes it too, so a test compares it before and after only while nothing else touches files. A test that
+// says "this write needed no retry" compares it instead of measuring a time, which a loaded machine stretches.
 std::uint64_t sharing_retries();
 // The size of one step of a file's modification time under the Windows rules, in nanoseconds (15.625 ms = 1/64 s).
 constexpr std::int64_t kWindowsTimeStepNs = 15'625'000;
