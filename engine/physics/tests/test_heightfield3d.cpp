@@ -604,6 +604,251 @@ TEST_CASE("heightfield3d: one cell of a field of a million samples is edited wel
     CHECK(flat->point.y < 1.0f);
 }
 
+TEST_CASE("heightfield3d: terrain raised under resting bodies by more than their height puts them on top") {
+    for (const bool wholeField : {true, false}) {
+        CAPTURE(wholeField);
+        Sim s;
+        Entity field = add_field(s.world, "field", 41, 41, 1.0f, [](float, float) { return 0.0f; });
+        Entity ball = add_sphere(s.world, "ball", {-6.0f, 0.45f, 0.5f}, 0.4f, true);
+        Entity box = add_box(s.world, "box", {0.0f, 0.45f, 0.5f}, {0.8f, 0.8f, 0.8f}, true);
+        Entity cap = add_capsule(s.world, "cap", {6.0f, 0.65f, 0.5f}, 0.3f, 1.2f, true);
+        s.run(300);
+        REQUIRE(s.awake_count() == 0);
+        Heightfield3D* g = s.world.get<Heightfield3D>(field);
+        if (wholeField) {
+            g->heights.fill(2.0f);  // one edit: the ground is 2 m above every body, more than any of them is high
+        } else {
+            // a plateau 2 m high under each body, with steep sides (samples are at x = c - 20, z = r - 20)
+            for (int r = 0; r < 41; ++r)
+                for (int c = 0; c < 41; ++c)
+                    for (const int cx : {-6, 0, 6})
+                        if (std::abs((c - 20) - cx) <= 2 && std::abs(r - 20) <= 3)
+                            g->heights.set(std::size_t(r) * 41u + std::size_t(c), 2.0f);
+        }
+        s.physics.sync(s.world);
+        for (const Entity e : {ball, box, cap}) CHECK(s.awake(e));
+        s.run(240);
+        CHECK(s.pos(ball).y == doctest::Approx(2.4f).epsilon(0.05));
+        CHECK(s.pos(box).y == doctest::Approx(2.4f).epsilon(0.05));
+        CHECK(s.pos(cap).y == doctest::Approx(2.6f).epsilon(0.05));
+        CHECK(s.awake_count() == 0);
+        // and they stay: the next steps do not push or sink them
+        s.run(60);
+        CHECK(s.pos(ball).y == doctest::Approx(2.4f).epsilon(0.05));
+        CHECK(s.pos(box).y == doctest::Approx(2.4f).epsilon(0.05));
+        CHECK(s.pos(cap).y == doctest::Approx(2.6f).epsilon(0.05));
+    }
+}
+
+TEST_CASE("heightfield3d: a body under solid ground is pushed up within a depth; under a hole or deeper it falls on") {
+    Sim s;
+    Heightfield3D comp = make_component(41, 41, 1.0f, [](float, float) { return 0.0f; });
+    std::vector<std::uint8_t> holes(40 * 40, 0);
+    for (int r = 18; r <= 22; ++r)
+        for (int c = 18; c <= 22; ++c) holes[std::size_t(r) * 40 + std::size_t(c)] = 1;  // x and z in [-2, 3]
+    comp.holes.assign(holes.data(), holes.size());
+    add_field(s.world, "field", comp);
+    Entity sphere = add_sphere(s.world, "sphere", {8.0f, -2.0f, 0.5f});       // teleported 2.4 m below the surface
+    Entity box = add_box(s.world, "box", {-8.0f, -1.0f, 0.5f});               // the same with a box
+    Entity deep = add_sphere(s.world, "deep", {12.0f, -20.0f, 0.5f});         // far below the solid depth
+    Entity hole = add_sphere(s.world, "hole", {0.5f, -2.0f, 0.5f});           // under a hole cell
+    Entity edge = add_sphere(s.world, "edge", {0.5f, 2.0f, 0.5f});            // falls through the hole
+    s.run(240);
+    CHECK(s.pos(sphere).y == doctest::Approx(0.4f).epsilon(0.1));
+    CHECK(s.pos(box).y == doctest::Approx(0.4f).epsilon(0.1));
+    CHECK(s.pos(deep).y < -40.0f);
+    CHECK(s.pos(hole).y < -40.0f);
+    CHECK(s.pos(edge).y < -40.0f);
+    CHECK(kHeightfieldSolidDepth == doctest::Approx(8.0f));
+}
+
+TEST_CASE("heightfield3d: a small fast body that crosses the surface in one step stops on it") {
+    for (const bool sloped : {false, true}) {
+        CAPTURE(sloped);
+        Sim s;
+        // flat at 0.3 m, or a 5.7 degree slope (0.1 m per metre) that a body slides down
+        add_field(s.world, "field", 41, 41, 1.0f, [sloped](float x, float) { return sloped ? 0.1f * x : 0.3f; });
+        Entity bolt = add_sphere(s.world, "bolt", {3.0f, 6.0f, 3.0f}, 0.1f);
+        s.world.get<RigidBody3D>(bolt)->velocity = {0.0f, -400.0f, 0.0f};  // 6.7 m per step: it crosses in one
+        Entity block = add_box(s.world, "block", {-5.0f, 6.0f, -3.0f}, {0.2f, 0.2f, 0.2f});
+        s.world.get<RigidBody3D>(block)->velocity = {0.0f, -400.0f, 0.0f};
+        // above the surface under it, not through it, from the first step on
+        const int steps = sloped ? 3 : 90;
+        for (int i = 0; i < steps; ++i) {
+            s.run(1);
+            for (const Entity e : {bolt, block}) {
+                const Vec3 p = s.pos(e);
+                const float under = sloped ? 0.1f * p.x : 0.3f;
+                CHECK(p.y - under > 0.05f);
+                CHECK(p.y - under < 1.0f);  // (a box on the slope tumbles a little)
+            }
+        }
+        if (!sloped) {
+            CHECK(s.pos(bolt).y == doctest::Approx(0.4f).epsilon(0.1));
+            CHECK(s.pos(block).y == doctest::Approx(0.4f).epsilon(0.1));
+        }
+    }
+}
+
+TEST_CASE("heightfield3d: a field under a moving parent follows it, and so does a scaled one") {
+    Sim s;
+    Entity parent = s.world.create("parent", "parent");
+    Entity field = add_field(s.world, "field", 21, 21, 1.0f, [](float, float) { return 0.0f; });
+    s.world.set_parent(field, parent, false);
+    Entity ball = add_sphere(s.world, "ball", {3.0f, 0.45f, 0.5f}, 0.4f, true);
+    s.run(200);
+    CHECK(s.pos(ball).y == doctest::Approx(0.4f).epsilon(0.1));
+    CHECK(!s.awake(ball));
+    // the parent rises 3 m: the surface moves with it (the ball is put on the new one)
+    s.world.get<Transform>(parent)->position = {0.0f, 3.0f, 0.0f};
+    s.physics.sync(s.world);
+    const auto up = s.physics.raycast3d(s.world, {3.0f, 20.0f, 0.5f}, {0, -1, 0}, 100.0f);
+    REQUIRE(up.has_value());
+    CHECK(up->point.y == doctest::Approx(3.0f).epsilon(1e-3));
+    s.world.get<Transform>(ball)->position = {3.0f, 3.45f, 0.5f};
+    s.run(200);
+    CHECK(s.pos(ball).y == doctest::Approx(3.4f).epsilon(0.05));
+    // the parent moves sideways: a ball over the old extent has no ground, one over the new has
+    s.world.get<Transform>(parent)->position = {30.0f, 0.0f, 0.0f};
+    s.physics.sync(s.world);
+    CHECK_FALSE(s.physics.raycast3d(s.world, {-6.0f, 20.0f, 5.0f}, {0, -1, 0}, 100.0f).has_value());
+    const auto side = s.physics.raycast3d(s.world, {33.0f, 20.0f, 0.5f}, {0, -1, 0}, 100.0f);
+    REQUIRE(side.has_value());
+    CHECK(std::fabs(side->point.y) < 1e-3f);
+}
+
+TEST_CASE("heightfield3d: Transform.scale stretches the field and its surface, not only its size") {
+    Sim s;
+    Entity field = add_field(s.world, "field", 21, 21, 1.0f, [](float x, float) { return 0.5f * x; });
+    s.world.get<Transform>(field)->scale = {2.0f, 3.0f, 1.0f};  // x and height stretched: the slope is 0.5 * 3 / 2
+    s.physics.sync(s.world);
+    const auto hit = s.physics.raycast3d(s.world, {10.0f, 40.0f, 0.5f}, {0, -1, 0}, 100.0f);
+    REQUIRE(hit.has_value());
+    CHECK(hit->point.y == doctest::Approx(0.5f * 5.0f * 3.0f).epsilon(1e-3));  // model x = 5 -> world x = 10
+    const float slope = 0.75f, nx = slope / std::sqrt(1.0f + slope * slope);
+    CHECK(hit->normal.x == doctest::Approx(-nx).epsilon(0.01));
+    CHECK(hit->normal.y == doctest::Approx(1.0f / std::sqrt(1.0f + slope * slope)).epsilon(0.01));
+    // beyond the unscaled extent (+-10 m) there is still ground, up to +-20 m
+    CHECK(s.physics.raycast3d(s.world, {15.0f, 40.0f, 0.5f}, {0, -1, 0}, 100.0f).has_value());
+    CHECK_FALSE(s.physics.raycast3d(s.world, {22.0f, 40.0f, 0.5f}, {0, -1, 0}, 100.0f).has_value());
+    // a ball on a flat one settles on the stretched surface
+    Entity flat = add_field(s.world, "flat", 21, 21, 1.0f, [](float, float) { return 1.0f; }, {0, 0, 40});
+    s.world.get<Transform>(flat)->scale = {2.0f, 3.0f, 2.0f};
+    Entity ball = add_sphere(s.world, "ball", {15.0f, 3.6f, 40.0f}, 0.4f, true);
+    s.run(200);
+    CHECK(s.pos(ball).y == doctest::Approx(3.4f).epsilon(0.05));  // 1 * 3 + the radius
+    CHECK(!s.awake(ball));
+}
+
+TEST_CASE("heightfield3d: rows and columns changed at runtime rebuild the field and wake the bodies on it") {
+    Sim s;
+    Entity field = add_field(s.world, "field", 21, 21, 1.0f, [](float, float) { return 0.0f; });
+    Entity a = add_sphere(s.world, "a", {3.0f, 0.45f, 0.5f}, 0.4f, true);
+    Entity b = add_sphere(s.world, "b", {-4.0f, 0.45f, 2.5f}, 0.4f, true);
+    s.run(300);
+    REQUIRE(s.awake_count() == 0);
+    // a bigger grid, one metre higher
+    Heightfield3D* g = s.world.get<Heightfield3D>(field);
+    g->rows = 41;
+    g->columns = 41;
+    const std::vector<float> ones(41 * 41, 1.0f);
+    g->heights.assign(ones.data(), ones.size());
+    s.physics.sync(s.world);
+    CHECK(s.awake(a));
+    CHECK(s.awake(b));
+    s.run(200);
+    CHECK(s.pos(a).y == doctest::Approx(1.4f).epsilon(0.05));
+    CHECK(s.pos(b).y == doctest::Approx(1.4f).epsilon(0.05));
+    CHECK(s.awake_count() == 0);
+    CHECK(s.physics.raycast3d(s.world, {15.0f, 20.0f, 0.5f}, {0, -1, 0}, 100.0f).has_value());  // beyond the old extent
+    // and smaller again: the ball over the part that is gone falls
+    Entity c = add_sphere(s.world, "c", {15.0f, 1.45f, 0.5f}, 0.4f, true);
+    s.run(200);
+    REQUIRE(!s.awake(c));
+    g->rows = 11;
+    g->columns = 11;
+    const std::vector<float> few(11 * 11, 1.0f);
+    g->heights.assign(few.data(), few.size());
+    s.physics.sync(s.world);
+    CHECK(s.awake(c));
+    s.run(120);
+    CHECK(s.pos(c).y < -3.0f);
+}
+
+TEST_CASE("heightfield3d: a ray exactly along a row, a column or through the corners of the grid") {
+    Heightfield3D comp = bumpy_component(33, 41, 1.0f, 1.0f, false);
+    HeightfieldShape f;
+    HeightfieldEdit edit;
+    REQUIRE(update_heightfield(f, "t", comp, edit).empty());
+    // sample (r, c) is at x = c - 20, z = r - 16: whole numbers
+    int hits = 0;
+    for (int i = 0; i < 40; ++i) {
+        const float k = float(i - 20) * 0.9f;
+        const Vec3 cases[][2] = {
+            {{-30.0f, 4.0f + 0.01f * float(i), float(int(k))}, {1.0f, -0.1f, 0.0f}},            // along a row of samples
+            {{float(int(k)), 4.0f + 0.01f * float(i), -30.0f}, {0.0f, -0.1f, 1.0f}},            // along a column
+            {{-30.0f, 0.0f + float(i) * 0.1f, -30.0f + 0.5f * float(i)}, {1.0f, 0.0f, 1.0f}},   // across the corners
+            {{-12.0f + float(i % 5), 6.0f, -8.0f}, {0.0f, -1.0f, 0.0f}},                         // down through a sample
+        };
+        for (const auto& cs : cases) {
+            const Vec3 d = normalize(cs[1]);
+            float t1 = 0, t2 = 0;
+            Vec3 n1{}, n2{};
+            const bool a = ray_heightfield(f, cs[0], d, 80.0f, t1, n1);
+            const bool b = ray_heightfield_brute(f, cs[0], d, 80.0f, t2, n2);
+            CHECK(a == b);
+            if (a && b) {
+                ++hits;
+                CHECK(t1 == doctest::Approx(t2).epsilon(1e-4));
+                // On a row, a column or a corner two triangles share the hit point and either normal is right; both face
+                // the ray.
+                CHECK(dot(n1, d) <= 1e-4f);
+                CHECK(dot(n2, d) <= 1e-4f);
+                CHECK(length(n1) == doctest::Approx(1.0f).epsilon(1e-3));
+            }
+        }
+    }
+    CHECK(hits > 40);
+}
+
+TEST_CASE("heightfield3d: two readers of the arrays see every edit, whoever reads between them") {
+    Sim s;
+    Entity field = add_field(s.world, "field", 21, 21, 1.0f, [](float, float) { return 0.0f; });
+    s.physics.sync(s.world);
+    Heightfield3D* g = s.world.get<Heightfield3D>(field);
+    auto top = [&](float x, float z) {
+        const auto h = s.physics.raycast3d(s.world, {x, 20.0f, z}, {0, -1, 0}, 100.0f);
+        return h ? h->point.y : -999.0f;
+    };
+    // a second reader (a renderer, a nav cache) with its own version
+    std::uint64_t other = g->heights.version();
+    std::size_t b = 0, e = 0;
+    g->heights.set(10 * 21 + 5, 3.0f);  // edit A at x = -5, z = 0
+    CHECK(g->heights.dirty_since(other, b, e));
+    other = g->heights.version();       // the other reader takes it: the range is still there for physics
+    g->heights.set(10 * 21 + 15, 4.0f);  // edit B at x = 5, z = 0
+    s.physics.sync(s.world);
+    CHECK(top(-5.0f, 0.0f) == doctest::Approx(3.0f).epsilon(1e-3));
+    CHECK(top(5.0f, 0.0f) == doctest::Approx(4.0f).epsilon(1e-3));
+    CHECK(g->heights.dirty_since(other, b, e));
+    CHECK(b == std::size_t(10 * 21 + 15));
+    // more writes than the array remembers between two syncs: physics compares everything
+    for (int i = 0; i < 20; ++i) g->heights.set(std::size_t(5 * 21 + i), 1.0f + float(i));
+    s.physics.sync(s.world);
+    for (int i = 0; i < 20; ++i) CHECK(top(float(i) - 10.0f, -5.0f) == doctest::Approx(1.0f + float(i)).epsilon(1e-3));
+    // the same for the holes
+    std::vector<std::uint8_t> holes(20 * 20, 0);
+    holes[10 * 20 + 3] = 1;
+    g->holes.assign(holes.data(), holes.size());
+    std::uint64_t holesSeen = g->holes.version();
+    g->holes.set(10 * 20 + 12, 1);
+    CHECK(g->holes.dirty_since(holesSeen, b, e));
+    s.physics.sync(s.world);
+    CHECK(top(-6.5f, 0.5f) < -100.0f);   // the cell (10, 3): x in [-7, -6], z in [0, 1]
+    CHECK(top(2.5f, 0.5f) < -100.0f);    // the cell (10, 12)
+    CHECK(top(0.5f, 0.5f) > -100.0f);
+}
+
 namespace {
 std::string run_field(int threads, int frames) {
     Pool pool(threads);

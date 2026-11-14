@@ -21,6 +21,13 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   how to fix it and has no collider. The NavMesh bake sees the field as ground. New `fa_bench` entries
   `physics.heightfield_step` (200 bodies on 256 x 256 samples) and `physics.heightfield_edit`. Ride-along: the end-of-step
   cover of the broad phase walks only the awake bodies (`physics.step3d_mostly_asleep` 4.64 -> 4.61 ms, within noise).
+  The ground is solid 8 m deep: a body that ends up wholly under a solid cell (the terrain was raised under it in one edit,
+  or it was put there) within 8 m of the surface is pushed back up; under a hole cell, outside the grid or deeper it keeps
+  falling. The collider's bounds reach 8 m below its lowest sample for that.
+- Typed arrays (`ArrayI32`, `ArrayF32`, `ArrayU8`) track changes per consumer (M94.4f fix): `dirty_since(seen, begin, end)`
+  replaces `dirty_begin()`, `dirty_end()`, `has_dirty()` and `acknowledge()`. The array remembers its last 8 writes, every
+  consumer keeps the version it last read, and false means "compare everything", so two readers (physics and a renderer or
+  a nav cache) never hide an edit from each other. Engine C++ only: scripts and files are unchanged.
 - 3D scene queries use the broad phase's tree (M94.4c2): `physics.raycast3d`, `raycast3dAll`, `shapeCast`, `overlapSphere`,
   `isTouching` (3D) and `moveCharacter` no longer test every body. A ray walks the tree nearest first and is
   cut at the best hit so far; the other queries test only the bodies near the query's box. The answers are the same as

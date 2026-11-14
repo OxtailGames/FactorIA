@@ -160,12 +160,12 @@ std::string update_heightfield(HeightfieldShape& f, const std::string& who, Heig
         if (f.built.hId != now.hId) {
             he = samples;
         } else if (f.built.hVer != now.hVer) {
-            hb = c.heights.dirty_begin();
-            he = std::min(c.heights.dirty_end(), samples);
-            if (hb >= he) {  // written, but someone else already acknowledged the range: compare everything
-                hb = 0;
-                he = samples;
-            }
+            // What was written since the version this copy was taken from. Physics has its own last-seen version
+            // (f.built), so another reader of the array can neither hide an edit from it nor lose one.
+            if (c.heights.dirty_since(f.built.hVer, hb, he))
+                he = std::min(he, samples);
+            else
+                hb = 0, he = samples;  // more writes than the array remembers: compare everything
         }
         const int icols = c.columns, irows = c.rows;
         std::size_t changedSamples = 0;
@@ -223,12 +223,10 @@ std::string update_heightfield(HeightfieldShape& f, const std::string& who, Heig
         if (holesNow != holesBefore || f.built.oId != now.oId) {
             oe = cells;
         } else if (f.built.oVer != now.oVer) {
-            ob = c.holes.dirty_begin();
-            oe = std::min(c.holes.dirty_end(), cells);
-            if (ob >= oe) {
-                ob = 0;
-                oe = cells;
-            }
+            if (c.holes.dirty_since(f.built.oVer, ob, oe))
+                oe = std::min(oe, cells);
+            else
+                ob = 0, oe = cells;
         }
         if (oe > ob) {
             const std::uint8_t* src = c.holes.cdata();
@@ -255,8 +253,6 @@ std::string update_heightfield(HeightfieldShape& f, const std::string& who, Heig
     f.built = now;
     f.valid = true;
     f.problem.clear();
-    c.heights.acknowledge();
-    c.holes.acknowledge();
     return {};
 }
 

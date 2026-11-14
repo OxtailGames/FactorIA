@@ -639,20 +639,30 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     both facing up; a hole cell has neither. The body keeps its own scaled copy of the heights, so the solver and the
     queries never read the component that gameplay writes, and 16 x 16-cell blocks keep the lowest and highest sample (the
     field's bounds come from them). `update_heightfield` brings the copy in line: if the arrays have the id and version it
-    built from it costs two integer compares; otherwise it reads only the dirty range, copies only the samples whose value
-    differs, recomputes the blocks they touch and reports the edited cells and the heights they span (old and new). A
-    changed size, spacing, scale or array object rebuilds all of it. The component is acknowledged only when the copy was
-    taken, so a consumer other than physics must keep its own copy of the arrays. The collider's bounds are the field's
-    (`boxStale` only when the lowest or highest sample moved, so the tree leaf is kept for most edits), and the `Sig` of the
+    built from it costs two integer compares; otherwise it asks each array `dirty_since(version it built from)` (the array keeps the last 8 writes; more than that, or
+    a copy of another array, means "compare everything"), copies only the samples whose value differs, recomputes the
+    blocks they touch and reports the edited cells and the heights they span (old and new). A changed size, spacing,
+    scale or array object rebuilds all of it (the first sync of a field and every full rebuild read all N samples).
+    Nothing is acknowledged or consumed: the copy remembers the version it took, so any other reader of the arrays (a
+    renderer, a nav cache) keeps its own last-seen version and never hides an edit from physics, or the other way round.
+    The collider's bounds are the field's, extended `kHeightfieldSolidDepth` (8 m) below its lowest sample so the ground is
+    solid there (`boxStale` only when the lowest or highest sample moved, so the tree leaf is kept for most edits), and the `Sig` of the
     body leaves out the height of the box, so an edit does not wake the contacts of the whole field. After the tree is
     updated, `wake_near_edit` turns the edited cells and heights (+0.1 m) into a world box, asks the tree for the bodies
     whose box overlaps it and wakes the sleeping ones that really do; contacts elsewhere keep their state. Contacts
     (`heightfield_contact`, called by `collide_general` like a mesh): the other shape's bounds, in model space, pick the
-    cells (blocks and cells whose height range misses the bounds are skipped, so a body falling through a hole is not pushed
-    back up); each triangle is tested with GJK and the deepest result wins. A face contact is kept; a contact on an edge or
+    cells (blocks and cells whose height range misses the bounds are skipped); each triangle is tested with GJK and the
+    deepest result wins. A face contact is kept; a contact on an edge or
     corner counts only when its normal lies in the cone of the normals of the triangles that share it (an open border or a
     hole beside it always counts), so a shape sliding over a seam of a flat or planar field sees only the face normal and
-    cannot bump. A shape that sank below a triangle with its closest point inside it is pushed up (solid ground). Boxes and
+    cannot bump. A shape that sank below a triangle with its closest point inside it is pushed up (solid ground). A body
+    wholly below the lowest sample of the cell under its centre touches none of the cells above (they are skipped as
+    out of range), so when nothing else hit, the rule is: the centre is inside the grid's x and z extent, the cell under it
+    is not a hole, and the body's lowest bound is at most `kHeightfieldSolidDepth` (8 m, world units) below the surface at
+    the centre; then the contact is the triangle over the centre's own (normal = its up, depth = how far the body's deepest
+    point is under its plane). A body under a hole cell, outside the extent or deeper keeps falling: that is how a body that
+    fell through a hole is told from one the terrain rose over (one that fell and then slid sideways under solid cells within
+    8 m of the surface is pushed back up too). Boxes and
     hulls get one point per low corner, probed onto the field with `ray_heightfield` (up to four points, feature ids
     like the mesh manifolds). `ray_heightfield` walks the cells along the ray (Amanatides-Woo, bounded by rows + cols + 8
     steps, testing the triangles of a cell only when the ray's height inside the cell overlaps the cell's samples) so its
