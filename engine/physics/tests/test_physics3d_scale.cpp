@@ -185,7 +185,7 @@ TEST_CASE("3d scale: a column of 100 boxes comes to rest, asleep, without collap
     CHECK(r.drift < 0.05f);
     CHECK(r.topY > 98.0f);  // 99.5 without any sag; the sag is under 1.5%
     CHECK(r.awake == 0);
-    if (kOptimized) CHECK(r.cpu < 1.5 * test_speed_budget_scale());  // 0.13 s measured: 11x the margin
+    if constexpr (kOptimized) CHECK(r.cpu < 1.5 * test_speed_budget_scale());  // 0.13 s measured: 11x the margin
 }
 
 // The column of 50: it used to lean a few degrees and keep moving.
@@ -255,7 +255,7 @@ TEST_CASE("3d scale: 1000 bodies falling into a walled pit stay within a CPU bud
     const double small = pit_ms(250), big = pit_ms(1000);
     std::printf("[scale] pit1000: %d steps from the drop, %.2f ms/step CPU (pit250 %.2f ms/step, ratio %.1f)\n", kSteps,
                 big, small, big / small);
-    if (kOptimized) {
+    if constexpr (kOptimized) {
         CHECK(big / small < 10.0);
         CHECK(big < 120.0 * test_speed_budget_scale());
     }
@@ -266,8 +266,8 @@ TEST_CASE("3d scale: 1000 bodies falling into a walled pit stay within a CPU bud
 // after about 1560 steps (a Release run measured 65 s of CPU on an M-series laptop, almost all of it the awake steps of
 // the creep: a pile of 1000 bodies keeps a few bodies above the sleep speed for a long while, and one awake body keeps
 // its island awake). The limit of 5400 steps (90 s of simulated time) is 3.5 times that.
-TEST_CASE("3d scale: 1000 bodies in a walled pit settle asleep and then cost almost nothing") {
-    if (!kOptimized) return;
+TEST_CASE("3d scale: 1000 bodies in a walled pit settle asleep and then cost almost nothing" *
+          doctest::skip(!kOptimized)) {
     Sim s;
     build_pit(s.world, 1000);
     s.run(1);
