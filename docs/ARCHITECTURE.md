@@ -569,24 +569,35 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     the sleep timer of every slowly rotating capsule.) Measured on the scale tests: the column of 100 sleeps after 240
     steps and the column of 50 after 140, neither leans (drift 0.000), and the walled pit of 1000 bodies is asleep after
     about 1600 steps (how long a pile creeps depends on the scene: 800 to 1600 steps measured).
-    Sleeping bodies cost almost nothing while other bodies are awake (M94.4e). Before the sub-steps a classification pass
-    lists the awake bodies, the moved static or kinematic ones, the platforms and the characters (`Rows`); every loop of the
-    step (integration, the time-of-impact sweep, contact build, solver, settling, rolling, sleep checks, write-back) walks
-    those lists and not all the bodies, and a pair loop walks the rows of the awake bodies, asking the tree for the partners
-    (an awake body sees every partner except an awake one with a lower index, whose row finds the pair; the records are
-    replayed sorted by (i, k), so the Gauss-Seidel order, the warm-start lookups and the results are those of the old
-    all-pairs loop). A pair of two bodies at rest (asleep or static) is not visited at all: its state moves from `touching_`
-    to `frozen_` and comes back when a body wakes, is edited, or a body is created or destroyed. A sleeping body keeps its
-    tight, still-margin box in the tree. A sleeping pile that an awake body touches takes part in the step as a unit (the
-    sleep group wakes together, as before); one that nothing awake is near is not an island mover, so the time-of-impact
-    sweep and its position pass leave it alone. That position pass (`correct_position`) now only runs for the bodies of
-    islands that had a time-of-impact stop in the sub-step; before it ran for every body whenever any body had one, so a
-    fast body landing far from a resting pile used to nudge the pile (the one intended change in results: worlds where
-    nothing sleeps, or where the stops happen in the same island, give the same bits as before, and
-    `kReferenceHash` is unchanged). What is still O(number of bodies) per step is `sync`, which reads every body's
-    components (pose, enabled state, shape signature) to see what gameplay edited: about 0.15 ms for 1000 bodies. Measured
-    (Release, macOS, inline jobs): 1000 asleep + 20 awake steps in about 0.29 ms, against 0.05 ms for the 20 alone and 8.3
-    ms before (`physics.step3d_mostly_asleep`).
+    Sleeping bodies cost almost nothing while other bodies are awake (M94.4e). Before the sub-steps a classification
+    pass lists the awake bodies, the moved static or kinematic ones, the platforms and the characters (`Rows`); every
+    loop of the step (integration, the time-of-impact sweep, contact build, solver, settling, rolling, sleep checks,
+    write-back) walks those lists and not all the bodies, and a pair loop walks the rows of the awake bodies, asking
+    the tree for the partners (an awake body sees every partner except an awake one with a lower index, whose row finds
+    the pair; the records are replayed sorted by (i, k), so the order of the Gauss-Seidel passes and of the warm-start
+    lookups is that of a loop over every body). A pair of two bodies at rest (asleep or static) is not visited at all:
+    its state moves from `touching_` to `frozen_` and comes back when a body wakes, is edited, or a body is created or
+    destroyed. A sleeping body keeps a tight, still-margin box in the tree. In the solver's position pass a sleeping or
+    static body below an awake one is an extra row only to find the awake dynamic bodies near it (a floor under a big
+    sleeping pile does not return the pile). A sleeping pile an awake body touches takes part in the step as a unit
+    (its sleep group wakes together, as before); a pile nothing awake is near is not an island mover.
+    What differs from before (every other world gives the same bits; `kReferenceHash` and `determinism_expected.txt`
+    did not change, none of their scenes has these cases):
+    1. The position pass after a time-of-impact stop (`correct_position`, then the relax pass) now runs only for the
+       bodies of the islands that had a stop in the sub-step. Before it ran for every body whenever any body had one,
+       so a ball hitting a wall far away also re-solved the contacts of a box resting on the ground, and a resting
+       pile was nudged. This changes any world that has two independent groups of bodies in contact and a stop in one
+       of them, also when nothing sleeps (the test "a far time-of-impact stop does not move an awake box" pins it).
+    2. Inside such an island, the pairs of a body with a static or sleeping body of a LOWER index are visited in
+       global (lower index, higher index) order (`replay_sorted`); the old loop visited them with the row of the
+       higher body, so the order of the passes differs for an island that touches a static body with a lower index.
+    3. A sleeping body that `wake_touched` wakes is a row only from the next phase or sub-step, not in the same call.
+    4. A force applied to a disabled body is dropped (and the force a body had when it was disabled is cleared) instead
+       of waiting for it to be enabled.
+    What is still O(number of bodies) per step is `sync`, which reads every body's components (pose, enabled state,
+    shape signature) to see what gameplay edited: about 0.15 ms for 1000 bodies. Measured (Release, macOS, inline jobs):
+    1000 asleep + 20 awake steps in 0.23 ms, 10 000 asleep + 20 awake in 1.7 ms (the sync), against 0.05 ms for the 20
+    awake alone and 8.3 ms with 1000 asleep before (`physics.step3d_mostly_asleep`).
   - *3D broad phase* (`broadphase3d.h`): the 3D solver keeps a dynamic AABB tree with one leaf per enabled collider with a
     shape (created, removed and renumbered after every `sync`). A leaf holds a FAT box: the collider's bounds plus a margin
     (0.1 m when it moves, 0.02 m at rest) and, for a body in motion, its velocity over two steps; the leaf stays where it is
@@ -599,8 +610,8 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     takes the answer sorted by index. A body the tree does not return is further than the reach, so the narrow phase would
     have said no: the partners and the order are those of the old all-pairs loop, whatever the shape of the tree, the
     order bodies were added in or the number of threads, and the simulation result did not change. Pairs that keep their
-    state because both bodies are asleep or static are not geometry: they stay in `frozen_` (see Sleeping) until a body wakes. Raycasts, overlaps, shape
-    casts and the character controller do not use the tree yet. Besides the pair loops, the tree answers which bodies are near
+    state because both bodies are asleep or static are not geometry: they stay in `frozen_` (see Sleeping) until a
+    body wakes. Raycasts, overlaps, shape casts and the character controller do not use the tree yet. Besides the pair loops, the tree answers which bodies are near
     a platform (the riders it carries) and which movers are close enough to share a time-of-impact island; a mover whose
     reach is over 2 m, or whose centre is outside its box, is tried against every mover instead, and a platform finds the
     characters it carries among the few that can be carried.

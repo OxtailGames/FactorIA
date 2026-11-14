@@ -914,6 +914,7 @@ void Physics3D::sync(World& world) {
             b.boxStale = true;
         }
         b.enabled = world.active_in_hierarchy(e);
+        if (!b.enabled) b.force = {};  // (the step clears the force of the awake bodies only: none piles up while disabled)
         if (!existed) b.moved = true;  // a new body wakes what it appears in, like a teleported one
         // Sleeping bodies must follow everything gameplay does to them or to what they rest on: a changed body or collider
         // (including enabling and disabling) and a teleport wake the body and the bodies touching it; a written velocity
@@ -1519,7 +1520,7 @@ void Physics3D::step(World& world, float dt) {
         bp_.sorted_query(q, out);
         if (!scope) {
             if (low) {
-                ensure_awake();
+                FA_ASSERT(!awakeStale_, "the awake list is rebuilt before a scan");  // (this runs on the job threads)
                 out.erase(std::remove_if(out.begin(), out.end(),
                                          [&](std::uint32_t k) { return k == i || (k < i && R.isAwake[k]); }),
                           out.end());
@@ -1573,6 +1574,33 @@ void Physics3D::step(World& world, float dt) {
     std::vector<std::uint32_t> liveRow;
     std::vector<std::size_t> liveRows, liveExtra;
     std::uint64_t liveExtraWrites = ~std::uint64_t(0), liveExtraRows = 0;  // what `liveExtra` was computed for
+    // The partners of a row of for_pairs_live. An extra row (a sleeping or static body below an awake one) only has work with
+    // a dynamic body that is awake (the callback does nothing for two bodies that are not), so its partners are those:
+    // found among the awake list when it is short (a floor box covering a big sleeping pile would otherwise answer the
+    // whole pile on every call), else from the tree and filtered. The partners, and their order, are those of a plain row
+    // without the ones whose pair does nothing.
+    auto live_collect = [&](std::size_t i, const Aabb3& q, std::size_t from) {
+        if (scope || R.isAwake[i]) {
+            collect(i, q, from, liveRow);
+            return;
+        }
+        liveRow.clear();
+        if (bodies_[i].proxy < 0) return;
+        const std::size_t lo = std::max(from, i + 1);
+        constexpr std::size_t kBruteRows = 64;
+        if (R.awake.size() <= kBruteRows) {
+            for (const std::size_t j : R.awake) {
+                const Body& o = bodies_[j];
+                if (j >= lo && o.proxy >= 0 && live_dyn(o) && aabb_overlap(bp_.fat(o.proxy), q))
+                    liveRow.push_back(std::uint32_t(j));
+            }
+            return;
+        }
+        collect(i, q, from, liveRow);
+        liveRow.erase(std::remove_if(liveRow.begin(), liveRow.end(),
+                                     [&](std::uint32_t j) { return !live_dyn(bodies_[j]); }),
+                      liveRow.end());
+    };
     auto for_pairs_live = [&](auto&& fn) {
         constexpr float kPad = 0.05f;
         liveRows.clear();
@@ -1605,7 +1633,7 @@ void Physics3D::step(World& world, float dt) {
         for (std::size_t i : liveRows) {
             if (bodies_[i].proxy < 0) continue;
             Aabb3 q = aabb_grow(tight_box(bodies_[i]), kPad);
-            collect(i, q, 0, liveRow);
+            live_collect(i, q, 0);
             for (std::size_t pos = 0; pos < liveRow.size(); ++pos) {
                 const std::size_t k = liveRow[pos];
                 fn(std::min(i, k), std::max(i, k));
@@ -1614,7 +1642,7 @@ void Physics3D::step(World& world, float dt) {
                 cover_one(k, tight_box(bodies_[k]));
                 if (!aabb_contains(q, now)) {
                     q = aabb_grow(now, kPad);
-                    collect(i, q, k + 1, liveRow);
+                    live_collect(i, q, k + 1);
                     pos = std::size_t(-1);
                 }
             }
@@ -1657,6 +1685,10 @@ void Physics3D::step(World& world, float dt) {
                 if (collide(m, s, kRiderGap).hit) wake(s);
             });
         };
+        // The rows are the awake bodies of the list as it was when the loop started: a sleeping body that wakes in here is not
+        // visited as a mover in this call (the old loop over every body saw one with a higher index at once). It becomes
+        // one in the next phase or sub-step, so a chain of sleepers that only touch a woken body's neighbours (not the body
+        // itself) wakes one link per phase instead of all at once; the group of a body that wakes does wake together.
         for (const std::size_t i : rows_of()) visit(i);
         if (!scope)  // the static bodies gameplay placed this step
             for (const std::size_t i : R.movedStatic) visit(i);
@@ -2666,7 +2698,7 @@ void Physics3D::apply_force(World&, Entity e, Vec3 force) {
     auto it = index_.find(e.bits());
     if (it == index_.end()) return;
     Body& b = bodies_[it->second];
-    if (b.type != BodyType::Dynamic) return;
+    if (b.type != BodyType::Dynamic || !b.enabled) return;  // a disabled body has no step to clear it
     wake(b);
     b.force += force;
 }
