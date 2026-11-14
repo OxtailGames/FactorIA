@@ -249,9 +249,10 @@ build() {  # build <dir> <label> [target...]
     return $rc
 }
 
-# What a test run could not do without a window: window_note <label> <asleep 0|1> <tests left out> <steps skipped>.
+# What a test run could not do without a window: window_note <label> <asleep 0|1> <tests left out> <steps skipped>
+# <the tests those steps are in>.
 window_note() {
-    local label="$1" asleep="$2" tests="$3" steps="$4" note
+    local label="$1" asleep="$2" tests="$3" steps="$4" entries="$5" note again
     note="$label: SKIPPED (not passed):"
     if [ -n "$tests" ]; then
         note="$note $(printf '%s\n' "$tests" | wc -w | tr -d ' ') test(s) that open a window ($tests);"
@@ -262,8 +263,10 @@ window_note() {
     fi
     if [ "$asleep" = 1 ]; then
         note="${note%;}. Every display of this Mac is asleep (lid closed or idle), so a window gets no frame. Wake the"
-        note="$note display and run the same tests again"
-        [ -n "$tests" ] && note="$note (the ones left out: --tests '^(${tests// /|})\$')"
+        note="$note display and run them again"
+        # shellcheck disable=SC2086  # one name per word
+        again="$(printf '%s\n' $tests $entries | sort -u | tr '\n' '|' | sed 's/^|*//; s/|*$//')"
+        [ -n "$again" ] && note="$note (--tests '^($again)\$')"
         note="$note, or say in your report that only CI runs them."
     else
         note="${note%;}. FA_TEST_NO_WINDOW is set in the environment: unset it and run them again."
@@ -275,7 +278,7 @@ window_note() {
 # left out (displays_asleep) or a test case skipped the step that runs a windowed program (FA_TEST_NO_WINDOW).
 run_ctest() {  # run_ctest <dir> <label> <log> <ctest arguments...>
     local dir="$1" label="$2" log="$3"; shift 3
-    local t0=$SECONDS rc=0 disabled asleep=0 skipped="" steps=""
+    local t0=$SECONDS rc=0 disabled asleep=0 skipped="" steps="" entries=""
     set_phase "$label" "$log"
     if displays_asleep; then
         # No window gets a frame. The tests that open one (label `window`) are left out; a test case of another test
@@ -345,8 +348,12 @@ run_ctest() {  # run_ctest <dir> <label> <log> <ctest arguments...>
         # skipped its windowed step.
         steps="$(grep -o '[^/\\ ]*:[0-9]*: MESSAGE: FA_TEST_NO_WINDOW is set' "$dir/Testing/Temporary/LastTest.log" \
             2>/dev/null | sed 's/: MESSAGE: .*//' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+        # And the tests they are in: every test's part of that log starts with "<n>/<total> Test: <name>".
+        entries="$(awk '/^[0-9]+\/[0-9]+ Test: / { name = $3 }
+            /: MESSAGE: FA_TEST_NO_WINDOW is set/ && name != "" { print name }' \
+            "$dir/Testing/Temporary/LastTest.log" 2>/dev/null | sort -u | tr '\n' ' ' | sed 's/ *$//')"
     fi
-    [ -n "$skipped$steps" ] && say "$(window_note "$label" $asleep "$skipped" "$steps")"
+    [ -n "$skipped$steps" ] && say "$(window_note "$label" $asleep "$skipped" "$steps" "$entries")"
     if [ $rc -ne 0 ]; then
         say "$label: FAILED ($((SECONDS - t0)) s). Full log: $log"
         return 1

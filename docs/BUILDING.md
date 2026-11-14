@@ -218,6 +218,8 @@ step with a `MESSAGE`, and the script lists it by file and line in the same `SKI
 tooling` alone ends as `DONE INCOMPLETE` too. Wake the display and run the listed tests (the note gives the `--tests`
 regex), or say in the report that only CI ran them; a push still needs them green somewhere.
 `FA_AGENT_WINDOW_TESTS=run` runs them whatever the display says. Nothing wakes the display or changes a power setting.
+A Mac with no display connected lists none, asleep or awake, so the check does not apply to it: the tests that open a
+window run there as before.
 
 `FA_AGENT_JOBS`, `FA_AGENT_CTEST_JOBS` and `FA_AGENT_WAIT_S` set the defaults of `--jobs`, `--ctest-jobs` and
 `--wait-s`.
