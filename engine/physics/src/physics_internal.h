@@ -1,6 +1,8 @@
 // Private: the 2D (Box2D) and 3D (custom) back-ends behind fa::Physics.
 #pragma once
 
+#include <algorithm>
+#include <cstdint>
 #include <map>
 #include <memory>
 #include <string>
@@ -9,7 +11,10 @@
 #include <vector>
 
 #include "box2d/box2d.h"
+#include "broadphase3d.h"
 #include "fa/physics/physics.h"
+#include "fa/scene/tilemap.h"
+#include "heightfield3d.h"
 #include "nav_grid.h"
 #include "shape3d.h"
 
@@ -141,27 +146,43 @@ private:
     Entity entity_of(b2ShapeId s, bool* trigger = nullptr) const;
     Entity entity_of_alive(const World& world, b2ShapeId s, bool* trigger) const;
 
+    // The colliders of one Tilemap: static boxes, ONE decomposition of the solid cells whatever the edits that led to it
+    // (every row cut into its maximal runs, identical runs of consecutive rows stacked), so a long floor is one box with no
+    // seam. `boxAt` says which box holds each cell (id + 1, 0 = none): an edit finds the boxes it touches without a scan.
     struct TileBody {
         Entity e;
         std::string id;
         b2BodyId body = b2_nullBodyId;
-        std::uint64_t hash = 0;       // layout: size, tileSize, scale, solidTiles. A change rebuilds the whole body.
-        std::uint64_t tilesHash = 0;  // the tiles (sum of per-cell mixes), kept in step with Tilemap::edits
-        int cols = 0;                 // grid size the colliders were built for
+        std::uint64_t hash = 0;  // layout: size, tileSize, scale, solidTiles. A change rebuilds the whole body.
+        TilemapStamp stamp;      // the array the boxes were built from (fa/scene/tilemap.h): same stamp = same tiles
+        int cols = 0;            // grid size the colliders were built for
         int rows = 0;
         std::vector<int> solid;  // sorted solid tile indices
-        // One box per run of solid tiles (cells c0..c1 x r0..r1), parallel to shapeKeys and boxes.
-        struct Run {
-            int c0, c1, r0, r1;
-            b2ShapeId shape;
+        struct Box {
+            int c0 = 0, c1 = 0, r0 = 0, r1 = 0;  // cells, both ends included
+            b2ShapeId shape = b2_nullShapeId;
+            std::uint64_t key = 0;  // shape_key(shape)
+            Rect rect;  // AABB relative to the map's position (for debug: the map may move after the box was made)
+            bool alive = false;
         };
-        std::vector<Run> runs;
-        std::vector<std::uint64_t> shapeKeys;
-        std::vector<Rect> boxes;  // world-space AABBs (for debug)
+        std::vector<Box> boxes;                // by id; a removed box stays (alive = false) until its id is reused
+        std::vector<std::uint32_t> freeBoxes;  // ids to reuse, last removed first
+        std::vector<std::uint32_t>
+            boxAt;  // cols x rows (4 bytes per cell): id + 1 of the box holding the cell, 0 = none
         Vec3 pos;
         float rotZ = 0;
         std::uint64_t seen = 0;
+        int fullScans = 0;            // times every cell had to be compared (no edit list explained the change)
+        std::int64_t boxesBuilt = 0;  // boxes made since the body was made, the first build included
+        std::size_t shape_count() const { return boxes.size() - freeBoxes.size(); }
     };
+    // Makes the box of cells c0..c1 x r0..r1 (one diamond per cell on an isometric map) and returns its id.
+    std::uint32_t add_tile_box(TileBody& tb, const Tilemap& tm, const WorldPose& pose, int c0, int c1, int r0, int r1);
+    void remove_tile_box(TileBody& tb, std::uint32_t id);
+    // Brings the boxes of `tb` to the map now: `cells` are the cells that may have changed solidity (`all`: every cell).
+    // Boxes that come out the same are kept, with their contacts. Returns whether any box changed.
+    bool update_tile_boxes(TileBody& tb, const Tilemap& tm, const TilemapSize& size, const WorldPose& pose,
+                           std::vector<int>& cells, bool all);
 
     // A Joint2D as built in Box2D. `shape` is what forces a rebuild (type, bodies, anchors, axis, collideConnected); `tuning`
     // (limits, motor, spring, length) is applied to the live joint when it changes.
@@ -192,7 +213,46 @@ private:
 };
 
 // ------------------------------------------------------------------ 3D ----
+// The id of a contact point's feature (Physics3D::Contact::ids): three small numbers mixed into one that is never 0 (FNV-1a
+// steps). Pure integer arithmetic: the same on every platform.
+inline std::uint32_t mix_id(std::uint32_t a, std::uint32_t b, std::uint32_t c = 0) {
+    std::uint32_t h = 2166136261u;
+    for (const std::uint32_t v : {a, b, c}) {
+        h = (h ^ v) * 16777619u;
+        h ^= h >> 15;
+    }
+    return h != 0 ? h : 1u;
+}
+
+// Islands: indices that belong together. The root of a set is its smallest index, so the result never depends on the
+// order the links were made in.
+struct UnionFind {
+    std::vector<std::size_t> p;
+    UnionFind() = default;
+    explicit UnionFind(std::size_t n) { reset(n); }
+    void reset(std::size_t n) {  // n singletons (keeps the storage)
+        p.resize(n);
+        for (std::size_t i = 0; i < n; ++i) p[i] = i;
+    }
+    std::size_t find(std::size_t x) {
+        while (p[x] != x) x = p[x] = p[p[x]];
+        return x;
+    }
+    void unite(std::size_t a, std::size_t b) {
+        a = find(a);
+        b = find(b);
+        if (a < b)
+            p[b] = a;
+        else if (b < a)
+            p[a] = b;
+    }
+};
+
+struct Physics3DTestAccess;  // the manifold tests call collide() on hand-made bodies
+
 class Physics3D {
+    friend struct Physics3DTestAccess;
+
 public:
     void sync(World& world);  // bodies <-> components without simulating
     void init(const PhysicsSettings& s) { settings_ = s; }
@@ -206,6 +266,13 @@ public:
                                          const RaycastOptions& opt);
     bool is_touching(World& world, Entity e, Vec3 dir, float tolerance);
     std::vector<Entity> overlap_sphere(World& world, Vec3 center, float radius, std::int32_t mask);
+    // Tests and benchmarks: true makes every query test every body (the answer of the queries before they used the
+    // broad phase) instead of the ones the tree returns. The answers are the same either way.
+    void set_brute_force_queries(bool on) { bruteQueries_ = on; }
+    // Tests: "" when the tree is complete (every enabled body with a shape owns a leaf, its payload is its index, its fat box
+    // contains the body's bounds, the tree's structure holds), else what is wrong (every problem found, up to eight).
+    // The queries rely on it after every sync, step and character move. checkBalance: see Broadphase3D::validate.
+    std::string broadphase_problems(bool checkBalance = true) const;
     void apply_impulse(World& world, Entity e, Vec3 impulse);
     void apply_force(World& world, Entity e, Vec3 force);
     void set_velocity(World& world, Entity e, Vec3 velocity);
@@ -228,7 +295,7 @@ public:
     void debug_shapes(const World& world, std::vector<Physics::DebugShape>& out) const;
 
 private:
-    static constexpr int kMaxPts = 8;  // contact points of a box-box manifold (a quad clipped by 4 planes)
+    static constexpr int kMaxPts = 4;  // contact points of a manifold (reduced to at most 4: see reduce_manifold)
     struct Body {
         Entity e;
         std::string id;
@@ -242,9 +309,9 @@ private:
         float gravityScale = 1.0f, damping = 0.0f, angDamping = 0.0f;
         float friction = 0.4f, restitution = 0.0f;
         std::int32_t layer = 0, mask = -1;
-        // Shape: Box and Sphere have their own exact code; Capsule, Convex and Mesh go through the convex cores of
-        // shape3d.h (`general()`).
-        enum class Kind { Box, Sphere, Capsule, Convex, Mesh } kind = Kind::Box;
+        // Shape: Box and Sphere have their own exact code; Capsule, Convex, Mesh and Heightfield go through the convex cores
+        // of shape3d.h (`general()`).
+        enum class Kind { Box, Sphere, Capsule, Convex, Mesh, Heightfield } kind = Kind::Box;
         bool general() const { return kind >= Kind::Capsule; }
         Vec3 half{0.5f, 0.5f,
                   0.5f};       // box half extents along its own axes (scaled); capsule / convex / mesh: bounding box
@@ -253,6 +320,8 @@ private:
         Vec3 gscale{1, 1, 1};  // convex / mesh: per-axis scale of the model's vertices
         Vec3 lcenter;          // convex / mesh: centre of the model's bounding box (scaled, entity axes)
         std::shared_ptr<const ShapeData> data;  // convex hull cloud / mesh BVH, shared by all colliders of one mesh
+        // heightfield: this body's own copy of the grid (heightfield3d.h); half / lcenter are the box around it
+        std::shared_ptr<HeightfieldShape> hf;
         Vec3 rot[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};  // the entity's world rotation (any shape; joints use it)
         Vec3 localScale{1, 1, 1};                         // the entity's world scale (joint anchors are scaled with it)
         std::vector<std::uint64_t>
@@ -278,8 +347,8 @@ private:
         // selects the exact axis-aligned code paths) unless the box is turned.
         Vec3 ax[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
         bool rotated = false;
-        // Rotation dynamics: a dynamic box (or rigid sphere) without lockRotation is turned by contacts. `orient` is the authority
-        // between steps (the Transform is written from it; `lastEuler` is what was written, so a different Transform
+        // Rotation dynamics: a dynamic box (or rigid sphere) without lockRotation is turned by contacts. `orient` is the
+        // authority between steps (the Transform is written from it; `lastEuler` is what was written, so a different Transform
         // value means gameplay turned the body and `orient` is re-read from it). invI = inverse inertia, body frame.
         bool rotDyn = false;
         bool rotDirty = false;  // orientation changed this step: Transform.rotation must be rewritten
@@ -301,10 +370,14 @@ private:
         // Sleeping: a dynamic body (and every body linked to it by contacts) whose speed stayed tiny for kTimeToSleep stops
         // costing solver work and sends no events. Bodies that fell asleep together share `sleepGroup` and wake together.
         bool asleep = false;
-        bool moved = false;  // gameplay teleported this body since the last step: it wakes whatever it now touches
+        bool moved =
+            false;  // gameplay teleported or created this body since the last step: it wakes whatever it now touches
+        bool boxStale =
+            false;  // sync changed what its box in the broad phase is made from: the next step covers it again
         float sleepTime = 0.0f;
         std::uint64_t sleepGroup = 0;
         std::uint64_t seen = 0;
+        int proxy = Broadphase3D::kNone;  // its leaf in Physics3D::bp_ (enabled bodies with a shape only)
         // What a sleeping body's neighbours depend on: when any of it changes (a platform resized, disabled, made dynamic...)
         // the body and the bodies that touched it wake up.
         struct Sig {
@@ -329,8 +402,9 @@ private:
                        rotDyn == o.rotDyn && mass == o.mass && gravityScale == o.gravityScale &&
                        std::fabs(radius - o.radius) <= 1e-5f * std::max(1.0f, radius) && near(half, o.half) &&
                        near(offset, o.offset) && ax[0] == o.ax[0] && ax[1] == o.ax[1] && ax[2] == o.ax[2] &&
-                       layer == o.layer && mask == o.mask && kind == o.kind && segHalf == o.segHalf &&
-                       near(gscale, o.gscale) && data == o.data;
+                       layer == o.layer && mask == o.mask && kind == o.kind &&
+                       std::fabs(segHalf - o.segHalf) <= 1e-5f * std::max(1.0f, segHalf) && near(gscale, o.gscale) &&
+                       data == o.data;
             }
         };
         Sig sig() const {
@@ -342,7 +416,8 @@ private:
                     mass,
                     gravityScale,
                     radius,
-                    half,
+                    // (a heightfield's height range follows its edits, which wake only the bodies near them: see sync)
+                    kind == Kind::Heightfield ? Vec3{half.x, 0.0f, half.z} : half,
                     offset,
                     {ax[0], ax[1], ax[2]},
                     layer,
@@ -358,15 +433,23 @@ private:
         Vec3 normal;         // from a to b
         float depth = 0.0f;  // > 0 penetrating; may be slightly negative within margin
         Vec3 point;
-        // Box-box face contacts (collide(..., manifold = true)): the clipped incident face. depths[i] < 0 = still apart.
+        // Manifold (collide(..., manifold = true)): up to kMaxPts points of a face contact, a capsule lying flat or a box on
+        // a mesh. depths[i] < 0 = still apart. ids[i] names the geometric feature that made the point (a corner of the
+        // clipped face, an end of a capsule...) and stays the same while the contact slides, so the solver gives the point
+        // the impulse the same feature carried in the previous sub-step. 0 = no feature (single-point contacts).
         int n = 0;
         Vec3 pts[kMaxPts];
         float depths[kMaxPts] = {};
+        std::uint32_t ids[kMaxPts] = {};
     };
     using PairKey = std::pair<std::uint64_t, std::uint64_t>;  // body seq numbers, lo < hi
     struct PairState {
         Entity a, b;
         bool trigger = false;
+        // The indices of the two bodies (a < b) in bodies_ when the pair was recorded: valid while `layout` equals
+        // Physics3D::layoutGen_ (the bodies shifted since otherwise). Lets a step keep the pairs of two sleeping bodies
+        // without looking each of them up.
+        std::uint32_t ia = 0, ib = 0, layout = 0;
     };
     // One manifold prepared for the rigid-body solver (see Physics3D::step).
     struct RigidContact {
@@ -377,17 +460,76 @@ private:
         float mu = 0.0f;
         int carrier = 0;  // 1: a is the kinematic platform carrying b; 2: the other way round
         int count = 0;
+        float omega = 1.0f;  // relaxation of the per-point updates (see build_rigid_contact)
         struct Pt {
             Vec3 ra, rb;
+            Vec3 la, lb;  // ra, rb in the frame of each body (they turn with it during the position pass)
+            std::uint32_t id = 0;
             float depth = 0.0f, kn = 1.0f, target = 0.0f, jn = 0.0f;
             Vec3 jt;
         } pt[kMaxPts];
     };
+    // The records and working storage of step(). The vectors live here (not on the stack of step) so that a step that has
+    // seen its biggest scene allocates nothing for them: each is cleared or assigned, never freed. (The job system, the
+    // events handed to the world and a growing scene still allocate; physics3d_alloc tests count what is left.)
+    struct JointLink {  // a joint seen from the bodies it joins (kNoBody: the world)
+        std::size_t a, b;
+        bool motor;
+    };
+    struct RigidHit {  // a manifold the pair scan found
+        std::size_t i, k;
+        bool low;  // found from its higher body (see Physics3D::step, "collect")
+        Contact c;
+    };
+    struct PairRec {  // an overlapping pair the events scan found
+        std::size_t i, k;
+        bool low;
+        PairKey key;
+        bool was, trig;
+        PairState st;
+        Contact c;
+    };
+    struct Begin {  // a pair that began touching this step
+        PairKey key;
+        PairState st;
+        Contact c;
+    };
+    using PairList = std::vector<std::pair<PairKey, PairState>>;
+    // The vectors a step reuses so a step allocates nothing. They only grow: after a scene of thousands of bodies they
+    // keep that capacity until the physics world is destroyed (docs/PERFORMANCE.md, "Physics on jobs").
+    struct StepScratch {
+        std::vector<JointLink> jlinks;
+        std::unordered_set<std::uint64_t> joinTargets;  // sync: bodies another entity's Joint3D is attached to
+        UnionFind chains, islands;
+        std::vector<int> chainSize, carrier;
+        std::vector<char> inJoint, charCarried, inScope, loaded, isMover, isSpecial, supported, hold, ready;
+        std::vector<std::size_t> carriable, riders, toiBodies, movers, special, groupOf, root;
+        std::vector<Vec3> disp;  // all zero between uses (an island zeroes its members' entries when it is done)
+        std::vector<float> reach, fastest, speeds;
+        std::vector<int> size, restless;
+        std::vector<RigidContact> rigid, held;
+        std::vector<std::uint64_t> playGroups;
+        std::vector<std::vector<std::size_t>> groups;  // the islands of a sub-step (the first `groupCount` are in use)
+        std::vector<std::vector<RigidHit>> hitParts;
+        std::vector<std::vector<PairRec>> pairParts;
+        std::vector<RigidHit*> lowHits;
+        std::vector<PairRec*> lowPairs;
+        std::vector<Begin> begins;
+        std::vector<std::pair<std::size_t, std::size_t>> links;  // touching awake dynamic bodies: they sleep together
+        std::vector<std::uint32_t> liveRow;
+        std::vector<std::size_t> liveRows, liveExtra, liveMerged;
+        PairList thawed, resting, merged;
+    };
+    StepScratch sc_;
 
     static Contact collide(const Body& a, const Body& b, float margin, bool manifold = false);
     // Capsule / convex / mesh pairs (physics3d_shapes.cpp).
     static Contact collide_general(const Body& a, const Body& b, float margin, bool manifold);
     static Contact mesh_contact(const Body& mesh, const Body& other, float margin, bool manifold);
+    // A convex shape against a heightfield (physics3d_heightfield.cpp); normal from the field to `other`.
+    static Contact heightfield_contact(const Body& field, const Body& other, float margin, bool manifold);
+    // Wakes the sleeping bodies near the part of `field` that an edit changed (model-space cell rectangle and heights).
+    void wake_near_edit(const Body& field, const HeightfieldEdit& edit);
     static Contact core_contact(const Core& A, const Core& B, float margin);
     static Contact tri_contact(const Core& tri, const Core& other, float margin);
     static void add_capsule_points(const Body& a, const Body& b, Contact& c);
@@ -400,7 +542,12 @@ private:
     static bool ray_body(const Body& b, Vec3 origin, Vec3 dir, float maxT, float& t, Vec3& normal);
     static void sphere_box(const Body& box, const Body& sph, float margin, Contact& out);
     static void box_box_sat(const Body& a, const Body& b, float margin, Contact& out, bool manifold);
-    static void face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, Contact& out);
+    static void face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, int refOwner,
+                              Contact& out);
+    // Stores the n candidate points (any number) in c: near-duplicates merged and at most kMaxPts kept, chosen by a rule that
+    // depends only on the points (deepest, farthest from it, the two that span the most area), never on a thread or an
+    // address, and tolerant of float noise so the same contact keeps the same points from one step to the next.
+    static void reduce_manifold(Contact& c, const Vec3* pts, const float* depths, const std::uint32_t* ids, int n);
     static bool sweep(Body& mover, Vec3 disp, Vec3 moverSpin, Body& target, Vec3 targetSpin, float& tHit);
     // How far the far end of a box travels when it turns by `spin` (rad, world axes): |spin| times its bounding radius.
     static float turning_reach(const Body& b, Vec3 spin) {
@@ -415,28 +562,162 @@ private:
     void solve_pair(Body& a, Body& b, const Contact& c, float h, float& impact, bool carried, bool positional);
     static bool build_rigid_contact(const Body& a, const Body& b, std::size_t ia, std::size_t ib, const Contact& c,
                                     float h, int carrier, float& impact, RigidContact& out);
-    static void solve_velocity(std::vector<Body>& bodies, RigidContact& rc, bool reverse);
+    // Soft contacts (Box2D v3's "soft step"): a constraint softened to a spring-damper of the given frequency, so a stack
+    // takes its weight without the solver having to be exact. The coefficients of one softness (see make_soft).
+    struct Soft {
+        float biasRate = 0.0f, massScale = 1.0f, impulseScale = 0.0f;
+    };
+    static Soft make_soft(float hertz, float dampingRatio, float h);
+    // One velocity pass over a manifold (all its points together). mode 0: rigid constraints (a time-of-impact stop);
+    // 1: soft ones that push a penetration out through the velocity, which the sub-step's motion turns into a position
+    // change; 2: the relax pass after the motion, which takes that speed out again.
     static void correct_position(std::vector<Body>& bodies, const RigidContact& rc);
-    void wake(Body& b);                     // b and everything that fell asleep with it
+    static void solve_manifold(std::vector<Body>& bodies, RigidContact& rc, int mode, float h, const Soft& soft,
+                               const Soft& softStatic);
+    static Aabb3 tight_box(const Body& b) {
+        Aabb3 box;
+        aabb(b, box.lo, box.hi);
+        return box;
+    }
+    // The bodies (indices, ascending) a query for `box` must test: the tree's answer, or every body in brute-force mode.
+    void query_candidates(const Aabb3& box, std::vector<std::uint32_t>& out) const;
+    // Makes the tree complete after sync changed bodies (leaves for new bodies, renumbered payloads, boxes of what moved).
+    void bp_sync_update();
+    void cover_body(const Body& b);  // makes b's fat box contain its bounds now (a character that moved between steps)
+    bool bruteQueries_ = false;
+    bool bpDirty_ = false;  // sync created, removed or changed a body: bp_reconcile() must run
+    void bp_reconcile();    // one leaf per enabled body with a shape, payloads = current indices (after every sync)
+    void wake(Body& b);     // b and everything that fell asleep with it
     void wake_touching(std::uint64_t seq);  // the bodies that touched body `seq` after the previous step
 
     PhysicsSettings settings_;
-    std::vector<Body> bodies_;                              // sorted by seq (creation order)
+    std::vector<Body> bodies_;     // sorted by seq (creation order)
+    std::uint32_t layoutGen_ = 1;  // changes whenever bodies_ is renumbered (a body destroyed, the world changed)
+    // The bodies a step's stages visit instead of every body (see Physics3D::step): indices ascending. Sleeping and static
+    // bodies are in none of the lists that drive the pair scans, the integration and the write-back, so a world with a big
+    // sleeping pile steps like the awake bodies alone.
+    struct Rows {
+        std::vector<std::size_t> awake;  // enabled, not static, not asleep
+        std::vector<char> isAwake;       // per body: in `awake`
+        std::vector<std::size_t>
+            movedStatic;                      // static bodies gameplay placed this step (they wake what they now touch)
+        std::vector<std::size_t> moved;       // every body with `moved` set
+        std::vector<std::size_t> stale;       // bodies whose broad-phase box must be covered again
+        std::vector<std::size_t> platforms;   // kinematic bodies with a velocity (not characters)
+        std::vector<std::size_t> characters;  // enabled characters
+        std::vector<std::size_t> bigAsleep;   // sleeping bodies too big for the island search through the tree
+        float maxAsleepReach = 0.0f;          // the biggest bound radius among the other sleeping bodies
+        bool anyAsleep = false;
+        bool anyUnchecked = false;  // a body whose start-overlap check has not run
+    };
+    Rows rows_;
+    bool awakeStale_ = true;     // `rows_.awake` must be rebuilt (a body woke up)
+    bool chainsMarked_ = false;  // some body has chain iterations / drag from a previous step
+    Broadphase3D bp_;  // fat boxes of the bodies with a shape; payload = index in bodies_ (renumbered every step)
     std::unordered_map<std::uint64_t, std::size_t> index_;  // entity bits -> index in bodies_
     std::uint64_t nextSeq_ = 1;
     Vec3 lastGravity_{1e30f, 1e30f, 1e30f};  // a changed scene gravity wakes every body
     const World* lastWorld_ = nullptr;
     std::uint64_t syncCounter_ = 0;  // stamps the bodies seen by one sync()
     std::uint64_t stepCounter_ = 0;
-    std::map<PairKey, PairState> touching_;  // pairs overlapping after the previous step
+    // Pairs overlapping after the previous step: a flat vector sorted by key (body seq numbers, so scan order = key
+    // order). Lookups are binary searches, iteration is key order (events come out in that order), and the vector
+    // `touchingNext_` that the next step fills is swapped in, so no step allocates once the capacity has grown.
+    std::vector<std::pair<PairKey, PairState>> touching_;
+    std::vector<std::pair<PairKey, PairState>> touchingNext_;
+    // The pairs whose two bodies are both asleep or static (and enabled, with a shape): nothing in them moves, so they keep
+    // their state without anyone looking at them. Sorted by key like `touching_`, which holds all the other pairs. A pair
+    // moves between the two vectors when a body wakes (`frozenDirty_`) or the bodies are renumbered (`frozenLayout_`), or
+    // when the step finds both of its bodies at rest.
+    std::vector<std::pair<PairKey, PairState>> frozen_;
+    std::uint32_t frozenLayout_ = 0;  // layoutGen_ the indices cached in `frozen_` were checked at
+    bool frozenDirty_ = false;        // a body woke up since: `frozen_` may hold a pair of it
+    const PairState* touching_find(PairKey key) const {
+        auto it =
+            std::lower_bound(touching_.begin(), touching_.end(), key,
+                             [](const std::pair<PairKey, PairState>& e, const PairKey& k) { return e.first < k; });
+        return it != touching_.end() && it->first == key ? &it->second : nullptr;
+    }
     // Warm start of the rigid-body solver: the accumulated impulses of each pair's contact points at the end of the
-    // previous sub-step (world position of the point + normal impulse + friction impulse).
+    // previous sub-step (world position and feature id of the point + normal impulse + friction impulse). Sorted by key (the order
+    // the contacts are built in), at most kMaxPts points per pair, cleared without freeing its storage.
     struct WarmPt {
         Vec3 pos;
+        std::uint32_t id = 0;
         float jn = 0.0f;
         Vec3 jt;
     };
-    std::map<PairKey, std::vector<WarmPt>> warm_;
+    struct WarmEntry {
+        PairKey key;
+        int count = 0;
+        WarmPt pt[kMaxPts];
+    };
+    std::vector<WarmEntry> warm_;
+    const WarmEntry* warm_find(PairKey key) const {
+        auto it = std::lower_bound(warm_.begin(), warm_.end(), key,
+                                   [](const WarmEntry& e, const PairKey& k) { return e.key < k; });
+        return it != warm_.end() && it->key == key ? &*it : nullptr;
+    }
+    // Strongest impact per pair during one step (lookup only, never iterated, so its order does not matter):
+    // open addressing with linear probing; clear() keeps the slots and empties only the ones that were used (a list of
+    // them), so a big table that grew once costs nothing per step afterwards.
+    class ImpactMap {
+    public:
+        float& operator[](PairKey key) {
+            if ((used_ + 1) * 2 > slots_.size()) grow();
+            return slot_for(key).v;
+        }
+        const float* find(PairKey key) const {
+            if (slots_.empty()) return nullptr;
+            const std::size_t mask = slots_.size() - 1;
+            for (std::size_t i = hash(key) & mask;; i = (i + 1) & mask) {
+                if (!slots_[i].full) return nullptr;
+                if (slots_[i].key == key) return &slots_[i].v;
+            }
+        }
+        void clear() {
+            for (const std::uint32_t i : usedSlots_) slots_[i].full = false;
+            usedSlots_.clear();
+            used_ = 0;
+        }
+
+    private:
+        struct Slot {
+            PairKey key{};
+            float v = 0.0f;
+            bool full = false;
+        };
+        static std::size_t hash(PairKey k) {
+            std::uint64_t h = k.first * 0x9E3779B97F4A7C15ull;
+            h ^= (k.second + 0x7F4A7C15ull) * 0xC2B2AE3D27D4EB4Full;
+            return std::size_t(h ^ (h >> 29));
+        }
+        Slot& slot_for(PairKey key) {
+            const std::size_t mask = slots_.size() - 1;
+            std::size_t i = hash(key) & mask;
+            while (slots_[i].full && slots_[i].key != key) i = (i + 1) & mask;
+            if (!slots_[i].full) {
+                slots_[i].full = true;
+                slots_[i].key = key;
+                slots_[i].v = 0.0f;
+                usedSlots_.push_back(std::uint32_t(i));
+                ++used_;
+            }
+            return slots_[i];
+        }
+        void grow() {
+            std::vector<Slot> old = std::move(slots_);
+            slots_.assign(old.empty() ? 64 : old.size() * 2, Slot{});
+            usedSlots_.clear();
+            used_ = 0;
+            for (const Slot& s : old)
+                if (s.full) slot_for(s.key).v = s.v;
+        }
+        std::vector<Slot> slots_;
+        std::vector<std::uint32_t> usedSlots_;  // the slots with `full` set, in the order they were filled
+        std::size_t used_ = 0;
+    };
+    ImpactMap impacts_;
 
     // ---- joints (physics3d_joints.cpp)
     struct JointState {
@@ -472,7 +753,7 @@ private:
     // "No body" in the body-index links of a step's joints and islands: the joint holds to the world.
     static constexpr std::size_t kNoBody = static_cast<std::size_t>(-1);
     std::vector<JointState*> jointOrder_;  // solve order: by owner body seq, rebuilt by sync_joints
-    void sync_joints(World& world, std::uint64_t stamp);
+    void sync_joints(World& world, std::uint64_t stamp, const std::vector<Entity>& ents);
     void correct_joints(float h);  // position pass: move/turn the bodies so the joint anchors meet (no velocity added)
     bool prepare_joints(float h);  // false when no joint is active
     void solve_joints(float h, int iteration);

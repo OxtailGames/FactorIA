@@ -331,7 +331,7 @@ TEST_CASE("physics jobs 2D: a small scene (below the thresholds) gives the same 
 TEST_CASE("physics jobs 3D: a big yard gives the same hash inline and with 1, 2 and 8 job threads") {
     int inlineJobs = -1, jobs1 = -1, jobs2 = -1, jobs8 = -1;
     const char* benchN = std::getenv("FA_PHYSICS_BENCH_N");  // timing runs of other sizes (FA_PHYSICS_BENCH=1)
-    const int n = benchN ? std::atoi(benchN) : 170;
+    const int n = benchN ? std::atoi(benchN) : 320;  // over kMinParallelRows (256) rows, or no scan runs on the pool
     const std::string reference = run_3d(-1, n, 150, &inlineJobs);
     CHECK(run_3d(1, n, 150, &jobs1) == reference);
     CHECK(run_3d(2, n, 150, &jobs2) == reference);

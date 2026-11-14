@@ -548,7 +548,7 @@ void gather_ui(World& world, Frame& f) {
           &World::type_of<TextField>(), &World::type_of<ScrollList>(), &World::type_of<TouchStick>(),
           &World::type_of<TouchButton>(), &World::type_of<Captions>(), &World::type_of<Video>(),
           &World::type_of<Chart>(), &World::type_of<CameraView>()})
-        any = any || !world.entities_with(t).empty();
+        any = any || world.any(t);
     if (any)
         for (Entity root : world.roots()) visit(f, world, root);
     draw_tooltip(f, world);

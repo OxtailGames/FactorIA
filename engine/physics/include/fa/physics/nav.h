@@ -192,6 +192,21 @@ Vec2 nav_tile_cell_center(const NavTileGrid& grid, int col, int row);
 // ({"<tile index>": cost | null}, null or negative = blocked, key "-1" = empty cells) overrides either rule.
 NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs);
 
+// The tile commands (nav.find_tile_path, nav.find_tile_paths, nav.flow_field with a `tilemap`) keep the cost grid of the
+// last Tilemaps they were asked about (maps of 1024 cells and more, at most 4 Mi cells kept in all, the least recently used
+// dropped first), so asking again after `setTile` patches the cells that were written (Tilemap::edits, O(edits)) instead of
+// reading the whole map again. Writes the edit list does not explain (a whole-array write, an assignment) rebuild the grid.
+// The result is the grid nav_tile_grid_from_tilemap gives, cell for cell.
+struct NavTileCacheStats {
+    std::uint64_t fullBuilds = 0;    // grids made by reading every cell
+    std::uint64_t patches = 0;       // grids brought up to date from the edit list
+    std::uint64_t patchedCells = 0;  // cells those patches rewrote
+    std::uint64_t hits = 0;          // asks answered by a grid that was still current
+};
+NavTileCacheStats nav_tile_cache_stats();
+void nav_tile_cache_clear();    // forgets every kept grid (and zeroes the counters); tests and the bench start from it
+void nav_tile_cache_release();  // forgets every kept grid, keeps the counters; Physics::reset calls it (a scene unload)
+
 // The rule nav_tile_grid_from_tilemap applies to a tile, as data: which tile indexes block and the per-tile cost overrides. Anything
 // that has to agree with `nav.find_tile_path` on a map it has not placed yet (the level generator's reachability check) builds its
 // grid through this type and nav_tile_grid_from_tiles, so there is one rule and not two copies of it.

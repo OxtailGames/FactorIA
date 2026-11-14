@@ -181,10 +181,14 @@ Physics3D::Contact Physics3D::mesh_contact(const Body& mesh, const Body& other, 
     for (std::size_t i = 0; i < cand.size(); ++i)
         if (dot(cand[i], n) <= lowest + kLowBand) low.push_back({dot(cand[i], n), i});
     std::sort(low.begin(), low.end());
+    constexpr int kCap = 16;  // a hull with many vertices in the low band: the first (lowest) 16 are candidates
+    Vec3 pts[kCap];
+    float depths[kCap];
+    std::uint32_t ids[kCap];
     int count = 0;
     Contact m = best;
     for (const auto& [h, idx] : low) {
-        if (count >= kMaxPts) break;
+        if (count >= kCap) break;
         const Vec3 p = cand[idx];
         const Vec3 org = world_to_frame(mesh.ax, p + n * kProbeLift - mesh.center) / mesh.gscale;
         const Vec3 dir = world_to_frame(mesh.ax, -n) / mesh.gscale;
@@ -196,15 +200,13 @@ Physics3D::Contact Physics3D::mesh_contact(const Body& mesh, const Body& other, 
         if (dot(nw, n) < 0.8f) continue;  // a wall or a steep neighbour: not part of this face contact
         const float depth = kProbeLift - t;
         if (depth < -kManifoldGap) continue;
-        m.pts[count] = p + n * (depth * 0.5f);
-        m.depths[count] = depth;
+        pts[count] = p + n * (depth * 0.5f);
+        depths[count] = depth;
+        ids[count] = mix_id(0x3E5Cu, std::uint32_t(idx));  // the corner (or hull vertex) of the shape that touches
         ++count;
     }
     if (count > 0) {
-        m.n = count;
-        m.point = {};
-        for (int i = 0; i < count; ++i) m.point += m.pts[i];
-        m.point = m.point / float(count);
+        reduce_manifold(m, pts, depths, ids, count);
         return m;
     }
     return best;
@@ -235,6 +237,7 @@ void Physics3D::add_capsule_points(const Body& a, const Body& b, Contact& c) {
     for (int s = 0; s < 2; ++s) {
         c.pts[s] = q[s].point;
         c.depths[s] = q[s].depth;
+        c.ids[s] = mix_id(0xCA95u, std::uint32_t(s));  // the end of the capsule: the same one every step
         c.point += q[s].point * 0.5f;
     }
 }
@@ -242,7 +245,9 @@ void Physics3D::add_capsule_points(const Body& a, const Body& b, Contact& c) {
 // Contact for any pair with a capsule, convex hull or mesh; normal from a to b, depth > 0 penetrating.
 Physics3D::Contact Physics3D::collide_general(const Body& a, const Body& b, float margin, bool manifold) {
     Contact none;
-    if (a.kind == Body::Kind::Mesh && b.kind == Body::Kind::Mesh) return none;
+    const bool aStatic = a.kind == Body::Kind::Mesh || a.kind == Body::Kind::Heightfield;
+    const bool bStatic = b.kind == Body::Kind::Mesh || b.kind == Body::Kind::Heightfield;
+    if (aStatic && bStatic) return none;  // two static surfaces never collide with each other
     Vec3 alo, ahi, blo, bhi;
     aabb(a, alo, ahi);
     aabb(b, blo, bhi);
@@ -254,6 +259,11 @@ Physics3D::Contact Physics3D::collide_general(const Body& a, const Body& b, floa
         c = mesh_contact(a, b, margin, manifold);
     } else if (b.kind == Body::Kind::Mesh) {
         c = mesh_contact(b, a, margin, manifold);
+        c.normal = -c.normal;
+    } else if (a.kind == Body::Kind::Heightfield) {
+        c = heightfield_contact(a, b, margin, manifold);
+    } else if (b.kind == Body::Kind::Heightfield) {
+        c = heightfield_contact(b, a, margin, manifold);
         c.normal = -c.normal;
     } else {
         c = core_contact(core_of(a), core_of(b), margin);
@@ -302,8 +312,8 @@ static bool ray_core(const Core& core, Vec3 origin, Vec3 d, float maxT, float& t
     return false;
 }
 
-// Ray against a capsule, convex hull or mesh (dir unit). Skips shapes that contain the origin; for a mesh, the first
-// triangle hit (either side) with the normal facing the ray.
+// Ray against a capsule, convex hull, mesh or heightfield (dir unit). Skips shapes that contain the origin; for a mesh or
+// a heightfield, the first triangle hit (either side) with the normal facing the ray.
 bool Physics3D::ray_body(const Body& b, Vec3 origin, Vec3 dir, float maxT, float& t, Vec3& normal) {
     if (b.kind == Body::Kind::Mesh) {
         if (!b.data) return false;
@@ -312,6 +322,16 @@ bool Physics3D::ray_body(const Body& b, Vec3 origin, Vec3 dir, float maxT, float
         std::uint32_t tri = 0;
         Vec3 nl;
         if (!ray_triangles(*b.data, org, d, maxT, t, tri, nl)) return false;
+        normal = normalize(frame_to_world(b.ax, nl / b.gscale));
+        if (dot(normal, dir) > 0.0f) normal = -normal;
+        return true;
+    }
+    if (b.kind == Body::Kind::Heightfield) {
+        if (!b.hf) return false;
+        const Vec3 org = world_to_frame(b.ax, origin - b.center) / b.gscale;
+        const Vec3 d = world_to_frame(b.ax, dir) / b.gscale;  // not unit: t stays in world meters
+        Vec3 nl;
+        if (!ray_heightfield(*b.hf, org, d, maxT, t, nl)) return false;
         normal = normalize(frame_to_world(b.ax, nl / b.gscale));
         if (dot(normal, dir) > 0.0f) normal = -normal;
         return true;

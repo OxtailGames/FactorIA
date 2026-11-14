@@ -118,12 +118,18 @@ TEST_CASE("tile flags: flipped and rotated tiles are drawn turned") {
                           kTileTranspose};
     Json row = Json::array();
     for (int f : flags) row.push_back(f);
-    tm.tiles = Json::array({row});
+    set_tilemap_tiles(tm, Json::array({row}));
     const Color R = Color::hex(0xe02020), G = Color::hex(0x20e020), B = Color::hex(0x2020e0), Y = Color::hex(0xe0e020);
     // expected [TL, TR, BL, BR] of each tile
     const Color expect[7][4] = {{R, G, B, Y}, {G, R, Y, B}, {B, Y, R, G}, {B, R, Y, G},
                                 {Y, B, G, R}, {G, Y, R, B}, {R, B, G, Y}};
+    const std::uint64_t tilesVersion = tm.tiles.version();
+    const TilemapStamp stamp = tilemap_stamp(tm);
     Image img = g.render(w);
+    img = g.render(w);
+    // Drawing a map only reads it: a mutable read here would make every cache of the map rebuild every frame.
+    CHECK(tm.tiles.version() == tilesVersion);
+    CHECK(tilemap_stamp(tm) == stamp);
     for (int t = 0; t < 7; ++t)
         for (int q = 0; q < 4; ++q) {
             INFO("tile " << t << " quadrant " << q);
@@ -141,15 +147,15 @@ TEST_CASE("tile flags: a flipped solid tile is still solid, validation reads the
     tm.tileSize = {16, 16};
     tm.width = 2;
     tm.height = 1;
-    tm.tiles = Json::array({make_tile(3, 1), make_tile(3, 0, true, true)});
+    set_tilemap_tiles(tm, Json::array({make_tile(3, 1), make_tile(3, 0, true, true)}));
     tm.solidTiles = Json::array({3});
     CHECK(check_tilemap(tm).empty());
     const TilemapGrid grid = tilemap_grid(tm);
     CHECK(tile_index(grid.at(0, 0)) == 3);
     CHECK(tile_index(grid.at(1, 0)) == 3);
     CHECK(tile_flags(grid.at(0, 0)) == (kTileTranspose | kTileFlipX));
-    tm.tiles = Json::array({3000000000.0});
-    CHECK_FALSE(check_tilemap(tm).empty());  // beyond index + three flags
+    set_tilemap_tiles(tm, Json::array({-5}));
+    CHECK(tilemap_tile_at(tm, tilemap_size(tm), 0, 0) == -1);  // a negative number is an empty cell
 }
 
 // ----------------------------------------------------------------------------------------------------- 9-slice sprites
@@ -419,7 +425,7 @@ TEST_CASE("lit tilemaps: a tilemap is shaded and a rotated tile turns its normal
     tm.normalMap = "assets/normal_tilt_x.png";
     tm.lit = true;
     tm.tileSize = {16, 16};
-    tm.tiles = Json::array({Json::array({0, make_tile(0, 1), make_tile(0, 2), make_tile(0, 0, true)})});
+    set_tilemap_tiles(tm, Json::array({Json::array({0, make_tile(0, 1), make_tile(0, 2), make_tile(0, 0, true)})}));
     Image img = g.render(w);
     const Vec3 L{std::cos(radians(30.0f)), 0.0f, std::sin(radians(30.0f))};
     // tile 0 faces the sun, 1 (90 cw: right edge points down) is lit by L.z only, 2 (180) and 3 (mirrored) face away
@@ -607,7 +613,7 @@ Entity tile_wall(World& w, bool occludes = true) {
     tm.tileSize = {16, 16};
     Json rows = Json::array();
     for (int r = 0; r < 12; ++r) rows.push_back(Json::array({0}));
-    tm.tiles = rows;
+    set_tilemap_tiles(tm, rows);
     tm.solidTiles = Json::array({0});
     tm.occludesLight = occludes;
     tm.layer = -20;  // behind the floor: the wall tiles do not paint over the sampled pixels

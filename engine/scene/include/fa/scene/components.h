@@ -16,6 +16,7 @@
 
 #include "fa/core/json.h"
 #include "fa/core/math.h"
+#include "fa/core/typed_array.h"
 #include "fa/core/types.h"
 #include "fa/scene/skeleton.h"
 
@@ -171,10 +172,10 @@ struct Sprite {
     std::int32_t meshColumns =
         0;  // > 0 with meshRows > 0: the sprite is a grid of this many cells across (a deformable sprite)
     std::int32_t meshRows = 0;  // > 0 with meshColumns > 0: grid cells down
-    Json vertexOffsets =
-        Json::array();  // grid sprites: [dx, dy, ...] per grid vertex, row-major from the TOP row, local units (+y up)
-    Json vertexColors =
-        Json::array();  // grid sprites: [r, g, b, a, ...] per grid vertex (same order), multiplied with `color`
+    // grid sprites: [dx, dy, ...] per grid vertex, row-major from the TOP row, local units (+y up)
+    ArrayF32 vertexOffsets;
+    // grid sprites: [r, g, b, a, ...] per grid vertex (same order), multiplied with `color`
+    ArrayF32 vertexColors;
 };
 
 // How a SpriteAnimator walks its frames: forward (first to last), reverse (last to first), pingpong (first to last and back).
@@ -222,8 +223,8 @@ struct SpriteSkin {
     Json bones =
         Json::array();  // the bones, in weight order: ids of entities or names (paths) of bones near the sprite
     Json weights = Json("auto");  // "auto", or per grid vertex [boneIndex, weight, ...] (up to 4 pairs)
-    Json bindPose =
-        Json::array();  // [a, b, c, d, tx, ty] per bone: its matrix in the sprite's local space when it was bound
+    // [a, b, c, d, tx, ty] per bone: its matrix in the sprite's local space when it was bound
+    ArrayF32 bindPose;
     bool outline =
         false;  // trace the mesh from the texture's opaque pixels instead of using Sprite.meshColumns / meshRows
     std::int32_t outlineDetail = 16;  // outline: grid cells along the longer side of the sprite
@@ -368,11 +369,27 @@ inline TextDirection text_paragraph_direction(const Text& t, bool languageRtl) {
 }
 
 // One tile written through set_tilemap_tile(): `cell` is row * width + col, the indices are tile_index() of the old and the
-// new value (-1 = empty). 2D physics reads these to patch only the colliders that changed.
+// new value (-1 = empty), `version` is tiles.version() right after the write. 2D physics and the tile cost grid read these
+// (tilemap_edits_since) to touch only the cells that changed.
 struct TileEdit {
     std::int32_t cell = 0;
     std::int32_t oldIndex = -1;
     std::int32_t newIndex = -1;
+    std::uint64_t version = 0;
+};
+
+// The list of TileEdits of a Tilemap. A copy (construction or assignment) starts EMPTY: the list explains the writes made to
+// the array it was recorded for, and a copy is a new array. A move keeps it, because the moved array keeps its identity (the
+// scene pool relocates components by moving them).
+struct TileEditLog : std::vector<TileEdit> {
+    TileEditLog() = default;
+    TileEditLog(const TileEditLog&) : std::vector<TileEdit>() {}
+    TileEditLog& operator=(const TileEditLog&) {
+        clear();
+        return *this;
+    }
+    TileEditLog(TileEditLog&&) noexcept = default;
+    TileEditLog& operator=(TileEditLog&&) noexcept = default;
 };
 
 // How the cells of a Tilemap lie in the world: squares (Orthogonal) or diamonds seen from above at an angle (Isometric).
@@ -390,11 +407,12 @@ struct Tilemap {
     std::int32_t columns = 0;   // tile columns in the tileset texture; 0 = derive from the texture width / tileSize.x
     std::int32_t margin = 0;    // pixels between the tileset image edge and the first tile (0 = packed)
     std::int32_t spacing = 0;   // pixels between two neighbouring tiles of the tileset image (0 = packed)
-    std::int32_t width = 0;     // map width in tiles (flat tiles; rows define their own size, see tilemap_grid)
+    std::int32_t width = 0;     // map width in tiles (see tilemap_size)
     std::int32_t height = 0;    // map height in tiles (flat tiles)
-    Json tiles =
-        Json::array();  // row-major tile values, row 0 = TOP row; array of ints (width*height) or array of rows.
-                        // A value is the tile index plus optional flip/rotate flag bits (fa/scene/tilemap.h)
+    ArrayI32 tiles;  // flat row-major tile values (width*height), row 0 = TOP row. A value is the tile index plus
+                     // optional flip/rotate flag bits (fa/scene/tilemap.h); -1 (any negative) = empty. Written through
+    // set_tilemap_tile() or the typed array's write calls, which count the change (tiles.version(), the
+    // dirty range): reads must use the const accessors, see fa/core/typed_array.h
     Json solidTiles = Json::array();  // tile indices that collide (empty = none collide); flags are not part of them
     Json terrains = Json::array();  // autotile rules: terrains painted with tilemap.paint_terrain (fa/scene/autotile.h)
     Color color{1, 1, 1, 1};
@@ -402,14 +420,19 @@ struct Tilemap {
     bool lit = false;            // shaded by Light2D entities and SceneSettings.ambientLight
     std::string normalMap;       // normal map image with the same layout as the tileset ("" = flat); needs lit
     bool occludesLight = false;  // the tiles in solidTiles block the light of Light2D with castShadows
-    // Runtime only (not a field, not saved): the tiles written by set_tilemap_tile() since 2D physics last looked.
-    std::vector<TileEdit> edits;
-    // Runtime only: goes up whenever `tiles` (or width / height) changes, so `nav.tileVersion` tells a script that the map
-    // changed. set_tilemap_tile() bumps it directly; a write that replaces `tiles` as a whole (script, scene.set_component,
-    // editor, load) is noticed by tilemap_version(), which compares a hash of the tiles with `versionHash`.
-    std::uint32_t version = 0;
-    std::uint64_t versionHash = 0;  // runtime: hash of width, height and tiles when tilemap_version() last looked
-    bool versionHashValid = false;  // false until tilemap_version() looked once, and after a set_tilemap_tile()
+    // Runtime only (not a field, not saved): the last tiles written by set_tilemap_tile(), oldest first, a few thousand at
+    // most (the oldest are dropped). Nobody empties it: every consumer (2D physics, the tile cost grid) keeps the
+    // TilemapStamp it built from and asks tilemap_edits_since() for what happened after it. `editsArray` is the tiles.id()
+    // the list belongs to: a Tilemap copied or assigned from another one starts with an empty list (TileEditLog), a moved one
+    // keeps its list.
+    TileEditLog edits;
+    std::uint64_t editsArray = 0;
+    // Runtime only: how often `width` / `height` changed as tilemap_version() saw it (the part of the map's change counter
+    // that `tiles.version()` does not count). `sizeSeen` is false until tilemap_version() looked once.
+    std::int32_t seenWidth = 0;
+    std::int32_t seenHeight = 0;
+    std::uint32_t sizeChanges = 0;
+    bool sizeSeen = false;
 };
 
 // Draws this entity's 2D visuals (Sprite, Shape2D, Text, Tilemap) shifted by a fraction of the camera's movement, so
@@ -1182,8 +1205,9 @@ struct RigidBody3D {
 };
 
 // Box and Sphere are the primitive shapes; Capsule is a segment along the entity's local Y plus a radius; Convex is the
-// convex hull of a mesh's vertices; Mesh is the mesh's triangles (static bodies only).
-enum class ColliderShape3D : std::int32_t { Box, Sphere, Capsule, Convex, Mesh };
+// convex hull of a mesh's vertices; Mesh is the mesh's triangles (static bodies only); Heightfield is the grid of heights
+// of the Heightfield3D on the same entity (terrain; static bodies only).
+enum class ColliderShape3D : std::int32_t { Box, Sphere, Capsule, Convex, Mesh, Heightfield };
 struct Collider3D {
     bool enabled = true;  // false: the collider is switched off (no queries, contacts or NavMesh bake)
     ColliderShape3D shape = ColliderShape3D::Box;
@@ -1199,6 +1223,20 @@ struct Collider3D {
     std::int32_t mask = -1;
     bool navObstacle = false;  // left out of the NavMesh3D bake; blocks the cells it covers while it is there
     bool navWalkable = false;  // left out of the NavMesh3D bake; its top surface is walkable wherever it is NOW
+};
+
+// The samples of a heightfield collider (terrain): a Collider3D with shape "heightfield" on the same entity collides with
+// this grid. Row-major: sample (row r, column c) is heights[r * columns + c] at x = (c - (columns - 1) / 2) * cellSize.x,
+// z = (r - (rows - 1) / 2) * cellSize.y from the entity origin, y = heights[i] * heightScale + heightOffset. Cell (r, c) of
+// (rows - 1) x (columns - 1) is split into two triangles along the diagonal from its (r, c) corner to its (r + 1, c + 1) one.
+struct Heightfield3D {
+    std::int32_t rows = 2;                     // samples along z (>= 2)
+    std::int32_t columns = 2;                  // samples along x (>= 2)
+    Vec2 cellSize{1.0f, 1.0f};                 // meters between neighbouring samples: [x, z], before Transform.scale
+    float heightScale = 1.0f;                  // meters per unit of `heights`
+    float heightOffset = 0.0f;                 // meters added after the scale
+    ArrayF32 heights{0.0f, 0.0f, 0.0f, 0.0f};  // rows * columns numbers, row by row
+    ArrayU8 holes;  // (rows - 1) * (columns - 1) cells, 1 = no collision there; empty = no holes
 };
 
 // Joins this entity's RigidBody3D to another body (or to the world). Solved with the 3D contacts. A jointed dynamic body

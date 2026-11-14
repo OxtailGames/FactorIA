@@ -1,9 +1,10 @@
-// ECS and hierarchy benchmarks: World::each, entities_with, spawn / destroy, world_matrix.
+// ECS and hierarchy benchmarks: World::each, entities_with, count / any, spawn / destroy, world_matrix.
 #include <memory>
 #include <vector>
 
 #include "benches.h"
 #include "fa/core/math.h"
+#include "fa/scene/bounds.h"
 #include "fa/scene/components.h"
 #include "fa/scene/world.h"
 
@@ -57,6 +58,27 @@ Bench ecs_each() {
     return b;
 }
 
+Bench ecs_each_skewed() {
+    Bench b;
+    b.name = "ecs.each_skewed";
+    b.summary = "World::each<Sprite, Collider2D> 64 times: the first type has 20000 owners, the second 2500 (the walk "
+                "starts from the smaller pool, so it visits 2500 entities, not 20000)";
+    b.make = [] {
+        auto w = make_populated_world();
+        Prepared p;
+        p.items = 64 * 2500;
+        p.unit = "entities walked";
+        p.run = [w] {
+            double sum = 0;
+            for (int pass = 0; pass < 64; ++pass)
+                w->each<Sprite, Collider2D>([&](Entity, Sprite& s, Collider2D& c) { sum += s.color.a + c.friction; });
+            return sum;
+        };
+        return p;
+    };
+    return b;
+}
+
 Bench ecs_entities_with() {
     Bench b;
     b.name = "ecs.entities_with";
@@ -65,13 +87,36 @@ Bench ecs_entities_with() {
     b.make = [] {
         auto w = make_populated_world();
         Prepared p;
-        p.items = 400;
+        p.items = 80000;  // 20000 rounds of four calls: long enough for a stable median
         p.unit = "queries";
         p.run = [w] {
             std::size_t n = 0;
-            for (int i = 0; i < 200; ++i) {
+            for (int i = 0; i < 20000; ++i) {
                 n += w->entities_with(&World::type_of<Sprite>()).size();
                 n += w->entities_with(&World::type_of<Collider2D>()).size();
+            }
+            return double(n);
+        };
+        return p;
+    };
+    return b;
+}
+
+Bench ecs_count() {
+    Bench b;
+    b.name = "ecs.count";
+    b.summary = "20000 rounds of World::count<T>() and any<T>() on a pool of 20000 and on one of 2500 (O(1), no copy; "
+                "compare ecs.entities_with)";
+    b.make = [] {
+        auto w = make_populated_world();
+        Prepared p;
+        p.items = 80000;  // 20000 rounds of four calls: long enough for a stable median
+        p.unit = "queries";
+        p.run = [w] {
+            std::size_t n = 0;
+            for (int i = 0; i < 20000; ++i) {
+                n += w->count<Sprite>() + (w->any<Sprite>() ? 1 : 0);
+                n += w->count<Collider2D>() + (w->any<Collider2D>() ? 1 : 0);
             }
             return double(n);
         };
@@ -100,10 +145,10 @@ Bench ecs_spawn_destroy() {
                 w->add<Collider2D>(e).size = {8, 8};
                 made.push_back(e);
             }
-            double sum = double(w->entities_with(&World::type_of<Sprite>()).size());
+            double sum = double(w->count<Sprite>());
             for (Entity e : made) w->destroy(e);
             w->flush();
-            return sum + double(w->entities_with(&World::type_of<Sprite>()).size());
+            return sum + double(w->count<Sprite>());
         };
         return p;
     };
@@ -186,17 +231,146 @@ Bench hierarchy_wide() {
     return b;
 }
 
+// What the renderer reads from a deformable sprite every frame: its vertex offsets and colours as flat float vectors
+// (sprite_vertex_offsets / sprite_vertex_colors), for 1500 sprites of a 16 x 4 grid (85 vertices each).
+Bench sprite_mesh_data() {
+    Bench b;
+    b.name = "sprite.mesh_data";
+    b.summary = "sprite_vertex_offsets + sprite_vertex_colors for 1500 deformable sprites (16 x 4 cells), 20 passes: "
+                "the per-frame read of Sprite.vertexOffsets / vertexColors";
+    b.make = [] {
+        ensure_builtin_components();
+        auto w = std::make_shared<World>();
+        Rng rng(77);
+        constexpr int kSprites = 1500, kCols = 16, kRows = 4, kVerts = (kCols + 1) * (kRows + 1);
+        for (int i = 0; i < kSprites; ++i) {
+            Sprite& s = w->add<Sprite>(w->create());
+            s.meshColumns = kCols;
+            s.meshRows = kRows;
+            for (int v = 0; v < kVerts * 2; ++v) s.vertexOffsets.push_back(float(rng.next_u32() % 100) * 0.1f);
+            for (int v = 0; v < kVerts * 4; ++v) s.vertexColors.push_back(0.5f + float(rng.next_u32() % 50) * 0.01f);
+        }
+        Prepared p;
+        p.items = 20 * kSprites;
+        p.unit = "sprites read";
+        p.run = [w] {
+            double sum = 0;
+            for (int pass = 0; pass < 20; ++pass)
+                w->each<Sprite>([&](Entity, Sprite& s) {
+                    int cols = 0, rows = 0;
+                    if (!sprite_mesh_grid(s, cols, rows)) return;
+                    const std::vector<float> off = sprite_vertex_offsets(s, cols, rows);
+                    const std::vector<float> col = sprite_vertex_colors(s, cols, rows);
+                    sum += double(off.back()) + double(col.back());
+                });
+            return sum;
+        };
+        return p;
+    };
+    return b;
+}
+
+// The tree of hierarchy.wide, with the 900 nodes of its middle level kept: a root, 30 children, 900 grandchildren,
+// 20000 leaves.
+struct Tree {
+    std::shared_ptr<World> world;
+    std::vector<Entity> mids;
+    std::vector<Entity> leaves;
+};
+
+std::shared_ptr<Tree> make_tree() {
+    ensure_builtin_components();
+    auto tree = std::make_shared<Tree>();
+    tree->world = std::make_shared<World>();
+    World* w = tree->world.get();
+    Rng rng(99);
+    Entity root = w->create();
+    for (int a = 0; a < 30; ++a) {
+        Entity ea = w->create();
+        w->get<Transform>(ea)->position = {float(a), 0, 0};
+        w->set_parent(ea, root);
+        for (int c = 0; c < 30; ++c) {
+            Entity ec = w->create();
+            Transform* tc = w->get<Transform>(ec);
+            tc->position = {0, float(c), 0};
+            tc->rotation = {0, 0, float(rng.next_u32() % 90)};
+            w->set_parent(ec, ea);
+            tree->mids.push_back(ec);
+            for (int d = 0; d < 22; ++d) {
+                Entity ed = w->create();
+                w->get<Transform>(ed)->position = {float(d), 1, 0};
+                w->set_parent(ed, ec);
+                tree->leaves.push_back(ed);
+            }
+        }
+    }
+    return tree;
+}
+
+Bench hierarchy_moving() {
+    Bench b;
+    b.name = "hierarchy.moving";
+    b.summary = "The tree of hierarchy.wide, 4 passes: one node of the middle level moves (a mutable Transform), then "
+                "World::world_position of its 20000 leaves is read through a const World (one change per frame)";
+    b.make = [] {
+        auto tree = make_tree();
+        Prepared p;
+        p.items = std::int64_t(tree->leaves.size()) * 4;
+        p.unit = "leaves";
+        p.run = [tree] {
+            double sum = 0;
+            const World& cw = *tree->world;
+            for (int pass = 0; pass < 4; ++pass) {
+                tree->world->get<Transform>(tree->mids[std::size_t(pass) * 37])->position.x = float(pass + 1);
+                for (Entity e : tree->leaves) sum += cw.world_position(e).x;
+            }
+            return sum;
+        };
+        return p;
+    };
+    return b;
+}
+
+Bench hierarchy_active() {
+    Bench b;
+    b.name = "hierarchy.active";
+    b.summary = "The tree of hierarchy.wide, 4 passes: one node of the middle level is switched off or on "
+                "(World::set_active), then World::active_in_hierarchy of its 20000 leaves is read";
+    b.make = [] {
+        auto tree = make_tree();
+        Prepared p;
+        p.items = std::int64_t(tree->leaves.size()) * 4;
+        p.unit = "leaves";
+        p.run = [tree] {
+            double sum = 0;
+            for (int pass = 0; pass < 4; ++pass) {
+                tree->world->set_active(tree->mids[std::size_t(pass) * 37], pass % 2 == 1);
+                const World& cw = *tree->world;
+                for (Entity e : tree->leaves) sum += cw.active_in_hierarchy(e) ? 1.0 : 0.0;
+            }
+            return sum;
+        };
+        return p;
+    };
+    return b;
+}
+
 }  // namespace
 
 void add_ecs_benches(std::vector<Bench>& out) {
     out.push_back(ecs_each());
+    out.push_back(ecs_each_skewed());
     out.push_back(ecs_entities_with());
+    out.push_back(ecs_count());
     out.push_back(ecs_spawn_destroy());
+    out.push_back(sprite_mesh_data());
 }
 
 void add_hierarchy_benches(std::vector<Bench>& out) {
     out.push_back(hierarchy_deep());
     out.push_back(hierarchy_wide());
+    out.push_back(hierarchy_moving());
+    out.push_back(hierarchy_active());
 }
 
 }  // namespace fa::bench

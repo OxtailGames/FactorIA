@@ -193,6 +193,48 @@ function e2(x) { return x * 0.5; }
     return b;
 }
 
+// The first access to a component of an entity: the entity's JS object, its view cache, the view of each type (made from the
+// type's field descriptors) and one field read. 200 entities are spawned, read once and destroyed (flushed by one frame) per run.
+Bench script_first_views() {
+    Bench b;
+    b.name = "script.first_views";
+    b.summary =
+        "200 entities spawned from a script, the first read of Transform.position.x and Sprite.layer of each, then "
+        "destroyed (one frame flushes them)";
+    b.make = [] {
+        auto host = std::make_shared<BenchHost>();
+        Prepared p;
+        host->file("scenes/main.scene.json", scene_text(1, ""));
+        if (!host->start()) {
+            p.skip = "the script host did not start: " + host->error;
+            return p;
+        }
+        host->call_number(R"(
+globalThis.bench = function () {
+  const list = [];
+  for (let i = 0; i < 200; i++) list.push(world.spawn({ components: { Transform: {}, Sprite: { layer: i } } }));
+  let n = 0;
+  for (const e of list) n += e.position.x + e.get('Sprite').layer;
+  for (const e of list) e.destroy();
+  return n;
+};)");
+        if (host->call_number("bench()") < 0) {
+            p.skip = "the benchmark script failed: " + host->error;
+            return p;
+        }
+        host->step_frames(1);
+        p.items = 200;
+        p.unit = "entities";
+        p.run = [host] {
+            const double n = host->call_number("bench()");
+            host->step_frames(1);
+            return n;
+        };
+        return p;
+    };
+    return b;
+}
+
 }  // namespace
 
 void add_script_benches(std::vector<Bench>& out) {
@@ -225,6 +267,47 @@ globalThis.bench = function () {
   }
   return sum;
 };)"));
+    // The three accesses a behaviour repeats most: reading a numeric field of a component, writing it, and asking an
+    // entity for a component (entity.get) in a loop over many entities (docs/PERFORMANCE.md, "Microbenchmarks").
+    out.push_back(script_function("script.field_read",
+                                  "One numeric field of one component read 100000 times (Sprite.layer, then "
+                                  "Transform.position.x through a vector field)",
+                                  100000, "field reads", R"(
+globalThis.bench = function () {
+  const e = world.find('e3');
+  const s = e.get('Sprite');
+  let n = 0;
+  for (let i = 0; i < 50000; i++) n += s.layer;
+  const p = e.transform.position;
+  for (let i = 0; i < 50000; i++) n += p.x;
+  return n;
+};)"));
+    out.push_back(script_function("script.field_write",
+                                  "One numeric field of one component written 100000 times (Sprite.layer, then "
+                                  "Transform.position.x)",
+                                  100000, "field writes", R"(
+globalThis.bench = function () {
+  const e = world.find('e3');
+  const s = e.get('Sprite');
+  for (let i = 0; i < 50000; i++) s.layer = i % 100;
+  const p = e.transform.position;
+  for (let i = 0; i < 50000; i++) p.x = i % 100;
+  return s.layer + p.x;
+};)"));
+    out.push_back(script_function("script.component_get",
+                                  "entity.get('Sprite') and entity.get('Transform') for 100 entities, 200 passes "
+                                  "(a read of one field each)",
+                                  100 * 200 * 2, "component gets", R"(
+globalThis.entities = [];
+for (let i = 0; i < 100; i++) globalThis.entities.push(world.find('e' + i));
+globalThis.bench = function () {
+  let n = 0;
+  for (let pass = 0; pass < 200; pass++) {
+    for (const e of globalThis.entities) n += e.get('Sprite').layer + e.get('Transform').position.x;
+  }
+  return n;
+};)"));
+    out.push_back(script_first_views());
     out.push_back(script_behaviours());
 }
 

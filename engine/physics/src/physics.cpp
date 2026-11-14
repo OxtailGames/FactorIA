@@ -57,6 +57,7 @@ void Physics::shutdown() {
 }
 
 void Physics::reset() {
+    nav_tile_cache_release();
     impl_->p2d.reset();
     impl_->p3d.reset();
 }

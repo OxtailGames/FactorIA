@@ -74,7 +74,8 @@ TEST_CASE("pick bounds: the outline of every kind of 2D entity matches entity.bo
     const Entity map = make_entity(w, "map", {-300, 200, 0}, 0.0f);
     Tilemap& tm = w.add<Tilemap>(map);
     tm.tileSize = {32, 16};
-    tm.tiles = Json::parse("[[0,0,-1,0],[-1,1,1,1],[2,2,2,2]]");  // rows form: 4 x 3 tiles, no width/height fields
+    set_tilemap_tiles(
+        tm, Json::parse("[[0,0,-1,0],[-1,1,1,1],[2,2,2,2]]"));  // rows form: 4 x 3 tiles, no width/height fields
 
     const VisualMeasure measure;
     for (Entity e : {dia, tri, scaled, circle, line, sprite, text, map}) {
@@ -159,7 +160,7 @@ TEST_CASE("pick bounds: an isometric Tilemap is picked by the box around its dia
     Tilemap& tm = w.add<Tilemap>(map);
     tm.projection = TilemapProjection::Isometric;
     tm.tileSize = {100, 50};
-    tm.tiles = Json::parse("[[0,0,0,0],[0,0,0,0],[0,0,0,0]]");  // 4 columns x 3 rows
+    set_tilemap_tiles(tm, Json::parse("[[0,0,0,0],[0,0,0,0],[0,0,0,0]]"));  // 4 columns x 3 rows
     const PickBounds b = pick_bounds(w, map, {});
     REQUIRE(b.valid);
     // x: from -3 * 50 to +4 * 50 around the entity; y: the top vertex down to (4 + 3 - 2) * 25 + 50 = 175.
@@ -177,7 +178,7 @@ TEST_CASE("pick bounds: a Tilemap in rows form is picked by its rows, from its t
     const Entity map = make_entity(w, "map", {-300, 200, 0});
     Tilemap& tm = w.add<Tilemap>(map);
     tm.tileSize = {32, 16};
-    tm.tiles = Json::parse("[[0,0,-1,0],[-1,1,1,1],[2,2,2,2]]");  // 4 x 3 tiles; no width/height fields
+    set_tilemap_tiles(tm, Json::parse("[[0,0,-1,0],[-1,1,1,1],[2,2,2,2]]"));  // 4 x 3 tiles; no width/height fields
     const PickBounds b = pick_bounds(w, map, {});
     REQUIRE(b.valid);
     CHECK(std::string(b.parts[0].component) == "Tilemap");
@@ -193,7 +194,7 @@ TEST_CASE("pick bounds: a Tilemap in rows form is picked by its rows, from its t
     flat.tileSize = {10, 10};
     flat.width = 5;
     flat.height = 2;
-    flat.tiles = Json::parse("[0,0,0,0,0,1,1,1,1,1]");
+    set_tilemap_tiles(flat, Json::parse("[0,0,0,0,0,1,1,1,1,1]"));
     const Entity flatE = w.find_by_id("flat");
     CHECK(pick_hit(w, flatE, pick_bounds(w, flatE, {}), Vec2{25, -10}, kDesign));
     CHECK_FALSE(pick_hit(w, flatE, pick_bounds(w, flatE, {}), Vec2{25, 5}, kDesign));

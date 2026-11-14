@@ -81,6 +81,15 @@
 //     Rays against a capsule/convex use sphere tracing over GJK (a ray grazing under ~3 degrees may miss); mesh rays are
 //     exact (Moller-Trumbore). Every shape works with contacts against every other shape, raycast3d, shape_cast3d,
 //     overlap_sphere3d, is_touching3d, CCD, sleeping, events and debug_shapes/debug_state (Capsule / Convex / Mesh kinds).
+//     HEIGHTFIELD (Collider3D.shape "heightfield" + the Heightfield3D component on the same entity, STATIC ONLY like a
+//     mesh): rows x columns samples on a regular grid centred on the entity (cellSize meters apart, y = heights *
+//     heightScale + heightOffset, rotated and scaled with the entity), each cell two upward triangles, a hole cell none.
+//     Physics keeps its own copy of the heights (blocks of 16 x 16 cells hold their lowest and highest sample) and reads
+//     the component again only where its typed arrays say they changed, so one edited sample costs about what it touches
+//     and wakes only the sleeping bodies whose bounds overlap the edited cells. Other shapes collide with the triangles
+//     under their bounds (GJK per triangle like a mesh; a contact on an edge or corner only counts if its normal lies
+//     between the normals of the triangles that meet there, so nothing bumps at the seams; a body under the surface of
+//     a solid cell, up to 8 m deep, is pushed up). Boxes and hulls get low-corner manifolds probed onto the surface. Rays walk the grid cell by cell (3D DDA).
 //   * 3D JOINTS (Joint3D on an entity with RigidBody3D + Collider3D): Hinge, Ball or Fixed between that body and
 //     Joint3D.connected (empty = the world). Anchors are local points (autoAnchor derives the connected one from the
 //     current pose); a hinge has an axis, optional limits (degrees, relative to the pose the joint was created in) and an

@@ -201,17 +201,13 @@ SkinBones skin_resolve_bones(const World& w, Entity owner, const SpriteSkin& ski
 
 std::vector<Affine2> skin_bind_matrices(const SpriteSkin& skin, std::size_t boneCount) {
     std::vector<Affine2> out;
-    if (!skin.bindPose.is_array() || boneCount == 0 || skin.bindPose.size() != boneCount * 6) return {};
+    if (boneCount == 0 || skin.bindPose.size() != boneCount * 6) return {};
+    const float* p = skin.bindPose.cdata();
     out.reserve(boneCount);
-    for (std::size_t i = 0; i < boneCount; ++i) {
-        float v[6];
-        for (int k = 0; k < 6; ++k) {
-            const Json& j = skin.bindPose[i * 6 + std::size_t(k)];
-            if (!j.is_number()) return {};
-            v[k] = float(j.get<double>());
-            if (!std::isfinite(v[k])) return {};
-        }
-        out.push_back(Affine2{v[0], v[1], v[2], v[3], v[4], v[5]});
+    for (std::size_t i = 0; i < boneCount; ++i, p += 6) {
+        for (int k = 0; k < 6; ++k)
+            if (!std::isfinite(p[k])) return {};
+        out.push_back(Affine2{p[0], p[1], p[2], p[3], p[4], p[5]});
     }
     return out;
 }
@@ -238,23 +234,21 @@ Result<void> skin_bind(World& w, Entity e) {
     if (!ok)
         return make_error("The sprite '" + label_of(w, e) + "' has a zero scale, so there is no pose to bind against.",
                           "Give the entity (and its parents) a non-zero Transform.scale before binding.");
-    Json pose = Json::array();
+    ArrayF32 pose;
     for (Entity b : bones.entities) {
         const Affine2 m = inv * world_affine(w, b);
-        for (float v : {m.a, m.b, m.c, m.d, m.tx, m.ty}) pose.push_back(double(v));
+        for (float v : {m.a, m.b, m.c, m.d, m.tx, m.ty}) pose.push_back(v);
     }
     skin->bindPose = std::move(pose);
     return {};
 }
 
 void bind_pending_skins(World& w) {
-    for (Entity e : w.entities_with(&World::type_of<SpriteSkin>())) {
-        if (!w.alive(e)) continue;
-        const SpriteSkin* skin = w.get<SpriteSkin>(e);
-        if (!skin || !skin->bones.is_array() || skin->bones.empty()) continue;
-        if (!skin_bind_matrices(*skin, std::min<std::size_t>(skin->bones.size(), kMaxSkinBones)).empty()) continue;
+    w.each<SpriteSkin>([&](Entity e, SpriteSkin& skin) {
+        if (!skin.bones.is_array() || skin.bones.empty()) return;
+        if (!skin_bind_matrices(skin, std::min<std::size_t>(skin.bones.size(), kMaxSkinBones)).empty()) return;
         (void)skin_bind(w, e);
-    }
+    });
 }
 
 namespace {
@@ -799,10 +793,9 @@ Result<float> solve_ik2d(World& w, Entity e, const GroundRaycast2D& ground) {
 }
 
 void update_ik2d(World& w, const GroundRaycast2D& ground) {
-    for (Entity e : w.entities_with(&World::type_of<IK2D>())) {
-        if (!w.alive(e) || !w.active_in_hierarchy(e)) continue;
-        IK2D* ik = w.get<IK2D>(e);
-        if (!ik || ik->weight <= 0.0f || ik->target.is_null()) continue;
+    w.each<IK2D>([&](Entity e, IK2D& ikRef) {
+        IK2D* ik = &ikRef;
+        if (!w.active_in_hierarchy(e) || ik->weight <= 0.0f || ik->target.is_null()) return;
         Result<float> r = solve_ik2d(w, e, ground);
         if (ik->groundMask == 0) ik->groundMisses = 0;  // switched off (e.g. in the air): the count starts again
         if (ground && ik->groundMask != 0 && !ik->groundHit && ik->groundMisses >= 300 && !ik->warnedGround) {
@@ -820,7 +813,7 @@ void update_ik2d(World& w, const GroundRaycast2D& ground) {
             ik->warned = true;
             FA_WARN("animation", "{}", r.error().to_string());
         }
-    }
+    });
 }
 
 }  // namespace fa

@@ -637,19 +637,17 @@ void register_builtin_components(TypeRegistry& r) {
         .field(
             "vertexOffsets", &Sprite::vertexOffsets,
             "Deformable sprites only (meshColumns > 0 and meshRows > 0): how far each grid vertex is moved from its "
-            "place, in "
-            "the sprite's local units (the size it is drawn at, before scale and rotation; +x right, +y UP). A flat "
-            "array "
-            "of numbers [dx0, dy0, dx1, dy1, ...] with an x and a y per vertex, row by row starting at the TOP row and "
-            "going left to right: vertex (column c, row r) is at index (r * (meshColumns + 1) + c) * 2. A shorter "
-            "array "
-            "leaves the vertices it does not name in place; extra numbers are ignored; a value that is not a number "
-            "counts "
-            "as 0. Write the whole array to change it (a script sets it every frame: `e.get('Sprite').vertexOffsets = "
-            "offsets`; "
-            "changing one element of the array it returned does not write back). The texture is stretched with the "
-            "vertices, so offsets bend the picture. [] (default) = the undeformed grid. Offsets do not change "
-            "`size`, but the bounds of the entity (entity.bounds(), editor picking) cover the moved vertices.")
+            "place, in the sprite's local units (the size it is drawn at, before scale and rotation; +x right, +y UP). "
+            "A flat array of numbers [dx0, dy0, dx1, dy1, ...] with an x and a y per vertex, row by row starting at "
+            "the "
+            "TOP row and going left to right: vertex (column c, row r) is at index (r * (meshColumns + 1) + c) * 2. A "
+            "shorter array leaves the vertices it does not name in place; extra numbers are ignored; every element "
+            "must be a number (a non-finite value counts as 0; null is not accepted, write [] for none). Stored as a "
+            "float array (a script reads it as a Float32Array). Write the whole array to change it (a script sets it "
+            "every frame: `e.get('Sprite').vertexOffsets = offsets`; changing one element of the array it returned "
+            "does not write back). The texture is stretched with the vertices, so offsets bend the picture. [] "
+            "(default) = the undeformed grid. Offsets do not change `size`, but the bounds of the entity "
+            "(entity.bounds(), editor picking) cover the moved vertices.")
         .field("vertexColors", &Sprite::vertexColors,
                "Deformable sprites only (meshColumns > 0 and meshRows > 0): a colour for every grid vertex, multiplied "
                "with `color` "
@@ -1355,17 +1353,22 @@ void register_builtin_components(TypeRegistry& r) {
             "(M + col*(tileSize.x+S), M + row*(tileSize.y+S)).")
         .range(0, 4096)
         .field("width", &Tilemap::width,
-               "Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define "
-               "the "
-               "size; drawing and collision both use it).")
+               "Map width in tiles: the length of one row of the flat tiles array (drawing and collision both use it). "
+               "Not needed when a scene or prefab file writes tiles as an array of rows: the loader takes the size "
+               "from the rows.")
         .range(0, 65536)
         .field("height", &Tilemap::height,
-               "Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows.")
+               "Map height in tiles: the number of rows of the flat tiles array. Not needed when a scene or prefab "
+               "file writes tiles as an array of rows.")
         .range(0, 65536)
         .field(
             "tiles", &Tilemap::tiles,
-            "Tile values, row-major with row 0 at the TOP: either a flat array of width*height integers (set width "
-            "and height) or an array of rows (the size comes from the rows). -1 = empty. A value is the tileset index, "
+            "Tile values: ONE flat array of width*height integers, row-major with row 0 at the TOP (set width and "
+            "height); stored as an Int32Array in scripts (a COPY: read it, change it and assign it back, "
+            "`const t = comp.tiles; t[3] = 5; comp.tiles = t`; for single cells use entity.tilemap.setTile). A scene "
+            "or prefab file may also write an array of rows ([[0, 1], [2, 3]]): the loader flattens it and takes "
+            "width and height from the rows, and the file is always saved flat. -1 = empty. A value is the tileset "
+            "index, "
             "optionally plus flags that mirror or turn that tile when drawn: 268435456 flips it left-right (flipX), "
             "536870912 top-bottom (flipY), 1073741824 mirrors it across the diagonal (transpose). The image is "
             "transposed "
@@ -2126,9 +2129,12 @@ void register_builtin_components(TypeRegistry& r) {
          "turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins "
          "it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic "
          "body "
-         "that stays nearly still for half a second falls asleep together with the bodies it touches (no "
-         "cost, no events) and wakes when touched by something moving, when gameplay writes its position, "
-         "rotation or velocity, applies a force, or when what it rests on goes away.",
+         "whose fastest point stays under 5 cm/s for half a second falls asleep together with the bodies it touches "
+         "(no cost, no events); in a pile of 64 or more bodies up to one in 64 may still creep, slower than 0.3 m/s, "
+         "and the pile sleeps anyway. It wakes when touched by something moving, when gameplay writes its position, "
+         "rotation or velocity, applies a force, places a static or kinematic body on it, or when what it rests on "
+         "goes away. A slow rotating body pressed against another dynamic body loses speed (1/s below 0.5 m/s), so "
+         "a capsule rolling on a pile comes to rest; a body alone on the ground keeps its motion.",
          "Physics")
         .enum_field("type", &RigidBody3D::type, {"static", "dynamic", "kinematic"},
                     "static: never moves. dynamic: moved by gravity and collisions. kinematic: moved only by "
@@ -2175,17 +2181,22 @@ void register_builtin_components(TypeRegistry& r) {
 
     r.add<Collider3D>(
          "Collider3D",
-         "Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle mesh. Boxes, capsules "
+         "Collision shape for 3D physics: box, sphere, capsule, convex hull, triangle mesh or heightfield (terrain). "
+         "Boxes, capsules "
          "and meshes are ORIENTED: they follow the entity's world rotation (parents included), so a box "
          "rotated 45 degrees blocks at its rotated edge. Scaled by the Transform scale. A `mesh` collider is "
          "for level geometry and needs a static body (no RigidBody3D, or type static): a dynamic or "
-         "kinematic body with one is reported as an error and ignored.",
+         "kinematic body with one is reported as an error and ignored. The same holds for a `heightfield`, whose "
+         "grid of heights is the Heightfield3D on the same entity.",
          "Physics")
         .enum_field(
-            "shape", &Collider3D::shape, {"box", "sphere", "capsule", "convex", "mesh"},
+            "shape", &Collider3D::shape, {"box", "sphere", "capsule", "convex", "mesh", "heightfield"},
             "box: uses size. sphere: uses radius. capsule: uses radius and height, along the entity's local Y. "
             "convex: the convex hull of the vertices of `mesh` (any dynamic body, fast). mesh: the triangles of "
-            "`mesh` (static level geometry only; concave shapes, ramps, terrain).")
+            "`mesh` (static level geometry only; concave shapes, ramps). heightfield: the grid of heights of the "
+            "Heightfield3D component on the same entity (static terrain only; much cheaper than a mesh, a body only "
+            "tests the cells under it, the ground is solid up to 8 m below the surface (see Heightfield3D), and "
+            "editing the heights updates only what changed).")
         .field("size", &Collider3D::size,
                "box: full extents [x, y, z] in meters along the entity's own (rotated) axes, before Transform scale.")
         .field("radius", &Collider3D::radius, "sphere and capsule: radius in meters.")
@@ -2233,6 +2244,53 @@ void register_builtin_components(TypeRegistry& r) {
             "within stepHeight, so nav.findPath crosses a bridge, rides a platform that is docked and says "
             "`disconnected` while it is away. The ground under it is blocked meanwhile. Surfaces steeper than "
             "maxSlope are not walkable. Wins over navObstacle when both are set.");
+
+    r.add<Heightfield3D>(
+         "Heightfield3D",
+         "The grid of heights of a terrain collider: put it with a Collider3D whose shape is \"heightfield\" on a "
+         "static entity (no RigidBody3D, or type static). Spheres, capsules, boxes and convex bodies, raycasts, shape "
+         "casts, overlap queries and CharacterController3D collide with it; each grid cell is two triangles and a body "
+         "only tests the cells under it. Sample (row r, column c) is heights[r * columns + c], at x = (c - (columns - "
+         "1) / 2) * cellSize.x and z = (r - (rows - 1) / 2) * cellSize.y from the entity origin (the grid is centred "
+         "on it; Transform scale and rotation apply, Collider3D.offset moves it) and at y = heights[i] * heightScale "
+         "+ heightOffset. Cell (r, c) joins the samples (r, c), (r + 1, c), (r, c + 1), (r + 1, c + 1) and is split "
+         "along the diagonal from (r, c) to (r + 1, c + 1). The ground is solid down to 8 m below its lowest "
+         "sample: a body that is under the surface of a solid cell, whether the terrain was raised under it in one "
+         "edit or it was put there, is pushed back up along the normal of the triangle over its centre, as long as "
+         "the cell under the centre of the body is not a hole, the centre is inside the grid's x and z extent and the "
+         "body's lowest point is at most 8 m below the surface there. A body under a hole cell, outside the grid or "
+         "deeper than 8 m is not pushed: it keeps falling (so does one that fell through a hole and then slid "
+         "sideways under solid ground deeper than that). Edit the grid at run time (a brush stroke, a crater: assign "
+         "the changed array from a script, or `heights.set(i, v)` in C++): physics reads only the span between the "
+         "first and last sample that changed, recomputes the bounds incrementally and wakes only the sleeping "
+         "bodies near them; replacing the whole array or changing rows, columns, cellSize, heightScale or heightOffset "
+         "rebuilds the field and wakes every body on it. A mistake (a wrong array length, a NaN, fewer than 2 rows or "
+         "columns) is reported once, with what to change, and the collider is ignored.",
+         "Physics")
+        .field("rows", &Heightfield3D::rows,
+               "Number of samples along z (>= 2, at most 4096). The field has rows - 1 cells in that direction. "
+               "heights must hold rows * columns numbers.")
+        .range(2, 4096)
+        .field("columns", &Heightfield3D::columns,
+               "Number of samples along x (>= 2, at most 4096). The field has columns - 1 cells in that direction.")
+        .range(2, 4096)
+        .field("cellSize", &Heightfield3D::cellSize,
+               "Distance in meters between neighbouring samples [x, z] (both > 0), before Transform.scale. The field "
+               "is (columns - 1) * cellSize.x wide and (rows - 1) * cellSize.y deep.")
+        .field("heightScale", &Heightfield3D::heightScale,
+               "Meters of height per unit of `heights` (world y = heights[i] * heightScale + heightOffset). Changing "
+               "it rebuilds the whole field; edit `heights` for local changes.")
+        .field("heightOffset", &Heightfield3D::heightOffset, "Meters added to every scaled height.")
+        .field("heights", &Heightfield3D::heights,
+               "rows * columns finite numbers, row by row (sample (r, c) at index r * columns + c; row 0 is the most "
+               "negative z, column 0 the most negative x). A flat array of numbers on disk and in commands, a "
+               "Float32Array in scripts. Writing single elements is cheap: physics reads only the ones that changed. "
+               "A length other than rows * columns, or a NaN or infinite value, makes the collider be ignored with a "
+               "message naming the fix.")
+        .field("holes", &Heightfield3D::holes,
+               "Cells without collision (a cave mouth, a pit): (rows - 1) * (columns - 1) numbers, row by row, 1 = "
+               "hole, 0 = solid (cell (r, c) at index r * (columns - 1) + c). Empty (default) = no holes; any other "
+               "length is an error. A body falls through a hole and is held by the cells around it.");
 
     r.add<Joint3D>(
          "Joint3D",

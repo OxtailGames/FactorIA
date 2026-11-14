@@ -1873,7 +1873,8 @@ TEST_CASE("entity.tilemap: getTile and setTile read and write one tile in place"
     ev_ok(h, "world.find('flat').tilemap.setTile(1, 1, 7); world.find('rows').tilemap.setTile(0, 1, -1)");
     CHECK(ev_ok(h, "world.find('flat').tilemap.getTile(1, 1)") == 7);
     CHECK(ev_ok(h, "world.find('flat').get('Tilemap').tiles.join()") == "0,1,2,3,7,5");
-    CHECK(ev_ok(h, "JSON.stringify(world.find('rows').get('Tilemap').tiles)") == "[[0,1],[-1,3]]");
+    // a file's rows form was flattened on load (rows set width and height), so it reads back as one flat Int32Array
+    CHECK(ev_ok(h, "world.find('rows').get('Tilemap').tiles.join()") == "0,1,-1,3");
     const Tilemap* tm = h.w.get<Tilemap>(h.w.find("flat"));
     REQUIRE(tm);
     CHECK(tm->edits.size() == 1);  // recorded for 2D physics
@@ -1884,6 +1885,11 @@ TEST_CASE("entity.tilemap: getTile and setTile read and write one tile in place"
     CHECK(m.find("expects three numbers") != std::string::npos);
     m = ev_err(h, "world.spawn({id: 'plain'}).tilemap");
     CHECK(m.find("has no Tilemap component") != std::string::npos);
+    // Rows are accepted where a whole component is given (spawn, load), not by the `tiles` field setter: flat numbers only.
+    CHECK_FALSE(ev_err(h, "world.find('flat').get('Tilemap').tiles = [[0, 1, 2], [3, 4, 5]]").empty());
+    CHECK(ev_ok(h, "world.find('flat').get('Tilemap').tiles.join()") == "0,1,2,3,7,5");  // unchanged
+    ev_ok(h, "world.find('flat').get('Tilemap').tiles = [[0, 1, 2], [3, 4, 5]].flat()");
+    CHECK(ev_ok(h, "world.find('flat').get('Tilemap').tiles.join()") == "0,1,2,3,4,5");
 }
 
 TEST_CASE("entity.bounds: Sprite size, pivot, texture size, region, animator and flip") {

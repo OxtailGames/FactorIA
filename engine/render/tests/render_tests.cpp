@@ -189,7 +189,7 @@ TEST_CASE("2D textured sprites, pixel art, animator and tilemap") {
             for (int c = 0; c < 20; ++c) row.push_back(r == 0 ? -1 : ((c + r) % 8));
             rows.push_back(row);
         }
-        tm.tiles = rows;
+        set_tilemap_tiles(tm, rows);
     }
     Entity flat = make(w, "flat", {-160, 20, 0});
     {
@@ -199,7 +199,7 @@ TEST_CASE("2D textured sprites, pixel art, animator and tilemap") {
         tm.columns = 4;
         tm.width = 4;
         tm.height = 2;
-        tm.tiles = Json::array({0, 1, 2, 3, 4, 5, 6, 7});
+        set_tilemap_tiles(tm, Json::array({0, 1, 2, 3, 4, 5, 6, 7}));
     }
     Entity big = make(w, "big", {-100, -30, 0});
     {
@@ -272,7 +272,7 @@ TEST_CASE("tilemap: columns left unset is derived from the tileset width") {
         REQUIRE(tm.columns == 0);  // the default: derive from the texture
         tm.tileset = tileset;
         tm.tileSize = {16, 16};
-        tm.tiles = Json::array({Json::array({3, 4, 7})});
+        set_tilemap_tiles(tm, Json::array({Json::array({3, 4, 7})}));
     }
     // Flat form with width/height, below it.
     Entity flatMap = make(w, "flat", {-160, 58, 0});
@@ -282,7 +282,7 @@ TEST_CASE("tilemap: columns left unset is derived from the tileset width") {
         tm.tileSize = {16, 16};
         tm.width = 3;
         tm.height = 2;
-        tm.tiles = Json::array({5, 6, 2, 3, -1, 4});
+        set_tilemap_tiles(tm, Json::array({5, 6, 2, 3, -1, 4}));
     }
     // An explicit columns value still wins: "columns": 2 on the same 4-wide image reads tile 3 as column 1 of row 1.
     Entity explicitMap = make(w, "explicit", {-160, 10, 0});
@@ -293,7 +293,7 @@ TEST_CASE("tilemap: columns left unset is derived from the tileset width") {
         tm.columns = 2;
         tm.width = 1;
         tm.height = 1;
-        tm.tiles = Json::array({3});
+        set_tilemap_tiles(tm, Json::array({3}));
     }
     Image img = g.render(w);
     const Color tileColor[8] = {Color::hex(0x3b7d3b), Color::hex(0x8b5a2b), Color::hex(0x4a90d9), Color::hex(0xd9c24a),
@@ -354,7 +354,7 @@ TEST_CASE("tilemap: a tileset with margin 1 and spacing 2 reads each tile from i
     tm.spacing = 2;
     tm.width = 4;
     tm.height = 1;
-    tm.tiles = Json::array({0, 1, 2, 3});
+    set_tilemap_tiles(tm, Json::array({0, 1, 2, 3}));
     CHECK(tileset_columns(tm, 22) == 2);
     CHECK(tileset_tile_count(tm, 22, 22) == 4);
     Image out = g.render(w);

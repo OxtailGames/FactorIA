@@ -58,8 +58,12 @@ bool ComponentPool::remove(Entity e) {
     posByEntity_[e.index] = kNone;
     --count_;
     ++tombstones_;
-    if (tombstones_ > 64 && tombstones_ > order_.size() / 2) compact();
+    compact_if_needed();
     return true;
+}
+
+void ComponentPool::compact_if_needed() {
+    if (walking_ == 0 && tombstones_ > 64 && tombstones_ > order_.size() / 2) compact();
 }
 
 void ComponentPool::compact() {
@@ -84,6 +88,25 @@ void ComponentPool::clear() {
     nextSlot_ = 0;
     count_ = 0;
     tombstones_ = 0;
+    ++generation_;
+}
+
+void ComponentPool::walk(Visit visit, void* ctx) {
+    struct Guard {
+        ComponentPool& pool;
+        explicit Guard(ComponentPool& p) : pool(p) { ++pool.walking_; }
+        ~Guard() {
+            if (--pool.walking_ == 0) pool.compact_if_needed();
+        }
+    } guard{*this};
+    const std::uint32_t generation = generation_;
+    const std::size_t end = order_.size();  // owners added from now on land at or after `end`
+    for (std::size_t i = 0; i < end; ++i) {
+        if (generation_ != generation || i >= order_.size()) return;  // clear() ran: nothing left to visit
+        const OrderEntry entry = order_[i];                           // a copy: `visit` may grow (reallocate) order_
+        if (entry.entity.is_null()) continue;
+        visit(ctx, entry.entity, slot_ptr(entry.slot));
+    }
 }
 
 std::vector<Entity> ComponentPool::entities() const {

@@ -61,15 +61,13 @@ constexpr double kMaxFilmSpan = 3.0;      // seconds of effect a filmstrip cover
 std::optional<VfxBudgetCamera> main_camera(Engine::Impl& I) {
     Entity best = kNullEntity;
     int bestDepth = 0;
-    const TypeInfo* ct = TypeRegistry::global().of<Camera>();
-    for (Entity e : I.world.entities_with(ct)) {
-        const Camera* c = I.world.get<Camera>(e);
-        if (!c || !c->primary || !c->renderTarget.empty() || !I.world.active_in_hierarchy(e)) continue;
-        if (best == kNullEntity || c->depth < bestDepth) {
+    I.world.each<Camera>([&](Entity e, Camera& c) {
+        if (!c.primary || !c.renderTarget.empty() || !I.world.active_in_hierarchy(e)) return;
+        if (best == kNullEntity || c.depth < bestDepth) {
             best = e;
-            bestDepth = c->depth;
+            bestDepth = c.depth;
         }
-    }
+    });
     if (best == kNullEntity) return std::nullopt;
     const Camera& c = *I.world.get<Camera>(best);
     const Mat4 m = I.world.world_matrix(best);
@@ -252,9 +250,9 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
          parse_schema(R"({"type":"object","additionalProperties":false,"properties":{}})"), true, "game"},
         [&I](const Json&) {
             Json list = Json::array();
-            for (Entity e : I.world.entities_with(&World::type_of<Vfx>())) {
-                const Vfx* v = I.world.get<Vfx>(e);
-                if (!v || !(v->playing || vfx_starts_next_step(*v))) continue;
+            I.world.each<Vfx>([&](Entity e, Vfx& vfx) {
+                const Vfx* v = &vfx;
+                if (!(v->playing || vfx_starts_next_step(*v))) return;
                 double duration = double(v->duration);
                 if (duration <= 0.0 &&
                     !v->playing) {  // started this step: the document is not read by the system yet (load_vfx has it cached)
@@ -267,7 +265,7 @@ void register_vfx_commands(Engine& engine, Engine::Impl& I) {
                                              {"duration", std::round(duration * 1000.0) / 1000.0},
                                              {"loop", v->loop},
                                              {"speed", v->speed}}));
-            }
+            });
             Json limits = Json::object({{"parts", kVfxMaxParts},
                                         {"emitters", kVfxMaxEmitters},
                                         {"commands", kVfxMaxCommands},

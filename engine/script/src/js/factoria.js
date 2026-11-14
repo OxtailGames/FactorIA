@@ -285,6 +285,7 @@
     if (v === undefined) return null;
     if (v instanceof Entity) return v.id;
     if (Array.isArray(v)) return v.map(plain);
+    if (ArrayBuffer.isView(v) && !(v instanceof DataView)) return Array.from(v); // Int32Array etc.: a flat JSON array
     if (isObj(v)) {
       if (typeof v.toJSON === "function") return plain(v.toJSON());
       const o = {};
@@ -301,6 +302,7 @@
   const TRANSFORM = typeByName.get("Transform");
   const SETTINGS = typeByName.get("SceneSettings");
   const viewClasses = new Map();
+  const DEBUG_VIEW = Symbol.for("factoria.debugView");  // the script debugger (js/debugger.js) asks a view for its values
 
   function typeOf(name) {
     const t = typeByName.get(name);
@@ -355,13 +357,28 @@
     return new Error(`${t.name} has no field '${String(k)}'.` + (sug ? ` Did you mean '${sug}'?` : "") + ` Fields: ${names.join(", ")}`);
   }
 
+  // A component view is a handle: the entity's handle plus the component's type, and nothing else (no engine memory, no
+  // copy), so one view per (entity, type) can be kept for as long as the entity's JS object lives (Entity.$view) and it
+  // never goes stale: every read and write resolves the entity and the component again in the engine. A destroyed entity
+  // or a removed component therefore gives the engine's teaching error ("entity 'x' was destroyed", "has no Sprite
+  // component"), and adding the component again makes the same view work again.
+  // Per type, once: the getters and setters of every field (the field's index is fixed here, no name is looked up on an
+  // access) as ready property descriptors, and a prototype that holds the methods. A view gets the fields as OWN
+  // accessors (Object.keys, spread and for...in list them as before) and no Proxy of its own: the only Proxy of a type
+  // sits at the end of the prototype chain, so a field that exists is found before it and only a name that does not
+  // exist runs it, to say "did you mean". The private members ($h, the field-view cache $c) are not enumerable.
+  const NO_FIELD_VIEWS = Object.freeze([]);
   function viewClassFor(t) {
-    let C = viewClasses.get(t.id);
-    if (C) return C;
+    let make = viewClasses.get(t.id);
+    if (make) return make;
     const names = t.fields.map((f) => f.name);
-    C = function ComponentView(h) { this.$h = h; };
+    // $c holds the live field views by field index, as a dense array (an empty one filled at index 3 would turn slow); a type
+    // with no vector field shares one empty array.
+    const hasVecField = t.fields.some((f) => f.kind in FIELD_VIEW);
+    const C = function ComponentView() {};
     Object.defineProperty(C, "name", { value: t.name + "View" });
     const proto = C.prototype;
+    const fieldDescs = {};
     t.fields.forEach((f, fi) => {
       const label = `${t.name}.${f.name}`;
       const ti = t.id;
@@ -369,7 +386,8 @@
       switch (f.kind) {
         case "vec2": case "vec3": case "vec4": case "color": case "rect": {
           const V = FIELD_VIEW[f.kind];
-          get = function () { return new V(this.$h, ti, fi); };
+          // the live view of the field holds only (handle, type, field): one per component view is enough
+          get = function () { const c = this.$c; return c[fi] ?? (c[fi] = new V(this.$h, ti, fi)); };
           set = function (v) { N.fset(this.$h, ti, fi, toFloats(v, f.kind, label)); };
           break;
         }
@@ -385,37 +403,48 @@
           get = function () { return N.fget(this.$h, ti, fi); };
           set = function (v) { N.fset(this.$h, ti, fi, v); };
       }
-      Object.defineProperty(proto, f.name, { get, set, enumerable: true, configurable: true });
+      fieldDescs[f.name] = { get, set, enumerable: true, configurable: true };
     });
     Object.defineProperties(proto, {
       toJSON: { value() { return N.compJson(this.$h, t.id); }, configurable: true },
       toString: { value() { return `${t.name}(${this.$h < 0 ? "settings" : N.idOf(this.$h)})`; }, configurable: true },
-      $type: { get() { return t.name; } },
+      $type: { get() { return t.name; }, set() { throw new Error(`${t.name} view: '$type' is read-only`); } },
+      // What the script debugger shows for a view: the values of the fields (it never runs a getter itself).
+      [DEBUG_VIEW]: { value() { const o = {}; for (const k of names) { try { o[k] = this[k]; } catch (e) { o[k] = `<${e.message}>`; } } return o; }, configurable: true },
     });
-    const handler = {
-      get(target, k) {
-        if (typeof k === "symbol" || k in target) return target[k];
+    // The names a view does not have: a read says "did you mean" when a field is close, a write always throws.
+    Object.setPrototypeOf(proto, new Proxy(Object.prototype, {
+      get(target, k, recv) {
+        if (typeof k === "symbol" || k in target) return Reflect.get(target, k, recv);
         if (typeof k === "string" && k !== "then" && !k.startsWith("$")) {
           const sug = closest(k, names);
           if (sug) throw unknownField(t, k, names);
         }
         return undefined;
       },
-      set(target, k, v) {
-        if (k in target && typeof k === "string" && !k.startsWith("$")) { target[k] = v; return true; }
-        throw unknownField(t, k, names);
-      },
-      has(target, k) { return k in target; },
-      ownKeys() { return names; },
-      getOwnPropertyDescriptor(target, k) {
-        return names.includes(k) ? { enumerable: true, configurable: true, value: target[k] } : undefined;
-      },
+      set(target, k) { throw unknownField(t, k, names); },
+    }));
+    make = function (h) {
+      const v = Object.create(proto, fieldDescs);
+      Object.defineProperty(v, "$h", { value: h });
+      Object.defineProperty(v, "$c", { value: hasVecField ? new Array(t.fields.length).fill(undefined) : NO_FIELD_VIEWS });
+      return v;
     };
-    const Factory = function (h) { return new Proxy(new C(h), handler); };
-    viewClasses.set(t.id, Factory);
-    return Factory;
+    viewClasses.set(t.id, make);
+    return make;
   }
-  function viewOf(h, t) { return viewClassFor(t)(h); }
+  // The view of a component of the entity with handle h (-1: the scene settings): kept on the entity's JS object when it
+  // has one (Entity.$view), made for the call otherwise.
+  const settingsViews = new Map();
+  function viewOf(h, t) {
+    if (h < 0) {
+      let v = settingsViews.get(t.id);
+      if (v === undefined) { v = viewClassFor(t)(h); settingsViews.set(t.id, v); }
+      return v;
+    }
+    const e = entityCache.get(h);
+    return e !== undefined ? e.$view(t) : viewClassFor(t)(h);
+  }
 
   // Converts component fields written by a script into JSON for the engine: Entity -> id, vectors -> arrays
   // (any accepted vector form; 2D values get z = 0, scale z = 1, a number rotation means z degrees).
@@ -504,7 +533,18 @@
   }
 
   class Entity {
-    constructor(h) { this.$h = h; }
+    // $h and $v are private: not enumerable, so Object.keys(entity), a spread and the "its members" list of a miss do not show them.
+    // $v (the views by type id) is a dense array of one slot per component type: filled by index it stays a fast array.
+    constructor(h) {
+      Object.defineProperty(this, "$h", { value: h, writable: true });
+      Object.defineProperty(this, "$v", { value: null, writable: true });
+    }
+    // The component view of this entity for type t: made once, kept here (a view is only a handle, so it cannot go stale).
+    $view(t) {
+      let a = this.$v;
+      if (a === null) a = this.$v = new Array(types.length).fill(undefined);
+      return a[t.id] ?? (a[t.id] = viewClassFor(t)(this.$h));
+    }
     get id() { return N.idOf(this.$h); }
     set id(v) { N.setId(this.$h, v); }
     get name() { return N.getName(this.$h); }
@@ -515,17 +555,17 @@
     set active(v) { N.setActive(this.$h, !!v); }
     get activeInHierarchy() { return N.activeInHierarchy(this.$h); }
     get alive() { return N.alive(this.$h); }
-    get transform() { return viewOf(this.$h, TRANSFORM); }
-    get position() { return viewOf(this.$h, TRANSFORM).position; }
-    set position(v) { viewOf(this.$h, TRANSFORM).position = v; }
+    get transform() { return this.$view(TRANSFORM); }
+    get position() { return this.$view(TRANSFORM).position; }
+    set position(v) { this.$view(TRANSFORM).position = v; }
     get worldPosition() { const p = N.worldPos(this.$h); return new Vec3(p[0], p[1], p[2]); }
     set worldPosition(v) { N.setWorldPos(this.$h, vecArr(v, 3, "entity.worldPosition")); }
     get(name) {
       const t = typeOf(name);
-      return N.hasComp(this.$h, t.name) ? viewOf(this.$h, t) : null;
+      return N.hasCompT(this.$h, t.id) ? this.$view(t) : null;
     }
     has(name) { return N.hasComp(this.$h, name); }
-    add(name, fields) { const ti = N.addComp(this.$h, name, fields === undefined ? null : fieldsPlain(name, fields)); return viewOf(this.$h, types[ti]); }
+    add(name, fields) { const ti = N.addComp(this.$h, name, fields === undefined ? null : fieldsPlain(name, fields)); return this.$view(types[ti]); }
     set(name, fields) { N.patchComp(this.$h, name, fieldsPlain(name, fields)); return this.get(name); }
     remove(name) { return N.removeComp(this.$h, name); }
     components() { return N.compNames(this.$h); }
@@ -586,8 +626,8 @@
     toString() { return `Entity(${this.id})`; }
   }
   if (STRICT) {
-    const entityMembers = Object.getOwnPropertyNames(Entity.prototype).filter((k) => k !== "constructor");
-    Object.setPrototypeOf(Entity.prototype, strictProto("entity", (e) => [...Object.keys(e).filter((k) => k !== "$h"), ...entityMembers],
+    const entityMembers = Object.getOwnPropertyNames(Entity.prototype).filter((k) => k !== "constructor" && !k.startsWith("$"));
+    Object.setPrototypeOf(Entity.prototype, strictProto("entity", (e) => [...Object.keys(e).filter((k) => !k.startsWith("$")), ...entityMembers],
       "An entity has no field of your own until you assign one (entity.hp = 3); keep game state in the Behaviour (this.hp) or in a component's fields, and read a component with entity.get(\"Name\")."));
   }
 
@@ -3757,8 +3797,9 @@
       }
       return navPathResult(N.navFindTilePath(args));
     },
-    // tileVersion(tilemap): a counter that goes up whenever the Tilemap's tiles change (setTile, tilemap.set_tile or a write
-    // that replaces `tiles`); compare it with the value you saw when you searched to know a path is stale.
+    // tileVersion(tilemap): a counter that goes up whenever the Tilemap's tiles (or its width or height) change (setTile,
+    // tilemap.set_tile or a write that changes `tiles`); compare it with the value you saw when you searched to know a path
+    // is stale.
     tileVersion(tilemap) {
       const e = typeof tilemap === "string" ? world.find(tilemap) : tilemap;
       if (!(e instanceof Entity)) throw new Error(`nav.tileVersion(tilemap) expects an entity with a Tilemap or its id, but got ${inspect(tilemap)}`);

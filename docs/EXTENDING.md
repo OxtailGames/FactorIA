@@ -434,10 +434,45 @@ Do not add a component for something a script can already do with `props`. Add o
 | `Vec2`, `Vec3`, `Vec4`, `Color`, `Rect` | Vec2, Vec3, Vec4, Color, Rect | JSON arrays. See `json.h` for the accepted forms. |
 | `fa::Entity` | Entity | Scene files reference entities by string id. |
 | `fa::Json` | Json | Plain JSON value, for example `Script.props`. |
+| `fa::ArrayI32`, `fa::ArrayF32`, `fa::ArrayU8` (`core/typed_array.h`) | ArrayI32, ArrayF32, ArrayU8 | A flat JSON array of integers, numbers or bytes 0..255, typed in memory and in scripts (below the table). `.range(lo, hi)` bounds every element. |
 | `enum class E : std::int32_t` | Enum | `enum_field(name, &T::m, {"a", "b"}, doc)`. Names are lowercase and their index is the value. |
 | `std::string` path | Asset | `asset_field(name, &T::m, "texture", doc)`. Types: `texture`, `mesh`, `audio`, `font`, `script`, `scene`, `prefab`, `any`. Validation checks that the file exists. |
 
 Modifiers apply to the last field: `.range(lo, hi)`, `.runtime_only()` (not saved to scene files) and `.read_only()` (scripts may read but not write).
+
+**Array fields.** `ArrayI32`, `ArrayF32` and `ArrayU8` are thin wrappers of a contiguous `std::vector` that count their
+writes, so a system that derives data from one (a physics body, a render chunk) rebuilds only what changed:
+
+- `version()` grows on every write through a mutable accessor (`a[i] = x`, a mutable `data()`, `set`, `fill`, `assign`,
+  `resize`...). Read through a `const` reference (`std::as_const(a)[i]`, `cdata()`, `span()`) and nothing is counted. A
+  consumer keeps the version it built from and rebuilds when it differs.
+- `dirty_since(seen, begin, end)` gives the smallest half-open index range written after the array had version `seen`
+  (a chunk size C means chunks `begin / C` to `(end - 1) / C`). Each consumer keeps its own `seen` (the `version()` it last
+  read), so any number of consumers ask independently and nothing is "acknowledged": one consumer can never hide an
+  edit from another. The array remembers its last `kHistory` (8) writes; when more than that happened since `seen`, or
+  `seen` is newer than the array, `dirty_since` returns false and the consumer compares or rebuilds everything. A write
+  that changes the size covers the whole array, and `end` may exceed `size()` after a shrink.
+- `set(i, x)`, `fill`, `assign` and copy assignment write only what differs: the same contents change nothing, so a
+  `scene.set_component` that repeats the array, or a patch of another field of the component, does not trigger a rebuild.
+  `a[i] = x` cannot see whether `x` differs and always counts.
+- The version and the range only mean something on one array object (a copy starts at version 0 again). A cache per
+  component keeps `id()` next to the version: `id()` is unique in the process for every constructed or copy-constructed
+  array (a component removed and added again, a world restored from a copy), kept by a move construction (a pool
+  relocating the component) and by assignment (the destination's). The cache is valid while both `id()` and `version()`
+  equal what it was built from. After a copy or move ASSIGNMENT the id is the destination's but the contents (and the
+  version steps) come from another array: a side log of edits kept next to the array (the Tilemap's `edits`) must prove it
+  covers every version step since the cache's version (as `tilemap_edits_since` does) and never be trusted by `(id, version)`
+  alone. Not thread safe.
+- JSON: an array of numbers, validated whole before anything is written (errors name the field and the element index;
+  an integer kind refuses `2.5`, `ArrayU8` refuses 256, `ArrayF32` refuses what a 32-bit float cannot hold; at most
+  16 Mi elements). `type_json_schema` gives `{"type": "array", "items": {"type": "integer"|"number", "minimum", "maximum"}}`.
+- Scripts: reading the field gives an `Int32Array`, `Float32Array` or `Uint8Array` that is a COPY (writing into it changes
+  nothing); assigning a typed array or a plain array of numbers replaces the whole field after every element is checked
+  (`TestComponent.tiles[17] must be an integer from 0 to 255, got 300`). A typed array of the field's own type is copied
+  as bytes.
+- The editor's Inspector shows it as a JSON box with the array on one line, up to 512 elements; a longer array shows only
+  its length (edit it with `scene.set_component` or a script).
+- Not animatable by a clip, and `scene.set_component` with `merge` replaces the array (like any non-object value).
 
 ### C.2 Full example: `Wobble`
 
@@ -616,6 +651,8 @@ Add `#include "fa/scene/wobble_system.h"` to that file. The system test in secti
 - **Determinism.** Use the fixed dt, `world.rng()` for random numbers, and no wall clock. The same seed and the same input must give the same frames.
 - **Skip inactive entities.** Check `world.active_in_hierarchy(e)`.
 - **Be safe with deferred work.** `world.destroy(e)` is deferred to the end of the frame, so it is safe inside `world.each`. Do not call `load_scene` in the middle of a frame. Use `ScriptHost::request_scene_change`, which defers the change.
+- **Know the order of `each`.** `world.each<A, B>` walks the pool with the fewest owners, in that pool's insertion order, so the order of a multi-type walk follows the counts. A system whose order is visible (events it queues, ids it hands out) drives by the type that must set the order: `world.each<A>(...)` and `world.get<B>(e)` inside.
+- **Do not keep a `Transform&` or an `EntityInfo&` across a hierarchy read.** `world.world_matrix(e)` and `active_in_hierarchy(e)` come from a cache that a write through a mutable `get` drops; a reference stored before the read and written after it is not seen. Get it again after the read (docs/ARCHITECTURE.md, "The hierarchy cache").
 - **Do not depend on graphics.** Headless runs without graphics have no renderer.
 - **Keep the order documented.** Update the frame comment in `engine.h` and the module table in `docs/ARCHITECTURE.md` when you add a system.
 - **Test it twice.** A C++ test calls the system directly (as in section C). A headless test checks the system inside a real frame when it changes the outcome of a game.
