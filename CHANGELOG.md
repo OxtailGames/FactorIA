@@ -12,6 +12,11 @@ Older versions, one file per minor version with its patch releases: [0.26](chang
   deletes the older caches of its own branch. Every Ninja build keeps going after an error (`-k 0`), so one round lists
   all errors. A `v*` tag no longer runs `ci.yml` (`release.yml` builds the tag). The Windows test split uses times
   from a recent run, and the ASan job runs its tests on two machines (`scripts/ctest_shard.py`, with a self-test).
+- The `tooling` ctest entry, one process of 100 s (20 minutes under ASan) and the longest test of the suite, is five
+  entries `tooling_1` ... `tooling_5` (label `tooling`) that `ctest -j` runs at the same time, with the same test cases:
+  `fa_test_tooling --fa-files=a_test.cpp,...` / `--fa-files-exclude=...` (every doctest executable has them) pick test
+  files by name, the fifth entry takes every file the others do not name, and the ctest entry `tooling_split_check` fails
+  unless the entries together list exactly the test cases of the whole executable.
 
 ## 0.27.0
 
