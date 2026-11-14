@@ -342,6 +342,14 @@ NavTileCacheStats nav_tile_cache_stats() {
     return c.stats;
 }
 
+// The grids of a scene that is gone would stay (up to 16 MiB) until the least-recently-used rule drops them: their
+// arrays no longer exist, so nothing can ever hit them.
+void nav_tile_cache_release() {
+    TileGridCache& c = tile_cache();
+    std::lock_guard lock(c.mutex);
+    c.entries.clear();
+}
+
 void nav_tile_cache_clear() {
     TileGridCache& c = tile_cache();
     std::lock_guard lock(c.mutex);

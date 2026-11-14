@@ -205,6 +205,7 @@ struct NavTileCacheStats {
 };
 NavTileCacheStats nav_tile_cache_stats();
 void nav_tile_cache_clear();  // forgets every kept grid (and zeroes the counters); tests and the bench start from it
+void nav_tile_cache_release();  // forgets every kept grid, keeps the counters; Physics::reset calls it (a scene unload)
 
 // The rule nav_tile_grid_from_tilemap applies to a tile, as data: which tile indexes block and the per-tile cost overrides. Anything
 // that has to agree with `nav.find_tile_path` on a map it has not placed yet (the level generator's reachability check) builds its

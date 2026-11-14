@@ -226,7 +226,13 @@ std::vector<TilemapIssue> flatten_tilemap_rows(Json& fields) {
                             std::string(kAsciiHint));
                 continue;
             }
-            flat.push_back(v);
+            // 3.0 is a whole number: store the integer, so the array reads it (a value out of range stays as it is and
+            // is refused with the array's own message).
+            const double d = v.get<double>();
+            if (!v.is_number_integer() && std::fabs(d) < 2147483648.0)
+                flat.push_back(std::int64_t(d));
+            else
+                flat.push_back(v);
         }
     if (bad > kMaxReported) err("/tiles", "... and " + std::to_string(bad - kMaxReported) + " more invalid tiles", "");
     if (!out.empty()) return out;
