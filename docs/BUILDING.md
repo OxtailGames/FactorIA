@@ -964,6 +964,10 @@ leaves the next run a warm cache. Three rules keep that cache from shrinking or 
   token). Failed and cancelled rounds save too, so without this the repository's 10 GB would fill with them and GitHub's
   eviction of the least recently used caches would remove `main`'s first, which every pull request starts from. `CI
   result` still deletes the older ccaches of the ref at the end of a round, as a net under that.
+Every Ninja build of the workflows (and `scripts/build-sniper.sh`) runs `cmake --build ... -- -k 0`: after a compile error
+Ninja keeps building everything that does not depend on the broken file, so one round lists every error and warning
+(`FA_WARNINGS_AS_ERRORS`) instead of the first, and ccache stores every object that did compile for the next round. The
+Windows builds (Visual Studio/MSBuild) and the iOS one (Xcode) take no `-k`; the baseline jobs pass it to Linux and macOS only.
 A ccache is found by the START of its key (`restore-keys` gives a job the newest cache whose key begins with its prefix), so
 no job's prefix may begin another job's key: the GCC job's `ccache-Linux-gcc-` (it was `ccache-Linux-linux-`, which the
 Clang jobs' `ccache-Linux-linux-asan-`, `-tsan-`, `-fuzz-` and `-coverage-` also begin with, so the GCC job restored a Clang
