@@ -31,6 +31,18 @@ void* operator new[](std::size_t n) {
     if (void* p = std::malloc(n != 0 ? n : 1)) return p;
     throw std::bad_alloc();
 }
+// The nothrow forms too: libstdc++'s std::stable_sort takes its temporary buffer with them and frees it with the plain
+// delete below, which AddressSanitizer reports as a new/free mismatch when only the throwing forms are replaced.
+void* operator new(std::size_t n, const std::nothrow_t&) noexcept {
+    g_allocations.fetch_add(1, std::memory_order_relaxed);
+    return std::malloc(n != 0 ? n : 1);
+}
+void* operator new[](std::size_t n, const std::nothrow_t&) noexcept {
+    g_allocations.fetch_add(1, std::memory_order_relaxed);
+    return std::malloc(n != 0 ? n : 1);
+}
+void operator delete(void* p, const std::nothrow_t&) noexcept { std::free(p); }
+void operator delete[](void* p, const std::nothrow_t&) noexcept { std::free(p); }
 void operator delete(void* p) noexcept { std::free(p); }
 void operator delete[](void* p) noexcept { std::free(p); }
 void operator delete(void* p, std::size_t) noexcept { std::free(p); }
