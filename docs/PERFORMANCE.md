@@ -638,8 +638,9 @@ broad phase now walks only the awake bodies: `physics.step3d_mostly_asleep` went
 of llvmpipe and D3D11 were not measured.
 
 3D polish (M94.4g): the step's working vectors are members of the solver (cleared, not freed) and `sync` takes the list of
-entities once for the bodies and the joints, so a settled step allocates only that list (the doctest
-`test_physics3d_alloc.cpp` counts about 2 allocations per step: one per physics backend). Medians in ms (Release, macOS,
+entities once for the bodies and the joints, so a settled step makes a fixed number of allocations that does not grow with the
+bodies (the doctest `test_physics3d_alloc.cpp` checks that; on libc++ and libstdc++ it counts about 2 per step, the entity
+list of each physics backend, on MSVC an empty map or set allocates too). Medians in ms (Release, macOS,
 2 runs of 5, inline jobs), before and after: `physics.step3d` 9.3 / 9.2, `physics.step3d_1000` 80.5 / 81.2,
 `physics.step3d_stack100` 14.4 / 14.0, `physics.step3d_mostly_asleep` 4.6 / 3.0 (the allocations of the sleeping pile's
 steps), `physics.raycast3d_1000` 12.8 / 12.8, `physics.overlap3d_1000` 3.8 / 4.0 (within noise), `physics.heightfield_step`

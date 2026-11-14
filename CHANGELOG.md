@@ -10,7 +10,7 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   the bodies that are awake and near each other. The solver has a broad phase (a dynamic tree of boxes), contacts are
   manifolds of up to four points, soft contacts let columns of 100 boxes and piles of 1000 shapes stand still and fall
   asleep, sleeping bodies are out of the solver, scene queries use the tree, and heightfields are terrain. Final polish
-  (M94.4g): the step reuses its working vectors (a settled step allocates only the list of entities `sync` takes, and
+  (M94.4g): the step reuses its working vectors (a settled step makes a fixed number of allocations that does not grow with the bodies, and
   `physics.step3d_mostly_asleep` went from 4.6 to 3.0 ms), the contact-event and wake-up queries use a wider margin for
   turning bodies, a moved platform carries its riders before the first tree query, a body that creeps without resting on
   anything no longer counts as a straggler, and the pair scans run on the job threads from 256 rows instead of 64 (with

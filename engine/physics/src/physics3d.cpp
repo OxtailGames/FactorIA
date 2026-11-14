@@ -694,7 +694,9 @@ bool Physics3D::sweep(Body& mover, Vec3 disp, Vec3 moverSpin, Body& target, Vec3
 void Physics3D::sync(World& world) {
     prune_procedural_shapes(world);
     const std::uint64_t stamp = ++syncCounter_;  // one per sync: two syncs between steps still sweep removed colliders
-    std::unordered_set<std::uint64_t> joinTargets;  // bodies another entity's Joint3D is attached to: they turn too
+    // bodies another entity's Joint3D is attached to: they turn too (a member: its buckets are kept between syncs)
+    std::unordered_set<std::uint64_t>& joinTargets = sc_.joinTargets;
+    joinTargets.clear();
     std::vector<std::pair<std::uint64_t, HeightfieldEdit>> fieldEdits;  // heightfields edited since the last sync
     const std::vector<Entity> ents = world.entities();  // one list per sync (no in-place walk in order)
     for (Entity e : ents)

@@ -1,9 +1,10 @@
 // What a 3D physics step allocates once the scene has stopped growing (M94.4g). The solver keeps its working vectors
 // in Physics3D::sc_ and clears them instead of freeing, so a step of a settled scene must not allocate for them. This
 // test counts the allocations of Physics::step (the replaced global operator new below counts and forwards to malloc,
-// for the whole test executable) and states what is left: one list of the entities per backend (World::entities()
-// returns a copy; the 3D sync takes it once per step and shares it with the joint sync, the 2D backend takes its
-// own).
+// for the whole test executable) and checks that the count does not grow with the number of bodies. What is left per
+// step is a fixed number: one list of the entities per backend (World::entities() returns a copy; the 3D sync takes it
+// once per step and shares it with the joint sync, the 2D backend takes its own) and whatever the standard library
+// allocates for an empty container.
 #include <doctest.h>
 
 #include <atomic>
@@ -98,33 +99,52 @@ std::size_t allocations_of(Sim& s, int steps) {
     return g_allocations.load() - before;
 }
 
-}  // namespace
+// The count of a step depends on the standard library (an empty std::map or std::unordered_set allocates when it is
+// built on MSVC and not on libc++ or libstdc++), so the tests do not state a number: they state that the count does
+// not grow with the bodies. The same 30 steps are counted in a small and in a big scene, and the big one may make
+// only a few more allocations (a vector that still grows) than the small one; per body it would be hundreds more.
+// The absolute counts are printed. The counter sees every thread, so no pool may be running.
+bool pool_is_off() { return !jobs::running() || jobs::inline_mode(); }
 
-// A pit of 300 bodies, run through the drop and the first impacts so every working vector has met its biggest scene,
-// then counted over 30 steps in which bodies still fall, collide and begin or end contacts. Before the working
-// vectors were members a step made about 40 allocations of its own for any scene (over 1000 in these 30 steps for
-// this pit, the buffers of std::inplace_merge among them).
-TEST_CASE("3d alloc: a step of an awake pit allocates only the entity lists once the scene has settled in") {
+// A pit of `bodies` bodies, run through the drop and the first impacts so every working vector has met its biggest
+// scene, then counted over 30 steps in which bodies still fall, collide and begin or end contacts.
+std::size_t awake_pit_allocations(int bodies) {
     Sim s;
-    build_pit(s.world, 300);
+    build_pit(s.world, bodies);
     s.run(120);
-    const std::size_t n = allocations_of(s, 30);
-    std::printf("[alloc] awake pit of 300: %zu allocations in 30 steps\n", n);
-    CHECK(n <= 30 * 3);  // the two entity lists of a step, and room for an events or pairs vector that still grows
+    return allocations_of(s, 30);
 }
 
-// Everything asleep: a step is the sync only, and it must not allocate for the bodies it looks at.
-TEST_CASE("3d alloc: a step of a sleeping scene allocates nothing per body") {
+// Everything asleep: a step is the sync only.
+std::size_t sleeping_allocations(int boxes) {
     Sim s;
     add_static_box(s.world, {0, -0.5f, 0}, {40, 1, 40});
-    for (int i = 0; i < 200; ++i) {
+    for (int i = 0; i < boxes; ++i) {
         Entity e = s.world.create();
         s.world.get<Transform>(e)->position = {-9.0f + 1.0f * float(i % 20), 0.5f, -5.0f + 1.0f * float(i / 20)};
         s.world.add<Collider3D>(e).size = {1, 1, 1};
         s.world.add<RigidBody3D>(e);
     }
     s.run(120);  // the boxes rest on the floor and sleep
-    const std::size_t n = allocations_of(s, 30);
-    std::printf("[alloc] sleeping 200: %zu allocations in 30 steps\n", n);
-    CHECK(n <= 30 * 3);  // the same two lists, however many bodies sleep
+    return allocations_of(s, 30);
+}
+
+}  // namespace
+
+// Before the working vectors were members a step made about 40 allocations of its own for any scene (over 1000 in
+// these 30 steps for a pit of 300, the buffers of std::inplace_merge among them).
+TEST_CASE("3d alloc: the allocations of a step of an awake pit do not grow with the bodies") {
+    REQUIRE(pool_is_off());
+    const std::size_t small = awake_pit_allocations(50);
+    const std::size_t big = awake_pit_allocations(300);
+    std::printf("[alloc] awake pit: %zu allocations in 30 steps with 50 bodies, %zu with 300\n", small, big);
+    CHECK(big <= small + 30 * 2);
+}
+
+TEST_CASE("3d alloc: the allocations of a step of a sleeping scene do not grow with the bodies") {
+    REQUIRE(pool_is_off());
+    const std::size_t small = sleeping_allocations(20);
+    const std::size_t big = sleeping_allocations(200);
+    std::printf("[alloc] sleeping: %zu allocations in 30 steps with 20 bodies, %zu with 200\n", small, big);
+    CHECK(big <= small + 30 * 2);
 }
