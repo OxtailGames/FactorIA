@@ -11,8 +11,8 @@ if(NOT FA_TEST_EXE OR NOT FA_SPLIT_ENTRIES)
     message(FATAL_ERROR "fa_doctest_split_check.cmake: pass -DFA_TEST_EXE=<test executable> and \"-DFA_SPLIT_ENTRIES=<arg>|<arg>|...\"")
 endif()
 
-# The test case names of `<exe> <args> --list-test-cases`, one list element each, sorted. A name with ';', '[' or ']' would break a
-# CMake list, so those characters are replaced by words on every side alike.
+# The test case names of `<exe> <args> --list-test-cases`, one list element each, sorted. A name with ';', '[', ']' or a
+# '\' at its end would break a CMake list, so those characters are replaced by words on every side alike.
 function(fa_listed_test_cases out)
     execute_process(COMMAND ${FA_TEST_EXE} ${ARGN} --list-test-cases
         RESULT_VARIABLE code OUTPUT_VARIABLE text ERROR_VARIABLE errors)
@@ -20,6 +20,7 @@ function(fa_listed_test_cases out)
         message(FATAL_ERROR "'${FA_TEST_EXE} ${ARGN} --list-test-cases' exited with ${code}:\n${text}\n${errors}")
     endif()
     string(REPLACE "\r" "" text "${text}")
+    string(REPLACE "\\" "<backslash>" text "${text}")
     string(REPLACE ";" "<semicolon>" text "${text}")
     string(REPLACE "[" "<lbracket>" text "${text}")
     string(REPLACE "]" "<rbracket>" text "${text}")
@@ -85,6 +86,7 @@ if(NOT "${together}" STREQUAL "${whole}")
     string(REPLACE "<semicolon>" ";" report "${report}")
     string(REPLACE "<lbracket>" "[" report "${report}")
     string(REPLACE "<rbracket>" "]" report "${report}")
+    string(REPLACE "<backslash>" "\\" report "${report}")
     message(FATAL_ERROR "The ctest entries do not run what ${FA_TEST_EXE} runs: ${together_count} test cases in the entries, "
         "${whole_count} in the executable. First differences:\n${report}"
         "Every test file must be in exactly one entry: fix the lists in tools/common/CMakeLists.txt.")
