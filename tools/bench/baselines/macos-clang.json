@@ -399,6 +399,28 @@
       "cpuMedianMs": 3.966,
       "items": 2000,
       "unit": "overlap queries"
+    },
+    "physics.heightfield_step": {
+      "medianMs": 19.317,
+      "minMs": 18.81,
+      "maxMs": 19.641,
+      "p25Ms": 19.065,
+      "p75Ms": 19.389,
+      "spread": 0.017,
+      "cpuMedianMs": 19.293,
+      "items": 4000,
+      "unit": "body steps"
+    },
+    "physics.heightfield_edit": {
+      "medianMs": 3.849,
+      "minMs": 3.816,
+      "maxMs": 4.132,
+      "p25Ms": 3.828,
+      "p75Ms": 3.92,
+      "spread": 0.024,
+      "cpuMedianMs": 3.853,
+      "items": 40,
+      "unit": "height edits"
     }
   }
 }

@@ -1205,8 +1205,9 @@ struct RigidBody3D {
 };
 
 // Box and Sphere are the primitive shapes; Capsule is a segment along the entity's local Y plus a radius; Convex is the
-// convex hull of a mesh's vertices; Mesh is the mesh's triangles (static bodies only).
-enum class ColliderShape3D : std::int32_t { Box, Sphere, Capsule, Convex, Mesh };
+// convex hull of a mesh's vertices; Mesh is the mesh's triangles (static bodies only); Heightfield is the grid of heights
+// of the Heightfield3D on the same entity (terrain; static bodies only).
+enum class ColliderShape3D : std::int32_t { Box, Sphere, Capsule, Convex, Mesh, Heightfield };
 struct Collider3D {
     bool enabled = true;  // false: the collider is switched off (no queries, contacts or NavMesh bake)
     ColliderShape3D shape = ColliderShape3D::Box;
@@ -1222,6 +1223,20 @@ struct Collider3D {
     std::int32_t mask = -1;
     bool navObstacle = false;  // left out of the NavMesh3D bake; blocks the cells it covers while it is there
     bool navWalkable = false;  // left out of the NavMesh3D bake; its top surface is walkable wherever it is NOW
+};
+
+// The samples of a heightfield collider (terrain): a Collider3D with shape "heightfield" on the same entity collides with
+// this grid. Row-major: sample (row r, column c) is heights[r * columns + c] at x = (c - (columns - 1) / 2) * cellSize.x,
+// z = (r - (rows - 1) / 2) * cellSize.y from the entity origin, y = heights[i] * heightScale + heightOffset. Cell (r, c) of
+// (rows - 1) x (columns - 1) is split into two triangles along the diagonal from its (r, c) corner to its (r + 1, c + 1) one.
+struct Heightfield3D {
+    std::int32_t rows = 2;       // samples along z (>= 2)
+    std::int32_t columns = 2;    // samples along x (>= 2)
+    Vec2 cellSize{1.0f, 1.0f};   // meters between neighbouring samples: [x, z], before Transform.scale
+    float heightScale = 1.0f;    // meters per unit of `heights`
+    float heightOffset = 0.0f;   // meters added after the scale
+    ArrayF32 heights{0.0f, 0.0f, 0.0f, 0.0f};  // rows * columns numbers, row by row
+    ArrayU8 holes;               // (rows - 1) * (columns - 1) cells, 1 = no collision there; empty = no holes
 };
 
 // Joins this entity's RigidBody3D to another body (or to the world). Solved with the 3D contacts. A jointed dynamic body
