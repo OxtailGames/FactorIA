@@ -155,6 +155,9 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   every run against every run (a 4096 x 16 checkerboard builds in 11 ms, 20 ms before). A Tilemap that moves keeps correct
   debug boxes after an edit, `Physics::reset` (a scene load) lets go of the kept nav cost grids, and a rows form with
   whole numbers written as floats (`3.0`) loads. `comp.tiles = [[...]]` from a script is refused (flat only).
+- The game project guide (`AGENTS.md` of new projects and of the examples) asks to record engine gaps as soon as
+  they are met and to check first that the engine lacks them, without the emphasis that made agents report what
+  exists; `play.auto` before asking the user to play is one sentence.
 
 ## 0.26.0
 
