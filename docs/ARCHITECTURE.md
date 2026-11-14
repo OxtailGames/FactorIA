@@ -596,7 +596,7 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     the sleep timer of every slowly rotating capsule.) Measured on the scale tests: the column of 100 sleeps after 240
     steps and the column of 50 after 140, neither leans (drift 0.000), and the walled pit of 1000 bodies is asleep after
     about 1600 steps (how long a pile creeps depends on the scene: 800 to 1600 steps measured). A straggler is a body
-    at or above `kSleepSpeed` that rests on something from below (a contact whose normal points more than 45 degrees up) and is slower than `kStragglerSpeed`; a body with
+    at or above `kSleepSpeed` that rests on something from below (a contact whose normal is within about 45 degrees of straight up, `normal.y > 0.7`) and is slower than `kStragglerSpeed`; a body with
     nothing under it counts as at least that fast, so one that starts to fall or rolls off the pile never is one.
     Sleeping bodies cost almost nothing while other bodies are awake (M94.4e). Before the sub-steps a classification
     pass lists the awake bodies, the moved static or kinematic ones, the platforms and the characters (`Rows`); every

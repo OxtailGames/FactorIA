@@ -538,7 +538,7 @@ Collision shape for 3D physics: box, sphere, capsule, convex hull, triangle mesh
 
 ### Heightfield3D
 
-Not released yet (on main after 0.26.0).
+Since 0.27.0.
 
 The grid of heights of a terrain collider: put it with a Collider3D whose shape is "heightfield" on a static entity (no RigidBody3D, or type static). Spheres, capsules, boxes and convex bodies, raycasts, shape casts, overlap queries and CharacterController3D collide with it; each grid cell is two triangles and a body only tests the cells under it. Sample (row r, column c) is heights[r * columns + c], at x = (c - (columns - 1) / 2) * cellSize.x and z = (r - (rows - 1) / 2) * cellSize.y from the entity origin (the grid is centred on it; Transform scale and rotation apply, Collider3D.offset moves it) and at y = heights[i] * heightScale + heightOffset. Cell (r, c) joins the samples (r, c), (r + 1, c), (r, c + 1), (r + 1, c + 1) and is split along the diagonal from (r, c) to (r + 1, c + 1). The ground is solid down to 8 m below its lowest sample: a body that is under the surface of a solid cell, whether the terrain was raised under it in one edit or it was put there, is pushed back up along the normal of the triangle over its centre, as long as the cell under the centre of the body is not a hole, the centre is inside the grid's x and z extent and the body's lowest point is at most 8 m below the surface there. A body under a hole cell, outside the grid or deeper than 8 m is not pushed: it keeps falling (so does one that fell through a hole and then slid sideways under solid ground deeper than that). Edit the grid at run time (a brush stroke, a crater: assign the changed array from a script, or `heights.set(i, v)` in C++): physics reads only the span between the first and last sample that changed, recomputes the bounds incrementally and wakes only the sleeping bodies near them; replacing the whole array or changing rows, columns, cellSize, heightScale or heightOffset rebuilds the field and wakes every body on it. A mistake (a wrong array length, a NaN, fewer than 2 rows or columns) is reported once, with what to change, and the collider is ignored.
 
@@ -16707,44 +16707,44 @@ declare module "factoria" {
    * The grid of heights of a terrain collider: put it with a Collider3D whose shape is "heightfield" on a static entity (no RigidBody3D, or type static). Spheres, capsules, boxes and convex bodies, raycasts, shape casts, overlap queries and CharacterController3D collide with it; each grid cell is two triangles and a body only tests the cells under it. Sample (row r, column c) is heights[r * columns + c], at x = (c - (columns - 1) / 2) * cellSize.x and z = (r - (rows - 1) / 2) * cellSize.y from the entity origin (the grid is centred on it; Transform scale and rotation apply, Collider3D.offset moves it) and at y = heights[i] * heightScale + heightOffset. Cell (r, c) joins the samples (r, c), (r + 1, c), (r, c + 1), (r + 1, c + 1) and is split along the diagonal from (r, c) to (r + 1, c + 1). The ground is solid down to 8 m below its lowest sample: a body that is under the surface of a solid cell, whether the terrain was raised under it in one edit or it was put there, is pushed back up along the normal of the triangle over its centre, as long as the cell under the centre of the body is not a hole, the centre is inside the grid's x and z extent and the body's lowest point is at most 8 m below the surface there. A body under a hole cell, outside the grid or deeper than 8 m is not pushed: it keeps falling (so does one that fell through a hole and then slid sideways under solid ground deeper than that). Edit the grid at run time (a brush stroke, a crater: assign the changed array from a script, or `heights.set(i, v)` in C++): physics reads only the span between the first and last sample that changed, recomputes the bounds incrementally and wakes only the sleeping bodies near them; replacing the whole array or changing rows, columns, cellSize, heightScale or heightOffset rebuilds the field and wakes every body on it. A mistake (a wrong array length, a NaN, fewer than 2 rows or columns) is reported once, with what to change, and the collider is ignored.
    * 
    * Category: Physics
-   * @since unreleased
+   * @since 0.27.0
    */
   export interface Heightfield3DComponent {
     /**
      * Number of samples along z (>= 2, at most 4096). The field has rows - 1 cells in that direction. heights must hold rows * columns numbers.
-     * @since unreleased
+     * @since 0.27.0
      */
     rows: number;
     /**
      * Number of samples along x (>= 2, at most 4096). The field has columns - 1 cells in that direction.
-     * @since unreleased
+     * @since 0.27.0
      */
     columns: number;
     /**
      * Distance in meters between neighbouring samples [x, z] (both > 0), before Transform.scale. The field is (columns - 1) * cellSize.x wide and (rows - 1) * cellSize.y deep.
-     * @since unreleased
+     * @since 0.27.0
      */
     get cellSize(): Vec2;
     set cellSize(value: Vec2Like);
     /**
      * Meters of height per unit of `heights` (world y = heights[i] * heightScale + heightOffset). Changing it rebuilds the whole field; edit `heights` for local changes.
-     * @since unreleased
+     * @since 0.27.0
      */
     heightScale: number;
     /**
      * Meters added to every scaled height.
-     * @since unreleased
+     * @since 0.27.0
      */
     heightOffset: number;
     /**
      * rows * columns finite numbers, row by row (sample (r, c) at index r * columns + c; row 0 is the most negative z, column 0 the most negative x). A flat array of numbers on disk and in commands, a Float32Array in scripts. Writing single elements is cheap: physics reads only the ones that changed. A length other than rows * columns, or a NaN or infinite value, makes the collider be ignored with a message naming the fix. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
-     * @since unreleased
+     * @since 0.27.0
      */
     get heights(): Float32Array;
     set heights(value: Float32Array | readonly number[]);
     /**
      * Cells without collision (a cave mouth, a pit): (rows - 1) * (columns - 1) numbers, row by row, 1 = hole, 0 = solid (cell (r, c) at index r * (columns - 1) + c). Empty (default) = no holes; any other length is an error. A body falls through a hole and is held by the cells around it. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
-     * @since unreleased
+     * @since 0.27.0
      */
     get holes(): Uint8Array;
     set holes(value: Uint8Array | readonly number[]);
