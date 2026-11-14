@@ -31,11 +31,18 @@ CharacterMoveResult Physics3D::move_character_body(World& world, Body& b, Vec3 d
         const Body& o = bodies_[k];
         return k != self && o.enabled && o.hasShape && !o.trigger && live(world, o.e) && filters_pass(b, o);
     };
+    // The bodies near the capsule's box (swept by `disp`), ascending: the only ones the tree says it can touch.
+    std::vector<std::uint32_t> near;
+    auto gather = [&](Vec3 disp) {
+        const Aabb3 box = tight_box(b);
+        query_candidates({min(box.lo, box.lo + disp), max(box.hi, box.hi + disp)}, near);
+    };
     // Sweeps the capsule by `disp`; the earliest solid it touches (fraction t of the move, and its surface normal).
     auto cast = [&](Vec3 disp) {
         Hit h;
         if (length_sq(disp) < kMinMove * kMinMove) return h;
-        for (std::size_t k = 0; k < bodies_.size(); ++k) {
+        gather(disp);
+        for (const std::uint32_t k : near) {
             if (!blocks(k)) continue;
             float t = 0.0f;
             if (!sweep(b, disp, {}, bodies_[k], {}, t) || t >= h.t) continue;
@@ -53,20 +60,29 @@ CharacterMoveResult Physics3D::move_character_body(World& world, Body& b, Vec3 d
     auto depenetrate = [&]() {
         for (int pass = 0; pass < 4; ++pass) {
             bool moved = false;
-            for (std::size_t k = 0; k < bodies_.size(); ++k) {
-                if (!blocks(k)) continue;
-                const Contact c = collide(bodies_[k], b, 0.0f);
-                if (!c.hit || c.depth < 1e-4f) continue;
-                b.center += c.normal * std::min(c.depth + 1e-4f, 0.5f);
-                moved = true;
+            std::size_t next = 0;  // the capsule moves when it is pushed out of one body: look again from the next index on
+            for (bool again = true; again;) {
+                again = false;
+                gather({});
+                for (auto it = std::lower_bound(near.begin(), near.end(), next); it != near.end(); ++it) {
+                    const std::size_t k = *it;
+                    if (!blocks(k)) continue;
+                    const Contact c = collide(bodies_[k], b, 0.0f);
+                    if (!c.hit || c.depth < 1e-4f) continue;
+                    b.center += c.normal * std::min(c.depth + 1e-4f, 0.5f);
+                    moved = true;
+                    next = k + 1;
+                    again = true;
+                    break;
+                }
             }
             if (!moved) break;
         }
     };
-    std::vector<char> pushed(bodies_.size(), 0);
+    std::vector<int> pushed;  // the bodies already pushed by this move
     auto push = [&](const Hit& h, Vec3 motion) {  // a dynamic body in the way moves off at the character's speed
         Body& o = bodies_[std::size_t(h.body)];
-        if (o.type != BodyType::Dynamic || o.jointed || b.pushStrength <= 0.0f || pushed[std::size_t(h.body)] ||
+        if (o.type != BodyType::Dynamic || o.jointed || b.pushStrength <= 0.0f || std::find(pushed.begin(), pushed.end(), h.body) != pushed.end() ||
             h.normal.y > 0.7f)
             return;  // a jointed body (a seesaw, a plank) is held by its joint: shoving it would drag it off
         const float speed = std::max(-dot(motion, h.normal), 0.0f) / std::max(lastDt_, 1e-4f) * b.pushStrength;
@@ -74,7 +90,7 @@ CharacterMoveResult Physics3D::move_character_body(World& world, Body& b, Vec3 d
         if (speed <= have) return;
         wake(o);
         o.vel += -h.normal * (speed - have);
-        pushed[std::size_t(h.body)] = 1;
+        pushed.push_back(h.body);
     };
 
     // Moves by `motion`, sliding along what it hits. canStep: a wall in the way may be a step to climb.
@@ -180,6 +196,7 @@ CharacterMoveResult Physics3D::move_character_body(World& world, Body& b, Vec3 d
         b.lastCenter = b.center;
         b.pendingCarry += out.moved;
         b.moved = true;
+        cover_body(b);  // the next query (a character moved after this one, a script's raycast) finds it where it is now
     }
     if (CharacterController3D* c = world.get<CharacterController3D>(b.e)) {
         c->isGrounded = out.isGrounded;

@@ -240,6 +240,12 @@ public:
                                          const RaycastOptions& opt);
     bool is_touching(World& world, Entity e, Vec3 dir, float tolerance);
     std::vector<Entity> overlap_sphere(World& world, Vec3 center, float radius, std::int32_t mask);
+    // Tests and benchmarks: true makes every query test every body (the answer of the queries before they used the
+    // broad phase) instead of the ones the tree returns. The answers are the same either way.
+    void set_brute_force_queries(bool on) { bruteQueries_ = on; }
+    // Tests: "" when the tree is complete (every enabled body with a shape owns a leaf, its payload is its index, its fat box
+    // contains the body's bounds), else what is wrong. The queries rely on it after every sync, step and character move.
+    std::string broadphase_problems() const;
     void apply_impulse(World& world, Entity e, Vec3 impulse);
     void apply_force(World& world, Entity e, Vec3 force);
     void set_velocity(World& world, Entity e, Vec3 velocity);
@@ -484,6 +490,13 @@ private:
         aabb(b, box.lo, box.hi);
         return box;
     }
+    // The bodies (indices, ascending) a query for `box` must test: the tree's answer, or every body in brute-force mode.
+    void query_candidates(const Aabb3& box, std::vector<std::uint32_t>& out) const;
+    // Makes the tree complete after sync changed bodies (leaves for new bodies, renumbered payloads, boxes of what moved).
+    void bp_sync_update();
+    void cover_body(const Body& b);  // makes b's fat box contain its bounds now (a character that moved between steps)
+    bool bruteQueries_ = false;
+    bool bpDirty_ = false;  // sync created, removed or changed a body: bp_reconcile() must run
     void bp_reconcile();  // one leaf per enabled body with a shape, payloads = current indices (after every sync)
     void wake(Body& b);   // b and everything that fell asleep with it
     void wake_touching(std::uint64_t seq);  // the bodies that touched body `seq` after the previous step
