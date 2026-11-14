@@ -64,7 +64,8 @@ inside_build() {
     cd "$ROOT"
     echo "==> $(. /etc/os-release && echo "$PRETTY_NAME $BUILD_ID"), $("$CXX_NAME" --version | head -n 1), $(cmake --version | head -n 1), glibc $(ldd --version | head -n 1 | sed 's/.* //')"
     cmake --preset "$PRESET" "$@"
-    cmake --build --preset "$PRESET" --parallel
+    # -k 0: keep building after a failure, so one run reports every broken file (and ccache stores the ones that compiled).
+    cmake --build --preset "$PRESET" --parallel -- -k 0
     if command -v ccache > /dev/null; then ccache --show-stats | head -n 12 || true; fi
     ls -l "${PROGRAMS[@]}"
 }
