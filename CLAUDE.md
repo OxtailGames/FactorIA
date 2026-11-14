@@ -25,8 +25,10 @@ ctest --test-dir build/dev --output-on-failure
 - Agents (Linux, macOS): `scripts/agent-build.sh build/agent-<name> [--target fa_test_core] [--tests core | --test]
   [--examples]` configures the first time, builds and tests, and prints only errors, distinct warnings, failing tests
   and ctest's summary (full logs in the build dir). It returns within 100 s: when its last line says `RUNNING`, call it
-  again with `--wait` until it says `DONE` (docs/BUILDING.md, "Linux and macOS, short output"). Its Debug tree is built
-  with `-O1 -g1` (assertions on, the suite in less than half the time); a debugger session needs a plain Debug tree.
+  again with `--wait` until it says `DONE` (docs/BUILDING.md, "Linux and macOS, short output"). `DONE INCOMPLETE`
+  (a Mac whose displays are asleep) is not a pass: nothing failed, but the tests that open a window did not run, so
+  they need the display awake or CI. Its Debug tree is built with `-O1 -g1` (assertions on, the suite in less than
+  half the time); a debugger session needs a plain Debug tree.
 - Editor autotest while iterating: `FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M <build>/tools/editor/fa_editor_autotest`
   runs only those sections (docs/EDITOR.md, "Run only some sections").
 - Windows, from any shell (loads MSVC itself; prints only errors, unique warnings and failing tests, full logs in the
@@ -108,13 +110,20 @@ ctest --test-dir build/dev --output-on-failure
   files, the entry points and the tests to add, so the worker does not spend its first forty turns finding them. An L
   package becomes two, the shared interface in the first. A large package on `opus` is the most expensive case of
   all: `opus` needs the reason above, never the size of the package.
+- **What a milestone takes.** Its hours are the longest chain of packages that wait for each other, not their sum.
+  Draw the order before the first brief: a first small package lands what the others share (headers, command names,
+  stubs), so the rest run side by side, three workers at a time. A chain where each package needs the one before
+  (M94: five in a row, two and a half hours with one worker alive) means the shared part was not split out. While a
+  chain runs, the other two places go to independent packages and to POLISH.
 - **The orchestrator's own turns** are the most expensive ones (the biggest model, over 100k tokens of context each).
   Send a `fast` agent (a lookup) or a researcher (a question that takes judgement) to read code instead of reading
   files into this context, put independent tool calls in one message, and never poll a worker or a build: the
-  notification arrives by itself.
+  notification arrives by itself. Its own full build and suite run as one background command with a long wait
+  (`scripts/agent-build.sh build/agent-main --test --examples --wait-s 3000`), not as a `--wait` every 100 s.
 - **Fix rounds.** Only BLOCKING review findings send a package back, strictly: a review with no BLOCKING finding gets
-  no round, however important its POLISH items look. POLISH goes on one list, fixed in one package at the end of the
-  milestone, before the version bump.
+  no round, however important its POLISH items look. POLISH goes on one list per area, fixed in one package per area:
+  it starts as soon as the last feature package that touches the area has merged, next to the packages still running
+  (not all at the end), and every one merges before the version bump. Items that arrive later go to one last package.
 
 ## Finishing a task (every session on this project)
 
@@ -131,20 +140,31 @@ progress.
   note with it (a test compares both with CMakeLists.txt), replace every
   `"unreleased"` in tools/common/api_since.json with it and regenerate the docs and typings (docs/ARCHITECTURE.md,
   "Versions"). The user sees it in the window title and at the right end of the editor's menu bar.
-- Before the push: the Debug build of every target and the full Debug `ctest` (`scripts/agent-build.sh
-  build/agent-main --test`, which shares the workers' compiler cache and prints only what failed; Windows:
-  `scripts\agent-build.ps1 build\agent-main -Test`), and read the whole diff for what this host does not exercise:
-  Windows file rules (a file open elsewhere cannot be replaced or deleted, file times step ~15 ms, case-insensitive
-  paths, CRLF), waits, timeouts and speed or memory budgets a loaded 4-vCPU CI VM misses, MSVC and GCC warnings and
-  missing includes, the GL and D3D11 paths of render code. No `scripts/ci-preflight.sh` before the push (it took
-  hours and CI still found failures): CI is the cross-platform check. The preflight and the native Windows check on
-  the user's PC (`scripts/ci-remote-windows.sh`) are for when the user asks or to confirm a CI fix; the PC is often
-  off: never switch it on or wake it, ask the user.
+- Before the push: `scripts/ci-preflight.sh --lint-only` (the risk scan and what CI's `lint` job runs: format,
+  clang-tidy on the changed sources, the CI cache keys and test split; minutes, no build), the Debug build of every
+  target, the full Debug `ctest` and the example games' tests (`scripts/agent-build.sh build/agent-main --test
+  --examples`, which shares the workers' compiler cache and prints only what failed; Windows:
+  `scripts\agent-build.ps1 build\agent-main -Test -Examples`), and read the whole diff for what this host does not
+  exercise: Windows file rules (a file open elsewhere cannot be replaced or deleted, file times step ~15 ms,
+  case-insensitive paths, CRLF), waits, timeouts and speed or memory budgets a loaded 4-vCPU CI VM misses, MSVC and
+  GCC warnings and missing includes, the GL and D3D11 paths of render code. No full `scripts/ci-preflight.sh` before
+  the push (its test, stress and platform steps took hours and CI still found failures): CI is the cross-platform
+  check. The full preflight and the native Windows check on the user's PC (`scripts/ci-remote-windows.sh`) are for
+  when the user asks or to confirm a CI fix; the PC is often off: never switch it on or wake it, ask the user.
 - Feedback guard: `factoria feedback collect examples/*` must match feedback/ROADMAP.md (count line, every open entry
-  named); the ctest `tooling` case "feedback/ROADMAP.md counts and names..." fails otherwise and says what to add.
+  named); the case "feedback/ROADMAP.md counts and names..." of the `tooling` tests (`ctest -L tooling`) fails
+  otherwise and says what to add.
 - Open the PR and turn on auto-merge with a merge commit (no need to ask): `gh pr merge <n> --auto --merge`. If CI
   fails, fix it on the same branch and push again; never merge red. A PR that changes `.github/workflows/release.yml`
   is the exception: its Release run is not part of `CI result`, so merge it by hand once that run is green too.
+- CI rounds: one push per round, with every fix the round has shown. A push cancels the round in flight, so before
+  pushing wait for the build step of every job (MSVC, GCC and Clang report different errors, and every Ninja build
+  lists all of its own) and read every red job, not the first one (`gh run view <id> --log-failed`). Then
+  `scripts/ci-preflight.sh --lint-only` and the tests of the modules the fix touches, and push once. A red round must
+  wake the session: have the harness watch the PR's checks where it can (the desktop app's PR tools) instead of
+  waiting for the user to ask (M94: a round stayed red and unread for three hours and twenty minutes). A test the diff
+  does not touch that passed in the round before is run again (`gh run rerun <id> --failed`) and named to the user;
+  a second failure is a bug to fix, never a third run.
 - Install every new version on the user's Mac too: build the macOS universal package (the macOS job of
   .github/workflows/release.yml: Android, iOS and Web players plus the `macos-release` universal build;
   on the Mac the untracked `build/build-release-local.sh` of the main checkout does it, output
@@ -152,6 +172,7 @@ progress.
   install as `~/FactorIA-<old version>`, swap each file of `~/FactorIA` by rename (`mv`, never copy over a binary) so
   a running editor survives, and check that `~/FactorIA/factoria --version` prints the new version. Do not run
   `factoria setup launcher`: the running editor restarts through the Dock app and the new one refreshes the launcher.
-- Once the PR merges: tag `v<version>` on its merge commit, only with the user's OK.
+- Once the PR merges: tag `v<version>` on its merge commit, only with the user's OK and once the CI run of that
+  commit on `main` is green (`gh run list --commit <sha> --workflow CI`): a tag no longer runs CI.
 - Delete the local branch, the task's worktrees (agent worktrees included) and its `build/agent-<name>` dirs. Leave
   the main checkout on `main`, up to date with `origin/main`, clean.
