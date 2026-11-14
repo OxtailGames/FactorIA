@@ -143,8 +143,11 @@ public:
     // Every pair of leaves whose fat boxes overlap, as (lower payload, higher payload), sorted ascending: the same list
     // whatever order the leaves were inserted in. (Tests and tools; the solver asks row by row.)
     void sorted_pairs(std::vector<std::pair<std::uint32_t, std::uint32_t>>& out) const;
-    // Structure check for tests: parents, heights and boxes are consistent. Empty string when fine.
-    std::string validate() const;
+    // Structure check for tests: parents, heights and boxes are consistent. Empty string when fine, else every problem
+    // found (the first eight), separated by "; ". checkBalance = false skips the height-balance test: a rotation can leave a
+    // subtree two levels taller than its sibling after many moves (the height stays logarithmic), which a test of the
+    // queries does not care about.
+    std::string validate(bool checkBalance = true) const;
 
 private:
     static constexpr int kStack = 128;
@@ -158,6 +161,10 @@ private:
     };
     static float ray_inv(float d) { return std::fabs(d) < 1e-9f ? 0.0f : 1.0f / d; }
     // Does the ray reach `box` (padded) within [0, maxT]? tNear = where it enters (0 when the origin is inside).
+    // The pad (1 mm) keeps a ray that grazes a face from being dropped by rounding in the slab test. It is only worth
+    // something while a float can tell 1 mm apart: from about 8000 m away from the origin one float step is 1 mm or more
+    // (at 100 km it is 8 mm), so there a grazing ray can still miss a box by rounding. Everything the world does at such
+    // distances (positions, contacts, queries) loses the same precision; keep play areas within a few kilometres.
     static bool ray_slab(const Aabb3& box, Vec3 o, Vec3 d, Vec3 inv, float maxT, float& tNear) {
         constexpr float kPad = 1e-3f;
         float tmin = 0.0f, tmax = maxT;
