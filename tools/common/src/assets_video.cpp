@@ -109,6 +109,7 @@ Result<ImportOutput> import_video(const ImportRequest& request) {
         cleanup.dir = *scratchDir;
         const stdfs::path out = cleanup.dir / "movie.mpg";
         std::string failure;
+        bool timedOut = false;
         auto convert = [&](bool forceRate) {
             ProcessOptions options;
             options.argv = {ffmpeg->path,
@@ -137,17 +138,19 @@ Result<ImportOutput> import_video(const ImportRequest& request) {
             std::error_code ec;
             if (r.ok() && r->exitCode == 0 && stdfs::is_regular_file(out, ec) && stdfs::file_size(out, ec) > 0)
                 return true;
+            timedOut = r.ok() && r->timedOut;
             failure = r.ok() ? (r->timedOut ? "it did not finish in 10 minutes"
                                             : "it exited with code " + std::to_string(r->exitCode) + ":\n" + tail(*r))
                              : r.error().message;
             stdfs::remove(out, ec);
             return false;
         };
-        // MPEG-1 has a short list of frame rates; a video with another (15 fps, a variable rate) is converted again at 30 fps.
+        // MPEG-1 has a short list of frame rates; a video with another (15 fps, a variable rate) is converted again at
+        // 30 fps. Any failure but a timeout gets the second try: ffmpeg up to 8 says "MPEG-1/2 does not support 15/1
+        // fps", ffmpeg 9 only "Error while opening encoder - maybe incorrect parameters such as bit_rate, rate...".
         bool done = convert(false);
         const std::string firstFailure = failure;
-        if (!done && failure.find("fps") != std::string::npos)
-            done = convert(true);  // "MPEG-1/2 does not support 15/1 fps"
+        if (!done && !timedOut) done = convert(true);
         if (!done)
             return make_error(
                 "Converting '" + file + "' with ffmpeg failed: " + firstFailure,

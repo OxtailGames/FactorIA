@@ -181,6 +181,7 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 - The game project guide (`AGENTS.md` of new projects and of the examples) asks to record engine gaps as soon as
   they are met and to check first that the engine lacks them, without the emphasis that made agents report what
   exists; `play.auto` before asking the user to play is one sentence.
+- Video import works with ffmpeg 9: a clip at a frame rate MPEG-1 lacks (15 fps) is converted again at 30 fps after any failure but a timeout, since ffmpeg 9 no longer names the rate in its error. The ffmpeg setup test no longer fails on a machine with ffmpeg on PATH.
 
 ## 0.26.0
 
