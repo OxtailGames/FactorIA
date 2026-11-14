@@ -336,6 +336,7 @@ private:
         // costing solver work and sends no events. Bodies that fell asleep together share `sleepGroup` and wake together.
         bool asleep = false;
         bool moved = false;  // gameplay teleported or created this body since the last step: it wakes whatever it now touches
+        bool boxStale = false;  // sync changed what its box in the broad phase is made from: the next step covers it again
         float sleepTime = 0.0f;
         std::uint64_t sleepGroup = 0;
         std::uint64_t seen = 0;
@@ -407,6 +408,10 @@ private:
     struct PairState {
         Entity a, b;
         bool trigger = false;
+        // The indices of the two bodies (a < b) in bodies_ when the pair was recorded: valid while `layout` equals
+        // Physics3D::layoutGen_ (the bodies shifted since otherwise). Lets a step keep the pairs of two sleeping bodies
+        // without looking each of them up.
+        std::uint32_t ia = 0, ib = 0, layout = 0;
     };
     // One manifold prepared for the rigid-body solver (see Physics3D::step).
     struct RigidContact {
@@ -485,6 +490,26 @@ private:
 
     PhysicsSettings settings_;
     std::vector<Body> bodies_;  // sorted by seq (creation order)
+    std::uint32_t layoutGen_ = 1;  // changes whenever bodies_ is renumbered (a body destroyed, the world changed)
+    // The bodies a step's stages visit instead of every body (see Physics3D::step): indices ascending. Sleeping and static
+    // bodies are in none of the lists that drive the pair scans, the integration and the write-back, so a world with a big
+    // sleeping pile steps like the awake bodies alone.
+    struct Rows {
+        std::vector<std::size_t> awake;       // enabled, not static, not asleep
+        std::vector<char> isAwake;            // per body: in `awake`
+        std::vector<std::size_t> movedStatic;  // static bodies gameplay placed this step (they wake what they now touch)
+        std::vector<std::size_t> moved;       // every body with `moved` set
+        std::vector<std::size_t> stale;       // bodies whose broad-phase box must be covered again
+        std::vector<std::size_t> platforms;   // kinematic bodies with a velocity (not characters)
+        std::vector<std::size_t> characters;  // enabled characters
+        std::vector<std::size_t> bigAsleep;   // sleeping bodies too big for the island search through the tree
+        float maxAsleepReach = 0.0f;          // the biggest bound radius among the other sleeping bodies
+        bool anyAsleep = false;
+        bool anyUnchecked = false;  // a body whose start-overlap check has not run
+    };
+    Rows rows_;
+    bool awakeStale_ = true;  // `rows_.awake` must be rebuilt (a body woke up)
+    bool chainsMarked_ = false;  // some body has chain iterations / drag from a previous step
     Broadphase3D bp_;  // fat boxes of the bodies with a shape; payload = index in bodies_ (renumbered every step)
     std::unordered_map<std::uint64_t, std::size_t> index_;  // entity bits -> index in bodies_
     std::uint64_t nextSeq_ = 1;
@@ -497,6 +522,13 @@ private:
     // `touchingNext_` that the next step fills is swapped in, so no step allocates once the capacity has grown.
     std::vector<std::pair<PairKey, PairState>> touching_;
     std::vector<std::pair<PairKey, PairState>> touchingNext_;
+    // The pairs whose two bodies are both asleep or static (and enabled, with a shape): nothing in them moves, so they keep
+    // their state without anyone looking at them. Sorted by key like `touching_`, which holds all the other pairs. A pair
+    // moves between the two vectors when a body wakes (`frozenDirty_`) or the bodies are renumbered (`frozenLayout_`), or
+    // when the step finds both of its bodies at rest.
+    std::vector<std::pair<PairKey, PairState>> frozen_;
+    std::uint32_t frozenLayout_ = 0;  // layoutGen_ the indices cached in `frozen_` were checked at
+    bool frozenDirty_ = false;        // a body woke up since: `frozen_` may hold a pair of it
     const PairState* touching_find(PairKey key) const {
         auto it =
             std::lower_bound(touching_.begin(), touching_.end(), key,

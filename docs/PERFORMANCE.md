@@ -582,6 +582,7 @@ pull request that did it, not when an example later goes over its budget. It is 
 | `hierarchy.deep`, `hierarchy.wide` | `World::world_matrix` for every entity of a chain 400 deep, and `World::world_position` for 20000 leaves of a tree 4 levels deep (nothing changes between the reads: the hierarchy cache answers) |
 | `hierarchy.moving`, `hierarchy.active` | The same tree, 4 passes with one change before each read of its 20000 leaves: one node of the middle level moves (a mutable `Transform`), or is switched off and on (`set_active`, then `active_in_hierarchy`) |
 | `physics.step2d`, `physics.step3d` | 60 `Physics::step`s of 576 falling 2D bodies (Box2D) and 20 of 196 3D bodies (the engine's solver, which costs more per body); the scene is rebuilt before every run, because bodies fall asleep |
+| `physics.step3d_mostly_asleep` | 20 `Physics::step`s of a world with 1000 boxes asleep in a pile on a floor and 20 bodies falling 30 m away (400 awake body steps): what a sleeping body costs while others are awake |
 | `physics.step3d_1000`, `physics.step3d_stack100` | 10 `Physics::step`s of 1000 falling 3D spheres, capsules and boxes in a walled pit (the case the broad phase makes cheap: only bodies whose boxes are close are tested), and 60 steps of a column of 100 boxes on a floor (stacking: contacts and sleeping) |
 | `nav.unreachable`, `nav.unreachable_astar` | 40 failed `NavGrid::search`es into a walled-in room of a 320 x 320 grid (with `closest`, as `nav.find_path` asks): answered from the reachability labels, and with the labels off so A* runs over the whole floor first |
 | `physics.tilemap_edit` | 40 steps of a 256 x 256 Tilemap with 512 solid platforms where one cell changes before every step (`set_tilemap_tile`): the cost of keeping the colliders in step with an edit; it follows the number of edits (the array's version says nothing else was written), not the 65536 cells. The colliders are one decomposition of the solid cells (a long floor is one box) and an edit takes apart and stacks again only the boxes it touches, found through a cell-to-box index, so the cost follows the run and the boxes of the edit, not the map |
@@ -606,6 +607,15 @@ pit costs 0.4 ms (a world with nothing awake skips the sub-steps and the broad p
 falling pit has the same work), `physics.step3d_stack100` 52.7 / 16.8 (the column of 100 now falls asleep after 4 s instead
 of keeping every body awake, and sleeping steps are nearly free). The baselines of the three `physics.step3d*` entries of
 `macos-clang.json` were refreshed.
+
+Sleeping bodies (M94.4e): `physics.step3d_mostly_asleep` (1000 boxes asleep, 20 awake elsewhere) takes 167 ms before
+and 4.6 ms after (Release, macOS, 15 runs, inline jobs), 20 steps each: 8.3 ms to 0.23 ms per step, where the 20 awake
+bodies alone take 0.05 ms; with 10 000 boxes asleep it takes 34 ms (1.7 ms per step, linear in the pile). What is left
+is `sync` (it reads the components of every body each step, about 0.15 ms for 1000) and the tree queries of the pair
+rows. The doctest "1000 bodies asleep and 20 awake step in about the time of the 20 awake alone"
+(`test_physics3d_asleep.cpp`) measures about 5 to 9 times the CPU time of the awake-only world (its awake-only world is
+smaller) and fails above 25 times, in optimized builds only. The three other `physics.step3d*` entries were not
+refreshed. The numbers of llvmpipe and D3D11 were not measured.
 
 Every input is built from a fixed seed (`fa::Rng`), so two runs do the same work (the report says when the repeats did not).
 A run takes about 10 to 110 ms (macOS, Release). The render benchmarks need a graphics context (EGL with Mesa on Linux, Metal, D3D11) and are

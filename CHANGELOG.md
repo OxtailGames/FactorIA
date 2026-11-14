@@ -6,6 +6,17 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 
 ## Unreleased
 
+- 3D physics: bodies asleep cost almost nothing while others are awake (M94.4e). The solver walks lists of the awake
+  bodies in every stage and skips pairs of two bodies at rest (their contact state is kept aside and comes back when a
+  body wakes). A world with 1000 boxes asleep and 20 awake steps in 0.23 ms instead of 8.3 ms (new `fa_bench` entry
+  `physics.step3d_mostly_asleep`; the 20 awake alone: 0.05 ms; 10 000 asleep: 1.7 ms, which is `sync` reading every
+  body's components). Results change in these cases: (1) the position pass after a time-of-impact stop now only runs
+  for the islands that had the stop, so a fast ball hitting a wall far away no longer re-solves, or nudges, a box or
+  a pile resting elsewhere (before, any stop touched every body: this changes worlds with two independent groups
+  and a stop in one, also when nothing sleeps); (2) inside a stop's island the order in which a static body with a
+  lower index is solved against the island's bodies can differ; (3) a sleeper woken by contact with a woken body
+  moves one phase later; (4) a force applied to a disabled body is dropped instead of firing when it is enabled.
+  Worlds without these cases give the same bits as before.
 - `Sprite.vertexOffsets`, `Sprite.vertexColors` and `SpriteSkin.bindPose` are float arrays (`fa::ArrayF32`) instead of
   `Json` (M94.2d): the JSON on disk is the same flat list of numbers, a script reads a `Float32Array`, and the renderer,
   `entity.bounds()` and the skinning read floats instead of walking JSON values for every deformable sprite every frame

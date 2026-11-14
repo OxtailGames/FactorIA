@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <cmath>
 #include <format>
+#include <iterator>
 #include <unordered_set>
 
 #include "fa/core/jobs.h"
@@ -61,6 +62,7 @@ constexpr std::size_t kPairChunkRows = 16;    // rows of one chunk
 constexpr float kFatMarginMoving = 0.1f;
 constexpr float kFatMarginStill = 0.02f;
 constexpr float kFatStretchSteps = 2.0f;
+constexpr float kSmallReach = 2.0f;  // an island search asks the broad phase for bodies of at most this reach
 constexpr float kBpEps = 1e-3f;       // the boxes a query asks about are this much bigger than the narrow phase's reach
 constexpr float kSleepSpeed = 0.05f;  // a body is calm below this speed (m/s; its fastest point counts, spin included)
 constexpr float kTimeToSleep = 0.5f;  // ...and falls asleep, with the bodies it touches, after this long (s)
@@ -194,12 +196,17 @@ void Physics3D::reset() {
     bp_.clear();
     index_.clear();
     touching_.clear();
+    frozen_.clear();
+    frozenDirty_ = false;
     warm_.clear();
     joints_.clear();
     jointOrder_.clear();
     navs_.clear();
     navOrder_.clear();
     lastWorld_ = nullptr;
+    ++layoutGen_;
+    awakeStale_ = true;
+    chainsMarked_ = false;
     nextSeq_ = 1;
     lastGravity_ = {1e30f, 1e30f, 1e30f};
 }
@@ -212,18 +219,21 @@ void Physics3D::wake(Body& b) {
         if (o.asleep && o.sleepGroup == group) {
             o.asleep = false;
             o.sleepTime = 0.0f;
+            awakeStale_ = true;
+            frozenDirty_ = true;
         }
     }
 }
 
 void Physics3D::wake_touching(std::uint64_t seq) {
-    for (const auto& [key, st] : touching_) {
-        if (key.first != seq && key.second != seq) continue;
-        const std::uint64_t other = key.first == seq ? key.second : key.first;
-        auto it = std::lower_bound(bodies_.begin(), bodies_.end(), other,
-                                   [](const Body& b, std::uint64_t s) { return b.seq < s; });
-        if (it != bodies_.end() && it->seq == other) wake(*it);
-    }
+    for (const std::vector<std::pair<PairKey, PairState>>* pairs : {&touching_, &frozen_})
+        for (const auto& [key, st] : *pairs) {
+            if (key.first != seq && key.second != seq) continue;
+            const std::uint64_t other = key.first == seq ? key.second : key.first;
+            auto it = std::lower_bound(bodies_.begin(), bodies_.end(), other,
+                                       [](const Body& b, std::uint64_t s) { return b.seq < s; });
+            if (it != bodies_.end() && it->seq == other) wake(*it);
+        }
 }
 
 bool Physics3D::filters_pass(const Body& a, const Body& b) {
@@ -717,11 +727,13 @@ void Physics3D::sync(World& world) {
             wake_touching(bodies_[it->second].seq);
             existed = false;
             bp_.destroy(bodies_[it->second].proxy);
+            ++layoutGen_;
             bodies_[it->second] = Body{};  // entity slot reused after World::clear(): start fresh
             bodies_[it->second].seq = nextSeq_++;
             bodies_[it->second].e = e;
             bodies_[it->second].id = world.id_of(e);
             bodies_[it->second].lastPos = pose.position + Vec3{1e9f, 0, 0};  // force initial placement below
+            awakeStale_ = true;
         }
         if (it == index_.end()) {
             Body nb;
@@ -735,6 +747,7 @@ void Physics3D::sync(World& world) {
             nb.lastAngVel = nb.angVel;
             bodies_.push_back(std::move(nb));
             it = index_.emplace(key, bodies_.size() - 1).first;
+            awakeStale_ = true;
             bodies_.back().center = pose.position;  // the collider offset is added below
         }
         Body& b = bodies_[it->second];
@@ -898,15 +911,19 @@ void Physics3D::sync(World& world) {
         if (b.offset != oldOffset) {  // offset edited, or turned/scaled with the entity: the shape follows the origin
             b.center += b.offset - oldOffset;
             b.lastCenter += b.offset - oldOffset;
+            b.boxStale = true;
         }
         b.enabled = world.active_in_hierarchy(e);
+        if (!b.enabled) b.force = {};  // (the step clears the force of the awake bodies only: none piles up while disabled)
         if (!existed) b.moved = true;  // a new body wakes what it appears in, like a teleported one
         // Sleeping bodies must follow everything gameplay does to them or to what they rest on: a changed body or collider
         // (including enabling and disabling) and a teleport wake the body and the bodies touching it; a written velocity
         // wakes the body's group.
         if (existed && b.sig() != before) {
+            awakeStale_ = true;  // (its type or enabled flag may have changed)
             wake(b);
             wake_touching(b.seq);
+            b.boxStale = true;
         }
         if (!b.enabled) continue;
         // Gameplay moved the Transform since the last writeback -> teleport (keep velocity).
@@ -921,6 +938,7 @@ void Physics3D::sync(World& world) {
         }
         if (moved) {
             b.moved = true;
+            b.boxStale = true;
             wake(b);
             wake_touching(b.seq);
         }
@@ -950,6 +968,8 @@ void Physics3D::sync(World& world) {
         for (Body& b : bodies_)
             if (b.seen == stamp && live(world, b.e)) kept.push_back(std::move(b));
         bodies_ = std::move(kept);
+        ++layoutGen_;
+        awakeStale_ = true;
         index_.clear();
         for (std::size_t i = 0; i < bodies_.size(); ++i) index_[bodies_[i].e.bits()] = i;
     }
@@ -1269,13 +1289,34 @@ void Physics3D::step(World& world, float dt) {
     const std::size_t n = bodies_.size();
     if (n == 0) {
         touching_.clear();
+        frozen_.clear();
         return;
     }
+    // One pass over the bodies: the short lists the stages below walk instead of every body (the sleeping ones and the
+    // static ones are in none of the lists that drive the pair scans, the integration and the write back).
+    Rows& R = rows_;
+    R.moved.clear();
+    R.movedStatic.clear();
+    R.stale.clear();
+    R.platforms.clear();
+    R.characters.clear();
+    R.anyUnchecked = false;
+    for (std::size_t i = 0; i < n; ++i) {
+        const Body& b = bodies_[i];
+        if (!b.startChecked) R.anyUnchecked = true;
+        if (b.moved) {
+            R.moved.push_back(i);
+            if (b.enabled && b.type == BodyType::Static) R.movedStatic.push_back(i);
+        }
+        if (b.boxStale) R.stale.push_back(i);
+        if (b.character && b.enabled) R.characters.push_back(i);
+        if (b.type == BodyType::Kinematic && !b.character && (b.vel != Vec3{} || b.angVel != Vec3{}))
+            R.platforms.push_back(i);
+    }
     // A dynamic body that starts inside a static collider is reported once, the first step it exists.
-    if (std::any_of(bodies_.begin(), bodies_.end(), [](const Body& b) { return !b.startChecked; }))
+    if (R.anyUnchecked)
         for (const StartOverlap& o : start_overlaps(world, true)) FA_WARN("physics", "{}", o.message);
-    for (std::size_t i = 0; i < n; ++i) {  // characters with a velocity walk first, so what they push moves this step
-        if (!bodies_[i].character || !bodies_[i].enabled) continue;
+    for (const std::size_t i : R.characters) {  // characters with a velocity walk first, so what they push moves this step
         const CharacterController3D* cc = world.get<CharacterController3D>(bodies_[i].e);
         if (!cc || cc->velocity == Vec3{}) continue;
         move_character_body(world, bodies_[i], cc->velocity * dt);
@@ -1303,7 +1344,9 @@ void Physics3D::step(World& world, float dt) {
         }
         jlinks.push_back({ia->second, ib, jp->useMotor});
     }
-    {  // a chain of three or more jointed dynamic bodies gets more solver iterations (a rope bridge settles)
+    if (!jlinks.empty() || chainsMarked_) {  // a chain of three or more jointed dynamic bodies gets more solver
+                                             // iterations (a rope bridge settles); without joints nothing to reset
+        chainsMarked_ = false;
         UnionFind chains(n);
         std::vector<int> size(n, 0);
         auto dyn = [&](std::size_t i) { return i != kNoBody && bodies_[i].type == BodyType::Dynamic; };
@@ -1323,6 +1366,7 @@ void Physics3D::step(World& world, float dt) {
             if (dyn(i) && size[chains.find(i)] >= 3) {
                 bodies_[i].iterations = kChainIterations;
                 bodies_[i].chainDrag = kChainDrag;
+                chainsMarked_ = true;
             }
     }
     const int subs = std::max(settings_.subSteps, 1);
@@ -1342,8 +1386,8 @@ void Physics3D::step(World& world, float dt) {
     // The characters a platform can carry (fixed for the step), so looking for the ones on a platform is not a scan of
     // every body.
     std::vector<std::size_t> carriable;
-    for (std::size_t i = 0; i < n; ++i)
-        if (bodies_[i].character && bodies_[i].enabled && bodies_[i].carriedByPlatforms) carriable.push_back(i);
+    for (const std::size_t i : R.characters)
+        if (bodies_[i].carriedByPlatforms) carriable.push_back(i);
     // Dynamic bodies resting on top of body k (k at its current center, optionally shifted): the tree gives the bodies near
     // k, ascending. A body that was moved since its fat box was last covered is covered by whoever moved it.
     auto find_riders = [&](std::size_t k, std::vector<std::size_t>& out) {
@@ -1372,7 +1416,7 @@ void Physics3D::step(World& world, float dt) {
         }
     };
     // Teleported static/kinematic bodies carry their riders by the same displacement (detected at the old pose).
-    for (std::size_t k = 0; k < n; ++k) {
+    for (const std::size_t k : R.moved) {  // (a body is only teleported by a sync that also set its `moved`)
         Body& p = bodies_[k];
         if (p.pendingCarry == Vec3{}) continue;
         Vec3 dp = p.pendingCarry;
@@ -1397,16 +1441,51 @@ void Physics3D::step(World& world, float dt) {
 
     // The bodies a stage works on. Everything, or one island during the time-of-impact events (see the sub-step loop):
     // the pairs visited are those with at least one body in scope, always as (lower index, higher index).
-    std::vector<std::size_t> allIdx(n);
-    for (std::size_t i = 0; i < n; ++i) allIdx[i] = i;
+    // No scope (null) = the whole world, whose rows are the awake bodies (rows_.awake: a sleeping or static body asks the
+    // broad phase nothing; the pairs it is in are found from the awake body's row).
     std::vector<char> inScope(n, 0);  // (read only while a stage is scoped to an island)
-    const std::vector<std::size_t>* scope = &allIdx;
+    const std::vector<std::size_t>* scope = nullptr;
+    std::uint64_t rowsGen = 1;  // changes whenever the awake list is rebuilt
+    auto ensure_awake = [&]() {  // the awake list of the world, rebuilt after a body woke up
+        if (!awakeStale_) return;
+        awakeStale_ = false;
+        ++rowsGen;
+        R.awake.clear();
+        R.isAwake.assign(n, 0);
+        R.bigAsleep.clear();
+        R.maxAsleepReach = 0.0f;
+        R.anyAsleep = false;
+        for (std::size_t i = 0; i < n; ++i) {
+            const Body& b = bodies_[i];
+            if (b.asleep) {
+                R.anyAsleep = true;
+                if (b.hasShape && !b.trigger) {  // (the island search treats it like an awake body at rest: reach = radius)
+                    const float reach = bound_radius(b);
+                    if (b.proxy < 0 || reach > kSmallReach || !aabb_contains(tight_box(b), Aabb3{b.center, b.center}))
+                        R.bigAsleep.push_back(i);
+                    else
+                        R.maxAsleepReach = std::max(R.maxAsleepReach, reach);
+                }
+            }
+            if (b.enabled && b.type != BodyType::Static && !b.asleep) {
+                R.awake.push_back(i);
+                R.isAwake[i] = 1;
+            }
+        }
+    };
+    auto rows_of = [&]() -> const std::vector<std::size_t>& {  // the rows of the current scope
+        if (scope) return *scope;
+        ensure_awake();
+        return R.awake;
+    };
     // ---- broad phase (broadphase3d.h). Every phase that looks for pairs first makes each body's fat box contain the box the
     // phase asks about (cover), then asks the tree row by row: the partners of body i are the bodies whose fat box overlaps
     // the box of i grown by the phase's reach, ascending, which is exactly the order the old all-pairs loop visited them in
     // (a body the tree does not return is further than the phase's reach, so the narrow phase would have said no).
+    // Only the bodies that can have moved (the rows of the scope): a sleeping or static body keeps the box it was covered with
+    // (a body gameplay changed is covered once by cover_stale, a body that falls asleep gets its box tightened then).
     auto cover = [&](auto&& need, bool tighten = false) {  // need(i, body): the box of body i this phase asks about
-        for (std::size_t i = 0; i < n; ++i) {
+        for (const std::size_t i : rows_of()) {
             const Body& b = bodies_[i];
             if (b.proxy < 0) continue;
             const bool moving = b.type != BodyType::Static && !b.asleep;
@@ -1414,17 +1493,39 @@ void Physics3D::step(World& world, float dt) {
                       moving ? b.vel * (dt * kFatStretchSteps) : Vec3{}, tighten);
         }
     };
+    auto cover_stale = [&]() {  // the bodies sync changed (moved, resized, enabled...): their box in the tree is made anew
+        for (const std::size_t i : R.stale) {
+            Body& b = bodies_[i];
+            b.boxStale = false;
+            if (b.proxy < 0) continue;
+            const bool moving = b.type != BodyType::Static && !b.asleep;
+            bp_.cover(b.proxy, tight_box(b), moving ? kFatMarginMoving : kFatMarginStill,
+                      moving ? b.vel * (dt * kFatStretchSteps) : Vec3{}, true);
+        }
+        R.stale.clear();
+    };
     auto cover_tight = [&](bool tighten = false) {
         cover([](std::size_t, const Body& b) { return tight_box(b); }, tighten);
     };
     // The partners of row i (indices, ascending, at least `from`): the tree's answer for `q`, filtered like the pair loop
-    // was. Without a scope every pair is visited from its lower body; inside an island's scope a pair is visited from its
-    // member (from the lower one when both are members), and another island's movers cannot touch it this sub-step.
-    auto collect = [&](std::size_t i, const Aabb3& q, std::size_t from, std::vector<std::uint32_t>& out) {
+    // was. Without a scope the rows are the awake bodies. Plain: every pair is visited from its lower body, so a row sees
+    // the partners above it. low: a row sees every partner except the awake ones below it (those rows see it), so the pairs
+    // of an awake body with a sleeping or static body below it are found from the awake body (the caller puts the pairs
+    // back in (lower, higher) order: replay_sorted). Inside an island's scope a pair is visited from its member (from the
+    // lower one when both are members), and another island's movers cannot touch it this sub-step.
+    auto collect = [&](std::size_t i, const Aabb3& q, std::size_t from, std::vector<std::uint32_t>& out,
+                       bool low = false) {
         out.clear();
         if (bodies_[i].proxy < 0) return;
         bp_.sorted_query(q, out);
-        if (scope == &allIdx) {
+        if (!scope) {
+            if (low) {
+                FA_ASSERT(!awakeStale_, "the awake list is rebuilt before a scan");  // (this runs on the job threads)
+                out.erase(std::remove_if(out.begin(), out.end(),
+                                         [&](std::uint32_t k) { return k == i || (k < i && R.isAwake[k]); }),
+                          out.end());
+                return;
+            }
             const std::uint32_t lo = std::uint32_t(std::max(from, i + 1));
             out.erase(out.begin(), std::lower_bound(out.begin(), out.end(), lo));
             return;
@@ -1432,29 +1533,107 @@ void Physics3D::step(World& world, float dt) {
         out.erase(std::remove_if(out.begin(), out.end(),
                                  [&](std::uint32_t k) {
                                      if (k < from || k == i) return true;
-                                     return inScope[k] ? k < i : movable(bodies_[k]);
+                                     return inScope[k] ? k < i : (movable(bodies_[k]) && !bodies_[k].asleep);
                                  }),
                   out.end());
     };
     auto for_row = [&](std::size_t i, const Aabb3& q,
                        auto&& fn) {  // the pairs of row i, in order (reads the bodies only)
         thread_local std::vector<std::uint32_t> cand;
-        collect(i, q, 0, cand);
+        collect(i, q, 0, cand, true);
         for (std::uint32_t k : cand) fn(std::min<std::size_t>(i, k), std::max<std::size_t>(i, k));
     };
     auto for_pairs = [&](auto&& boxOf, auto&& fn) {  // boxOf(i): what row i asks about
-        for (std::size_t i : *scope) for_row(i, boxOf(i), fn);
+        for (std::size_t i : rows_of()) for_row(i, boxOf(i), fn);
+    };
+    // The records of a pair scan (each has i < k and `low`: found from its higher body) in (i, k) order: the ones found from
+    // their lower body come in order already, the others are sorted and merged in. The order is the one a scan of every body
+    // as a row visits the pairs in, whatever the number of sleeping or static bodies.
+    auto replay_sorted = [&](auto& parts, auto&& fn) {
+        using Rec = typename std::decay_t<decltype(parts)>::value_type::value_type;
+        std::vector<Rec*> lows;
+        for (auto& part : parts)
+            for (Rec& r : part)
+                if (r.low) lows.push_back(&r);
+        auto before = [](const Rec* a, const Rec* b) { return a->i != b->i ? a->i < b->i : a->k < b->k; };
+        std::sort(lows.begin(), lows.end(), [&](const Rec* a, const Rec* b) { return before(a, b); });
+        std::size_t li = 0;
+        for (auto& part : parts)
+            for (Rec& r : part) {
+                if (r.low) continue;
+                while (li < lows.size() && before(lows[li], &r)) fn(*lows[li++]);
+                fn(r);
+            }
+        while (li < lows.size()) fn(*lows[li++]);
     };
     // Like for_pairs, for a loop whose callback moves the two bodies of the pair (the contact solver's position pass): a
     // body that leaves its fat box is put back in the tree at once, and a row whose body was pushed out of the box it asked
-    // about asks again for the partners it has not reached yet.
+    // about asks again for the partners it has not reached yet. The callback order matters (the passes are Gauss-Seidel),
+    // so the rows are visited in index order: a pair is visited from its lower body, and a sleeping or static body below
+    // an awake one is a row too, when the awake body is near it. Only bodies without rotation dynamics pair here.
     std::vector<std::uint32_t> liveRow;
+    std::vector<std::size_t> liveRows, liveExtra;
+    std::uint64_t liveExtraWrites = ~std::uint64_t(0), liveExtraRows = 0;  // what `liveExtra` was computed for
+    // The partners of a row of for_pairs_live. An extra row (a sleeping or static body below an awake one) only has work with
+    // a dynamic body that is awake (the callback does nothing for two bodies that are not), so its partners are those:
+    // found among the awake list when it is short (a floor box covering a big sleeping pile would otherwise answer the
+    // whole pile on every call), else from the tree and filtered. The partners, and their order, are those of a plain row
+    // without the ones whose pair does nothing.
+    auto live_collect = [&](std::size_t i, const Aabb3& q, std::size_t from) {
+        if (scope || R.isAwake[i]) {
+            collect(i, q, from, liveRow);
+            return;
+        }
+        liveRow.clear();
+        if (bodies_[i].proxy < 0) return;
+        const std::size_t lo = std::max(from, i + 1);
+        constexpr std::size_t kBruteRows = 64;
+        if (R.awake.size() <= kBruteRows) {
+            for (const std::size_t j : R.awake) {
+                const Body& o = bodies_[j];
+                if (j >= lo && o.proxy >= 0 && live_dyn(o) && aabb_overlap(bp_.fat(o.proxy), q))
+                    liveRow.push_back(std::uint32_t(j));
+            }
+            return;
+        }
+        collect(i, q, from, liveRow);
+        liveRow.erase(std::remove_if(liveRow.begin(), liveRow.end(),
+                                     [&](std::uint32_t j) { return !live_dyn(bodies_[j]); }),
+                      liveRow.end());
+    };
     auto for_pairs_live = [&](auto&& fn) {
         constexpr float kPad = 0.05f;
-        for (std::size_t i : *scope) {
+        liveRows.clear();
+        for (const std::size_t i : rows_of())
+            if (!bodies_[i].rotDyn) liveRows.push_back(i);
+        if (liveRows.empty()) return;
+        if (!scope) {
+            // The extra rows only depend on the fat boxes (and on which bodies are awake), so they are asked for again
+            // only when a box was written to the tree since.
+            if (liveExtraWrites != bp_.writes() || liveExtraRows != rowsGen) {
+                liveExtraWrites = bp_.writes();
+                liveExtraRows = rowsGen;
+                liveExtra.clear();
+                for (const std::size_t i : liveRows) {
+                    const int proxy = bodies_[i].proxy;
+                    if (proxy < 0) continue;
+                    bp_.query(aabb_grow(bp_.fat(proxy), kPad + kBpEps), [&](std::uint32_t k) {
+                        if (k < i && !R.isAwake[k] && !bodies_[k].rotDyn) liveExtra.push_back(k);
+                    });
+                }
+                std::sort(liveExtra.begin(), liveExtra.end());
+                liveExtra.erase(std::unique(liveExtra.begin(), liveExtra.end()), liveExtra.end());
+            }
+            if (!liveExtra.empty()) {
+                const std::size_t mid = liveRows.size();
+                liveRows.insert(liveRows.end(), liveExtra.begin(), liveExtra.end());
+                std::inplace_merge(liveRows.begin(), liveRows.begin() + std::ptrdiff_t(mid), liveRows.end());
+            }
+        }
+        for (std::size_t i : liveRows) {
             if (bodies_[i].proxy < 0) continue;
             Aabb3 q = aabb_grow(tight_box(bodies_[i]), kPad);
-            collect(i, q, 0, liveRow);
+            live_collect(i, q, 0);
             for (std::size_t pos = 0; pos < liveRow.size(); ++pos) {
                 const std::size_t k = liveRow[pos];
                 fn(std::min(i, k), std::max(i, k));
@@ -1463,7 +1642,7 @@ void Physics3D::step(World& world, float dt) {
                 cover_one(k, tight_box(bodies_[k]));
                 if (!aabb_contains(q, now)) {
                     q = aabb_grow(now, kPad);
-                    collect(i, q, k + 1, liveRow);
+                    live_collect(i, q, k + 1);
                     pos = std::size_t(-1);
                 }
             }
@@ -1492,19 +1671,27 @@ void Physics3D::step(World& world, float dt) {
     // A sleeping body (with its whole group) wakes as soon as something that moves comes within kRiderGap of it: an awake
     // dynamic body, a kinematic body with a velocity, or a body gameplay teleported this step (its new place may overlap).
     auto wake_touched = [&]() {
-        if (std::none_of(bodies_.begin(), bodies_.end(), [](const Body& b) { return b.asleep; })) return;
-        for (std::size_t i : *scope) {
+        ensure_awake();
+        if (!R.anyAsleep) return;
+        auto visit = [&](std::size_t i) {
             const Body& m = bodies_[i];
-            if (!m.enabled || !m.hasShape || m.trigger) continue;
+            if (!m.enabled || !m.hasShape || m.trigger) return;
             const bool mover =
                 live_dyn(m) || (m.type != BodyType::Dynamic && (m.moved || m.vel != Vec3{} || m.angVel != Vec3{}));
-            if (!mover) continue;
+            if (!mover) return;
             bp_.query(aabb_grow(tight_box(m), kRiderGap + kBpEps), [&](std::uint32_t k) {
                 Body& s = bodies_[k];
                 if (!s.asleep || !s.enabled || !s.hasShape || s.trigger || !filters_pass(m, s)) return;
                 if (collide(m, s, kRiderGap).hit) wake(s);
             });
-        }
+        };
+        // The rows are the awake bodies of the list as it was when the loop started: a sleeping body that wakes in here is not
+        // visited as a mover in this call (the old loop over every body saw one with a higher index at once). It becomes
+        // one in the next phase or sub-step, so a chain of sleepers that only touch a woken body's neighbours (not the body
+        // itself) wakes one link per phase instead of all at once; the group of a body that wakes does wake together.
+        for (const std::size_t i : rows_of()) visit(i);
+        if (!scope)  // the static bodies gameplay placed this step
+            for (const std::size_t i : R.movedStatic) visit(i);
     };
 
     // Time of the first impact (fraction of `disp`, 1 = none) among all pairs that close in on each other faster than
@@ -1563,14 +1750,16 @@ void Physics3D::step(World& world, float dt) {
         list.clear();
         struct RigidHit {
             std::size_t i, k;
+            bool low;  // found from its higher body (see collect)
             Contact c;
         };
         std::vector<std::vector<RigidHit>>
             hitParts;  // the manifolds first (read only, on the job threads when big) ...
+        const std::vector<std::size_t>& rows = rows_of();
         scan_rows(
-            scope->size(),
+            rows.size(),
             [&](std::size_t ri, std::vector<RigidHit>& out) {
-                const std::size_t row = (*scope)[ri];
+                const std::size_t row = rows[ri];
                 for_row(row, aabb_grow(tight_box(bodies_[row]), kBpEps), [&](std::size_t i, std::size_t k) {
                     const Body& a = bodies_[i];
                     const Body& b = bodies_[k];
@@ -1580,12 +1769,13 @@ void Physics3D::step(World& world, float dt) {
                     if (!filters_pass(a, b)) return;
                     Contact c = collide(a, b, 0.0f, true);
                     if (!c.hit || c.depth < 0.0f) return;
-                    out.push_back({i, k, c});
+                    out.push_back({i, k, k == row, c});
                 });
             },
             hitParts);
-        for (std::vector<RigidHit>& part : hitParts)  // ... then each contact is built and warm started in scan order
-            for (RigidHit& hit : part) {
+        // ... then each contact is built and warm started in pair order
+        replay_sorted(hitParts, [&](RigidHit& hit) {
+            {
                 const std::size_t i = hit.i, k = hit.k;
                 Body& a = bodies_[i];
                 Body& b = bodies_[k];
@@ -1595,7 +1785,7 @@ void Physics3D::step(World& world, float dt) {
                                     ? 1
                                     : ((carrier[i] == int(k) && b.type == BodyType::Kinematic) ? 2 : 0);
                 RigidContact rc;
-                if (!build_rigid_contact(a, b, i, k, c, h, car, impact, rc)) continue;
+                if (!build_rigid_contact(a, b, i, k, c, h, car, impact, rc)) return;
                 rc.key = {a.seq, b.seq};
                 if (positional) {  // warm start: re-apply what the same contact points carried in the previous sub-step
                     if (const WarmEntry* cached = warm_find(rc.key)) {
@@ -1642,6 +1832,7 @@ void Physics3D::step(World& world, float dt) {
                 }
                 list.push_back(rc);
             }
+        });
     };
     // The solver passes over `list`. positional: after the sub-step's motion (the relax pass of the soft contacts, the
     // simple pairs and the joints); else a time-of-impact stop, where every contact is solved hard and only the speeds change.
@@ -1716,18 +1907,19 @@ void Physics3D::step(World& world, float dt) {
     // sync.
     // A static or kinematic body that gameplay placed this step is not asleep: its new place may overlap a sleeping pile,
     // which only the contact build (wake_touched) wakes.
-    const bool anyAwake = std::any_of(bodies_.begin(), bodies_.end(), [](const Body& b) {
-        return b.enabled && ((b.type != BodyType::Static && !b.asleep) || (b.type != BodyType::Dynamic && b.moved));
-    });
+    ensure_awake();
+    const bool anyAwake = !R.awake.empty() || !R.movedStatic.empty();  // (a moved kinematic body is awake)
     std::vector<char> loaded(n, 0);  // per sub-step: bodies pressed against another dynamic body (settling below)
-    if (anyAwake) cover_tight(true);  // once per step: boxes that grew loose (a body that stopped) shrink back
+    if (anyAwake) {
+        cover_stale();
+        cover_tight(true);  // once per step: boxes that grew loose (a body that stopped) shrink back
+    }
     for (int s = 0; s < (anyAwake ? subs : 0); ++s) {
         cover_tight();  // the previous sub-step moved the bodies after the last phase covered them
         std::fill(carrier.begin(), carrier.end(), -1);
         std::fill(charCarried.begin(), charCarried.end(), 0);
-        for (std::size_t k = 0; k < n; ++k) {
+        for (const std::size_t k : R.platforms) {
             const Body& p = bodies_[k];
-            if (p.type != BodyType::Kinematic || p.character || (p.vel == Vec3{} && p.angVel == Vec3{})) continue;
             if (p.vel != Vec3{}) {
                 riders.clear();
                 find_riders(k, riders);
@@ -1765,9 +1957,9 @@ void Physics3D::step(World& world, float dt) {
             }
         }
         // A character presses on the dynamic body it stands on with mass * gravity, at its feet.
-        for (std::size_t i = 0; i < n; ++i) {
+        for (const std::size_t i : R.characters) {
             Body& c = bodies_[i];
-            if (!c.character || !c.enabled || !c.applyWeight || c.charMass <= 0.0f || c.support.is_null()) continue;
+            if (!c.applyWeight || c.charMass <= 0.0f || c.support.is_null()) continue;
             auto sit = index_.find(c.support.bits());
             if (sit == index_.end()) continue;
             Body& under = bodies_[sit->second];
@@ -1782,7 +1974,8 @@ void Physics3D::step(World& world, float dt) {
             const Vec3 foot = c.center - Vec3{0, c.segHalf + c.radius, 0};
             under.angVel += inv_inertia_mul(under, cross(foot - under.center, impulse)) * kRadToDeg;
         }
-        for (Body& b : bodies_) {
+        for (const std::size_t i : rows_of()) {
+            Body& b = bodies_[i];
             if (!b.enabled || !live_dyn(b)) continue;
             b.vel += (g * b.gravityScale + b.force * b.invMass) * h;
             if (b.damping + b.chainDrag > 0.0f) b.vel *= 1.0f / (1.0f + h * (b.damping + b.chainDrag));
@@ -1799,7 +1992,7 @@ void Physics3D::step(World& world, float dt) {
         for (int it = 0; it < kBiasIterations; ++it)
             for (std::size_t ri = 0; ri < held.size(); ++ri)
                 solve_manifold(bodies_, held[(it & 1) ? held.size() - 1 - ri : ri], 1, h, soft, softStatic);
-        bool hadToi = false;
+        std::vector<std::size_t> toiBodies;  // the bodies of the islands that had an impact in this sub-step
         // Motion with continuous collision, one ISLAND at a time: the bodies of an island advance together up to the first
         // impact among them (a time of impact), the contacts are resolved there (the velocity of the hit bodies changes:
         // stop, bounce, slide), and the rest of the sub-step continues with the new velocities, so a fast body keeps
@@ -1809,19 +2002,62 @@ void Physics3D::step(World& world, float dt) {
             UnionFind islands(n);
             std::vector<std::size_t> movers;
             std::vector<float> reach(n, 0.0f);
-            for (std::size_t i = 0; i < n; ++i) {
-                const Body& b = bodies_[i];
-                if (!b.enabled || !movable(b)) continue;
-                movers.push_back(i);
-                if (b.hasShape && !b.trigger) reach[i] = bound_radius(b) + length(b.vel) * h * 2.0f;
+            std::vector<char> isMover(n, 0);
+            ensure_awake();
+            auto reach_of = [&](const Body& b) {
+                return b.hasShape && !b.trigger ? bound_radius(b) + length(b.vel) * h * 2.0f : 0.0f;
+            };
+            // The movers are the awake bodies and the sleeping bodies an awake one is close enough to join (the whole sleep
+            // group of each: it wakes together): the rest of a sleeping pile is no part of any island, and a pile nothing is
+            // near costs nothing here. "Close enough" is the test that joins two movers below, so an island is what it was
+            // when the sleeping bodies were movers too.
+            std::vector<std::uint64_t> playGroups;
+            if (R.anyAsleep) {
+                auto near_enough = [&](const Body& a, const Body& sl) {
+                    if (!sl.hasShape || sl.trigger || !sl.enabled || !filters_pass(a, sl)) return false;
+                    const float lim = reach_of(a) + bound_radius(sl) + 0.1f;
+                    return length_sq(a.center - sl.center) <= lim * lim;
+                };
+                for (const std::size_t i : R.awake) {
+                    const Body& a = bodies_[i];
+                    if (!a.hasShape || a.trigger) continue;
+                    const float rr = reach_of(a) + R.maxAsleepReach + 0.1f + kBpEps;
+                    bp_.query(Aabb3{a.center - Vec3{rr}, a.center + Vec3{rr}}, [&](std::uint32_t k) {
+                        const Body& sl = bodies_[k];
+                        if (sl.asleep && near_enough(a, sl)) playGroups.push_back(sl.sleepGroup);
+                    });
+                    for (const std::size_t k : R.bigAsleep)
+                        if (near_enough(a, bodies_[k])) playGroups.push_back(bodies_[k].sleepGroup);
+                }
+                for (const JointLink& l : jlinks)  // a joint to an awake body
+                    if (l.b != kNoBody) {
+                        const Body& a = bodies_[l.a];
+                        const Body& b = bodies_[l.b];
+                        if (a.enabled && b.enabled && movable(a) && movable(b) && a.asleep != b.asleep)
+                            playGroups.push_back(a.asleep ? a.sleepGroup : b.sleepGroup);
+                    }
+                std::sort(playGroups.begin(), playGroups.end());
+                playGroups.erase(std::unique(playGroups.begin(), playGroups.end()), playGroups.end());
             }
+            if (playGroups.empty()) {
+                movers = R.awake;
+                for (const std::size_t i : movers) isMover[i] = 1;
+            } else {
+                for (std::size_t i = 0; i < n; ++i) {
+                    const Body& b = bodies_[i];
+                    if (!b.enabled || !movable(b)) continue;
+                    if (b.asleep && !std::binary_search(playGroups.begin(), playGroups.end(), b.sleepGroup)) continue;
+                    movers.push_back(i);
+                    isMover[i] = 1;
+                }
+            }
+            for (const std::size_t i : movers) reach[i] = reach_of(bodies_[i]);
             for (const JointLink& l : jlinks)
                 if (l.b != kNoBody && movable(bodies_[l.a]) && movable(bodies_[l.b])) islands.unite(l.a, l.b);
             // Two movers join when their centres are closer than their reaches (plus 0.1 m). A mover of small reach (the
             // centre of every one is inside its fat box) finds its partners in the tree; the few movers the tree cannot
             // answer for (a big reach, or a centre outside the box) are tried against every mover. The islands do not depend
             // on the order the pairs are united in.
-            constexpr float kSmallReach = 2.0f;
             auto try_unite = [&](std::size_t i, std::size_t k) {  // i < k, both movers
                 const Body& a = bodies_[i];
                 const Body& b = bodies_[k];
@@ -1854,7 +2090,7 @@ void Physics3D::step(World& world, float dt) {
                 }
                 const float rr = reach[i] + maxSmall + 0.1f + kBpEps;
                 bp_.query(Aabb3{a.center - Vec3{rr}, a.center + Vec3{rr}}, [&](std::uint32_t k) {
-                    if (k > i && bodies_[k].enabled && movable(bodies_[k])) try_unite(i, k);
+                    if (k > i && isMover[k]) try_unite(i, k);
                 });
                 for (std::size_t k : special)
                     if (k > i) try_unite(i, k);
@@ -1883,6 +2119,7 @@ void Physics3D::step(World& world, float dt) {
                 scope = &members;
                 for (std::size_t i : members) inScope[i] = 1;
                 float carryOut = 0.0f;
+                bool hit = false;
                 for (int event = 0;; ++event) {
                     if (event ==
                         kMaxToiEvents) {  // more impacts than this sub-step can resolve: the rest of the move waits
@@ -1903,20 +2140,26 @@ void Physics3D::step(World& world, float dt) {
                     }
                     if (tHit >= 1.0f) break;
                     resolve(false);
-                    hadToi = true;
+                    hit = true;
                     remaining *= 1.0f - tHit;
                     if (remaining < 1e-3f) break;
                 }
                 for (std::size_t i : members) bodies_[i].carry = carryOut;
-                scope = &allIdx;
+                scope = nullptr;
                 for (std::size_t i : members) inScope[i] = 0;
+                if (hit) toiBodies.insert(toiBodies.end(), members.begin(), members.end());
             }
         }
-        if (hadToi) {  // a body that had impacts in this sub-step: what its turn swept past is pushed back out
+        if (!toiBodies.empty()) {  // the bodies that had impacts in this sub-step: what their turn swept past is pushed back out
+            std::sort(toiBodies.begin(), toiBodies.end());
+            scope = &toiBodies;
+            for (std::size_t i : toiBodies) inScope[i] = 1;
             build_contacts(rigid, false);
             for (int pass = 0; pass < 2; ++pass)
                 for (const RigidContact& rc : rigid) correct_position(bodies_, rc);
             iterate(rigid, false);
+            scope = nullptr;
+            for (std::size_t i : toiBodies) inScope[i] = 0;
         }
         iterate(held, true);  // after the motion: the relax pass of the contacts, the simple pairs and the joints
         {  // settling: a slow rotating body pressed against another dynamic body loses speed (a capsule rolling on a pile
@@ -1930,7 +2173,7 @@ void Physics3D::step(World& world, float dt) {
                 if (load) loaded[rc.ia] = loaded[rc.ib] = 1;
             }
             const float keep = 1.0f / (1.0f + h * kRestDamping);
-            for (std::size_t i = 0; i < n; ++i) {
+            for (const std::size_t i : rows_of()) {
                 Body& b = bodies_[i];
                 if (!loaded[i] || !live_dyn(b) || !b.rotDyn || length(b.vel) >= kRestSpeed) continue;
                 b.vel *= keep;
@@ -1938,10 +2181,9 @@ void Physics3D::step(World& world, float dt) {
             }
         }
     }
-    for (Body& b : bodies_) {
-        b.force = {};
-        b.moved = false;
-    }
+    ensure_awake();  // (a force is only applied to a body that is awake)
+    for (const std::size_t i : R.awake) bodies_[i].force = {};
+    for (const std::size_t i : R.moved) bodies_[i].moved = false;
 
     // ---- events: track overlapping pairs across frames
     std::vector<std::pair<PairKey, PairState>>& cur = touchingNext_;  // filled in key order (scan order)
@@ -1964,52 +2206,91 @@ void Physics3D::step(World& world, float dt) {
     // pair order below, so `cur`, `begins`, `supported`, `links` and `hold` come out as the single-threaded scan makes them.
     struct PairRec {
         std::size_t i, k;
+        bool low;  // found from its higher body (see collect)
         PairKey key;
-        bool keep;  // true: nothing moves, the pair keeps its old state; false: a contact (c) found now
         bool was, trig;
         PairState st;
         Contact c;
     };
     std::vector<std::vector<PairRec>> pairParts;
-    if (anyAwake) cover_tight();
-    scan_rows(
-        n,
-        [&](std::size_t i, std::vector<PairRec>& outRecs) {
-            const Body& a = bodies_[i];
-            if (!a.enabled || !a.hasShape) return;
-            // The candidates: the bodies within the contact margin, and the pairs that keep their state because nothing of
-            // them moves (they stay in `touching_` wherever they are).
-            thread_local std::vector<std::uint32_t> cand;
-            if (anyAwake)
-                collect(i, aabb_grow(tight_box(a), kEndMargin + kBpEps), 0, cand);
-            else
-                cand.clear();
-            if (a.asleep || !movable(a)) {
-                const std::size_t before = cand.size();
-                auto it = std::lower_bound(
-                    touching_.begin(), touching_.end(), PairKey{a.seq, 0},
-                    [](const std::pair<PairKey, PairState>& e, const PairKey& key) { return e.first < key; });
-                for (; it != touching_.end() && it->first.first == a.seq; ++it) {
-                    const auto partner = index_.find(it->second.b.bits());
-                    if (partner != index_.end() && partner->second > i &&
-                        bodies_[partner->second].seq == it->first.second)
-                        cand.push_back(std::uint32_t(partner->second));
-                }
-                if (cand.size() != before) {
-                    std::sort(cand.begin(), cand.end());
-                    cand.erase(std::unique(cand.begin(), cand.end()), cand.end());
-                }
+    // The pairs of two bodies at rest (asleep or static) keep their state: they live in `frozen_` and are not looked at,
+    // while the pairs with an awake body are found from the awake body's row.
+    auto at_rest = [](const Body& b) { return b.enabled && b.hasShape && (b.asleep || b.type == BodyType::Static); };
+    auto pair_bodies = [&](std::pair<PairKey, PairState>& e, std::size_t& ia, std::size_t& ib) {
+        PairState& st = e.second;
+        if (st.layout != layoutGen_) {
+            const auto a = index_.find(st.a.bits());
+            const auto b = index_.find(st.b.bits());
+            if (a == index_.end() || b == index_.end()) return false;
+            st.ia = std::uint32_t(a->second);
+            st.ib = std::uint32_t(b->second);
+            st.layout = layoutGen_;
+        }
+        ia = st.ia;
+        ib = st.ib;
+        return ia < n && ib < n && bodies_[ia].seq == e.first.first && bodies_[ib].seq == e.first.second;
+    };
+    auto merge_pairs = [](std::vector<std::pair<PairKey, PairState>>& into,
+                          std::vector<std::pair<PairKey, PairState>>& from) {
+        if (from.empty()) return;
+        std::vector<std::pair<PairKey, PairState>> merged;
+        merged.reserve(into.size() + from.size());
+        std::merge(std::make_move_iterator(into.begin()), std::make_move_iterator(into.end()),
+                   std::make_move_iterator(from.begin()), std::make_move_iterator(from.end()),
+                   std::back_inserter(merged), [](const auto& x, const auto& y) { return x.first < y.first; });
+        into.swap(merged);
+        from.clear();
+    };
+    ensure_awake();
+    if ((frozenDirty_ || frozenLayout_ != layoutGen_) && !frozen_.empty()) {  // a pair may have a body that is not at rest
+        std::vector<std::pair<PairKey, PairState>> thawed;
+        std::size_t w = 0;
+        for (std::size_t r = 0; r < frozen_.size(); ++r) {
+            std::size_t ia = 0, ib = 0;
+            if (pair_bodies(frozen_[r], ia, ib) && at_rest(bodies_[ia]) && at_rest(bodies_[ib])) {
+                if (w != r) frozen_[w] = std::move(frozen_[r]);
+                ++w;
+            } else {
+                thawed.push_back(std::move(frozen_[r]));
             }
-            for (const std::uint32_t k : cand) {
+        }
+        frozen_.resize(w);
+        merge_pairs(touching_, thawed);
+    }
+    frozenDirty_ = false;
+    frozenLayout_ = layoutGen_;
+    {  // the pairs whose bodies both went to rest (they fell asleep, or one was made static) are put away
+        std::vector<std::pair<PairKey, PairState>> resting;
+        std::size_t w = 0;
+        for (std::size_t r = 0; r < touching_.size(); ++r) {
+            std::size_t ia = 0, ib = 0;
+            if (pair_bodies(touching_[r], ia, ib) && at_rest(bodies_[ia]) && at_rest(bodies_[ib])) {
+                resting.push_back(std::move(touching_[r]));
+            } else {
+                if (w != r) touching_[w] = std::move(touching_[r]);
+                ++w;
+            }
+        }
+        touching_.resize(w);
+        merge_pairs(frozen_, resting);
+    }
+    if (anyAwake) cover_tight();
+    const std::vector<std::size_t>& awakeRows = R.awake;
+    scan_rows(
+        awakeRows.size(),
+        [&](std::size_t ri, std::vector<PairRec>& outRecs) {
+            const std::size_t row = awakeRows[ri];
+            const Body& r = bodies_[row];
+            if (!r.hasShape) return;
+            // The candidates: the bodies within the contact margin, except the awake ones below the row (their rows find it).
+            thread_local std::vector<std::uint32_t> cand;
+            collect(row, aabb_grow(tight_box(r), kEndMargin + kBpEps), 0, cand, true);
+            for (const std::uint32_t other : cand) {
+                const std::size_t i = std::min<std::size_t>(row, other), k = std::max<std::size_t>(row, other);
+                const Body& a = bodies_[i];
                 const Body& b = bodies_[k];
-                if (!b.enabled || !b.hasShape) continue;
+                if (!a.enabled || !a.hasShape || !b.enabled || !b.hasShape) continue;
                 PairKey key{a.seq, b.seq};
-                if ((a.asleep || !movable(a)) &&
-                    (b.asleep || !movable(b))) {  // nothing moves: the pair keeps its state
-                    if (const PairState* old = touching_find(key))
-                        outRecs.push_back({i, k, key, true, true, old->trigger, *old, Contact{}});
-                    continue;
-                }
                 if (!filters_pass(a, b)) continue;
                 const bool trig = a.trigger || b.trigger;
                 if (trig && a.trigger && b.trigger) continue;
@@ -2018,17 +2299,13 @@ void Physics3D::step(World& world, float dt) {
                 Contact c = collide(a, b, margin);
                 bool now = trig ? (c.hit && c.depth > 0.0f) : c.hit;
                 if (!now) continue;
-                outRecs.push_back({i, k, key, false, was, trig, PairState{a.e, b.e, trig}, c});
+                outRecs.push_back({i, k, k == row, key, was, trig,
+                                   PairState{a.e, b.e, trig, std::uint32_t(i), std::uint32_t(k), layoutGen_}, c});
             }
         },
         pairParts);
-    for (std::vector<PairRec>& part : pairParts)
-        for (PairRec& r : part) {
-            if (r.keep) {
-                if (!cur.empty() && !(cur.back().first < r.key)) curOrdered = false;
-                cur.emplace_back(r.key, r.st);
-                continue;
-            }
+    replay_sorted(pairParts, [&](PairRec& r) {
+        {
             const std::size_t i = r.i, k = r.k;
             const Body& a = bodies_[i];
             const Body& b = bodies_[k];
@@ -2043,6 +2320,7 @@ void Physics3D::step(World& world, float dt) {
             cur.emplace_back(r.key, r.st);
             if (!r.was) begins.push_back({r.key, r.st, r.c});
         }
+    });
     if (!curOrdered)  // never in practice (rows and columns of the scan ascend); keeps the lookups right
         std::stable_sort(cur.begin(), cur.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
     auto in_cur = [&](const PairKey& key) {
@@ -2076,7 +2354,7 @@ void Physics3D::step(World& world, float dt) {
     touching_.swap(touchingNext_);
 
     // ---- rolling: spheres on the ground spin to match their horizontal motion
-    for (std::size_t i = 0; i < n; ++i) {
+    for (const std::size_t i : R.awake) {
         Body& b = bodies_[i];
         if (!b.enabled || !live_dyn(b) || b.kind != Body::Kind::Sphere || !b.hasShape || b.trigger) continue;
         if (!b.rollWithMotion || !supported[i]) continue;
@@ -2110,7 +2388,7 @@ void Physics3D::step(World& world, float dt) {
     std::vector<int> size(n, 0), restless(n, 0);  // per island root: its bodies, and those still moving faster than kSleepSpeed
     std::vector<float> fastest(n, 0.0f), speeds(n, 0.0f);
     std::vector<char> ready(n, 1);  // per island root
-    for (std::size_t i = 0; i < n; ++i) {
+    for (const std::size_t i : R.awake) {
         Body& b = bodies_[i];
         if (!b.enabled || !live_dyn(b)) continue;
         const float reach = !b.hasShape ? 0.0f : bound_radius(b);  // fastest point of the shape
@@ -2127,7 +2405,7 @@ void Physics3D::step(World& world, float dt) {
         }
         if (hold[i]) ready[r] = 0;
     }
-    for (std::size_t i = 0; i < n; ++i) {
+    for (const std::size_t i : R.awake) {
         Body& b = bodies_[i];
         if (!b.enabled || !live_dyn(b)) continue;
         const std::size_t r = find_root(i);
@@ -2137,16 +2415,21 @@ void Physics3D::step(World& world, float dt) {
         b.sleepTime = (speeds[i] < kSleepSpeed || excused) ? b.sleepTime + dt : 0.0f;
         if (b.sleepTime < kTimeToSleep) ready[r] = 0;
     }
-    for (std::size_t i = 0; i < n; ++i) {
+    bool fellAsleep = false;
+    for (const std::size_t i : R.awake) {
         Body& b = bodies_[i];
         if (!b.enabled || !live_dyn(b) || !ready[find_root(i)]) continue;
         b.asleep = true;
         b.sleepGroup = bodies_[find_root(i)].seq;  // the island is named after its root (seq is never reused)
         b.vel = b.angVel = {};
+        fellAsleep = true;
+        if (b.proxy >= 0)  // its box in the broad phase shrinks to what a body at rest needs
+            bp_.cover(b.proxy, tight_box(b), kFatMarginStill, Vec3{}, true);
     }
 
-    // ---- write back
-    for (Body& b : bodies_) {
+    // ---- write back (the bodies that were awake in this step; a body at rest has nothing to write)
+    for (const std::size_t i : R.awake) {
+        Body& b = bodies_[i];
         if (!b.enabled || b.type == BodyType::Static || !world.alive(b.e)) continue;
         if (Transform* t = world.get<Transform>(b.e)) {
             if (b.rotDyn) {  // the quaternion was integrated during the sub-steps: write it as the entity's rotation
@@ -2180,6 +2463,7 @@ void Physics3D::step(World& world, float dt) {
             b.lastVel = b.vel;
         }
     }
+    if (fellAsleep) awakeStale_ = true;
     finish_joints(world, dt);
 }
 
@@ -2414,7 +2698,7 @@ void Physics3D::apply_force(World&, Entity e, Vec3 force) {
     auto it = index_.find(e.bits());
     if (it == index_.end()) return;
     Body& b = bodies_[it->second];
-    if (b.type != BodyType::Dynamic) return;
+    if (b.type != BodyType::Dynamic || !b.enabled) return;  // a disabled body has no step to clear it
     wake(b);
     b.force += force;
 }
