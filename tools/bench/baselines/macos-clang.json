@@ -366,6 +366,17 @@
       "cpuMedianMs": 0.157,
       "items": 40,
       "unit": "edits and queries"
+    },
+    "physics.step3d_mostly_asleep": {
+      "medianMs": 5.877,
+      "minMs": 5.799,
+      "maxMs": 6.1,
+      "p25Ms": 5.85,
+      "p75Ms": 5.971,
+      "spread": 0.021,
+      "cpuMedianMs": 5.874,
+      "items": 400,
+      "unit": "awake body steps"
     }
   }
 }
