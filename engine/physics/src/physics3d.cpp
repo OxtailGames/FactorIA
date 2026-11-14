@@ -38,8 +38,9 @@ constexpr float kBeginMargin = 0.01f;     // solid contact begins within this ga
 constexpr float kEndMargin = 0.05f;       // ...and ends once the gap exceeds this
 constexpr int kIterations = 2;
 constexpr float kRiderGap = 0.02f;    // a dynamic body this close above a kinematic one is carried by it
-constexpr float kRotatedGapScale = 1.75f;  // a rotated box reports a hit at a SAT gap up to margin, while the gap between its
-                                          // bounding boxes can reach margin * sqrt(3): queries for a margin grow by this (> 1.73)
+// A rotated box reports a hit at a SAT gap up to the margin, while the gap between the bounding boxes can reach
+// margin * sqrt(3): the queries for a margin grow it by this (> 1.73).
+constexpr float kRotatedGapScale = 1.75f;
 constexpr float kAlignedEps = 1e-6f;  // off-diagonal rotation below this = axis-aligned (exact AABB paths)
 constexpr float kSweepTol = 1e-4f;    // swept contacts are bisected to this distance (m)
 constexpr float kCastSkin = 0.01f;  // shape casts: penetration at `from` up to this is a resting touch, not an overlap
@@ -57,8 +58,12 @@ constexpr float kWarmRadius =
 // Pair scans on the job system (docs/ARCHITECTURE.md, "Physics on jobs"): the narrow phase of a big scene is computed by
 // chunks of rows in parallel (each row asks the broad phase for its candidate partners) and replayed in row order, so the
 // result is the one of the single-threaded scan.
-constexpr std::size_t kMinParallelRows = 64;  // fewer rows than this: the scan runs on the calling thread
-constexpr std::size_t kPairChunkRows = 16;    // rows of one chunk
+// Fewer rows than kMinParallelRows: the scan runs on the calling thread. Measured with 4 workers (M94.4g,
+// physics.step3d*): at 64 the 196-body scene took 12.5 ms and the 100-box column 19.4 ms, where the calling thread alone
+// takes 9.2 and 14.1 (the jobs cost more than the scan); at 256 they take what the calling thread takes, and the
+// 1000-body pit still gains (70 ms against 81). A chunk of 8, 16 or 32 rows costs the same.
+constexpr std::size_t kMinParallelRows = 256;
+constexpr std::size_t kPairChunkRows = 16;  // rows of one chunk
 // Broad phase (broadphase3d.h): a body's fat box is its bounds grown by this margin (m) and, when it moves, stretched by
 // its velocity over kFatStretchSteps steps; a body at rest keeps a thin one.
 constexpr float kFatMarginMoving = 0.1f;

@@ -1,8 +1,8 @@
-// Integration tests of the 3D solver's bookkeeping (M94.4g): what has to keep working when gameplay changes the scene between
-// steps (a static body moved by hand while bodies rest on it, a body deleted so the indices of the others shift, an entity
-// slot reused after World::clear(), layers and masks edited at run time), the order of the end events, and the movers the
-// island search treats specially (long shapes with a big reach, a mesh whose origin is far from its triangles, a fast
-// platform that carries a crate and a character).
+// Integration tests of the 3D solver's bookkeeping (M94.4g): what has to keep working when gameplay changes the scene
+// between steps (a static body moved by hand while bodies rest on it, a body deleted so the indices of the others
+// shift, an entity slot reused after World::clear(), layers and masks edited at run time), the order of the end
+// events, and the movers the island search treats specially (long shapes with a big reach, a mesh whose origin is far
+// from its triangles, a fast platform that carries a crate and a character).
 #include <doctest.h>
 
 #include <algorithm>
@@ -62,8 +62,9 @@ std::string name_of(const World& w, Entity e) { return w.id_of(e); }
 
 }  // namespace
 
-// Ten boxes rest apart on a floor; gameplay lifts them all in the same step, so ten contacts end together. The events come
-// out in the order of the pairs (the order the bodies were created in), the same in two runs, and each pair ends once.
+// Ten boxes rest apart on a floor; gameplay lifts them all in the same step, so ten contacts end together. The events
+// come out in the order of the pairs (the order the bodies were created in), the same in two runs, and each pair ends
+// once.
 TEST_CASE("3d integration: the end events of several contacts at once come out in the same order in every run") {
     std::vector<std::vector<std::string>> runs;
     for (int run = 0; run < 2; ++run) {
@@ -79,7 +80,8 @@ TEST_CASE("3d integration: the end events of several contacts at once come out i
         s.run(1);
         std::vector<std::string> order;
         for (const CollisionEvent& e : s.events)
-            if (e.phase == CollisionEvent::Phase::End) order.push_back(name_of(s.world, e.a) + "|" + name_of(s.world, e.b));
+            if (e.phase == CollisionEvent::Phase::End)
+                order.push_back(name_of(s.world, e.a) + "|" + name_of(s.world, e.b));
         CHECK(order.size() == 10);
         runs.push_back(order);
     }
@@ -130,16 +132,19 @@ TEST_CASE("3d integration: a static slab moved by hand carries a sleeping crate 
     CHECK_FALSE(s.awake(crate));
 }
 
-// Three columns of three boxes sleep on a floor. The bottom box of the middle column is deleted: the indices of everything
-// created after it shift by one, the pairs of the sleeping columns are renumbered, and nothing of the outer columns stirs.
+// Three columns of three boxes sleep on a floor. The bottom box of the middle column is deleted: the indices of
+// everything created after it shift by one, the pairs of the sleeping columns are renumbered, and nothing of the
+// outer columns stirs.
 TEST_CASE("3d integration: deleting a body renumbers the others without waking the sleeping columns") {
     Sim s;
     add_box(s.world, "floor", {0, -0.5f, 0}, {40, 1, 40}, false);
     std::vector<std::vector<Entity>> columns(3);
     for (int level = 0; level < 3; ++level)
-        for (int c = 0; c < 3; ++c)
-            columns[std::size_t(c)].push_back(add_box(s.world, ("c" + std::to_string(c) + "_" + std::to_string(level)).c_str(),
-                                                      {-4.0f + 4.0f * float(c), 0.5f + float(level), 0}, {1, 1, 1}, true));
+        for (int c = 0; c < 3; ++c) {
+            const std::string name = "c" + std::to_string(c) + "_" + std::to_string(level);
+            columns[std::size_t(c)].push_back(
+                add_box(s.world, name.c_str(), {-4.0f + 4.0f * float(c), 0.5f + float(level), 0}, {1, 1, 1}, true));
+        }
     s.run(150);
     for (const auto& col : columns)
         for (Entity e : col) REQUIRE_FALSE(s.awake(e));
@@ -188,8 +193,9 @@ TEST_CASE("3d integration: an entity slot reused after World::clear() starts a f
     CHECK_FALSE(s.awake(fresh));
 }
 
-// Layers and masks decide which bodies meet. A body that rests asleep on a floor and whose mask is changed so that it no
-// longer accepts the floor's layer falls through it (and the pair ends); a mask that accepts it again lets it rest.
+// Layers and masks decide which bodies meet. A body that rests asleep on a floor and whose mask is changed so that it
+// no longer accepts the floor's layer falls through it (and the pair ends); a mask that accepts it again lets it
+// rest.
 TEST_CASE("3d integration: layers and masks changed at run time are honoured by sleeping and touching pairs") {
     Sim s;
     Entity floor = add_box(s.world, "floor", {0, -0.5f, 0}, {40, 1, 40}, false);
@@ -243,7 +249,8 @@ TEST_CASE("3d integration: long capsules and boxes with a big reach land, rest o
     CHECK_FALSE(s.awake(pole));
 }
 
-// A mesh collider whose origin is 8 m from its triangles: the body's centre (the box of the shape) is far from the entity.
+// A mesh collider whose origin is 8 m from its triangles: the body's centre (the box of the shape) is far from the
+// entity.
 TEST_CASE("3d integration: a mesh collider far from its entity origin is hit where its triangles are") {
     Sim s;
     Entity ground = s.world.create("ground", "ground");
@@ -252,7 +259,7 @@ TEST_CASE("3d integration: a mesh collider far from its entity origin is hit whe
         Collider3D& c = s.world.add<Collider3D>(ground);
         c.shape = ColliderShape3D::Mesh;
         c.mesh = "cube";
-        c.offset = {8.0f / 6.0f, -0.5f, 0};  // (scaled with the entity) a 6 x 1 x 6 slab centred at x = 8, its top at y = 0
+        c.offset = {8.0f / 6.0f, -0.5f, 0};  // (scaled with the entity) a 6 x 1 x 6 slab at x = 8, its top at y = 0
     }
     Entity on = add_box(s.world, "on", {8, 3, 0}, {1, 1, 1}, true);
     Entity off = add_box(s.world, "off", {0, 3, 0}, {1, 1, 1}, true);  // over the entity's origin: nothing there
@@ -266,8 +273,8 @@ TEST_CASE("3d integration: a mesh collider far from its entity origin is hit whe
     CHECK_FALSE(s.physics.raycast3d(s.world, {0, 5, 4}, {0, -1, 0}, 20.0f).has_value());  // over the entity's origin
 }
 
-// A kinematic platform at 12 m/s moves 0.2 m per step, ten times the gap in which a body counts as lying on it. A crate and a
-// character standing on it still travel with it.
+// A kinematic platform at 12 m/s moves 0.2 m per step, ten times the gap in which a body counts as lying on it. A
+// crate and a character standing on it still travel with it.
 TEST_CASE("3d integration: a fast platform carries a crate and a character beyond the rider gap") {
     Sim s;
     add_box(s.world, "floor", {0, -0.5f, 0}, {80, 1, 20}, false);

@@ -1,8 +1,9 @@
-// What a 3D physics step allocates once the scene has stopped growing (M94.4g). The solver keeps its working vectors in
-// Physics3D::sc_ and clears them instead of freeing, so a step of a settled scene must not allocate for them. This test
-// counts the allocations of Physics::step (the replaced global operator new below counts and forwards to malloc, for the
-// whole test executable) and states what is left: one list of the entities per backend (World::entities() returns a
-// copy; the 3D sync takes it once per step and shares it with the joint sync, the 2D backend takes its own).
+// What a 3D physics step allocates once the scene has stopped growing (M94.4g). The solver keeps its working vectors
+// in Physics3D::sc_ and clears them instead of freeing, so a step of a settled scene must not allocate for them. This
+// test counts the allocations of Physics::step (the replaced global operator new below counts and forwards to malloc,
+// for the whole test executable) and states what is left: one list of the entities per backend (World::entities()
+// returns a copy; the 3D sync takes it once per step and shares it with the joint sync, the 2D backend takes its
+// own).
 #include <doctest.h>
 
 #include <atomic>
@@ -71,7 +72,8 @@ void build_pit(World& w, int n) {
     for (int i = 0; i < n; ++i) {
         const int layer = i / 100, k = i % 100;
         Entity e = w.create();
-        w.get<Transform>(e)->position = {-6.3f + 1.4f * float(k % 10) + 0.003f * float(i % 7), 0.8f + 1.3f * float(layer),
+        w.get<Transform>(e)->position = {-6.3f + 1.4f * float(k % 10) + 0.003f * float(i % 7),
+                                         0.8f + 1.3f * float(layer),
                                          -6.3f + 1.4f * float(k / 10) + 0.003f * float(i % 5)};
         Collider3D& c = w.add<Collider3D>(e);
         switch (i % 3) {
@@ -98,10 +100,10 @@ std::size_t allocations_of(Sim& s, int steps) {
 
 }  // namespace
 
-// A pit of 300 bodies, run through the drop and the first impacts so every working vector has met its biggest scene, then
-// counted over 30 steps in which bodies still fall, collide and begin or end contacts. Before the working vectors were members
-// a step made about 40 allocations of its own for any scene (over 1000 in these 30 steps for this pit, the buffers of
-// std::inplace_merge among them).
+// A pit of 300 bodies, run through the drop and the first impacts so every working vector has met its biggest scene,
+// then counted over 30 steps in which bodies still fall, collide and begin or end contacts. Before the working
+// vectors were members a step made about 40 allocations of its own for any scene (over 1000 in these 30 steps for
+// this pit, the buffers of std::inplace_merge among them).
 TEST_CASE("3d alloc: a step of an awake pit allocates only the entity lists once the scene has settled in") {
     Sim s;
     build_pit(s.world, 300);
