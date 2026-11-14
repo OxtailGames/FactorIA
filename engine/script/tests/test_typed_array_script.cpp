@@ -28,9 +28,9 @@ void register_script_arrays() {
         .field("small", &ScriptArrays::small, "Values 0..3.")
         .range(0, 3)
         .field("ratios", &ScriptArrays::ratios, "Ratios 0.1..0.3.")
-        .range(0.1, 0.3)
+        .range(0.1f, 0.3f)
         .field("tiny", &ScriptArrays::tiny, "Values 0.00001..0.5.")
-        .range(0.00001, 0.5);
+        .range(0.00001f, 0.5f);
 }
 
 Json eval_ok(TestHost& h, const char* code) {
