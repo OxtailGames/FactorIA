@@ -62,6 +62,7 @@ struct Endpoint {
         std::lock_guard lock(spawnedMutex);
         return spawned;
     }
+    std::atomic<bool> progressSent{false};  // a notification went out (test.progress waits for it)
     McpHttpServer server;
     std::string url;
     explicit Endpoint(std::chrono::milliseconds streamAfter = std::chrono::seconds(10)) {
@@ -85,17 +86,24 @@ struct Endpoint {
         });
         CommandInfo p;
         p.name = "test.progress";
-        p.summary = "Stand-in for ai.run: reports what it does for 400 ms.";
-        registry.add(p, [](const Json&) {
+        p.summary = "Stand-in for ai.run: reports what it does until a progress notification has gone out.";
+        registry.add(p, [this](const Json&) {
             report_command_progress("worker: Bash cmake --build");
-            std::this_thread::sleep_for(std::chrono::milliseconds(400));
+            // Waits for the event, not for a time: the reply must come after a notification, whatever the machine's load
+            // (the deadline is a safety net far above it; the test then fails on its own checks).
+            const auto end = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+            while (!progressSent && std::chrono::steady_clock::now() < end)
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
             return Json::object();
         });
         auto started = server.start(
             [this](std::string_view m, const McpHttpServer::Notify& notify) {
                 SimpleMcpHost host(registry, ".");
                 McpServer mcp(host);
-                mcp.set_notification_sink([&notify](const std::string& n) { notify(n); });
+                mcp.set_notification_sink([this, &notify](const std::string& n) {
+                    notify(n);
+                    progressSent = true;  // after the server has queued it
+                });
                 mcp.set_progress_timing(std::chrono::milliseconds(50), std::chrono::milliseconds(100));
                 return mcp.handle_message(m);
             },
@@ -163,8 +171,11 @@ TEST_CASE("MCP over loopback HTTP: a long call is answered as an event stream, a
     REQUIRE(at != std::string::npos);
     CHECK(Json::parse(call.body.substr(at + event.size()))["result"]["isError"] == false);
 
+    // A quick one, on an endpoint whose streamAfter is far away: with 50 ms (above) a loaded machine that took longer
+    // than that to run scene.spawn would be answered as a stream, which is correct behaviour but not what is checked here.
+    Endpoint slow(std::chrono::seconds(30));
     auto quick = send(
-        ep.url,
+        slow.url,
         R"({"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"scene_spawn","arguments":{"name":"B"}}})");
     CHECK(quick.header("content-type") == "application/json");
 }
@@ -384,13 +395,17 @@ TEST_CASE(
     const std::string first = keep.read_response();
     CHECK(first.find("HTTP/1.1 200") == 0);
     CHECK(first.find("Keep-Alive: timeout=5\r\n") != std::string::npos);  // a client lets an idle connection go soon
+    // The connection is idle from the moment its answer is on the wire: the client has read it, so the server's thread
+    // must not need to run again first (a loaded machine used to leave a window in which the next client found nothing
+    // to close, and `keep` then waited out its receive timeout).
+    CHECK(server.idle_connections() == 1);
     // A second client takes the spare slot; the idle keep-alive one is closed for it, and the next answer is served.
-    const auto t0 = std::chrono::steady_clock::now();
     RawClient next(port);
     REQUIRE(next.send(RawClient::post(path, kPing)));
     CHECK(next.read_all().find("HTTP/1.1 200") == 0);
-    CHECK(keep.read_all().empty());  // closed by the server, well before any timeout
-    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::seconds(20));
+    CHECK(keep.read_all().empty());
+    // Closed by the server (a FIN), not by the client's 30 s receive timeout and not by a reset: no clock involved.
+    CHECK_MESSAGE(keep.ended == 0, "ended by " << keep.ended_text());
     server.stop();
     CHECK(server.connection_threads() == 0);
 }
@@ -399,7 +414,11 @@ TEST_CASE("MCP over loopback HTTP: a silent connection is closed after the recei
     CommandRegistry registry;
     McpHttpServer server;
     McpHttpOptions options;
-    options.receiveTimeout = std::chrono::milliseconds(300);  // the clients below wait up to 30 s for what it causes
+    // The clients below wait up to 30 s for what it causes. It is the server's own wall-clock timer, started when a
+    // connection is accepted, so a client that is slow to send after it connected (half, keep) must still be inside it:
+    // 1.5 s leaves a loaded 4-vCPU VM five times the 300 ms this test used. The three connections run their timers
+    // together (they are all opened first), so the test still takes about 1.5 s.
+    options.receiveTimeout = std::chrono::milliseconds(1500);
     auto started = server.start(
         [&registry](std::string_view m, const McpHttpServer::Notify&) {
             SimpleMcpHost host(registry, ".");
@@ -409,22 +428,19 @@ TEST_CASE("MCP over loopback HTTP: a silent connection is closed after the recei
     REQUIRE(started);
     const std::uint16_t port = port_of(*started);
     const std::string path = path_of(*started);
-    {
-        RawClient idle(port);
-        CHECK(idle.read_all().empty());  // closed by the server, without an answer: there was no request
-    }
-    {
-        RawClient half(port);  // half a request, then silence
-        REQUIRE(half.send("POST " + path + " HTTP/1.1\r\nContent-Length: 100\r\n\r\n{\"jsonrpc\""));
-        CHECK(half.read_all().find("HTTP/1.1 408") == 0);
-    }
-    {
-        RawClient keep(port);  // a kept-alive connection: answered, told how long it may idle, then closed when it does
-        REQUIRE(keep.send(RawClient::post(path, kPing, false)));
-        const std::string reply = keep.read_all();
-        CHECK(reply.find("HTTP/1.1 200") == 0);
-        CHECK(reply.find("Keep-Alive: timeout=1\r\n") != std::string::npos);
-    }
+    RawClient idle(port);
+    RawClient half(port);  // half a request, then silence
+    RawClient keep(port);  // a kept-alive connection: answered, told how long it may idle, then closed when it does
+    REQUIRE(idle.s != net::kNoSocket);
+    REQUIRE(half.s != net::kNoSocket);
+    REQUIRE(keep.s != net::kNoSocket);
+    REQUIRE(half.send("POST " + path + " HTTP/1.1\r\nContent-Length: 100\r\n\r\n{\"jsonrpc\""));
+    REQUIRE(keep.send(RawClient::post(path, kPing, false)));
+    CHECK(idle.read_all().empty());  // closed by the server, without an answer: there was no request
+    CHECK(half.read_all().find("HTTP/1.1 408") == 0);
+    const std::string reply = keep.read_all();
+    CHECK(reply.find("HTTP/1.1 200") == 0);
+    CHECK(reply.find("Keep-Alive: timeout=1\r\n") != std::string::npos);
     server.stop();
 }
 
