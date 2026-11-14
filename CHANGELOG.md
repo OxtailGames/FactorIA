@@ -82,7 +82,7 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   Polish (M94): a wait drops the queue entry of the job it took (with 0 workers every job a wait ran stayed allocated
   until the frame end), `Owner::wait` scans the queues under their locks without copying their entries, a worker told
   that a job is queued that it cannot find naps after 64 looks instead of yielding for as long as it takes, and the
-  `jobs.*` benchmarks do two to three times the work per run, so a run lasts a few milliseconds.
+  `jobs.tiny`, `jobs.graph`, `jobs.nested_wait` and `jobs.main_queue` benchmarks do two to three times the work per run, so a run lasts a few milliseconds.
 - Script component access is cheaper (M94.3b): `entity.get("Sprite")`, `entity.transform` and `entity.position` give the
   same view object every time (kept on the entity's JS object; a view is only a handle, so it never goes stale: after
   `remove` or `destroy` its fields still throw the same teaching errors), a view no longer sits behind a Proxy (the fields

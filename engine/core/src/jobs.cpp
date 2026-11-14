@@ -828,7 +828,8 @@ bool never_ends_locked(Pool& p, JobState* root) {
 }
 
 // A worker that is told a job is queued but finds none (the thread that took it has not counted it yet) looks again at
-// once Pool::spinsBeforeNap times, then naps for kNap (a notify ends it): a thread that is slow to go on does not make
+// once Pool::spinsBeforeNap times, then naps for kNap (a notify ends it; on Windows a timed wait lasts at least
+// the timer resolution, up to ~15 ms): a thread that is slow to go on does not make
 // workers burn the CPU it needs. The nap is no wait for work: a job queued meanwhile wakes the worker as it wakes a
 // sleeper.
 constexpr std::chrono::microseconds kNap(200);
@@ -851,7 +852,8 @@ void worker_main(int index, std::uint32_t gen) {
         }
         // Counted but not found: a thread is between taking a job and counting it. Let it go on.
         if (p.wake.ready.load(std::memory_order_seq_cst) > 0) {
-            if (++spins <= p.spinsBeforeNap.load(std::memory_order_relaxed)) {
+            if (spins < p.spinsBeforeNap.load(std::memory_order_relaxed)) {
+                ++spins;  // stops at the limit: a long run of naps does not overflow it
                 std::this_thread::yield();
                 continue;
             }
@@ -861,8 +863,13 @@ void worker_main(int index, std::uint32_t gen) {
             std::unique_lock<std::mutex> lk(p.sleepMu);
             p.wake.sleepers.fetch_add(1, std::memory_order_seq_cst);
             next = take_ready(p, index + 1);
-            if (!next && !p.stopFlag.load(std::memory_order_acquire)) p.workCv.wait_for(lk, kNap);
+            const bool stopping = p.stopFlag.load(std::memory_order_acquire);
+            if (!next && !stopping) p.workCv.wait_for(lk, kNap);
             p.wake.sleepers.fetch_sub(1, std::memory_order_relaxed);
+            if (!next && stopping) {
+                lk.unlock();
+                std::this_thread::yield();  // stopping: no nap (stop already notified), but no hot loop either
+            }
             continue;
         }
         spins = 0;
