@@ -1743,35 +1743,49 @@ TEST_CASE("music player: the callback, the game and the music service thread sha
         std::atomic<bool> stopMixing{false};
         std::atomic<std::size_t> allocs{0};
         std::atomic<std::uint64_t> blocks{0};
+        // The mixer's time follows the game's, in lockstep: the callback thread mixes kBlocksPerFrame blocks while the game
+        // runs a frame (`allowed` grows by that much at the start of a frame) and the game waits for them before the next
+        // one. Free-running, the audio time between two jumps depended on how long a loaded machine left the game thread
+        // alone: a jump to "outro" (a section that ends the song, two seconds = 188 blocks) followed by 190 blocks before
+        // the jump back to "main" ended the song and `playing` went false (the CI's GCC job). Here a jump is followed by at
+        // most 5 frames of blocks (80, under a half of the outro) whatever the machine's speed, and the two threads still
+        // overlap in every frame, which a free-running callback thread did not promise either (the same job once ran all
+        // 400 frames before the first block).
+        constexpr std::uint64_t kBlocksPerFrame = 16;
+        std::atomic<std::uint64_t> allowed{0};
         std::thread callback([&] {
             std::vector<float> buf(512 * 2);
             while (!stopMixing.load(std::memory_order_acquire)) {
+                if (blocks.load(std::memory_order_relaxed) >= allowed.load(std::memory_order_acquire)) {
+                    std::this_thread::yield();
+                    continue;
+                }
                 {
                     audio_test::AllocCounter::Scope scope;
                     AudioTestAccess::render(fx.audio, buf.data(), 512, 2);
                     allocs.fetch_add(scope.count(), std::memory_order_relaxed);
                 }
-                blocks.fetch_add(1, std::memory_order_relaxed);
-                std::this_thread::yield();
+                blocks.fetch_add(1, std::memory_order_release);
             }
         });
-        // The callback thread mixes before the game starts, so the two overlap even when a loaded machine is slow to start a
-        // thread (the CI's GCC job once ran all 400 frames before the first block).
-        while (blocks.load(std::memory_order_relaxed) == 0 && std::chrono::steady_clock::now() < deadline)
-            std::this_thread::yield();
         // The game: 400 frames, a jump to a section, an intensity or a stinger in most of them (a few hundred commands, 10x under the ring).
         static const char* const kSections[] = {"intro", "main", "outro", "main"};
         MusicStingerSpec spec;
         spec.section = "outro";
         spec.quantize = MusicQuantize::Beat;
+        const auto mixEnd = std::chrono::steady_clock::now() + std::chrono::seconds(60);  // a safety net far above the load
         for (int i = 0; i < 400; ++i) {
+            allowed.store(std::uint64_t(i + 1) * kBlocksPerFrame, std::memory_order_release);
             fx.audio.update(fx.world, 1.0f / 60.0f);
             if (i % 4 == 1)
                 (void)fx.audio.music_go_to_section(fx.world, fx.e, kSections[(i / 4) % 4], MusicQuantize::None, 0.02f);
             if (i % 9 == 4) (void)fx.audio.music_set_intensity(fx.world, fx.e, (i / 9) % 2 ? 1.0f : 0.1f);
             if (i % 50 == 7) (void)fx.audio.music_play_stinger(fx.world, fx.e, spec);
             if (i % 20 == 0) (void)fx.audio.stats();
-            std::this_thread::yield();
+            // The callback thread has mixed this frame's blocks (the deadline is a safety net far above the load).
+            while (blocks.load(std::memory_order_acquire) < allowed.load(std::memory_order_relaxed) &&
+                   std::chrono::steady_clock::now() < mixEnd)
+                std::this_thread::yield();
         }
         stopMixing.store(true, std::memory_order_release);
         callback.join();

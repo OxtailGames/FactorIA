@@ -6,6 +6,12 @@ Older versions, one file per minor version with its patch releases: [0.26](chang
 
 ## Unreleased
 
+- Flaky tests made deterministic (CI T-1): the MCP HTTP server marks a keep-alive connection idle before it sends the
+  answer, so the eviction of the longest-idle connection can no longer pick a connection that is still answering (new
+  `McpHttpServer::idle_connections()`); the tests of the HTTP server, the music transport, the file retries
+  (`fs::sharing_retries()`), the script watchdog and `cli_mcp_update` wait for events and counts with generous
+  deadlines instead of wall-clock budgets and fixed sleeps.
+
 ## 0.27.0
 
 FactorIA 0.27.0 (M94) makes the engine fast at scale. 3D physics has a broad phase (a dynamic AABB tree),

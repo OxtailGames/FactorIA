@@ -389,7 +389,13 @@ struct McpHttpServer::Impl {
         // The answer to the request; the connection stays open for the next one only when the client allows it.
         auto answer = [&](int status, const char* reason, const std::string& text) {
             if (!keepAlive) lingering = true;
-            return reply(c, status, reason, text, keepAlive, extra);
+            // A kept-alive connection is idle (and may be closed for the next client) from the moment its answer is on
+            // the wire, not from the moment its thread is back in recv(): a client that has read the answer and connects
+            // again at once would otherwise find nothing to close (the thread may not have run yet) and leave this
+            // connection waiting for its receive timeout. serve_one marks it again when it starts; that call is harmless.
+            // Over maxConnections the connection ends after this answer instead, as serve_one would end it.
+            const bool stays = keepAlive && (!buf.empty() || set_idle(id, true));
+            return reply(c, status, reason, text, keepAlive, extra) && stays;
         };
         if (!call->response) {
             // No reply: 202 for notifications and responses only. A request that has none was cancelled
@@ -415,6 +421,13 @@ const std::string& McpHttpServer::url() const { return impl_->url; }
 std::size_t McpHttpServer::connection_threads() const {
     std::lock_guard<std::mutex> lock(impl_->mu);
     return impl_->threads.size();
+}
+
+std::size_t McpHttpServer::idle_connections() const {
+    std::lock_guard<std::mutex> lock(impl_->mu);
+    std::size_t n = 0;
+    for (const auto& [id, conn] : impl_->connections) n += conn.idle ? 1 : 0;
+    return n;
 }
 
 Result<std::string> McpHttpServer::start(Handler handler, std::chrono::milliseconds streamAfter) {
