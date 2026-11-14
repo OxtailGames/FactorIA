@@ -134,7 +134,8 @@ struct World::Impl {
         if (!(hstate[idx].v.load(std::memory_order_relaxed) & bit)) return;  // dropped already, and so is what hangs below it
         if (!(hstate[idx].v.fetch_and(std::uint8_t(~clearMask), std::memory_order_relaxed) & bit)) return;
         hversion.fetch_add(1, std::memory_order_relaxed);
-        std::vector<std::uint32_t> stack;
+        thread_local std::vector<std::uint32_t> stack;  // scratch: no allocation per call
+        stack.clear();
         auto visit_children = [&](std::uint32_t i) {
             for (Entity c : slots[i].children)
                 if (hstate[c.index].v.load(std::memory_order_relaxed) & bit) stack.push_back(c.index);
@@ -620,15 +621,30 @@ Mat4 World::drawn_matrix(Entity e) const {
     if (feel_.poseCount == 0) return world_matrix(e);
     if (!alive(e)) return Mat4::identity();
     // The same product as world_matrix (down from the root), with the visual pose of each entity of the chain; not cached
-    // (the poses change every frame).
-    std::vector<Entity> chain;
-    for (Entity cur = e; !cur.is_null(); cur = impl_->slots[cur.index].parent) chain.push_back(cur);
+    // (the poses change every frame). The chain sits on the stack up to 32 levels; a chain with no pose in it is world_matrix.
+    constexpr std::size_t kInline = 32;
+    Entity inlineChain[kInline];
+    std::vector<Entity> longChain;
+    std::size_t n = 0;
+    bool anyPose = false;
+    for (Entity cur = e; !cur.is_null(); cur = impl_->slots[cur.index].parent) {
+        anyPose = anyPose || feel_.pose_of(cur) != nullptr;
+        if (n < kInline) {
+            inlineChain[n] = cur;
+        } else {
+            if (longChain.empty()) longChain.assign(inlineChain, inlineChain + kInline);
+            longChain.push_back(cur);
+        }
+        ++n;
+    }
+    if (!anyPose) return world_matrix(e);
+    const Entity* chain = n <= kInline ? inlineChain : longChain.data();
     Mat4 m;
     bool first = true;
-    for (auto it = chain.rbegin(); it != chain.rend(); ++it) {
-        const auto* t = static_cast<const Transform*>(impl_->transformPool->get(*it));
+    for (std::size_t k = n; k-- > 0;) {
+        const auto* t = static_cast<const Transform*>(impl_->transformPool->get(chain[k]));
         Mat4 local;
-        if (const FeelPose* p = feel_.pose_of(*it))
+        if (const FeelPose* p = feel_.pose_of(chain[k]))
             local = Mat4::trs(t->position + p->position, t->rotation + p->rotation,
                               {t->scale.x * p->scale.x, t->scale.y * p->scale.y, t->scale.z * p->scale.z});
         else

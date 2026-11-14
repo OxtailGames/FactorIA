@@ -1,6 +1,8 @@
 // Helpers of the script debugger (docs/design/SCRIPT_DEBUGGER.md). Evaluated once per ScriptSystem that has a
-// ScriptDebugger; the C++ side calls describe() and entries() to build the Variables view. Nothing here runs a getter of
-// the inspected value: properties are read through descriptors. Never instrumented, never visible to scripts.
+// ScriptDebugger; the C++ side calls describe() and entries() to build the Variables view. Properties are read through
+// descriptors, so no getter of the inspected value runs; the one exception is a component view (factoria.js), whose snapshot
+// hook reads the view's fields (its own accessors, each in a try) to show the values they have now. Never instrumented,
+// never visible to scripts.
 (function () {
   "use strict";
   const getProto = Object.getPrototypeOf;
@@ -37,7 +39,8 @@
   }
 
   // A component view (factoria.js) keeps its fields as accessors; it has a hook on its prototype (found through
-  // descriptors, nothing of the inspected value runs) that gives a plain object with the values the fields have now.
+  // descriptors) that gives a plain object with the values the fields have now: the hook itself reads the view's field
+  // accessors (a getter of a view only asks the engine; one that throws, for a destroyed entity, shows its message).
   const DEBUG_VIEW = Symbol.for("factoria.debugView");
   function viewSnapshot(o) {
     try {
