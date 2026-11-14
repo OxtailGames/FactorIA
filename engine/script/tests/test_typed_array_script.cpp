@@ -13,6 +13,7 @@ struct ScriptArrays {
     ArrayU8 mask;
     ArrayI32 small;  // range(0, 3)
     ArrayF32 ratios;  // range(0.1, 0.3)
+    ArrayF32 tiny;    // range(0.00001, 0.5)
 };
 
 // A test-only component; registered before the script system starts so scripts see its fields.
@@ -27,7 +28,9 @@ void register_script_arrays() {
         .field("small", &ScriptArrays::small, "Values 0..3.")
         .range(0, 3)
         .field("ratios", &ScriptArrays::ratios, "Ratios 0.1..0.3.")
-        .range(0.1, 0.3);
+        .range(0.1, 0.3)
+        .field("tiny", &ScriptArrays::tiny, "Values 0.00001..0.5.")
+        .range(0.00001, 0.5);
 }
 
 Json eval_ok(TestHost& h, const char* code) {
@@ -131,4 +134,37 @@ TEST_CASE("script arrays: a bad element or a wrong value names the field, the in
     CHECK(f.arrays().ids == ArrayI32{10, -20, 30});
     CHECK(f.arrays().mask == ArrayU8{0, 128, 255});
     CHECK(f.arrays().weights.empty());
+}
+
+TEST_CASE("script arrays: null is refused on an array field with a message that says what to pass") {
+    Fixture f("arr_null");
+    const std::string ints = eval_error(f.h, "world.find('probe').get('TestScriptArrays').ids = null; 0");
+    CHECK(ints.find("TestScriptArrays.ids expects an Int32Array or an array of integers, got 'null'") !=
+          std::string::npos);
+    const std::string floats = eval_error(f.h, "world.find('probe').get('TestScriptArrays').weights = null; 0");
+    CHECK(floats.find("TestScriptArrays.weights expects a Float32Array or an array of numbers, got 'null'") !=
+          std::string::npos);
+    CHECK(f.arrays().ids == ArrayI32{10, -20, 30});
+}
+
+TEST_CASE("script fields: a getter that throws while a vector is set is the error of the write, which changes nothing") {
+    Fixture f("fset_getter");
+    f.h.w.add<Sprite>(f.e).color = Color{0.1f, 0.2f, 0.3f, 1.0f};
+    // An array passes through toFloats untouched, so its getter runs inside the native write.
+    const std::string err = eval_error(f.h,
+                                       "const a = [0.9, 0.9, 0.9, 0.9]; "
+                                       "Object.defineProperty(a, 1, { get() { throw new Error('getter boom'); } }); "
+                                       "world.find('probe').get('Sprite').color = a; 0");
+    CHECK_MESSAGE(err.find("getter boom") != std::string::npos, err);
+    CHECK(f.h.w.get<Sprite>(f.e)->color == Color{0.1f, 0.2f, 0.3f, 1.0f});
+    // The next write works: no exception was left pending.
+    eval_ok(f.h, "world.find('probe').get('Sprite').color = [0.4, 0.5, 0.6, 1]; 0");
+    CHECK(f.h.w.get<Sprite>(f.e)->color.g == doctest::Approx(0.5f));
+}
+
+TEST_CASE("script arrays: a range bound shows every digit that matters") {
+    Fixture f("arr_bound");
+    // 0.00001 used to show as 0: the bound went through to_json, which rounds to 4 decimals.
+    const std::string tiny = eval_error(f.h, "world.find('probe').get('TestScriptArrays').tiny = [0.7]; 0");
+    CHECK_MESSAGE(tiny.find("tiny[0] must be a number from 0.00001 to 0.5, got 0.7") != std::string::npos, tiny);
 }

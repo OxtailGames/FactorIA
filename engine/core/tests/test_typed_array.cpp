@@ -356,6 +356,16 @@ TEST_CASE("reflect arrays: errors name the field, the element and the way out") 
     CHECK(notArray.error().message.find("expected an array") != std::string::npos);
     CHECK(notArray.error().hint.find("array of integers") != std::string::npos);
 
+    // null is no array: refused on an integer and a float array, the field keeps its contents.
+    for (const char* name : {"ids", "weights", "mask"}) {
+        auto isNull = field_from_json(*t.field(name), &p, Json(nullptr));
+        REQUIRE_FALSE(isNull.ok());
+        CHECK(isNull.error().message.find(std::string("Field '") + name + "'") != std::string::npos);
+        CHECK(isNull.error().message.find("expected an array of numbers, got null") != std::string::npos);
+        CHECK_FALSE(isNull.error().hint.empty());
+    }
+    CHECK(p.ids.size() == 3);
+
     auto fraction = field_from_json(*t.field("ids"), &p, Json::parse("[1, 2.5]"));
     REQUIRE_FALSE(fraction.ok());
     CHECK(error_text(fraction).find("element 1 is 2.5, expected an integer") != std::string::npos);

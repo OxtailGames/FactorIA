@@ -548,11 +548,12 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     shape of every body to see what gameplay edited; it is the 0.15 ms per 1000 bodies measured below.
   - *3D physics* (`physics3d.cpp`): the pair loops are sequential, because a contact changes the bodies the next
     pair sees, and each row of a pair loop asks the broad phase (`broadphase3d.h`, "3D broad phase" below) for its
-    partners. Two read-only scans run as `parallel_for` jobs when they have 256 or more rows (`kMinParallelRows`, chunks of 16
-    rows; measured at 64 and 256 in M94.4g: with fewer than about 256 bodies the jobs cost more than the scan): the rigid-body contact test that builds the manifolds before the solver, and the contact-event pass. A chunk only
-    reads positions and the tree and writes its own slots; the main thread then replays the slots in `(chunk, row, k)`
-    order, which is the order of the sequential loop. The iterative solver, the time-of-impact islands, waking, sleeping, joints and
-    character controllers stay sequential (the islands of a sub-step are still built on one thread, but from the tree).
+    partners. Two read-only scans run as `parallel_for` jobs when they have 256 or more rows (`kMinParallelRows`,
+    chunks of 16 rows; measured at 64 and 256 in M94.4g: with fewer than about 256 bodies the jobs cost more than the
+    scan): the rigid-body contact test that builds the manifolds before the solver, and the contact-event pass. A chunk
+    only reads positions and the tree and writes its own slots; the main thread then replays the slots in
+    `(chunk, row, k)` order, which is the order of the sequential loop. The iterative solver, the time-of-impact
+    islands, waking, sleeping, joints and character controllers stay sequential (the islands of a sub-step are still built on one thread, but from the tree).
   - *3D contact manifolds* (`physics3d.cpp`, `physics3d_shapes.cpp`): a rigid contact has up to `kMaxPts` = 4 points, each with a
     depth and a feature id. Two boxes that are not aligned go through `box_box_sat` (15 axes; a face axis wins over an edge axis unless the edge
     axis is clearly shallower, and a face of the first body over one of the second unless that one is clearly shallower, so a
@@ -595,7 +596,7 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     the sleep timer of every slowly rotating capsule.) Measured on the scale tests: the column of 100 sleeps after 240
     steps and the column of 50 after 140, neither leans (drift 0.000), and the walled pit of 1000 bodies is asleep after
     about 1600 steps (how long a pile creeps depends on the scene: 800 to 1600 steps measured). A straggler is a body
-    at or above `kSleepSpeed` that rests on something (a loaded contact) and is slower than `kStragglerSpeed`; a body with
+    at or above `kSleepSpeed` that rests on something from below (a contact whose normal points more than 45 degrees up) and is slower than `kStragglerSpeed`; a body with
     nothing under it counts as at least that fast, so one that starts to fall or rolls off the pile never is one.
     Sleeping bodies cost almost nothing while other bodies are awake (M94.4e). Before the sub-steps a classification
     pass lists the awake bodies, the moved static or kinematic ones, the platforms and the characters (`Rows`); every
