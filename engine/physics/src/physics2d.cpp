@@ -463,7 +463,7 @@ std::uint32_t Physics2D::add_tile_box(TileBody& tb, const Tilemap& tm, const Wor
         const b2Hull hull = b2ComputeHull(pts, 4);
         const b2Polygon poly = b2MakePolygon(&hull, 0.0f);
         box.shape = b2CreatePolygonShape(tb.body, &sd, &poly);
-        box.rect = Rect::from_center({tb.pos.x + cx, tb.pos.y + cy}, {hx * 2 / inv, hy * 2 / inv});
+        box.rect = Rect::from_center({cx, cy}, {hx * 2 / inv, hy * 2 / inv});
     } else {
         const float cx = (float(c0 + c1 + 1) * 0.5f) * tw;
         const float cy = -(float(r0 + r1 + 1) * 0.5f) * th;
@@ -471,7 +471,7 @@ std::uint32_t Physics2D::add_tile_box(TileBody& tb, const Tilemap& tm, const Wor
         const float hy = std::max(float(r1 - r0 + 1) * th * 0.5f * inv, kMinHalf);
         const b2Polygon poly = b2MakeOffsetBox(hx, hy, {cx * inv, cy * inv}, b2MakeRot(0.0f));
         box.shape = b2CreatePolygonShape(tb.body, &sd, &poly);
-        box.rect = Rect::from_center({tb.pos.x + cx, tb.pos.y + cy}, {hx * 2 / inv, hy * 2 / inv});  // rotation ignored (debug)
+        box.rect = Rect::from_center({cx, cy}, {hx * 2 / inv, hy * 2 / inv});  // rotation ignored (debug)
     }
     register_shape(box.shape, tb.e, false, false);
     box.key = shape_key(box.shape);
@@ -608,15 +608,17 @@ bool Physics2D::update_tile_boxes(TileBody& tb, const Tilemap& tm, const Tilemap
         const int row = runs[i].row;
         if (row != prevRow + 1) prevIdx.clear();
         curIdx.clear();
+        // Both rows are sorted by first column and their runs do not overlap: one sweep of the previous row's boxes
+        // finds the one that starts at this run's column (O(runs) a row, not O(runs^2)).
+        std::size_t j = 0;
         for (; i < runs.size() && runs[i].row == row; ++i) {
+            while (j < prevIdx.size() && boxes[prevIdx[j]].c0 < runs[i].c0) ++j;
             bool joined = false;
-            for (std::size_t k : prevIdx)
-                if (boxes[k].c0 == runs[i].c0 && boxes[k].c1 == runs[i].c1) {
-                    boxes[k].r1 = row;
-                    curIdx.push_back(k);
-                    joined = true;
-                    break;
-                }
+            if (j < prevIdx.size() && boxes[prevIdx[j]].c0 == runs[i].c0 && boxes[prevIdx[j]].c1 == runs[i].c1) {
+                boxes[prevIdx[j]].r1 = row;
+                curIdx.push_back(prevIdx[j]);
+                joined = true;
+            }
             if (!joined) {
                 boxes.push_back({runs[i].c0, runs[i].c1, row, row});
                 curIdx.push_back(boxes.size() - 1);
@@ -1692,7 +1694,7 @@ void Physics2D::debug_shapes(const World& world, std::vector<Physics::DebugShape
             for (const TileBody::Box& box : tt->second.boxes)
                 if (box.alive)
                     out.push_back({Physics::DebugShape::Box,
-                                   {box.rect.center().x, box.rect.center().y, 0.0f},
+                                   {tt->second.pos.x + box.rect.center().x, tt->second.pos.y + box.rect.center().y, 0.0f},
                                    {box.rect.w, box.rect.h, 0.0f},
                                    0.0f,
                                    false});

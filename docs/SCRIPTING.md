@@ -893,8 +893,9 @@ const t = comp.tiles;               // Int32Array copy
 for (let i = 0; i < t.length; i++) if (t[i] === DIRT) t[i] = FLOOR;
 comp.tiles = t;                     // writes the whole field (a plain array of numbers works too)
 ```
-A file or a `set(...)` call may still give `tiles` as an array of rows (`[[0, 1], [1, 0]]`); it is stored flat and the rows set
-`width` and `height`.
+A file, `world.spawn` or a whole-component `set(...)` may still give `tiles` as an array of rows (`[[0, 1], [1, 0]]`); it is stored
+flat and the rows set `width` and `height`. The `tiles` field setter (`comp.tiles = ...`) takes flat numbers only and refuses rows
+with an error: flatten them (`rows.flat()`) and set `width` and `height` yourself.
 
 **Autotile (terrains).** A `Tilemap` with `terrains` rules ([COMPONENTS.md](COMPONENTS.md), `Tilemap.terrains`; the rules file
 of a tileset made by `image.tileset.build`, [IMAGES.md](IMAGES.md), "Tiles") draws the edge, corner or inside tile that fits the

@@ -459,7 +459,10 @@ writes, so a system that derives data from one (a physics body, a render chunk) 
   component keeps `id()` next to the version: `id()` is unique in the process for every constructed or copy-constructed
   array (a component removed and added again, a world restored from a copy), kept by a move construction (a pool
   relocating the component) and by assignment (the destination's). The cache is valid while both `id()` and `version()`
-  equal what it was built from. Not thread safe.
+  equal what it was built from. After a copy or move ASSIGNMENT the id is the destination's but the contents (and the
+  version steps) come from another array: a side log of edits kept next to the array (the Tilemap's `edits`) must prove it
+  covers every version step since the cache's version (as `tilemap_edits_since` does) and never be trusted by `(id, version)`
+  alone. Not thread safe.
 - JSON: an array of numbers, validated whole before anything is written (errors name the field and the element index;
   an integer kind refuses `2.5`, `ArrayU8` refuses 256, `ArrayF32` refuses what a 32-bit float cannot hold; at most
   16 Mi elements). `type_json_schema` gives `{"type": "array", "items": {"type": "integer"|"number", "minimum", "maximum"}}`.

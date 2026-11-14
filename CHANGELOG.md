@@ -55,7 +55,9 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   moving obstacle) fails at once from reachability labels instead of running A* over the whole map (M94.5a). The labels
   follow moving obstacles, walkable bodies and links, and are recomputed only after a search has failed since the last
   change; the answers, `closest` included, are the same bits as before (a randomized test compares both paths). New
-  `fa_bench` entries `nav.unreachable` and `nav.unreachable_astar`.
+  `fa_bench` entries `nav.unreachable` and `nav.unreachable_astar`. A failed query answered from the labels keeps them
+  being recomputed, so an obstacle that moves every frame while queries fail has its labels every frame (and does not run
+  A* every other frame); the labels cost 5 bytes a span, and a failing query is answered from the labels without running A* over the whole map.
 - `World::each<A, B, ...>` walks the pool with the fewest owners in place, instead of copying the first type's owner list and looking the others up for each entity: `each<Sprite, Collider2D>` costs what the colliders cost. With several types the order is therefore the smallest pool's insertion order, not always the first type's (use `entities_with(type)` when one type's order matters; no engine system depends on it). Adding or removing components of any type (the walked one too), `destroy()` and a nested `each` over the same type stay safe inside the callback; the pool holds its compaction back until the walk ends. Entities that gain the walked component during the walk are not visited. The UI autosize, camera lookup, `vfx.list`, `anim.list`, bone and IK2D loops use it.
 - `World::count<T>()` / `any<T>()` (and `count(type)` / `any(type)`) answer "how many / is there any entity with this component" in O(1) from the pool, instead of copying every owner with `entities_with(...).size()`; the UI, 2D render and validation checks use them.
 - Command arguments are checked against a schema compiled at registration (M94.3a): `fa::CompiledSchema`
@@ -141,6 +143,13 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   every step. `nav.findTilePath`, `findTilePaths` and `flow_field` on a Tilemap of 1024 cells or more keep the cost grid
   between calls and patch the cells written since (`nav_tile_cache_stats()`). New `fa_bench` entries
   `physics.tilemap_edit_large` (512 x 512: 0.43 ms before, 0.075 ms) and `nav.tilemap_edit` (55.9 ms before, 0.16 ms).
+  Editing a long run recreates its whole box, so a body resting on the other end of that floor gets an End and a Begin
+  collision event that frame. The boxes of a map that was edited are the ones a fresh build makes but are created in a
+  different order in Box2D, so a replay recorded on an edited world and one on a freshly loaded world can differ in the last
+  bits of contacts (each is deterministic on its own). Stacking the runs of consecutive rows is one sweep a row instead of
+  every run against every run (a 4096 x 16 checkerboard builds in 11 ms, 20 ms before). A Tilemap that moves keeps correct
+  debug boxes after an edit, `Physics::reset` (a scene load) lets go of the kept nav cost grids, and a rows form with
+  whole numbers written as floats (`3.0`) loads. `comp.tiles = [[...]]` from a script is refused (flat only).
 
 ## 0.26.0
 

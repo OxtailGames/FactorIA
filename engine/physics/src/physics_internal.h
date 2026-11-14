@@ -162,7 +162,7 @@ private:
             int c0 = 0, c1 = 0, r0 = 0, r1 = 0;  // cells, both ends included
             b2ShapeId shape = b2_nullShapeId;
             std::uint64_t key = 0;  // shape_key(shape)
-            Rect rect;              // world-space AABB (for debug)
+            Rect rect;              // AABB relative to the map's position (for debug: the map may move after the box was made)
             bool alive = false;
         };
         std::vector<Box> boxes;                // by id; a removed box stays (alive = false) until its id is reused
