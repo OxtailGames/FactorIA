@@ -321,7 +321,9 @@ public:
     std::vector<const CommandInfo*> list(std::string_view category = {}) const;  // sorted by name
 
     // Validates `args` against inputSchema (fills defaults for missing optional
-    // properties that declare "default"), runs the handler, never throws.
+    // properties that declare "default"), runs the handler, never throws. The handler gets the caller's `args` itself, not a
+    // copy, when the call does not change them (no default to fill, no `_meta` to strip): it must not keep a reference to it
+    // past its return (a copy of the Json is fine).
     // Unknown command -> code "unknown_command" with a "did you mean" hint. A command whose capabilities the caller is
     // not granted (caller_capabilities()) -> code "capability_denied", before the arguments are looked at.
     CommandResult call(std::string_view name, const Json& args = Json::object()) const;

@@ -333,6 +333,46 @@ TEST_CASE("compiled schema: recursive $ref, refs that do not resolve and refs to
     CHECK(filled["v"] == 7);
 }
 
+TEST_CASE("compiled schema: defaults stop at the same depth on both paths, through a recursive $ref") {
+    const Json tree = Json::parse(R"({
+        "$ref":"#/$defs/node",
+        "$defs":{"node":{"type":"object","properties":{"v":{"type":"integer","default":7},"next":{"$ref":"#/$defs/node"}}}}})");
+    Json chain = Json::object();
+    Json* at = &chain;
+    for (int i = 0; i < 40; ++i) {
+        (*at)["next"] = Json::object();
+        at = &(*at)["next"];
+    }
+    Json viaJson = chain;
+    Json viaCompiled = chain;
+    apply_schema_defaults(tree, viaJson);
+    apply_schema_defaults(CompiledSchema(tree), viaCompiled);
+    CHECK(viaJson == viaCompiled);
+    const Json* level = &viaCompiled;
+    for (int depth = 0; depth <= 36; ++depth) {
+        INFO("depth " << depth);
+        CHECK(level->contains("v") == (depth <= 32));  // the defaults depth limit
+        level = &(*level)["next"];
+    }
+}
+
+TEST_CASE("compiled schema: a default reachable only through a $ref is applied and has_defaults sees it") {
+    const Json schema = Json::parse(R"({"type":"object","properties":{
+        "a":{"$ref":"#/$defs/opts"},"list":{"type":"array","items":{"$ref":"#/$defs/opts"}}},
+        "$defs":{"opts":{"type":"object","properties":{"mode":{"type":"string","default":"fast"}}}}})");
+    CHECK(CompiledSchema(schema).has_defaults());
+    Json viaJson = Json::parse(R"({"a":{},"list":[{},{"mode":"slow"}]})");
+    Json viaCompiled = viaJson;
+    apply_schema_defaults(schema, viaJson);
+    apply_schema_defaults(CompiledSchema(schema), viaCompiled);
+    CHECK(viaJson == viaCompiled);
+    CHECK(viaCompiled["a"]["mode"] == "fast");
+    CHECK(viaCompiled["list"][0]["mode"] == "fast");
+    CHECK(viaCompiled["list"][1]["mode"] == "slow");
+    CHECK(!CompiledSchema(Json::parse(R"({"$defs":{"o":{"properties":{"m":{"type":"string"}}}},
+                                          "properties":{"a":{"$ref":"#/$defs/o"}}})")).has_defaults());
+}
+
 TEST_CASE("compiled schema: an invalid pattern gives the same error, at the same point") {
     const Json schema = Json::parse(R"({"type":"object","properties":{
         "a":{"type":"string","minLength":3,"pattern":"([a-z"},
