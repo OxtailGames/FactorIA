@@ -6,6 +6,12 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 
 ## Unreleased
 
+- 3D physics: bodies asleep cost almost nothing while others are awake (M94.4e). The solver walks lists of the awake
+  bodies in every stage, skips pairs of two bodies at rest (their contact state is kept aside and comes back when a body
+  wakes), and the position pass after a time-of-impact stop only touches the islands that had a stop, so a fast body
+  landing far away no longer nudges a resting pile. A world with 1000 boxes asleep and 20 awake steps in 0.29 ms instead
+  of 8.3 ms (new `fa_bench` entry `physics.step3d_mostly_asleep`; the 20 awake alone: 0.05 ms; what is left is `sync`
+  reading every body's components). Results are unchanged where nothing sleeps.
 - `Sprite.vertexOffsets`, `Sprite.vertexColors` and `SpriteSkin.bindPose` are float arrays (`fa::ArrayF32`) instead of
   `Json` (M94.2d): the JSON on disk is the same flat list of numbers, a script reads a `Float32Array`, and the renderer,
   `entity.bounds()` and the skinning read floats instead of walking JSON values for every deformable sprite every frame

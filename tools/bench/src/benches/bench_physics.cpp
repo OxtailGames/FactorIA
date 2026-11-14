@@ -136,6 +136,43 @@ void build_pit_3d(World& w) {
     }
 }
 
+// The others are dropped from a height they reach after 90 steps (1.5 s: what the pile needs to fall asleep), so they land
+// during the timed steps.
+constexpr int kMostlyAsleepWarmup = 90;
+constexpr float kMostlyAsleepDrop = 12.3f;
+
+// 1000 unit boxes (25 x 20 per layer, two layers, touching) resting on a big floor, and `awake` bodies (spheres, capsules and
+// boxes) 30 m away that fall onto the same floor. The pile falls asleep within a second; the others do not.
+void build_mostly_asleep_3d(World& w, int awake, int pile = 1000) {
+    Entity floor = w.create();
+    w.get<Transform>(floor)->position = {0, -0.5f, 0};
+    w.add<Collider3D>(floor).size = {200, 1, 200};
+    for (int i = 0; i < pile; ++i) {
+        const int layer = i / 500, k = i % 500;
+        Entity e = w.create();
+        w.get<Transform>(e)->position = {-12.0f + float(k % 25), 0.5f + float(layer), -10.0f + float(k / 25)};
+        w.add<Collider3D>(e).size = {1, 1, 1};
+        w.add<RigidBody3D>(e);
+    }
+    for (int i = 0; i < awake; ++i) {
+        Entity e = w.create();
+        w.get<Transform>(e)->position = {30.0f + 2.0f * float(i % 10), kMostlyAsleepDrop + 0.4f * float(i % 4),
+                                         2.0f * float(i / 10)};
+        Collider3D& c = w.add<Collider3D>(e);
+        if (i % 3 == 0) {
+            c.shape = ColliderShape3D::Sphere;
+            c.radius = 0.5f;
+        } else if (i % 3 == 1) {
+            c.shape = ColliderShape3D::Capsule;
+            c.radius = 0.3f;
+            c.height = 1.2f;
+        } else {
+            c.size = {0.9f, 0.9f, 0.9f};
+        }
+        w.add<RigidBody3D>(e);
+    }
+}
+
 // A column of 100 boxes with a 2 cm gap each on a static floor.
 void build_stack_3d(World& w) {
     Entity ground = w.create();
@@ -164,6 +201,35 @@ Bench physics_3d_pit() {
             sim->physics.sync(*sim->world);
         };
         p.run = [sim] { return sim->run_steps(k3dPitSteps); };
+        return p;
+    };
+    return b;
+}
+
+// The pile is put to sleep before the timed steps (not timed): what is measured is a world of sleeping bodies with a few
+// awake ones elsewhere. The sleeping bodies must cost (almost) nothing: the step takes about what the awake ones alone take.
+Bench physics_3d_mostly_asleep(int pile, const char* name) {
+    Bench b;
+    b.name = name;
+    b.summary =
+        std::format("Physics::step x{}: {} sleeping boxes in a pile and 20 bodies falling elsewhere (3D)", k3dSteps, pile);
+    b.make = [pile] {
+        auto sim = std::make_shared<Sim>();
+        Prepared p;
+        p.items = 20 * k3dSteps;
+        p.unit = "awake body steps";
+        p.prepare = [sim, pile] {
+            sim->reset();
+            build_mostly_asleep_3d(*sim->world, 20, pile);
+            sim->physics.sync(*sim->world);
+            for (int i = 0; i < kMostlyAsleepWarmup; ++i) {  // the pile sleeps while the others are still falling
+                sim->world->events().clear();
+                sim->physics.step(*sim->world, kDt);
+                sim->world->advance_clock(kDt);
+                sim->world->flush();
+            }
+        };
+        p.run = [sim] { return sim->run_steps(k3dSteps); };
         return p;
     };
     return b;
@@ -286,6 +352,7 @@ void add_physics_benches(std::vector<Bench>& out) {
     out.push_back(physics_3d());
     out.push_back(physics_3d_pit());
     out.push_back(physics_3d_stack());
+    out.push_back(physics_3d_mostly_asleep(1000, "physics.step3d_mostly_asleep"));
     out.push_back(physics_tilemap_edit(256));
     out.push_back(physics_tilemap_edit(512));
 }
