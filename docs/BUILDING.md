@@ -795,7 +795,8 @@ checks what a change touches). The configure also builds the one generated heade
 (`fa_build_fingerprint.h`).
 
 CI has a `lint` job (Ubuntu, cheap, part of `CI result`): `scripts/format.sh --check --changed <base>` and
-`scripts/tidy-changed.sh <base>`, where the base is the pull request's base commit (the commit before, on a push). When
+`scripts/tidy-changed.sh <base>`, where the base is the pull request's base commit (the commit before, on a push);
+`scripts/ci-preflight.sh --lint-only` runs the same steps on your machine ("Before a push"). When
 every file is formatted, set `FORMAT_SCOPE: all` in that job's `env` in `.github/workflows/ci.yml` and the check covers
 the whole repository. A repository-wide reformat is one commit with no other change; add its hash to a `.git-blame-ignore-revs` file
 (`git config blame.ignoreRevsFile .git-blame-ignore-revs`) so `git blame` skips it.
@@ -813,14 +814,19 @@ compilers other than yours, other platforms):
    the include, `long`/`%ld` formats, text parsing that may see CRLF, case-only path clashes and workflow changes. It prints
    file:line, why it matters and what to check. The table is the `RULES` block of the script: add a line to add a pattern.
    The scan reads commits only, and never fails the run unless `--strict`.
-2. **`scripts/test-all.sh`**, with the same environment variables.
-3. **Stress.** The editor autotests (`editor_autotest_*`, in the Debug dir) and the example tests (`example_<name>_*`, in the
+2. **Lint.** What the `lint` job of CI runs, against the same base: `scripts/format.sh --check --changed <base>`,
+   `scripts/check-ci-cache-keys.py`, `scripts/ctest_shard.py --self-test` and `scripts/tidy-changed.sh <base>` (clang-tidy,
+   the slow one: `FA_TIDY_JOBS`, half the CPUs by default). Each has its own line in the summary, and one that fails
+   does not stop the others. `--lint-only` runs the risk scan and this step and nothing else: it builds nothing and takes
+   minutes, so run it before every push, also the push of a fix (a file left unformatted costs a whole CI round).
+3. **`scripts/test-all.sh`**, with the same environment variables.
+4. **Stress.** The editor autotests (`editor_autotest_*`, in the Debug dir) and the example tests (`example_<name>_*`, in the
    Release dir) the diff touches run with `ctest --repeat until-fail:N` while one CPU burner per core keeps the machine busy.
    `tools/editor/**` selects the editor autotests, `examples/<name>/**` that example's tests, `engine/**`, `tools/cli/**`,
    `tools/common/**`, `external/**` and the CMake files all of both; docs and scripts select nothing. The example tests get twice their
    ctest limit (`FA_EXAMPLE_TEST_TIMEOUT`) in this pass, since the burners halve their CPU; it is put back afterwards. The
    burners are killed when the script ends, fails or is interrupted. `--plan` prints the selection only.
-4. **Other platforms.** The `scripts/ci-local.sh` jobs this host supports (Mac: `macos ios web android`; Linux: `linux windows
+5. **Other platforms.** The `scripts/ci-local.sh` jobs this host supports (Mac: `macos ios web android`; Linux: `linux windows
    android web`; a job without its tooling skips itself), then on a Mac `scripts/ci-docker.sh linux` (the Linux job in
    Docker; its MinGW + Wine Windows job is not a reference on a Mac, see below) and `scripts/ci-remote-windows.sh`, the
    native Windows check on a PC (exit 0 pass, 1 fail, 77 not set up, PC off or nobody logged in: reported as SKIP).
@@ -830,14 +836,15 @@ It ends with a PASS/FAIL/SKIP table with the time of each step and exits 1 if an
 
 ```bash
 scripts/ci-preflight.sh                      # everything
-scripts/ci-preflight.sh --quick              # risk scan + test-all only
+scripts/ci-preflight.sh --lint-only          # risk scan + lint (minutes, no build): before every push
+scripts/ci-preflight.sh --quick              # risk scan + lint + test-all only
 scripts/ci-preflight.sh --no-stress --no-platforms
 scripts/ci-preflight.sh --repeat 5 --base origin/main --strict
 scripts/ci-preflight.sh --scan-only          # the risk scan alone (seconds)
 scripts/ci-preflight.sh --no-test --no-platforms  # stress only, on the build dirs of an earlier run
 ```
 
-On a Windows host the script (Git Bash) runs the risk scan and then points to `scripts\agent-build.ps1 build\agent-<name>
+On a Windows host the script (Git Bash) runs the risk scan and the lint step without clang-tidy, and then points to `scripts\agent-build.ps1 build\agent-<name>
 -Test -Examples`, the Windows build and test path.
 
 ## Continuous integration (local, no GitHub minutes)

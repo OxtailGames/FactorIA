@@ -12,6 +12,8 @@ Older versions, one file per minor version with its patch releases: [0.26](chang
   deletes the older caches of its own branch. Every Ninja build keeps going after an error (`-k 0`), so one round lists
   all errors. A `v*` tag no longer runs `ci.yml` (`release.yml` builds the tag). The Windows test split uses times
   from a recent run, and the ASan job runs its tests on two machines (`scripts/ctest_shard.py`, with a self-test).
+  `scripts/ci-preflight.sh` runs what CI's `lint` job runs (format, the cache keys, the test split, clang-tidy), and
+  `--lint-only` runs just the risk scan and those: minutes before a push instead of a CI round after it.
 
 ## 0.27.0
 
