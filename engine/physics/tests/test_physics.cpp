@@ -191,7 +191,7 @@ TEST_CASE("2d: tilemap solid tiles collide (origin = top-left corner)") {
     Json tiles = Json::array();
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 10; ++c) tiles.push_back(r == 2 ? 1 : (r == 1 && c == 9 ? 2 : -1));
-    tm.tiles = tiles;
+    set_tilemap_tiles(tm, tiles);
     tm.solidTiles = Json::array({1, 2});
     Entity box = add_box(s.world, "box", {0, 100}, {16, 16}, BodyType::Dynamic);
     s.run(180);
@@ -221,7 +221,7 @@ TEST_CASE("2d: a tilemap written as rows, without width/height, collides exactly
         for (int c = 0; c < 10; ++c) row.push_back(r == 2 ? 1 : (r == 1 && c == 9 ? 2 : -1));
         rows.push_back(row);
     }
-    tm.tiles = rows;
+    set_tilemap_tiles(tm, rows);
     tm.solidTiles = Json::array({1, 2});
     CHECK(check_tilemap(tm).empty());
     const TilemapGrid grid = tilemap_grid(tm);
@@ -238,20 +238,22 @@ TEST_CASE("2d: a tilemap written as rows, without width/height, collides exactly
     CHECK_FALSE(s.physics.raycast2d(s.world, {-100, -24}, {-85, -24}).has_value());
 }
 
-TEST_CASE("2d: in rows form the rows win over stale width/height; a flat list without width is one row") {
+TEST_CASE("2d: a rows form sets width and height; a flat list without width is one row") {
     {
         Sim s;
         Entity map = s.world.create("map", "map");
         s.world.get<Transform>(map)->position = {-80, 0, 0};
         Tilemap& tm = s.world.add<Tilemap>(map);
         tm.tileSize = {16, 16};
-        tm.width = 2;  // wrong on purpose (check_tilemap reports it); the renderer draws 10 x 1 and so does physics
+        tm.width = 2;  // stale: the rows below replace it (a file's rows form is flattened with its size)
         tm.height = 5;
         Json row = Json::array();
         for (int c = 0; c < 10; ++c) row.push_back(1);
-        tm.tiles = Json::array({row});
+        set_tilemap_tiles(tm, Json::array({row}));
         tm.solidTiles = Json::array({1});
-        CHECK_FALSE(check_tilemap(tm).empty());
+        CHECK(tm.width == 10);
+        CHECK(tm.height == 1);
+        CHECK(check_tilemap(tm).empty());
         Entity box = add_box(s.world, "box", {70, 100}, {16, 16}, BodyType::Dynamic);  // over column 9, outside width 2
         s.run(180);
         CHECK(pos_of(s.world, box).y ==
@@ -263,7 +265,8 @@ TEST_CASE("2d: in rows form the rows win over stale width/height; a flat list wi
         s.world.get<Transform>(map)->position = {-40, 0, 0};
         Tilemap& tm = s.world.add<Tilemap>(map);
         tm.tileSize = {16, 16};
-        tm.tiles = Json::array({-1, -1, 1, 1, -1});  // no width/height: ONE row of 5 tiles, solid at columns 2 and 3
+        set_tilemap_tiles(
+            tm, Json::array({-1, -1, 1, 1, -1}));  // no width/height: ONE row of 5 tiles, solid at columns 2 and 3
         tm.solidTiles = Json::array({1});
         Entity box =
             add_box(s.world, "box", {0, 100}, {16, 16}, BodyType::Dynamic);  // x in [-8, 8]: over columns 2 and 3
@@ -669,7 +672,7 @@ TEST_CASE("2d: shape cast against tilemap tiles reports the Tilemap entity") {
     Json tiles = Json::array();
     for (int r = 0; r < 3; ++r)
         for (int c = 0; c < 10; ++c) tiles.push_back(r == 2 ? 1 : (r == 1 && c == 9 ? 2 : -1));
-    tm.tiles = tiles;
+    set_tilemap_tiles(tm, tiles);
     tm.solidTiles = Json::array({1, 2});
     s.run(2);
     // wall tile: x in [64, 80], y in [-32, -16]; a circle r=4 along y=-24 stops with its centre at x=60
@@ -1239,7 +1242,7 @@ TEST_CASE("2d: moving a tilemap wakes the body asleep on it") {
     tm.height = 1;
     Json tiles = Json::array();
     for (int c = 0; c < 10; ++c) tiles.push_back(1);
-    tm.tiles = tiles;
+    set_tilemap_tiles(tm, tiles);
     tm.solidTiles = Json::array({1});  // one row of solid tiles, top edge at y = -100
     Entity box = add_box(s.world, "box", {0, -60}, {16, 16}, BodyType::Dynamic);
     REQUIRE(run_until_asleep(s, "box"));
@@ -2409,7 +2412,60 @@ TEST_CASE("3d sleep: writing Transform.position, Transform.rotation or velocity,
         if (how == 1) {  // the written rotation is the new orientation of the sleeping box
             CHECK(s.world.get<Transform>(boxes[2])->rotation.y == doctest::Approx(20.0f).epsilon(0.02));
         }
-        if (how == 2) CHECK(pos_of(s.world, boxes[0]).x > 0.005f);  // and it moves
+        // The bottom box leaves at 0.5 m/s and the weight of the two boxes above (friction 0.4 on the floor and on each
+        // other) stops it: it slides 4.9 mm measured; a value far below 4 mm would mean the write was lost.
+        if (how == 2) CHECK(pos_of(s.world, boxes[0]).x > 0.004f);
+    }
+}
+
+TEST_CASE(
+    "3d sleep: a static collider teleported or created into a sleeping pile wakes it; so does removing its floor") {
+    for (int how = 0; how < 4; ++how) {
+        Sim s;
+        const auto boxes = add_stack(s, 3);
+        Entity wall = add_box3(s.world, "wall", {10, 1.5f, 0}, {1, 1, 1}, BodyType::Static, false);
+        REQUIRE(run_until_asleep(s, "b2", 900));
+        REQUIRE(all_awake(s, 3, false));
+        INFO("action " << how);
+        switch (how) {  // the pile is asleep, so no body of it moves a step: only the sync can notice
+            case 0: s.world.get<Transform>(wall)->position = {0.9f, 1.5f, 0}; break;                       // teleport
+            case 1: add_box3(s.world, "new", {0.9f, 1.5f, 0}, {1, 1, 1}, BodyType::Static, false); break;  // create
+            case 2: s.world.destroy(s.world.find("floor")); break;
+            default: s.world.get<EntityInfo>(s.world.find("floor"))->active = false; break;
+        }
+        s.run(2);
+        CHECK(all_awake(s, 3, true));
+        if (how >= 2) {  // the floor is gone: the whole pile falls
+            s.run(60);
+            CHECK(pos_of(s.world, boxes[0]).y < -3.0f);
+        }
+    }
+}
+
+TEST_CASE(
+    "3d settling: a slow body alone on the ground keeps its motion (a puck, a ball rolling down a gentle slope)") {
+    {  // a frictionless box pushed at 0.3 m/s slides on at 0.3 m/s
+        Sim s;
+        Entity floor = add_box3(s.world, "floor", {0, -0.5f, 0}, {40, 1, 40}, BodyType::Static, false);
+        s.world.get<Collider3D>(floor)->friction = 0.0f;
+        Entity puck = add_box3(s.world, "puck", {0, 0.5f, 0}, {1, 1, 1}, BodyType::Dynamic, true);
+        s.world.get<Collider3D>(puck)->friction = 0.0f;
+        s.run(30);
+        s.world.get<RigidBody3D>(puck)->velocity = {0.3f, 0, 0};
+        s.run(120);  // 2 s
+        CHECK(s.world.get<RigidBody3D>(puck)->velocity.x == doctest::Approx(0.3f).epsilon(0.01));
+        CHECK(pos_of(s.world, puck).x == doctest::Approx(0.6f).epsilon(0.05));
+    }
+    {  // a ball on a 3 degree slope accelerates past the 0.5 m/s of the rest damping
+        Sim s;
+        Entity ramp = add_box3(s.world, "ramp", {0, -0.5f, 0}, {80, 1, 20}, BodyType::Static, false);
+        s.world.get<Transform>(ramp)->rotation.z = 3.0f;
+        Entity ball = add_sphere3(s.world, "ball", {0, 0.35f, 0}, 0.3f);
+        s.world.get<RigidBody3D>(ball)->rollWithMotion = false;
+        s.run(240);  // 4 s
+        const Vec3 v = s.world.get<RigidBody3D>(ball)->velocity;
+        INFO("speed " << length(v));
+        CHECK(length(v) > 0.8f);
     }
 }
 

@@ -5,6 +5,7 @@
 
 #include "benches.h"
 #include "fa/core/command.h"
+#include "fa/core/json_schema.h"
 
 namespace fa::bench {
 
@@ -13,11 +14,72 @@ namespace {
 constexpr int kCommands = 300;
 constexpr int kCalls = 20000;
 
+Json bench_schema() {
+    return Json::parse(R"({
+        "type":"object",
+        "properties":{
+            "a":{"type":"number"},
+            "b":{"type":"number","default":10},
+            "name":{"type":"string"},
+            "mode":{"type":"string","enum":["fast","exact"],"default":"fast"},
+            "tags":{"type":"array","items":{"type":"string"}},
+            "pos":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}}}
+        },
+        "required":["a"],
+        "additionalProperties":false})");
+}
+
+// The schema work of command.call on its own, with the schema as a Json (what call did before schemas were compiled at
+// registration: every call walked the Json) or as a CompiledSchema.
+Bench schema_validate(bool compiled) {
+    Bench b;
+    b.name = compiled ? "schema.compiled" : "schema.interpreted";
+    b.summary = std::string("Defaults and validation of x20000 arguments against a command schema, on a ") +
+                (compiled ? "CompiledSchema" : "Json schema") + "; every 50th set of arguments is refused";
+    b.make = [compiled] {
+        struct State {
+            Json schema;
+            CompiledSchema compiled;
+            std::vector<Json> goodArgs;
+            Json badArgs;
+        };
+        auto s = std::make_shared<State>();
+        s->schema = close_object_schemas(bench_schema());
+        s->compiled = CompiledSchema(s->schema);
+        for (int i = 0; i < 16; ++i)
+            s->goodArgs.push_back(Json::object({{"a", i},
+                                                {"name", "entity" + std::to_string(i)},
+                                                {"tags", Json::array({"x", "y", "z"})},
+                                                {"pos", Json::object({{"x", 1.5}, {"y", double(i)}})}}));
+        s->badArgs = Json::object({{"a", "not a number"}, {"colour", 3}});
+        Prepared p;
+        p.items = kCalls;
+        p.unit = "validations";
+        p.run = [s, compiled] {
+            double sum = 0;
+            for (int i = 0; i < kCalls; ++i) {
+                Json args = i % 50 == 49 ? s->badArgs : s->goodArgs[std::size_t(i) % s->goodArgs.size()];
+                if (compiled) {
+                    apply_schema_defaults(s->compiled, args);
+                    sum += double(validate_json(s->compiled, args).size());
+                } else {
+                    apply_schema_defaults(s->schema, args);
+                    sum += double(validate_json(s->schema, args).size());
+                }
+            }
+            return sum;
+        };
+        return p;
+    };
+    return b;
+}
+
 Bench command_call() {
     Bench b;
     b.name = "command.call";
-    b.summary = "CommandRegistry::call x20000 over 300 commands: schema validation, defaults, the handler; every 50th "
-                "call is refused";
+    b.summary =
+        "CommandRegistry::call x20000 over 300 commands: schema validation (compiled at registration), defaults, "
+        "the handler; every 50th call is refused";
     b.make = [] {
         struct State {
             CommandRegistry reg;
@@ -26,18 +88,7 @@ Bench command_call() {
             Json badArgs;
         };
         auto s = std::make_shared<State>();
-        const Json schema = Json::parse(R"({
-            "type":"object",
-            "properties":{
-                "a":{"type":"number"},
-                "b":{"type":"number","default":10},
-                "name":{"type":"string"},
-                "mode":{"type":"string","enum":["fast","exact"],"default":"fast"},
-                "tags":{"type":"array","items":{"type":"string"}},
-                "pos":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}}}
-            },
-            "required":["a"],
-            "additionalProperties":false})");
+        const Json schema = bench_schema();
         for (int i = 0; i < kCommands; ++i) {
             CommandInfo info;
             info.name = "bench.cmd" + std::to_string(i);
@@ -80,6 +131,10 @@ Bench command_call() {
 
 }  // namespace
 
-void add_command_benches(std::vector<Bench>& out) { out.push_back(command_call()); }
+void add_command_benches(std::vector<Bench>& out) {
+    out.push_back(command_call());
+    out.push_back(schema_validate(false));
+    out.push_back(schema_validate(true));
+}
 
 }  // namespace fa::bench

@@ -1734,7 +1734,7 @@
       },
       {
        "sig": "tileVersion(tilemap: Entity | string): number",
-       "doc": "A counter of the changes to the Tilemap's tiles. Compare it with the value from when you searched to know a cached path is stale. It goes up on setTile / tilemap.set_tile and on any write that replaces `tiles` (a script assigning tilemap.tiles, scene.set_component, the editor); it starts at 0 on every scene load and each call costs one pass over the tiles."
+       "doc": "A counter of the changes to the Tilemap's tiles. Compare it with the value from when you searched to know a cached path is stale. It goes up on setTile / tilemap.set_tile and on any write that changes `tiles` or the map's width or height (a script assigning tilemap.tiles, scene.set_component, the editor); a write that leaves the tiles as they were does not move it. The number is only meant to be compared for equality with an earlier result of the same map, and a call costs nothing."
       },
       {
        "sig": "bake(mesh?: string): { mesh: string; cellsX: number; cellsZ: number; cells: number; spans: number; walkableCells: number; regions: number; obstacles: number }[]",

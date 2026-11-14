@@ -239,7 +239,7 @@ void Editor::at_section_C(AtScript& at) {
         Entity rowsMap = make("test_rows_map", {350, 250, 0}, 0.0f);
         Tilemap& rm = w.add<Tilemap>(rowsMap);
         rm.tileSize = {32, 32};
-        rm.tiles = Json::parse("[[0,0,0],[0,-1,0]]");
+        set_tilemap_tiles(rm, Json::parse("[[0,0,0],[0,-1,0]]"));
         Entity worldText = make("test_text", {-120, 300, 0}, 0.0f);
         Text& wt = w.add<Text>(worldText);
         wt.text = "World text";

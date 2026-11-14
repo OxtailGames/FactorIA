@@ -59,6 +59,12 @@ Result: `{found:true, points:[[x,y,z],...], links?, length, complete, from, to, 
 (A* with deterministic tie-breaking, then string pulling); walking straight from one to the next stays on walkable cells.
 `from`/`to` are the feet of the agent.
 
+A goal that cannot be reached (a walled-in room, an island, a passage a moving obstacle closes) is answered without
+searching the whole map: the grid keeps the connected component of every walkable span (over steps, links, walkable bodies
+and the current obstacles), and a query between two components fails at once. The labels are computed the first time a
+search fails after a change, and again only when something changed since (an obstacle or walkable body moved, a link was
+set); while they are out of date every query runs A* as usual. The result is the same either way, `closest` included.
+
 When there is no route the result is `found:false` and teaches (it is a result, not an exception):
 
 - `start_off_mesh` / `goal_off_mesh`: the point is not on walkable ground. A point within `snap` meters (default
@@ -163,7 +169,10 @@ character may have to cross. `Collider3D.navWalkable` wins over `navObstacle` wh
 
 `nav.findTilePath(map, from, to, opts)` is A* over the cells of a `Tilemap` (or of your own grid), for top-down and
 platformer maps where the 3D NavMesh does not apply. It needs no bake: it reads the tiles at the moment of the call, so a
-tile written with `entity.tilemap.setTile` is part of the next search.
+tile written with `entity.tilemap.setTile` is part of the next search. For a Tilemap of 1024 cells or more the engine keeps
+the cost grid it built (the last few maps, 4 Mi cells in all) and updates only the cells written since the previous query,
+so a query after a `setTile` does not read the whole map again; a write that does not go through `setTile` (a whole `tiles`
+array, a copied Tilemap) makes the next query read the map again. The answer is the same either way.
 
 ```js
 import { Behaviour, nav, world } from "factoria";

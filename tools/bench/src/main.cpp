@@ -250,10 +250,12 @@ int main(int argc, char** argv) {
     add_ecs_benches(all);
     add_hierarchy_benches(all);
     add_physics_benches(all);
+    add_nav_benches(all);
     add_render_benches(all);
     add_command_benches(all);
     add_script_benches(all);
     add_audio_benches(all);
+    add_jobs_benches(all);
 
     if (args.list) {
         for (const Bench& b : all) std::printf("%-26s %s\n", b.name.c_str(), b.summary.c_str());

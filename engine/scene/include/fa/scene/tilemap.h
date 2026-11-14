@@ -13,6 +13,8 @@
 //   geometries; the renderer, 2D physics, light occluders, tile paths, bounds and scripts all go through them.
 #pragma once
 
+#include <cstdint>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -52,38 +54,85 @@ struct TilemapIssue {
 };
 
 // The effective grid of a Tilemap: the ONE definition of the map size and tile list. The renderer, 2D physics, the editor
-// and tooling all read a Tilemap through tilemap_grid(), so what is drawn is exactly what collides.
-//   * Rows form (`tiles` is an array of rows): the rows define the map. height = number of rows, width = length of the
-//     longest row (shorter rows are padded with -1). The `width`/`height` fields are not needed and are ignored here;
-//     check_tilemap() reports them when they disagree with the rows.
-//   * Flat form (`tiles` is an array of integers, row-major): width/height come from the fields. A missing width (0)
-//     makes the whole list ONE row, or tiles / height columns when only height is set; a missing height (0) is the
-//     number of rows needed for the list at that width. Extra entries beyond width*height are ignored, missing ones
-//     are -1.
-// Entries that are not numbers, and negative numbers, are -1 (empty). Entries keep their flip/rotate flag bits (see
-// kTileFlipX): tile_index() says which tile, tile_flags() how it is turned.
+// and tooling all read a Tilemap through tilemap_size() / tilemap_tile_at() / tilemap_grid(), so what is drawn is exactly
+// what collides.
+// `Tilemap::tiles` is ONE flat array of integers (fa::ArrayI32), row-major, row 0 = TOP row; scene and prefab files may
+// also write it as an array of rows, which the loader flattens (flatten_tilemap_rows(): the rows set width and height),
+// and it is always saved flat.
+//   * width/height come from the fields. A missing width (0) makes the whole list ONE row, or tiles / height columns when
+//     only height is set; a missing height (0) is the number of rows needed for the list at that width. Extra entries
+//     beyond width*height are ignored, missing ones are -1.
+// Negative numbers are -1 (empty). Entries keep their flip/rotate flag bits (see kTileFlipX): tile_index() says which
+// tile, tile_flags() how it is turned.
+//
+// CHANGES AND CACHES. `tiles` counts its writes (tiles.version(), tiles.dirty_since(): fa/core/typed_array.h),
+// so a consumer that derives data from a map (physics bodies, render chunks, nav grids) compares a TilemapStamp with the
+// one it built from instead of reading every tile. Every function here that only reads uses the const accessors; a
+// consumer must too (`std::as_const(tm.tiles)`, a `const Tilemap&`), because a mutable `data()` / `operator[]` counts as a
+// write and would make every cache rebuild every frame.
 struct TilemapSize {
     int width = 0;   // tiles per row
     int height = 0;  // number of rows
     bool empty() const { return width <= 0 || height <= 0; }
 };
-// Just the size of the effective grid (cheap: no tile list is built). 0 x 0 when `tiles` is empty or not an array.
+// Just the size of the effective grid (cheap: no tile list is built). 0 x 0 when `tiles` is empty.
 TilemapSize tilemap_size(const Tilemap& tm);
 
 // The tile value at (col, row) read in place from `tiles` (no list is built, unlike tilemap_grid()); -1 when empty or
-// outside `size` (from tilemap_size()). The renderer draws through this every frame.
+// outside `size` (from tilemap_size()). The renderer draws through this every frame; it never touches tiles.version().
 int tilemap_tile_at(const Tilemap& tm, const TilemapSize& size, int col, int row);
 
-// Writes one tile in place: `tiles` keeps its array, only that element changes (a flat map grows to reach the cell when
-// the array is shorter than width*height; a row is padded with -1). `value` is the tile index plus flag bits, or -1 to
-// empty the cell. Records a TileEdit for 2D physics. Returns false (nothing written) when (col, row) is outside the
-// map's size (tilemap_size) or `value` is not -1 or in 0..kTileFlagMask|kTileIndexMask.
+// Writes one tile in place: only that element of `tiles` changes (a flat list shorter than the map grows to reach the
+// cell). `value` is the tile index plus flag bits, or -1 to empty the cell. A write that changes the cell is counted ONCE
+// by the array (tiles.version() goes up by one, the dirty range covers the cell) and recorded as a TileEdit (Tilemap::edits,
+// read through tilemap_edits_since) for the consumers that patch instead of rebuilding;
+// a cell that already holds `value` changes and records nothing, so version bumps and edits match one to one. Returns false
+// (nothing written) when (col, row) is outside the map's size (tilemap_size) or `value` is below -1.
 bool set_tilemap_tile(Tilemap& tm, int col, int row, int value);
 
-// The change counter of the map (Tilemap::version) brought up to date: it also counts writes that replaced `tiles`,
-// `width` or `height` as a whole, which it finds by hashing them (O(tiles)). The number only goes up; compare it with an
-// earlier result to learn that the map changed. The first call only takes the baseline.
+// The change counter of the map: tiles.version() plus the number of times width / height changed between two calls of
+// this function (the first call only takes the baseline). It only goes up for one map; compare it with an earlier result
+// to learn that the map changed (nav.tileVersion in scripts). Cheap: no tile is read.
 std::uint32_t tilemap_version(Tilemap& tm);
+
+// What a cache of data derived from a map keeps next to the data: the identity of the tiles array (a component removed
+// and added again, or a world restored from a copy, is another array at version 0 again), its version, and the size the
+// tiles were read with. The map is unchanged since the stamp was taken exactly when the two stamps are equal (the
+// write history, tm.tiles.dirty_since(stamp.version, ...), says WHERE it changed when they are not).
+struct TilemapStamp {
+    std::uint64_t arrayId = 0;  // tm.tiles.id(); 0 = never taken
+    std::uint64_t version = 0;  // tm.tiles.version()
+    std::int32_t width = 0;
+    std::int32_t height = 0;
+    std::size_t count = 0;  // tm.tiles.size()
+    bool operator==(const TilemapStamp&) const = default;
+};
+TilemapStamp tilemap_stamp(const Tilemap& tm);
+
+// What changed in the map since `stamp`, when the recorded edits explain all of it: true and `edits` = the edits to apply,
+// oldest first (empty when the stamp is current). It is true only when the stamp is of the same array (id), the same size
+// and the same number of tiles, and the list holds exactly one edit for every version step between the stamp and now. A
+// write that bypassed set_tilemap_tile, a whole-array write, an assignment from another Tilemap (it carries the other's
+// edits, which belong to another array) and an edit dropped from a full list each leave a step with no edit: the answer
+// is false and the consumer must look at every tile. `edits` points into tm.edits: valid until the next set_tilemap_tile
+// on this map.
+bool tilemap_edits_since(const Tilemap& tm, const TilemapStamp& stamp, std::span<const TileEdit>& edits);
+
+// True when `fields` (the JSON of a Tilemap component as written in a file or a command) gives `tiles` as an array of
+// rows. Such a value is flattened with flatten_tilemap_rows() before it reaches the component.
+bool tilemap_rows_form(const Json& fields);
+// What is wrong with a `tiles` that is NOT in the rows form, before it reaches the array (which would only say "expected an
+// integer"): a value that is not an array, an element that is not a whole number (a string row from ASCII art points at
+// scene.import_ascii). Pointers are relative to the component ("/tiles/3"); at most a handful per kind.
+std::vector<TilemapIssue> check_tilemap_tiles_json(const Json& fields);
+// Turns a rows-form `tiles` in `fields` into the flat list and sets `width` and `height` to the rows' size. Reports what
+// is wrong (a row of another length than the first (or than `width`), a different `height`, a tile that is not an
+// integer, a map over kMaxTypedArrayElements) as TilemapIssues whose pointers are relative to the component
+// ("/tiles/3", "/tiles/3/7"); then `fields` is left as it was. Nothing happens for a flat or missing `tiles`.
+std::vector<TilemapIssue> flatten_tilemap_rows(Json& fields);
+// Replaces the tiles from JSON for code that builds maps by hand (tests, tools): a flat array keeps width and height as
+// they are; an array of rows (shorter rows are padded with -1) sets them. Anything that is not a non-negative number is -1.
+void set_tilemap_tiles(Tilemap& tm, const Json& tiles);
 
 // The size plus the flat tile list.
 struct TilemapGrid {
@@ -105,8 +154,8 @@ TilemapGrid tilemap_grid(const Tilemap& tm);
 // (columns not set and no usable image width or tileSize).
 int tileset_columns(const Tilemap& tm, int imageWidth);
 
-// Checks the DATA of a Tilemap as written in a scene or prefab: `tiles` is an array of integers (>= -1) or of equal rows,
-// its size matches width*height, solidTiles is a list of integers, tileSize is positive. Reports at most a handful of
+// Checks the DATA of a Tilemap as loaded from a scene or prefab: `tiles` holds integers (>= -1), its size matches
+// width*height, solidTiles is a list of integers, tileSize is positive. Reports at most a handful of
 // problems per kind so a broken 1000-tile map does not flood the output. Called by the scene loader (so scene.load,
 // factoria validate and the engine report it with file + JSON pointer).
 std::vector<TilemapIssue> check_tilemap(const Tilemap& tm);

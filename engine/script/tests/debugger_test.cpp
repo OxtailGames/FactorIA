@@ -730,3 +730,37 @@ TEST_CASE("debugger: a run without a debugger is unaffected") {
     h.step_frames(2);
     CHECK(h.scripts.errors().empty());
 }
+
+TEST_CASE("debugger: a component view shows the values of its fields, not accessors") {
+    Rig r("view");
+    r.use("scripts/calc.js", calc_fixture());
+    r.h.file(
+        "scenes/main.scene.json",
+        R"({"format":"factoria.scene/1","entities":[{"id":"a","components":{"Transform":{},"Sprite":{"layer":6}}}]})");
+    r.dbg->set_breakpoints("scripts/calc.js", {bp(9)});
+    REQUIRE(r.h.start());
+    REQUIRE(r.h.load_scene_now("scenes/main.scene.json").empty());
+    r.load("scripts/calc.js", "calc");
+    r.ev("globalThis.probe = world.find('a').get('Sprite'); 1");
+    int stops = 0;
+    r.client.onPause = [&](const DebugStop&, PausedScripts& p) {
+        if (++stops == 1) {
+            auto frames = p.stack();
+            REQUIRE_FALSE(frames.empty());
+            auto v = p.evaluate(frames[0].id, "probe");
+            REQUIRE(v.ok());
+            CHECK(v->value.find("SpriteView {texture: ") == 0);  // values, not "(getter)"
+            REQUIRE(v->variablesReference > 0);
+            auto kids = p.variables(v->variablesReference, 0, 0);
+            REQUIRE(find_value(kids, "layer"));
+            CHECK(find_value(kids, "layer")->value == "6");
+            CHECK(find_value(kids, "layer")->type != "accessor");
+            CHECK(find_value(kids, "color"));
+            CHECK_FALSE(find_value(kids, "$h"));
+            CHECK(find_value(kids, "[[Prototype]]"));
+        }
+        return DebugResume::Continue;
+    };
+    CHECK(r.ev("calc.run(2)") == 7);
+    CHECK(stops >= 1);
+}

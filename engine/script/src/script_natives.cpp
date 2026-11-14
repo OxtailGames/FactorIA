@@ -3,11 +3,13 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <cfloat>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
 #include <format>
 #include <fstream>
+#include <limits>
 #include <sstream>
 
 #include "fa/audio/audio.h"
@@ -193,9 +195,10 @@ const TypeInfo* find_type(JSContext* ctx, const std::string& name, JSValue* exc)
     return t;
 }
 
-// Resolves (entity handle | -1 for scene settings, type index) to engine memory.
+// Resolves (entity handle | -1 for scene settings, type index) to engine memory. `write` false: the caller only reads
+// through `obj` (the const lookup: a read of a Transform or an EntityInfo must not drop the hierarchy cache, World::world_matrix).
 bool resolve_obj(Impl* I, JSContext* ctx, JSValueConst h, JSValueConst ti, void*& obj, const TypeInfo*& type,
-                 Entity& ent, JSValue& exc) {
+                 Entity& ent, JSValue& exc, bool write) {
     World& W = I->host->world();
     double tid = 0;
     JS_ToFloat64(ctx, &tid, ti);
@@ -212,13 +215,143 @@ bool resolve_obj(Impl* I, JSContext* ctx, JSValueConst h, JSValueConst ti, void*
         return true;
     }
     if (!need_entity(I, ctx, h, ent, exc)) return false;
-    obj = W.get(ent, *type);
+    obj = write ? W.get(ent, *type) : const_cast<void*>(std::as_const(W).get(ent, *type));
     if (!obj) {
         exc = throw_err(ctx, "entity '" + W.id_of(ent) + "' has no " + type->name +
                                  " component (it was removed, or never added: entity.add(\"" + type->name + "\"))");
         return false;
     }
     return true;
+}
+
+// ---- ArrayI32 / ArrayF32 / ArrayU8 fields ------------------------------------------------------------------------------
+// A read gives a typed array holding a COPY of the field (Int32Array, Float32Array, Uint8Array); a write takes a typed
+// array or a plain array of numbers, validates every element and replaces the field only when all are good.
+template <class T>
+JSTypedArrayEnum js_array_type() {
+    if constexpr (std::is_same_v<T, std::int32_t>)
+        return JS_TYPED_ARRAY_INT32;
+    else if constexpr (std::is_same_v<T, float>)
+        return JS_TYPED_ARRAY_FLOAT32;
+    else
+        return JS_TYPED_ARRAY_UINT8;
+}
+
+template <class T>
+JSValue array_to_js(JSContext* ctx, const TypedArray<T>& a) {
+    static const std::uint8_t kNone = 0;  // JS_NewArrayBufferCopy of an empty array still needs a pointer
+    JSValue buf = JS_NewArrayBufferCopy(ctx, a.empty() ? &kNone : reinterpret_cast<const std::uint8_t*>(a.cdata()),
+                                        a.size() * sizeof(T));
+    if (JS_IsException(buf)) return buf;
+    JSValue arr = JS_NewTypedArray(ctx, 1, &buf, js_array_type<T>());
+    JS_FreeValue(ctx, buf);
+    return arr;
+}
+
+template <class T>
+JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& what, TypedArray<T>& dst, JSValueConst v) {
+    constexpr bool integral = std::is_integral_v<T>;
+    const int jsType = JS_GetTypedArrayType(v);
+    const bool typed = jsType >= 0;
+    const std::string expected =
+        integral ? (std::is_same_v<T, std::uint8_t> ? "a Uint8Array or an array of integers from 0 to 255"
+                                                    : "an Int32Array or an array of integers")
+                 : "a Float32Array or an array of numbers";
+    if (!typed && !JS_IsArray(v)) {
+        CStr s(ctx, v);
+        return throw_err(ctx, std::format("{} expects {}, got {}", what, expected,
+                                          JS_IsUndefined(v) ? "undefined" : "'" + s.str() + "'"));
+    }
+    int64_t length = 0;
+    {
+        JSValue l = JS_GetPropertyStr(ctx, v, "length");
+        JS_ToInt64(ctx, &length, l);
+        JS_FreeValue(ctx, l);
+    }
+    if (length < 0) length = 0;
+    if (static_cast<std::uint64_t>(length) > kMaxTypedArrayElements)  // before anything is allocated
+        return throw_err(
+            ctx, std::format("{} holds at most {} elements, the array has {}", what, kMaxTypedArrayElements, length));
+    const std::size_t n = static_cast<std::size_t>(length);
+    double lo = integral ? double(std::numeric_limits<T>::lowest()) : -double(FLT_MAX);
+    double hi = integral ? double(std::numeric_limits<T>::max()) : double(FLT_MAX);
+    const bool ranged = f.minValue != f.maxValue;
+    if (ranged) {
+        lo = std::max(lo, double(f.minValue));
+        hi = std::min(hi, double(f.maxValue));
+    }
+    // What an element must be, for the error text.
+    // A bound as the field's author wrote it (0.3, not the 0.30000001192092896 of the float widened to a double).
+    auto bound = [](double v) {
+        if constexpr (integral) {
+            return std::format("{}", std::int64_t(v));
+        } else {
+            // The shortest text that reads back as the same float (to_json rounds to 4 decimals: 0.00001 would show 0).
+            const float fv = float(v);
+            if (fv == std::floor(fv) && std::fabs(fv) < 1e15f) return std::format("{}", std::int64_t(fv));
+            char buf[64];
+            // Fixed notation (0.00001, not 1e-05) unless the number is huge.
+            const auto r = std::fabs(fv) < 1e15f ? std::to_chars(buf, buf + sizeof(buf), fv, std::chars_format::fixed)
+                                                 : std::to_chars(buf, buf + sizeof(buf), fv);
+            return std::string(buf, r.ptr);
+        }
+    };
+    auto must_be = [&] {
+        if constexpr (integral)
+            return std::format("an integer from {} to {}", bound(lo), bound(hi));
+        else
+            return ranged ? std::format("a number from {} to {}", bound(lo), bound(hi))
+                          : std::string("a finite number");
+    };
+    auto bad = [&](double d) { return !std::isfinite(d) || d < lo || d > hi || (integral && d != std::floor(d)); };
+    // `out` is sized only where the JS side already holds that memory (a typed array); an Array is read element by element and
+    // may be sparse (`new Array(1 << 24)` holds nothing and fails at [0]), so it grows as the elements are accepted.
+    std::vector<T> out;
+    // Fast path: a typed array of the field's own element type is copied as bytes, then checked in place.
+    const bool sameType = typed && (jsType == int(js_array_type<T>()) ||
+                                    (std::is_same_v<T, std::uint8_t> && jsType == JS_TYPED_ARRAY_UINT8C));
+    bool copied = false;
+    if (sameType && n > 0) {
+        std::size_t off = 0, len = 0, per = 0;
+        JSValue buf = JS_GetTypedArrayBuffer(ctx, v, &off, &len, &per);
+        if (JS_IsException(buf)) {
+            JS_FreeValue(ctx, JS_GetException(ctx));
+        } else {
+            std::size_t size = 0;
+            const std::uint8_t* data = JS_GetArrayBuffer(ctx, &size, buf);
+            if (!data) JS_FreeValue(ctx, JS_GetException(ctx));  // a detached buffer: the element loop below reports it
+            if (data && per == sizeof(T) && len == n * sizeof(T) && off + len <= size) {
+                out.resize(n);
+                std::memcpy(out.data(), data + off, len);
+                copied = true;
+            }
+            JS_FreeValue(ctx, buf);
+        }
+        if (copied) {
+            for (std::size_t i = 0; i < n; ++i)
+                if (bad(double(out[i])))
+                    return throw_err(ctx, std::format("{}[{}] must be {}, got {}", what, i, must_be(), out[i]));
+        }
+    }
+    if (!copied) {
+        out.reserve(std::min<std::size_t>(n, 65536));
+        for (std::size_t i = 0; i < n; ++i) {
+            JSValue x = JS_GetPropertyUint32(ctx, v, static_cast<uint32_t>(i));
+            double d = 0;
+            const bool number = JS_IsNumber(x);
+            if (number) JS_ToFloat64(ctx, &d, x);
+            if (!number || bad(d)) {
+                CStr s(ctx, x);
+                std::string got = JS_IsUndefined(x) ? "undefined" : number ? s.str() : "'" + s.str() + "'";
+                JS_FreeValue(ctx, x);
+                return throw_err(ctx, std::format("{}[{}] must be {}, got {}", what, i, must_be(), got));
+            }
+            JS_FreeValue(ctx, x);
+            out.push_back(static_cast<T>(d));
+        }
+    }
+    dst.assign(out.data(), out.size());
+    return JS_UNDEFINED;
 }
 
 int float_count(FieldKind k) {
@@ -768,12 +901,17 @@ NATIVE(entities) {
     return entities_array(ctx, all);
 }
 
+// The EntityInfo of `e` for writing its name, tags or scriptSpawned flag: those do not change any matrix or "active in
+// hierarchy" answer, so this does not drop the hierarchy cache the way World::info() on a non-const World does (the entry
+// lives in the pool, which is not const: the const access only skips the invalidation). Never write `active` through it.
+EntityInfo& label_info(World& W, Entity e) { return const_cast<EntityInfo&>(std::as_const(W).info(e)); }
+
 NATIVE(tags) {
     SETUP;
     ENTITY(e, 0);
     JSValue a = JS_NewArray(ctx);
     uint32_t i = 0;
-    for (const auto& t : W.info(e).tags) JS_SetPropertyUint32(ctx, a, i++, JS_NewString(ctx, t.c_str()));
+    for (const auto& t : std::as_const(W).info(e).tags) JS_SetPropertyUint32(ctx, a, i++, JS_NewString(ctx, t.c_str()));
     return a;
 }
 
@@ -791,7 +929,7 @@ NATIVE(setTags) {
             if (s.len) tags.push_back(s.str());
         }
     }
-    W.info(e).tags = std::move(tags);
+    label_info(W, e).tags = std::move(tags);
     return JS_UNDEFINED;
 }
 
@@ -805,7 +943,7 @@ NATIVE(addTag) {
     SETUP;
     ENTITY(e, 0);
     std::string t = arg_str(ctx, argc, argv, 1);
-    auto& tags = W.info(e).tags;
+    auto& tags = label_info(W, e).tags;
     if (!t.empty() && std::find(tags.begin(), tags.end(), t) == tags.end()) tags.push_back(t);
     return JS_UNDEFINED;
 }
@@ -814,7 +952,7 @@ NATIVE(removeTag) {
     SETUP;
     ENTITY(e, 0);
     std::string t = arg_str(ctx, argc, argv, 1);
-    auto& tags = W.info(e).tags;
+    auto& tags = label_info(W, e).tags;
     tags.erase(std::remove(tags.begin(), tags.end(), t), tags.end());
     return JS_UNDEFINED;
 }
@@ -832,20 +970,20 @@ NATIVE(setId) {
 NATIVE(getName) {
     SETUP;
     ENTITY(e, 0);
-    return JS_NewString(ctx, W.info(e).name.c_str());
+    return JS_NewString(ctx, std::as_const(W).info(e).name.c_str());
 }
 
 NATIVE(setName) {
     SETUP;
     ENTITY(e, 0);
-    W.info(e).name = arg_str(ctx, argc, argv, 1);
+    label_info(W, e).name = arg_str(ctx, argc, argv, 1);
     return JS_UNDEFINED;
 }
 
 NATIVE(getActive) {
     SETUP;
     ENTITY(e, 0);
-    return JS_NewBool(ctx, W.info(e).active);
+    return JS_NewBool(ctx, std::as_const(W).info(e).active);
 }
 
 NATIVE(setActive) {
@@ -959,7 +1097,7 @@ NATIVE(spawn) {
     }
     for (const auto& m : report.messages)
         if (m.severity == LoadMessage::Severity::Warning) fa::log(LogLevel::Warn, "script", m.to_string());
-    for (Entity c : report.created) W.info(c).scriptSpawned = true;  // scene.save leaves these out
+    for (Entity c : report.created) label_info(W, c).scriptSpawned = true;  // scene.save leaves these out
     for (const DeferredRef& d : report.deferred) I->waitingRefs.push_back({d, 0});
     I->resolve_waiting_refs(false);    // this spawn may be the knob an earlier slider is waiting for
     I->construct_for(report.created);  // entity.behaviour exists right away; onStart runs before the first update
@@ -983,7 +1121,7 @@ NATIVE(spawnPrefab) {
     Entity e = instantiate_prefab(W, path, parent, report, overrides, index);
     if (!report.ok() || e.is_null())
         return throw_err(ctx, "world.spawnPrefab('" + path + "') failed:\n" + report.summary());
-    for (Entity c : report.created) W.info(c).scriptSpawned = true;  // scene.save leaves these out
+    for (Entity c : report.created) label_info(W, c).scriptSpawned = true;  // scene.save leaves these out
     I->construct_for(report.created);
     localize_created(I, report.created);
     return ent_val(ctx, e);
@@ -2043,6 +2181,16 @@ NATIVE(hasComp) {
     return JS_NewBool(ctx, W.get(e, *t) != nullptr);
 }
 
+NATIVE(hasCompT) {  // (entity, type index) -> bool: hasComp without the lookup of the name
+    SETUP;
+    ENTITY(e, 0);
+    double tid = 0;
+    if (argc > 1) JS_ToFloat64(ctx, &tid, argv[1]);
+    const TypeInfo* t = TypeRegistry::global().get(static_cast<TypeId>(tid));
+    if (!t) return throw_err(ctx, "internal error: unknown component type index");
+    return JS_NewBool(ctx, W.get(e, *t) != nullptr);
+}
+
 NATIVE(compType) {  // component name -> type index (throws on unknown)
     SETUP;
     JSValue exc = JS_UNDEFINED;
@@ -2098,10 +2246,10 @@ NATIVE(compJson) {
     const TypeInfo* t = nullptr;
     Entity e;
     JSValue exc = JS_UNDEFINED;
-    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc)) return exc;
+    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc, false)) return exc;
     Json j = e.is_null() ? object_to_json(*t, obj, true, true) : component_to_json(W, e, *t, true, true);
     if (e.is_null() == false && t->name == "EntityInfo") {
-        j["tags"] = W.info(e).tags;
+        j["tags"] = std::as_const(W).info(e).tags;
     }
     return I->from_json(j);
 }
@@ -2121,7 +2269,7 @@ NATIVE(patchComp) {
         fields.erase("id");
     }
     if (t->name == "EntityInfo" && fields.contains("tags")) {
-        W.info(e).tags = fields["tags"].get<std::vector<std::string>>();
+        label_info(W, e).tags = fields["tags"].get<std::vector<std::string>>();
         fields.erase("tags");
     }
     auto r = patch_component(W, e, *t, fields);
@@ -2136,7 +2284,7 @@ NATIVE(fget) {
     const TypeInfo* t = nullptr;
     Entity e;
     JSValue exc = JS_UNDEFINED;
-    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc)) return exc;
+    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc, false)) return exc;
     int32_t fi = 0;
     JS_ToInt32(ctx, &fi, argv[2]);
     if (fi < 0 || fi >= static_cast<int32_t>(t->fields.size()))
@@ -2161,6 +2309,9 @@ NATIVE(fget) {
             return ent_val(ctx, target);
         }
         case FieldKind::Json: return I->from_json(*static_cast<const Json*>(p));
+        case FieldKind::ArrayI32: return array_to_js(ctx, *static_cast<const ArrayI32*>(p));
+        case FieldKind::ArrayF32: return array_to_js(ctx, *static_cast<const ArrayF32*>(p));
+        case FieldKind::ArrayU8: return array_to_js(ctx, *static_cast<const ArrayU8*>(p));
         default: {
             int n = float_count(f.kind);
             const float* fp = static_cast<const float*>(p);
@@ -2177,7 +2328,7 @@ NATIVE(fgetn) {
     const TypeInfo* t = nullptr;
     Entity e;
     JSValue exc = JS_UNDEFINED;
-    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc)) return exc;
+    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc, false)) return exc;
     int32_t fi = 0, k = 0;
     JS_ToInt32(ctx, &fi, argv[2]);
     JS_ToInt32(ctx, &k, argv[3]);
@@ -2191,7 +2342,7 @@ NATIVE(fsetn) {
     const TypeInfo* t = nullptr;
     Entity e;
     JSValue exc = JS_UNDEFINED;
-    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc)) return exc;
+    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc, true)) return exc;
     int32_t fi = 0, k = 0;
     JS_ToInt32(ctx, &fi, argv[2]);
     JS_ToInt32(ctx, &k, argv[3]);
@@ -2214,7 +2365,7 @@ NATIVE(fset) {
     const TypeInfo* t = nullptr;
     Entity e;
     JSValue exc = JS_UNDEFINED;
-    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc)) return exc;
+    if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc, true)) return exc;
     int32_t fi = 0;
     JS_ToInt32(ctx, &fi, argv[2]);
     if (fi < 0 || fi >= static_cast<int32_t>(t->fields.size()))
@@ -2313,22 +2464,34 @@ NATIVE(fset) {
             *static_cast<Json*>(p) = I->to_json(v);
             break;
         }
+        case FieldKind::ArrayI32: return array_from_js(ctx, f, what, *static_cast<ArrayI32*>(p), v);
+        case FieldKind::ArrayF32: return array_from_js(ctx, f, what, *static_cast<ArrayF32*>(p), v);
+        case FieldKind::ArrayU8: return array_from_js(ctx, f, what, *static_cast<ArrayU8*>(p), v);
         default: {
             int n = float_count(f.kind);
             if (!JS_IsObject(v))
                 return wrong(n == 2   ? "{x, y} or [x, y]"
                              : n == 3 ? "{x, y, z} or [x, y, z]"
                                       : "an array or object of numbers");
-            float* fp = static_cast<float*>(p);
-            for (int i = 0; i < n; ++i) {
+            // Read the numbers first: a getter on `v` runs JS, which may read entity.worldPosition (filling the hierarchy cache
+            // after resolve_obj dropped it) or remove the component. The field is looked up again and written afterwards.
+            float values[4] = {0, 0, 0, 0};
+            bool given[4] = {false, false, false, false};
+            for (int i = 0; i < n && i < 4; ++i) {
                 JSValue x = JS_GetPropertyUint32(ctx, v, static_cast<uint32_t>(i));
+                if (JS_IsException(x)) return x;  // a getter threw: its exception is the result, nothing was written
                 if (JS_IsNumber(x)) {
                     double d = 0;
                     JS_ToFloat64(ctx, &d, x);
-                    fp[i] = static_cast<float>(d);
+                    values[i] = static_cast<float>(d);
+                    given[i] = true;
                 }
                 JS_FreeValue(ctx, x);
             }
+            if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc, true)) return exc;
+            float* fp = static_cast<float*>(f.ptr(obj));
+            for (int i = 0; i < n && i < 4; ++i)
+                if (given[i]) fp[i] = values[i];
             break;
         }
     }
@@ -4697,6 +4860,7 @@ const Reg kRegs[] = {
     R(behaviour, 1),
     R(isGrounded, 2),
     R(hasComp, 2),
+    R(hasCompT, 2),
     R(compType, 1),
     R(addComp, 3),
     R(removeComp, 2),

@@ -503,9 +503,17 @@ one differs). `factoria call jobs.info` says what runs now: workers, mode, the s
 of the last frame, how busy each thread was, the threads waiting now (`waiting`) and this engine's unfinished jobs
 (`enginePending`).
 
-Cost: idle workers sleep and use no CPU. A job costs about one allocation and one lock, so the engine only splits work
-big enough to gain from it. Each worker has a stack and a few kilobytes of its own: on a phone, fewer workers save a
+Cost: idle workers sleep and use no CPU. A job costs about one allocation and the short lock of one worker's queue
+(each worker has its own and steals from the others when it runs out), so the engine only splits work big enough to
+gain from it. Each worker has a stack and a few kilobytes of its own: on a phone, fewer workers save a
 little memory and battery.
+
+What the per-worker queues of M94 changed, measured with `fa_bench --jobs 4 --filter jobs.` (Release, an Apple-silicon
+Mac, median of 21 runs, once while the machine was quiet; with another build running the same numbers moved by a factor
+of two or more, so read the ratios as an order of magnitude, and measure your own machine): one queue under one lock
+(M70) against one queue per worker. `jobs.tiny` (40000 jobs) 40.6 ms to 12.1 ms (CPU time of the process 95 ms to 24 ms),
+`jobs.graph` 26.8 ms to 16.1 ms, `jobs.nested_wait` 43.4 ms to 7.7 ms (CPU 99 ms to 23 ms). `parallel_for` over big or small
+chunks and the main-thread queue did not change (11.9 ms and 8.7 ms before, 11.9 ms and 8.2 ms after).
 
 What runs on the workers: the drawing work of a frame once it is big (the sprites, tilemaps, the quads of the particles, the 3D meshes'
 matrices, culling and shadows, the sorts and the vertex stream; docs/ARCHITECTURE.md, "Systems that run as jobs"
@@ -528,41 +536,52 @@ Choosing `jobThreads`:
 
 ### Physics on jobs
 
-Physics, path searches and sound rendering use the job threads when the work is big enough, and always give the same result
-as without them (docs/ARCHITECTURE.md, "Physics, navigation and audio on jobs"). Nothing to switch on: a small game never
-queues a job. The sizes below are counts of items, the same on every machine (never a measured time):
+Physics, path searches and sound rendering use the job threads when the work is big enough, and always give the same
+result as without them (docs/ARCHITECTURE.md, "Physics, navigation and audio on jobs"). Nothing to switch on: a small
+game never queues a job. The sizes below are counts of items, the same on every machine (never a measured time):
 
 | Work | Runs on the job threads when | Not split further than |
 | --- | --- | --- |
 | 2D physics step (Box2D) | at least 1536 awake bodies or 4096 contacts | 4 pieces per task (the pool's size above 4 is not used) |
-| 3D physics, contact tests and events | bodies^2 >= about 16384 (128 bodies or more) | chunks of about 4096 body pairs |
+| 3D physics, contact tests and events | 256 or more rows (bodies) in the scan | chunks of 16 rows (each row asks the broad phase for its partners) |
 | `nav.findPaths` / `nav.findTilePaths` | 8 or more queries in one call | 4 queries per chunk |
 | `render_sfx` (and what uses it) | 2 or more layers and at least 24000 samples (half a second at 48 kHz) | one job per layer |
 
 Measured on an Apple M5 (10 cores) with a Release build, the machine busy with other builds, so read the numbers as
-orders of magnitude; the time of one step, `inline` against 1, 2 and 8 worker threads:
+orders of magnitude. Every number below is the time of ONE step in ms (the pit row: the mean of its first 10 steps; the
+`render_sfx` row: one render of 3 s of sound), `inline` against 1, 2 and 8 worker threads. `fa_bench` reports a block of
+steps per run instead (`physics.step3d_1000` is 10 steps, `physics.step3d` is 20), so its numbers are 10 or 20 times
+these:
 
-| Scene | inline | 1 | 2 | 8 |
+| Scene (ms per step) | inline | 1 | 2 | 8 |
 | --- | --- | --- | --- | --- |
 | 2D, 420 bodies (below the threshold) | 0.38 ms | 0.41 ms | 0.40 ms | 0.47 ms |
 | 2D, 1000 bodies | 1.0 ms | 1.0 ms | 0.95 ms | 1.05 ms |
 | 2D, 4000 bodies | 5.3 ms | 4.6 ms | 4.0 ms | 3.9 ms |
 | 2D, 8000 bodies | 9.9 ms | 8.6 ms | 7.8 ms | 7.4 ms |
-| 3D, 100 bodies (below the threshold) | 0.9 ms | 0.9 ms | 0.9 ms | 0.9 ms |
-| 3D, 250 bodies | 4.9 ms | 3.6 ms | 3.2 ms | 3.0 ms |
-| 3D, 600 bodies | 23 ms | 17 ms | 15 ms | 12 ms |
-| `render_sfx`, 5 layers, 3 s | 13 ms | 9 ms | 8.6 ms | 9 ms |
+| 3D, 196 bodies (below the threshold) | 0.47 ms | 0.47 ms | 0.46 ms | 0.5 ms |
+| 3D, 1000 bodies in a pit (mean of the first 10 steps) | 8.2 ms | 8.0 ms | 8.0 ms | 7.3 ms |
+| `render_sfx`, 5 layers, 3 s (one render, not a step) | 13 ms | 9 ms | 8.6 ms | 9 ms |
 
 The 2D gain is modest because Box2D already makes a step cheap and part of it (the solver's order, the joints) is
-sequential; below about 1500 bodies the jobs cost as much as they save, which is why the threshold is there. The 3D gain is
-bigger because its pair loops dominate. The solver's iterations, the time-of-impact islands,
-sleeping, joints, character controllers and the device's audio callback stay on one thread. The example games all stay
-below these sizes: their draw calls, entities and per-frame time did not change (`perf.measure` with `FA_JOB_THREADS=inline`,
-`4` and `8` on the examples gave the same numbers within noise), so no example budget was tightened.
+sequential; below about 1500 bodies the jobs cost as much as they save, which is why the threshold is there. The 3D
+gain is small now: since the broad phase of M94 a scan row is cheap, so the jobs gain about 10% on 1000 bodies and cost
+more than they save below about 250 (at a threshold of 64 rows the 196-body scene took 12.5 ms per block of 20 steps
+with 4 workers against 9.2 on the calling thread, which is why the threshold is 256; the 3D rows were remeasured in
+M94.4g with `fa_bench --jobs`, the 2D rows are older). The solver's iterations, the time-of-impact islands, sleeping,
+joints, character controllers and the device's audio callback stay on one thread. The example games all stay below
+these sizes: their draw calls, entities and per-frame time did not change (`perf.measure` with
+`FA_JOB_THREADS=inline`, `4` and `8` on the examples gave the same numbers within noise), so no example budget was
+tightened.
 
-Box2D's constraint solver runs its worker tasks as jobs that spin-wait on each other during the solve (they wait for the
-other pieces of each stage without sleeping). On a loaded machine, or with fewer cores than job threads, that spinning costs
-CPU time and can make a wide step slower than on one thread; the sizes in the table are what keeps small steps off it.
+Memory: the 3D physics keeps the working vectors of a step (`StepScratch`) from one step to the next so a step
+allocates nothing. They only grow: after a scene of thousands of bodies they keep that capacity until the physics
+system is destroyed.
+
+Box2D's constraint solver runs its worker tasks as jobs that spin-wait on each other during the solve (they wait for
+the other pieces of each stage without sleeping). On a loaded machine, or with fewer cores than job threads, that
+spinning costs CPU time and can make a wide step slower than on one thread; the sizes in the table are what keeps
+small steps off it.
 
 `cpuMsAvg` of `perf.measure` is the CPU time of the whole process: work moved to another thread does not lower it, it
 lowers the wall time of the frame. Compare frames per second, or `jobs.info` (how busy each thread was), to see the gain.
@@ -576,16 +595,78 @@ pull request that did it, not when an example later goes over its budget. It is 
 
 | Benchmark | What one run does |
 | --- | --- |
-| `ecs.each`, `ecs.entities_with`, `ecs.spawn_destroy` | `World::each` over 20000 entities (two, three and a small pool's worth of components), `World::entities_with`, creating and destroying 30000 entities |
-| `hierarchy.deep`, `hierarchy.wide` | `World::world_matrix` for every entity of a chain 400 deep, and `World::world_position` for 20000 leaves of a tree 4 levels deep |
+| `ecs.each`, `ecs.each_skewed`, `ecs.entities_with`, `ecs.count`, `ecs.spawn_destroy` | `World::each` over 20000 entities (two, three and a small pool's worth of components), `World::each<Sprite, Collider2D>` with 20000 owners of the first type and 2500 of the second (it walks the smaller pool), `World::entities_with`, `World::count` and `any`, creating and destroying 30000 entities |
+| `hierarchy.deep`, `hierarchy.wide` | `World::world_matrix` for every entity of a chain 400 deep, and `World::world_position` for 20000 leaves of a tree 4 levels deep (nothing changes between the reads: the hierarchy cache answers) |
+| `hierarchy.moving`, `hierarchy.active` | The same tree, 4 passes with one change before each read of its 20000 leaves: one node of the middle level moves (a mutable `Transform`), or is switched off and on (`set_active`, then `active_in_hierarchy`) |
 | `physics.step2d`, `physics.step3d` | 60 `Physics::step`s of 576 falling 2D bodies (Box2D) and 20 of 196 3D bodies (the engine's solver, which costs more per body); the scene is rebuilt before every run, because bodies fall asleep |
+| `physics.step3d_mostly_asleep` | 20 `Physics::step`s of a world with 1000 boxes asleep in a pile on a floor and 20 bodies falling 30 m away (400 awake body steps): what a sleeping body costs while others are awake |
+| `physics.raycast3d_1000`, `physics.overlap3d_1000` | 10 000 `Physics::raycast3d` rays and 2000 `overlap_sphere3d` queries (1.5 m) through a pit of 1000 bodies that has settled (most asleep): the scene queries ask the broad phase's tree for the bodies near the ray or the sphere instead of testing every body |
+| `physics.step3d_1000`, `physics.step3d_stack100` | 10 `Physics::step`s of 1000 falling 3D spheres, capsules and boxes in a walled pit (the case the broad phase makes cheap: only bodies whose boxes are close are tested), and 60 steps of a column of 100 boxes on a floor (stacking: contacts and sleeping) |
+| `nav.unreachable`, `nav.unreachable_astar` | 40 failed `NavGrid::search`es into a walled-in room of a 320 x 320 grid (with `closest`, as `nav.find_path` asks): answered from the reachability labels, and with the labels off so A* runs over the whole floor first |
+| `physics.tilemap_edit` | 40 steps of a 256 x 256 Tilemap with 512 solid platforms where one cell changes before every step (`set_tilemap_tile`): the cost of keeping the colliders in step with an edit; it follows the number of edits (the array's version says nothing else was written), not the 65536 cells. The colliders are one decomposition of the solid cells (a long floor is one box) and an edit takes apart and stacks again only the boxes it touches, found through a cell-to-box index, so the cost follows the run and the boxes of the edit, not the map |
+| `physics.heightfield_step` | 20 steps of 200 spheres, capsules and boxes falling onto a 256 x 256 `Heightfield3D` (3D): the contacts of the grid (only the cells under each body's bounds are tested, GJK per triangle) in the same step as the solver |
+| `physics.heightfield_edit` | 40 steps of a 256 x 256 field with 100 bodies asleep on it, where one height changes before every step (`heights.set`): the cost follows the edit (the typed arrays' `dirty_since`), not the 65536 samples, and only the bodies near it wake |
+| `physics.tilemap_edit_large` | The same on a 512 x 512 Tilemap (262144 cells): the number should be what the 256 x 256 case costs, whatever the size of the map |
+| `nav.tilemap_edit` | 40 times: `setTile` on a 512 x 512 Tilemap, then `nav.findTilePath` across it: the kept cost grid is patched by the edit, not read again from the 262144 cells (a fresh read took 55.9 ms for the 40) |
 | `render.frame2d`, `render.frame3d` | 8 headless frames of 5000 sprites and 120 texts, and of 1600 meshes with a sun and 4 point lights, at 640x360 |
 | `command.call` | 20000 `CommandRegistry::call`s over 300 commands with a schema, every 50th with arguments that are refused |
+| `schema.interpreted`, `schema.compiled` | The schema part of a command call on its own (defaults, then validation, 20000 argument sets, every 50th refused), against the schema as Json and as a `CompiledSchema` |
 | `script.native_calls`, `script.component_access`, `script.behaviours` | JS to C++ calls, component fields read and written from JS, and 30 frames of 300 behaviours |
+| `script.first_views` | 200 entities spawned from a script, the first read of `Transform.position.x` and `Sprite.layer` of each (the entity's JS object, its view cache and the view of each type are made then) and destroyed, one frame to flush them |
+| `sprite.mesh_data` | `sprite_vertex_offsets` + `sprite_vertex_colors` for 1500 deformable sprites of 16 x 4 cells, 20 passes: the per-frame read of the typed arrays `Sprite.vertexOffsets` / `vertexColors` |
+| `script.field_read`, `script.field_write`, `script.component_get` | One numeric field of one component read and written 100000 times from JS (a plain field and a vector's `x`), and `entity.get` of two components for 100 entities over 200 passes: the cost of the script bridge's component views |
 | `audio.mix_voices`, `audio.mix_bus_fx` | Two seconds of the software mixer with 48 looping voices (pitch and pan), without and with a low-pass and a reverb on the buses (the null device, offline) |
+| `jobs.tiny`, `jobs.for_small_grain`, `jobs.for_large_grain`, `jobs.graph`, `jobs.nested_wait`, `jobs.main_queue` | The job system's scheduling: 40000 tiny jobs submitted from one thread; `parallel_for` with 1250 small chunks per call and with 32 large ones; fan-out/fan-in rounds and a chain of dependent jobs; jobs that submit jobs and wait for them; 192000 main-thread tasks posted and run. Each job does almost no work, so the numbers are the queues' and waits' own cost. The baselines are `--jobs inline`; run `--jobs 4` to measure the pool (a baseline is only compared with a run made with the same `--jobs`). These six have wider warn and fail ratios than the others (x1.8 and x3), in every mode, the inline baselines too |
+
+Memory of the 2D tile colliders: the cell-to-box index (`boxAt`) holds 4 bytes per cell of every solid-collider Tilemap for as long as the map has a body, and the boxes it points at never shrink (an edit frees a box's slot for the next one, it does not return memory), so a 4096 x 4096 map costs 64 MiB of index. Editing a long run recreates its whole box (a floor cut in two: both halves are new shapes), so a body resting on the far end of it gets an End and a Begin collision event for that frame. The reachability labels of a nav grid cost 5 bytes per span (a label and a flag) and are made only after a search failed.
+
+The 3D contact manifolds (M94.4d: up to four points per box pair with feature ids) and the soft contacts of the stacking
+package (M94.4h: soft step, a Jacobi solve of each manifold, sleeping rules; docs/ARCHITECTURE.md, "3D contact solver,
+stacking") are measured by the scale tests (`engine/physics/tests/test_physics3d_scale.cpp`), which check the result and not
+only the time: a column of 100 boxes (spacing 1.02) stands and falls asleep after 240 steps with a drift of 0 mm, a column
+of 50 after 140 steps, a block of 5 x 5 x 4 boxes after 40, and the walled pit of 1000 spheres, capsules and boxes is asleep
+after about 1600 steps (800 to 1600 in other runs; a Release test; before, none of them did, and the column of 100 collapsed). A step of that sleeping
+pit costs 0.4 ms (a world with nothing awake skips the sub-steps and the broad phase). Medians in ms (Release, macOS,
+15 runs, quiet machine), before and after M94.4h: `physics.step3d` 12.8 / 12.5, `physics.step3d_1000` 100.6 / 100.2 (a
+falling pit has the same work), `physics.step3d_stack100` 52.7 / 16.8 (the column of 100 now falls asleep after 4 s instead
+of keeping every body awake, and sleeping steps are nearly free). The baselines of the three `physics.step3d*` entries of
+`macos-clang.json` were refreshed.
+
+Sleeping bodies (M94.4e): `physics.step3d_mostly_asleep` (1000 boxes asleep, 20 awake elsewhere) takes 167 ms before
+and 4.6 ms after (Release, macOS, 15 runs, inline jobs), 20 steps each: 8.3 ms to 0.23 ms per step, where the 20 awake
+bodies alone take 0.05 ms; with 10 000 boxes asleep it takes 34 ms (1.7 ms per step, linear in the pile). What is left
+is `sync` (it reads the components of every body each step, about 0.15 ms for 1000) and the tree queries of the pair
+rows. The doctest "1000 bodies asleep and 20 awake step in about the time of the 20 awake alone"
+(`test_physics3d_asleep.cpp`) measures about 5 to 9 times the CPU time of the awake-only world (its awake-only world is
+smaller) and fails above 25 times, in optimized builds only. The three other `physics.step3d*` entries were not
+refreshed. The numbers of llvmpipe and D3D11 were not measured.
+
+Heightfields (M94.4f): `physics.heightfield_step` takes 19.3 ms for 20 steps (200 bodies on 256 x 256 samples), and
+`physics.heightfield_edit` 3.8 ms for 40 one-sample edits with their steps (Release, macOS, 15 runs, inline jobs). The doctest "one
+cell of a field of a million samples is edited well under a millisecond" (`test_heightfield3d.cpp`) edits one sample of a 1025 x 1025
+field and syncs the physics: about 0.003 ms of CPU time; it fails above 1 ms, in optimized builds only. The end-of-step cover of the
+broad phase now walks only the awake bodies: `physics.step3d_mostly_asleep` went from 4.64 to 4.61 ms (within noise). The numbers
+of llvmpipe and D3D11 were not measured.
+
+3D polish (M94.4g): the step's working vectors are members of the solver (cleared, not freed) and `sync` takes the list of
+entities once for the bodies and the joints, so a settled step makes a fixed number of allocations that does not grow with the
+bodies (the doctest `test_physics3d_alloc.cpp` checks that; on libc++ and libstdc++ it counts about 2 per step, the entity
+list of each physics backend, on MSVC an empty map or set allocates too). Medians in ms (Release, macOS,
+2 runs of 5, inline jobs), before and after: `physics.step3d` 9.3 / 9.2, `physics.step3d_1000` 80.5 / 81.2,
+`physics.step3d_stack100` 14.4 / 14.0, `physics.step3d_mostly_asleep` 4.6 / 3.0 (the allocations of the sleeping pile's
+steps), `physics.raycast3d_1000` 12.8 / 12.8, `physics.overlap3d_1000` 3.8 / 4.0 (within noise), `physics.heightfield_step`
+19.1 / 18.8, `physics.heightfield_edit` 3.8 / 3.7. The numbers of llvmpipe and D3D11 were not measured.
+
+Memory of a heightfield: physics keeps its own scaled copy of the heights next to the component's (4 bytes per sample
+each) and of the holes (1 byte per cell each), so a 4096 x 4096 field (the largest the component accepts) takes about 64 MiB
+for `heights` + 64 MiB for the copy + 16 MiB for `holes` + 16 MiB for its copy, about 160 MiB, plus 1/256 of that for the
+blocks. The first sync of a field, and every rebuild (another size, spacing, scale or array object), is O(N): it reads and
+converts every sample (tens of milliseconds for the 4096 x 4096 field), so build a big field at load and edit it afterwards;
+an edit of a few samples costs what it touches. More than 8 writes to an array between two syncs also fall back to comparing
+every sample of that array (O(N), no copy).
 
 Every input is built from a fixed seed (`fa::Rng`), so two runs do the same work (the report says when the repeats did not).
-A run takes about 10 to 110 ms (macOS, Release). The render benchmarks need a graphics context (EGL with Mesa on Linux, Metal, D3D11) and are
+A run takes about 1 to 110 ms (macOS, Release). The render benchmarks need a graphics context (EGL with Mesa on Linux, Metal, D3D11) and are
 skipped, with the reason, when there is none; the others need nothing.
 
 ```bash

@@ -1,4 +1,5 @@
-// fa::validate_json, apply_schema_defaults, close_object_schemas and check_schema_patterns. The input is one of
+// fa::validate_json, apply_schema_defaults, CompiledSchema (run next to them: it must give the same errors and defaults),
+// close_object_schemas and check_schema_patterns. The input is one of
 //   <schema JSON>\n---\n<value JSON>      both come from the input
 //   @<name>\n<value JSON>                 the value against schemas/<name>.schema.json of the repository (run from its root;
 //                                         this is how real project, scene, sfx... files are checked against the real schemas)
@@ -13,6 +14,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <vector>
 
 #include "fa/core/json.h"
 #include "fa/core/json_schema.h"
@@ -89,9 +91,25 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     auto value = fa::parse_json(valueText, "fuzz.json");
     if (!value) return 0;
 
-    for (const fa::SchemaError& e : fa::validate_json(*schema, value.value())) (void)e.to_string();
+    // The compiled schema must answer exactly like the Json it was built from: same errors (pointer, message, hint), same
+    // value once the defaults are applied.
+    const fa::CompiledSchema compiled(*schema);
+    const std::vector<fa::SchemaError> errors = fa::validate_json(*schema, value.value());
+    const std::vector<fa::SchemaError> compiledErrors = fa::validate_json(compiled, value.value());
+    for (const fa::SchemaError& e : errors) (void)e.to_string();
+    if (errors.size() != compiledErrors.size()) fa::fuzz::fail("compiled schema: a different number of errors");
+    for (std::size_t i = 0; i < errors.size(); ++i)
+        if (errors[i].pointer != compiledErrors[i].pointer || errors[i].message != compiledErrors[i].message ||
+            errors[i].hint != compiledErrors[i].hint)
+            fa::fuzz::fail("compiled schema: an error differs from the interpreted one");
     fa::Json defaulted = value.value();
     fa::apply_schema_defaults(*schema, defaulted);
+    fa::Json compiledDefaulted = value.value();
+    fa::apply_schema_defaults(compiled, compiledDefaulted);
+    if (defaulted != compiledDefaulted)
+        fa::fuzz::fail("compiled schema: the defaults differ from the interpreted ones");
+    if (!compiled.has_defaults() && defaulted != value.value())
+        fa::fuzz::fail("compiled schema: has_defaults() is false but the defaults changed the value");
     (void)fa::validate_json(fa::close_object_schemas(*schema), defaulted);
     (void)fa::check_schema_patterns(*schema);
     return 0;

@@ -404,7 +404,7 @@ void check_material_colors(Ctx& c, const std::string& file, const std::string& p
 // A Panel with `fit` that is larger than the screen at the design size (text size 100 %, texts measured by the approximation
 // the engine uses without a renderer): part of the menu would be off screen. The runtime logs the same at the player's text size.
 void check_fit_panels(Ctx& c, const std::string& file, World& world) {
-    if (!c.projectFileRead || world.entities_with(&World::type_of<Panel>()).empty()) return;
+    if (!c.projectFileRead || !world.any<Panel>()) return;
     auto project = load_project(c.dir);
     const Vec2 design = project.ok() ? Vec2{float(project->width), float(project->height)} : Vec2{1280, 720};
     UiSystem ui;
@@ -469,7 +469,7 @@ void check_offscreen_widgets(Ctx& c, const std::string& file, World& world) {
 // A dynamic 3D body that starts inside a static collider: the first step pushes it out (or it sticks), which is never what
 // the scene meant. The same check the first physics step warns about, run on the loaded scene.
 void check_start_overlaps(Ctx& c, const std::string& file, World& world) {
-    if (world.entities_with(&World::type_of<RigidBody3D>()).empty()) return;
+    if (!world.any<RigidBody3D>()) return;
     Physics physics;
     physics.init(PhysicsSettings{});
     for (const StartOverlap& o : physics.start_overlaps3d(world)) {

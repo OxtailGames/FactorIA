@@ -254,7 +254,12 @@ void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
     if (!info.capabilitiesDeclared && !info.capabilities.empty() && info.capabilities != derived)
         info.capabilitiesDeclared = true;
     if (!info.capabilitiesDeclared) info.capabilities = derived;
-    commands_[name] = Entry{std::move(info), std::move(handler)};
+    // Compiled once here: call() validates against it instead of walking the Json on every call. An invalid pattern was
+    // reported above; the compiled schema keeps it and reports it again when a string is checked against it, as before.
+    CompiledSchema compiled(info.inputSchema);
+    const bool acceptsMeta =
+        info.inputSchema.contains("properties") && info.inputSchema["properties"].contains("_meta");
+    commands_[name] = Entry{std::move(info), std::move(handler), std::move(compiled), acceptsMeta};
 }
 
 bool CommandRegistry::declare_capabilities(std::string_view name, CapabilitySet capabilities) {
@@ -376,15 +381,23 @@ CommandResult CommandRegistry::call_inner(std::string_view name, const Json& arg
     if (const CapabilitySet missing = entry.info.capabilities.missing_from(caller_capabilities()); !missing.empty())
         return capability_denied(entry.info, missing);
 
-    Json args = argsIn.is_null() ? Json::object() : argsIn;
-    const Json& schema = entry.info.inputSchema;
-    if (args.is_object()) {
-        // MCP and other transports may add their own bookkeeping key to the arguments: it is not an argument.
-        if (args.contains("_meta") && !(schema.contains("properties") && schema["properties"].contains("_meta")))
-            args.erase("_meta");
-        apply_schema_defaults(schema, args);
+    // The arguments are copied only when the call changes them: MCP and other transports may add their own bookkeeping key
+    // (`_meta`, which is not an argument), and the schema may have defaults to fill in. Otherwise the handler gets the
+    // caller's Json as it is.
+    static const Json kNoArgs = Json::object();
+    const Json* argsPtr = argsIn.is_null() ? &kNoArgs : &argsIn;
+    Json changed;
+    if (argsPtr->is_object()) {
+        const bool strip = !entry.acceptsMeta && argsPtr->contains("_meta");
+        if (strip || entry.schema.has_defaults()) {
+            changed = *argsPtr;
+            if (strip) changed.erase("_meta");
+            apply_schema_defaults(entry.schema, changed);
+            argsPtr = &changed;
+        }
     }
-    std::vector<SchemaError> errors = validate_json(schema, args);
+    const Json& args = *argsPtr;
+    std::vector<SchemaError> errors = validate_json(entry.schema, args);
     if (!errors.empty()) {
         std::string message = "Invalid arguments for '" + entry.info.name + "': ";
         for (std::size_t i = 0; i < errors.size() && i < 5; ++i) {

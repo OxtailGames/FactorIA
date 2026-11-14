@@ -75,8 +75,8 @@ void Physics3D::build_joint(JointState& j, const Body& a, const Body* b, const J
     j.lowImp = j.upImp = j.motorImp = 0.0f;
 }
 
-void Physics3D::sync_joints(World& world, std::uint64_t stamp) {
-    for (Entity e : world.entities()) {
+void Physics3D::sync_joints(World& world, std::uint64_t stamp, const std::vector<Entity>& ents) {
+    for (Entity e : ents) {
         const Joint3D* jt = world.get<Joint3D>(e);
         if (!jt || world.pending_destroy(e)) continue;
         const std::uint64_t key = e.bits();

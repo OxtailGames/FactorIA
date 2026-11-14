@@ -1,8 +1,11 @@
 #include "fa/scene/world.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <format>
+#include <mutex>
+#include <thread>
 #include <unordered_map>
 
 #include "component_pool.h"
@@ -59,9 +62,37 @@ struct World::Impl {
         std::uint32_t generation = 0;
         bool alive = false;
         bool pending = false;
+        bool pendingTree = false;  // pending, or an ancestor is: what pending_destroy() answers (set by destroy())
         Entity parent;
         std::vector<Entity> children;
     };
+
+    // The hierarchy cache (docs/ARCHITECTURE.md, "The hierarchy cache"): per entity index, the world matrix and the
+    // "active in hierarchy" answer, each with a valid bit. Invariant: a valid entry has valid ancestors, so an
+    // invalidation stops at the first entry that is already invalid. Writers (a mutable access to Transform or
+    // EntityInfo, set_parent, set_active, create) run on one thread at a time and never while jobs read the world;
+    // readers may be on several threads: a valid entry is read without a lock (acquire), a missing one is filled under
+    // `hlock` and published with a release store.
+    static constexpr std::uint8_t kWorldValid = 1;
+    static constexpr std::uint8_t kActiveValid = 2;
+    static constexpr std::uint8_t kActiveValue = 4;
+    struct HState {
+        std::atomic<std::uint8_t> v{0};
+        HState() = default;
+        HState(const HState& o) : v(o.v.load(std::memory_order_relaxed)) {}
+    };
+    struct SpinLock {
+        std::atomic_flag flag;
+        void lock() {
+            while (flag.test_and_set(std::memory_order_acquire)) std::this_thread::yield();
+        }
+        void unlock() { flag.clear(std::memory_order_release); }
+    };
+    mutable std::vector<HState> hstate;  // same size as `slots`
+    mutable std::vector<Mat4> hworld;    // same size as `slots`
+    mutable SpinLock hlock;
+    mutable std::vector<Entity> hchain;  // scratch of the fill, under hlock
+    std::atomic<std::uint64_t> hversion{0};
 
     std::vector<Slot> slots;
     std::vector<std::uint32_t> freeIndices;
@@ -94,11 +125,75 @@ struct World::Impl {
         auto it = ids.find(info(e).id);
         if (it != ids.end() && it->second == e) ids.erase(it);
     }
-    bool pending_destroy(Entity e) const {
-        if (!alive(e)) return false;
-        for (Entity cur = e; !cur.is_null(); cur = slots[cur.index].parent)
-            if (slots[cur.index].pending) return true;
-        return false;
+    bool pending_destroy(Entity e) const { return alive(e) && slots[e.index].pendingTree; }
+
+    // Clears `bit` of the entry of `idx` and of every descendant whose entry has it (the others have it clear already).
+    void invalidate(std::uint32_t idx, std::uint8_t bit) {
+        if (idx >= hstate.size()) return;
+        const std::uint8_t clearMask = bit == kActiveValid ? std::uint8_t(kActiveValid | kActiveValue) : bit;
+        if (!(hstate[idx].v.load(std::memory_order_relaxed) & bit))
+            return;  // dropped already, and so is what hangs below it
+        if (!(hstate[idx].v.fetch_and(std::uint8_t(~clearMask), std::memory_order_relaxed) & bit)) return;
+        hversion.fetch_add(1, std::memory_order_relaxed);
+        thread_local std::vector<std::uint32_t> stack;  // scratch: no allocation per call
+        stack.clear();
+        auto visit_children = [&](std::uint32_t i) {
+            for (Entity c : slots[i].children)
+                if (hstate[c.index].v.load(std::memory_order_relaxed) & bit) stack.push_back(c.index);
+        };
+        visit_children(idx);
+        while (!stack.empty()) {
+            std::uint32_t i = stack.back();
+            stack.pop_back();
+            hstate[i].v.fetch_and(std::uint8_t(~clearMask), std::memory_order_relaxed);
+            visit_children(i);
+        }
+    }
+    void dirty_world(Entity e) { invalidate(e.index, kWorldValid); }
+    void dirty_active(Entity e) { invalidate(e.index, kActiveValid); }
+
+    Mat4 local_matrix(Entity e) const {
+        const auto* t = static_cast<const Transform*>(transformPool->get(e));
+        return Mat4::trs(t->position, t->rotation, t->scale);
+    }
+
+    // parent's world matrix * local TRS, down from the root (the one definition of world_matrix).
+    Mat4 world_cached(Entity e) const {
+        if (hstate[e.index].v.load(std::memory_order_acquire) & kWorldValid) return hworld[e.index];
+        std::lock_guard<SpinLock> lock(hlock);
+        hchain.clear();
+        Entity cur = e;
+        for (; !cur.is_null(); cur = slots[cur.index].parent) {
+            if (hstate[cur.index].v.load(std::memory_order_acquire) & kWorldValid) break;
+            hchain.push_back(cur);
+        }
+        const Mat4* base = cur.is_null() ? nullptr : &hworld[cur.index];
+        for (auto it = hchain.rbegin(); it != hchain.rend(); ++it) {
+            Mat4 local = local_matrix(*it);
+            hworld[it->index] = base ? *base * local : local;
+            hstate[it->index].v.fetch_or(kWorldValid, std::memory_order_release);
+            base = &hworld[it->index];
+        }
+        return hworld[e.index];
+    }
+
+    bool active_cached(Entity e) const {
+        std::uint8_t s = hstate[e.index].v.load(std::memory_order_acquire);
+        if (s & kActiveValid) return (s & kActiveValue) != 0;
+        std::lock_guard<SpinLock> lock(hlock);
+        hchain.clear();
+        Entity cur = e;
+        for (; !cur.is_null(); cur = slots[cur.index].parent) {
+            if (hstate[cur.index].v.load(std::memory_order_acquire) & kActiveValid) break;
+            hchain.push_back(cur);
+        }
+        bool value = cur.is_null() ? true : (hstate[cur.index].v.load(std::memory_order_acquire) & kActiveValue) != 0;
+        for (auto it = hchain.rbegin(); it != hchain.rend(); ++it) {
+            value = value && info(*it).active;
+            hstate[it->index].v.fetch_or(std::uint8_t(kActiveValid | (value ? kActiveValue : 0)),
+                                         std::memory_order_release);
+        }
+        return value;
     }
 };
 
@@ -126,10 +221,14 @@ Entity World::create(std::string_view name, std::string_view id) {
         e.index = std::uint32_t(d.slots.size());
         e.generation = 0;
         d.slots.emplace_back();
+        d.hstate.emplace_back();
+        d.hworld.emplace_back();
     }
+    d.hstate[e.index].v.store(0, std::memory_order_relaxed);  // a reused index starts with nothing cached
     Impl::Slot& slot = d.slots[e.index];
     slot.alive = true;
     slot.pending = false;
+    slot.pendingTree = false;
     slot.parent = kNullEntity;
     slot.children.clear();
     ++d.aliveCount;
@@ -171,7 +270,11 @@ void World::destroy(Entity e) {
     std::vector<Entity> subtree{e};
     for (std::size_t i = 0; i < subtree.size(); ++i)
         for (Entity c : impl_->slots[subtree[i].index].children) subtree.push_back(c);
-    for (Entity x : subtree) impl_->unregister_id(x);
+    for (Entity x : subtree) {
+        impl_->unregister_id(x);
+        // No child enters a pending subtree (check_set_parent refuses it), so the flag stays true until the flush.
+        impl_->slots[x.index].pendingTree = true;
+    }
 }
 
 void World::destroy_immediate(Entity e) {
@@ -206,6 +309,7 @@ void World::destroy_immediate(Entity e) {
             if (p) p->remove(x);
         s.alive = false;
         s.pending = false;
+        s.pendingTree = false;
         s.parent = kNullEntity;
         s.children.clear();
         ++s.generation;
@@ -244,20 +348,18 @@ void World::clear() {
     warnedSpriteClips_.clear();
 }
 
-bool World::active_in_hierarchy(Entity e) const {
-    if (!alive(e)) return false;
-    for (Entity cur = e; !cur.is_null(); cur = impl_->slots[cur.index].parent)
-        if (!impl_->info(cur).active) return false;
-    return true;
-}
+bool World::active_in_hierarchy(Entity e) const { return alive(e) && impl_->active_cached(e); }
 
 void World::set_active(Entity e, bool active) {
-    if (alive(e)) impl_->info(e).active = active;
+    if (!alive(e)) return;
+    impl_->info(e).active = active;
+    impl_->dirty_active(e);
 }
 
 // ------------------------------------------------------ identity/lookup --
 EntityInfo& World::info(Entity e) {
     FA_ASSERT(alive(e), "World::info on a dead or null entity");
+    impl_->dirty_active(e);  // a mutable reference may write `active`
     return impl_->info(e);
 }
 const EntityInfo& World::info(Entity e) const {
@@ -324,13 +426,25 @@ Result<void> World::set_id(Entity e, std::string_view newId) {
 // ------------------------------------------------------------ components --
 void* World::add(Entity e, const TypeInfo& type) {
     FA_ASSERT(alive(e), "World::add on a dead or null entity");
+    note_mutable_access(e, type);
     return impl_->pool(type).add(e);
 }
+
+void World::note_mutable_access(Entity e, const TypeInfo& type) {
+    if (type.id == impl_->transformPool->type().id)
+        impl_->dirty_world(e);
+    else if (type.id == impl_->infoPool->type().id)
+        impl_->dirty_active(e);
+}
+
+std::uint64_t World::hierarchy_version() const { return impl_->hversion.load(std::memory_order_relaxed); }
 
 void* World::get(Entity e, const TypeInfo& type) {
     if (!alive(e)) return nullptr;
     const ComponentPool* p = impl_->find_pool(type);
-    return p ? p->get(e) : nullptr;
+    if (!p) return nullptr;
+    note_mutable_access(e, type);
+    return p->get(e);
 }
 
 const void* World::get(Entity e, const TypeInfo& type) const {
@@ -360,6 +474,45 @@ std::vector<Entity> World::entities_with(const TypeInfo* type) const {
     if (!type) return {};
     const ComponentPool* p = impl_->find_pool(*type);
     return p ? p->entities() : std::vector<Entity>{};
+}
+
+void World::walk_owners(const TypeInfo& type, void* ctx, void (*visit)(void*, Entity, void*)) {
+    ComponentPool* p = type.id < impl_->pools.size() ? impl_->pools[type.id].get() : nullptr;
+    if (!p) return;
+    if (type.id != impl_->transformPool->type().id && type.id != impl_->infoPool->type().id) {
+        p->walk(visit, ctx);
+        return;
+    }
+    // The callback gets a mutable reference to a Transform or an EntityInfo: it counts as a write, entity by entity.
+    struct Wrap {
+        Impl* impl;
+        void* inner;
+        void (*visit)(void*, Entity, void*);
+    } wrap{impl_.get(), ctx, visit};
+    // A dead handle only drops an entry nobody reads.
+    if (type.id == impl_->transformPool->type().id) {
+        p->walk(
+            [](void* c, Entity e, void* component) {
+                Wrap& w = *static_cast<Wrap*>(c);
+                w.impl->dirty_world(e);
+                w.visit(w.inner, e, component);
+            },
+            &wrap);
+    } else {
+        p->walk(
+            [](void* c, Entity e, void* component) {
+                Wrap& w = *static_cast<Wrap*>(c);
+                w.impl->dirty_active(e);
+                w.visit(w.inner, e, component);
+            },
+            &wrap);
+    }
+}
+
+std::size_t World::count(const TypeInfo* type) const {
+    if (!type) return 0;
+    const ComponentPool* p = impl_->find_pool(*type);
+    return p ? p->size() : 0;
 }
 
 // ------------------------------------------------------------- hierarchy --
@@ -410,6 +563,8 @@ void World::set_parent(Entity child, Entity parent, bool keepWorldTransform, int
         else
             sib.insert(sib.begin() + index, child);
     }
+    d.dirty_world(child);
+    d.dirty_active(child);
 
     if (keepWorldTransform) {
         Mat4 parentWorld = parent.is_null() ? Mat4::identity() : world_matrix(parent);
@@ -458,26 +613,43 @@ bool World::is_ancestor(Entity ancestor, Entity e) const {
 
 Mat4 World::world_matrix(Entity e) const {
     if (!alive(e)) return Mat4::identity();
-    Mat4 m = Mat4::identity();
-    for (Entity cur = e; !cur.is_null(); cur = impl_->slots[cur.index].parent) {
-        const auto* t = static_cast<const Transform*>(impl_->transformPool->get(cur));
-        m = Mat4::trs(t->position, t->rotation, t->scale) * m;
-    }
-    return m;
+    return impl_->world_cached(e);
 }
 
 Mat4 World::drawn_matrix(Entity e) const {
     if (feel_.poseCount == 0) return world_matrix(e);
     if (!alive(e)) return Mat4::identity();
-    Mat4 m = Mat4::identity();
+    // The same product as world_matrix (down from the root), with the visual pose of each entity of the chain; not cached
+    // (the poses change every frame). The chain sits on the stack up to 32 levels; a chain with no pose in it is world_matrix.
+    constexpr std::size_t kInline = 32;
+    Entity inlineChain[kInline];
+    std::vector<Entity> longChain;
+    std::size_t n = 0;
+    bool anyPose = false;
     for (Entity cur = e; !cur.is_null(); cur = impl_->slots[cur.index].parent) {
-        const auto* t = static_cast<const Transform*>(impl_->transformPool->get(cur));
-        if (const FeelPose* p = feel_.pose_of(cur))
-            m = Mat4::trs(t->position + p->position, t->rotation + p->rotation,
-                          {t->scale.x * p->scale.x, t->scale.y * p->scale.y, t->scale.z * p->scale.z}) *
-                m;
+        anyPose = anyPose || feel_.pose_of(cur) != nullptr;
+        if (n < kInline) {
+            inlineChain[n] = cur;
+        } else {
+            if (longChain.empty()) longChain.assign(inlineChain, inlineChain + kInline);
+            longChain.push_back(cur);
+        }
+        ++n;
+    }
+    if (!anyPose) return world_matrix(e);
+    const Entity* chain = n <= kInline ? inlineChain : longChain.data();
+    Mat4 m;
+    bool first = true;
+    for (std::size_t k = n; k-- > 0;) {
+        const auto* t = static_cast<const Transform*>(impl_->transformPool->get(chain[k]));
+        Mat4 local;
+        if (const FeelPose* p = feel_.pose_of(chain[k]))
+            local = Mat4::trs(t->position + p->position, t->rotation + p->rotation,
+                              {t->scale.x * p->scale.x, t->scale.y * p->scale.y, t->scale.z * p->scale.z});
         else
-            m = Mat4::trs(t->position, t->rotation, t->scale) * m;
+            local = Mat4::trs(t->position, t->rotation, t->scale);
+        m = first ? local : m * local;
+        first = false;
     }
     return m;
 }
@@ -488,6 +660,7 @@ void World::set_world_position(Entity e, Vec3 p) {
     if (!alive(e)) return;
     Entity par = impl_->slots[e.index].parent;
     Vec3 local = par.is_null() ? p : world_matrix(par).inverse().transform_point(p);
+    impl_->dirty_world(e);
     static_cast<Transform*>(impl_->transformPool->get(e))->position = local;
 }
 

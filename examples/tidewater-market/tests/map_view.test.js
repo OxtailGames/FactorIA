@@ -14,8 +14,10 @@ test("the whole ground is one isometric Tilemap and not a sprite per cell", () =
   const { state, ground } = open();
   const tm = ground.get("Tilemap");
   expect(tm.projection).toBe("isometric");
-  expect(tm.tiles.length).toBe(state.map.height);
-  expect(tm.tiles[0].length).toBe(state.map.width);
+  // the script spawned it with an array of rows; the engine flattens it (width and height come from the rows)
+  expect(tm.width).toBe(state.map.width);
+  expect(tm.height).toBe(state.map.height);
+  expect(tm.tiles.length).toBe(state.map.width * state.map.height);
   // the sprites on screen are the few buildings and the overlay pool, not one per cell
   expect(game.renderStats().sprites).toBeLessThan(100);
 });

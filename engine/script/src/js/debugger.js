@@ -1,6 +1,8 @@
 // Helpers of the script debugger (docs/design/SCRIPT_DEBUGGER.md). Evaluated once per ScriptSystem that has a
-// ScriptDebugger; the C++ side calls describe() and entries() to build the Variables view. Nothing here runs a getter of
-// the inspected value: properties are read through descriptors. Never instrumented, never visible to scripts.
+// ScriptDebugger; the C++ side calls describe() and entries() to build the Variables view. Properties are read through
+// descriptors, so no getter of the inspected value runs; the one exception is a component view (factoria.js), whose snapshot
+// hook reads the view's fields (its own accessors, each in a try) to show the values they have now. Never instrumented,
+// never visible to scripts.
 (function () {
   "use strict";
   const getProto = Object.getPrototypeOf;
@@ -33,6 +35,20 @@
         if (n && typeof n.value === "string" && n.value) return n.value;
       }
     }
+    return null;
+  }
+
+  // A component view (factoria.js) keeps its fields as accessors; it has a hook on its prototype (found through
+  // descriptors) that gives a plain object with the values the fields have now: the hook itself reads the view's field
+  // accessors (a getter of a view only asks the engine; one that throws, for a destroyed entity, shows its message).
+  const DEBUG_VIEW = Symbol.for("factoria.debugView");
+  function viewSnapshot(o) {
+    try {
+      for (let p = getProto(o), i = 0; p !== null && i < 3; p = getProto(p), i++) {
+        const d = getDesc(p, DEBUG_VIEW);
+        if (d) return typeof d.value === "function" ? d.value.call(o) : null;
+      }
+    } catch (e) { /* not a view */ }
     return null;
   }
 
@@ -106,18 +122,19 @@
     let prefix = "";
     if (proto === null) prefix = "[Object: null prototype] ";
     else { const n = ctorName(v); if (n && n !== "Object") prefix = n + " "; }
-    const keys = ownKeys(v).filter((k) => typeof k === "string");
+    const src = viewSnapshot(v) || v;
+    const keys = ownKeys(src).filter((k) => typeof k === "string");
     const parts = [];
     let shown = 0;
     for (const k of keys) {
       if (shown >= 5) break;
-      const d = getDesc(v, k);
+      const d = getDesc(src, k);
       if (!d || !d.enumerable) continue;
       parts.push(k + ": " + ("value" in d ? brief(d.value) : "(getter)"));
       shown++;
     }
     let enumerable = shown;
-    if (shown >= 5) { enumerable = 0; for (const k of keys) { const d = getDesc(v, k); if (d && d.enumerable) enumerable++; } }
+    if (shown >= 5) { enumerable = 0; for (const k of keys) { const d = getDesc(src, k); if (d && d.enumerable) enumerable++; } }
     let out = prefix + "{" + parts.join(", ") + (enumerable > shown ? ", …" : "") + "}";
     if (out.length > MAX_PREVIEW) out = out.slice(0, MAX_PREVIEW - 2) + "…}";
     return out;
@@ -156,10 +173,11 @@
     } else if (typed || (arr && n > 5000)) {
       rest.push(["length", n, 0]);
     } else {
-      for (const k of ownKeys(o)) {
+      const src = viewSnapshot(o) || o;
+      for (const k of ownKeys(src)) {
         if (typeof k !== "string") continue;
         if (arr && isIndex(k)) continue;
-        const d = getDesc(o, k);
+        const d = getDesc(src, k);
         if (!d) continue;
         if ("value" in d) rest.push([k, d.value, 0]);
         else rest.push([k, undefined, d.get ? 1 : 2]);

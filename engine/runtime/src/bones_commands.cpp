@@ -270,8 +270,7 @@ void register_bones_commands(Engine& engine, Engine::Impl& I) {
                     const Entity be = I.world.find(b.get<std::string>());
                     if (be == kNullEntity) {
                         std::vector<std::string> names;
-                        for (Entity x : I.world.entities_with(TypeRegistry::global().of<Bone2D>()))
-                            names.push_back(I.world.info(x).name);
+                        I.world.each<Bone2D>([&](Entity x, Bone2D&) { names.push_back(I.world.info(x).name); });
                         throw CommandError("not_found",
                                            "No entity '" + b.get<std::string>() + "'. " +
                                                did_you_mean(b.get<std::string>(), names),
@@ -304,7 +303,7 @@ void register_bones_commands(Engine& engine, Engine::Impl& I) {
             const std::size_t previousCount = skin.bones.is_array() ? skin.bones.size() : 0;
             skin.bones = Json::array();
             for (const std::string& id : ids) skin.bones.push_back(id);
-            skin.bindPose = Json::array();
+            skin.bindPose.clear();
             auto bound = skin_bind(I.world, e);
             if (!bound.ok()) throw CommandError("failed", bound.error().message, bound.error().hint);
             Json out = Json::object({{"entity", I.world.id_of(e)}, {"bones", skin.bones}});

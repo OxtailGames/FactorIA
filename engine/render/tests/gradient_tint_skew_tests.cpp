@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "fa/scene/serialize.h"
 #include "gradient_ramp.h"
@@ -369,7 +370,7 @@ TEST_CASE("Tint covers Shape2D (and its gradient), Text, Tilemap, particles and 
         tm.columns = 2;
         tm.width = 2;
         tm.height = 1;
-        tm.tiles = Json::array({0, 1});
+        set_tilemap_tiles(tm, Json::array({0, 1}));
     }
     Entity fx = child(make(w, "fx", {60, -40, 0}));
     {
@@ -506,10 +507,10 @@ TEST_CASE("Sprite mesh: a deformable sprite is one entity, one draw call, and th
     CHECK(g.renderer.stats().sprites == 1);
 
     // 5 x 3 vertices from the TOP row. The top-middle vertex (column 2, index 2) goes 20 up.
-    Json off = Json::array();
+    ArrayF32 off;
     for (int i = 0; i < 15; ++i) {
         off.push_back(0);
-        off.push_back(i == 2 ? 20 : 0);
+        off.push_back(i == 2 ? 20.0f : 0.0f);
     }
     s.vertexOffsets = off;
     Image bent = g.render(w);
@@ -531,7 +532,7 @@ TEST_CASE("Sprite mesh: a deformable sprite is one entity, one draw call, and th
     s.texture = "assets/mesh_halves.png";
     s.meshColumns = 2;
     s.meshRows = 1;
-    s.vertexOffsets = Json::array({0, 0, 30, 0, 0, 0, 0, 0, 30, 0, 0, 0});  // the middle column goes 30 right
+    s.vertexOffsets = ArrayF32{0, 0, 30, 0, 0, 0, 0, 0, 30, 0, 0, 0};  // the middle column goes 30 right
     Image seam = g.render(w);
     CHECK(seam.pixel(140, 90).b > 0.9f);
     CHECK(seam.pixel(185, 90).b > 0.9f);  // the blue half now reaches x = 190 (it was 160)
@@ -550,21 +551,19 @@ TEST_CASE("Sprite mesh: too many cells draws a plain quad, offsets of the wrong 
     Sprite& s = *w.get<Sprite>(e);
     s.meshColumns = 100;
     s.meshRows = 100;
-    s.vertexOffsets = Json::array({50, 50, 50});
+    s.vertexOffsets = ArrayF32{50, 50, 50};
     Image img = g.render(w);
     CHECK(img.pixel(150, 90).r > 0.95f);  // the plain 40 x 40 box
     CHECK(img.pixel(190, 90).r < 0.05f);  // the offsets did nothing
     s.meshColumns = 2;
     s.meshRows = 2;
-    s.vertexOffsets = Json("not an array");
-    Image odd = g.render(w);
-    CHECK(odd.pixel(150, 90).r > 0.95f);
-    s.vertexOffsets = Json::array({"a", nullptr, true});  // not numbers: 0
+    // not finite: 0
+    s.vertexOffsets = ArrayF32{std::numeric_limits<float>::quiet_NaN(), std::numeric_limits<float>::infinity()};
     Image zero = g.render(w);
     CHECK(zero.pixel(150, 90).r > 0.95f);
     s.meshColumns = 128;  // the biggest grid that fits the budget on one side
     s.meshRows = 1;
-    s.vertexOffsets = Json::array();
+    s.vertexOffsets.clear();
     Image big = g.render(w);
     CHECK(big.pixel(150, 90).r > 0.95f);
 }

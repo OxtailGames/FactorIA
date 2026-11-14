@@ -9,6 +9,7 @@
 //   /entities/3/components/Sprite/color: expected array or string, got number
 #pragma once
 
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -36,5 +37,29 @@ std::vector<SchemaError> check_schema_patterns(const Json& schema);
 Json close_object_schemas(Json schema);
 // Fills missing properties that have a "default" in the schema (recursively).
 void apply_schema_defaults(const Json& schema, Json& value);
+
+// A schema compiled once: `$ref`s resolved to their targets (recursive ones included), the keywords read out of the JSON, the
+// defaults collected and every `pattern` held as its compiled regex. validate_json and apply_schema_defaults on it give the
+// same result as on the Json it was built from (same errors: message, pointer and hint), without walking the Json, resolving
+// a `$ref` or looking a keyword up on every call. It copies what it needs, so the Json may go away; it is immutable, cheap
+// to copy (a shared pointer) and safe to use from any number of threads. Build it where a schema lives long (a command's
+// inputSchema, compiled by CommandRegistry::add); for one validation of a schema that is parsed on the spot, the Json
+// overloads are cheaper. A `pattern` that is not a valid regex is reported by validate_json at the same point as ever.
+class CompiledSchema {
+public:
+    CompiledSchema() = default;  // accepts every value and has no defaults (what a null schema does)
+    explicit CompiledSchema(const Json& schema);
+    // True when apply_schema_defaults can add something to some value: callers skip copying a value that cannot change.
+    bool has_defaults() const;
+
+private:
+    struct Impl;
+    std::shared_ptr<const Impl> impl_;
+    friend std::vector<SchemaError> validate_json(const CompiledSchema& schema, const Json& value);
+    friend void apply_schema_defaults(const CompiledSchema& schema, Json& value);
+};
+
+std::vector<SchemaError> validate_json(const CompiledSchema& schema, const Json& value);
+void apply_schema_defaults(const CompiledSchema& schema, Json& value);
 
 }  // namespace fa

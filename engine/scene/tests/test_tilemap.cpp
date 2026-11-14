@@ -1,5 +1,7 @@
 #include <doctest.h>
 
+#include <tuple>
+
 #include "fa/scene/serialize.h"
 #include "fa/scene/tilemap.h"
 
@@ -11,7 +13,7 @@ Tilemap map_with(int w, int h, const char* tilesJson, const char* solidJson = "[
     Tilemap tm;
     tm.width = w;
     tm.height = h;
-    tm.tiles = Json::parse(tilesJson);
+    set_tilemap_tiles(tm, Json::parse(tilesJson));
     tm.solidTiles = Json::parse(solidJson);
     tm.tileSize = {16, 16};
     return tm;
@@ -45,44 +47,83 @@ TEST_CASE("tilemap: a flat array must have width*height entries") {
     CHECK(issues[0].hint.find("scene.import_ascii") != std::string::npos);
 }
 
-TEST_CASE("tilemap: rows must be equal and match width and height") {
-    auto issues = check_tilemap(map_with(3, 2, "[[0,0,0],[1,1]]"));
+TEST_CASE("tilemap: a rows form must be equal rows that match width and height (flatten_tilemap_rows)") {
+    auto flatten = [](const char* json) {
+        Json fields = Json::parse(json);
+        auto issues = flatten_tilemap_rows(fields);
+        return std::make_pair(issues, fields);
+    };
+    auto [issues, fields] = flatten(R"({"width":3,"height":2,"tiles":[[0,0,0],[1,1]]})");
     REQUIRE(issues.size() == 1);
     CHECK(issues[0].pointer == "/tiles/1");
     CHECK(issues[0].message.find("row 1") != std::string::npos);
     CHECK(issues[0].message.find("2 entries") != std::string::npos);
+    CHECK(fields["tiles"].is_array());
+    CHECK(fields["tiles"][0].is_array());  // left as it was
 
-    issues = check_tilemap(map_with(3, 3, "[[0,0,0],[1,1,1]]"));
+    std::tie(issues, fields) = flatten(R"({"width":3,"height":3,"tiles":[[0,0,0],[1,1,1]]})");
     REQUIRE(issues.size() == 1);
     CHECK(issues[0].pointer == "/tiles");
     CHECK(issues[0].message.find("2 rows but height is 3") != std::string::npos);
 
-    issues = check_tilemap(map_with(3, 2, "[[0,0,0], 5]"));
+    std::tie(issues, fields) = flatten(R"({"tiles":[[0,0,0], 5]})");
     REQUIRE(issues.size() >= 1);
     CHECK(issues[0].pointer == "/tiles/1");
     CHECK(issues[0].message.find("mixes") != std::string::npos);
+
+    // The good case: flat list, size from the rows.
+    std::tie(issues, fields) = flatten(R"({"width":9,"tiles":[[0,1],[2,3]]})");
+    CHECK(issues.size() == 2);  // width says 9 but the rows are 2 wide
+    std::tie(issues, fields) = flatten(R"({"tiles":[[0,1],[2,3],[4,5]]})");
+    CHECK(issues.empty());
+    CHECK(fields["tiles"] == Json::parse("[0,1,2,3,4,5]"));
+    CHECK(fields["width"] == 2);
+    CHECK(fields["height"] == 3);
+    // Whole numbers written as floats (3.0) are stored as integers, so the array takes them.
+    std::tie(issues, fields) = flatten(R"({"tiles":[[3.0,1],[-1.0,0.0]]})");
+    CHECK(issues.empty());
+    CHECK(fields["tiles"] == Json::parse("[3,1,-1,0]"));
+    for (const Json& v : fields["tiles"]) CHECK(v.is_number_integer());
+    // A flat or missing list is not touched.
+    std::tie(issues, fields) = flatten(R"({"tiles":[0,1,2]})");
+    CHECK(issues.empty());
+    CHECK(fields["tiles"] == Json::parse("[0,1,2]"));
 }
 
 TEST_CASE("tilemap: tile values must be integers >= -1 (strings point at scene.import_ascii)") {
-    auto issues = check_tilemap(map_with(2, 2, "[0, \"#\", -2, 1.5]"));
-    REQUIRE(issues.size() == 3);
-    const TilemapIssue* str = find_issue(issues, "/tiles/1", "string");
+    Json fields = Json::parse(R"({"tiles":[[0,"#"],[-2,1.5]]})");
+    auto issues = flatten_tilemap_rows(fields);
+    REQUIRE(issues.size() == 2);
+    const TilemapIssue* str = find_issue(issues, "/tiles/0/1", "string");
     REQUIRE(str != nullptr);
     CHECK(str->hint.find("scene.import_ascii") != std::string::npos);
-    CHECK(find_issue(issues, "/tiles/2", "-2") != nullptr);
-    CHECK(find_issue(issues, "/tiles/3", "whole number") != nullptr);
+    CHECK(find_issue(issues, "/tiles/1/1", "integer") != nullptr);
+    // -2 is a whole number, so it reaches the array and check_tilemap names it.
+    Tilemap bad = map_with(2, 1, "[0, 0]");
+    const std::int32_t withNegative[] = {0, -2};
+    bad.tiles.assign(withNegative, 2);  // set_tilemap_tiles turns a negative number into -1; a direct write keeps it
+    issues = check_tilemap(bad);
+    REQUIRE(issues.size() == 1);
+    CHECK(issues[0].pointer == "/tiles/1");
+    CHECK(issues[0].message.find("-2") != std::string::npos);
 
-    // A broken map does not flood the output.
-    std::string many = "[";
-    for (int i = 0; i < 100; ++i) many += std::string(i ? "," : "") + "\"x\"";
-    many += "]";
-    issues = check_tilemap(map_with(10, 10, many.c_str()));
-    CHECK(issues.size() <= 7);
-    CHECK(find_issue(issues, "/tiles", "more invalid tiles") != nullptr);
-
-    issues = check_tilemap(map_with(1, 1, "\"##\""));
+    // A flat list: strings (ASCII art rows), fractions and a value that is not an array.
+    issues = check_tilemap_tiles_json(Json::parse(R"({"tiles":[0,"#",1.5]})"));
+    REQUIRE(issues.size() == 2);
+    CHECK(find_issue(issues, "/tiles/1", "string") != nullptr);
+    CHECK(find_issue(issues, "/tiles/2", "integer") != nullptr);
+    issues = check_tilemap_tiles_json(Json::parse(R"({"tiles":"##"})"));
     REQUIRE(issues.size() == 1);
     CHECK(issues[0].message.find("must be an array") != std::string::npos);
+    CHECK(check_tilemap_tiles_json(Json::parse(R"({"tiles":[0,1,-1]})")).empty());
+
+    // A broken map does not flood the output.
+    std::string many = R"({"tiles":[)";
+    for (int i = 0; i < 100; ++i) many += std::string(i ? "," : "") + "\"x\"";
+    many += "]}";
+    issues = check_tilemap_tiles_json(Json::parse(many));
+    CHECK(issues.size() <= 7);
+    CHECK(find_issue(issues, "/tiles", "more invalid tiles") != nullptr);
 }
 
 TEST_CASE("tilemap: a flat array without width is read as one row (warning); solidTiles and tileSize are checked") {
@@ -144,7 +185,8 @@ TEST_CASE("tilemap: grid helpers") {
     set_tilemap_grid(tm, 3, 2, {0, -1, 2, 3, 4, 5});
     CHECK(tm.width == 3);
     CHECK(tm.height == 2);
-    CHECK(tm.tiles == Json::parse("[0,-1,2,3,4,5]"));
+    CHECK(std::vector<std::int32_t>(tm.tiles.cdata(), tm.tiles.cdata() + tm.tiles.size()) ==
+          std::vector<std::int32_t>{0, -1, 2, 3, 4, 5});
     CHECK(check_tilemap(tm).empty());
 
     // Cell (col 2, row 1): centre ((2 + 0.5) * 32, -(1 + 0.5) * 16), row 0 is the top row.

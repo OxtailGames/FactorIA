@@ -132,7 +132,9 @@ TEST_CASE("setup ffmpeg: setup.status lists the component, every desktop host ha
         REQUIRE(ffmpeg_binary(c) != nullptr);
         const SetupComponent comp = ffmpeg_status(c);
         CHECK(comp.canInstall);
-        CHECK(comp.installSizeMb > 0);
+        CHECK(ffmpeg_binary(c)->sizeMb > 0);
+        // An ffmpeg on this machine's PATH (looked up for real, not through ctx.env) makes it "installed", size 0.
+        if (comp.state == "missing") CHECK(comp.installSizeMb == ffmpeg_binary(c)->sizeMb);
     }
     CHECK(std::string(ffmpeg_binary(lab.ctx("macos", "aarch64"))->asset) == "darwin-arm64");
     SetupContext odd = lab.ctx("linux", "riscv64");

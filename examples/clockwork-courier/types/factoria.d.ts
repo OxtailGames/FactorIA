@@ -1586,7 +1586,7 @@ declare module "factoria" {
      */
     findTilePaths(map: Entity | string | NavGrid | NavTileGrid, queries: readonly NavTileQuery[], opts?: NavTileOptions): NavTilePath[];
     /**
-     * A counter of the changes to the Tilemap's tiles. Compare it with the value from when you searched to know a cached path is stale. It goes up on setTile / tilemap.set_tile and on any write that replaces `tiles` (a script assigning tilemap.tiles, scene.set_component, the editor); it starts at 0 on every scene load and each call costs one pass over the tiles.
+     * A counter of the changes to the Tilemap's tiles. Compare it with the value from when you searched to know a cached path is stale. It goes up on setTile / tilemap.set_tile and on any write that changes `tiles` or the map's width or height (a script assigning tilemap.tiles, scene.set_component, the editor); a write that leaves the tiles as they were does not move it. The number is only meant to be compared for equality with an earlier result of the same map, and a call costs nothing.
      * @since 0.3.0
      */
     tileVersion(tilemap: Entity | string): number;
@@ -5870,15 +5870,17 @@ declare module "factoria" {
      */
     meshRows: number;
     /**
-     * Deformable sprites only (meshColumns > 0 and meshRows > 0): how far each grid vertex is moved from its place, in the sprite's local units (the size it is drawn at, before scale and rotation; +x right, +y UP). A flat array of numbers [dx0, dy0, dx1, dy1, ...] with an x and a y per vertex, row by row starting at the TOP row and going left to right: vertex (column c, row r) is at index (r * (meshColumns + 1) + c) * 2. A shorter array leaves the vertices it does not name in place; extra numbers are ignored; a value that is not a number counts as 0. Write the whole array to change it (a script sets it every frame: `e.get('Sprite').vertexOffsets = offsets`; changing one element of the array it returned does not write back). The texture is stretched with the vertices, so offsets bend the picture. [] (default) = the undeformed grid. Offsets do not change `size`, but the bounds of the entity (entity.bounds(), editor picking) cover the moved vertices. Returns a plain-object COPY; assign a new value to write.
+     * Deformable sprites only (meshColumns > 0 and meshRows > 0): how far each grid vertex is moved from its place, in the sprite's local units (the size it is drawn at, before scale and rotation; +x right, +y UP). A flat array of numbers [dx0, dy0, dx1, dy1, ...] with an x and a y per vertex, row by row starting at the TOP row and going left to right: vertex (column c, row r) is at index (r * (meshColumns + 1) + c) * 2. A shorter array leaves the vertices it does not name in place; extra numbers are ignored; every element must be a number (a non-finite value counts as 0; null is not accepted, write [] for none). Stored as a float array (a script reads it as a Float32Array). Write the whole array to change it (a script sets it every frame: `e.get('Sprite').vertexOffsets = offsets`; changing one element of the array it returned does not write back). The texture is stretched with the vertices, so offsets bend the picture. [] (default) = the undeformed grid. Offsets do not change `size`, but the bounds of the entity (entity.bounds(), editor picking) cover the moved vertices. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
      * @since 0.4.0
      */
-    vertexOffsets: any;
+    get vertexOffsets(): Float32Array;
+    set vertexOffsets(value: Float32Array | readonly number[]);
     /**
-     * Deformable sprites only (meshColumns > 0 and meshRows > 0): a colour for every grid vertex, multiplied with `color` (and Tint), blended smoothly across each cell. A flat array of numbers [r0, g0, b0, a0, r1, g1, b1, a1, ...], components 0..1, one RGBA per vertex in the order of `vertexOffsets` (row by row from the TOP row, left to right): vertex (column c, row r) starts at index (r * (meshColumns + 1) + c) * 4. The length must be exactly (meshColumns + 1) * (meshRows + 1) * 4: a scene or prefab with another length is an error naming the length it needs, and a script that writes a wrong length gets one warning and the colours are ignored. A bent page gets its light and dark along the curve with [0.6,0.6,0.6,1] at the vertices in shade and [1,1,1,1] in light. Write the whole array to change it (like vertexOffsets). [] (default) = every vertex white. Not used with SpriteSkin. Returns a plain-object COPY; assign a new value to write.
+     * Deformable sprites only (meshColumns > 0 and meshRows > 0): a colour for every grid vertex, multiplied with `color` (and Tint), blended smoothly across each cell. A flat array of numbers [r0, g0, b0, a0, r1, g1, b1, a1, ...], components 0..1, one RGBA per vertex in the order of `vertexOffsets` (row by row from the TOP row, left to right): vertex (column c, row r) starts at index (r * (meshColumns + 1) + c) * 4. The length must be exactly (meshColumns + 1) * (meshRows + 1) * 4: a scene or prefab with another length is an error naming the length it needs, and a script that writes a wrong length gets one warning and the colours are ignored. A bent page gets its light and dark along the curve with [0.6,0.6,0.6,1] at the vertices in shade and [1,1,1,1] in light. Write the whole array to change it (like vertexOffsets). [] (default) = every vertex white. Not used with SpriteSkin. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
      * @since 0.9.0
      */
-    vertexColors: any;
+    get vertexColors(): Float32Array;
+    set vertexColors(value: Float32Array | readonly number[]);
   }
   /**
    * Multiplies a colour (and an opacity) into every 2D visual of this entity and of all its children, grandchildren and so on: Sprite, Shape2D, Text (glyph colours and rich-text colours too), Tilemap, ParticleEmitter, and the screen-space UI widgets (Panel, Button, Toggle, Slider, TextField, ScrollList, the touch controls, Video, CameraView, Chart, Captions) drawn by the renderer. Put it on the root of a group to fade it out (color [1, 1, 1, 0.5]), turn it red (a damage flash), or darken a whole room, without touching each visual. The tints of an entity and all its ancestors multiply together, so nested groups compose; alpha is multiplied too (a 0.5 inside a 0.5 shows at 0.25), and a visual whose resulting opacity is 0 is not drawn. It multiplies the colours the visual already has (Sprite.color, Shape2D.color and color2 and every gradient stop, Text.color, Tilemap.color, a particle's own colour over its life, Panel.color) and does not affect 3D MeshRenderer, lights, the debug draw or the camera. Entities without a Tint ancestor cost nothing extra: the renderer only walks the parents when at least one Tint exists in the scene.
@@ -6102,10 +6104,11 @@ declare module "factoria" {
      */
     weights: any;
     /**
-     * Where each bone was when the skin was bound, relative to the sprite: 6 numbers [a, b, c, d, tx, ty] per bone (the bone's 2D matrix in the sprite's local space). The engine writes it the first time it sees the skin; [] binds again, at the pose the bones have then. If its length does not match `bones` it is recorded again. Returns a plain-object COPY; assign a new value to write.
+     * Where each bone was when the skin was bound, relative to the sprite: 6 numbers [a, b, c, d, tx, ty] per bone (the bone's 2D matrix in the sprite's local space). The engine writes it the first time it sees the skin; [] binds again, at the pose the bones have then. If its length does not match `bones` it is recorded again. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
      * @since 0.7.0
      */
-    bindPose: any;
+    get bindPose(): Float32Array;
+    set bindPose(value: Float32Array | readonly number[]);
     /**
      * true: instead of Sprite.meshColumns / meshRows, the mesh is a grid of outlineDetail cells along the sprite's longer side, keeping only the cells that hold opaque pixels (alpha above 5%) of the texture's region, so a thin limb or a tail costs vertices where it is and transparent corners cost nothing. Needs the texture as an image file in the project (png, jpg, tga, bmp): a texture an export packed into an atlas, a `.ktx2` only or a picture made at run time draws the full grid instead, with one warning. Hot reload of the texture retraces it.
      * @since 0.7.0
@@ -6440,17 +6443,18 @@ declare module "factoria" {
      */
     spacing: number;
     /**
-     * Map width in tiles, for a flat tiles array. Not needed when tiles is an array of rows (the rows define the size; drawing and collision both use it).
+     * Map width in tiles: the length of one row of the flat tiles array (drawing and collision both use it). Not needed when a scene or prefab file writes tiles as an array of rows: the loader takes the size from the rows.
      */
     width: number;
     /**
-     * Map height in tiles, for a flat tiles array. Not needed when tiles is an array of rows.
+     * Map height in tiles: the number of rows of the flat tiles array. Not needed when a scene or prefab file writes tiles as an array of rows.
      */
     height: number;
     /**
-     * Tile values, row-major with row 0 at the TOP: either a flat array of width*height integers (set width and height) or an array of rows (the size comes from the rows). -1 = empty. A value is the tileset index, optionally plus flags that mirror or turn that tile when drawn: 268435456 flips it left-right (flipX), 536870912 top-bottom (flipY), 1073741824 mirrors it across the diagonal (transpose). The image is transposed first, then flipped in x, then in y; a 90 degree clockwise turn is transpose + flipX = 1342177280 + index, 180 is flipX + flipY = 805306368 + index, 90 counter-clockwise is transpose + flipY = 1610612736 + index. scene.import_ascii legends write these for you: {"tile": 3, "rotate": 90, "flipX": true}. Returns a plain-object COPY; assign a new value to write.
+     * Tile values: ONE flat array of width*height integers, row-major with row 0 at the TOP (set width and height); stored as an Int32Array in scripts (a COPY: read it, change it and assign it back, `const t = comp.tiles; t[3] = 5; comp.tiles = t`; for single cells use entity.tilemap.setTile). A scene or prefab file may also write an array of rows ([[0, 1], [2, 3]]): the loader flattens it and takes width and height from the rows, and the file is always saved flat. -1 = empty. A value is the tileset index, optionally plus flags that mirror or turn that tile when drawn: 268435456 flips it left-right (flipX), 536870912 top-bottom (flipY), 1073741824 mirrors it across the diagonal (transpose). The image is transposed first, then flipped in x, then in y; a 90 degree clockwise turn is transpose + flipX = 1342177280 + index, 180 is flipX + flipY = 805306368 + index, 90 counter-clockwise is transpose + flipY = 1610612736 + index. scene.import_ascii legends write these for you: {"tile": 3, "rotate": 90, "flipX": true}. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
      */
-    tiles: any;
+    get tiles(): Int32Array;
+    set tiles(value: Int32Array | readonly number[]);
     /**
      * List of plain tile indices (no flip flags) that block movement; static colliders are generated for them. A flipped or rotated copy of a solid tile is still solid. Empty = nothing collides. Returns a plain-object COPY; assign a new value to write.
      */
@@ -7272,7 +7276,7 @@ declare module "factoria" {
     readonly translation: number;
   }
   /**
-   * Simple 3D physics body for arcade games (spheres, oriented boxes, capsules and convex hulls; a triangle-mesh collider is for static level geometry only). Pair it with a Collider3D; add a Joint3D to hinge it to the world or to another body. A capsule body with lockRotation is a simple physics character (for a controller that slides, climbs steps and checks slopes use CharacterController3D instead). Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. A sphere is an arcade rolling ball by default (rollWithMotion = true: spun to match its motion, contacts never turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic body that stays nearly still for half a second falls asleep together with the bodies it touches (no cost, no events) and wakes when touched by something moving, when gameplay writes its position, rotation or velocity, applies a force, or when what it rests on goes away.
+   * Simple 3D physics body for arcade games (spheres, oriented boxes, capsules and convex hulls; a triangle-mesh collider is for static level geometry only). Pair it with a Collider3D; add a Joint3D to hinge it to the world or to another body. A capsule body with lockRotation is a simple physics character (for a controller that slides, climbs steps and checks slopes use CharacterController3D instead). Gravity comes from scene settings (gravity3D). Fast bodies are swept against every solid collider (continuous collision, automatic). A dynamic BOX is a rigid body: collisions and friction apply torque at the contact points (inertia from its size and mass), so it tips over a ledge, tumbles and settles on a face; set lockRotation for a character or an upright crate. A sphere is an arcade rolling ball by default (rollWithMotion = true: spun to match its motion, contacts never turn it); with rollWithMotion = false it is a rigid body too: friction at the contact point spins it, so it rolls down slopes and a glancing hit spins it. A tumbling box precesses like a real one. A dynamic body whose fastest point stays under 5 cm/s for half a second falls asleep together with the bodies it touches (no cost, no events); in a pile of 64 or more bodies up to one in 64 may still creep, slower than 0.3 m/s, and the pile sleeps anyway. It wakes when touched by something moving, when gameplay writes its position, rotation or velocity, applies a force, places a static or kinematic body on it, or when what it rests on goes away. A slow rotating body pressed against another dynamic body loses speed (1/s below 0.5 m/s), so a capsule rolling on a pile comes to rest; a body alone on the ground keeps its motion.
    * 
    * Category: Physics
    */
@@ -7321,15 +7325,15 @@ declare module "factoria" {
     lockRotation: boolean;
   }
   /**
-   * Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle mesh. Boxes, capsules and meshes are ORIENTED: they follow the entity's world rotation (parents included), so a box rotated 45 degrees blocks at its rotated edge. Scaled by the Transform scale. A `mesh` collider is for level geometry and needs a static body (no RigidBody3D, or type static): a dynamic or kinematic body with one is reported as an error and ignored.
+   * Collision shape for 3D physics: box, sphere, capsule, convex hull, triangle mesh or heightfield (terrain). Boxes, capsules and meshes are ORIENTED: they follow the entity's world rotation (parents included), so a box rotated 45 degrees blocks at its rotated edge. Scaled by the Transform scale. A `mesh` collider is for level geometry and needs a static body (no RigidBody3D, or type static): a dynamic or kinematic body with one is reported as an error and ignored. The same holds for a `heightfield`, whose grid of heights is the Heightfield3D on the same entity.
    * 
    * Category: Physics
    */
   export interface Collider3DComponent {
     /**
-     * box: uses size. sphere: uses radius. capsule: uses radius and height, along the entity's local Y. convex: the convex hull of the vertices of `mesh` (any dynamic body, fast). mesh: the triangles of `mesh` (static level geometry only; concave shapes, ramps, terrain).
+     * box: uses size. sphere: uses radius. capsule: uses radius and height, along the entity's local Y. convex: the convex hull of the vertices of `mesh` (any dynamic body, fast). mesh: the triangles of `mesh` (static level geometry only; concave shapes, ramps). heightfield: the grid of heights of the Heightfield3D component on the same entity (static terrain only; much cheaper than a mesh, a body only tests the cells under it, the ground is solid up to 8 m below the surface (see Heightfield3D), and editing the heights updates only what changed).
      */
-    shape: "box" | "sphere" | "capsule" | "convex" | "mesh";
+    shape: "box" | "sphere" | "capsule" | "convex" | "mesh" | "heightfield";
     /**
      * box: full extents [x, y, z] in meters along the entity's own (rotated) axes, before Transform scale.
      */
@@ -7389,6 +7393,52 @@ declare module "factoria" {
      * @since 0.3.0
      */
     navWalkable: boolean;
+  }
+  /**
+   * The grid of heights of a terrain collider: put it with a Collider3D whose shape is "heightfield" on a static entity (no RigidBody3D, or type static). Spheres, capsules, boxes and convex bodies, raycasts, shape casts, overlap queries and CharacterController3D collide with it; each grid cell is two triangles and a body only tests the cells under it. Sample (row r, column c) is heights[r * columns + c], at x = (c - (columns - 1) / 2) * cellSize.x and z = (r - (rows - 1) / 2) * cellSize.y from the entity origin (the grid is centred on it; Transform scale and rotation apply, Collider3D.offset moves it) and at y = heights[i] * heightScale + heightOffset. Cell (r, c) joins the samples (r, c), (r + 1, c), (r, c + 1), (r + 1, c + 1) and is split along the diagonal from (r, c) to (r + 1, c + 1). The ground is solid down to 8 m below its lowest sample: a body that is under the surface of a solid cell, whether the terrain was raised under it in one edit or it was put there, is pushed back up along the normal of the triangle over its centre, as long as the cell under the centre of the body is not a hole, the centre is inside the grid's x and z extent and the body's lowest point is at most 8 m below the surface there. A body under a hole cell, outside the grid or deeper than 8 m is not pushed: it keeps falling (so does one that fell through a hole and then slid sideways under solid ground deeper than that). Edit the grid at run time (a brush stroke, a crater: assign the changed array from a script, or `heights.set(i, v)` in C++): physics reads only the span between the first and last sample that changed, recomputes the bounds incrementally and wakes only the sleeping bodies near them; replacing the whole array or changing rows, columns, cellSize, heightScale or heightOffset rebuilds the field and wakes every body on it. A mistake (a wrong array length, a NaN, fewer than 2 rows or columns) is reported once, with what to change, and the collider is ignored.
+   * 
+   * Category: Physics
+   * @since 0.27.0
+   */
+  export interface Heightfield3DComponent {
+    /**
+     * Number of samples along z (>= 2, at most 4096). The field has rows - 1 cells in that direction. heights must hold rows * columns numbers.
+     * @since 0.27.0
+     */
+    rows: number;
+    /**
+     * Number of samples along x (>= 2, at most 4096). The field has columns - 1 cells in that direction.
+     * @since 0.27.0
+     */
+    columns: number;
+    /**
+     * Distance in meters between neighbouring samples [x, z] (both > 0), before Transform.scale. The field is (columns - 1) * cellSize.x wide and (rows - 1) * cellSize.y deep.
+     * @since 0.27.0
+     */
+    get cellSize(): Vec2;
+    set cellSize(value: Vec2Like);
+    /**
+     * Meters of height per unit of `heights` (world y = heights[i] * heightScale + heightOffset). Changing it rebuilds the whole field; edit `heights` for local changes.
+     * @since 0.27.0
+     */
+    heightScale: number;
+    /**
+     * Meters added to every scaled height.
+     * @since 0.27.0
+     */
+    heightOffset: number;
+    /**
+     * rows * columns finite numbers, row by row (sample (r, c) at index r * columns + c; row 0 is the most negative z, column 0 the most negative x). A flat array of numbers on disk and in commands, a Float32Array in scripts. Writing single elements is cheap: physics reads only the ones that changed. A length other than rows * columns, or a NaN or infinite value, makes the collider be ignored with a message naming the fix. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since 0.27.0
+     */
+    get heights(): Float32Array;
+    set heights(value: Float32Array | readonly number[]);
+    /**
+     * Cells without collision (a cave mouth, a pit): (rows - 1) * (columns - 1) numbers, row by row, 1 = hole, 0 = solid (cell (r, c) at index r * (columns - 1) + c). Empty (default) = no holes; any other length is an error. A body falls through a hole and is held by the cells around it. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since 0.27.0
+     */
+    get holes(): Uint8Array;
+    set holes(value: Uint8Array | readonly number[]);
   }
   /**
    * Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). Solved together with the contacts. Put it on the body that swings; set `connected` to the other entity (empty = the world). A jointed dynamic body is always a rotating rigid body. Bodies joined together fall asleep together once the whole chain is at rest (a motor keeps its bodies awake), so a settled rope bridge costs nothing. A chain of three or more jointed bodies is solved with extra iterations, so planks of any width hang still without heavy damping. The joint holds the pose the bodies have when it is created (autoAnchor); hinge limits are angles relative to that pose.
@@ -9888,6 +9938,7 @@ declare module "factoria" {
     Joint2D: Joint2DComponent;
     RigidBody3D: RigidBody3DComponent;
     Collider3D: Collider3DComponent;
+    Heightfield3D: Heightfield3DComponent;
     Joint3D: Joint3DComponent;
     CharacterController3D: CharacterController3DComponent;
     NavMesh3D: NavMesh3DComponent;
@@ -9918,17 +9969,17 @@ declare module "factoria" {
     EntityInfo: { id?: string; name?: string; active?: boolean };
     Transform: { position?: Vec3Like; rotation?: Vec3Like; scale?: Vec3Like };
     Camera: { projection?: "orthographic" | "perspective"; fov?: number; orthoSize?: number; nearPlane?: number; farPlane?: number; clearColor?: ColorLike; clear?: boolean; primary?: boolean; depth?: number; viewport?: RectLike; viewportSpace?: "screen" | "design"; lighting?: "scene" | "studio"; studioIntensity?: number; bloom?: boolean; bloomThreshold?: number; bloomIntensity?: number; bloomRadius?: number; bloomScreenSpace?: boolean; colorFilter?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; renderTarget?: string; renderTargetSize?: Vec2Like; showTags?: any; hideTags?: any };
-    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: any; vertexColors?: any };
+    Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: Float32Array; vertexColors?: Float32Array };
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; loopMode?: "inherit" | "loop" | "once"; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };
-    SpriteSkin: { bones?: any; weights?: any; bindPose?: any; outline?: boolean; outlineDetail?: number };
+    SpriteSkin: { bones?: any; weights?: any; bindPose?: Float32Array; outline?: boolean; outlineDetail?: number };
     IK2D: { target?: EntityLike; chainLength?: number; bend?: "positive" | "negative"; weight?: number; solver?: "twoBone" | "ccd"; groundMask?: number; groundReach?: number; groundOffset?: number; groundRest?: number };
     Shape2D: { shape?: "rectangle" | "circle" | "line" | "triangle" | "diamond" | "polygon" | "star"; size?: Vec2Like; color?: ColorLike; filled?: boolean; thickness?: number; layer?: number; space?: "world" | "screen"; pivot?: Vec2Like; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; sides?: number; points?: number; innerRadius?: number; lit?: boolean; cornerRadius?: number; softness?: number; gradient?: "none" | "linear" | "radial"; color2?: ColorLike; gradientAngle?: number; gradientStops?: any; gradientEase?: "linear" | "smoothstep" | "quadIn" | "quadOut" | "quadInOut" | "cubicIn" | "cubicOut" | "cubicInOut" | "quartIn" | "quartOut" | "quartInOut" | "quintIn" | "quintOut" | "quintInOut" | "sineIn" | "sineOut" | "sineInOut" | "expoIn" | "expoOut" | "expoInOut" | "circIn" | "circOut" | "circInOut" };
     Text: { text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; lit?: boolean; color?: ColorLike; align?: "left" | "center" | "right" | "start" | "end"; pivot?: Vec2Like; maxWidth?: number; maxHeight?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; direction?: "auto" | "ltr" | "rtl"; wordBreak?: "auto" | "normal" | "keepAll"; visibleCharacters?: number; layer?: number; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean };
-    Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: any; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
+    Tilemap: { tileset?: string; tileSize?: Vec2Like; projection?: "orthogonal" | "isometric"; groundHeight?: number; groundOffset?: number; columns?: number; margin?: number; spacing?: number; width?: number; height?: number; tiles?: Int32Array; solidTiles?: any; terrains?: any; color?: ColorLike; layer?: number; lit?: boolean; normalMap?: string; occludesLight?: boolean };
     ParticleEmitter: { emitting?: boolean; rate?: number; burst?: number; maxParticles?: number; lifetime?: number; lifetimeVariance?: number; speed?: number; speedVariance?: number; direction?: number; spread?: number; gravity?: Vec3Like; startSize?: number; endSize?: number; startColor?: ColorLike; endColor?: ColorLike; texture?: string; worldSpace?: boolean; is3D?: boolean; layer?: number; blend?: "alpha" | "additive" | "multiply"; autoDestroy?: boolean; space?: "world" | "screen"; anchor?: Vec2Like; safeArea?: boolean; colorGradient?: any; sizeCurve?: any; speedCurve?: any; alphaCurve?: any; sizeVariance?: number; flipbookColumns?: number; flipbookRows?: number; flipbookFrames?: number; flipbookFps?: number; flipbookRandomStart?: boolean; startRotation?: Vec2Like; spin?: Vec2Like; alignToVelocity?: boolean; drag?: number; noiseStrength?: number; noiseScale?: number; noiseSpeed?: number; inheritVelocity?: number; shape?: "point" | "circle" | "box" | "cone" | "edge" | "mesh"; shapeSize?: Vec3Like; shapeFrom?: "volume" | "edge"; shapeDirection?: "direction" | "outward"; shapeMesh?: string; trail?: "none" | "particle" | "emitter"; trailTime?: number; trailWidth?: number; trailWidthCurve?: any; trailGradient?: any; subEmitters?: any; collision?: "none" | "plane" | "tilemap"; collisionPlane?: readonly number[] | { x: number; y: number; z: number; w: number }; collisionTilemap?: EntityLike; collisionBounce?: number; collisionFriction?: number; collisionLifetimeLoss?: number; collisionKill?: boolean; pixelMode?: boolean; pixelSize?: number; palette?: any; seed?: number };
     MeshRenderer: { mesh?: string; texture?: string; normalMap?: string; normalScale?: number; color?: ColorLike; metallic?: number; roughness?: number; emissive?: ColorLike; emissiveStrength?: number; unlit?: boolean; castShadows?: boolean; receiveShadows?: boolean; uvScale?: Vec2Like; material?: string; materialParams?: any; materialColors?: any; lods?: any };
     Light: { type?: "directional" | "point" | "spot"; color?: ColorLike; intensity?: number; range?: number; spotAngle?: number; castShadows?: boolean };
@@ -9938,7 +9989,8 @@ declare module "factoria" {
     Collider2D: { shape?: "box" | "circle" | "capsule"; size?: Vec2Like; radius?: number; offset?: Vec2Like; enabled?: boolean; isTrigger?: boolean; friction?: number; restitution?: number; density?: number; layer?: number; mask?: number; oneWay?: boolean };
     Joint2D: { type?: "revolute" | "distance" | "prismatic" | "weld"; connected?: EntityLike; anchor?: Vec2Like; connectedAnchor?: Vec2Like; axis?: Vec2Like; collideConnected?: boolean; length?: number; enableLimit?: boolean; lowerLimit?: number; upperLimit?: number; enableMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; enableSpring?: boolean; springHertz?: number; dampingRatio?: number };
     RigidBody3D: { type?: "static" | "dynamic" | "kinematic"; mass?: number; gravityScale?: number; linearDamping?: number; velocity?: Vec3Like; angularVelocity?: Vec3Like; rollWithMotion?: boolean; rollingFriction?: number; angularDamping?: number; lockRotation?: boolean };
-    Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; enabled?: boolean; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number; navObstacle?: boolean; navWalkable?: boolean };
+    Collider3D: { shape?: "box" | "sphere" | "capsule" | "convex" | "mesh" | "heightfield"; size?: Vec3Like; radius?: number; height?: number; mesh?: string; offset?: Vec3Like; enabled?: boolean; isTrigger?: boolean; friction?: number; restitution?: number; layer?: number; mask?: number; navObstacle?: boolean; navWalkable?: boolean };
+    Heightfield3D: { rows?: number; columns?: number; cellSize?: Vec2Like; heightScale?: number; heightOffset?: number; heights?: Float32Array; holes?: Uint8Array };
     Joint3D: { type?: "hinge" | "ball" | "fixed"; connected?: EntityLike; anchor?: Vec3Like; connectedAnchor?: Vec3Like; autoAnchor?: boolean; axis?: Vec3Like; useLimits?: boolean; lowerLimit?: number; upperLimit?: number; useMotor?: boolean; motorSpeed?: number; maxMotorTorque?: number; collideConnected?: boolean; damping?: number };
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
