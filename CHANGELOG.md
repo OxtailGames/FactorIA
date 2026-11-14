@@ -99,7 +99,7 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   range of a float array field is printed as written (`0.1 to 0.3`). A schema nested deeper than 64 levels (a command
   registered from JavaScript) compiles with the deep part unchecked instead of using the native stack, and the defaults
   of a compiled schema are found in linear time. A mutable `data()` of an empty typed array is no write. `fa_bench`:
-  `ecs.count` runs 20000 rounds for a stable median, new `script.first_views`.
+  `ecs.entities_with` and `ecs.count` run 20000 rounds of four calls (80000 queries) for a stable median, new `script.first_views`.
 - 3D physics: contact manifolds with several persistent points (M94.4d). Two boxes in face contact are clipped (the
   incident face against the side planes of the reference face) and touch in up to 4 points, reduced in a way that depends
   only on the geometry; two crossing edges give one point. A box on a mesh or a static box has one point per low corner, a
