@@ -5,7 +5,9 @@ name: CI
 
 # All five platforms on GitHub-hosted runners (standard hosted runners are free
 # for public repositories). Runs once per change: on pull requests (every push to
-# a PR branch), on pushes to main and on `v*` tags. Pushing to a branch without a
+# a PR branch) and on pushes to main. A `v*` tag does not run it: the tag is made on a
+# commit that already passed here as the merge of its PR, and release.yml builds the
+# packages on the tag. Pushing to a branch without a
 # PR does not trigger a run, so PR branches are not built twice; use "Run
 # workflow" (workflow_dispatch) for those. The same checks can run locally with
 # ./scripts/ci-local.sh (see docs/BUILDING.md).
@@ -14,7 +16,6 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -63,8 +64,8 @@ jobs:
             { echo "code=false"; echo "mobile=false"; echo "web=false"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Tags, "Run workflow" and pushes without a usable base (git diff fails) run everything.
-          if [[ "$GITHUB_REF" == refs/tags/* ]] || ! files="$(git diff --name-only "$BASE" HEAD)"; then
+          # "Run workflow" and pushes without a usable base (git diff fails) run everything.
+          if ! files="$(git diff --name-only "$BASE" HEAD)"; then
             echo "Everything runs ($GITHUB_EVENT_NAME $GITHUB_REF)"
             { echo "code=true"; echo "mobile=true"; echo "web=true"; } >> "$GITHUB_OUTPUT"
             exit 0
@@ -1697,7 +1698,7 @@ jobs:
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          # A tag, "Run workflow" or a push without a usable base (new branch: all zeros) compares with the first parent.
+          # "Run workflow" or a push without a usable base (new branch: all zeros) compares with the first parent.
           if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE=HEAD~1; fi
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
           echo "Diff base: $BASE"

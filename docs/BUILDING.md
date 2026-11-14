@@ -910,9 +910,10 @@ are free for public repositories. It runs once per change:
 
 - **Pull requests**: every push to a branch with an open pull request.
 - **`main`**: every push (including merged pull requests).
-- **`v*` tags**: every job, whatever changed.
 - **Other branches**: no automatic run, so a PR branch is not built twice. Start
   one by hand from the Actions tab ("Run workflow"; every job) or open a pull request.
+- **`v*` tags**: no run of this workflow. The tag goes on the merge commit of a pull request, which already passed
+  here as that pull request and again as the push to `main`; `release.yml` builds and tests the packages on the tag.
 
 A run only builds what the change can break (the `changes` job compares it with its
 base): a change to docs only (`docs/`, `feedback/`, top-level `*.md`) builds nothing,
