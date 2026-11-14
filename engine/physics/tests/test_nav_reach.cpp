@@ -118,8 +118,8 @@ TEST_CASE("nav grid: an obstacle that closes a passage and reopens it keeps ever
     CHECK(same_both_ways(g, a, b, false));
     g.clear_obstacle(1);
     g.refresh();
-    CHECK_FALSE(g.reach_valid());
-    CHECK_FALSE(ask(g, a, b).chain.empty());  // reopened: found (stale labels never say "unreachable")
+    CHECK(g.reach_valid());  // failures were answered from the labels since: they are kept up to date
+    CHECK_FALSE(ask(g, a, b).chain.empty());  // reopened: found
     CHECK(same_both_ways(g, a, b));
     // A plank over the wall next to a closed door: a walkable body joins the two halves.
     g.set_obstacle(1, {door});
@@ -133,7 +133,7 @@ TEST_CASE("nav grid: an obstacle that closes a passage and reopens it keeps ever
 
 TEST_CASE("nav grid: random grids give the same answers with and without the labels") {
     Rng rng(94005);
-    int shortcut = 0, queries = 0;
+    int shortcut = 0, queries = 0, answeredFromLabels = 0, found = 0;
     for (int round = 0; round < 6; ++round) {
         const int nx = 20 + int(rng.next_u32() % 8), nz = 18 + int(rng.next_u32() % 8);
         std::vector<char> wall(std::size_t(nx * nz), 0);
@@ -168,8 +168,11 @@ TEST_CASE("nav grid: random grids give the same answers with and without the lab
                 if (rng.next_u32() % 4 == 0 && g.total_count() > g.static_count())
                     b = g.static_count() + int(rng.next_u32() % std::uint32_t(g.total_count() - g.static_count()));
                 const bool wantClosest = rng.next_u32() % 3 != 0;
-                if (g.reach_valid()) ++shortcut;
+                const bool labels = g.reach_valid();
+                if (labels) ++shortcut;
                 ++queries;
+                if (!ask(g, a, b, false).chain.empty()) ++found;
+                else if (labels && g.reach_label(a) > 0 && g.reach_label(a) != g.reach_label(b)) ++answeredFromLabels;
                 if (!same_both_ways(g, a, b, wantClosest)) {
                     FAIL_CHECK("round " << round << " step " << step << " query " << a << " -> " << b);
                     return;
@@ -179,4 +182,31 @@ TEST_CASE("nav grid: random grids give the same answers with and without the lab
     }
     CHECK(queries > 1000);
     CHECK(shortcut > queries / 10);  // the labels were in use for a good part of the queries
+    // Concrete cases, not only a count: both outcomes happen often, so the comparison above is not between two empties.
+    CHECK(found > queries / 20);
+    CHECK(answeredFromLabels > 20);
+}
+
+TEST_CASE("nav grid: an obstacle that moves every frame with failing queries has its labels every frame") {
+    const int nx = 14, nz = 10;
+    std::vector<char> wall(std::size_t(nx * nz), 0);
+    for (int z = 0; z < nz; ++z) wall[std::size_t(z * nx + 7)] = 1;  // a closed wall: the halves never meet
+    NavGrid g;
+    build_flat_grid(g, nx, nz, wall);
+    const int a = span_at(g, 1, 1), b = span_at(g, 12, 6);
+    REQUIRE(a >= 0);
+    REQUIRE(b >= 0);
+    int valid = 0;
+    for (int frame = 0; frame < 12; ++frame) {
+        NavGrid::Footprint box;
+        box.cell = (1 + frame % 8) * nx + 2 + frame % 3;
+        box.bottom = 0.0f;
+        box.top = 1.8f;
+        g.set_obstacle(1, {box});
+        g.refresh();
+        CHECK(ask(g, a, b).chain.empty());
+        CHECK(same_both_ways(g, a, b));
+        if (frame > 0 && g.reach_valid()) ++valid;  // the labels of the previous failure were asked again
+    }
+    CHECK(valid == 11);
 }
