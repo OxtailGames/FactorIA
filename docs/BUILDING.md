@@ -944,10 +944,26 @@ job builds only `fa_bench` and compares the engine's microbenchmarks with `tools
 (docs/PERFORMANCE.md, "Microbenchmarks"). A `_perf` test that passes inside
 the warning band is invisible to ctest; the step "Performance warnings" of the Linux, Windows and macOS jobs lists those
 in the job summary (`scripts/ci-perf-warnings.sh`, docs/PERFORMANCE.md "The band").
-Each job that compiles restores a ccache and saves it again with only the entries its build used, right after the build,
-so a run whose tests fail still leaves the next run a warm cache; `CI result` then
-deletes the older ccaches of the same branch or pull request. That keeps the repository's 10 GB of caches holding
-`main`'s, which every pull request starts from.
+Each job that compiles restores a ccache and saves it again right after the build, so a run whose tests fail still
+leaves the next run a warm cache. Three rules keep that cache from shrinking or piling up:
+
+- The trim (`ccache --evict-older-than 7200s`, which keeps only the entries this build used) runs only after a build
+  that succeeded. A build that fails after a minute used almost nothing: trimming then would save a cache smaller than the
+  one restored, and as the newest cache of the pull request it would hide `main`'s (Windows once restored 15 MB where
+  `main`'s was 258 MB). Without the trim the saved cache is the restored one plus the new objects.
+- The save runs whenever the build step started: after a green build, after a build that failed (the objects that did
+  compile) and when a newer push cancelled the job in the middle of the build (`if: always() && ...`; the next round of
+  the pull request starts warm instead of from the older cache: a cold Windows build takes 75-80 minutes, a warm one 8-14).
+  It does not run when the restore failed or the build step was skipped (an earlier step failed), and Windows saves from
+  shard 1 only.
+- Every job that saved then deletes the older caches of the same ccache on the same branch or pull request
+  (`scripts/ci-prune-caches.sh <key prefix>`, step "Delete this ref's older ccaches", which needs `actions: write` on the
+  job's token). It lists only the caches of `GITHUB_REF`, only keys of exactly the form `<prefix><run id>` (so
+  `ccache-Linux-gcc-` never touches another job's `ccache-Linux-linux-asan-<id>`), and deletes nothing unless the cache
+  this run just saved is in the list. A failure is a warning, never a red job (a pull request from a fork has a read-only
+  token). Failed and cancelled rounds save too, so without this the repository's 10 GB would fill with them and GitHub's
+  eviction of the least recently used caches would remove `main`'s first, which every pull request starts from. `CI
+  result` still deletes the older ccaches of the ref at the end of a round, as a net under that.
 A ccache is found by the START of its key (`restore-keys` gives a job the newest cache whose key begins with its prefix), so
 no job's prefix may begin another job's key: the GCC job's `ccache-Linux-gcc-` (it was `ccache-Linux-linux-`, which the
 Clang jobs' `ccache-Linux-linux-asan-`, `-tsan-`, `-fuzz-` and `-coverage-` also begin with, so the GCC job restored a Clang
