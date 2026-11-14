@@ -14,6 +14,10 @@ Older versions, one file per minor version with its patch releases: [0.26](chang
   from a recent run, and the ASan job runs its tests on two machines (`scripts/ctest_shard.py`, with a self-test).
   `scripts/ci-preflight.sh` runs what CI's `lint` job runs (format, the cache keys, the test split, clang-tidy), and
   `--lint-only` runs just the risk scan and those: minutes before a push instead of a CI round after it.
+- `scripts/agent-build.sh` on a Mac whose displays are all asleep (lid closed, or idle): the tests that open a window
+  (ctest label `window`) are left out and listed as `SKIPPED`, never as passed, and the run ends as `agent-build: DONE
+  INCOMPLETE` (status 77) instead of waiting five minutes for each of them to time out; `FA_TEST_NO_WINDOW=1` tells a
+  test case not to start a windowed program (`sign.macos`'s sandboxed app). `FA_AGENT_WINDOW_TESTS=run` runs them anyway.
 
 ## 0.27.0
 
