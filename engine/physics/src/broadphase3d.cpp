@@ -227,35 +227,48 @@ void Broadphase3D::sorted_pairs(std::vector<std::pair<std::uint32_t, std::uint32
     std::sort(out.begin(), out.end());
 }
 
-std::string Broadphase3D::validate() const {
+std::string Broadphase3D::validate(bool checkBalance) const {
+    constexpr std::size_t kMaxReported = 8;  // a broken tree can have thousands of bad nodes: the first ones tell enough
+    std::string problems;
+    std::size_t count = 0;
+    auto report = [&](const std::string& what) {
+        if (++count > kMaxReported) return;
+        if (!problems.empty()) problems += "; ";
+        problems += what;
+    };
     std::size_t leaves = 0;
     std::vector<int> stack;
     if (root_ != kNone) {
-        if (nodes_[std::size_t(root_)].parent != kNone) return "the root has a parent";
+        if (nodes_[std::size_t(root_)].parent != kNone) report("the root has a parent");
         stack.push_back(root_);
     }
     while (!stack.empty()) {
         const int i = stack.back();
         stack.pop_back();
         const Node& n = nodes_[std::size_t(i)];
-        if (!n.used) return std::format("node {} is reachable but free", i);
+        if (!n.used) {
+            report(std::format("node {} is reachable but free", i));
+            continue;
+        }
         if (n.child1 == kNone) {
             ++leaves;
-            if (n.height != 0) return std::format("leaf {} has height {}", i, n.height);
+            if (n.height != 0) report(std::format("leaf {} has height {}", i, n.height));
             continue;
         }
         const Node& c1 = nodes_[std::size_t(n.child1)];
         const Node& c2 = nodes_[std::size_t(n.child2)];
-        if (c1.parent != i || c2.parent != i) return std::format("node {}: a child does not point back", i);
-        if (n.height != 1 + std::max(c1.height, c2.height)) return std::format("node {}: wrong height", i);
+        if (c1.parent != i || c2.parent != i) report(std::format("node {}: a child does not point back", i));
+        if (n.height != 1 + std::max(c1.height, c2.height)) report(std::format("node {}: wrong height", i));
         if (!aabb_contains(n.box, c1.box) || !aabb_contains(n.box, c2.box))
-            return std::format("node {}: its box does not contain its children's", i);
-        if (c1.height - c2.height > 1 || c2.height - c1.height > 1) return std::format("node {}: unbalanced", i);
+            report(std::format("node {}: its box does not contain its children's", i));
+        if (checkBalance && (c1.height - c2.height > 1 || c2.height - c1.height > 1))
+            report(std::format("node {}: unbalanced", i));
         stack.push_back(n.child1);
         stack.push_back(n.child2);
     }
-    if (leaves != leaves_) return std::format("{} leaves reachable, {} counted", leaves, leaves_);
-    return {};
+    if (leaves != leaves_) report(std::format("{} leaves reachable, {} counted", leaves, leaves_));
+    if (count > kMaxReported) problems += std::format("; ... and {} more", count - kMaxReported);
+    return problems;
 }
 
 }  // namespace fa::detail
