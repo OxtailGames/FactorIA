@@ -47,12 +47,9 @@ struct Scene {
     }
 };
 
-// What is wrong with the tree, except that a rotation may leave one subtree two levels taller than its sibling after many
-// moves (the height stays logarithmic; the structure test of test_broadphase3d.cpp covers the rotations).
-std::string tree_problems(const Scene& s) {
-    const std::string p = s.p.broadphase_problems();
-    return p.ends_with("unbalanced") ? std::string() : p;
-}
+// What is wrong with the tree, except for its balance: a rotation may leave one subtree two levels taller than its sibling
+// after many moves (the height stays logarithmic; the structure test of test_broadphase3d.cpp covers the rotations).
+std::string tree_problems(const Scene& s) { return s.p.broadphase_problems(false); }
 
 // One random body: shape (mesh only static), type, trigger, layer, rotation, size.
 Entity add_random(Scene& s, QRng& rng, float extent, bool allowDisabled) {

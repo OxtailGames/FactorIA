@@ -6,10 +6,7 @@
 
 #include <algorithm>
 #include <cmath>
-#include <cstdint>
 #include <cstdio>
-#include <cstdlib>
-#include <cstring>
 #include <string>
 #include <vector>
 
@@ -234,15 +231,15 @@ TEST_CASE("3d scale: a 5x5x4 block of 100 boxes comes to rest, asleep, and keeps
 
 // The budget of the broad phase: 1000 mixed bodies from the drop (the busiest steps: every body falls, then the first
 // impacts). The time of a step grows with the bodies near each other, not with every pair: a pit of 1000 bodies costs about
-// 6 times a pit of 250 (the same layers, a quarter as tall), where a candidate list of every pair (the old solver's
-// loops) costs about 16 times. The test checks that RATIO, measured in the same process (the faster of two runs of each, so a busy machine does
-// not matter), and only a loose absolute bound: a CI VM can be several times slower than a laptop, which a number of
-// milliseconds cannot know. Debug builds only run a short stretch and print; sanitizer and coverage builds are far slower
-// than the scale of test_speed_budget_scale() knows, so only optimized builds check.
+// 6 times a pit of 250 (the same layers, a quarter as tall), where a candidate list of every pair (the old solver's loops)
+// costs about 16 times. The test checks that RATIO, measured in the same process (the faster of two runs of each, so a
+// busy machine does not matter), and only a loose absolute bound: a CI VM can be several times slower than a laptop,
+// which a number of milliseconds cannot know. A non-optimized build runs the same short stretch once and prints it;
+// sanitizer and coverage builds are far slower than the scale of test_speed_budget_scale() knows, so only optimized
+// builds check.
 TEST_CASE("3d scale: 1000 bodies falling into a walled pit stay within a CPU budget") {
-    const int kSteps =
-        kOptimized ? 20 : 10;        // the first layer is 0.3 m above the floor: impacts start at about step 10
-    auto pit_ms = [&](int bodies) {  // ms per step of the stretch, the faster of two runs
+    const int kSteps = kOptimized ? 20 : 10;  // the first layer is 0.3 m above the floor: impacts start at about step 10
+    auto pit_ms = [&](int bodies) {           // ms per step of the stretch, the faster of two runs
         double best = 1e30;
         for (int run = 0; run < (kOptimized ? 2 : 1); ++run) {
             Sim s;
@@ -263,9 +260,11 @@ TEST_CASE("3d scale: 1000 bodies falling into a walled pit stay within a CPU bud
     }
 }
 
-// Release only (a settled Debug run of 1000 bodies takes minutes): the pit comes to rest, every body asleep, and a step of
-// sleeping bodies costs almost nothing (the sync only: no sub-steps, no broad phase). It is asleep after about 1600 steps
-// (27 s; how long a pile creeps depends on the scene: 800 to 1600 measured): the limit is 3 times that.
+// Optimized builds only (a settled Debug run of 1000 bodies takes minutes): the pit comes to rest, every body asleep,
+// and a step of sleeping bodies costs almost nothing (the sync only: no sub-steps, no broad phase). The pile is asleep
+// after about 1560 steps (a Release run measured 65 s of CPU on an M-series laptop, almost all of it the awake steps of
+// the creep: a pile of 1000 bodies keeps a few bodies above the sleep speed for a long while, and one awake body keeps
+// its island awake). The limit of 5400 steps (90 s of simulated time) is 3.5 times that.
 TEST_CASE("3d scale: 1000 bodies in a walled pit settle asleep and then cost almost nothing") {
     if (!kOptimized) return;
     Sim s;
