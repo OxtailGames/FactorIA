@@ -128,8 +128,8 @@ public:
     int dynamic_count() const { return dynLive_; }
 
     // Reachability labels: `search` answers "unreachable" from them without running A*. They cover every usable span
-    // (static and dynamic) and are recomputed by `refresh()` when a change made them stale AND a search had to run to
-    // exhaustion since (so a grid nobody fails to search on never pays for them). While stale, search runs A* as usual.
+    // (static and dynamic) and are recomputed by `refresh()` when a change made them stale AND a search failed since
+    // (so a grid nobody fails to search on never pays for them; `build` makes them once). While stale, search runs A* as usual.
     // `set_reach_shortcut(false)` turns the shortcut off (tests compare both paths).
     void set_reach_shortcut(bool on) { reachShortcut_ = on; }
     bool reach_valid() const { return !reachDirty_; }
@@ -181,9 +181,8 @@ private:
     };
     std::vector<std::int32_t> reach_;         // per span: component label (its lowest span + 1), 0 = not usable
     std::vector<std::uint8_t> reachAsym_;     // per component (by lowest span): some step or link has no way back
-    std::vector<std::int32_t> reachBegin_, reachMembers_;  // the spans of each component, ascending
     bool reachDirty_ = true, reachShortcut_ = true;
-    mutable Flag reachWanted_;  // a search ran to exhaustion on stale labels
+    mutable Flag reachWanted_;  // a search failed (by A* or from the labels) since the last refresh
     void make_reach();
     int flood_nearest(int start, int goal, Scratch& sc) const;
     void flood_from(int start, Scratch& sc, std::vector<int>& seen) const;

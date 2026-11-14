@@ -115,7 +115,7 @@ void NavGrid::build(const NavParams& params, std::vector<NavEntry>& entries) {
     scratch_ = Scratch{};
     scratch_.resize(spans_.size());
     reachDirty_ = true;
-    make_reach();
+    make_reach();  // a grid built is queried at once: its labels exist before the first search (refresh redoes them)
     edist_.assign(spans_.size(), 0.0f);
     edistStamp_.assign(spans_.size(), 0);
     edistNow_ = 0;
@@ -380,33 +380,33 @@ float NavGrid::heuristic_to(int s, const Vec3& gc) const {
 // heuristic (within A*'s 1e-6 tolerance): otherwise -1 and the caller runs A*.
 int NavGrid::flood_nearest(int start, int goal, Scratch& sc) const {
     const Vec3 gc = center(goal);
+    const std::int32_t label = reach_[std::size_t(start)];
+    const std::size_t root = std::size_t(label - 1);
     std::vector<int> flooded;
-    const int* seen;
-    std::size_t count;
-    const std::size_t root = std::size_t(reach_[std::size_t(start)] - 1);
-    if (!reachAsym_[root]) {
-        // Every step and link of this component has its way back: what A* reaches from `start` is all of it.
-        seen = reachMembers_.data() + reachBegin_[root];
-        count = std::size_t(reachBegin_[root + 1] - reachBegin_[root]);
-    } else {
+    const bool whole = !reachAsym_[root];
+    if (!whole) {
         ++sc.now;
         flood_from(start, sc, flooded);
-        seen = flooded.data();
-        count = flooded.size();
     }
-    std::vector<float> h(count);
+    // Every step and link of a symmetric component has its way back: what A* reaches from `start` is all of it, which
+    // is every span with its label (no member list is kept: 4 B a span less than one).
+    auto each = [&](auto&& fn) {
+        if (whole) {
+            for (std::size_t s = root; s < reach_.size(); ++s)
+                if (reach_[s] == label) fn(int(s));
+        } else {
+            for (int s : flooded) fn(s);
+        }
+    };
     float best = kInf;
-    for (std::size_t i = 0; i < count; ++i) {
-        h[i] = heuristic_to(seen[i], gc);
-        best = std::min(best, h[i]);
-    }
+    each([&](int s) { best = std::min(best, heuristic_to(s, gc)); });
     int found = -1, ties = 0;
-    for (std::size_t i = 0; i < count; ++i) {
-        if (h[i] <= best + 1e-6f) {
-            found = seen[i];
+    each([&](int s) {
+        if (heuristic_to(s, gc) <= best + 1e-6f) {
+            found = s;
             ++ties;
         }
-    }
+    });
     return ties == 1 ? found : -1;
 }
 
@@ -457,10 +457,11 @@ std::vector<int> NavGrid::search(int start, int goal, int* closest, std::vector<
         std::size_t(goal) < reach_.size() && reach_[std::size_t(start)] > 0 &&
         reach_[std::size_t(goal)] != reach_[std::size_t(start)]) {
         // Different components (or an unusable goal): A* would exhaust everything reachable from start and fail.
+        reachWanted_.v.store(true, std::memory_order_relaxed);  // keep the labels coming while queries fail
         if (!closest) return {};
-        const int near = flood_nearest(start, goal, sc);
-        if (near >= 0) {
-            *closest = near;
+        const int nearestSpan = flood_nearest(start, goal, sc);
+        if (nearestSpan >= 0) {
+            *closest = nearestSpan;
             return {};
         }
         // Several spans tie for nearest: which one A* reports depends on its pop order, so run it.
@@ -918,9 +919,10 @@ void NavGrid::refresh() {
         dirty_.clear();
         reachDirty_ = true;  // the erosion changed which spans are usable
     }
-    // Only when a search had to run to exhaustion since the labels went stale: a grid whose searches succeed, or that
-    // nobody searches, never pays for them, and one that fails a query a frame pays one flood a frame (less than that
-    // query's A*).
+    // Only when a search failed (ran to exhaustion, or was answered from the labels) since they went stale: a grid
+    // whose searches succeed, or that nobody searches, never pays for them, and one that fails a query a frame pays
+    // one flood a frame (less than that query's A*). A failing query keeps the request alive, so an obstacle that
+    // moves every frame gets its labels every frame.
     if (reachDirty_ && reachWanted_.v.load(std::memory_order_relaxed)) make_reach();
 }
 
@@ -966,19 +968,12 @@ void NavGrid::make_reach() {
     }
     reach_.assign(n, 0);
     reachAsym_.assign(n, 0);
-    reachBegin_.assign(n + 1, 0);
     for (int s = 0; s < int(n); ++s) {
         if (!usable(s)) continue;
         const std::int32_t root = find(s);
         reach_[std::size_t(s)] = root + 1;
-        ++reachBegin_[std::size_t(root) + 1];
     }
     for (std::int32_t s : oneWay) reachAsym_[std::size_t(find(s))] = 1;
-    for (std::size_t i = 1; i < reachBegin_.size(); ++i) reachBegin_[i] += reachBegin_[i - 1];
-    reachMembers_.assign(std::size_t(reachBegin_[n]), 0);
-    std::vector<std::int32_t> fill(reachBegin_.begin(), reachBegin_.end() - 1);
-    for (int s = 0; s < int(n); ++s)
-        if (usable(s)) reachMembers_[std::size_t(fill[std::size_t(reach_[std::size_t(s)] - 1)]++)] = s;
     reachDirty_ = false;
     reachWanted_.v.store(false, std::memory_order_relaxed);
 }
