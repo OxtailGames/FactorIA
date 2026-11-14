@@ -256,9 +256,11 @@ TEST_CASE("heightfield3d: boxes, spheres and capsules rest on a flat field and f
     std::vector<Entity> balls, boxes, capsules;
     for (int i = 0; i < 6; ++i) {
         const std::string n = std::to_string(i);
-        balls.push_back(add_sphere(s.world, ("s" + n).c_str(), {-8.0f + 3.1f * float(i), 0.6f, -4.3f + 0.37f * float(i)}));
+        balls.push_back(
+            add_sphere(s.world, ("s" + n).c_str(), {-8.0f + 3.1f * float(i), 0.6f, -4.3f + 0.37f * float(i)}));
         boxes.push_back(add_box(s.world, ("b" + n).c_str(), {-8.0f + 3.1f * float(i), 0.6f, 0.2f + 0.41f * float(i)}));
-        capsules.push_back(add_capsule(s.world, ("c" + n).c_str(), {-8.0f + 3.1f * float(i), 0.9f, 4.7f - 0.2f * float(i)}));
+        capsules.push_back(
+            add_capsule(s.world, ("c" + n).c_str(), {-8.0f + 3.1f * float(i), 0.9f, 4.7f - 0.2f * float(i)}));
     }
     s.run(420);
     CHECK(s.awake_count() == 0);
@@ -333,7 +335,8 @@ TEST_CASE("heightfield3d: nothing bumps at the seams between triangles") {
     }
     {  // a plane tilted across the diagonal of the cells: the velocity stays in the plane
         Sim s;
-        add_field(s.world, "field", 81, 81, 1.0f, [](float x, float z) { return 0.1f * x - 0.05f * z; }, {0, 0, 0}, 0.0f);
+        add_field(
+            s.world, "field", 81, 81, 1.0f, [](float x, float z) { return 0.1f * x - 0.05f * z; }, {0, 0, 0}, 0.0f);
         Entity box = add_box(s.world, "box", {12.0f, 1.32f, 7.0f}, {0.8f, 0.8f, 0.8f}, true, 0.0f);
         Entity ball = add_sphere(s.world, "ball", {12.0f, 1.48f, 3.0f}, 0.4f, true, 0.0f);
         const Vec3 n = normalize(Vec3{-0.1f, 1.0f, 0.05f});
@@ -341,7 +344,8 @@ TEST_CASE("heightfield3d: nothing bumps at the seams between triangles") {
         for (int i = 0; i < 300; ++i) {
             s.run(1);
             if (i < 20) continue;
-            for (Entity e : {box, ball}) worst = std::max(worst, std::fabs(dot(s.world.get<RigidBody3D>(e)->velocity, n)));
+            for (Entity e : {box, ball})
+                worst = std::max(worst, std::fabs(dot(s.world.get<RigidBody3D>(e)->velocity, n)));
         }
         CHECK(s.pos(box).x < 12.0f - 3.0f);
         CHECK(s.pos(ball).x < 12.0f - 3.0f);
@@ -405,9 +409,12 @@ TEST_CASE("heightfield3d: the grid walk finds what testing every triangle finds"
         for (int i = 0; i < 400; ++i) {
             Vec3 o{(rng.next() * 2 - 1) * halfX * 1.3f, rng.next() * 7.0f - 1.5f, (rng.next() * 2 - 1) * halfZ * 1.3f};
             Vec3 d{rng.next() * 2 - 1, -0.05f - rng.next(), rng.next() * 2 - 1};
-            if (i % 4 == 1) d = {1.0f, 0.0f, 0.0f};      // along a row
-            else if (i % 4 == 2) d = {0.0f, 0.0f, -1.0f};  // along a column
-            else if (i % 4 == 3) d = {0.0f, -1.0f, 0.0f};  // straight down
+            if (i % 4 == 1)
+                d = {1.0f, 0.0f, 0.0f};  // along a row
+            else if (i % 4 == 2)
+                d = {0.0f, 0.0f, -1.0f};  // along a column
+            else if (i % 4 == 3)
+                d = {0.0f, -1.0f, 0.0f};  // straight down
             d = normalize(d);
             float t1 = 0, t2 = 0;
             Vec3 n1{}, n2{};
@@ -476,14 +483,14 @@ TEST_CASE("heightfield3d: raycast, raycast_all, overlap_sphere and shape_cast se
     CHECK(s.physics.overlap_sphere3d(s.world, top + Vec3{0, 0.3f, 0}, 0.5f).size() == 1);
     CHECK(s.physics.overlap_sphere3d(s.world, top + Vec3{0, 3.0f, 0}, 0.5f).empty());
     const auto cast = s.physics.shape_cast3d(s.world, CastShape{CastShape::Kind::Circle, 0.5f, {1, 1, 1}},
-                                              top + Vec3{0, 6.0f, 0}, top - Vec3{0, 4.0f, 0});
+                                             top + Vec3{0, 6.0f, 0}, top - Vec3{0, 4.0f, 0});
     REQUIRE(cast.has_value());
     CHECK(cast->entity == field);
     CHECK(cast->distance > 5.0f);
     CHECK(cast->distance < 6.6f);
     CHECK(cast->normal.y > 0.2f);
     const auto boxCast = s.physics.shape_cast3d(s.world, CastShape{CastShape::Kind::Box, 0.5f, {1, 1, 1}},
-                                                 top + Vec3{0, 6.0f, 0}, top - Vec3{0, 4.0f, 0});
+                                                top + Vec3{0, 6.0f, 0}, top - Vec3{0, 4.0f, 0});
     REQUIRE(boxCast.has_value());
     CHECK(boxCast->entity == field);
 }
@@ -537,7 +544,8 @@ TEST_CASE("heightfield3d: an edit wakes only the sleeping bodies near it and the
     Heightfield3D* g = s.world.get<Heightfield3D>(field);
 
     // 1. raise the four corners of the cell under `near` by 0.3 m
-    for (const std::size_t i : {32u * 65u + 32u, 32u * 65u + 33u, 33u * 65u + 32u, 33u * 65u + 33u}) g->heights.set(i, 0.3f);
+    for (const std::size_t i : {32u * 65u + 32u, 32u * 65u + 33u, 33u * 65u + 32u, 33u * 65u + 33u})
+        g->heights.set(i, 0.3f);
     s.physics.sync(s.world);
     CHECK(s.awake(near));
     CHECK(!s.awake(side));
@@ -570,9 +578,8 @@ TEST_CASE("heightfield3d: an edit wakes only the sleeping bodies near it and the
 TEST_CASE("heightfield3d: one cell of a field of a million samples is edited well under a millisecond") {
     Sim s;
     constexpr int kSide = 1025;
-    Entity field = add_field(s.world, "field", kSide, kSide, 0.5f, [](float x, float z) {
-        return 0.4f * std::sin(0.13f * x) * std::cos(0.11f * z);
-    });
+    Entity field = add_field(s.world, "field", kSide, kSide, 0.5f,
+                             [](float x, float z) { return 0.4f * std::sin(0.13f * x) * std::cos(0.11f * z); });
     Entity ball = add_sphere(s.world, "ball", {40.0f, 3.0f, 40.0f}, 0.4f, true);
     s.run(300);  // the first sync reads the grid; the ball comes to rest and sleeps
     CHECK(!s.awake(ball));
@@ -648,11 +655,11 @@ TEST_CASE("heightfield3d: a body under solid ground is pushed up within a depth;
         for (int c = 18; c <= 22; ++c) holes[std::size_t(r) * 40 + std::size_t(c)] = 1;  // x and z in [-2, 3]
     comp.holes.assign(holes.data(), holes.size());
     add_field(s.world, "field", comp);
-    Entity sphere = add_sphere(s.world, "sphere", {8.0f, -2.0f, 0.5f});       // teleported 2.4 m below the surface
-    Entity box = add_box(s.world, "box", {-8.0f, -1.0f, 0.5f});               // the same with a box
-    Entity deep = add_sphere(s.world, "deep", {12.0f, -20.0f, 0.5f});         // far below the solid depth
-    Entity hole = add_sphere(s.world, "hole", {0.5f, -2.0f, 0.5f});           // under a hole cell
-    Entity edge = add_sphere(s.world, "edge", {0.5f, 2.0f, 0.5f});            // falls through the hole
+    Entity sphere = add_sphere(s.world, "sphere", {8.0f, -2.0f, 0.5f});  // teleported 2.4 m below the surface
+    Entity box = add_box(s.world, "box", {-8.0f, -1.0f, 0.5f});          // the same with a box
+    Entity deep = add_sphere(s.world, "deep", {12.0f, -20.0f, 0.5f});    // far below the solid depth
+    Entity hole = add_sphere(s.world, "hole", {0.5f, -2.0f, 0.5f});      // under a hole cell
+    Entity edge = add_sphere(s.world, "edge", {0.5f, 2.0f, 0.5f});       // falls through the hole
     s.run(240);
     CHECK(s.pos(sphere).y == doctest::Approx(0.4f).epsilon(0.1));
     CHECK(s.pos(box).y == doctest::Approx(0.4f).epsilon(0.1));
@@ -785,10 +792,10 @@ TEST_CASE("heightfield3d: a ray exactly along a row, a column or through the cor
     for (int i = 0; i < 40; ++i) {
         const float k = float(i - 20) * 0.9f;
         const Vec3 cases[][2] = {
-            {{-30.0f, 4.0f + 0.01f * float(i), float(int(k))}, {1.0f, -0.1f, 0.0f}},            // along a row of samples
-            {{float(int(k)), 4.0f + 0.01f * float(i), -30.0f}, {0.0f, -0.1f, 1.0f}},            // along a column
-            {{-30.0f, 0.0f + float(i) * 0.1f, -30.0f + 0.5f * float(i)}, {1.0f, 0.0f, 1.0f}},   // across the corners
-            {{-12.0f + float(i % 5), 6.0f, -8.0f}, {0.0f, -1.0f, 0.0f}},                         // down through a sample
+            {{-30.0f, 4.0f + 0.01f * float(i), float(int(k))}, {1.0f, -0.1f, 0.0f}},           // along a row of samples
+            {{float(int(k)), 4.0f + 0.01f * float(i), -30.0f}, {0.0f, -0.1f, 1.0f}},           // along a column
+            {{-30.0f, 0.0f + float(i) * 0.1f, -30.0f + 0.5f * float(i)}, {1.0f, 0.0f, 1.0f}},  // across the corners
+            {{-12.0f + float(i % 5), 6.0f, -8.0f}, {0.0f, -1.0f, 0.0f}},                       // down through a sample
         };
         for (const auto& cs : cases) {
             const Vec3 d = normalize(cs[1]);
@@ -825,7 +832,7 @@ TEST_CASE("heightfield3d: two readers of the arrays see every edit, whoever read
     std::size_t b = 0, e = 0;
     g->heights.set(10 * 21 + 5, 3.0f);  // edit A at x = -5, z = 0
     CHECK(g->heights.dirty_since(other, b, e));
-    other = g->heights.version();       // the other reader takes it: the range is still there for physics
+    other = g->heights.version();        // the other reader takes it: the range is still there for physics
     g->heights.set(10 * 21 + 15, 4.0f);  // edit B at x = 5, z = 0
     s.physics.sync(s.world);
     CHECK(top(-5.0f, 0.0f) == doctest::Approx(3.0f).epsilon(1e-3));
@@ -844,8 +851,8 @@ TEST_CASE("heightfield3d: two readers of the arrays see every edit, whoever read
     g->holes.set(10 * 20 + 12, 1);
     CHECK(g->holes.dirty_since(holesSeen, b, e));
     s.physics.sync(s.world);
-    CHECK(top(-6.5f, 0.5f) < -100.0f);   // the cell (10, 3): x in [-7, -6], z in [0, 1]
-    CHECK(top(2.5f, 0.5f) < -100.0f);    // the cell (10, 12)
+    CHECK(top(-6.5f, 0.5f) < -100.0f);  // the cell (10, 3): x in [-7, -6], z in [0, 1]
+    CHECK(top(2.5f, 0.5f) < -100.0f);   // the cell (10, 12)
     CHECK(top(0.5f, 0.5f) > -100.0f);
 }
 

@@ -238,8 +238,9 @@ TEST_CASE("3d scale: a 5x5x4 block of 100 boxes comes to rest, asleep, and keeps
 // sanitizer and coverage builds are far slower than the scale of test_speed_budget_scale() knows, so only optimized
 // builds check.
 TEST_CASE("3d scale: 1000 bodies falling into a walled pit stay within a CPU budget") {
-    const int kSteps = kOptimized ? 20 : 10;  // the first layer is 0.3 m above the floor: impacts start at about step 10
-    auto pit_ms = [&](int bodies) {           // ms per step of the stretch, the faster of two runs
+    const int kSteps =
+        kOptimized ? 20 : 10;        // the first layer is 0.3 m above the floor: impacts start at about step 10
+    auto pit_ms = [&](int bodies) {  // ms per step of the stretch, the faster of two runs
         double best = 1e30;
         for (int run = 0; run < (kOptimized ? 2 : 1); ++run) {
             Sim s;

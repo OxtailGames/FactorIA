@@ -60,7 +60,8 @@ CharacterMoveResult Physics3D::move_character_body(World& world, Body& b, Vec3 d
     auto depenetrate = [&]() {
         for (int pass = 0; pass < 4; ++pass) {
             bool moved = false;
-            std::size_t next = 0;  // the capsule moves when it is pushed out of one body: look again from the next index on
+            std::size_t next =
+                0;  // the capsule moves when it is pushed out of one body: look again from the next index on
             for (bool again = true; again;) {
                 again = false;
                 gather({});
@@ -79,7 +80,7 @@ CharacterMoveResult Physics3D::move_character_body(World& world, Body& b, Vec3 d
             if (!moved) break;
         }
     };
-    std::vector<int> pushed;  // the bodies already pushed by this move
+    std::vector<int> pushed;                      // the bodies already pushed by this move
     auto push = [&](const Hit& h, Vec3 motion) {  // a dynamic body in the way moves off at the character's speed
         Body& o = bodies_[std::size_t(h.body)];
         if (o.type != BodyType::Dynamic || o.jointed || b.pushStrength <= 0.0f ||
@@ -196,7 +197,8 @@ CharacterMoveResult Physics3D::move_character_body(World& world, Body& b, Vec3 d
         b.lastCenter = b.center;
         b.pendingCarry += out.moved;
         b.moved = true;
-        cover_body(b);  // the next query (a character moved after this one, a script's raycast) finds it where it is now
+        cover_body(
+            b);  // the next query (a character moved after this one, a script's raycast) finds it where it is now
     }
     if (CharacterController3D* c = world.get<CharacterController3D>(b.e)) {
         c->isGrounded = out.isGrounded;

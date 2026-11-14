@@ -17,7 +17,7 @@ namespace {
 
 constexpr float kDt = 1.0f / 60.0f;
 constexpr int kSteps = 60;
-constexpr int k3dSteps = 20;  // the 3D solver costs more per body
+constexpr int k3dSteps = 20;     // the 3D solver costs more per body
 constexpr int k3dPitSteps = 10;  // 1000 bodies: the first steps of the fall, then the first impacts
 
 // A world and its physics, rebuilt before every run: bodies fall asleep, so a second run on the same world would measure a
@@ -213,8 +213,8 @@ Bench physics_3d_pit() {
 Bench physics_3d_mostly_asleep(int pile, const char* name) {
     Bench b;
     b.name = name;
-    b.summary =
-        std::format("Physics::step x{}: {} sleeping boxes in a pile and 20 bodies falling elsewhere (3D)", k3dSteps, pile);
+    b.summary = std::format("Physics::step x{}: {} sleeping boxes in a pile and 20 bodies falling elsewhere (3D)",
+                            k3dSteps, pile);
     b.make = [pile] {
         auto sim = std::make_shared<Sim>();
         Prepared p;
@@ -275,8 +275,10 @@ void build_tilemap_2d(World& w, int n = 256) {
 Bench physics_tilemap_edit(int n) {
     Bench b;
     b.name = n == 256 ? "physics.tilemap_edit" : "physics.tilemap_edit_large";
-    b.summary = std::format("set_tilemap_tile + Physics::step x40: one cell of a {0} x {0} Tilemap changes per step (2D collision)", n);
-    b.warnRatio = 2.5;  // a run lasts a fraction of a millisecond: the clock and a busy machine move it more than the work
+    b.summary = std::format(
+        "set_tilemap_tile + Physics::step x40: one cell of a {0} x {0} Tilemap changes per step (2D collision)", n);
+    b.warnRatio =
+        2.5;  // a run lasts a fraction of a millisecond: the clock and a busy machine move it more than the work
     b.failRatio = 6.0;
     b.make = [n] {
         auto sim = std::make_shared<Sim>();
@@ -352,8 +354,8 @@ void build_heightfield_3d(World& w, int side, int bodies, bool lock) {
 Bench physics_heightfield_step() {
     Bench b;
     b.name = "physics.heightfield_step";
-    b.summary = std::format("Physics::step x{}: 200 spheres, capsules and boxes falling onto a 256 x 256 heightfield (3D)",
-                            k3dSteps);
+    b.summary = std::format(
+        "Physics::step x{}: 200 spheres, capsules and boxes falling onto a 256 x 256 heightfield (3D)", k3dSteps);
     b.make = [] {
         auto sim = std::make_shared<Sim>();
         Prepared p;
@@ -376,8 +378,10 @@ Bench physics_heightfield_step() {
 Bench physics_heightfield_edit() {
     Bench b;
     b.name = "physics.heightfield_edit";
-    b.summary = "Heightfield3D.heights.set + Physics::step x40: one height of a 256 x 256 field changes per step (3D collision)";
-    b.warnRatio = 2.5;  // a run lasts a fraction of a millisecond: the clock and a busy machine move it more than the work
+    b.summary = "Heightfield3D.heights.set + Physics::step x40: one height of a 256 x 256 field changes per step (3D "
+                "collision)";
+    b.warnRatio =
+        2.5;  // a run lasts a fraction of a millisecond: the clock and a busy machine move it more than the work
     b.failRatio = 6.0;
     b.make = [] {
         auto sim = std::make_shared<Sim>();
@@ -395,8 +399,9 @@ Bench physics_heightfield_edit() {
             Heightfield3D& g = *sim->world->get<Heightfield3D>(field);
             double sum = 0;
             for (int i = 0; i < 40; ++i) {
-                const std::size_t at = std::size_t(20 + 5 * i) * 256 + std::size_t(31 + 5 * i);  // a stroke across the field
-                g.heights.set(at, g.heights.cdata()[at] + 0.05f);  // cdata: reading does not dirty the array
+                const std::size_t at =
+                    std::size_t(20 + 5 * i) * 256 + std::size_t(31 + 5 * i);  // a stroke across the field
+                g.heights.set(at, g.heights.cdata()[at] + 0.05f);             // cdata: reading does not dirty the array
                 sum += sim->run_steps(1);
             }
             return sum + double(g.heights.version());
@@ -454,9 +459,10 @@ Bench physics_3d_queries(QueryKind kind) {
     constexpr int kRays = 10000, kOverlaps = 2000;
     Bench b;
     b.name = rays ? "physics.raycast3d_1000" : "physics.overlap3d_1000";
-    b.summary = rays ? std::format("Physics::raycast3d x{}: rays through a settled pile of 1000 bodies (3D)", kRays)
-                     : std::format("Physics::overlap_sphere3d x{}: spheres of 1.5 m in a settled pile of 1000 bodies (3D)",
-                                   kOverlaps);
+    b.summary =
+        rays ? std::format("Physics::raycast3d x{}: rays through a settled pile of 1000 bodies (3D)", kRays)
+             : std::format("Physics::overlap_sphere3d x{}: spheres of 1.5 m in a settled pile of 1000 bodies (3D)",
+                           kOverlaps);
     b.make = [rays] {
         auto sim = std::make_shared<Sim>();
         auto built = std::make_shared<bool>(false);

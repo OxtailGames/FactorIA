@@ -390,7 +390,8 @@ TEST_CASE("gradient_ease_apply: endpoints are exact, the curves bend the way the
     }
 }
 
-TEST_CASE("Sprite.vertexOffsets / vertexColors and SpriteSkin.bindPose are float arrays: same JSON on disk, a bad element teaches") {
+TEST_CASE("Sprite.vertexOffsets / vertexColors and SpriteSkin.bindPose are float arrays: same JSON on disk, a bad "
+          "element teaches") {
     ensure_builtin_components();
     // The JSON an older file holds still loads, and saves back as the same flat numbers.
     World w;
@@ -428,7 +429,8 @@ TEST_CASE("Sprite.vertexOffsets / vertexColors and SpriteSkin.bindPose are float
     REQUIRE_FALSE(report.ok());
     bool taught = false;
     for (const LoadMessage& m : report.messages)
-        if (m.pointer.find("/Sprite/vertexOffsets") != std::string::npos && m.message.find("element 1") != std::string::npos)
+        if (m.pointer.find("/Sprite/vertexOffsets") != std::string::npos &&
+            m.message.find("element 1") != std::string::npos)
             taught = true;
     CHECK(taught);
 

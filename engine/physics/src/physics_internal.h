@@ -162,17 +162,18 @@ private:
             int c0 = 0, c1 = 0, r0 = 0, r1 = 0;  // cells, both ends included
             b2ShapeId shape = b2_nullShapeId;
             std::uint64_t key = 0;  // shape_key(shape)
-            Rect rect;              // AABB relative to the map's position (for debug: the map may move after the box was made)
+            Rect rect;  // AABB relative to the map's position (for debug: the map may move after the box was made)
             bool alive = false;
         };
         std::vector<Box> boxes;                // by id; a removed box stays (alive = false) until its id is reused
         std::vector<std::uint32_t> freeBoxes;  // ids to reuse, last removed first
-        std::vector<std::uint32_t> boxAt;      // cols x rows (4 bytes per cell): id + 1 of the box holding the cell, 0 = none
+        std::vector<std::uint32_t>
+            boxAt;  // cols x rows (4 bytes per cell): id + 1 of the box holding the cell, 0 = none
         Vec3 pos;
         float rotZ = 0;
         std::uint64_t seen = 0;
-        int fullScans = 0;               // times every cell had to be compared (no edit list explained the change)
-        std::int64_t boxesBuilt = 0;     // boxes made since the body was made, the first build included
+        int fullScans = 0;            // times every cell had to be compared (no edit list explained the change)
+        std::int64_t boxesBuilt = 0;  // boxes made since the body was made, the first build included
         std::size_t shape_count() const { return boxes.size() - freeBoxes.size(); }
     };
     // Makes the box of cells c0..c1 x r0..r1 (one diamond per cell on an isometric map) and returns its id.
@@ -369,8 +370,10 @@ private:
         // Sleeping: a dynamic body (and every body linked to it by contacts) whose speed stayed tiny for kTimeToSleep stops
         // costing solver work and sends no events. Bodies that fell asleep together share `sleepGroup` and wake together.
         bool asleep = false;
-        bool moved = false;  // gameplay teleported or created this body since the last step: it wakes whatever it now touches
-        bool boxStale = false;  // sync changed what its box in the broad phase is made from: the next step covers it again
+        bool moved =
+            false;  // gameplay teleported or created this body since the last step: it wakes whatever it now touches
+        bool boxStale =
+            false;  // sync changed what its box in the broad phase is made from: the next step covers it again
         float sleepTime = 0.0f;
         std::uint64_t sleepGroup = 0;
         std::uint64_t seen = 0;
@@ -400,8 +403,8 @@ private:
                        std::fabs(radius - o.radius) <= 1e-5f * std::max(1.0f, radius) && near(half, o.half) &&
                        near(offset, o.offset) && ax[0] == o.ax[0] && ax[1] == o.ax[1] && ax[2] == o.ax[2] &&
                        layer == o.layer && mask == o.mask && kind == o.kind &&
-                       std::fabs(segHalf - o.segHalf) <= 1e-5f * std::max(1.0f, segHalf) &&
-                       near(gscale, o.gscale) && data == o.data;
+                       std::fabs(segHalf - o.segHalf) <= 1e-5f * std::max(1.0f, segHalf) && near(gscale, o.gscale) &&
+                       data == o.data;
             }
         };
         Sig sig() const {
@@ -539,7 +542,8 @@ private:
     static bool ray_body(const Body& b, Vec3 origin, Vec3 dir, float maxT, float& t, Vec3& normal);
     static void sphere_box(const Body& box, const Body& sph, float margin, Contact& out);
     static void box_box_sat(const Body& a, const Body& b, float margin, Contact& out, bool manifold);
-    static void face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, int refOwner, Contact& out);
+    static void face_manifold(const Body& ref, int refAxis, Vec3 refNormal, const Body& inc, int refOwner,
+                              Contact& out);
     // Stores the n candidate points (any number) in c: near-duplicates merged and at most kMaxPts kept, chosen by a rule that
     // depends only on the points (deepest, farthest from it, the two that span the most area), never on a thread or an
     // address, and tolerant of float noise so the same contact keeps the same points from one step to the next.
@@ -582,20 +586,21 @@ private:
     void cover_body(const Body& b);  // makes b's fat box contain its bounds now (a character that moved between steps)
     bool bruteQueries_ = false;
     bool bpDirty_ = false;  // sync created, removed or changed a body: bp_reconcile() must run
-    void bp_reconcile();  // one leaf per enabled body with a shape, payloads = current indices (after every sync)
-    void wake(Body& b);   // b and everything that fell asleep with it
+    void bp_reconcile();    // one leaf per enabled body with a shape, payloads = current indices (after every sync)
+    void wake(Body& b);     // b and everything that fell asleep with it
     void wake_touching(std::uint64_t seq);  // the bodies that touched body `seq` after the previous step
 
     PhysicsSettings settings_;
-    std::vector<Body> bodies_;  // sorted by seq (creation order)
+    std::vector<Body> bodies_;     // sorted by seq (creation order)
     std::uint32_t layoutGen_ = 1;  // changes whenever bodies_ is renumbered (a body destroyed, the world changed)
     // The bodies a step's stages visit instead of every body (see Physics3D::step): indices ascending. Sleeping and static
     // bodies are in none of the lists that drive the pair scans, the integration and the write-back, so a world with a big
     // sleeping pile steps like the awake bodies alone.
     struct Rows {
-        std::vector<std::size_t> awake;       // enabled, not static, not asleep
-        std::vector<char> isAwake;            // per body: in `awake`
-        std::vector<std::size_t> movedStatic;  // static bodies gameplay placed this step (they wake what they now touch)
+        std::vector<std::size_t> awake;  // enabled, not static, not asleep
+        std::vector<char> isAwake;       // per body: in `awake`
+        std::vector<std::size_t>
+            movedStatic;                      // static bodies gameplay placed this step (they wake what they now touch)
         std::vector<std::size_t> moved;       // every body with `moved` set
         std::vector<std::size_t> stale;       // bodies whose broad-phase box must be covered again
         std::vector<std::size_t> platforms;   // kinematic bodies with a velocity (not characters)
@@ -606,7 +611,7 @@ private:
         bool anyUnchecked = false;  // a body whose start-overlap check has not run
     };
     Rows rows_;
-    bool awakeStale_ = true;  // `rows_.awake` must be rebuilt (a body woke up)
+    bool awakeStale_ = true;     // `rows_.awake` must be rebuilt (a body woke up)
     bool chainsMarked_ = false;  // some body has chain iterations / drag from a previous step
     Broadphase3D bp_;  // fat boxes of the bodies with a shape; payload = index in bodies_ (renumbered every step)
     std::unordered_map<std::uint64_t, std::size_t> index_;  // entity bits -> index in bodies_

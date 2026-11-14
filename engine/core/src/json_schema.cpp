@@ -775,8 +775,7 @@ void cvalidate_alternatives(VCtx& ctx, const std::vector<const Node*>& branches,
     add(errors, path, "value does not match any of the allowed forms", hint);
 }
 
-void cvalidate_object(VCtx& ctx, const Body& b, const Json& value, const Path* path,
-                      std::vector<SchemaError>& errors) {
+void cvalidate_object(VCtx& ctx, const Body& b, const Json& value, const Path* path, std::vector<SchemaError>& errors) {
     for (const schema_detail::RequiredEntry& r : b.required) {
         if (value.contains(r.name)) continue;
         std::string hint = "Add \"" + r.name + "\"";

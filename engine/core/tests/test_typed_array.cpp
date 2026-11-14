@@ -36,7 +36,9 @@ const TypeInfo& array_probe_type() {
     return *t;
 }
 
-std::string error_text(const Result<void>& r) { return r.ok() ? std::string() : r.error().message + " " + r.error().hint; }
+std::string error_text(const Result<void>& r) {
+    return r.ok() ? std::string() : r.error().message + " " + r.error().hint;
+}
 }  // namespace
 
 namespace {
@@ -318,7 +320,9 @@ TEST_CASE("reflect arrays: JSON round trip, kinds and defaults") {
     ArrayProbe p;
     CHECK(object_to_json(t, &p)["ids"] == Json::array());
     auto r = object_patch_from_json(
-        t, &p, Json::parse(R"({"ids": [1, -2, 2147483647], "weights": [0.5, 1, -3.25], "mask": [0, 255, 7], "small": [0, 3]})"));
+        t, &p,
+        Json::parse(
+            R"({"ids": [1, -2, 2147483647], "weights": [0.5, 1, -3.25], "mask": [0, 255, 7], "small": [0, 3]})"));
     REQUIRE_MESSAGE(r.ok(), error_text(r));
     CHECK(p.ids.size() == 3);
     CHECK(p.ids[1] == -2);

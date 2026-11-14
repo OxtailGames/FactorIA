@@ -734,8 +734,9 @@ TEST_CASE("debugger: a run without a debugger is unaffected") {
 TEST_CASE("debugger: a component view shows the values of its fields, not accessors") {
     Rig r("view");
     r.use("scripts/calc.js", calc_fixture());
-    r.h.file("scenes/main.scene.json",
-             R"({"format":"factoria.scene/1","entities":[{"id":"a","components":{"Transform":{},"Sprite":{"layer":6}}}]})");
+    r.h.file(
+        "scenes/main.scene.json",
+        R"({"format":"factoria.scene/1","entities":[{"id":"a","components":{"Transform":{},"Sprite":{"layer":6}}}]})");
     r.dbg->set_breakpoints("scripts/calc.js", {bp(9)});
     REQUIRE(r.h.start());
     REQUIRE(r.h.load_scene_now("scenes/main.scene.json").empty());

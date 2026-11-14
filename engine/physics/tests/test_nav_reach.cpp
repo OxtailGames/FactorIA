@@ -118,7 +118,7 @@ TEST_CASE("nav grid: an obstacle that closes a passage and reopens it keeps ever
     CHECK(same_both_ways(g, a, b, false));
     g.clear_obstacle(1);
     g.refresh();
-    CHECK(g.reach_valid());  // failures were answered from the labels since: they are kept up to date
+    CHECK(g.reach_valid());                   // failures were answered from the labels since: they are kept up to date
     CHECK_FALSE(ask(g, a, b).chain.empty());  // reopened: found
     CHECK(same_both_ways(g, a, b));
     // A plank over the wall next to a closed door: a walkable body joins the two halves.
@@ -171,8 +171,10 @@ TEST_CASE("nav grid: random grids give the same answers with and without the lab
                 const bool labels = g.reach_valid();
                 if (labels) ++shortcut;
                 ++queries;
-                if (!ask(g, a, b, false).chain.empty()) ++found;
-                else if (labels && g.reach_label(a) > 0 && g.reach_label(a) != g.reach_label(b)) ++answeredFromLabels;
+                if (!ask(g, a, b, false).chain.empty())
+                    ++found;
+                else if (labels && g.reach_label(a) > 0 && g.reach_label(a) != g.reach_label(b))
+                    ++answeredFromLabels;
                 if (!same_both_ways(g, a, b, wantClosest)) {
                     FAIL_CHECK("round " << round << " step " << step << " query " << a << " -> " << b);
                     return;

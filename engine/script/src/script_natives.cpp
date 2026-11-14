@@ -240,8 +240,8 @@ JSTypedArrayEnum js_array_type() {
 template <class T>
 JSValue array_to_js(JSContext* ctx, const TypedArray<T>& a) {
     static const std::uint8_t kNone = 0;  // JS_NewArrayBufferCopy of an empty array still needs a pointer
-    JSValue buf = JS_NewArrayBufferCopy(
-        ctx, a.empty() ? &kNone : reinterpret_cast<const std::uint8_t*>(a.cdata()), a.size() * sizeof(T));
+    JSValue buf = JS_NewArrayBufferCopy(ctx, a.empty() ? &kNone : reinterpret_cast<const std::uint8_t*>(a.cdata()),
+                                        a.size() * sizeof(T));
     if (JS_IsException(buf)) return buf;
     JSValue arr = JS_NewTypedArray(ctx, 1, &buf, js_array_type<T>());
     JS_FreeValue(ctx, buf);
@@ -249,15 +249,14 @@ JSValue array_to_js(JSContext* ctx, const TypedArray<T>& a) {
 }
 
 template <class T>
-JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& what, TypedArray<T>& dst,
-                      JSValueConst v) {
+JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& what, TypedArray<T>& dst, JSValueConst v) {
     constexpr bool integral = std::is_integral_v<T>;
     const int jsType = JS_GetTypedArrayType(v);
     const bool typed = jsType >= 0;
-    const std::string expected = integral ? (std::is_same_v<T, std::uint8_t>
-                                                 ? "a Uint8Array or an array of integers from 0 to 255"
-                                                 : "an Int32Array or an array of integers")
-                                          : "a Float32Array or an array of numbers";
+    const std::string expected =
+        integral ? (std::is_same_v<T, std::uint8_t> ? "a Uint8Array or an array of integers from 0 to 255"
+                                                    : "an Int32Array or an array of integers")
+                 : "a Float32Array or an array of numbers";
     if (!typed && !JS_IsArray(v)) {
         CStr s(ctx, v);
         return throw_err(ctx, std::format("{} expects {}, got {}", what, expected,
@@ -271,8 +270,8 @@ JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& wha
     }
     if (length < 0) length = 0;
     if (static_cast<std::uint64_t>(length) > kMaxTypedArrayElements)  // before anything is allocated
-        return throw_err(ctx, std::format("{} holds at most {} elements, the array has {}", what,
-                                          kMaxTypedArrayElements, length));
+        return throw_err(
+            ctx, std::format("{} holds at most {} elements, the array has {}", what, kMaxTypedArrayElements, length));
     const std::size_t n = static_cast<std::size_t>(length);
     double lo = integral ? double(std::numeric_limits<T>::lowest()) : -double(FLT_MAX);
     double hi = integral ? double(std::numeric_limits<T>::max()) : double(FLT_MAX);
@@ -301,7 +300,8 @@ JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& wha
         if constexpr (integral)
             return std::format("an integer from {} to {}", bound(lo), bound(hi));
         else
-            return ranged ? std::format("a number from {} to {}", bound(lo), bound(hi)) : std::string("a finite number");
+            return ranged ? std::format("a number from {} to {}", bound(lo), bound(hi))
+                          : std::string("a finite number");
     };
     auto bad = [&](double d) { return !std::isfinite(d) || d < lo || d > hi || (integral && d != std::floor(d)); };
     // `out` is sized only where the JS side already holds that memory (a typed array); an Array is read element by element and

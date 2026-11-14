@@ -72,9 +72,7 @@ Acc::Body make_capsule_along_x(Vec3 centre, float radius, float segHalf) {
     return b;
 }
 
-std::set<std::uint32_t> id_set(const Acc::Contact& c) {
-    return std::set<std::uint32_t>(c.ids, c.ids + c.n);
-}
+std::set<std::uint32_t> id_set(const Acc::Contact& c) { return std::set<std::uint32_t>(c.ids, c.ids + c.n); }
 
 }  // namespace
 
@@ -160,7 +158,8 @@ TEST_CASE("manifold3d: the ids of a sliding contact stay with their corner") {
     const Acc::Body floor = make_box({0, 0, 0}, {3, 0.5f, 3});
     for (const float yaw : {0.0f, 20.0f}) {  // aligned (exact path) and turned (SAT path)
         const Acc::Body before = make_box({0.0f, 0.99f, 0.0f}, {0.5f, 0.5f, 0.5f}, yaw);
-        const Acc::Body after = make_box({0.04f, 0.9895f, -0.03f}, {0.5f, 0.5f, 0.5f}, yaw + (yaw != 0.0f ? 0.5f : 0.0f));
+        const Acc::Body after =
+            make_box({0.04f, 0.9895f, -0.03f}, {0.5f, 0.5f, 0.5f}, yaw + (yaw != 0.0f ? 0.5f : 0.0f));
         const Acc::Contact c0 = Acc::collide(floor, before), c1 = Acc::collide(floor, after);
         REQUIRE(c0.n == 4);
         REQUIRE(c1.n == 4);
@@ -231,7 +230,8 @@ TEST_CASE("manifold3d: an incident edge a micrometre from a side plane never put
     int checked = 0;
     for (const float yawRad : {-1e-5f, -3e-6f, -1e-6f, 1e-6f, 3e-6f, 1e-5f, 2e-4f}) {
         for (int step = -8; step <= 8; ++step) {
-            const float edge = 2.0f - 0.5f + float(step) * 4e-7f;  // the outer edge of the top box sits at 2 + step * 4e-7
+            const float edge =
+                2.0f - 0.5f + float(step) * 4e-7f;  // the outer edge of the top box sits at 2 + step * 4e-7
             for (const bool alongZ : {false, true}) {
                 const Vec3 centre = alongZ ? Vec3{0.2f, 0.99f, edge} : Vec3{edge, 0.99f, 0.2f};
                 const float yaw = yawRad * 180.0f / kPiF;
@@ -240,7 +240,8 @@ TEST_CASE("manifold3d: an incident edge a micrometre from a side plane never put
                 if (!c.hit || c.n == 0) continue;
                 ++checked;
                 CHECK(c.n <= 4);
-                for (int i = 0; i < c.n; ++i) {  // inside the floor's face and inside the top box's footprint, with a tolerance
+                for (int i = 0; i < c.n;
+                     ++i) {  // inside the floor's face and inside the top box's footprint, with a tolerance
                     CHECK(std::fabs(c.pts[i].x) <= 2.0f + 1e-3f);
                     CHECK(std::fabs(c.pts[i].z) <= 2.0f + 1e-3f);
                     CHECK(std::fabs(c.pts[i].x - centre.x) <= 0.5f + 1e-3f);

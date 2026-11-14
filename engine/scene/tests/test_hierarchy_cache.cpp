@@ -115,12 +115,8 @@ TEST_CASE("hierarchy cache: the same answers as a walk up the chain after random
                         w.set_parent(e, p, rng.chance(0.5f), int(rng.next_u32() % 4) - 1);
                 }
                 break;
-            case 4:
-                w.set_world_position(e, {rng.range(-9, 9), rng.range(-9, 9), 0});
-                break;
-            case 5:
-                w.set_active(e, rng.chance(0.6f));
-                break;
+            case 4: w.set_world_position(e, {rng.range(-9, 9), rng.range(-9, 9), 0}); break;
+            case 5: w.set_active(e, rng.chance(0.6f)); break;
             case 6:  // the mutable EntityInfo reference
                 if (w.alive(e)) w.info(e).active = rng.chance(0.7f);
                 break;
@@ -232,7 +228,8 @@ TEST_CASE("hierarchy cache: reading through a const World never invalidates, a m
     w.set_parent(mid, other);
     CHECK(cw.world_position(leaf).x == doctest::Approx(110.0f));
     CHECK_FALSE(cw.active_in_hierarchy(leaf));
-    w.set_parent(mid, kNullEntity, true);  // keeping the world pose: the local transform changes, the world one does not
+    w.set_parent(mid, kNullEntity,
+                 true);  // keeping the world pose: the local transform changes, the world one does not
     CHECK(cw.world_position(leaf).x == doctest::Approx(110.0f));
     CHECK(cw.active_in_hierarchy(leaf));
 }

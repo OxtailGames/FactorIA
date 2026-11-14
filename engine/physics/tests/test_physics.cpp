@@ -265,7 +265,8 @@ TEST_CASE("2d: a rows form sets width and height; a flat list without width is o
         s.world.get<Transform>(map)->position = {-40, 0, 0};
         Tilemap& tm = s.world.add<Tilemap>(map);
         tm.tileSize = {16, 16};
-        set_tilemap_tiles(tm, Json::array({-1, -1, 1, 1, -1}));  // no width/height: ONE row of 5 tiles, solid at columns 2 and 3
+        set_tilemap_tiles(
+            tm, Json::array({-1, -1, 1, 1, -1}));  // no width/height: ONE row of 5 tiles, solid at columns 2 and 3
         tm.solidTiles = Json::array({1});
         Entity box =
             add_box(s.world, "box", {0, 100}, {16, 16}, BodyType::Dynamic);  // x in [-8, 8]: over columns 2 and 3
@@ -2417,7 +2418,8 @@ TEST_CASE("3d sleep: writing Transform.position, Transform.rotation or velocity,
     }
 }
 
-TEST_CASE("3d sleep: a static collider teleported or created into a sleeping pile wakes it; so does removing its floor") {
+TEST_CASE(
+    "3d sleep: a static collider teleported or created into a sleeping pile wakes it; so does removing its floor") {
     for (int how = 0; how < 4; ++how) {
         Sim s;
         const auto boxes = add_stack(s, 3);
@@ -2426,7 +2428,7 @@ TEST_CASE("3d sleep: a static collider teleported or created into a sleeping pil
         REQUIRE(all_awake(s, 3, false));
         INFO("action " << how);
         switch (how) {  // the pile is asleep, so no body of it moves a step: only the sync can notice
-            case 0: s.world.get<Transform>(wall)->position = {0.9f, 1.5f, 0}; break;                   // teleport
+            case 0: s.world.get<Transform>(wall)->position = {0.9f, 1.5f, 0}; break;                       // teleport
             case 1: add_box3(s.world, "new", {0.9f, 1.5f, 0}, {1, 1, 1}, BodyType::Static, false); break;  // create
             case 2: s.world.destroy(s.world.find("floor")); break;
             default: s.world.get<EntityInfo>(s.world.find("floor"))->active = false; break;
@@ -2440,7 +2442,8 @@ TEST_CASE("3d sleep: a static collider teleported or created into a sleeping pil
     }
 }
 
-TEST_CASE("3d settling: a slow body alone on the ground keeps its motion (a puck, a ball rolling down a gentle slope)") {
+TEST_CASE(
+    "3d settling: a slow body alone on the ground keeps its motion (a puck, a ball rolling down a gentle slope)") {
     {  // a frictionless box pushed at 0.3 m/s slides on at 0.3 m/s
         Sim s;
         Entity floor = add_box3(s.world, "floor", {0, -0.5f, 0}, {40, 1, 40}, BodyType::Static, false);

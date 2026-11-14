@@ -206,7 +206,8 @@ bool Loader::apply_component(Entity e, const TypeInfo& type, const Json& fieldsI
     }
     if (!fieldsIn.is_object() && !fieldsIn.is_null()) {
         error(ptr,
-              "component '" + type.name + "' must be a JSON object of field values, got " + describe_json_value(fieldsIn),
+              "component '" + type.name + "' must be a JSON object of field values, got " +
+                  describe_json_value(fieldsIn),
               "Example: \"" + type.name + "\": {\"" + (type.fields.empty() ? "field" : type.fields[0].name) +
                   "\": ...}. Use {} for all defaults.");
         return false;
@@ -218,7 +219,8 @@ bool Loader::apply_component(Entity e, const TypeInfo& type, const Json& fieldsI
     if (type.name == "Tilemap") {
         const bool rows = tilemap_rows_form(fieldsIn);
         if (rows) flattened = fieldsIn;
-        const std::vector<TilemapIssue> issues = rows ? flatten_tilemap_rows(flattened) : check_tilemap_tiles_json(fieldsIn);
+        const std::vector<TilemapIssue> issues =
+            rows ? flatten_tilemap_rows(flattened) : check_tilemap_tiles_json(fieldsIn);
         for (const TilemapIssue& issue : issues) error(ptr + issue.pointer, issue.message, issue.hint);
         if (!issues.empty()) {
             if (!rows) flattened = fieldsIn;

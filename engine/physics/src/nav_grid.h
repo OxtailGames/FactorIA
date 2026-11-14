@@ -179,8 +179,8 @@ private:
             return *this;
         }
     };
-    std::vector<std::int32_t> reach_;         // per span: component label (its lowest span + 1), 0 = not usable
-    std::vector<std::uint8_t> reachAsym_;     // per component (by lowest span): some step or link has no way back
+    std::vector<std::int32_t> reach_;      // per span: component label (its lowest span + 1), 0 = not usable
+    std::vector<std::uint8_t> reachAsym_;  // per component (by lowest span): some step or link has no way back
     bool reachDirty_ = true, reachShortcut_ = true;
     mutable Flag reachWanted_;  // a search failed (by A* or from the labels) since the last refresh
     void make_reach();

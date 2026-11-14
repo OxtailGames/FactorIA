@@ -76,7 +76,8 @@ bool set_tilemap_tile(Tilemap& tm, int col, int row, int value) {
     if (std::as_const(tm.tiles)[i] == value) return true;  // already there: no change, no edit, no version bump
     tm.tiles.set(i, value);  // exactly one version bump, so a consumer can match the bumps against the edits
     constexpr std::size_t kMaxEdits = 4096;
-    if (tm.editsArray != tm.tiles.id()) {  // the list came with another array (a copy, an assignment): it explains nothing here
+    if (tm.editsArray !=
+        tm.tiles.id()) {  // the list came with another array (a copy, an assignment): it explains nothing here
         tm.edits.clear();
         tm.editsArray = tm.tiles.id();
     }
@@ -155,8 +156,9 @@ std::vector<TilemapIssue> check_tilemap_tiles_json(const Json& fields) {
         if (v.is_number() && v.get<double>() == std::floor(v.get<double>())) continue;
         if (++bad <= kMaxReported)
             out.push_back({true, "/tiles/" + std::to_string(i),
-                           v.is_string() ? "tile is the string " + describe_json_value(v) + " but tiles must be integers"
-                                         : "tile must be an integer, got " + describe_json_value(v),
+                           v.is_string()
+                               ? "tile is the string " + describe_json_value(v) + " but tiles must be integers"
+                               : "tile must be an integer, got " + describe_json_value(v),
                            "Tile indices count from 0 in the tileset (left-to-right, top-to-bottom); -1 = empty. " +
                                std::string(kAsciiHint)});
     }
@@ -197,18 +199,20 @@ std::vector<TilemapIssue> flatten_tilemap_rows(Json& fields) {
         if (++ragged > kMaxReported) continue;
         err("/tiles/" + std::to_string(r),
             "row " + std::to_string(r) + " of tiles has " + std::to_string(rows[r].size()) +
-                " entries but the map is " + std::to_string(expected) + " tiles wide" + (w > 0 ? " (width)" : " (row 0)"),
+                " entries but the map is " + std::to_string(expected) + " tiles wide" +
+                (w > 0 ? " (width)" : " (row 0)"),
             rowsHint);
     }
     if (ragged > kMaxReported)
-        err("/tiles", "... and " + std::to_string(ragged - kMaxReported) + " more rows with the wrong length", rowsHint);
+        err("/tiles", "... and " + std::to_string(ragged - kMaxReported) + " more rows with the wrong length",
+            rowsHint);
     if (h > 0 && std::int64_t(rows.size()) != h)
         err("/tiles", "tiles has " + std::to_string(rows.size()) + " rows but height is " + std::to_string(h),
             "Make height equal to the number of rows (row 0 is the TOP row), or leave height out.");
     if (std::int64_t(rows.size()) * expected > std::int64_t(kMaxTypedArrayElements))
         err("/tiles",
-            "the map has " + std::to_string(rows.size()) + " x " + std::to_string(expected) +
-                " tiles, more than the " + std::to_string(kMaxTypedArrayElements) + " a Tilemap can hold",
+            "the map has " + std::to_string(rows.size()) + " x " + std::to_string(expected) + " tiles, more than the " +
+                std::to_string(kMaxTypedArrayElements) + " a Tilemap can hold",
             "Split the map into several Tilemap entities.");
     if (!out.empty()) return out;
     Json flat = Json::array();

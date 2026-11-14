@@ -198,8 +198,9 @@ function e2(x) { return x * 0.5; }
 Bench script_first_views() {
     Bench b;
     b.name = "script.first_views";
-    b.summary = "200 entities spawned from a script, the first read of Transform.position.x and Sprite.layer of each, then "
-                "destroyed (one frame flushes them)";
+    b.summary =
+        "200 entities spawned from a script, the first read of Transform.position.x and Sprite.layer of each, then "
+        "destroyed (one frame flushes them)";
     b.make = [] {
         auto host = std::make_shared<BenchHost>();
         Prepared p;

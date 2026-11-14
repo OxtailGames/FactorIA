@@ -101,7 +101,8 @@ Entity add_random(Scene& s, QRng& rng, float extent, bool allowDisabled) {
     return e;
 }
 
-int g_rayHits = 0, g_castHits = 0, g_overlapHits = 0;  // what the comparisons found (they must not compare empty answers)
+int g_rayHits = 0, g_castHits = 0,
+    g_overlapHits = 0;  // what the comparisons found (they must not compare empty answers)
 
 std::string brute_vs_tree(Scene& s, QRng& rng, int rays, int casts, int overlaps) {
     World& w = s.world;
@@ -129,10 +130,12 @@ std::string brute_vs_tree(Scene& s, QRng& rng, int rays, int casts, int overlaps
         auto t1 = s.p.raycast(w, o, d, maxD, opt);
         auto t2 = s.p.raycast_all(w, o, d, maxD, opt);
         g_rayHits += b1.has_value() ? 1 : 0;
-        if (b1.has_value() != t1.has_value() || (b1 && !same_hit(*b1, *t1))) return "raycast differs, ray " + std::to_string(i);
+        if (b1.has_value() != t1.has_value() || (b1 && !same_hit(*b1, *t1)))
+            return "raycast differs, ray " + std::to_string(i);
         if (b2.size() != t2.size()) return "raycast_all count differs, ray " + std::to_string(i);
         for (std::size_t k = 0; k < b2.size(); ++k)
-            if (!same_hit(b2[k], t2[k])) return "raycast_all differs, ray " + std::to_string(i) + " hit " + std::to_string(k);
+            if (!same_hit(b2[k], t2[k]))
+                return "raycast_all differs, ray " + std::to_string(i) + " hit " + std::to_string(k);
     }
     for (int i = 0; i < casts; ++i) {
         CastShape shape;
@@ -150,7 +153,8 @@ std::string brute_vs_tree(Scene& s, QRng& rng, int rays, int casts, int overlaps
         s.p.set_brute_force_queries(false);
         auto t = s.p.shape_cast(w, shape, from, to, opt);
         g_castHits += b.has_value() ? 1 : 0;
-        if (b.has_value() != t.has_value() || (b && !same_hit(*b, *t))) return "shape_cast differs, cast " + std::to_string(i);
+        if (b.has_value() != t.has_value() || (b && !same_hit(*b, *t)))
+            return "shape_cast differs, cast " + std::to_string(i);
     }
     for (int i = 0; i < overlaps; ++i) {
         const Vec3 c = vec(28.0f);
@@ -200,7 +204,8 @@ TEST_CASE("3d queries: the tree answers what testing every body answers (awake, 
     CHECK(g_overlapHits > 200);
 }
 
-TEST_CASE("3d queries: a body created, teleported, resized, disabled or destroyed since the last step is found at once") {
+TEST_CASE(
+    "3d queries: a body created, teleported, resized, disabled or destroyed since the last step is found at once") {
     Scene s;
     QRng rng(11);
     for (int i = 0; i < 120; ++i) add_random(s, rng, 20.0f, false);

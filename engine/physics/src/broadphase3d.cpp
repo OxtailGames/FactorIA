@@ -228,7 +228,8 @@ void Broadphase3D::sorted_pairs(std::vector<std::pair<std::uint32_t, std::uint32
 }
 
 std::string Broadphase3D::validate(bool checkBalance) const {
-    constexpr std::size_t kMaxReported = 8;  // a broken tree can have thousands of bad nodes: the first ones tell enough
+    constexpr std::size_t kMaxReported =
+        8;  // a broken tree can have thousands of bad nodes: the first ones tell enough
     std::string problems;
     std::size_t count = 0;
     auto report = [&](const std::string& what) {

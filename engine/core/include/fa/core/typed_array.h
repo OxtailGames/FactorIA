@@ -77,8 +77,7 @@ public:
     explicit TypedArray(std::size_t n, T value = T{}) : v_(n, value) {}
     TypedArray(std::initializer_list<T> values) : v_(values) {}
     TypedArray(const TypedArray& o) : v_(o.v_) {}
-    TypedArray(TypedArray&& o) noexcept
-        : v_(std::move(o.v_)), id_(o.id_), version_(o.version_), log_(o.log_) {
+    TypedArray(TypedArray&& o) noexcept : v_(std::move(o.v_)), id_(o.id_), version_(o.version_), log_(o.log_) {
         o.v_.clear();
         o.id_ = detail::next_typed_array_id();  // the moved-from array is a different object now
         o.version_ = 0;

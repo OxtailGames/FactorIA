@@ -77,8 +77,9 @@ Bench schema_validate(bool compiled) {
 Bench command_call() {
     Bench b;
     b.name = "command.call";
-    b.summary = "CommandRegistry::call x20000 over 300 commands: schema validation (compiled at registration), defaults, "
-                "the handler; every 50th call is refused";
+    b.summary =
+        "CommandRegistry::call x20000 over 300 commands: schema validation (compiled at registration), defaults, "
+        "the handler; every 50th call is refused";
     b.make = [] {
         struct State {
             CommandRegistry reg;

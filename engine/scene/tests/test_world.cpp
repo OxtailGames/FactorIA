@@ -340,8 +340,10 @@ TEST_CASE("world: count and any follow entities_with through add, remove, destro
     // 400 of 500 removed: past 64 tombstones and past half of the list, so compact() really runs (it does not at 250).
     std::vector<Entity> kept;
     for (std::size_t i = 0; i < many.size(); ++i) {
-        if (i % 5 == 0) kept.push_back(many[i]);
-        else w.remove<Sprite>(many[i]);
+        if (i % 5 == 0)
+            kept.push_back(many[i]);
+        else
+            w.remove<Sprite>(many[i]);
     }
     CHECK(w.count<Sprite>() == 100);
     CHECK(w.entities_with(sprite) == kept);  // compaction keeps the insertion order

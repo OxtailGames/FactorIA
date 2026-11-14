@@ -411,8 +411,8 @@ struct Tilemap {
     std::int32_t height = 0;    // map height in tiles (flat tiles)
     ArrayI32 tiles;  // flat row-major tile values (width*height), row 0 = TOP row. A value is the tile index plus
                      // optional flip/rotate flag bits (fa/scene/tilemap.h); -1 (any negative) = empty. Written through
-                     // set_tilemap_tile() or the typed array's write calls, which count the change (tiles.version(), the
-                     // dirty range): reads must use the const accessors, see fa/core/typed_array.h
+    // set_tilemap_tile() or the typed array's write calls, which count the change (tiles.version(), the
+    // dirty range): reads must use the const accessors, see fa/core/typed_array.h
     Json solidTiles = Json::array();  // tile indices that collide (empty = none collide); flags are not part of them
     Json terrains = Json::array();  // autotile rules: terrains painted with tilemap.paint_terrain (fa/scene/autotile.h)
     Color color{1, 1, 1, 1};
@@ -1230,13 +1230,13 @@ struct Collider3D {
 // z = (r - (rows - 1) / 2) * cellSize.y from the entity origin, y = heights[i] * heightScale + heightOffset. Cell (r, c) of
 // (rows - 1) x (columns - 1) is split into two triangles along the diagonal from its (r, c) corner to its (r + 1, c + 1) one.
 struct Heightfield3D {
-    std::int32_t rows = 2;       // samples along z (>= 2)
-    std::int32_t columns = 2;    // samples along x (>= 2)
-    Vec2 cellSize{1.0f, 1.0f};   // meters between neighbouring samples: [x, z], before Transform.scale
-    float heightScale = 1.0f;    // meters per unit of `heights`
-    float heightOffset = 0.0f;   // meters added after the scale
+    std::int32_t rows = 2;                     // samples along z (>= 2)
+    std::int32_t columns = 2;                  // samples along x (>= 2)
+    Vec2 cellSize{1.0f, 1.0f};                 // meters between neighbouring samples: [x, z], before Transform.scale
+    float heightScale = 1.0f;                  // meters per unit of `heights`
+    float heightOffset = 0.0f;                 // meters added after the scale
     ArrayF32 heights{0.0f, 0.0f, 0.0f, 0.0f};  // rows * columns numbers, row by row
-    ArrayU8 holes;               // (rows - 1) * (columns - 1) cells, 1 = no collision there; empty = no holes
+    ArrayU8 holes;  // (rows - 1) * (columns - 1) cells, 1 = no collision there; empty = no holes
 };
 
 // Joins this entity's RigidBody3D to another body (or to the world). Solved with the 3D contacts. A jointed dynamic body

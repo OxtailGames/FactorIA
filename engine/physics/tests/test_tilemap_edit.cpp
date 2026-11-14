@@ -146,8 +146,7 @@ TEST_CASE("tilemap: the physics and nav paths only read the tiles (tiles.version
     const TilemapStamp stamp = tilemap_stamp(tm);
     add_body(s, {0, -10}, {8, 8});
     s.run(30);
-    auto path = nav_tile_query(
-        s.world, Json::parse(R"({"tilemap":"map","from":[0,0],"to":[9,0],"costs":{"1":null}})"));
+    auto path = nav_tile_query(s.world, Json::parse(R"({"tilemap":"map","from":[0,0],"to":[9,0],"costs":{"1":null}})"));
     REQUIRE(path.ok());
     CHECK(path.value()["found"] == true);
     CHECK(tilemap_version(tm) == version);

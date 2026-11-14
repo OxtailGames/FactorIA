@@ -456,10 +456,8 @@ std::uint32_t Physics2D::add_tile_box(TileBody& tb, const Tilemap& tm, const Wor
         // The diamond of tile (c, r): centre ((c - r) * tw / 2, -(c + r + 1) * th / 2) (tw, th = the footprint, scaled).
         const float cx = float(c0 - r0) * tw * 0.5f, cy = -float(c0 + r0 + 1) * th * 0.5f;
         const float hx = std::max(tw * 0.5f * inv, kMinHalf), hy = std::max(th * 0.5f * inv, kMinHalf);
-        const b2Vec2 pts[4] = {{cx * inv, cy * inv + hy},
-                               {cx * inv - hx, cy * inv},
-                               {cx * inv, cy * inv - hy},
-                               {cx * inv + hx, cy * inv}};
+        const b2Vec2 pts[4] = {
+            {cx * inv, cy * inv + hy}, {cx * inv - hx, cy * inv}, {cx * inv, cy * inv - hy}, {cx * inv + hx, cy * inv}};
         const b2Hull hull = b2ComputeHull(pts, 4);
         const b2Polygon poly = b2MakePolygon(&hull, 0.0f);
         box.shape = b2CreatePolygonShape(tb.body, &sd, &poly);
@@ -487,7 +485,8 @@ std::uint32_t Physics2D::add_tile_box(TileBody& tb, const Tilemap& tm, const Wor
     }
     for (int r = r0; r <= r1; ++r)
         std::fill(tb.boxAt.begin() + std::ptrdiff_t(std::size_t(r) * std::size_t(tb.cols) + std::size_t(c0)),
-                  tb.boxAt.begin() + std::ptrdiff_t(std::size_t(r) * std::size_t(tb.cols) + std::size_t(c1) + 1), id + 1);
+                  tb.boxAt.begin() + std::ptrdiff_t(std::size_t(r) * std::size_t(tb.cols) + std::size_t(c1) + 1),
+                  id + 1);
     ++tb.boxesBuilt;
     return id;
 }
@@ -498,7 +497,8 @@ void Physics2D::remove_tile_box(TileBody& tb, std::uint32_t id) {
     b2DestroyShape(box.shape, false);
     for (int r = box.r0; r <= box.r1; ++r)
         std::fill(tb.boxAt.begin() + std::ptrdiff_t(std::size_t(r) * std::size_t(tb.cols) + std::size_t(box.c0)),
-                  tb.boxAt.begin() + std::ptrdiff_t(std::size_t(r) * std::size_t(tb.cols) + std::size_t(box.c1) + 1), 0u);
+                  tb.boxAt.begin() + std::ptrdiff_t(std::size_t(r) * std::size_t(tb.cols) + std::size_t(box.c1) + 1),
+                  0u);
     box.alive = false;
     tb.freeBoxes.push_back(id);
 }
@@ -582,7 +582,8 @@ bool Physics2D::update_tile_boxes(TileBody& tb, const Tilemap& tm, const Tilemap
     affected.erase(std::unique(affected.begin(), affected.end()), affected.end());
     // The rest of the runs of the old boxes: every row of a box, except where the row's region replaces its run.
     auto region_of = [&](int row) -> const Region* {
-        auto it = std::lower_bound(regions.begin(), regions.end(), row, [](const Region& g, int r) { return g.row < r; });
+        auto it =
+            std::lower_bound(regions.begin(), regions.end(), row, [](const Region& g, int r) { return g.row < r; });
         return it != regions.end() && it->row == row ? &*it : nullptr;
     };
     for (std::uint32_t id : affected) {
@@ -595,9 +596,8 @@ bool Physics2D::update_tile_boxes(TileBody& tb, const Tilemap& tm, const Tilemap
     }
 
     // 3. Stack identical runs of consecutive rows into boxes (the same rule as a build from nothing).
-    std::sort(runs.begin(), runs.end(), [](const RowRun& x, const RowRun& y) {
-        return x.row != y.row ? x.row < y.row : x.c0 < y.c0;
-    });
+    std::sort(runs.begin(), runs.end(),
+              [](const RowRun& x, const RowRun& y) { return x.row != y.row ? x.row < y.row : x.c0 < y.c0; });
     struct NewBox {
         int c0, c1, r0, r1;
     };
@@ -630,9 +630,8 @@ bool Physics2D::update_tile_boxes(TileBody& tb, const Tilemap& tm, const Tilemap
 
     // 4. The old boxes that come out the same stay; the others go, and the new ones are made in the order of a fresh build
     // (by their first row, then their first column).
-    std::sort(boxes.begin(), boxes.end(), [](const NewBox& x, const NewBox& y) {
-        return x.r0 != y.r0 ? x.r0 < y.r0 : x.c0 < y.c0;
-    });
+    std::sort(boxes.begin(), boxes.end(),
+              [](const NewBox& x, const NewBox& y) { return x.r0 != y.r0 ? x.r0 < y.r0 : x.c0 < y.c0; });
     std::vector<bool> kept(boxes.size(), false);
     for (std::uint32_t id : affected) {
         const TileBody::Box& old = tb.boxes[id];
@@ -733,7 +732,6 @@ void Physics2D::sync_tilemaps(World& world) {
         }
     }
 }
-
 
 void Physics2D::writeback(World& world, Entity e, Body& b, RigidBody2D* rb) {
     if (b.type == BodyType::Static || !b.enabled) return;
@@ -1693,11 +1691,12 @@ void Physics2D::debug_shapes(const World& world, std::vector<Physics::DebugShape
         if (tt != tiles_.end()) {
             for (const TileBody::Box& box : tt->second.boxes)
                 if (box.alive)
-                    out.push_back({Physics::DebugShape::Box,
-                                   {tt->second.pos.x + box.rect.center().x, tt->second.pos.y + box.rect.center().y, 0.0f},
-                                   {box.rect.w, box.rect.h, 0.0f},
-                                   0.0f,
-                                   false});
+                    out.push_back(
+                        {Physics::DebugShape::Box,
+                         {tt->second.pos.x + box.rect.center().x, tt->second.pos.y + box.rect.center().y, 0.0f},
+                         {box.rect.w, box.rect.h, 0.0f},
+                         0.0f,
+                         false});
         }
     }
 }

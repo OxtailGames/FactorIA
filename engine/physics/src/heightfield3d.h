@@ -44,13 +44,14 @@ struct HeightfieldShape {
     static constexpr int kBlock = 16;  // cells per block side
 
     bool valid = false;  // the copy below is a usable field
-    std::string problem;  // why not ("" = valid): the answer of the last attempt, reused while the component is unchanged
+    std::string
+        problem;  // why not ("" = valid): the answer of the last attempt, reused while the component is unchanged
     int rows = 0, cols = 0;
     float dx = 1.0f, dz = 1.0f, scale = 1.0f, offset = 0.0f;
-    float x0 = 0.0f, z0 = 0.0f;  // model x and z of sample (0, 0)
-    std::vector<float> h;        // rows * cols, model y
+    float x0 = 0.0f, z0 = 0.0f;       // model x and z of sample (0, 0)
+    std::vector<float> h;             // rows * cols, model y
     std::vector<std::uint8_t> holes;  // (rows - 1) * (cols - 1) or empty: 1 = no collision
-    int brows = 0, bcols = 0;    // blocks
+    int brows = 0, bcols = 0;         // blocks
     std::vector<float> bmin, bmax;
     std::vector<std::uint8_t> bflag;   // scratch of update_heightfield: blocks to recompute
     std::vector<std::uint32_t> blist;  // the same, as a list

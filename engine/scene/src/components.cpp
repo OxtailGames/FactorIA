@@ -634,18 +634,20 @@ void register_builtin_components(TypeRegistry& r) {
         .field("meshRows", &Sprite::meshRows,
                "Grid cells down for a deformable sprite (see meshColumns). 0 (default) = a plain quad.")
         .range(0, 128)
-        .field("vertexOffsets", &Sprite::vertexOffsets,
-               "Deformable sprites only (meshColumns > 0 and meshRows > 0): how far each grid vertex is moved from its "
-               "place, in the sprite's local units (the size it is drawn at, before scale and rotation; +x right, +y UP). "
-               "A flat array of numbers [dx0, dy0, dx1, dy1, ...] with an x and a y per vertex, row by row starting at the "
-               "TOP row and going left to right: vertex (column c, row r) is at index (r * (meshColumns + 1) + c) * 2. A "
-               "shorter array leaves the vertices it does not name in place; extra numbers are ignored; every element "
-               "must be a number (a non-finite value counts as 0; null is not accepted, write [] for none). Stored as a "
-               "float array (a script reads it as a Float32Array). Write the whole array to change it (a script sets it "
-               "every frame: `e.get('Sprite').vertexOffsets = offsets`; changing one element of the array it returned "
-               "does not write back). The texture is stretched with the vertices, so offsets bend the picture. [] "
-               "(default) = the undeformed grid. Offsets do not change `size`, but the bounds of the entity "
-               "(entity.bounds(), editor picking) cover the moved vertices.")
+        .field(
+            "vertexOffsets", &Sprite::vertexOffsets,
+            "Deformable sprites only (meshColumns > 0 and meshRows > 0): how far each grid vertex is moved from its "
+            "place, in the sprite's local units (the size it is drawn at, before scale and rotation; +x right, +y UP). "
+            "A flat array of numbers [dx0, dy0, dx1, dy1, ...] with an x and a y per vertex, row by row starting at "
+            "the "
+            "TOP row and going left to right: vertex (column c, row r) is at index (r * (meshColumns + 1) + c) * 2. A "
+            "shorter array leaves the vertices it does not name in place; extra numbers are ignored; every element "
+            "must be a number (a non-finite value counts as 0; null is not accepted, write [] for none). Stored as a "
+            "float array (a script reads it as a Float32Array). Write the whole array to change it (a script sets it "
+            "every frame: `e.get('Sprite').vertexOffsets = offsets`; changing one element of the array it returned "
+            "does not write back). The texture is stretched with the vertices, so offsets bend the picture. [] "
+            "(default) = the undeformed grid. Offsets do not change `size`, but the bounds of the entity "
+            "(entity.bounds(), editor picking) cover the moved vertices.")
         .field("vertexColors", &Sprite::vertexColors,
                "Deformable sprites only (meshColumns > 0 and meshRows > 0): a colour for every grid vertex, multiplied "
                "with `color` "

@@ -103,7 +103,7 @@ void ComponentPool::walk(Visit visit, void* ctx) {
     const std::size_t end = order_.size();  // owners added from now on land at or after `end`
     for (std::size_t i = 0; i < end; ++i) {
         if (generation_ != generation || i >= order_.size()) return;  // clear() ran: nothing left to visit
-        const OrderEntry entry = order_[i];  // a copy: `visit` may grow (reallocate) order_
+        const OrderEntry entry = order_[i];                           // a copy: `visit` may grow (reallocate) order_
         if (entry.entity.is_null()) continue;
         visit(ctx, entry.entity, slot_ptr(entry.slot));
     }
