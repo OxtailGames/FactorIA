@@ -14,6 +14,7 @@
 #include "broadphase3d.h"
 #include "fa/physics/physics.h"
 #include "fa/scene/tilemap.h"
+#include "heightfield3d.h"
 #include "nav_grid.h"
 #include "shape3d.h"
 
@@ -282,9 +283,9 @@ private:
         float gravityScale = 1.0f, damping = 0.0f, angDamping = 0.0f;
         float friction = 0.4f, restitution = 0.0f;
         std::int32_t layer = 0, mask = -1;
-        // Shape: Box and Sphere have their own exact code; Capsule, Convex and Mesh go through the convex cores of
-        // shape3d.h (`general()`).
-        enum class Kind { Box, Sphere, Capsule, Convex, Mesh } kind = Kind::Box;
+        // Shape: Box and Sphere have their own exact code; Capsule, Convex, Mesh and Heightfield go through the convex cores
+        // of shape3d.h (`general()`).
+        enum class Kind { Box, Sphere, Capsule, Convex, Mesh, Heightfield } kind = Kind::Box;
         bool general() const { return kind >= Kind::Capsule; }
         Vec3 half{0.5f, 0.5f,
                   0.5f};       // box half extents along its own axes (scaled); capsule / convex / mesh: bounding box
@@ -293,6 +294,8 @@ private:
         Vec3 gscale{1, 1, 1};  // convex / mesh: per-axis scale of the model's vertices
         Vec3 lcenter;          // convex / mesh: centre of the model's bounding box (scaled, entity axes)
         std::shared_ptr<const ShapeData> data;  // convex hull cloud / mesh BVH, shared by all colliders of one mesh
+        // heightfield: this body's own copy of the grid (heightfield3d.h); half / lcenter are the box around it
+        std::shared_ptr<HeightfieldShape> hf;
         Vec3 rot[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};  // the entity's world rotation (any shape; joints use it)
         Vec3 localScale{1, 1, 1};                         // the entity's world scale (joint anchors are scaled with it)
         std::vector<std::uint64_t>
@@ -385,7 +388,8 @@ private:
                     mass,
                     gravityScale,
                     radius,
-                    half,
+                    // (a heightfield's height range follows its edits, which wake only the bodies near them: see sync)
+                    kind == Kind::Heightfield ? Vec3{half.x, 0.0f, half.z} : half,
                     offset,
                     {ax[0], ax[1], ax[2]},
                     layer,
@@ -442,6 +446,10 @@ private:
     // Capsule / convex / mesh pairs (physics3d_shapes.cpp).
     static Contact collide_general(const Body& a, const Body& b, float margin, bool manifold);
     static Contact mesh_contact(const Body& mesh, const Body& other, float margin, bool manifold);
+    // A convex shape against a heightfield (physics3d_heightfield.cpp); normal from the field to `other`.
+    static Contact heightfield_contact(const Body& field, const Body& other, float margin, bool manifold);
+    // Wakes the sleeping bodies near the part of `field` that an edit changed (model-space cell rectangle and heights).
+    void wake_near_edit(const Body& field, const HeightfieldEdit& edit);
     static Contact core_contact(const Core& A, const Core& B, float margin);
     static Contact tri_contact(const Core& tri, const Core& other, float margin);
     static void add_capsule_points(const Body& a, const Body& b, Contact& c);

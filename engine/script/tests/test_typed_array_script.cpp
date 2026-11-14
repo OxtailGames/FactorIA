@@ -86,7 +86,6 @@ TEST_CASE("script arrays: a write takes a typed array or a plain array and repla
     eval_ok(f.h, "world.find('probe').get('TestScriptArrays').ids = []; 0");
     CHECK(f.arrays().ids.empty());
     // Writing the contents it already has is not a change.
-    f.arrays().mask.acknowledge();
     const std::uint64_t v = f.arrays().mask.version();
     eval_ok(f.h, "world.find('probe').get('TestScriptArrays').mask = [9, 8]; 0");
     CHECK(f.arrays().mask.version() == v);

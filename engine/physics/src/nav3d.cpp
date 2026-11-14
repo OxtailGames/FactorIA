@@ -247,6 +247,13 @@ bool Physics3D::nav_column(const Body& b, float x, float z, float yLo, float yHi
     }
     // Capsule, convex hull, mesh: vertical rays through the generic ray test.
     const Vec3 down{0, -1, 0}, up{0, 1, 0};
+    if (b.kind == Body::Kind::Heightfield) {  // one surface: a plate of one cell height under it
+        float t = 0.0f;
+        Vec3 n;
+        if (!ray_body(b, {x, yHi, z}, down, yHi - yLo, t, n)) return false;
+        out.push_back({yHi - t - cellHeight, yHi - t, n.y});
+        return true;
+    }
     if (b.kind != Body::Kind::Mesh) {
         float t = 0.0f;
         Vec3 n;
@@ -335,6 +342,7 @@ std::uint64_t Physics3D::nav_obstacle_signature(const Body& b) {
     h.v3(b.lcenter);
     h.v3(b.gscale);
     h.u64(std::uint64_t(reinterpret_cast<std::uintptr_t>(b.data.get())));
+    h.u64(b.hf ? b.hf->revision : 0);  // (a heightfield's samples: every edit changes it)
     return h.h;
 }
 

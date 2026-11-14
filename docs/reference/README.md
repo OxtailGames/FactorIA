@@ -48,7 +48,8 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 
 - [CharacterController3D](components/physics.md#charactercontroller3d): A walking character: a kinematic capsule that moves and slides. _Since 0.2.0._
 - [Collider2D](components/physics.md#collider2d): Collision shape for 2D physics.
-- [Collider3D](components/physics.md#collider3d): Collision shape for 3D physics: box, sphere, capsule, convex hull or triangle mesh.
+- [Collider3D](components/physics.md#collider3d): Collision shape for 3D physics: box, sphere, capsule, convex hull, triangle mesh or heightfield (terrain).
+- [Heightfield3D](components/physics.md#heightfield3d): The grid of heights of a terrain collider: put it with a Collider3D whose shape is "heightfield" on a static entity (no RigidBody3D, or type static). _Not released yet._
 - [Joint2D](components/physics.md#joint2d): A Box2D joint on this entity's body: revolute (a hinge / pendulum / wheel axle), distance (a rope or spring of fixed length), prismatic (a slider along an axis) or weld (glue two bodies together). _Since 0.2.0._
 - [Joint3D](components/physics.md#joint3d): Joins this entity's RigidBody3D to another body or to the world: a hinge (door, pendulum, wheel), a ball joint (rope link, ragdoll shoulder) or a fixed joint (welds the two bodies). _Since 0.2.0._
 - [NavLink3D](components/physics.md#navlink3d): An off-mesh link of the NavMesh3D: a jump across a gap, a climb up a ladder, a drop off a ledge. _Since 0.3.0._

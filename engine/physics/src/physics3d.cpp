@@ -708,6 +708,7 @@ void Physics3D::sync(World& world) {
     prune_procedural_shapes(world);
     const std::uint64_t stamp = ++syncCounter_;  // one per sync: two syncs between steps still sweep removed colliders
     std::unordered_set<std::uint64_t> joinTargets;  // bodies another entity's Joint3D is attached to: they turn too
+    std::vector<std::pair<std::uint64_t, HeightfieldEdit>> fieldEdits;  // heightfields edited since the last sync
     for (Entity e : world.entities())
         if (const Joint3D* j = world.get<Joint3D>(e); j && !j->connected.is_null())
             joinTargets.insert(j->connected.bits());
@@ -776,7 +777,27 @@ void Physics3D::sync(World& world) {
                     "static level geometry (a moving body has no inside to push out of). Use shape \"convex\" for a "
                     "moving body, or build it from several boxes/capsules, or set the RigidBody3D type to static.",
                     world.id_of(e), rb->type == BodyType::Dynamic ? "dynamic" : "kinematic");
-            else if (col->shape == ColliderShape3D::Convex || col->shape == ColliderShape3D::Mesh) {
+            else if (col->shape == ColliderShape3D::Heightfield) {
+                Heightfield3D* grid = world.get<Heightfield3D>(e);
+                if (!isStatic)
+                    problem = std::format(
+                        "entity '{}' has a Collider3D with shape \"heightfield\" on a {} RigidBody3D. A heightfield is "
+                        "static terrain (a moving body has no inside to push out of). Set the RigidBody3D type to static, "
+                        "or remove the RigidBody3D.",
+                        world.id_of(e), rb->type == BodyType::Dynamic ? "dynamic" : "kinematic");
+                else if (!grid)
+                    problem = std::format(
+                        "entity '{}' has a Collider3D with shape \"heightfield\" but no Heightfield3D component, which "
+                        "holds the grid of heights. Add a Heightfield3D (rows, columns, cellSize, heights) to the entity.",
+                        world.id_of(e));
+                else {
+                    if (!b.hf) b.hf = std::make_shared<HeightfieldShape>();
+                    HeightfieldEdit edit;
+                    problem = update_heightfield(*b.hf, world.id_of(e), *grid, edit);
+                    if (problem.empty() && edit.changed && existed) fieldEdits.push_back({key, edit});
+                    if (problem.empty() && edit.boundsChanged) b.boxStale = true;
+                }
+            } else if (col->shape == ColliderShape3D::Convex || col->shape == ColliderShape3D::Mesh) {
                 std::string why;
                 shapeData = shape_data(world, col->mesh, col->shape == ColliderShape3D::Mesh, why);
                 if (!shapeData)
@@ -806,9 +827,11 @@ void Physics3D::sync(World& world) {
                     case ColliderShape3D::Capsule: kind = Body::Kind::Capsule; break;
                     case ColliderShape3D::Convex: kind = Body::Kind::Convex; break;
                     case ColliderShape3D::Mesh: kind = Body::Kind::Mesh; break;
+                    case ColliderShape3D::Heightfield: kind = Body::Kind::Heightfield; break;
                     default: break;
                 }
             b.kind = kind;
+            if (kind != Body::Kind::Heightfield) b.hf = nullptr;
             b.data = shapeData;
             b.meshName = (!cc && b.data) ? col->mesh : std::string();
             b.gscale = {1, 1, 1};
@@ -827,6 +850,16 @@ void Physics3D::sync(World& world) {
                     b.charMass = std::max(cc->mass, 0.0f);
                     b.pushStrength = std::max(cc->pushStrength, 0.0f);
                 }
+            } else if (kind == Body::Kind::Heightfield) {
+                // The grid is centred on the entity origin; the box around it follows the lowest and highest sample and
+                // reaches kHeightfieldSolidDepth below the lowest (the ground is solid down to there).
+                const HeightfieldShape& g = *b.hf;
+                b.gscale = {std::max(as.x, 1e-3f), std::max(as.y, 1e-3f), std::max(as.z, 1e-3f)};
+                const float yBottom = g.minH * b.gscale.y - kHeightfieldSolidDepth, yTop = g.maxH * b.gscale.y;
+                b.half = {0.5f * float(g.cols - 1) * g.dx * b.gscale.x, std::max(0.5f * (yTop - yBottom), 1e-3f),
+                          0.5f * float(g.rows - 1) * g.dz * b.gscale.z};
+                b.lcenter = {0.0f, 0.5f * (yTop + yBottom), 0.0f};
+                b.radius = 0.0f;
             } else if (b.data) {
                 const MeshGeometry& g = *b.data->geometry;
                 b.gscale = {std::max(as.x, 1e-3f), std::max(as.y, 1e-3f), std::max(as.z, 1e-3f)};
@@ -979,6 +1012,32 @@ void Physics3D::sync(World& world) {
     }
     sync_joints(world, stamp);
     bp_sync_update();
+    for (const auto& [key, edit] : fieldEdits)  // (the tree knows the new boxes now)
+        if (auto it = index_.find(key); it != index_.end()) wake_near_edit(bodies_[it->second], edit);
+}
+
+// An edit of a heightfield changes the ground under some bodies only: the sleeping bodies whose bounds meet the box of the
+// edited cells (old and new heights) wake, with whatever fell asleep with them; every other contact keeps its state.
+void Physics3D::wake_near_edit(const Body& field, const HeightfieldEdit& edit) {
+    if (!field.hf || !field.hasShape || edit.r1 < edit.r0 || edit.c1 < edit.c0) return;
+    const HeightfieldShape& f = *field.hf;
+    const Vec3 mlo{f.x0 + float(edit.c0) * f.dx, edit.yLo, f.z0 + float(edit.r0) * f.dz};
+    const Vec3 mhi{f.x0 + float(edit.c1 + 1) * f.dx, edit.yHi, f.z0 + float(edit.r1 + 1) * f.dz};
+    Aabb3 box{Vec3{1e30f}, Vec3{-1e30f}};
+    for (int i = 0; i < 8; ++i) {
+        const Vec3 corner{(i & 1) ? mhi.x : mlo.x, (i & 2) ? mhi.y : mlo.y, (i & 4) ? mhi.z : mlo.z};
+        const Vec3 w = field.center + frame_to_world(field.ax, corner * field.gscale);
+        box.lo = min(box.lo, w);
+        box.hi = max(box.hi, w);
+    }
+    box = aabb_grow(box, 0.1f);  // a resting body hovers a hair above the surface; the contact margin reaches further
+    std::vector<std::uint32_t> near;
+    query_candidates(box, near);
+    for (const std::uint32_t k : near) {
+        Body& b = bodies_[k];
+        if (&b == &field || !b.asleep || !b.enabled || !b.hasShape || !aabb_overlap(tight_box(b), box)) continue;
+        wake(b);
+    }
 }
 
 // After a sync the queries (which run between steps, from scripts and commands) must find what gameplay just created, moved,
@@ -2514,8 +2573,11 @@ void Physics3D::step(World& world, float dt) {
     if (fellAsleep) awakeStale_ = true;
     finish_joints(world, dt);
     // The queries after this step read the tree: every body that can have moved (position corrections, joints and the
-    // time-of-impact pass run after the last cover) gets a fat box around where it ended.
-    for (std::size_t i = 0; i < n; ++i) {
+    // time-of-impact pass run after the last cover) gets a fat box around where it ended. Only the awake rows can have
+    // moved (a sleeping or static body keeps the box it was covered with): the list is rebuilt first when a body woke up or
+    // fell asleep during the step, so a world with a big sleeping pile does not walk it here.
+    ensure_awake();
+    for (const std::size_t i : R.awake) {
         const Body& b = bodies_[i];
         if (b.proxy >= 0 && b.enabled && b.type != BodyType::Static && !b.asleep) cover_one(i, tight_box(b));
     }
@@ -2838,6 +2900,12 @@ void Physics3D::debug_state(const World& world, Json& out) const {
                     s["radius"] = b.radius;
                     s["height"] = (b.segHalf + b.radius) * 2.0f;
                     s["rotation"] = Json::array({rot.x, rot.y, rot.z});
+                    break;
+                case Body::Kind::Heightfield:
+                    s["kind"] = "heightfield";
+                    s["rows"] = b.hf ? b.hf->rows : 0;
+                    s["columns"] = b.hf ? b.hf->cols : 0;
+                    s["size"] = Json::array({b.half.x * 2, b.half.y * 2, b.half.z * 2});  // bounding box
                     break;
                 default:
                     s["kind"] = b.kind == Body::Kind::Convex ? "convex" : "mesh";

@@ -446,9 +446,12 @@ writes, so a system that derives data from one (a physics body, a render chunk) 
 - `version()` grows on every write through a mutable accessor (`a[i] = x`, a mutable `data()`, `set`, `fill`, `assign`,
   `resize`...). Read through a `const` reference (`std::as_const(a)[i]`, `cdata()`, `span()`) and nothing is counted. A
   consumer keeps the version it built from and rebuilds when it differs.
-- `dirty_begin()` / `dirty_end()` is the smallest half-open index range written since the consumer called
-  `acknowledge()` (a chunk size C means chunks `dirty_begin() / C` to `(dirty_end() - 1) / C`). A write that changes the
-  size dirties the whole array, and `dirty_end()` may exceed `size()` after a shrink.
+- `dirty_since(seen, begin, end)` gives the smallest half-open index range written after the array had version `seen`
+  (a chunk size C means chunks `begin / C` to `(end - 1) / C`). Each consumer keeps its own `seen` (the `version()` it last
+  read), so any number of consumers ask independently and nothing is "acknowledged": one consumer can never hide an
+  edit from another. The array remembers its last `kHistory` (8) writes; when more than that happened since `seen`, or
+  `seen` is newer than the array, `dirty_since` returns false and the consumer compares or rebuilds everything. A write
+  that changes the size covers the whole array, and `end` may exceed `size()` after a shrink.
 - `set(i, x)`, `fill`, `assign` and copy assignment write only what differs: the same contents change nothing, so a
   `scene.set_component` that repeats the array, or a patch of another field of the component, does not trigger a rebuild.
   `a[i] = x` cannot see whether `x` differs and always counts.

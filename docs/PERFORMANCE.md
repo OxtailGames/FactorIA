@@ -587,6 +587,8 @@ pull request that did it, not when an example later goes over its budget. It is 
 | `physics.step3d_1000`, `physics.step3d_stack100` | 10 `Physics::step`s of 1000 falling 3D spheres, capsules and boxes in a walled pit (the case the broad phase makes cheap: only bodies whose boxes are close are tested), and 60 steps of a column of 100 boxes on a floor (stacking: contacts and sleeping) |
 | `nav.unreachable`, `nav.unreachable_astar` | 40 failed `NavGrid::search`es into a walled-in room of a 320 x 320 grid (with `closest`, as `nav.find_path` asks): answered from the reachability labels, and with the labels off so A* runs over the whole floor first |
 | `physics.tilemap_edit` | 40 steps of a 256 x 256 Tilemap with 512 solid platforms where one cell changes before every step (`set_tilemap_tile`): the cost of keeping the colliders in step with an edit; it follows the number of edits (the array's version says nothing else was written), not the 65536 cells. The colliders are one decomposition of the solid cells (a long floor is one box) and an edit takes apart and stacks again only the boxes it touches, found through a cell-to-box index, so the cost follows the run and the boxes of the edit, not the map |
+| `physics.heightfield_step` | 20 steps of 200 spheres, capsules and boxes falling onto a 256 x 256 `Heightfield3D` (3D): the contacts of the grid (only the cells under each body's bounds are tested, GJK per triangle) in the same step as the solver |
+| `physics.heightfield_edit` | 40 steps of a 256 x 256 field with 100 bodies asleep on it, where one height changes before every step (`heights.set`): the cost follows the edit (the typed arrays' `dirty_since`), not the 65536 samples, and only the bodies near it wake |
 | `physics.tilemap_edit_large` | The same on a 512 x 512 Tilemap (262144 cells): the number should be what the 256 x 256 case costs, whatever the size of the map |
 | `nav.tilemap_edit` | 40 times: `setTile` on a 512 x 512 Tilemap, then `nav.findTilePath` across it: the kept cost grid is patched by the edit, not read again from the 262144 cells (a fresh read took 55.9 ms for the 40) |
 | `render.frame2d`, `render.frame3d` | 8 headless frames of 5000 sprites and 120 texts, and of 1600 meshes with a sun and 4 point lights, at 640x360 |
@@ -617,6 +619,21 @@ rows. The doctest "1000 bodies asleep and 20 awake step in about the time of the
 (`test_physics3d_asleep.cpp`) measures about 5 to 9 times the CPU time of the awake-only world (its awake-only world is
 smaller) and fails above 25 times, in optimized builds only. The three other `physics.step3d*` entries were not
 refreshed. The numbers of llvmpipe and D3D11 were not measured.
+
+Heightfields (M94.4f): `physics.heightfield_step` takes 19.3 ms for 20 steps (200 bodies on 256 x 256 samples), and
+`physics.heightfield_edit` 3.8 ms for 40 one-sample edits with their steps (Release, macOS, 15 runs, inline jobs). The doctest "one
+cell of a field of a million samples is edited well under a millisecond" (`test_heightfield3d.cpp`) edits one sample of a 1025 x 1025
+field and syncs the physics: about 0.003 ms of CPU time; it fails above 1 ms, in optimized builds only. The end-of-step cover of the
+broad phase now walks only the awake bodies: `physics.step3d_mostly_asleep` went from 4.64 to 4.61 ms (within noise). The numbers
+of llvmpipe and D3D11 were not measured.
+
+Memory of a heightfield: physics keeps its own scaled copy of the heights next to the component's (4 bytes per sample
+each) and of the holes (1 byte per cell each), so a 4096 x 4096 field (the largest the component accepts) takes about 64 MiB
+for `heights` + 64 MiB for the copy + 16 MiB for `holes` + 16 MiB for its copy, about 160 MiB, plus 1/256 of that for the
+blocks. The first sync of a field, and every rebuild (another size, spacing, scale or array object), is O(N): it reads and
+converts every sample (tens of milliseconds for the 4096 x 4096 field), so build a big field at load and edit it afterwards;
+an edit of a few samples costs what it touches. More than 8 writes to an array between two syncs also fall back to comparing
+every sample of that array (O(N), no copy).
 
 Every input is built from a fixed seed (`fa::Rng`), so two runs do the same work (the report says when the repeats did not).
 A run takes about 10 to 110 ms (macOS, Release). The render benchmarks need a graphics context (EGL with Mesa on Linux, Metal, D3D11) and are
