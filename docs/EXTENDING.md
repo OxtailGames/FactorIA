@@ -651,6 +651,8 @@ Add `#include "fa/scene/wobble_system.h"` to that file. The system test in secti
 - **Determinism.** Use the fixed dt, `world.rng()` for random numbers, and no wall clock. The same seed and the same input must give the same frames.
 - **Skip inactive entities.** Check `world.active_in_hierarchy(e)`.
 - **Be safe with deferred work.** `world.destroy(e)` is deferred to the end of the frame, so it is safe inside `world.each`. Do not call `load_scene` in the middle of a frame. Use `ScriptHost::request_scene_change`, which defers the change.
+- **Know the order of `each`.** `world.each<A, B>` walks the pool with the fewest owners, in that pool's insertion order, so the order of a multi-type walk follows the counts. A system whose order is visible (events it queues, ids it hands out) drives by the type that must set the order: `world.each<A>(...)` and `world.get<B>(e)` inside.
+- **Do not keep a `Transform&` or an `EntityInfo&` across a hierarchy read.** `world.world_matrix(e)` and `active_in_hierarchy(e)` come from a cache that a write through a mutable `get` drops; a reference stored before the read and written after it is not seen. Get it again after the read (docs/ARCHITECTURE.md, "The hierarchy cache").
 - **Do not depend on graphics.** Headless runs without graphics have no renderer.
 - **Keep the order documented.** Update the frame comment in `engine.h` and the module table in `docs/ARCHITECTURE.md` when you add a system.
 - **Test it twice.** A C++ test calls the system directly (as in section C). A headless test checks the system inside a real frame when it changes the outcome of a game.

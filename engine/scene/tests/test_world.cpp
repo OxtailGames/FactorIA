@@ -1,6 +1,7 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <stdexcept>
 #include <vector>
 
 #include "fa/scene/world.h"
@@ -336,9 +337,27 @@ TEST_CASE("world: count and any follow entities_with through add, remove, destro
     std::vector<Entity> many;
     for (int i = 0; i < 500; ++i) many.push_back(w.create());
     for (Entity e : many) w.add<Sprite>(e);
-    for (std::size_t i = 0; i < many.size(); i += 2) w.remove<Sprite>(many[i]);
-    CHECK(w.count<Sprite>() == 250);
-    CHECK(w.entities_with(sprite).size() == 250);
+    // 400 of 500 removed: past 64 tombstones and past half of the list, so compact() really runs (it does not at 250).
+    std::vector<Entity> kept;
+    for (std::size_t i = 0; i < many.size(); ++i) {
+        if (i % 5 == 0) kept.push_back(many[i]);
+        else w.remove<Sprite>(many[i]);
+    }
+    CHECK(w.count<Sprite>() == 100);
+    CHECK(w.entities_with(sprite) == kept);  // compaction keeps the insertion order
+
+    // A pending destroy whose component is removed afterwards: counted until the removal, and not twice at the flush.
+    w.destroy(kept[0]);
+    CHECK(w.count<Sprite>() == 100);
+    w.remove<Sprite>(kept[0]);
+    CHECK(w.count<Sprite>() == 99);
+    w.flush();
+    CHECK(w.count<Sprite>() == 99);
+    CHECK(w.count(sprite) == w.entities_with(sprite).size());
+
+    // A registered type nobody ever added has no pool yet: 0, and any() is false.
+    CHECK(w.count<Camera>() == 0);
+    CHECK(!w.any<Camera>());
 
     w.clear();
     CHECK(w.count<Sprite>() == 0);
@@ -543,6 +562,44 @@ TEST_CASE("world each: entities that gain the driving component during the walk 
     std::vector<Entity> got;
     v.each<Camera, Sprite>([&](Entity e, Camera&, Sprite&) { got.push_back(e); });
     CHECK(got == vs);
+
+    // A non-driving type gaining the component during the pass: Camera drives (2 owners < 3 sprites); es[1] gains its
+    // Sprite while es[0] is visited, and is visited with both when its turn comes.
+    World u;
+    const std::vector<Entity> us = make_sprites(u, 4);
+    u.remove<Sprite>(us[1]);
+    u.add<Camera>(us[0]);
+    u.add<Camera>(us[1]);
+    std::vector<Entity> visited;
+    u.each<Camera, Sprite>([&](Entity e, Camera&, Sprite&) {
+        visited.push_back(e);
+        if (e == us[0]) u.add<Sprite>(us[1]);
+    });
+    CHECK(visited == std::vector<Entity>{us[0], us[1]});
+}
+
+TEST_CASE("world each: an exception in the callback ends the walk, and the pool still compacts afterwards") {
+    World w;
+    const std::vector<Entity> es = make_sprites(w, 300);
+    int calls = 0;
+    CHECK_THROWS_AS(w.each<Sprite>([&](Entity e, Sprite&) {
+        ++calls;
+        if (e == es[0]) {
+            for (std::size_t i = 1; i < 250; ++i) w.remove<Sprite>(es[i]);  // far past the compaction threshold
+            throw std::runtime_error("callback failed");
+        }
+    }),
+                    std::runtime_error);
+    CHECK(calls == 1);
+    // The walk's guard let go: the next removal compacts, and a new walk sees the owners in order.
+    w.remove<Sprite>(es[250]);
+    std::vector<Entity> expected{es[0]};
+    for (std::size_t i = 251; i < 300; ++i) expected.push_back(es[i]);
+    std::vector<Entity> seen;
+    w.each<Sprite>([&](Entity e, Sprite&) { seen.push_back(e); });
+    CHECK(seen == expected);
+    CHECK(w.count<Sprite>() == expected.size());
+    for (Entity e : expected) CHECK(w.get<Sprite>(e) != nullptr);
 }
 
 TEST_CASE("world each: destroy inside the walk is deferred and the walk finishes") {
@@ -576,9 +633,15 @@ TEST_CASE("world each: a nested walk over the same type sees every pair, and rem
             if (inner != e && inner.index % 2 == 0) w.remove<Sprite>(inner);
         });
     });
-    CHECK(outer >= 10);
-    CHECK(outer < 20);
-    for (Entity e : w.entities_with(&World::type_of<Sprite>())) CHECK(w.get<Sprite>(e) != nullptr);
+    // The first visit removes every other entity with an even index; the odd ones are never removed. The first entity is
+    // visited whatever its index, and loses its own sprite at the second visit.
+    const int odd = int(std::count_if(es.begin(), es.end(), [](Entity e) { return e.index % 2 == 1; }));
+    CHECK(outer == odd + (es[0].index % 2 == 0 ? 1 : 0));
+    CHECK(w.count<Sprite>() == std::size_t(odd));
+    for (Entity e : w.entities_with(&World::type_of<Sprite>())) {
+        CHECK(e.index % 2 == 1);
+        CHECK(w.get<Sprite>(e) != nullptr);
+    }
 }
 
 TEST_CASE("world each: the pool does not compact in the middle of a walk, and does when it ends") {
