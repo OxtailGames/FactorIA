@@ -75,9 +75,14 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 - Job system (M94.5b2): every worker has its own queue of ready jobs and steals from the others when it runs out,
   instead of one queue under one lock that every thread took for every job. A job with no dependency and no dependent
   never takes the pool's graph lock, a worker runs the first job a finished job releases itself, and a wait for a job
-  still queued runs it at once. With several worker threads, small jobs, dependency graphs and nested waits run faster
-  than before, nested waits about four times faster, and use less CPU (`fa_bench --filter jobs.`). Same contracts as
+  still queued runs it at once. With several worker threads, small jobs, dependency graphs and nested waits ran faster
+  than before in one measurement of `fa_bench --jobs 4 --filter jobs.` on a quiet Apple-silicon Mac, with less CPU time
+  (docs/PERFORMANCE.md, "Job threads", has the numbers and says how much they move with the load). Same contracts as
   before: waits run only what they need, a wait that can never end still returns an error, idle workers still sleep.
+  Polish (M94): a wait drops the queue entry of the job it took (with 0 workers every job a wait ran stayed allocated
+  until the frame end), `Owner::wait` scans the queues under their locks without copying their entries, a worker told
+  that a job is queued that it cannot find naps after 64 looks instead of yielding for as long as it takes, and the
+  `jobs.*` benchmarks do two to three times the work per run, so a run lasts a few milliseconds.
 - Script component access is cheaper (M94.3b): `entity.get("Sprite")`, `entity.transform` and `entity.position` give the
   same view object every time (kept on the entity's JS object; a view is only a handle, so it never goes stale: after
   `remove` or `destroy` its fields still throw the same teaching errors), a view no longer sits behind a Proxy (the fields
