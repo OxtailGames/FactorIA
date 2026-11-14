@@ -608,12 +608,14 @@ falling pit has the same work), `physics.step3d_stack100` 52.7 / 16.8 (the colum
 of keeping every body awake, and sleeping steps are nearly free). The baselines of the three `physics.step3d*` entries of
 `macos-clang.json` were refreshed.
 
-Sleeping bodies (M94.4e): `physics.step3d_mostly_asleep` (1000 boxes asleep, 20 awake elsewhere) takes 167 ms before and 5.9 ms after
-(Release, macOS, 15 runs, inline jobs), 20 steps each: 8.3 ms to 0.29 ms per step, where the 20 awake bodies alone take
-0.05 ms. What is left is `sync` (it reads the components of every body each step, about 0.15 ms for 1000) and the tree
-queries of the pair rows. The doctest "1000 bodies asleep and 20 awake step in about the time of the 20 awake alone"
-(`test_physics3d_asleep.cpp`) fails above 15 times the CPU time of the awake-only world, in optimized builds only.
-The three other `physics.step3d*` entries were not refreshed. The numbers of llvmpipe and D3D11 were not measured.
+Sleeping bodies (M94.4e): `physics.step3d_mostly_asleep` (1000 boxes asleep, 20 awake elsewhere) takes 167 ms before
+and 4.6 ms after (Release, macOS, 15 runs, inline jobs), 20 steps each: 8.3 ms to 0.23 ms per step, where the 20 awake
+bodies alone take 0.05 ms; with 10 000 boxes asleep it takes 34 ms (1.7 ms per step, linear in the pile). What is left
+is `sync` (it reads the components of every body each step, about 0.15 ms for 1000) and the tree queries of the pair
+rows. The doctest "1000 bodies asleep and 20 awake step in about the time of the 20 awake alone"
+(`test_physics3d_asleep.cpp`) measures about 5 to 9 times the CPU time of the awake-only world (its awake-only world is
+smaller) and fails above 25 times, in optimized builds only. The three other `physics.step3d*` entries were not
+refreshed. The numbers of llvmpipe and D3D11 were not measured.
 
 Every input is built from a fixed seed (`fa::Rng`), so two runs do the same work (the report says when the repeats did not).
 A run takes about 10 to 110 ms (macOS, Release). The render benchmarks need a graphics context (EGL with Mesa on Linux, Metal, D3D11) and are
