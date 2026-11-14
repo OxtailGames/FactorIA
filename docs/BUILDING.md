@@ -442,7 +442,8 @@ every race of the run and fails the test with its exit code.
   the script limits (60 s per `factoria test` test, 5 s of `script.eval`, 2 s of a callback) count CPU time of the script
   thread, which the sanitizers slow down too, and a few tests assert wall-clock bounds (for example the 1.4 s of
   `http_tests.cpp` for a 0.3 s request timeout). If such a test fails only in the sanitizer job, check its time first.
-- **CI:** `Linux (Clang, ASan + UBSan)` (`linux-asan`) runs the whole Debug suite under Xvfb like the `linux` job does, with
+- **CI:** `Linux (Clang, ASan + UBSan, tests 1/2)` and `2/2` (job `linux-asan`: two machines, each runs half of the tests,
+  split by `scripts/ctest_shard.py`, below) run the whole Debug suite under Xvfb like the `linux` job does, with
   the example games' tests off as in any Debug build, and the `_perf` budgets (`example_*_perf`, `fixture_skinned_sprites_perf`)
   off too: a sanitizer build has no baseline and its times and memory are not an optimized build's. `Linux (Clang, TSan, threaded tests)` (`linux-tsan`) builds only the
   four test programs with threads and runs the tests of the CTest label `tsan`: the job system and the background reads of
@@ -935,9 +936,15 @@ one test at a time: its editor autotests draw with the software D3D11 renderer (
 matrix of three machines (`Windows (... tests 1/3)` to `3/3`): each builds (with a warm ccache that takes about a
 minute) and runs a third of the tests, chosen by `scripts/ctest_shard.py`. Every machine lists the same tests and
 splits them the same way, balancing the expected time of each third with the times measured on the runner (the table
-in the script; a test not listed counts 2 s), so a new test runs in exactly one shard. Only shard 1 saves the ccache
-and prints the physics replay hash. `python scripts/ctest_shard.py --preset <preset> --shard 1 --of 3` runs one third
-on your machine too. The performance
+in the script, one per preset, taken from a green CI run named in its comment; a test not listed counts 2 s and a disabled one 0),
+so a new test runs in exactly one shard (the script checks that before it runs anything, and `python scripts/ctest_shard.py
+--self-test`, run by the `lint` job, checks the split on a made-up list). Only shard 1 saves the ccache and prints the
+physics replay hash. `python scripts/ctest_shard.py --preset <preset> --shard 1 --of 3` runs one third on your machine too.
+The `linux-asan` job is split the same way into two (`--preset linux-asan --of 2`, each shard with `ctest --parallel 4`, only
+shard 1 trims, saves and prunes the ccache, the failure artifacts are `linux-asan-test-output-1` and `-2`); its table holds the
+times of the run with all tests on one machine, measured four tests at a time. The `tooling` test took 19 of that run's 21
+minutes of testing, so the shard that holds it sets the length of the round; a second machine takes the other tests off it.
+The performance
 budgets have the `RUN_SERIAL` property, so `ctest` runs each of them alone and the other tests cannot skew their times.
 A newer push to the same pull request or branch cancels the older run (not a manual "Perf baselines" run
 of that ref: the event and the `perfBaselines` and `benchBaselines` ticks are part of the concurrency group). The `bench`

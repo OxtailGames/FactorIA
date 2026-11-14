@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.26](chang
 
 ## Unreleased
 
+- Continuous integration (no engine change): the GCC job's ccache key no longer starts with the Clang jobs' keys (it restored
+  a Clang cache and compiled everything again; `scripts/check-ci-cache-keys.py` in the `lint` job fails on such a
+  collision). A failed build no longer trims the ccache it saves, a cancelled round saves its objects too, and each job
+  deletes the older caches of its own branch. Every Ninja build keeps going after an error (`-k 0`), so one round lists
+  all errors. A `v*` tag no longer runs `ci.yml` (`release.yml` builds the tag). The Windows test split uses times
+  from a recent run, and the ASan job runs its tests on two machines (`scripts/ctest_shard.py`, with a self-test).
+
 ## 0.27.0
 
 FactorIA 0.27.0 (M94) makes the engine fast at scale. 3D physics has a broad phase (a dynamic AABB tree),

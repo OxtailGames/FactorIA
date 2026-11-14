@@ -193,15 +193,22 @@ jobs:
   # Debug suite on a build whose every target, external/ included, is instrumented (FA_SANITIZE, preset linux-asan;
   # docs/BUILDING.md, "Sanitizers"). A finding fails the test (UBSan stops at the first one). The suppressions are
   # tools/ci/sanitizers/*.supp. Debug: the example games' tests are disabled, as in any Debug build.
+  # Two machines, each builds (a warm ccache makes that quick) and runs half of the tests: scripts/ctest_shard.py gives every
+  # test to exactly one shard, balanced by the times of its linux-asan table. The `tooling` test alone took 19 minutes when
+  # the whole suite ran on one machine (four tests at a time), so the shard that holds it sets the length of the round.
   linux-asan:
-    name: Linux (Clang, ASan + UBSan)
+    name: Linux (Clang, ASan + UBSan, tests ${{ matrix.shard }}/2)
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 150  # instrumented code runs 2-3x slower than the Debug build of the linux job; a cold ccache adds the build
     permissions:
       contents: read
-      actions: write  # "Delete this ref's older ccaches"
+      actions: write  # "Delete this ref's older ccaches" (shard 1)
+    strategy:
+      fail-fast: false  # a failure in one half must not hide what the other half finds
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
 
@@ -226,20 +233,20 @@ jobs:
           cmake --build --preset linux-asan -- -k 0
           ccache --show-stats --verbose
 
-      # Trim, save and prune: see the linux job.
+      # Trim, save and prune: see the linux job. The shards build the same objects, so only shard 1 does it.
       - name: Trim ccache to what this build used
-        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        if: ${{ !cancelled() && matrix.shard == 1 && steps.build.outcome == 'success' }}
         run: ccache --evict-older-than 7200s
 
       - name: Save ccache
-        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        if: ${{ always() && matrix.shard == 1 && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
           key: ccache-${{ runner.os }}-linux-asan-${{ github.run_id }}
 
       - name: Delete this ref's older ccaches
-        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        if: ${{ always() && matrix.shard == 1 && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -256,16 +263,17 @@ jobs:
       - name: Fewer ASLR bits (the sanitizers' shadow memory fails to map on the runner's newer kernels otherwise)
         run: sudo sysctl vm.mmap_rnd_bits=28
 
-      - name: Test under Xvfb (Mesa llvmpipe), ASan + UBSan + LSan
+      - name: Test under Xvfb (Mesa llvmpipe), ASan + UBSan + LSan (shard ${{ matrix.shard }}/2)
         env:
           FA_REQUIRE_SHDC: '1'
-        run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-asan --parallel 4  # the runner's 4 vCPUs
+        # --parallel 4: the runner's 4 vCPUs
+        run: xvfb-run -a -s "-screen 0 1280x720x24" python3 scripts/ctest_shard.py --preset linux-asan --shard ${{ matrix.shard }} --of 2 -- --parallel 4
 
       - name: Upload test output on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: linux-asan-test-output
+          name: linux-asan-test-output-${{ matrix.shard }}
           path: |
             build/**/Testing/**
             build/**/test-output/**/*.png
@@ -1692,6 +1700,10 @@ jobs:
       # the GCC job once restored a Clang cache). Seconds, and the first red of a round that renames a cache badly.
       - name: Cache keys do not collide (scripts/check-ci-cache-keys.py)
         run: python3 scripts/check-ci-cache-keys.py
+
+      # The test split of the Windows and ASan jobs gives every test to exactly one shard (a made-up list: no build needed).
+      - name: Test shards are disjoint and complete (scripts/ctest_shard.py --self-test)
+        run: python3 scripts/ctest_shard.py --self-test
 
       - name: Pick the base of the diff
         id: base
