@@ -1,5 +1,7 @@
 // Navigation benchmark: failed searches on a large grid, answered from the reachability labels or by A* running to
 // exhaustion (the same bits either way; engine/physics/tests/test_nav_reach.cpp compares them).
+#include <cstdio>
+#include <cstdlib>
 #include <memory>
 #include <vector>
 
@@ -49,10 +51,19 @@ struct NavScene {
         auto at = [&](int x, int z) {
             return grid.find_span({(float(x) + 0.5f) * 0.5f, 0.0f, (float(z) + 0.5f) * 0.5f}, 0.5f, 0.5f);
         };
+        // A query on a cell without a span would index outside the search scratch: stop the bench with a message.
+        auto must = [&](int x, int z) {
+            const int s = at(x, z);
+            if (s < 0) {
+                std::fprintf(stderr, "bench nav.unreachable: no span at cell (%d, %d)\n", x, z);
+                std::abort();
+            }
+            return s;
+        };
         Rng rng(94);
         for (int i = 0; i < kQueries; ++i) {
-            starts.push_back(at(int(rng.next_u32() % 200), int(rng.next_u32() % 200)));
-            goals.push_back(at(c0 + 3 + int(rng.next_u32() % 5), c0 + 2 + int(rng.next_u32() % 15)));
+            starts.push_back(must(int(rng.next_u32() % 200), int(rng.next_u32() % 200)));
+            goals.push_back(must(c0 + 3 + int(rng.next_u32() % 5), c0 + 2 + int(rng.next_u32() % 15)));
         }
     }
     double run() {

@@ -45,10 +45,12 @@ struct Sim {
 };
 
 // A map of w x h cells whose top-left corner is the origin; tiles 1 and 2 are solid, 3 is decoration.
-Entity add_map(Sim& s, int w, int h, const std::vector<int>& tiles) {
+Entity add_map(Sim& s, int w, int h, const std::vector<int>& tiles,
+               TilemapProjection projection = TilemapProjection::Orthogonal) {
     Entity map = s.world.create("map", "map");
     Tilemap& tm = s.world.add<Tilemap>(map);
     tm.tileSize = {kTile, kTile};
+    tm.projection = projection;
     tm.solidTiles = Json::array({1, 2});
     set_tilemap_grid(tm, w, h, tiles);
     return map;
@@ -103,6 +105,8 @@ std::string fresh_signature(const Tilemap& tm, int w, int h) {
     Entity map = fresh.world.create("map", "map");
     Tilemap& copy = fresh.world.add<Tilemap>(map);
     copy.tileSize = tm.tileSize;
+    copy.projection = tm.projection;
+    copy.groundHeight = tm.groundHeight;
     copy.solidTiles = tm.solidTiles;
     set_tilemap_grid(copy, w, h, tilemap_grid(tm).tiles);
     fresh.run(2);
@@ -140,6 +144,119 @@ TEST_CASE("2d tilemap boxes: random edits give the colliders of a fresh build, a
         rebuilds = now;
     }
     CHECK(s.tilemap_state()["fullScans"].get<int>() == 0);  // every step was explained by the edits
+}
+
+namespace {
+
+// Edits one cell at random (solid, decoration, empty) and checks the map against a fresh build, `rounds` times.
+void edit_and_compare(Sim& s, Entity map, int w, int h, Rng& rng, int rounds, int editsPerRound) {
+    Tilemap& tm = *s.world.get<Tilemap>(map);
+    for (int round = 0; round < rounds; ++round) {
+        INFO("round " << round);
+        for (int i = 0; i < editsPerRound; ++i) {
+            const int c = int(rng.next_u32() % std::uint32_t(w)), r = int(rng.next_u32() % std::uint32_t(h));
+            const std::uint32_t v = rng.next_u32() % 4;
+            REQUIRE(set_tilemap_tile(tm, c, r, v == 0 ? -1 : v == 1 ? 3 : v == 2 ? 2 : 1));
+        }
+        s.run(1);
+        CHECK(collision_signature(s, w, h) == fresh_signature(tm, w, h));
+    }
+}
+
+}  // namespace
+
+TEST_CASE("2d tilemap boxes: rectangular rooms split and merged by edits in the middle equal a fresh build") {
+    constexpr int W = 56, H = 34;
+    Rng rng(777);
+    std::vector<int> tiles(std::size_t(W) * std::size_t(H), -1);
+    for (int room = 0; room < 9; ++room) {  // solid blocks 3 to 20 cells on a side, some overlapping
+        const int bw = 3 + int(rng.next_u32() % 18), bh = 3 + int(rng.next_u32() % 18);
+        const int x0 = int(rng.next_u32() % std::uint32_t(W - bw + 1)), y0 = int(rng.next_u32() % std::uint32_t(H - bh + 1));
+        for (int r = y0; r < y0 + bh; ++r)
+            for (int c = x0; c < x0 + bw; ++c) tiles[std::size_t(r) * W + std::size_t(c)] = 1;
+    }
+    Sim s;
+    Entity map = add_map(s, W, H, tiles);
+    s.run(2);
+    Tilemap& tm = *s.world.get<Tilemap>(map);
+    REQUIRE(collision_signature(s, W, H) == fresh_signature(tm, W, H));
+    // Holes punched in the middle of a block (it splits into runs and boxes), then filled again (they merge back).
+    std::vector<std::pair<int, int>> holes;
+    for (int i = 0; i < 60; ++i) {
+        const int c = 2 + int(rng.next_u32() % std::uint32_t(W - 4)), r = 2 + int(rng.next_u32() % std::uint32_t(H - 4));
+        if (tiles[std::size_t(r) * W + std::size_t(c)] != 1 || std::find(holes.begin(), holes.end(), std::make_pair(c, r)) != holes.end())
+            continue;
+        holes.push_back({c, r});
+        REQUIRE(set_tilemap_tile(tm, c, r, -1));
+        s.run(1);
+        CHECK(collision_signature(s, W, H) == fresh_signature(tm, W, H));
+    }
+    for (auto [c, r] : holes) {
+        REQUIRE(set_tilemap_tile(tm, c, r, 1));
+        s.run(1);
+        CHECK(collision_signature(s, W, H) == fresh_signature(tm, W, H));
+    }
+    CHECK(holes.size() >= 8);
+    // Everything back to the first tiles: the very boxes of the first build.
+    CHECK(tilemap_grid(tm).tiles == tiles);
+    edit_and_compare(s, map, W, H, rng, 6, 25);
+}
+
+TEST_CASE("2d tilemap boxes: an isometric map edited has the diamonds of a fresh build") {
+    constexpr int W = 18, H = 14;
+    Rng rng(4321);
+    Sim s;
+    Entity map = add_map(s, W, H, random_tiles(rng, W, H), TilemapProjection::Isometric);
+    s.run(2);
+    Tilemap& tm = *s.world.get<Tilemap>(map);
+    CHECK(s.shapes() > 0);
+    CHECK(collision_signature(s, W, H) == fresh_signature(tm, W, H));
+    edit_and_compare(s, map, W, H, rng, 8, 10);
+}
+
+TEST_CASE("2d tilemap boxes: the debug boxes follow a Tilemap that moved, edited or not") {
+    constexpr int W = 20, H = 8;
+    std::vector<int> tiles(std::size_t(W) * std::size_t(H), -1);
+    for (int c = 0; c < W; ++c) tiles[std::size_t(7) * W + std::size_t(c)] = 1;
+    auto boxes_of = [](Sim& sim) {
+        std::vector<std::string> out;
+        for (const Physics::DebugShape& d : sim.physics.debug_shapes(sim.world))
+            out.push_back(std::to_string(std::lround(d.center.x)) + "," + std::to_string(std::lround(d.center.y)) + "," +
+                          std::to_string(std::lround(d.size.x)) + "," + std::to_string(std::lround(d.size.y)));
+        std::sort(out.begin(), out.end());
+        return out;
+    };
+    Sim s;
+    Entity map = add_map(s, W, H, tiles);
+    s.run(2);
+    const std::vector<std::string> before = boxes_of(s);
+    REQUIRE(before.size() == 1);
+    s.world.set_world_position(map, {100.0f, 50.0f, 0.0f});
+    s.run(1);
+    Tilemap& tm = *s.world.get<Tilemap>(map);
+    REQUIRE(set_tilemap_tile(tm, 5, 7, -1));  // splits the floor after the map moved
+    s.run(1);
+    Sim fresh;
+    Entity same = add_map(fresh, W, H, tilemap_grid(tm).tiles);
+    fresh.world.set_world_position(same, {100.0f, 50.0f, 0.0f});
+    fresh.run(2);
+    CHECK(boxes_of(s) == boxes_of(fresh));
+    CHECK(boxes_of(s).size() == 2);
+}
+
+TEST_CASE("nav tiles: a scene unload (Physics::reset) lets go of the kept grids") {
+    constexpr int W = 40, H = 40;
+    Sim s;
+    (void)add_map(s, W, H, std::vector<int>(std::size_t(W) * H, -1));
+    nav_tile_cache_clear();
+    const Json query = Json::parse(R"({"tilemap":"map","from":[0,0],"to":[39,39]})");
+    REQUIRE(nav_tile_query(s.world, query).ok());
+    REQUIRE(nav_tile_query(s.world, query).ok());
+    CHECK(nav_tile_cache_stats().fullBuilds == 1);
+    CHECK(nav_tile_cache_stats().hits >= 1);
+    s.physics.reset();
+    REQUIRE(nav_tile_query(s.world, query).ok());
+    CHECK(nav_tile_cache_stats().fullBuilds == 2);  // the grid of the old scene was gone
 }
 
 TEST_CASE("2d tilemap boxes: a long floor is one box, an edit splits it and a second edit joins it again") {
