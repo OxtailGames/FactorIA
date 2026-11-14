@@ -494,6 +494,7 @@ private:
     using PairList = std::vector<std::pair<PairKey, PairState>>;
     struct StepScratch {
         std::vector<JointLink> jlinks;
+        std::unordered_set<std::uint64_t> joinTargets;  // sync: bodies another entity's Joint3D is attached to
         UnionFind chains, islands;
         std::vector<int> chainSize, carrier;
         std::vector<char> inJoint, charCarried, inScope, loaded, isMover, isSpecial, supported, hold, ready;

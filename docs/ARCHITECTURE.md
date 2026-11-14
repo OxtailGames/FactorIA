@@ -539,8 +539,9 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     controller) walk the same tree; (7) a heightfield is one static body whose contacts read only the cells under the
     other shape. Every one of them gives the bits of the all-pairs loop it replaced, with 0, 1 or N job threads
     (`kReferenceHash` and `determinism_expected.txt` pin it). The step keeps its working vectors in `Physics3D::sc_`
-    (cleared, not freed), so a settled step allocates only the list of entities that `sync` takes once (the test
-    `test_physics3d_alloc.cpp` counts it). What stays linear in the number of bodies is `sync`: `World` has no change
+    (cleared, not freed), so a settled step makes a fixed number of allocations that does not grow with the bodies (the list of entities
+    that `sync` takes once, and what the standard library allocates for an empty container; the test
+    `test_physics3d_alloc.cpp` checks that the count is the same with 50 and with 300 bodies). What stays linear in the number of bodies is `sync`: `World` has no change
     stamps on a component (a mutable `get` is all a script has), so physics reads the pose, the enabled state and the
     shape of every body to see what gameplay edited; it is the 0.15 ms per 1000 bodies measured below.
   - *3D physics* (`physics3d.cpp`): the pair loops are sequential, because a contact changes the bodies the next
