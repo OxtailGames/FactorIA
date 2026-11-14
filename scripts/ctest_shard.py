@@ -14,6 +14,9 @@ A DISABLED test (an example test in a Debug build) runs nothing and counts 0.
 `--self-test` needs no build: it splits a made-up list (the tables' tests, unlisted and disabled ones) into 1 to 6 shards
 and fails unless every split is disjoint, complete and the same on every call. The lint job runs it.
 
+A preset that lists no test, or a shard that gets none (more shards than tests), is an error: a machine that ran nothing
+must not be green. A table that names a test the suite does not have (renamed, removed) gets a warning.
+
 ctest adds the setup and cleanup tests of a selected test's fixtures by itself (FIXTURES_REQUIRED), as with any -R.
 """
 
@@ -169,6 +172,11 @@ def exact_regex(names):
     return "^(" + "|".join(re.sub(r"([^A-Za-z0-9_-])", r"\\\1", n) for n in names) + ")$"
 
 
+def stale_names(names, seconds):
+    """The names of a table that the suite does not have: a renamed or removed test, whose time no shard counts."""
+    return sorted(set(seconds) - set(names))
+
+
 def self_test():
     listed = sorted(set(WINDOWS_SECONDS) | set(ASAN_SECONDS))
     names = listed + [f"unlisted_{i}" for i in range(25)] + [f"example_disabled_{i}" for i in range(15)]
@@ -185,12 +193,20 @@ def self_test():
     # A test that is not in the table counts DEFAULT_SECONDS, a disabled one 0.
     if cost("unlisted_0", WINDOWS_SECONDS, disabled) != DEFAULT_SECONDS or cost("example_disabled_0", {}, disabled) != 0:
         raise ValueError("the cost of an unlisted or a disabled test is wrong")
-    # The regex of a shard selects exactly its tests.
-    shards, _ = split(names, 3, WINDOWS_SECONDS, disabled)
-    for shard in shards:
-        rx = re.compile(exact_regex(shard).replace("\\", ""))
-        if sorted(n for n in names if rx.search(n)) != sorted(shard):
-            raise ValueError("the regex of a shard does not select exactly its tests")
+    # The regex of a shard selects exactly its tests, also when a name has characters that mean something in a
+    # regular expression: an unescaped '.' would select `a_b` for `a.b`, an unescaped '+' or '(' nothing at all.
+    odd = ["a.b", "a_b", "a+b", "aab", "ab", "c(1)", "c1", "d[x]", "dx", "e*", "e", "f|g", "f", "g", "h$", "^h",
+           "i\\j", "ij"]
+    for all_names in (names, names + odd):
+        shards, _ = split(all_names, 3, WINDOWS_SECONDS, disabled)
+        check_partition(all_names, shards)
+        for shard in shards:
+            # Python reads `\x` for a punctuation character as CMake does: that character itself.
+            rx = re.compile(exact_regex(shard))
+            if sorted(n for n in all_names if rx.search(n)) != sorted(shard):
+                raise ValueError("the regex of a shard does not select exactly its tests")
+    if stale_names(["a", "b"], {"a": 1.0, "gone": 2.0}) != ["gone"] or stale_names(["a"], {}) != []:
+        raise ValueError("stale_names does not name the table entries the suite lacks")
     try:
         check_partition(names, [names[:5], names[4:]])
     except ValueError:
@@ -219,6 +235,11 @@ def main():
 
     tests = list_tests(args.preset)
     names = [n for n, _ in tests]
+    if not names:
+        print(f"error: `ctest --preset {args.preset} --show-only=json-v1` lists no test, so this machine would run "
+              "nothing and report success. Configure the preset first (the tests are registered at configure time).",
+              file=sys.stderr)
+        return 1
     disabled = frozenset(n for n, d in tests if d)
     seconds = SECONDS.get(args.preset, {})
     jobs = JOBS.get(args.preset, 1)
@@ -228,9 +249,17 @@ def main():
         mark = "  <- this machine" if i == args.shard else ""
         print(f"shard {i}/{args.of}: {len(tests_i)} tests, about {estimate(tests_i, seconds, disabled, jobs):.1f} min{mark}")
     mine = shards[args.shard - 1]
+    stale = stale_names(names, seconds)
+    if stale:
+        # Not an error: a pull request that renames or removes a test must still run. The split stays complete (the
+        # new name counts DEFAULT_SECONDS), only less balanced.
+        print(f"warning: the {args.preset} table of scripts/ctest_shard.py names tests the suite does not have: "
+              f"{', '.join(stale)}. Remove them from the table, or rename them there if the tests were renamed.")
     if not mine:
-        print(f"shard {args.shard} has no test: the suite has only {len(names)}")
-        return 0
+        print(f"error: shard {args.shard} of {args.of} has no test: the suite has only {len(names)}. A machine that "
+              "runs nothing must not report success: lower --of (and the job's matrix) to at most the number of tests.",
+              file=sys.stderr)
+        return 1
     print("tests: " + " ".join(mine), flush=True)
     return subprocess.run(["ctest", "--preset", args.preset, "-R", exact_regex(mine)] + extra).returncode
 

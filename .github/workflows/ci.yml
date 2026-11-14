@@ -505,8 +505,9 @@ jobs:
       - name: Test (windows-release, shard ${{ matrix.shard }}/3)
         env:
           FA_REQUIRE_SHDC: '1'
-        # One test at a time: the software D3D11 (WARP) of the editor autotests and the tooling suite (tooling_1 ... tooling_5) already fill the 4
-        # vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the timing-sensitive tests failed.
+        # One test at a time: the software D3D11 (WARP) of the editor autotests and the tooling suite (tooling_1 ...
+        # tooling_5) already fill the 4 vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the
+        # timing-sensitive tests failed.
         run: python scripts/ctest_shard.py --preset windows-release --shard ${{ matrix.shard }} --of 3
 
       # Each shard's own LastTest.log: the `_perf` tests that passed inside the warning band (see the linux job).

@@ -1166,9 +1166,10 @@ becomes the engine roadmap.
   `--fa-files-exclude=...` (`cmake/doctest_main.cpp`, every doctest executable has them; doctest's own `--source-file` would
   match the raw `__FILE__`, which has slashes on Ninja and backslashes under MSBuild). The ctest entry `tooling_split_check`
   (`cmake/fa_doctest_split_check.cmake`, plain CMake) fails unless the entries together list exactly the test cases of the
-  whole executable, each once. Entries run at the same time, so a test case never uses a fixed name for anything outside its
-  process: temp folders come from `fa::fs::make_temp_dir` (they carry the process id), servers bind port 0, and what a test
-  changes in the environment it restores. `ctest -L tooling` runs the five entries and the check.
+  whole executable, each once. Entries run at the same time, so two test cases never share a fixed name outside their
+  process: temp folders come from `fa::fs::make_temp_dir` (they carry the process id) and servers bind port 0. The one
+  fixed name is `~/Library/Containers/com.factoria.sandboxprobe`, the container of `sign.macos`'s sandboxed app: one
+  test case uses it, so one entry. `ctest -L tooling` runs the five entries and the check.
 - Rendering: headless golden images (`engine/render/tests/golden/*.png`, plus the menus and export goldens in
   `tools/cli/tests/golden/`). One golden serves every backend (Metal, D3D11, GL on llvmpipe). A picture matches when its
   mean error, the share of pixels more than 4/255 off and its largest error are all within the limits of
