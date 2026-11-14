@@ -407,7 +407,9 @@ void wake_owner_waiters(Pool& p, const JobState& j) {
 }
 
 // The oldest job of `q` that nobody took yet, taken; null when none. Entries a wait took out of order are dropped.
-JobPtr pop_take(Pool& p, ReadyQueue& q) {
+// `dropped`, when given, receives those entries instead of destroying them here (the caller holds a lock: it releases
+// them after unlocking).
+JobPtr pop_take(Pool& p, ReadyQueue& q, std::vector<JobPtr>* dropped = nullptr) {
     while (q.size.load(std::memory_order_relaxed) > 0) {
         JobPtr j;
         {
@@ -418,7 +420,8 @@ JobPtr pop_take(Pool& p, ReadyQueue& q) {
             q.size.store(q.jobs.size(), std::memory_order_relaxed);
         }
         if (try_take(p, j.get())) return j;
-        // A wait took it out of order: only its entry was left here; it goes now, outside the lock.
+        // A wait took it out of order: only its entry was left here; it goes now, outside the queue's lock.
+        if (dropped) dropped->push_back(std::move(j));
     }
     return nullptr;
 }
@@ -443,11 +446,11 @@ void drop_taken_entries(Pool& p, const JobState& j) {
 }
 
 // A job for worker `self`: the oldest of its own queue, else the oldest of another queue (stealing). Null when none.
-JobPtr take_ready(Pool& p, int self) {
+JobPtr take_ready(Pool& p, int self, std::vector<JobPtr>* dropped = nullptr) {
     const int n = p.workerCount.load(std::memory_order_relaxed);
     for (int k = 0; k <= n; ++k) {
         const int i = (self + k) % (n + 1);
-        if (JobPtr j = pop_take(p, p.queues[std::size_t(i)])) return j;
+        if (JobPtr j = pop_take(p, p.queues[std::size_t(i)], dropped)) return j;
     }
     return nullptr;
 }
@@ -860,9 +863,10 @@ void worker_main(int index, std::uint32_t gen) {
             // That thread is slow to go on (the machine is loaded): do not burn its CPU time, nap instead. Registered
             // as a sleeper first, so a job queued from now on wakes this nap (the look below sees one queued before).
             p.naps.fetch_add(1, std::memory_order_relaxed);
+            std::vector<JobPtr> dropped;  // declared before the lock: entries a wait took die after it is released
             std::unique_lock<std::mutex> lk(p.sleepMu);
             p.wake.sleepers.fetch_add(1, std::memory_order_seq_cst);
-            next = take_ready(p, index + 1);
+            next = take_ready(p, index + 1, &dropped);
             const bool stopping = p.stopFlag.load(std::memory_order_acquire);
             if (!next && !stopping) p.workCv.wait_for(lk, kNap);
             p.wake.sleepers.fetch_sub(1, std::memory_order_relaxed);
@@ -870,6 +874,8 @@ void worker_main(int index, std::uint32_t gen) {
                 lk.unlock();
                 std::this_thread::yield();  // stopping: no nap (stop already notified), but no hot loop either
             }
+            if (lk.owns_lock()) lk.unlock();
+            dropped.clear();  // the last references may run destructors: not under a lock
             continue;
         }
         spins = 0;

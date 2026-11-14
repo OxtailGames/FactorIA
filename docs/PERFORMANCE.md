@@ -536,9 +536,9 @@ Choosing `jobThreads`:
 
 ### Physics on jobs
 
-Physics, path searches and sound rendering use the job threads when the work is big enough, and always give the same result
-as without them (docs/ARCHITECTURE.md, "Physics, navigation and audio on jobs"). Nothing to switch on: a small game never
-queues a job. The sizes below are counts of items, the same on every machine (never a measured time):
+Physics, path searches and sound rendering use the job threads when the work is big enough, and always give the same
+result as without them (docs/ARCHITECTURE.md, "Physics, navigation and audio on jobs"). Nothing to switch on: a small
+game never queues a job. The sizes below are counts of items, the same on every machine (never a measured time):
 
 | Work | Runs on the job threads when | Not split further than |
 | --- | --- | --- |
@@ -548,31 +548,40 @@ queues a job. The sizes below are counts of items, the same on every machine (ne
 | `render_sfx` (and what uses it) | 2 or more layers and at least 24000 samples (half a second at 48 kHz) | one job per layer |
 
 Measured on an Apple M5 (10 cores) with a Release build, the machine busy with other builds, so read the numbers as
-orders of magnitude; the time of one step, `inline` against 1, 2 and 8 worker threads:
+orders of magnitude. Every number below is the time of ONE step in ms (the pit row: the mean of its first 10 steps; the
+`render_sfx` row: one render of 3 s of sound), `inline` against 1, 2 and 8 worker threads. `fa_bench` reports a block of
+steps per run instead (`physics.step3d_1000` is 10 steps, `physics.step3d` is 20), so its numbers are 10 or 20 times
+these:
 
-| Scene | inline | 1 | 2 | 8 |
+| Scene (ms per step) | inline | 1 | 2 | 8 |
 | --- | --- | --- | --- | --- |
 | 2D, 420 bodies (below the threshold) | 0.38 ms | 0.41 ms | 0.40 ms | 0.47 ms |
 | 2D, 1000 bodies | 1.0 ms | 1.0 ms | 0.95 ms | 1.05 ms |
 | 2D, 4000 bodies | 5.3 ms | 4.6 ms | 4.0 ms | 3.9 ms |
 | 2D, 8000 bodies | 9.9 ms | 8.6 ms | 7.8 ms | 7.4 ms |
 | 3D, 196 bodies (below the threshold) | 0.47 ms | 0.47 ms | 0.46 ms | 0.5 ms |
-| 3D, 1000 bodies in a pit (the first 10 steps) | 8.2 ms | 8.0 ms | 8.0 ms | 7.3 ms |
-| `render_sfx`, 5 layers, 3 s | 13 ms | 9 ms | 8.6 ms | 9 ms |
+| 3D, 1000 bodies in a pit (mean of the first 10 steps) | 8.2 ms | 8.0 ms | 8.0 ms | 7.3 ms |
+| `render_sfx`, 5 layers, 3 s (one render, not a step) | 13 ms | 9 ms | 8.6 ms | 9 ms |
 
 The 2D gain is modest because Box2D already makes a step cheap and part of it (the solver's order, the joints) is
-sequential; below about 1500 bodies the jobs cost as much as they save, which is why the threshold is there. The 3D gain is
-small now: since the broad phase of M94 a scan row is cheap, so the jobs gain about 10% on 1000 bodies and cost more than
-they save below about 250 (at a threshold of 64 rows the 196-body scene took 12.5 ms per 20 steps with 4 workers against 9.2
-on the calling thread, which is why the threshold is 256; the 3D rows were remeasured in M94.4g with `fa_bench --jobs`,
-the 2D rows are older). The solver's iterations, the time-of-impact islands,
-sleeping, joints, character controllers and the device's audio callback stay on one thread. The example games all stay
-below these sizes: their draw calls, entities and per-frame time did not change (`perf.measure` with `FA_JOB_THREADS=inline`,
-`4` and `8` on the examples gave the same numbers within noise), so no example budget was tightened.
+sequential; below about 1500 bodies the jobs cost as much as they save, which is why the threshold is there. The 3D
+gain is small now: since the broad phase of M94 a scan row is cheap, so the jobs gain about 10% on 1000 bodies and cost
+more than they save below about 250 (at a threshold of 64 rows the 196-body scene took 12.5 ms per block of 20 steps
+with 4 workers against 9.2 on the calling thread, which is why the threshold is 256; the 3D rows were remeasured in
+M94.4g with `fa_bench --jobs`, the 2D rows are older). The solver's iterations, the time-of-impact islands, sleeping,
+joints, character controllers and the device's audio callback stay on one thread. The example games all stay below
+these sizes: their draw calls, entities and per-frame time did not change (`perf.measure` with
+`FA_JOB_THREADS=inline`, `4` and `8` on the examples gave the same numbers within noise), so no example budget was
+tightened.
 
-Box2D's constraint solver runs its worker tasks as jobs that spin-wait on each other during the solve (they wait for the
-other pieces of each stage without sleeping). On a loaded machine, or with fewer cores than job threads, that spinning costs
-CPU time and can make a wide step slower than on one thread; the sizes in the table are what keeps small steps off it.
+Memory: the 3D physics keeps the working vectors of a step (`StepScratch`) from one step to the next so a step
+allocates nothing. They only grow: after a scene of thousands of bodies they keep that capacity until the physics
+system is destroyed.
+
+Box2D's constraint solver runs its worker tasks as jobs that spin-wait on each other during the solve (they wait for
+the other pieces of each stage without sleeping). On a loaded machine, or with fewer cores than job threads, that
+spinning costs CPU time and can make a wide step slower than on one thread; the sizes in the table are what keeps
+small steps off it.
 
 `cpuMsAvg` of `perf.measure` is the CPU time of the whole process: work moved to another thread does not lower it, it
 lowers the wall time of the frame. Compare frames per second, or `jobs.info` (how busy each thread was), to see the gain.

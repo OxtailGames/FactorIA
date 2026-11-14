@@ -287,9 +287,14 @@ JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& wha
         if constexpr (integral) {
             return std::format("{}", std::int64_t(v));
         } else {
-            const Json j = to_json(float(v));
-            const double d = j.get<double>();
-            return d == std::floor(d) && std::fabs(d) < 1e15 ? std::format("{}", std::int64_t(d)) : j.dump();
+            // The shortest text that reads back as the same float (to_json rounds to 4 decimals: 0.00001 would show 0).
+            const float fv = float(v);
+            if (fv == std::floor(fv) && std::fabs(fv) < 1e15f) return std::format("{}", std::int64_t(fv));
+            char buf[64];
+            // Fixed notation (0.00001, not 1e-05) unless the number is huge.
+            const auto r = std::fabs(fv) < 1e15f ? std::to_chars(buf, buf + sizeof(buf), fv, std::chars_format::fixed)
+                                                 : std::to_chars(buf, buf + sizeof(buf), fv);
+            return std::string(buf, r.ptr);
         }
     };
     auto must_be = [&] {
@@ -2474,6 +2479,7 @@ NATIVE(fset) {
             bool given[4] = {false, false, false, false};
             for (int i = 0; i < n && i < 4; ++i) {
                 JSValue x = JS_GetPropertyUint32(ctx, v, static_cast<uint32_t>(i));
+                if (JS_IsException(x)) return x;  // a getter threw: its exception is the result, nothing was written
                 if (JS_IsNumber(x)) {
                     double d = 0;
                     JS_ToFloat64(ctx, &d, x);
