@@ -28,9 +28,13 @@ DEFAULT_SECONDS = 2.0
 # Seconds per test, from the green CI run 43625236861 (main at c570cd52, 2026-11-14), tests of 5 s or more. Refresh them from
 # the "Test #n: name ... Passed x sec" lines of a newer green run when a shard gets much slower than the others.
 
+# ESTIMATES: the green run measured `tooling` as one test (230.1 s on Windows, 1135.1 s under ASan). It is now five ctest
+# entries (tools/common/CMakeLists.txt), each with its share of that time, the shares measured on a Mac (19.7, 19.6, 19.6,
+# 20.0 and 19.8 s of 98.7 s per entry). tooling_split_check takes under a second and counts the default. The next green CI run
+# of this split gives the real numbers: replace tooling_1 ... tooling_5 with them.
+
 # Preset windows-release: the three `Windows (... tests n/3)` jobs, one test at a time (a plain sum is the time of a shard).
 WINDOWS_SECONDS = {
-    "tooling": 230.1,
     "editor_autotest_5": 161.0,
     "mcp": 129.0,
     "editor_autotest_3": 95.1,
@@ -39,6 +43,11 @@ WINDOWS_SECONDS = {
     "example_larkspur-lodge_test": 67.0,
     "editor_autotest_4": 52.9,
     "example_burrow-brigade_test": 48.1,
+    "tooling_4": 46.6,
+    "tooling_5": 46.2,
+    "tooling_1": 45.9,
+    "tooling_2": 45.7,
+    "tooling_3": 45.7,
     "example_tidewater-market_test": 45.3,
     "example_clockwork-courier_test": 42.5,
     "editor_autotest_2": 40.3,
@@ -69,9 +78,13 @@ WINDOWS_SECONDS = {
 # shared the 4 vCPUs with others (more than a test takes alone), and a shard's time is about its sum / 4, never below its
 # longest test (JOBS).
 ASAN_SECONDS = {
-    "tooling": 1135.1,
     "runtime": 315.4,
     "editor_autotest_5": 233.3,
+    "tooling_4": 230.0,
+    "tooling_5": 227.7,
+    "tooling_1": 226.6,
+    "tooling_2": 225.4,
+    "tooling_3": 225.4,
     "editor_autotest_1": 171.3,
     "audio": 165.5,
     "editor_autotest_3": 153.2,

@@ -18,6 +18,11 @@ Older versions, one file per minor version with its patch releases: [0.26](chang
   (ctest label `window`) are left out and listed as `SKIPPED`, never as passed, and the run ends as `agent-build: DONE
   INCOMPLETE` (status 77) instead of waiting five minutes for each of them to time out; `FA_TEST_NO_WINDOW=1` tells a
   test case not to start a windowed program (`sign.macos`'s sandboxed app). `FA_AGENT_WINDOW_TESTS=run` runs them anyway.
+- The `tooling` ctest entry, one process of 100 s (20 minutes under ASan) and the longest test of the suite, is five
+  entries `tooling_1` ... `tooling_5` (label `tooling`) that `ctest -j` runs at the same time, with the same test cases:
+  `fa_test_tooling --fa-files=a_test.cpp,...` / `--fa-files-exclude=...` (every doctest executable has them) pick test
+  files by name, the fifth entry takes every file the others do not name, and the ctest entry `tooling_split_check` fails
+  unless the entries together list exactly the test cases of the whole executable.
 
 ## 0.27.0
 
