@@ -153,14 +153,14 @@ ScriptPlugin napping_plugin() {
     return p;
 }
 
-void run_nap_case(TestHost& h, const std::string& body) {
+void run_nap_case(TestHost& h, const std::string& body, double limitSeconds = 0.2) {
     h.file("scripts/nap.js", "import { Behaviour, plugins } from \"factoria\";\nglobalThis.frames = 0;\n"
                              "export default class Nap extends Behaviour {\n  onUpdate() {\n" +
                                  body + "\n  }\n}\n");
     h.file("scenes/main.scene.json", watchdog_scene(Json::array({script_entity("nap", "scripts/nap.js")})).dump());
     h.scripts.set_plugins({napping_plugin()});
     REQUIRE(h.start());
-    h.scripts.set_callback_limit(0.2);
+    h.scripts.set_callback_limit(limitSeconds);
     h.load_scene_now("scenes/main.scene.json");
     h.step_frames(1);
 }
@@ -175,8 +175,9 @@ TEST_CASE("watchdog: a busy loop is stopped by CPU time and the message names th
 
 TEST_CASE("watchdog: time spent waiting in a native is not charged to the script") {
     TestHost h("watchdog_wait");
-    // 0.5 s on the clock is 2.5 times the CPU limit (0.2 s) but under the wall cap (1.6 s); the script uses almost no CPU.
-    run_nap_case(h, "    plugins.nap.ms(500); globalThis.frames++;");
+    // 1.5 s on the clock is 1.5 times the CPU limit (1 s), so a limit charged in wall time would cut the script, but it is
+    // 6.5 s under the wall cap (8 s) that a loaded machine's stall would have to eat; the script uses almost no CPU.
+    run_nap_case(h, "    plugins.nap.ms(1500); globalThis.frames++;", 1.0);
     CHECK(count_errors(h.scripts, "took too long") == 0);
     auto frames = h.scripts.eval("frames");
     REQUIRE(frames.ok());

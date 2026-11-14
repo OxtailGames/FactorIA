@@ -24,6 +24,10 @@ Older versions, one file per minor version with its patch releases: [0.26](chang
   `fa_test_tooling --fa-files=a_test.cpp,...` / `--fa-files-exclude=...` (every doctest executable has them) pick test
   files by name, the fifth entry takes every file the others do not name, and the ctest entry `tooling_split_check` fails
   unless the entries together list exactly the test cases of the whole executable.
+- Flaky tests made deterministic (CI T-1): the tests of the MCP HTTP server, the music transport, the file retries
+  (new `fs::sharing_retries()` counter), the script watchdog and `cli_mcp_update` wait for events and counts with
+  generous deadlines instead of wall-clock budgets and fixed sleeps. The HTTP server's behaviour is unchanged; it only
+  gains `McpHttpServer::idle_connections()`, which a test waits on.
 
 ## 0.27.0
 

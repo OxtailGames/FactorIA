@@ -133,6 +133,7 @@ TEST_CASE("fs: writes replace the file atomically through a temporary file that 
 }
 
 TEST_CASE("fs: a write replaces a file another thread is reading (Windows refuses while it is open)") {
+    RulesScope rules(true);  // the reader below waits for the writer's first refused attempt, so a refusal must happen
     TempProject p;
     REQUIRE(fs::write_text("data/shared.json", "{\"v\": 1}").ok());
     // A reader holds the file open (std::ifstream shares no delete access on Windows) and lets go a moment later, as the
@@ -140,12 +141,19 @@ TEST_CASE("fs: a write replaces a file another thread is reading (Windows refuse
     // fs::ReadStream registers the file, so a Windows-rules run (FA_FS_WINDOWS_RULES, fs.h) refuses the replace like Windows.
     fs::ReadStream reader(fs::os_path(p.dir / "data" / "shared.json"), std::ios::binary);
     REQUIRE(reader.good());
-    std::thread release([&reader] {
-        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    // The reader lets go once the writer has been refused (a retry counted), not after a guessed time: a loaded VM that
+    // starts the writer late still gets the retry path, and one that starts this thread late cannot starve the writer's
+    // ~0.9 s of retries.
+    const auto retriesBefore = fs::sharing_retries();
+    std::thread release([&reader, retriesBefore] {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);  // safety net only
+        while (fs::sharing_retries() == retriesBefore && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         reader.close();
     });
     const auto r = fs::write_text("data/shared.json", "{\"v\": 2}");
     release.join();
+    CHECK(fs::sharing_retries() > retriesBefore);  // the write was refused at least once: the retry path ran
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
     CHECK(fs::read_text("data/shared.json").value() == "{\"v\": 2}");
     CHECK(names_in(p.dir / "data") == std::vector<std::string>{"shared.json"});
@@ -413,11 +421,11 @@ TEST_CASE("windows rules: a file open through ReadStream cannot be replaced; the
         CHECK(fs::is_sharing_violation(ec));
         CHECK(stdfs::exists(p.dir / "data" / "a.json"));
     }
-    // Let go: the same write goes through at once (nothing left in the registry).
-    const auto t1 = std::chrono::steady_clock::now();
+    // Let go: the same write goes through at once (nothing left in the registry): it waited for nobody. Counted, not timed:
+    // the retries of the mode take ~0.9 s, but so does a loaded VM's scheduler.
+    const auto retriesBefore = fs::sharing_retries();
     REQUIRE(fs::write_text("data/a.json", "2").ok());
-    CHECK(std::chrono::steady_clock::now() - t1 <
-          std::chrono::milliseconds(800));  // no retries (~0.9 s); room for a loaded VM
+    CHECK(fs::sharing_retries() == retriesBefore);
     CHECK(fs::read_text("data/a.json").value() == "2");
     std::error_code ec;
     CHECK(fs::remove_file(p.dir / "data" / "a.json", ec));
@@ -430,23 +438,32 @@ TEST_CASE("windows rules: a reader that lets go within a moment does not lose th
     REQUIRE(fs::write_text("a.json", "1").ok());
     fs::ReadStream reader(fs::os_path(p.dir / "a.json"), std::ios::binary);
     REQUIRE(reader.good());
-    std::thread release([&reader] {
-        std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    // The reader lets go once the writer has been refused (a retry counted), not after a guessed time.
+    const auto retriesBefore = fs::sharing_retries();
+    std::thread release([&reader, retriesBefore] {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);  // safety net only
+        while (fs::sharing_retries() == retriesBefore && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         reader.close();
     });
     const auto r = fs::write_text("a.json", "2");
     release.join();
+    CHECK(fs::sharing_retries() > retriesBefore);  // refused at least once: this was the retry path
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
     CHECK(fs::read_text("a.json").value() == "2");
     // A reader that lets go while a delete waits.
     fs::ReadStream again(fs::os_path(p.dir / "a.json"), std::ios::binary);
-    std::thread release2([&again] {
-        std::this_thread::sleep_for(std::chrono::milliseconds(80));
+    const auto retriesBeforeDelete = fs::sharing_retries();
+    std::thread release2([&again, retriesBeforeDelete] {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);  // safety net only
+        while (fs::sharing_retries() == retriesBeforeDelete && std::chrono::steady_clock::now() < deadline)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
         again.close();
     });
     std::error_code ec;
     CHECK(fs::remove_file(p.dir / "a.json", ec));
     release2.join();
+    CHECK(fs::sharing_retries() > retriesBeforeDelete);
     CHECK(!ec);
 }
 
@@ -464,10 +481,9 @@ TEST_CASE("windows rules: fs::read_bytes holds the file open only while it reads
         fs::ReadStream missing(fs::os_path(p.dir / "nope.json"));
         CHECK(!missing.good());
     }
-    const auto t0 = std::chrono::steady_clock::now();
+    const auto retriesBefore = fs::sharing_retries();
     REQUIRE(fs::write_text("nope.json", "x").ok());
-    // The retries of the mode take ~0.9 s; one write on a loaded CI VM takes far less than 800 ms.
-    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(800));
+    CHECK(fs::sharing_retries() == retriesBefore);  // counted, not timed: a loaded VM stretches a clock, not a count
 }
 
 TEST_CASE(
@@ -568,10 +584,9 @@ TEST_CASE("windows rules: with the mode off ReadStream blocks nothing and costs 
     REQUIRE(fs::write_text("a.json", "1").ok());
     fs::ReadStream reader(fs::os_path(p.dir / "a.json"), std::ios::binary);
     REQUIRE(reader.good());
-    const auto t0 = std::chrono::steady_clock::now();
-    REQUIRE(fs::write_text("a.json", "2").ok());  // POSIX replaces a file that is open
-    // The retries of the mode take ~0.9 s; one write on a loaded CI VM takes far less than 800 ms.
-    CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::milliseconds(800));
+    const auto retriesBefore = fs::sharing_retries();
+    REQUIRE(fs::write_text("a.json", "2").ok());    // POSIX replaces a file that is open
+    CHECK(fs::sharing_retries() == retriesBefore);  // the mode is off: nothing to wait for (counted, not timed)
     std::error_code ec;
     CHECK(fs::remove_file(p.dir / "a.json", ec));
     CHECK(!fs::is_sharing_violation(std::make_error_code(std::errc::io_error)));
