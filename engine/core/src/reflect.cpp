@@ -214,15 +214,16 @@ Result<void> array_from_json(const FieldInfo& f, TypedArray<T>& dst, const Json&
             return field_error(f, "element " + std::to_string(i) + " is " + describe_json_value(e) +
                                       ", expected a number");
         const double d = e.get<double>();
-        if (integral && d != std::floor(d))
-            return field_error(f, "element " + std::to_string(i) + " is " + e.dump() + ", expected an integer");
+        if constexpr (integral) {
+            if (d != std::floor(d))
+                return field_error(f, "element " + std::to_string(i) + " is " + e.dump() + ", expected an integer");
+        }
         if (d < lo || d > hi) {
-            const std::string text = e.dump();
-            const std::string bounds =
-                integral ? "from " + std::to_string(std::int64_t(lo)) + " to " + std::to_string(std::int64_t(hi))
-                         : "of a 32-bit float";
-            return field_error(f, "element " + std::to_string(i) + " is " + text + ", outside the values " + bounds +
-                                      " this array can hold");
+            std::string bounds = "of a 32-bit float";
+            if constexpr (integral)  // not compiled for float: its bounds overflow an int64_t (MSVC C4056)
+                bounds = "from " + std::to_string(std::int64_t(lo)) + " to " + std::to_string(std::int64_t(hi));
+            return field_error(f, "element " + std::to_string(i) + " is " + e.dump() + ", outside the values " +
+                                      bounds + " this array can hold");
         }
         if (ranged && (d < f.minValue || d > f.maxValue)) return range_error(f, d, i);
         out.push_back(static_cast<T>(d));
