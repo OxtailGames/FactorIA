@@ -38,9 +38,28 @@ const TypeInfo& array_probe_type() {
 std::string error_text(const Result<void>& r) { return r.ok() ? std::string() : r.error().message + " " + r.error().hint; }
 }  // namespace
 
+namespace {
+// One consumer of an array: what it last read. take() says what was written since (and moves it forward).
+struct Reader {
+    std::uint64_t seen = 0;
+    bool known = true;  // false: the array could not say (look at everything)
+    std::size_t begin = 0, end = 0;
+    template <class A>
+    void take(const A& a) {
+        known = a.dirty_since(seen, begin, end);
+        seen = a.version();
+    }
+    template <class A>
+    void sync_to(const A& a) {
+        seen = a.version();
+    }
+};
+}  // namespace
+
 TEST_CASE("typed array: reads never bump the version, writes do") {
     ArrayI32 a{1, 2, 3, 4, 5, 6, 7, 8};
-    a.acknowledge();
+    Reader r;
+    r.sync_to(a);
     const std::uint64_t v0 = a.version();
     const ArrayI32& c = a;
     CHECK(c[2] == 3);
@@ -51,85 +70,95 @@ TEST_CASE("typed array: reads never bump the version, writes do") {
     for (int x : c) sum += x;
     CHECK(sum == 36);
     CHECK(a.version() == v0);
-    CHECK(!a.has_dirty());
+    r.take(a);
+    CHECK(r.known);
+    CHECK(r.end == 0);
 
     a[5] = 60;  // a mutable operator[] counts as a write of that index
     CHECK(a.version() == v0 + 1);
-    CHECK(a.dirty_begin() == 5);
-    CHECK(a.dirty_end() == 6);
+    r.take(a);
+    CHECK(r.known);
+    CHECK(r.begin == 5);
+    CHECK(r.end == 6);
     a[1] = 20;
-    CHECK(a.dirty_begin() == 1);
-    CHECK(a.dirty_end() == 6);
-    CHECK(c[5] == 60);
+    a[5] = 61;
+    r.take(a);  // the range covers every write since the last look
+    CHECK(r.begin == 1);
+    CHECK(r.end == 6);
+    CHECK(c[5] == 61);
 
-    a.acknowledge();
-    CHECK(!a.has_dirty());
-    CHECK(a.dirty_begin() == 0);
-    CHECK(a.dirty_end() == 0);
-    CHECK(a.version() == v0 + 2);  // acknowledging keeps the version
+    r.take(a);  // asking again changes nothing
+    CHECK(r.known);
+    CHECK(r.end == 0);
+    CHECK(a.version() == v0 + 3);
 
     a.data();  // a mutable pointer counts as a write of everything
-    CHECK(a.dirty_begin() == 0);
-    CHECK(a.dirty_end() == 8);
+    r.take(a);
+    CHECK(r.begin == 0);
+    CHECK(r.end == 8);
 }
 
 TEST_CASE("typed array: set, fill and assign only change what differs") {
     ArrayU8 a(10, 7);
-    a.acknowledge();
+    Reader r;
+    r.sync_to(a);
     const std::uint64_t v0 = a.version();
     CHECK(a.set(3, 7));  // same value: no change
     CHECK(a.version() == v0);
-    CHECK(!a.has_dirty());
+    r.take(a);
+    CHECK(r.end == 0);
     CHECK(a.set(3, 8));
     CHECK(a.version() == v0 + 1);
-    CHECK(a.dirty_begin() == 3);
-    CHECK(a.dirty_end() == 4);
+    r.take(a);
+    CHECK(r.begin == 3);
+    CHECK(r.end == 4);
     CHECK_FALSE(a.set(10, 1));  // out of range: ignored
     CHECK(a.version() == v0 + 1);
 
-    a.acknowledge();
     a.fill(7);  // only index 3 differs
-    CHECK(a.dirty_begin() == 3);
-    CHECK(a.dirty_end() == 4);
-    a.acknowledge();
+    r.take(a);
+    CHECK(r.begin == 3);
+    CHECK(r.end == 4);
     const std::uint64_t v1 = a.version();
     a.fill(7);  // nothing differs now
     CHECK(a.version() == v1);
     a.fill(9, 2, 5);
-    CHECK(a.dirty_begin() == 2);
-    CHECK(a.dirty_end() == 5);
+    r.take(a);
+    CHECK(r.begin == 2);
+    CHECK(r.end == 5);
     CHECK(a[1] == 7);
     CHECK(a[4] == 9);
     CHECK(a[5] == 7);
 
-    a.acknowledge();
     const std::uint8_t same[10] = {7, 7, 9, 9, 9, 7, 7, 7, 7, 7};
     const std::uint64_t v2 = a.version();
     a.assign(same, 10);  // identical contents
     CHECK(a.version() == v2);
     const std::uint8_t other[10] = {7, 1, 9, 9, 9, 7, 7, 2, 7, 7};
     a.assign(other, 10);  // the span between the first and last difference
-    CHECK(a.dirty_begin() == 1);
-    CHECK(a.dirty_end() == 8);
+    r.take(a);
+    CHECK(r.begin == 1);
+    CHECK(r.end == 8);
 }
 
-TEST_CASE("typed array: a change of size dirties everything, copies keep the contents") {
+TEST_CASE("typed array: a change of size covers everything, copies keep the contents") {
     ArrayI32 a{1, 2, 3};
-    a.acknowledge();
+    Reader r;
+    r.sync_to(a);
     a.resize(5, 9);
     CHECK(a.size() == 5);
     CHECK(a[4] == 9);
-    CHECK(a.dirty_begin() == 0);
-    CHECK(a.dirty_end() == 5);
-    a.acknowledge();
+    r.take(a);
+    CHECK(r.begin == 0);
+    CHECK(r.end == 5);
     a.resize(2);  // a shrink: the old tail is part of the change
-    CHECK(a.dirty_begin() == 0);
-    CHECK(a.dirty_end() == 5);
-    a.acknowledge();
+    r.take(a);
+    CHECK(r.begin == 0);
+    CHECK(r.end == 5);
     a.push_back(4);
     CHECK(a.size() == 3);
-    CHECK(a.dirty_end() == 3);
-    a.acknowledge();
+    r.take(a);
+    CHECK(r.end == 3);
     const std::uint64_t v = a.version();
     a.resize(3);  // same size: nothing
     CHECK(a.version() == v);
@@ -138,30 +167,99 @@ TEST_CASE("typed array: a change of size dirties everything, copies keep the con
     CHECK(a.version() == v + 1);
 
     ArrayI32 src{4, 5, 6};
-    ArrayI32 copy = src;  // copy construction: same contents, a fresh array that was never read
+    ArrayI32 copy = src;  // copy construction: same contents, a fresh array (new id, version 0)
     CHECK(copy == src);
-    CHECK(copy.has_dirty());
-    CHECK(copy.dirty_end() == 3);
+    CHECK(copy.version() == 0);
+    CHECK(copy.id() != src.id());
     ArrayI32 dst{4, 5, 0};
-    dst.acknowledge();
+    Reader rd;
+    rd.sync_to(dst);
     const std::uint64_t vd = dst.version();
     dst = src;  // copy assignment: only index 2 differs
     CHECK(dst == src);
-    CHECK(dst.dirty_begin() == 2);
-    CHECK(dst.dirty_end() == 3);
+    rd.take(dst);
+    CHECK(rd.begin == 2);
+    CHECK(rd.end == 3);
     CHECK(dst.version() == vd + 1);
-    dst.acknowledge();
     dst = src;  // identical: nothing
     CHECK(dst.version() == vd + 1);
-    CHECK(!dst.has_dirty());
 
-    ArrayI32 moved = std::move(dst);  // a move keeps the version and the (empty) dirty range
+    ArrayI32 moved = std::move(dst);  // a move keeps the version
     CHECK(moved == src);
     CHECK(moved.version() == vd + 1);
-    CHECK(!moved.has_dirty());
+    rd.take(moved);
+    CHECK(rd.known);
+    CHECK(rd.end == 0);
     ArrayI32 target{1};
     target = std::move(moved);
     CHECK(target == src);
+}
+
+TEST_CASE("typed array: independent consumers each see every write, in any interleaving") {
+    ArrayF32 a(100, 0.0f);
+    Reader x, y;
+    x.sync_to(a);
+    y.sync_to(a);
+    a.set(10, 1.0f);
+    x.take(a);  // x reads between the two writes; y does not
+    CHECK(x.known);
+    CHECK(x.begin == 10);
+    CHECK(x.end == 11);
+    a.set(60, 2.0f);
+    y.take(a);  // y sees both
+    CHECK(y.known);
+    CHECK(y.begin == 10);
+    CHECK(y.end == 61);
+    x.take(a);  // x sees only the second: reading never took anything from y
+    CHECK(x.begin == 60);
+    CHECK(x.end == 61);
+    y.take(a);
+    CHECK(y.end == 0);
+    a.set(5, 3.0f);
+    a.set(95, 3.0f);
+    y.take(a);
+    x.take(a);
+    CHECK((y.begin == 5 && y.end == 96));
+    CHECK((x.begin == 5 && x.end == 96));
+    // A reader that looks at the array twice in a row between writes gets nothing the second time, and the others still
+    // get their ranges.
+    Reader z;
+    z.sync_to(a);
+    a.set(1, 9.0f);
+    z.take(a);
+    z.take(a);
+    CHECK(z.end == 0);
+    x.take(a);
+    CHECK(x.begin == 1);
+    CHECK(x.end == 2);
+}
+
+TEST_CASE("typed array: more writes than the history holds say 'look at everything'") {
+    ArrayI32 a(64, 0);
+    Reader r;
+    r.sync_to(a);
+    for (std::size_t i = 0; i < ArrayI32::kHistory; ++i) a.set(i, 1);  // exactly kHistory writes: still known
+    r.take(a);
+    CHECK(r.known);
+    CHECK(r.begin == 0);
+    CHECK(r.end == ArrayI32::kHistory);
+    for (std::size_t i = 0; i < ArrayI32::kHistory + 1; ++i) a.set(20 + i, 2);  // one more than the history holds
+    r.take(a);
+    CHECK_FALSE(r.known);
+    r.take(a);  // the next look starts from the new version
+    CHECK(r.known);
+    CHECK(r.end == 0);
+    // A version from the future (another array's) is not trusted either.
+    std::size_t b = 0, e = 0;
+    CHECK_FALSE(a.dirty_since(a.version() + 5, b, e));
+    // Wrapping the history many times keeps the ranges right.
+    for (int round = 0; round < 40; ++round) {
+        a.set(std::size_t(round), 100 + round);
+        r.take(a);
+        CHECK(r.known);
+        CHECK(r.begin == std::size_t(round));
+        CHECK(r.end == std::size_t(round) + 1);
+    }
 }
 
 TEST_CASE("typed array: id() tells objects apart where version() cannot (copies start again at version 0)") {
@@ -274,20 +372,20 @@ TEST_CASE("reflect arrays: a patch of another field does not touch the arrays, a
     const TypeInfo& t = array_probe_type();
     ArrayProbe p;
     REQUIRE(object_patch_from_json(t, &p, Json::parse(R"({"ids": [1, 2, 3, 4]})")).ok());
-    p.ids.acknowledge();
     const std::uint64_t v = p.ids.version();
     REQUIRE(object_patch_from_json(t, &p, Json::parse(R"({"other": 5})")).ok());
     CHECK(p.other == 5);
     CHECK(p.ids.version() == v);
-    CHECK_FALSE(p.ids.has_dirty());
     // The same array again: no change either.
     REQUIRE(object_patch_from_json(t, &p, Json::parse(R"({"ids": [1, 2, 3, 4]})")).ok());
     CHECK(p.ids.version() == v);
     // One element differs: only it is dirty.
     REQUIRE(object_patch_from_json(t, &p, Json::parse(R"({"ids": [1, 2, 9, 4]})")).ok());
     CHECK(p.ids.version() == v + 1);
-    CHECK(p.ids.dirty_begin() == 2);
-    CHECK(p.ids.dirty_end() == 3);
+    std::size_t b = 0, e = 0;
+    CHECK(p.ids.dirty_since(v, b, e));
+    CHECK(b == 2);
+    CHECK(e == 3);
     // A bad value anywhere in the patch changes nothing.
     CHECK_FALSE(object_patch_from_json(t, &p, Json::parse(R"({"other": 7, "mask": [300]})")).ok());
     CHECK(p.other == 5);

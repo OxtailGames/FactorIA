@@ -851,13 +851,14 @@ void Physics3D::sync(World& world) {
                     b.pushStrength = std::max(cc->pushStrength, 0.0f);
                 }
             } else if (kind == Body::Kind::Heightfield) {
-                // The grid is centred on the entity origin; the box around it follows the lowest and highest sample.
+                // The grid is centred on the entity origin; the box around it follows the lowest and highest sample and
+                // reaches kHeightfieldSolidDepth below the lowest (the ground is solid down to there).
                 const HeightfieldShape& g = *b.hf;
                 b.gscale = {std::max(as.x, 1e-3f), std::max(as.y, 1e-3f), std::max(as.z, 1e-3f)};
-                b.half = {0.5f * float(g.cols - 1) * g.dx * b.gscale.x,
-                          std::max(0.5f * (g.maxH - g.minH) * b.gscale.y, 1e-3f),
+                const float yBottom = g.minH * b.gscale.y - kHeightfieldSolidDepth, yTop = g.maxH * b.gscale.y;
+                b.half = {0.5f * float(g.cols - 1) * g.dx * b.gscale.x, std::max(0.5f * (yTop - yBottom), 1e-3f),
                           0.5f * float(g.rows - 1) * g.dz * b.gscale.z};
-                b.lcenter = {0.0f, 0.5f * (g.maxH + g.minH) * b.gscale.y, 0.0f};
+                b.lcenter = {0.0f, 0.5f * (yTop + yBottom), 0.0f};
                 b.radius = 0.0f;
             } else if (b.data) {
                 const MeshGeometry& g = *b.data->geometry;

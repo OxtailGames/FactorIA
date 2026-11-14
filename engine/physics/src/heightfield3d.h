@@ -13,8 +13,10 @@
 // (they share the diagonal from sample (r, c) to (r + 1, c + 1)). A hole cell has neither.
 #pragma once
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -22,6 +24,11 @@
 #include "fa/scene/components.h"
 
 namespace fa::detail {
+
+// The ground is solid this far (world metres) below the lowest sample of the field: the collider's bounds reach that deep,
+// and a body that ends up wholly under a solid cell (the terrain was raised under it) within this depth below the surface
+// is pushed back up. Deeper, or under a hole cell, a body is outside the ground and keeps falling.
+inline constexpr float kHeightfieldSolidDepth = 8.0f;
 
 struct HeightfieldEdit {
     bool rebuilt = false;        // the whole grid was read again (first time, a changed size or array object)
@@ -55,7 +62,13 @@ struct HeightfieldShape {
         std::int32_t rows = 0, cols = 0;
         float dx = 0.0f, dz = 0.0f, scale = 0.0f, offset = 0.0f;
         std::uint64_t hId = 0, hVer = 0, oId = 0, oVer = 0;
-        bool operator==(const Source&) const = default;
+        // Floats compare by bits, so a NaN spacing or scale equals itself and a component that cannot be built is
+        // not tried again every frame (0.0 and -0.0 differ: harmless, the build is just redone).
+        static bool same(float a, float b) { return std::memcmp(&a, &b, sizeof(float)) == 0; }
+        bool operator==(const Source& o) const {
+            return rows == o.rows && cols == o.cols && same(dx, o.dx) && same(dz, o.dz) && same(scale, o.scale) &&
+                   same(offset, o.offset) && hId == o.hId && hVer == o.hVer && oId == o.oId && oVer == o.oVer;
+        }
     };
     Source built, tried;
     bool attempted = false;

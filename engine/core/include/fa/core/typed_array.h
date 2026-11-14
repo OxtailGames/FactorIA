@@ -8,10 +8,13 @@
 //   * version(): grows on every write through a mutable accessor or a modifier. Const access (const operator[],
 //     const data(), cdata(), cbegin(), span()) never touches it. A consumer keeps the version it built from and
 //     rebuilds when it differs.
-//   * the dirty range: the smallest [dirty_begin(), dirty_end()) that covers every index written since the consumer
-//     last called acknowledge(). A tile map of chunk size C rebuilds the chunks dirty_begin() / C ..
-//     (dirty_end() - 1) / C and then acknowledges. A write that changes the size dirties [0, max(old size, new
-//     size)), so dirty_end() may exceed size() after a shrink: clamp it.
+//   * dirty_since(seen, begin, end): the smallest [begin, end) that covers every index written after the array had
+//     version `seen`. The array remembers its last kHistory writes, so ANY NUMBER of consumers can ask independently:
+//     each keeps the version it last read (next to id()) and nothing is ever "acknowledged" or consumed, so one
+//     consumer can never hide an edit from another. A tile map of chunk size C rebuilds the chunks begin / C ..
+//     (end - 1) / C and keeps version() as its new `seen`. dirty_since() says false when it cannot tell (more than
+//     kHistory writes since `seen`): the consumer then compares or rebuilds everything. A write that changes the size
+//     covers [0, max(old size, new size)), so `end` may exceed size() after a shrink: clamp it.
 //
 // Rules for the writers:
 //   * `a[i] = x` on a non-const array counts as a write of index i even when x equals the old value (the array cannot
@@ -19,11 +22,12 @@
 //   * A mutable data() / begin() / end() counts as a write of the WHOLE array. To read, call it on a const reference
 //     (std::as_const(a).data(), or cdata()).
 //   * Copy/move assignment and assign() compare first: assigning identical contents changes nothing; otherwise the
-//     dirty range is the span between the first and last element that differ (the whole array when the size changes).
+//     write covers the span between the first and last element that differ (the whole array when the size changes).
 //     Reflection patches go through this, so patching another field of a component does not dirty its arrays.
-//   * A new or copy-constructed array starts at version 0 with everything dirty (when not empty). A move
-//     construction keeps version and dirty range (a pool that relocates a component must not look like a change).
-//   * version() and the dirty range only mean something on ONE array object. A copy starts again at version 0, so a
+//   * A new or copy-constructed array starts at version 0 (a consumer that never read it has no id() to compare: it
+//     reads everything). A move construction keeps version and history (a pool that relocates a component must not
+//     look like a change).
+//   * version() and dirty_since() only mean something on ONE array object. A copy starts again at version 0, so a
 //     consumer that caches per component (physics bodies, render chunks, nav grids) keeps `id()` next to the version:
 //     id() is unique in the process for every array that is constructed or copy-constructed (a component removed and
 //     added again, a world restored from a copy) and kept by a move construction (the component only moved in its
@@ -33,6 +37,7 @@
 #pragma once
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -66,14 +71,15 @@ public:
     using value_type = T;
 
     TypedArray() = default;
-    explicit TypedArray(std::size_t n, T value = T{}) : v_(n, value) { dirty_all(); }
-    TypedArray(std::initializer_list<T> values) : v_(values) { dirty_all(); }
-    TypedArray(const TypedArray& o) : v_(o.v_) { dirty_all(); }
+    explicit TypedArray(std::size_t n, T value = T{}) : v_(n, value) {}
+    TypedArray(std::initializer_list<T> values) : v_(values) {}
+    TypedArray(const TypedArray& o) : v_(o.v_) {}
     TypedArray(TypedArray&& o) noexcept
-        : v_(std::move(o.v_)), id_(o.id_), version_(o.version_), dirtyBegin_(o.dirtyBegin_), dirtyEnd_(o.dirtyEnd_) {
+        : v_(std::move(o.v_)), id_(o.id_), version_(o.version_), log_(o.log_) {
         o.v_.clear();
         o.id_ = detail::next_typed_array_id();  // the moved-from array is a different object now
-        o.acknowledge();
+        o.version_ = 0;
+        o.log_ = {};
     }
     TypedArray& operator=(const TypedArray& o) {
         if (this != &o) assign(o.v_.data(), o.v_.size());
@@ -92,7 +98,7 @@ public:
         return *this;
     }
 
-    // ---- read: never touches version() or the dirty range
+    // ---- read: never touches version() or the history of writes
     std::size_t size() const { return v_.size(); }
     bool empty() const { return v_.empty(); }
     const T* data() const { return v_.data(); }
@@ -106,7 +112,7 @@ public:
     const T* cbegin() const { return begin(); }
     const T* cend() const { return end(); }
     std::span<const T> span() const { return {v_.data(), v_.size()}; }
-    // The size is part of the value: arrays of different sizes differ. Version and dirty range are not compared.
+    // The size is part of the value: arrays of different sizes differ. Version and history are not compared.
     bool operator==(const TypedArray& o) const { return v_ == o.v_; }
     bool operator!=(const TypedArray& o) const { return v_ != o.v_; }
 
@@ -183,31 +189,39 @@ public:
     // Which array this is: a cache that must also notice the array being replaced by another object (removed and
     // added again, copied) keeps (id(), version()).
     std::uint64_t id() const { return id_; }
-    bool has_dirty() const { return dirtyBegin_ < dirtyEnd_; }
-    // Half-open index range of the writes since the last acknowledge(); begin == end == 0 when there are none. The end
+    // How many writes dirty_since() can still name.
+    static constexpr std::size_t kHistory = 8;
+    // Which elements were written after the array had version `seen` (the version() the consumer last read, taken from
+    // the array with the same id()): true and the half-open range [begin, end) that covers them all, empty (0, 0) when
+    // nothing was written; false when it cannot say (more than kHistory writes since, or `seen` is newer than the
+    // array). The consumer then looks at every element. Const: any number of consumers can ask, in any order. The end
     // can exceed size() after a shrink.
-    std::size_t dirty_begin() const { return has_dirty() ? dirtyBegin_ : 0; }
-    std::size_t dirty_end() const { return has_dirty() ? dirtyEnd_ : 0; }
-    // The consumer has rebuilt from the array: forget the dirty range (version() is kept).
-    void acknowledge() {
-        dirtyBegin_ = kNone;
-        dirtyEnd_ = 0;
+    bool dirty_since(std::uint64_t seen, std::size_t& begin, std::size_t& end) const {
+        begin = end = 0;
+        if (seen == version_) return true;
+        if (seen > version_ || version_ - seen > kHistory) return false;
+        std::size_t lo = SIZE_MAX, hi = 0;
+        for (std::uint64_t v = seen + 1; v <= version_; ++v) {
+            const Write& w = log_[std::size_t(v % kHistory)];
+            lo = std::min(lo, w.begin);
+            hi = std::max(hi, w.end);
+        }
+        if (lo < hi) {
+            begin = lo;
+            end = hi;
+        }
+        return true;
     }
 
 private:
-    static constexpr std::size_t kNone = SIZE_MAX;
+    // The range one write touched; the write that made version v is in log_[v % kHistory].
+    struct Write {
+        std::size_t begin = 0, end = 0;
+    };
 
     void touch(std::size_t first, std::size_t last) {
         ++version_;
-        dirtyBegin_ = std::min(dirtyBegin_, first);
-        dirtyEnd_ = std::max(dirtyEnd_, last);
-    }
-    // A fresh array with elements: a consumer that never saw it must read it all.
-    void dirty_all() {
-        if (!v_.empty()) {
-            dirtyBegin_ = 0;
-            dirtyEnd_ = v_.size();
-        }
+        log_[std::size_t(version_ % kHistory)] = {first, last};
     }
     // True and [lo, hi) = what changes when the contents become (p, n); false when they are identical.
     bool diff_range(const T* p, std::size_t n, std::size_t& lo, std::size_t& hi) const {
@@ -229,8 +243,7 @@ private:
     std::vector<T> v_;
     std::uint64_t id_ = detail::next_typed_array_id();
     std::uint64_t version_ = 0;
-    std::size_t dirtyBegin_ = kNone;
-    std::size_t dirtyEnd_ = 0;
+    std::array<Write, kHistory> log_{};
 };
 
 using ArrayI32 = TypedArray<std::int32_t>;

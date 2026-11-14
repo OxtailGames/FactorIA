@@ -97,11 +97,12 @@ TEST_CASE("tilemap array: the stamp tells a changed map from an unchanged one; r
     CHECK(tilemap_stamp(tm) == s0);
     CHECK(tm.tiles.version() == s0.version);
     // One write moves it, and the dirty range names the cell.
-    tm.tiles.acknowledge();
     REQUIRE(set_tilemap_tile(tm, 2, 1, 7));
     CHECK_FALSE(tilemap_stamp(tm) == s0);
-    CHECK(tm.tiles.dirty_begin() == 6);
-    CHECK(tm.tiles.dirty_end() == 7);
+    std::size_t db = 0, de = 0;
+    CHECK(tm.tiles.dirty_since(s0.version, db, de));
+    CHECK(db == 6);
+    CHECK(de == 7);
     // A width change is a change too.
     const TilemapStamp s1 = tilemap_stamp(tm);
     tm.width = 2;

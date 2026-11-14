@@ -88,8 +88,8 @@
 //     the component again only where its typed arrays say they changed, so one edited sample costs about what it touches
 //     and wakes only the sleeping bodies whose bounds overlap the edited cells. Other shapes collide with the triangles
 //     under their bounds (GJK per triangle like a mesh; a contact on an edge or corner only counts if its normal lies
-//     between the normals of the triangles that meet there, so nothing bumps at the seams; a body under the surface is
-//     pushed up). Boxes and hulls get low-corner manifolds probed onto the surface. Rays walk the grid cell by cell (3D DDA).
+//     between the normals of the triangles that meet there, so nothing bumps at the seams; a body under the surface of
+//     a solid cell, up to 8 m deep, is pushed up). Boxes and hulls get low-corner manifolds probed onto the surface. Rays walk the grid cell by cell (3D DDA).
 //   * 3D JOINTS (Joint3D on an entity with RigidBody3D + Collider3D): Hinge, Ball or Fixed between that body and
 //     Joint3D.connected (empty = the world). Anchors are local points (autoAnchor derives the connected one from the
 //     current pose); a hinge has an axis, optional limits (degrees, relative to the pose the joint was created in) and an

@@ -168,6 +168,41 @@ Physics3D::Contact Physics3D::heightfield_contact(const Body& field, const Body&
             }
         }
     });
+    if (!best.hit) {
+        // Solid ground, deep version: a body wholly below the cell under its centre (the terrain rose under it in one edit,
+        // or it was put there) touches no cell of the search above, which skips the cells it is entirely under. It is
+        // pushed up along the normal of the triangle over its centre when that cell is solid (a body under a hole fell
+        // through it and keeps falling) and the body is at most kHeightfieldSolidDepth (world metres) below the surface
+        // there, measured from its lowest bound: deeper than that it is outside the ground and falls on.
+        const Vec3 ctr = world_to_frame(field.ax, other.center - field.center) / field.gscale;
+        const float fx = (ctr.x - f.x0) / f.dx, fz = (ctr.z - f.z0) / f.dz;
+        if (fx >= 0.0f && fx <= float(f.cols - 1) && fz >= 0.0f && fz <= float(f.rows - 1)) {
+            const int c = std::min(int(fx), f.cols - 2), r = std::min(int(fz), f.rows - 2);
+            float cl, ch;
+            if (!f.hole(r, c)) {
+                f.cell_range(r, c, cl, ch);
+                if (cl > mhi.y) {  // wholly below the lowest sample of the cell
+                    const int which = (fz - float(r)) >= (fx - float(c)) ? 0 : 1;
+                    Vec3 v[3];
+                    f.triangle(r, c, which, v);
+                    const Vec3 nm = cross(v[1] - v[0], v[2] - v[0]);  // model space, nm.y = dx * dz > 0
+                    const float surface = v[0].y - ((ctr.x - v[0].x) * nm.x + (ctr.z - v[0].z) * nm.z) / nm.y;
+                    if ((surface - mlo.y) * field.gscale.y <= kHeightfieldSolidDepth) {
+                        const Core T = triangle_core(r, c, which);
+                        const Vec3 up = up_of(T);
+                        const Vec3 p = core_support(X, -up) - up * X.radius;  // the deepest point of the shape
+                        const float depth = dot(T.a - p, up);
+                        if (depth > -margin) {
+                            best.hit = true;
+                            best.normal = up;
+                            best.depth = depth;
+                            best.point = p + up * (depth * 0.5f);
+                        }
+                    }
+                }
+            }
+        }
+    }
     if (!best.hit || !manifold || (other.kind != Body::Kind::Box && other.kind != Body::Kind::Convex)) return best;
     // A box or hull resting on the field gets one contact point per low corner, probed down onto the surface (as on a mesh).
     const Vec3 n = best.normal;  // field -> other

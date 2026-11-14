@@ -2196,8 +2196,8 @@ void register_builtin_components(TypeRegistry& r) {
             "convex: the convex hull of the vertices of `mesh` (any dynamic body, fast). mesh: the triangles of "
             "`mesh` (static level geometry only; concave shapes, ramps). heightfield: the grid of heights of the "
             "Heightfield3D component on the same entity (static terrain only; much cheaper than a mesh, a body only "
-            "tests the cells under it, the ground is solid below the surface, and editing the heights updates "
-            "only what changed).")
+            "tests the cells under it, the ground is solid up to 8 m below the surface (see Heightfield3D), and "
+            "editing the heights updates only what changed).")
         .field("size", &Collider3D::size,
                "box: full extents [x, y, z] in meters along the entity's own (rotated) axes, before Transform scale.")
         .field("radius", &Collider3D::radius, "sphere and capsule: radius in meters.")
@@ -2255,9 +2255,15 @@ void register_builtin_components(TypeRegistry& r) {
          "1) / 2) * cellSize.x and z = (r - (rows - 1) / 2) * cellSize.y from the entity origin (the grid is centred "
          "on it; Transform scale and rotation apply, Collider3D.offset moves it) and at y = heights[i] * heightScale "
          "+ heightOffset. Cell (r, c) joins the samples (r, c), (r + 1, c), (r, c + 1), (r + 1, c + 1) and is split "
-         "along the diagonal from (r, c) to (r + 1, c + 1). The ground is solid: a body whose centre dips under the "
-         "surface is pushed back up. Write single samples at run time (`heights[i] = v`, a brush stroke, a crater): "
-         "physics reads only the samples that changed, recomputes the bounds incrementally and wakes only the sleeping "
+         "along the diagonal from (r, c) to (r + 1, c + 1). The ground is solid down to 8 m below its lowest "
+         "sample: a body that is under the surface of a solid cell, whether the terrain was raised under it in one "
+         "edit or it was put there, is pushed back up along the normal of the triangle over its centre, as long as "
+         "the cell under the centre of the body is not a hole, the centre is inside the grid's x and z extent and the "
+         "body's lowest point is at most 8 m below the surface there. A body under a hole cell, outside the grid or "
+         "deeper than 8 m is not pushed: it keeps falling (so does one that fell through a hole and then slid "
+         "sideways under solid ground deeper than that). Edit the grid at run time (a brush stroke, a crater: assign "
+         "the changed array from a script, or `heights.set(i, v)` in C++): physics reads only the span between the "
+         "first and last sample that changed, recomputes the bounds incrementally and wakes only the sleeping "
          "bodies near them; replacing the whole array or changing rows, columns, cellSize, heightScale or heightOffset "
          "rebuilds the field and wakes every body on it. A mistake (a wrong array length, a NaN, fewer than 2 rows or "
          "columns) is reported once, with what to change, and the collider is ignored.",
