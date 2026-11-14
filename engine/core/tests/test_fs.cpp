@@ -582,7 +582,7 @@ TEST_CASE("windows rules: with the mode off ReadStream blocks nothing and costs 
     fs::ReadStream reader(fs::os_path(p.dir / "a.json"), std::ios::binary);
     REQUIRE(reader.good());
     const auto retriesBefore = fs::sharing_retries();
-    REQUIRE(fs::write_text("a.json", "2").ok());  // POSIX replaces a file that is open
+    REQUIRE(fs::write_text("a.json", "2").ok());    // POSIX replaces a file that is open
     CHECK(fs::sharing_retries() == retriesBefore);  // the mode is off: nothing to wait for (counted, not timed)
     std::error_code ec;
     CHECK(fs::remove_file(p.dir / "a.json", ec));

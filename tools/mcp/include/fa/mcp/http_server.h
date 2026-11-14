@@ -81,7 +81,8 @@ public:
     // Threads of connections that were not joined yet: never more than maxConnections + 1 (tests).
     std::size_t connection_threads() const;
     // Connections kept alive that wait for their next request, so the next client may close them (tests). A connection
-    // counts from the moment its answer is sent, so a client that has read an answer sees it here.
+    // counts from the moment its thread has written the whole answer and marks it idle, never while the answer is still
+    // being written; a client that has read the answer may see it here a moment later (a test waits for it).
     std::size_t idle_connections() const;
 
 private:
