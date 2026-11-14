@@ -182,7 +182,7 @@ description, the x removes it; Transform and EntityInfo stay). One row per field
 bool, drag for numbers (the field's range limits the drag; click a number to type it), vectors and rects as one drag per
 number, a colour picker, a drop-down for enums and for entity references (by id), a text box plus a file list for assets
 (only files of the right type), and a multi-line text box for free-form JSON (`Script.props`...) that is applied when you
-click away and refuses invalid JSON, showing the parse error. Hover a name for the field's doc string and range. Read-only
+click away and refuses invalid JSON, showing the parse error. A number array longer than 512 elements (a big tile map, the vertices of a sprite mesh of more than 128 points) shows only its length, not its numbers: the Inspector rebuilds its JSON every frame, so edit such a field with `scene.set_component`, a script or the file. Hover a name for the field's doc string and range. Read-only
 fields (the entity id) are disabled and runtime-only state is not shown. A value the command refuses (outside the range)
 changes nothing and its message shows under the field. **Add Component** lists the components the entity lacks.
 

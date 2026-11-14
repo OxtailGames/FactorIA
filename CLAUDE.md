@@ -89,7 +89,7 @@ ctest --test-dir build/dev --output-on-failure
     `sonnet` `medium` for S and M packages; `high` for L packages and for code where CI finds what this host does not
     (`engine/core` public headers, platform files, render GL/D3D11 and shaders, waits, timeouts, threads, file I/O,
     the editor autotest). `opus` only where the host cannot test the risk (threads, file I/O and Windows paths,
-    render, platform files): in M70 a bigger model did not save rounds, the review did. A package that needs the
+    render, platform files): a bigger model does not save fix rounds, the review does. A package that needs the
     browser pane: general-purpose with `sonnet`.
   - Reviewers (`subagent_type: "reviewer"`): every package, before it merges into the milestone branch. `sonnet`
     `high`; `opus` only for subtle concurrency or Windows path/file code. Give it the branch and the base, not the
@@ -101,14 +101,13 @@ ctest --test-dir build/dev --output-on-failure
   - `fast` (`haiku`): code searches, docs and typings regeneration, ENGINE_FEEDBACK/ROADMAP bookkeeping, renames.
 - **What a package costs.** A subagent's quota is its turns times its context (every turn sends the whole context
   again), not the token count the Agent tool reports; `python3 scripts/agent-usage.py` prints a session's real numbers
-  (docs/BUILDING.md, "What the agents cost"). Measured on M70, M90 and M91: the workers are two thirds to three
-  quarters of a milestone, the reviewers an eighth, the orchestrator the rest. A worker that ends within ~150 turns
-  fills its context once at most; one that fills it again and again (M91.4: 534 turns, 19 summaries) used five times
-  what an average worker does and forgot details each time. So split until every package is S or M: one module or one
-  slice of a feature, with a brief that names the files, the entry points and the tests to add, so the worker does not
-  spend its first forty turns finding them. An L package becomes two, the shared interface in the first. That one
-  `opus` worker used more than half of what the eight `sonnet` workers of its milestone used together, in tokens that
-  cost more: `opus` needs the reason above, never the size of the package.
+  (docs/BUILDING.md, "What the agents cost"). The workers are two thirds to three quarters of a milestone, the
+  reviewers an eighth, the orchestrator the rest. A worker that ends within ~150 turns fills its context once at
+  most; one that fills it again and again costs several times an average worker and forgets details at each
+  summary. So split until every package is S or M: one module or one slice of a feature, with a brief that names the
+  files, the entry points and the tests to add, so the worker does not spend its first forty turns finding them. An L
+  package becomes two, the shared interface in the first. A large package on `opus` is the most expensive case of
+  all: `opus` needs the reason above, never the size of the package.
 - **The orchestrator's own turns** are the most expensive ones (the biggest model, over 100k tokens of context each).
   Send a `fast` agent (a lookup) or a researcher (a question that takes judgement) to read code instead of reading
   files into this context, put independent tool calls in one message, and never poll a worker or a build: the

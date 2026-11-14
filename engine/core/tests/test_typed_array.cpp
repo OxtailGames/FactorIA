@@ -1,6 +1,7 @@
 // TypedArray (core/typed_array.h) and the reflected array fields (FieldKind::ArrayI32 / ArrayF32 / ArrayU8).
 #include <doctest.h>
 
+#include <limits>
 #include <utility>
 
 #include "fa/core/reflect.h"
@@ -96,6 +97,23 @@ TEST_CASE("typed array: reads never bump the version, writes do") {
     r.take(a);
     CHECK(r.begin == 0);
     CHECK(r.end == 8);
+}
+
+TEST_CASE("typed array: NaN is always a change, -0.0 is not, and a mutable data() of an empty array is no write") {
+    ArrayF32 a{1.0f, 2.0f};
+    const std::uint64_t v0 = a.version();
+    const float nan[] = {1.0f, std::numeric_limits<float>::quiet_NaN()};
+    a.assign(nan, 2);
+    CHECK(a.version() == v0 + 1);
+    a.assign(nan, 2);  // NaN != NaN: counts again
+    CHECK(a.version() == v0 + 2);
+    ArrayF32 z{0.0f};
+    const float negZero[] = {-0.0f};
+    z.assign(negZero, 1);  // -0.0 == +0.0: nothing changes
+    CHECK(z.version() == 0);
+    ArrayF32 empty;
+    static_cast<void>(empty.data());
+    CHECK(empty.version() == 0);
 }
 
 TEST_CASE("typed array: set, fill and assign only change what differs") {

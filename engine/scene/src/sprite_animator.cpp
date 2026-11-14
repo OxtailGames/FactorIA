@@ -329,8 +329,12 @@ void update_sprite_animators(World& world, float dt) {
     // The sheet and the size of each texture are looked up once per texture per step.
     std::unordered_map<std::string, std::shared_ptr<const assets::Sheet>> sheets;
     std::unordered_map<std::string, TexDims> dims;
-    world.each<SpriteAnimator, Sprite>([&](Entity e, SpriteAnimator& a, Sprite& s) {
-        if (!world.active_in_hierarchy(e) || world.pending_destroy(e)) return;
+    // Driven by SpriteAnimator on purpose: each<A, B> walks the smaller pool, and the order of the clipEnded events (and of
+    // the frame events) must be the animators' insertion order whatever the number of sprites.
+    world.each<SpriteAnimator>([&](Entity e, SpriteAnimator& a) {
+        Sprite* sprite = world.get<Sprite>(e);
+        if (!sprite || !world.active_in_hierarchy(e) || world.pending_destroy(e)) return;
+        Sprite& s = *sprite;
         std::shared_ptr<const assets::Sheet> sheet;
         if (!s.texture.empty()) {
             auto it = sheets.find(s.texture);

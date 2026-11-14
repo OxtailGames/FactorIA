@@ -12,6 +12,7 @@ struct ScriptArrays {
     ArrayF32 weights;
     ArrayU8 mask;
     ArrayI32 small;  // range(0, 3)
+    ArrayF32 ratios;  // range(0.1, 0.3)
 };
 
 // A test-only component; registered before the script system starts so scripts see its fields.
@@ -24,7 +25,9 @@ void register_script_arrays() {
         .field("weights", &ScriptArrays::weights, "Weights.")
         .field("mask", &ScriptArrays::mask, "Bytes.")
         .field("small", &ScriptArrays::small, "Values 0..3.")
-        .range(0, 3);
+        .range(0, 3)
+        .field("ratios", &ScriptArrays::ratios, "Ratios 0.1..0.3.")
+        .range(0.1, 0.3);
 }
 
 Json eval_ok(TestHost& h, const char* code) {
@@ -117,6 +120,13 @@ TEST_CASE("script arrays: a bad element or a wrong value names the field, the in
     CHECK(notArray.find("expects an Int32Array or an array of integers") != std::string::npos);
     const std::string obj = eval_error(f.h, "world.find('probe').get('TestScriptArrays').mask = {0: 1, length: 1}; 0");
     CHECK(obj.find("expects a Uint8Array or an array of integers from 0 to 255") != std::string::npos);
+    // The bounds of a float range read as the author wrote them, not as the float widened to a double (0.30000001192092896).
+    const std::string ratio = eval_error(f.h, "world.find('probe').get('TestScriptArrays').ratios = [0.2, 0.5]; 0");
+    CHECK(ratio.find("ratios[1] must be a number from 0.1 to 0.3, got 0.5") != std::string::npos);
+    // A sparse array of the biggest size fails at its first hole, without allocating the 64 MiB it claims.
+    const std::string sparse = eval_error(f.h, "world.find('probe').get('TestScriptArrays').ids = new Array(1 << 24); 0");
+    CHECK(sparse.find("ids[0] must be an integer") != std::string::npos);
+    CHECK(sparse.find("undefined") != std::string::npos);
     // None of the bad writes changed anything.
     CHECK(f.arrays().ids == ArrayI32{10, -20, 30});
     CHECK(f.arrays().mask == ArrayU8{0, 128, 255});

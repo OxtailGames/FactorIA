@@ -125,6 +125,13 @@ int kind_channels(FieldKind k) {
         default: return 0;
     }
 }
+
+// "a vec3", "an arrayI32".
+std::string with_article(const std::string& noun) {
+    const bool vowel = !noun.empty() && std::string_view("aeiouAEIOU").find(noun[0]) != std::string_view::npos;
+    return (vowel ? "an " : "a ") + noun;
+}
+
 bool animatable(FieldKind k) {
     switch (k) {
         case FieldKind::Bool:
@@ -319,7 +326,7 @@ void parse_track(Parser& p, const Json& j, const std::string& ptr, float duratio
             const std::vector<std::string> names = animatable_fields(*tr.type);
             std::string why = tr.info->readOnly      ? "it is read-only"
                               : !tr.info->serialized ? "it is runtime state, not part of the scene"
-                                                     : std::string("a ") + field_kind_name(tr.info->kind) +
+                                                     : with_article(field_kind_name(tr.info->kind)) +
                                                            " cannot be interpolated or switched by a clip";
             p.err(ptr + "/field", std::format("{}.{} cannot be animated: {}", tr.component, name, why),
                   names.empty() ? std::string("This component has no animatable field.")

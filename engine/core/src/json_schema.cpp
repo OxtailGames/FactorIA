@@ -540,7 +540,12 @@ public:
         if (auto it = memo_.find(&j); it != memo_.end()) return it->second;
         Node& n = nodes_.emplace_back();
         memo_.emplace(&j, &n);  // before the children: a recursive $ref finds this node
+        // A schema nested deeper than kMaxDepth (a tool registered from JavaScript can send any depth) would use the native
+        // stack: below that depth the node stays Skip, which accepts everything (the validator stops at 64 levels too).
+        if (depth_ >= kMaxDepth) return &n;
+        ++depth_;
         fill(n, j);
+        --depth_;
         return &n;
     }
 
@@ -646,9 +651,11 @@ private:
         }
     }
 
+    static constexpr int kMaxDepth = 64;
     const Json& root_;
     std::deque<Node>& nodes_;
     std::unordered_map<const Json*, const Node*> memo_;
+    int depth_ = 0;
 };
 
 // The body a node validates against: its own, or the one its $ref points at; null for a $ref that does not resolve.
@@ -658,19 +665,36 @@ const Body* effective_body(const Node& n) {
 }
 
 // Marks the nodes below which apply_schema_defaults can add a value: a property with a default, or a property or items
-// schema of such a node. A fixed point because a recursive $ref makes the graph cyclic.
+// schema of such a node. Propagated from the nodes that start it up the edges that point at them (a recursive $ref makes the
+// graph cyclic, so each node is marked once): linear in the size of the graph, not a loop until nothing changes.
 void mark_defaults(std::deque<Node>& nodes) {
-    auto body_relevant = [](const Body& b) {
-        for (const schema_detail::PropEntry& p : b.props)
-            if (p.hasDefault || p.node->relevant) return true;
-        return b.itemsIsObject && b.items->relevant;
-    };
-    for (bool changed = true; changed;) {
-        changed = false;
-        for (Node& n : nodes) {
-            if (n.relevant || n.kind != Node::Kind::Schema) continue;
-            const Body* b = effective_body(n);
-            if (b && body_relevant(*b)) n.relevant = changed = true;
+    // The nodes whose relevance depends on `n`: the ones whose effective body has n as a property or items schema.
+    std::unordered_map<const Node*, std::vector<Node*>> dependents;
+    std::vector<Node*> todo;
+    for (Node& n : nodes) {
+        if (n.kind != Node::Kind::Schema) continue;
+        const Body* b = effective_body(n);
+        if (!b) continue;
+        bool start = false;
+        for (const schema_detail::PropEntry& p : b->props) {
+            start = start || p.hasDefault;
+            dependents[p.node].push_back(&n);
+        }
+        if (b->itemsIsObject) dependents[b->items].push_back(&n);
+        if (start) {
+            n.relevant = true;
+            todo.push_back(&n);
+        }
+    }
+    while (!todo.empty()) {
+        const Node* done = todo.back();
+        todo.pop_back();
+        auto it = dependents.find(done);
+        if (it == dependents.end()) continue;
+        for (Node* d : it->second) {
+            if (d->relevant) continue;
+            d->relevant = true;
+            todo.push_back(d);
         }
     }
 }
