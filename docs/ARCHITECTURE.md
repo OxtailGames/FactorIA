@@ -611,10 +611,26 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     have said no: the partners and the order are those of the old all-pairs loop, whatever the shape of the tree, the
     order bodies were added in or the number of threads, and the simulation result did not change. Pairs that keep their
     state because both bodies are asleep or static are not geometry: they stay in `frozen_` (see Sleeping) until a
-    body wakes. Raycasts, overlaps, shape casts and the character controller do not use the tree yet. Besides the pair loops, the tree answers which bodies are near
+    body wakes. Besides the pair loops, the tree answers which bodies are near
     a platform (the riders it carries) and which movers are close enough to share a time-of-impact island; a mover whose
     reach is over 2 m, or whose centre is outside its box, is tried against every mover instead, and a platform finds the
     characters it carries among the few that can be carried.
+    The scene queries use it too (M94.4c2): `raycast3d`, `raycast3d_all`, `shape_cast3d`, `overlap_sphere3d`, `is_touching`
+    and the character controller's sweeps and depenetration no longer walk every body. A ray goes down the tree with a slab
+    test against each fat box (the nearer child first, the ray clipped to the best hit so far, so a subtree beyond it is
+    skipped); the other queries take the bodies whose fat box overlaps the query's box (the swept bounds of a shape cast or
+    of a character's move, the sphere's box) sorted by index, and run the old per-body tests on them. Equal distances keep
+    the old order (`raycast`: the highest body index wins, as the last one of the old loop; `raycast_all`: distance, then
+    index; `overlap_sphere`: index order), so the answers are the same bits whatever the tree looks like. The queries run
+    between steps, called by scripts and commands after `Physics::sync`, so the tree has to be complete by then: `sync`
+    itself creates the leaves of new bodies, renumbers the payloads and covers the box of every body it marked stale
+    (teleported, resized, enabled), a character move covers the capsule where it ended, and the end of each step covers every
+    body that can have moved since its last cover (position corrections and joints run after the last phase). A sleeping body
+    keeps a box at least as big as its bounds (the fat box shrinks to the bounds plus 0.02 m, never below them), triggers
+    have leaves like any collider (the options filter them), a disabled body has none and is not a candidate. The queries only
+    read the tree and the bodies, like before (they are called from the thread that steps the world, never during a step).
+    Measured (Release, macOS, 15 runs): `physics.raycast3d_1000` (10 000 rays in a settled pile of 1000 bodies)
+    318 ms before, 13.4 ms after; `physics.overlap3d_1000` (2000 spheres) 21.8 ms before, 3.9 ms after.
   - *Navigation*: `nav.find_paths` and `nav.find_tile_paths` (and the script calls) answer many queries at once. With 8 or
     more queries (`kNavBatchMinQueries`) they run as `parallel_for` with 4 queries per chunk; each chunk owns a
     `NavGrid::Scratch` (its open list and visited marks; a search never writes the grid), writes only its own slots of the

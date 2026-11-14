@@ -377,6 +377,28 @@
       "cpuMedianMs": 4.597,
       "items": 400,
       "unit": "awake body steps"
+    },
+    "physics.raycast3d_1000": {
+      "medianMs": 12.887,
+      "minMs": 12.662,
+      "maxMs": 13.349,
+      "p25Ms": 12.743,
+      "p75Ms": 13.048,
+      "spread": 0.024,
+      "cpuMedianMs": 12.879,
+      "items": 10000,
+      "unit": "rays"
+    },
+    "physics.overlap3d_1000": {
+      "medianMs": 3.965,
+      "minMs": 3.762,
+      "maxMs": 4.147,
+      "p25Ms": 3.851,
+      "p75Ms": 4.04,
+      "spread": 0.048,
+      "cpuMedianMs": 3.966,
+      "items": 2000,
+      "unit": "overlap queries"
     }
   }
 }

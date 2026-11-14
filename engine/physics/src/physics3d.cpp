@@ -727,6 +727,7 @@ void Physics3D::sync(World& world) {
             wake_touching(bodies_[it->second].seq);
             existed = false;
             bp_.destroy(bodies_[it->second].proxy);
+            bpDirty_ = true;
             ++layoutGen_;
             bodies_[it->second] = Body{};  // entity slot reused after World::clear(): start fresh
             bodies_[it->second].seq = nextSeq_++;
@@ -746,6 +747,7 @@ void Physics3D::sync(World& world) {
             nb.angVel = rb ? rb->angularVelocity : Vec3{};
             nb.lastAngVel = nb.angVel;
             bodies_.push_back(std::move(nb));
+            bpDirty_ = true;
             it = index_.emplace(key, bodies_.size() - 1).first;
             awakeStale_ = true;
             bodies_.back().center = pose.position;  // the collider offset is added below
@@ -921,6 +923,7 @@ void Physics3D::sync(World& world) {
         // wakes the body's group.
         if (existed && b.sig() != before) {
             awakeStale_ = true;  // (its type or enabled flag may have changed)
+            bpDirty_ = true;
             wake(b);
             wake_touching(b.seq);
             b.boxStale = true;
@@ -970,10 +973,55 @@ void Physics3D::sync(World& world) {
         bodies_ = std::move(kept);
         ++layoutGen_;
         awakeStale_ = true;
+        bpDirty_ = true;
         index_.clear();
         for (std::size_t i = 0; i < bodies_.size(); ++i) index_[bodies_[i].e.bits()] = i;
     }
     sync_joints(world, stamp);
+    bp_sync_update();
+}
+
+// After a sync the queries (which run between steps, from scripts and commands) must find what gameplay just created, moved,
+// resized, enabled or destroyed: leaves for the new bodies, payloads renumbered, and the fat box of every body sync marked
+// stale made to contain its new bounds. Nothing happens when sync changed nothing but the awake bodies' transforms'
+// write-back (the step keeps those boxes covered itself).
+void Physics3D::bp_sync_update() {
+    if (bpDirty_) {
+        bp_reconcile();
+        bpDirty_ = false;
+    }
+    for (Body& b : bodies_) {
+        if (!b.boxStale || b.proxy < 0) continue;
+        const bool moving = b.type != BodyType::Static && !b.asleep;
+        bp_.cover(b.proxy, tight_box(b), moving ? kFatMarginMoving : kFatMarginStill, Vec3{}, true);
+    }
+}
+
+void Physics3D::cover_body(const Body& b) {
+    if (b.proxy < 0) return;
+    const bool moving = b.type != BodyType::Static && !b.asleep;
+    bp_.cover(b.proxy, tight_box(b), moving ? kFatMarginMoving : kFatMarginStill, Vec3{});
+}
+
+std::string Physics3D::broadphase_problems() const {
+    for (std::size_t i = 0; i < bodies_.size(); ++i) {
+        const Body& b = bodies_[i];
+        const bool want = b.enabled && b.hasShape;
+        if (want != (b.proxy >= 0)) return std::format("body {}: {} a leaf", i, want ? "has no" : "has");
+        if (b.proxy < 0) continue;
+        if (bp_.payload(b.proxy) != i) return std::format("body {}: its leaf reports {}", i, bp_.payload(b.proxy));
+        if (!aabb_contains(bp_.fat(b.proxy), tight_box(b))) return std::format("body {}: its leaf does not contain it", i);
+    }
+    return bp_.validate();
+}
+
+void Physics3D::query_candidates(const Aabb3& box, std::vector<std::uint32_t>& out) const {
+    if (bruteQueries_) {
+        out.resize(bodies_.size());
+        for (std::size_t i = 0; i < out.size(); ++i) out[i] = std::uint32_t(i);
+        return;
+    }
+    bp_.sorted_query(aabb_grow(box, kBpEps), out);
 }
 
 // One broad-phase leaf per enabled body with a shape (created, or removed when the body lost its shape or was disabled)
@@ -2465,6 +2513,12 @@ void Physics3D::step(World& world, float dt) {
     }
     if (fellAsleep) awakeStale_ = true;
     finish_joints(world, dt);
+    // The queries after this step read the tree: every body that can have moved (position corrections, joints and the
+    // time-of-impact pass run after the last cover) gets a fat box around where it ended.
+    for (std::size_t i = 0; i < n; ++i) {
+        const Body& b = bodies_[i];
+        if (b.proxy >= 0 && b.enabled && b.type != BodyType::Static && !b.asleep) cover_one(i, tight_box(b));
+    }
 }
 
 // ------------------------------------------------------------- queries ----
@@ -2559,16 +2613,28 @@ std::optional<RaycastHit> Physics3D::raycast(World& world, Vec3 origin, Vec3 dir
     const std::uint64_t qmask = mask_bits(opt.mask);
     float bestT = maxDistance;
     const Body* best = nullptr;
+    std::uint32_t bestIdx = 0;
     Vec3 bestN;
-    for (const Body& b : bodies_) {
-        if (!ray_candidate(world, b, opt, qmask)) continue;
+    // The nearest hit; of equal distances the body with the highest index (the last one the all-bodies loop reached), so
+    // the answer does not depend on the order the tree visits the bodies in. Returns the ray's new length: what is further
+    // than the best hit cannot win, and the tree skips those subtrees.
+    auto test = [&](std::uint32_t i) {
+        const Body& b = bodies_[i];
+        if (!ray_candidate(world, b, opt, qmask)) return bestT;
         float t = 0.0f;
         Vec3 n;
-        if (ray_vs_body(b, origin, d, bestT, t, n)) {
+        if (ray_vs_body(b, origin, d, bestT, t, n) && (!best || t < bestT || i > bestIdx)) {
             bestT = t;
             best = &b;
+            bestIdx = i;
             bestN = n;
         }
+        return bestT;
+    };
+    if (bruteQueries_) {
+        for (std::size_t i = 0; i < bodies_.size(); ++i) test(std::uint32_t(i));
+    } else {
+        bp_.ray_query(origin, d, maxDistance, test);
     }
     if (!best) return std::nullopt;
     RaycastHit h;
@@ -2585,20 +2651,33 @@ std::vector<RaycastHit> Physics3D::raycast_all(World& world, Vec3 origin, Vec3 d
     Vec3 d = normalize(dir);
     if (length_sq(d) < 0.5f || opt.maxHits <= 0) return out;
     const std::uint64_t qmask = mask_bits(opt.mask);
-    for (const Body& b : bodies_) {
-        if (!ray_candidate(world, b, opt, qmask)) continue;
+    std::vector<std::pair<std::uint32_t, RaycastHit>> found;  // (body index, hit)
+    auto test = [&](std::uint32_t i) {
+        const Body& b = bodies_[i];
+        if (!ray_candidate(world, b, opt, qmask)) return maxDistance;
         float t = 0.0f;
         Vec3 n;
-        if (!ray_vs_body(b, origin, d, maxDistance, t, n)) continue;
+        if (!ray_vs_body(b, origin, d, maxDistance, t, n)) return maxDistance;
         RaycastHit h;
         h.entity = b.e;
         h.point = origin + d * t;
         h.normal = n;
         h.distance = t;
-        out.push_back(h);
+        found.emplace_back(i, h);
+        return maxDistance;
+    };
+    if (bruteQueries_) {
+        for (std::size_t i = 0; i < bodies_.size(); ++i) test(std::uint32_t(i));
+    } else {
+        bp_.ray_query(origin, d, maxDistance, test);
     }
-    std::stable_sort(out.begin(), out.end(),
-                     [](const RaycastHit& a, const RaycastHit& b) { return a.distance < b.distance; });
+    // By distance, equal distances in body order (what a stable sort of the all-bodies loop gave), whatever order the tree
+    // visited them in.
+    std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) {
+        return a.second.distance != b.second.distance ? a.second.distance < b.second.distance : a.first < b.first;
+    });
+    out.reserve(found.size());
+    for (const auto& f : found) out.push_back(f.second);
     if (out.size() > static_cast<std::size_t>(opt.maxHits)) out.resize(static_cast<std::size_t>(opt.maxHits));
     return out;
 }
@@ -2619,7 +2698,12 @@ std::optional<RaycastHit> Physics3D::shape_cast(World& world, const CastShape& s
     const std::uint64_t qmask = mask_bits(opt.mask);
     float bestT = 2.0f;
     const Body* best = nullptr;
-    for (Body& b : bodies_) {  // (sweep restores what it touches)
+    // The bodies the swept shape can touch: those whose box meets the box of the shape at `from` and at `to`.
+    const Vec3 reach = probe.kind == Body::Kind::Box ? probe.half : Vec3{probe.radius};
+    std::vector<std::uint32_t> near;
+    query_candidates({min(from, to) - reach - Vec3{kCastSkin}, max(from, to) + reach + Vec3{kCastSkin}}, near);
+    for (const std::uint32_t k : near) {  // (sweep restores what it touches)
+        Body& b = bodies_[k];
         if (!b.enabled || !b.hasShape || (b.trigger && opt.ignoreTriggers) || !live(world, b.e)) continue;
         if ((category_bits(b.layer) & qmask) == 0) continue;
         if (entity_or_ancestor_is(world, b.e, opt.ignore)) continue;
@@ -2656,7 +2740,12 @@ bool Physics3D::is_touching(World& world, Entity e, Vec3 dir, float tolerance) {
     const Body& a = bodies_[it->second];
     if (!a.enabled || !a.hasShape || a.trigger || length_sq(dir) < 1e-12f) return false;
     dir = normalize(dir);
-    for (const Body& b : bodies_) {
+    std::vector<std::uint32_t> near;
+    const Aabb3 mine = tight_box(a);
+    const float reach = std::max(tolerance, 0.0f);
+    query_candidates({mine.lo - Vec3{reach}, mine.hi + Vec3{reach}}, near);
+    for (const std::uint32_t k : near) {
+        const Body& b = bodies_[k];
         if (&b == &a || !b.enabled || !b.hasShape || b.trigger || !live(world, b.e)) continue;
         if (!filters_pass(a, b)) continue;
         Contact c = collide(a, b, std::max(tolerance, 0.0f));
@@ -2673,7 +2762,10 @@ std::vector<Entity> Physics3D::overlap_sphere(World& world, Vec3 center, float r
     probe.radius = std::max(radius, 0.0f);
     probe.center = center;
     const std::uint64_t qmask = mask_bits(mask);
-    for (const Body& b : bodies_) {
+    std::vector<std::uint32_t> near;
+    query_candidates({center - Vec3{probe.radius}, center + Vec3{probe.radius}}, near);
+    for (const std::uint32_t k : near) {
+        const Body& b = bodies_[k];
         if (!b.enabled || !b.hasShape || !live(world, b.e)) continue;
         if ((category_bits(b.layer) & qmask) == 0) continue;
         Contact c = collide(probe, b, 0.0f);
