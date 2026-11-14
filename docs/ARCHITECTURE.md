@@ -492,9 +492,14 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
 - **Cost**: idle workers sleep on a condition variable (no CPU while nothing is queued). Each worker has its own queue
   of ready jobs: it runs the jobs it queues itself (and the first dependent a finished job releases) in order, and an
   idle worker steals the oldest job of another worker's queue; the main thread deals its jobs out to the workers in
-  turn. A job costs one allocation and a short lock of one queue; the dependency graph's lock is taken only by jobs
-  with dependencies or dependents, by waits that sleep and by `parallel_for`'s join. A wait for a job still queued
-  runs it at once. Give a parallel_for a grain of at least a few hundred cheap items. The design is described at the
+  turn. A job costs one allocation and a short lock of one queue; the dependency graph's lock (`Pool::mu`) is taken by a
+  job that has dependencies or dependents (or that a `wait` or a `parallel_for` join looked at), by a `submit` whose
+  dependency is still running, by a wait that has to sleep (`wait`, `Owner::wait`, `parallel_for`'s join), by the end
+  of an owner's last job when an `Owner::wait` sleeps for it, by a thread's first lane lookup after a start or stop,
+  and by `start`, `stop` and `settings`; a job nobody looks at and a wait for a job still queued never take it. A wait
+  for a job still queued runs it at once, and a wait that took a job drops its queue entry, so with 0 workers the
+  entries do not pile up until the frame ends. A worker that is told a job is queued and finds none (the thread that
+  took it has not counted it yet) looks again 64 times and then naps for 200 microseconds. Give a parallel_for a grain of at least a few hundred cheap items. The design is described at the
   top of `engine/core/src/jobs.cpp`. Each worker thread is named (`fa-job-1`..)
   in debuggers and profilers; its stack is the platform default (512 KB on macOS and iOS, 1 MB on Windows, 8 MB on
   Linux): keep big buffers on the heap.

@@ -37,7 +37,11 @@ double sum_of(const std::vector<std::uint64_t>& v) {
     return double(s % 1000003ull);
 }
 
-// Wider bands than the single-threaded benchmarks: with `--jobs` > 0 the numbers depend on how busy the machine is.
+// Wider bands than the single-threaded benchmarks, in every mode (the inline baselines too: a run is only compared with
+// a baseline made with the same `--jobs`, but the ratios are the benchmark's, not the mode's). With `--jobs` > 0 the
+// numbers depend on how busy the machine is; and an inline run is short: each one does enough jobs to take a few
+// milliseconds on a CI runner (the slack of 0.2 and 0.5 ms of the comparison covers only runs under a millisecond), so a
+// slow second on a shared VM is a fraction of it, not a multiple.
 void threaded(Bench& b) {
     b.warnRatio = 1.8;
     b.failRatio = 3.0;
@@ -46,10 +50,10 @@ void threaded(Bench& b) {
 Bench tiny_jobs() {
     Bench b;
     b.name = "jobs.tiny";
-    b.summary = "20000 tiny jobs submitted one after the other from one thread, then waited for together (wait_all)";
+    b.summary = "40000 tiny jobs submitted one after the other from one thread, then waited for together (wait_all)";
     threaded(b);
     b.make = [] {
-        constexpr int kJobs = 20000;
+        constexpr int kJobs = 40000;
         auto out = std::make_shared<std::vector<std::uint64_t>>(kJobs, 0);
         Prepared p;
         p.items = kJobs;
@@ -128,11 +132,12 @@ Bench parallel_for_large() {
 Bench dependency_graph() {
     Bench b;
     b.name = "jobs.graph";
-    b.summary = "100 rounds of 1 job that fans out to 64 that fan in to 1 (6600 jobs), then a chain of 6000 jobs, each "
-                "depending on the one before";
+    b.summary =
+        "200 rounds of 1 job that fans out to 64 that fan in to 1 (13200 jobs), then a chain of 12000 jobs, each "
+        "depending on the one before";
     threaded(b);
     b.make = [] {
-        constexpr int kRounds = 100, kFan = 64, kChain = 6000;
+        constexpr int kRounds = 200, kFan = 64, kChain = 12000;
         auto out = std::make_shared<std::vector<std::uint64_t>>(std::size_t(kRounds) * (kFan + 2) + kChain, 0);
         Prepared p;
         p.items = std::int64_t(out->size());
@@ -187,11 +192,11 @@ Bench nested_waits() {
     Bench b;
     b.name = "jobs.nested_wait";
     b.summary =
-        "1024 jobs that each submit 8 jobs and wait for them (inside a job, so the wait helps), plus a parallel_for "
+        "3072 jobs that each submit 8 jobs and wait for them (inside a job, so the wait helps), plus a parallel_for "
         "in every 4th one";
     threaded(b);
     b.make = [] {
-        constexpr int kOuter = 1024, kInner = 8;
+        constexpr int kOuter = 3072, kInner = 8;
         auto out = std::make_shared<std::vector<std::uint64_t>>(std::size_t(kOuter) * kInner, 0);
         Prepared p;
         p.items = kOuter * (kInner + 1);
@@ -227,11 +232,11 @@ Bench main_thread_queue() {
     Bench b;
     b.name = "jobs.main_queue";
     b.summary =
-        "80000 main-thread tasks posted from this thread, then run (run_main_thread_tasks), and 16000 more posted by "
+        "160000 main-thread tasks posted from this thread, then run (run_main_thread_tasks), and 32000 more posted by "
         "jobs and run the same way";
     threaded(b);
     b.make = [] {
-        constexpr int kTasks = 80000, kFromJobs = 16000, kPosters = 40;
+        constexpr int kTasks = 160000, kFromJobs = 32000, kPosters = 40;
         auto count = std::make_shared<std::uint64_t>(0);
         Prepared p;
         p.items = kTasks + kFromJobs;

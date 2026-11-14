@@ -20,6 +20,7 @@
 
 #include "fa/core/jobs.h"
 #include "fa/core/profiler.h"
+#include "../src/jobs_internal.h"
 
 using namespace fa;
 
@@ -31,6 +32,16 @@ struct PoolScope {
     ~PoolScope() { jobs::stop(); }
     PoolScope(const PoolScope&) = delete;
     PoolScope& operator=(const PoolScope&) = delete;
+};
+
+// Stops what a test started and a failed REQUIRE left running, so the next test starts from a stopped pool.
+struct StopRunningPool {
+    StopRunningPool() = default;
+    StopRunningPool(const StopRunningPool&) = delete;
+    StopRunningPool& operator=(const StopRunningPool&) = delete;
+    ~StopRunningPool() {
+        for (int i = 0; i < 8 && jobs::running(); ++i) jobs::stop();  // bounded: a refused stop must not loop forever
+    }
 };
 
 // Every configuration the determinism rule covers: no workers, one, several, and the inline debug mode.
@@ -368,6 +379,7 @@ TEST_CASE("jobs: stop runs every queued job, also those queued while it stops") 
 }
 
 TEST_CASE("jobs: start and stop are reference counted; stop from a job is refused") {
+    StopRunningPool cleanup;  // declared first: it runs last, also when a REQUIRE below fails
     REQUIRE(jobs::start(jobs::Settings::threads(1)).ok());
     REQUIRE(jobs::start(jobs::Settings::threads(3)).ok());  // already running: keeps its first settings
     CHECK(jobs::worker_count() == 1);
@@ -935,7 +947,7 @@ TEST_CASE("jobs: an owner's wait runs only what that owner needs, not another ow
 
 namespace {
 
-// Aborts the process with a message if it is still alive after `limit` (a deadlock guard, never a measurement).
+// Ends the process (exit status 3) with a message if it is still alive after `limit` (a deadlock guard, never a measurement).
 class Watchdog {
 public:
     explicit Watchdog(const char* what, std::chrono::seconds limit = std::chrono::seconds(240)) : what_(what) {
@@ -945,7 +957,8 @@ public:
                 std::fprintf(stderr, "test_jobs: deadlock guard: %s did not finish in %lld s\n", what_,
                              static_cast<long long>(limit.count()));
                 std::fflush(stderr);
-                std::abort();
+                // Not std::abort: on Windows the MSVC runtime may open a dialog box that nobody closes on a CI machine.
+                std::_Exit(3);
             }
         });
     }
@@ -1085,8 +1098,9 @@ TEST_CASE("jobs: nested waits do not deadlock when every worker is inside a job 
         std::vector<jobs::Handle> outers;
         for (int o = 0; o < outerJobs; ++o) {
             outers.push_back(jobs::submit("test.outer", [&, o] {
-                // Hold this thread until every worker is inside an outer job: from here on, no thread is free.
-                entered.fetch_add(1);
+                // Hold this thread until every worker is inside an outer job: from here on, no worker is free (this
+                // thread, the waiter, may run an outer job too: it does not count).
+                if (jobs::is_worker_thread()) entered.fetch_add(1);
                 spin_until([&] { return entered.load() >= workers; });
                 std::vector<jobs::Handle> mids;
                 for (int m = 0; m < middle; ++m) {
@@ -1117,7 +1131,8 @@ TEST_CASE("jobs: nested waits do not deadlock when every worker is inside a job 
     }
 }
 
-TEST_CASE("jobs: a job that waits for itself, or for a job that needs it, gets 'can never end' in every mode") {
+TEST_CASE(
+    "jobs: a job that waits for itself, or for a job that needs it, gets 'can never end' with 0, 1 and 2 workers") {
     for (int workers : {0, 1, 2}) {
         CAPTURE(workers);
         PoolScope pool(jobs::Settings::threads(workers));
@@ -1331,7 +1346,8 @@ TEST_CASE("jobs: every worker keeps running jobs after bursts of jobs that a wai
     PoolScope pool(jobs::Settings::threads(4));
     REQUIRE(jobs::worker_count() == 4);
     Watchdog guard("bursts then every worker");
-    for (int round = 0; round < 4000; ++round) {  // short bursts: the workers sleep between them, so each one wakes them
+    for (int round = 0; round < 4000;
+         ++round) {  // short bursts: the workers sleep between them, so each one wakes them
         std::vector<jobs::Handle> hs;
         for (int i = 0; i < 4; ++i) hs.push_back(jobs::submit("test.burst", [] {}));
         REQUIRE(jobs::wait_all(hs).ok());
@@ -1344,4 +1360,126 @@ TEST_CASE("jobs: every worker keeps running jobs after bursts of jobs that a wai
     });
     REQUIRE(r.ok());
     CHECK(met.load() == threads);
+}
+
+// ------------------------------------------------------------------------------------------------------------------
+// Queue entries and idle workers (M94 polish of the per-worker queues).
+
+TEST_CASE("jobs: a wait drops the entry of the job it took, so 0 workers do not pile entries up until the frame ends") {
+    PoolScope pool(jobs::Settings::threads(0));
+    REQUIRE(jobs::detail::queued_entries() == 0);
+    std::atomic<int> ran{0};
+    // One job at a time, waited for at once: its entry is at the front of the queue.
+    for (int i = 0; i < 2000; ++i) REQUIRE(jobs::wait(jobs::submit("test.one", [&] { ran.fetch_add(1); })).ok());
+    CHECK(ran.load() == 2000);
+    CHECK(jobs::detail::queued_entries() == 0);
+    // A chain: the wait takes each link as the one before releases it.
+    {
+        jobs::Handle a = jobs::submit("test.a", [&] { ran.fetch_add(1); });
+        jobs::Handle b = jobs::submit("test.b", [&] { ran.fetch_add(1); }, {a});
+        jobs::Handle c = jobs::submit("test.c", [&] { ran.fetch_add(1); }, {b});
+        REQUIRE(jobs::wait(c).ok());
+        CHECK(ran.load() == 2003);
+        CHECK(jobs::detail::queued_entries() == 0);
+    }
+    // Waits out of order: an entry taken from behind a live one has to stay until what is in front of it goes.
+    {
+        jobs::Handle a = jobs::submit("test.first", [&] { ran.fetch_add(1); });
+        jobs::Handle b = jobs::submit("test.second", [&] { ran.fetch_add(1); });
+        jobs::Handle c = jobs::submit("test.third", [&] { ran.fetch_add(1); });
+        REQUIRE(jobs::wait(c).ok());
+        REQUIRE(jobs::wait(b).ok());
+        CHECK(jobs::detail::queued_entries() == 3);
+        CHECK(ran.load() == 2005);
+        REQUIRE(jobs::wait(a).ok());  // the front: it goes, and the two taken entries behind it with it
+        CHECK(jobs::detail::queued_entries() == 0);
+        CHECK(ran.load() == 2006);
+    }
+    // What nobody waited for runs at the frame end, which also clears the entries a wait left in the middle.
+    jobs::Handle x = jobs::submit("test.x", [&] { ran.fetch_add(1); });
+    jobs::Handle y = jobs::submit("test.y", [&] { ran.fetch_add(1); });
+    REQUIRE(jobs::wait(y).ok());
+    CHECK(jobs::detail::queued_entries() == 2);
+    jobs::end_frame();
+    CHECK(x.done());
+    CHECK(ran.load() == 2008);
+    CHECK(jobs::detail::queued_entries() == 0);
+}
+
+TEST_CASE("jobs: the frame end with 0 workers runs the jobs queued before it, not the ones those jobs queue") {
+    PoolScope pool(jobs::Settings::threads(0));
+    std::atomic<int> cRan{0};
+    jobs::Handle b, c;
+    jobs::Handle a = jobs::submit("test.a", [&] {
+        c = jobs::submit("test.c", [&] { cRan.fetch_add(1); });  // queued while the frame ends: next frame's
+        (void)jobs::wait(b);  // takes b from the batch the frame end is running, and drops entries of the queue
+    });
+    b = jobs::submit("test.b", [] {});
+    jobs::end_frame();
+    CHECK(a.done());
+    CHECK(b.done());
+    CHECK(!c.done());
+    CHECK(cRan.load() == 0);
+    jobs::end_frame();
+    CHECK(c.done());
+    CHECK(cRan.load() == 1);
+    CHECK(jobs::detail::queued_entries() == 0);
+}
+
+TEST_CASE("jobs: an owner's wait with 0 workers finds the jobs another thread queues while it looks") {
+    PoolScope pool(jobs::Settings::threads(0));
+    Watchdog guard("the owner's wait with a foreign thread");
+    jobs::Owner owner("foreign");
+    std::atomic<int> ran{0};
+    constexpr int rounds = 200, perRound = 4;
+    for (int round = 0; round < rounds; ++round) {
+        std::thread t([&] {
+            jobs::OwnerScope scope(&owner);
+            for (int k = 0; k < perRound; ++k) (void)jobs::submit("test.foreign", [&] { ran.fetch_add(1); });
+        });
+        // Counted before it is queued, queued before this wait is woken: the wait may start at any point of that.
+        REQUIRE(owner.wait().ok());
+        t.join();
+        REQUIRE(owner.wait().ok());  // what the thread queued after the first wait returned
+        CHECK(owner.pending() == 0);
+    }
+    CHECK(ran.load() == rounds * perRound);
+}
+
+TEST_CASE("jobs: workers that find a counted job missing nap and go on (every such look naps here)") {
+    // A worker that is told a job is queued and finds none looks again, then naps; with the limit at 0 every such look
+    // naps at once. The nap must not lose a job or a stop: bursts that waits take from under the workers, a chain and
+    // a stop with jobs left all complete.
+    struct Limit {
+        explicit Limit(int n) { jobs::detail::set_spins_before_nap(n); }
+        ~Limit() { jobs::detail::set_spins_before_nap(64); }
+        Limit(const Limit&) = delete;
+        Limit& operator=(const Limit&) = delete;
+    } limit(0);
+    const std::uint64_t napsBefore = jobs::detail::naps();
+    std::atomic<int> ran{0};  // before the pool: the stop runs the jobs left, which use it
+    {
+        PoolScope pool(jobs::Settings::threads(4));
+        Watchdog guard("the napping workers");
+        for (int round = 0; round < 3000; ++round) {
+            std::vector<jobs::Handle> hs;
+            for (int i = 0; i < 4; ++i) hs.push_back(jobs::submit("test.burst", [&] { ran.fetch_add(1); }));
+            REQUIRE(jobs::wait_all(hs).ok());
+        }
+        CHECK(ran.load() == 12000);
+        // A chain the workers hand on to each other: each link is released by the one before.
+        jobs::Handle prev;
+        std::vector<jobs::Handle> all;
+        for (int i = 0; i < 2000; ++i) {
+            std::vector<jobs::Handle> deps;
+            if (prev.valid()) deps.push_back(prev);
+            prev = jobs::submit("test.link", [&] { ran.fetch_add(1); }, deps);
+            all.push_back(prev);
+        }
+        REQUIRE(jobs::wait_all(all).ok());
+        CHECK(ran.load() == 14000);
+        for (int i = 0; i < 200; ++i) (void)jobs::submit("test.left", [&] { ran.fetch_add(1); });
+    }  // the stop runs what is left
+    CHECK(ran.load() == 14200);
+    MESSAGE("naps taken: " << (jobs::detail::naps() - napsBefore));  // 0 is possible: the window is a few nanoseconds
 }

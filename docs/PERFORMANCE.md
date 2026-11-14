@@ -508,6 +508,13 @@ Cost: idle workers sleep and use no CPU. A job costs about one allocation and th
 gain from it. Each worker has a stack and a few kilobytes of its own: on a phone, fewer workers save a
 little memory and battery.
 
+What the per-worker queues of M94 changed, measured with `fa_bench --jobs 4 --filter jobs.` (Release, an Apple-silicon
+Mac, median of 21 runs, once while the machine was quiet; with another build running the same numbers moved by a factor
+of two or more, so read the ratios as an order of magnitude, and measure your own machine): one queue under one lock
+(M70) against one queue per worker. `jobs.tiny` (40000 jobs) 40.6 ms to 12.1 ms (CPU time of the process 95 ms to 24 ms),
+`jobs.graph` 26.8 ms to 16.1 ms, `jobs.nested_wait` 43.4 ms to 7.7 ms (CPU 99 ms to 23 ms). `parallel_for` over big or small
+chunks and the main-thread queue did not change (11.9 ms and 8.7 ms before, 11.9 ms and 8.2 ms after).
+
 What runs on the workers: the drawing work of a frame once it is big (the sprites, tilemaps, the quads of the particles, the 3D meshes'
 matrices, culling and shadows, the sorts and the vertex stream; docs/ARCHITECTURE.md, "Systems that run as jobs"
 lists each job with its threshold), the simulation of the particles and the poses of many animators. A game under every threshold (a few hundred
@@ -597,7 +604,7 @@ pull request that did it, not when an example later goes over its budget. It is 
 | `script.native_calls`, `script.component_access`, `script.behaviours` | JS to C++ calls, component fields read and written from JS, and 30 frames of 300 behaviours |
 | `script.field_read`, `script.field_write`, `script.component_get` | One numeric field of one component read and written 100000 times from JS (a plain field and a vector's `x`), and `entity.get` of two components for 100 entities over 200 passes: the cost of the script bridge's component views |
 | `audio.mix_voices`, `audio.mix_bus_fx` | Two seconds of the software mixer with 48 looping voices (pitch and pan), without and with a low-pass and a reverb on the buses (the null device, offline) |
-| `jobs.tiny`, `jobs.for_small_grain`, `jobs.for_large_grain`, `jobs.graph`, `jobs.nested_wait`, `jobs.main_queue` | The job system's scheduling: 20000 tiny jobs submitted from one thread; `parallel_for` with 1250 small chunks per call and with 32 large ones; fan-out/fan-in rounds and a chain of dependent jobs; jobs that submit jobs and wait for them; 96000 main-thread tasks posted and run. Each job does almost no work, so the numbers are the queues' and waits' own cost. The baselines are `--jobs inline`; run `--jobs 4` to measure the pool (wider warn and fail ratios, x1.8 and x3) |
+| `jobs.tiny`, `jobs.for_small_grain`, `jobs.for_large_grain`, `jobs.graph`, `jobs.nested_wait`, `jobs.main_queue` | The job system's scheduling: 40000 tiny jobs submitted from one thread; `parallel_for` with 1250 small chunks per call and with 32 large ones; fan-out/fan-in rounds and a chain of dependent jobs; jobs that submit jobs and wait for them; 192000 main-thread tasks posted and run. Each job does almost no work, so the numbers are the queues' and waits' own cost. The baselines are `--jobs inline`; run `--jobs 4` to measure the pool (a baseline is only compared with a run made with the same `--jobs`). These six have wider warn and fail ratios than the others (x1.8 and x3), in every mode, the inline baselines too |
 
 The 3D contact manifolds (M94.4d: up to four points per box pair with feature ids) and the soft contacts of the stacking
 package (M94.4h: soft step, a Jacobi solve of each manifold, sleeping rules; docs/ARCHITECTURE.md, "3D contact solver,
@@ -636,7 +643,7 @@ an edit of a few samples costs what it touches. More than 8 writes to an array b
 every sample of that array (O(N), no copy).
 
 Every input is built from a fixed seed (`fa::Rng`), so two runs do the same work (the report says when the repeats did not).
-A run takes about 10 to 110 ms (macOS, Release). The render benchmarks need a graphics context (EGL with Mesa on Linux, Metal, D3D11) and are
+A run takes about 1 to 110 ms (macOS, Release). The render benchmarks need a graphics context (EGL with Mesa on Linux, Metal, D3D11) and are
 skipped, with the reason, when there is none; the others need nothing.
 
 ```bash
