@@ -913,8 +913,10 @@ are free for public repositories. It runs once per change:
 - **`main`**: every push (including merged pull requests).
 - **Other branches**: no automatic run, so a PR branch is not built twice. Start
   one by hand from the Actions tab ("Run workflow"; every job) or open a pull request.
-- **`v*` tags**: no run of this workflow. The tag goes on the merge commit of a pull request, which already passed
-  here as that pull request and again as the push to `main`; `release.yml` builds and tests the packages on the tag.
+- **`v*` tags**: no run of this workflow. The tag goes on the merge commit of a pull request: the push to `main` already
+  ran this workflow on that very commit, so a run on the tag would repeat it. Check that run is green before tagging
+  (`gh run list --commit <sha> --workflow CI`; a later push to `main` cancels it, then run it again from the Actions tab);
+  `release.yml` builds and tests the packages on the tag.
 
 A run only builds what the change can break (the `changes` job compares it with its
 base): a change to docs only (`docs/`, `feedback/`, top-level `*.md`) builds nothing,
@@ -970,9 +972,11 @@ leaves the next run a warm cache. Three rules keep that cache from shrinking or 
   `ccache-Linux-gcc-` never touches another job's `ccache-Linux-linux-asan-<id>`), and deletes nothing unless the cache
   this run just saved is in the list. A failure is a warning, never a red job (a pull request from a fork has a read-only
   token). Failed and cancelled rounds save too, so without this the repository's 10 GB would fill with them and GitHub's
-  eviction of the least recently used caches would remove `main`'s first, which every pull request starts from. `CI
-  result` still deletes the older ccaches of the ref at the end of a round, as a net under that.
-Every Ninja build of the workflows (and `scripts/build-sniper.sh`) runs `cmake --build ... -- -k 0`: after a compile error
+  eviction of the least recently used caches would remove `main`'s first, which every pull request starts from. A
+  cancelled job saves but deletes nothing (`if: !cancelled() && ...`): the newer round that cancelled it may be
+  downloading the very cache it would delete; that round deletes them all once it has saved its own. `CI result` still
+  deletes the older ccaches of the ref at the end of a round, as a net under that.
+Every Ninja build of `ci.yml` (and `scripts/build-sniper.sh`, which `release.yml` uses too) runs `cmake --build ... -- -k 0`: after a compile error
 Ninja keeps building everything that does not depend on the broken file, so one round lists every error and warning
 (`FA_WARNINGS_AS_ERRORS`) instead of the first, and ccache stores every object that did compile for the next round. The
 Windows builds (Visual Studio/MSBuild) and the iOS one (Xcode) take no `-k`; the baseline jobs pass it to Linux and macOS only.

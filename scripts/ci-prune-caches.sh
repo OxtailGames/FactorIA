@@ -4,9 +4,10 @@
 #   scripts/ci-prune-caches.sh <key prefix>        e.g. ccache-Linux-gcc-   (the key is <prefix><run id>)
 #
 # Needs the `gh` CLI, GH_TOKEN and GH_REPO in the environment and `actions: write` on the token. ci.yml runs it after each
-# "Save ccache" step (also in a failed or cancelled round: those rounds save too, and a newer round of the same pull request
-# would otherwise leave every one of them in the repository's 10 GB until GitHub's least-recently-used eviction picks
-# main's caches first). Safe by construction:
+# "Save ccache" step (also in a failed round: those rounds save too, and a newer round of the same pull request would
+# otherwise leave every one of them in the repository's 10 GB until GitHub's least-recently-used eviction picks main's
+# caches first). A cancelled job saves but does not run this: the newer round that cancelled it may be downloading the
+# cache it would delete, and that round deletes them all after its own save. Safe by construction:
 #   - only caches of GITHUB_REF (this pull request or branch) are listed, never another ref's;
 #   - only keys that are exactly <prefix><digits>: ccache-Linux-linux- does not touch ccache-Linux-linux-asan-<id>;
 #   - nothing is deleted unless the cache this run saved (<prefix>$GITHUB_RUN_ID) is in the list, so a save that failed

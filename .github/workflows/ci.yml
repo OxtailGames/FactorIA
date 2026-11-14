@@ -5,9 +5,9 @@ name: CI
 
 # All five platforms on GitHub-hosted runners (standard hosted runners are free
 # for public repositories). Runs once per change: on pull requests (every push to
-# a PR branch) and on pushes to main. A `v*` tag does not run it: the tag is made on a
-# commit that already passed here as the merge of its PR, and release.yml builds the
-# packages on the tag. Pushing to a branch without a
+# a PR branch) and on pushes to main. A `v*` tag does not run it: the tag is made on the
+# merge commit of a PR, which the push to main already ran here (check that run is green
+# before tagging), and release.yml builds the packages on the tag. Pushing to a branch without a
 # PR does not trigger a run, so PR branches are not built twice; use "Run
 # workflow" (workflow_dispatch) for those. The same checks can run locally with
 # ./scripts/ci-local.sh (see docs/BUILDING.md).
@@ -142,7 +142,7 @@ jobs:
       # Every round that saves also deletes this ref's older caches of the same ccache, so the failed and cancelled rounds of
       # a pull request do not pile up (the repository's 10 GB; the least recently used caches go first, and those are main's).
       - name: Delete this ref's older ccaches
-        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -246,7 +246,7 @@ jobs:
           key: ccache-${{ runner.os }}-linux-asan-${{ github.run_id }}
 
       - name: Delete this ref's older ccaches
-        if: ${{ always() && matrix.shard == 1 && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        if: ${{ !cancelled() && matrix.shard == 1 && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -330,7 +330,7 @@ jobs:
           key: ccache-${{ runner.os }}-linux-tsan-${{ github.run_id }}
 
       - name: Delete this ref's older ccaches
-        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -393,7 +393,7 @@ jobs:
           key: ccache-${{ runner.os }}-sniper-${{ github.run_id }}
 
       - name: Delete this ref's older ccaches
-        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -477,7 +477,7 @@ jobs:
           key: ccache-${{ runner.os }}-windows-${{ github.run_id }}
 
       - name: Delete this ref's older ccaches
-        if: ${{ always() && matrix.shard == 1 && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        if: ${{ !cancelled() && matrix.shard == 1 && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         continue-on-error: true
         shell: bash
         env:
@@ -580,7 +580,7 @@ jobs:
           key: ccache-${{ runner.os }}-macos-${{ github.run_id }}
 
       - name: Delete this ref's older ccaches
-        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1070,7 +1070,7 @@ jobs:
           key: ccache-${{ runner.os }}-web-${{ github.run_id }}
 
       - name: Delete this ref's older ccaches
-        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build-player.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build-player.outcome != 'skipped' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1149,7 +1149,7 @@ jobs:
           key: ccache-${{ runner.os }}-android-${{ github.run_id }}
 
       - name: Delete this ref's older ccaches
-        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1339,7 +1339,7 @@ jobs:
           key: ccache-${{ runner.os }}-apk-${{ github.run_id }}
 
       - name: Delete this ref's older ccaches
-        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build-cli.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build-cli.outcome != 'skipped' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1528,7 +1528,7 @@ jobs:
           key: ccache-${{ runner.os }}-linux-fuzz-${{ github.run_id }}
 
       - name: Delete this ref's older ccaches
-        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
@@ -1638,7 +1638,7 @@ jobs:
           key: ccache-${{ runner.os }}-linux-coverage-${{ github.run_id }}
 
       - name: Delete this ref's older ccaches
-        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         continue-on-error: true
         env:
           GH_TOKEN: ${{ github.token }}
