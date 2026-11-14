@@ -79,6 +79,11 @@ TEST_CASE("tilemap: a rows form must be equal rows that match width and height (
     CHECK(fields["tiles"] == Json::parse("[0,1,2,3,4,5]"));
     CHECK(fields["width"] == 2);
     CHECK(fields["height"] == 3);
+    // Whole numbers written as floats (3.0) are stored as integers, so the array takes them.
+    std::tie(issues, fields) = flatten(R"({"tiles":[[3.0,1],[-1.0,0.0]]})");
+    CHECK(issues.empty());
+    CHECK(fields["tiles"] == Json::parse("[3,1,-1,0]"));
+    for (const Json& v : fields["tiles"]) CHECK(v.is_number_integer());
     // A flat or missing list is not touched.
     std::tie(issues, fields) = flatten(R"({"tiles":[0,1,2]})");
     CHECK(issues.empty());

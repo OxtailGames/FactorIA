@@ -1885,6 +1885,11 @@ TEST_CASE("entity.tilemap: getTile and setTile read and write one tile in place"
     CHECK(m.find("expects three numbers") != std::string::npos);
     m = ev_err(h, "world.spawn({id: 'plain'}).tilemap");
     CHECK(m.find("has no Tilemap component") != std::string::npos);
+    // Rows are accepted where a whole component is given (spawn, load), not by the `tiles` field setter: flat numbers only.
+    CHECK_FALSE(ev_err(h, "world.find('flat').get('Tilemap').tiles = [[0, 1, 2], [3, 4, 5]]").empty());
+    CHECK(ev_ok(h, "world.find('flat').get('Tilemap').tiles.join()") == "0,1,2,3,7,5");  // unchanged
+    ev_ok(h, "world.find('flat').get('Tilemap').tiles = [[0, 1, 2], [3, 4, 5]].flat()");
+    CHECK(ev_ok(h, "world.find('flat').get('Tilemap').tiles.join()") == "0,1,2,3,4,5");
 }
 
 TEST_CASE("entity.bounds: Sprite size, pivot, texture size, region, animator and flip") {
