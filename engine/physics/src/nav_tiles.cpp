@@ -315,9 +315,9 @@ struct TileGridCache {
     std::uint64_t tick = 0;
     NavTileCacheStats stats;
 };
-constexpr std::size_t kCacheMinCells = 1024;       // smaller maps are cheaper to read than to look up
-constexpr std::size_t kCacheMaxCells = 1u << 22;   // cells kept in all (16 MiB of costs)
-constexpr std::size_t kCacheMaxEntries = 16;       // grids kept (one per map and rule set)
+constexpr std::size_t kCacheMinCells = 1024;      // smaller maps are cheaper to read than to look up
+constexpr std::size_t kCacheMaxCells = 1u << 22;  // cells kept in all (16 MiB of costs)
+constexpr std::size_t kCacheMaxEntries = 16;      // grids kept (one per map and rule set)
 
 TileGridCache& tile_cache() {
     static TileGridCache cache;
@@ -407,7 +407,8 @@ std::shared_ptr<const NavTileGrid> tilemap_grid_cached(const Tilemap& tm, const 
             return hit->grid;
         }
         // Main-thread callers only: use_count() > 1 says "someone reads it" only if no other thread can copy the pointer now.
-        if (hit->grid.use_count() > 1) hit->grid = std::make_shared<NavTileGrid>(*hit->grid);  // an ask is still reading it
+        if (hit->grid.use_count() > 1)
+            hit->grid = std::make_shared<NavTileGrid>(*hit->grid);  // an ask is still reading it
         NavTileGrid& g = *hit->grid;
         std::span<const TileEdit> edits;
         if (tilemap_edits_since(tm, hit->stamp, edits) && g.width == size.width && g.height == size.height) {

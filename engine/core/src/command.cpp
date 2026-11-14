@@ -257,7 +257,8 @@ void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
     // Compiled once here: call() validates against it instead of walking the Json on every call. An invalid pattern was
     // reported above; the compiled schema keeps it and reports it again when a string is checked against it, as before.
     CompiledSchema compiled(info.inputSchema);
-    const bool acceptsMeta = info.inputSchema.contains("properties") && info.inputSchema["properties"].contains("_meta");
+    const bool acceptsMeta =
+        info.inputSchema.contains("properties") && info.inputSchema["properties"].contains("_meta");
     commands_[name] = Entry{std::move(info), std::move(handler), std::move(compiled), acceptsMeta};
 }
 

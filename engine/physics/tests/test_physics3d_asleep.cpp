@@ -75,7 +75,8 @@ std::vector<Entity> add_fallers(World& w, int count) {
     std::vector<Entity> out;
     for (int i = 0; i < count; ++i) {
         Entity e = w.create();
-        w.get<Transform>(e)->position = {30.0f + 2.0f * float(i % 10), 3.0f + 0.4f * float(i % 4), 2.0f * float(i / 10)};
+        w.get<Transform>(e)->position = {30.0f + 2.0f * float(i % 10), 3.0f + 0.4f * float(i % 4),
+                                         2.0f * float(i / 10)};
         Collider3D& c = w.add<Collider3D>(e);
         if (i % 3 == 0) {
             c.shape = ColliderShape3D::Sphere;
@@ -131,7 +132,8 @@ std::string run_mostly_asleep_hash(int threads) {
         const std::vector<Entity> pile = build_pile(sim.world, 300);
         sim.run(80);
         std::vector<Entity> all = pile;
-        const std::vector<Entity> fallers = add_fallers(sim.world, 100);  // enough rows for the scans to split in chunks
+        const std::vector<Entity> fallers =
+            add_fallers(sim.world, 100);  // enough rows for the scans to split in chunks
         all.insert(all.end(), fallers.begin(), fallers.end());
         Sha256 h;
         for (int f = 0; f < 60; ++f) {
@@ -166,8 +168,8 @@ TEST_CASE("3d asleep: a pile asleep is not touched by what happens far from it")
         mostAwake = std::max(mostAwake, s.awake_count());
         if (i == 5) REQUIRE(mostAwake > 0);
     }
-    CHECK(mostAwake <= 20);                         // only the fallers ever were awake
-    CHECK(state_bits(s.world, pile) == before);      // the pile is exactly where, how and as it was
+    CHECK(mostAwake <= 20);                                              // only the fallers ever were awake
+    CHECK(state_bits(s.world, pile) == before);                          // the pile is exactly where, how and as it was
     for (Entity e : fallers) CHECK(s.world.world_position(e).y > 0.0f);  // none went through the floor
 }
 
@@ -193,9 +195,9 @@ TEST_CASE("3d asleep: the pile wakes when a body lands on it and holds it up") {
         s.run(1);
         mostAwake = std::max(mostAwake, s.awake_count());
     }
-    CHECK(mostAwake > 2);                                   // the bodies it hit woke up
-    CHECK(state_bits(s.world, pile) != before);             // and moved
-    CHECK(s.world.world_position(dropped).y > 0.9f);        // the box did not sink through the pile
+    CHECK(mostAwake > 2);                                             // the bodies it hit woke up
+    CHECK(state_bits(s.world, pile) != before);                       // and moved
+    CHECK(s.world.world_position(dropped).y > 0.9f);                  // the box did not sink through the pile
     for (Entity e : pile) CHECK(s.world.world_position(e).y > 0.3f);  // nothing was pushed through the floor
     s.run(240);
     CHECK(s.awake_count() == 0);  // and everything falls asleep again
@@ -279,7 +281,7 @@ TEST_CASE("3d asleep: a far time-of-impact stop does not move an awake box resti
     int awakeAlone = 0, awakeWith = 0;
     run(false, alone, stoppedAlone, awakeAlone);
     run(true, withBall, stopped, awakeWith);
-    CHECK(stopped);  // the ball did hit the wall (its speed changed: a time-of-impact stop, then the contact)
+    CHECK(stopped);         // the ball did hit the wall (its speed changed: a time-of-impact stop, then the contact)
     CHECK(awakeAlone > 5);  // the box was awake while the ball hit
     CHECK(alone == withBall);
 }

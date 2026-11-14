@@ -135,8 +135,8 @@ std::string kind_expectation(const FieldInfo& f) {
         case FieldKind::ArrayI32:
         case FieldKind::ArrayU8: {
             const bool u8 = f.kind == FieldKind::ArrayU8;
-            std::string out = u8 ? "an array of integers from 0 to 255, e.g. [0, 1, 255]"
-                                 : "an array of integers, e.g. [0, 1, 2]";
+            std::string out =
+                u8 ? "an array of integers from 0 to 255, e.g. [0, 1, 255]" : "an array of integers, e.g. [0, 1, 2]";
             if (has_range(f)) out += " (each element within the field's range)";
             return out;
         }
@@ -218,9 +218,9 @@ Result<void> array_from_json(const FieldInfo& f, TypedArray<T>& dst, const Json&
             return field_error(f, "element " + std::to_string(i) + " is " + e.dump() + ", expected an integer");
         if (d < lo || d > hi) {
             const std::string text = e.dump();
-            const std::string bounds = integral ? "from " + std::to_string(std::int64_t(lo)) + " to " +
-                                                      std::to_string(std::int64_t(hi))
-                                                : "of a 32-bit float";
+            const std::string bounds =
+                integral ? "from " + std::to_string(std::int64_t(lo)) + " to " + std::to_string(std::int64_t(hi))
+                         : "of a 32-bit float";
             return field_error(f, "element " + std::to_string(i) + " is " + text + ", outside the values " + bounds +
                                       " this array can hold");
         }

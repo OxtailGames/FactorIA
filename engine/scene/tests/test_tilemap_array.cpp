@@ -72,8 +72,8 @@ TEST_CASE("tilemap array: a rows form that disagrees with itself or with width/h
 
 TEST_CASE("tilemap array: a flat list that does not fill width x height is an error that says how to fix it") {
     World w;
-    LoadReport r = load_scene(
-        w, scene_with_tilemap(R"({"tileSize":[16,16],"width":3,"height":2,"tiles":[0,1,2,3,4]})"), "f.scene.json");
+    LoadReport r = load_scene(w, scene_with_tilemap(R"({"tileSize":[16,16],"width":3,"height":2,"tiles":[0,1,2,3,4]})"),
+                              "f.scene.json");
     REQUIRE_FALSE(r.ok());
     const std::string text = r.summary();
     CHECK(text.find("5 entries") != std::string::npos);
@@ -147,7 +147,8 @@ TEST_CASE("tilemap array: component_to_json can summarise a big tiles array (the
     CHECK(tm.tiles.version() == version);  // building the JSON only reads
 }
 
-TEST_CASE("tilemap edits: tilemap_edits_since explains a stamp by the writes since, and refuses what the log does not cover") {
+TEST_CASE("tilemap edits: tilemap_edits_since explains a stamp by the writes since, and refuses what the log does not "
+          "cover") {
     Tilemap tm;
     tm.tileSize = {16, 16};
     set_tilemap_grid(tm, 8, 8, std::vector<int>(64, -1));
@@ -193,10 +194,11 @@ TEST_CASE("tilemap edits: assigning a Tilemap never lets its edit log explain th
     a = b;
     CHECK(a.edits.empty());  // a copy does not carry the log
     CHECK(Tilemap(b).edits.empty());
-    Tilemap moved(std::move(b));  // b is not used again
+    Tilemap moved(std::move(b));     // b is not used again
     CHECK(moved.edits.size() == 1);  // a move does (the scene pool relocates components by moving them)
     std::span<const TileEdit> edits;
-    CHECK_FALSE(tilemap_edits_since(a, before, edits));  // same id, one version step, the edit does not describe a's change
+    CHECK_FALSE(
+        tilemap_edits_since(a, before, edits));  // same id, one version step, the edit does not describe a's change
     // The log works again for the writes that follow.
     const TilemapStamp after = tilemap_stamp(a);
     REQUIRE(set_tilemap_tile(a, 0, 0, 1));

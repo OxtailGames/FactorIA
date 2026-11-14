@@ -370,7 +370,8 @@ TEST_CASE("compiled schema: a default reachable only through a $ref is applied a
     CHECK(viaCompiled["list"][0]["mode"] == "fast");
     CHECK(viaCompiled["list"][1]["mode"] == "slow");
     CHECK(!CompiledSchema(Json::parse(R"({"$defs":{"o":{"properties":{"m":{"type":"string"}}}},
-                                          "properties":{"a":{"$ref":"#/$defs/o"}}})")).has_defaults());
+                                          "properties":{"a":{"$ref":"#/$defs/o"}}})"))
+               .has_defaults());
 }
 
 TEST_CASE("compiled schema: an invalid pattern gives the same error, at the same point") {
@@ -379,8 +380,8 @@ TEST_CASE("compiled schema: an invalid pattern gives the same error, at the same
         "b":{"type":"string","pattern":"^ok$"}}})");
     CHECK(both_paths(schema, Json::parse(R"({"a":"xyz","b":"ok"})")).size() == 1);  // the schema error
     CHECK(both_paths(schema, Json::parse(R"({"a":"xy","b":"no"})")).size() == 3);   // too short, schema error, mismatch
-    CHECK(both_paths(schema, Json::parse(R"({"a":5,"b":"ok"})")).size() == 1);      // a number is not checked against it
-    CHECK(both_paths(schema, Json::parse(R"({"b":"ok"})")).empty());                // nothing to check
+    CHECK(both_paths(schema, Json::parse(R"({"a":5,"b":"ok"})")).size() == 1);  // a number is not checked against it
+    CHECK(both_paths(schema, Json::parse(R"({"b":"ok"})")).empty());            // nothing to check
     // Compiling the schema does not report the pattern: only validating a string does.
     CHECK_NOTHROW(CompiledSchema{schema});
 }
@@ -411,9 +412,24 @@ TEST_CASE("compiled schema: keywords in every position, with the pointers an AI 
         R"(null)",
     };
     const char* values[] = {
-        R"(null)",  R"(true)",   R"(0)",       R"(3)",       R"(5.5)",      R"(-1)",       R"("a")",
-        R"("")",    R"([])",     R"(["x"])",   R"([1,2,3])", R"({})",       R"({"a":1})",  R"({"a":"x","b":2})",
-        R"({"a":"s","c":1})",    R"({"k":1})", R"({"k":3})", R"({"a/b":"x","c~d":"y"})",
+        R"(null)",
+        R"(true)",
+        R"(0)",
+        R"(3)",
+        R"(5.5)",
+        R"(-1)",
+        R"("a")",
+        R"("")",
+        R"([])",
+        R"(["x"])",
+        R"([1,2,3])",
+        R"({})",
+        R"({"a":1})",
+        R"({"a":"x","b":2})",
+        R"({"a":"s","c":1})",
+        R"({"k":1})",
+        R"({"k":3})",
+        R"({"a/b":"x","c~d":"y"})",
     };
     for (const char* s : schemas)
         for (const char* v : values) {

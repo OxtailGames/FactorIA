@@ -131,7 +131,8 @@ struct World::Impl {
     void invalidate(std::uint32_t idx, std::uint8_t bit) {
         if (idx >= hstate.size()) return;
         const std::uint8_t clearMask = bit == kActiveValid ? std::uint8_t(kActiveValid | kActiveValue) : bit;
-        if (!(hstate[idx].v.load(std::memory_order_relaxed) & bit)) return;  // dropped already, and so is what hangs below it
+        if (!(hstate[idx].v.load(std::memory_order_relaxed) & bit))
+            return;  // dropped already, and so is what hangs below it
         if (!(hstate[idx].v.fetch_and(std::uint8_t(~clearMask), std::memory_order_relaxed) & bit)) return;
         hversion.fetch_add(1, std::memory_order_relaxed);
         thread_local std::vector<std::uint32_t> stack;  // scratch: no allocation per call
@@ -347,9 +348,7 @@ void World::clear() {
     warnedSpriteClips_.clear();
 }
 
-bool World::active_in_hierarchy(Entity e) const {
-    return alive(e) && impl_->active_cached(e);
-}
+bool World::active_in_hierarchy(Entity e) const { return alive(e) && impl_->active_cached(e); }
 
 void World::set_active(Entity e, bool active) {
     if (!alive(e)) return;

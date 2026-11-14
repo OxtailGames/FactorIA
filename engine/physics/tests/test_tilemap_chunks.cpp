@@ -92,7 +92,8 @@ std::string collision_signature(Sim& s, int w, int h) {
     // And the boxes themselves (sorted): an edited map has the very decomposition of a fresh build.
     std::vector<std::string> boxes;
     for (const Physics::DebugShape& d : s.physics.debug_shapes(s.world))
-        boxes.push_back(std::to_string(std::lround(d.center.x * 10)) + "," + std::to_string(std::lround(d.center.y * 10)) + "," +
+        boxes.push_back(std::to_string(std::lround(d.center.x * 10)) + "," +
+                        std::to_string(std::lround(d.center.y * 10)) + "," +
                         std::to_string(std::lround(d.size.x * 10)) + "," + std::to_string(std::lround(d.size.y * 10)));
     std::sort(boxes.begin(), boxes.end());
     for (const std::string& b : boxes) sig += "|" + b;
@@ -171,7 +172,8 @@ TEST_CASE("2d tilemap boxes: rectangular rooms split and merged by edits in the 
     std::vector<int> tiles(std::size_t(W) * std::size_t(H), -1);
     for (int room = 0; room < 9; ++room) {  // solid blocks 3 to 20 cells on a side, some overlapping
         const int bw = 3 + int(rng.next_u32() % 18), bh = 3 + int(rng.next_u32() % 18);
-        const int x0 = int(rng.next_u32() % std::uint32_t(W - bw + 1)), y0 = int(rng.next_u32() % std::uint32_t(H - bh + 1));
+        const int x0 = int(rng.next_u32() % std::uint32_t(W - bw + 1)),
+                  y0 = int(rng.next_u32() % std::uint32_t(H - bh + 1));
         for (int r = y0; r < y0 + bh; ++r)
             for (int c = x0; c < x0 + bw; ++c) tiles[std::size_t(r) * W + std::size_t(c)] = 1;
     }
@@ -183,8 +185,10 @@ TEST_CASE("2d tilemap boxes: rectangular rooms split and merged by edits in the 
     // Holes punched in the middle of a block (it splits into runs and boxes), then filled again (they merge back).
     std::vector<std::pair<int, int>> holes;
     for (int i = 0; i < 60; ++i) {
-        const int c = 2 + int(rng.next_u32() % std::uint32_t(W - 4)), r = 2 + int(rng.next_u32() % std::uint32_t(H - 4));
-        if (tiles[std::size_t(r) * W + std::size_t(c)] != 1 || std::find(holes.begin(), holes.end(), std::make_pair(c, r)) != holes.end())
+        const int c = 2 + int(rng.next_u32() % std::uint32_t(W - 4)),
+                  r = 2 + int(rng.next_u32() % std::uint32_t(H - 4));
+        if (tiles[std::size_t(r) * W + std::size_t(c)] != 1 ||
+            std::find(holes.begin(), holes.end(), std::make_pair(c, r)) != holes.end())
             continue;
         holes.push_back({c, r});
         REQUIRE(set_tilemap_tile(tm, c, r, -1));
@@ -221,8 +225,8 @@ TEST_CASE("2d tilemap boxes: the debug boxes follow a Tilemap that moved, edited
     auto boxes_of = [](Sim& sim) {
         std::vector<std::string> out;
         for (const Physics::DebugShape& d : sim.physics.debug_shapes(sim.world))
-            out.push_back(std::to_string(std::lround(d.center.x)) + "," + std::to_string(std::lround(d.center.y)) + "," +
-                          std::to_string(std::lround(d.size.x)) + "," + std::to_string(std::lround(d.size.y)));
+            out.push_back(std::to_string(std::lround(d.center.x)) + "," + std::to_string(std::lround(d.center.y)) +
+                          "," + std::to_string(std::lround(d.size.x)) + "," + std::to_string(std::lround(d.size.y)));
         std::sort(out.begin(), out.end());
         return out;
     };
@@ -312,7 +316,8 @@ TEST_CASE("2d tilemap boxes: a write and its revert, or a flag-only write, rebui
     CHECK(s.tilemap_state()["boxesBuilt"].get<std::int64_t>() > rebuilds);
 }
 
-TEST_CASE("2d tilemap boxes: a write that bypasses the edit list scans the map once and rebuilds only the boxes that differ") {
+TEST_CASE("2d tilemap boxes: a write that bypasses the edit list scans the map once and rebuilds only the boxes that "
+          "differ") {
     constexpr int W = 70, H = 70;
     Rng rng(99);
     Sim s;
@@ -380,7 +385,8 @@ TEST_CASE("2d tilemap boxes: a map with no solid tiles builds no body, and gets 
     CHECK(s.shapes() == 10);
 }
 
-TEST_CASE("2d tilemap boxes: a body standing on an untouched box keeps its contact while another part of the floor changes") {
+TEST_CASE(
+    "2d tilemap boxes: a body standing on an untouched box keeps its contact while another part of the floor changes") {
     Sim s;
     std::vector<int> tiles(100 * 6, -1);
     for (int c = 0; c < 100; ++c) tiles[std::size_t(5 * 100 + c)] = 1;  // a floor...
@@ -461,7 +467,8 @@ TEST_CASE("nav tiles: the cost grid of a Tilemap follows single edits and equals
     CHECK(stats.patchedCells >= stats.patches);
 }
 
-TEST_CASE("nav tiles: queries on an edited Tilemap answer like a fresh build, a write the list does not explain rebuilds") {
+TEST_CASE(
+    "nav tiles: queries on an edited Tilemap answer like a fresh build, a write the list does not explain rebuilds") {
     constexpr int W = 60, H = 40;
     Rng rng(8);
     World world;
@@ -484,13 +491,14 @@ TEST_CASE("nav tiles: queries on an edited Tilemap answer like a fresh build, a 
     answer();
     for (int round = 0; round < 6; ++round) {
         for (int i = 0; i < 20; ++i)
-            REQUIRE(set_tilemap_tile(tm, int(rng.next_u32() % W), int(rng.next_u32() % H), rng.next_u32() % 2 ? 1 : -1));
+            REQUIRE(
+                set_tilemap_tile(tm, int(rng.next_u32() % W), int(rng.next_u32() % H), rng.next_u32() % 2 ? 1 : -1));
         const Json kept = answer();
         CHECK(nav_tile_cache_stats().fullBuilds == 1);  // the grid of the first ask, patched since
         CHECK(nav_tile_cache_stats().patches == 1);
         CHECK(kept == fresh_answer());
         CHECK(nav_tile_cache_stats().fullBuilds == 1);  // fresh_answer started the counters again: one full read
-        answer();  // the kept grid again, for the next round
+        answer();                                       // the kept grid again, for the next round
     }
     // Straight into the array: no edit explains the new version, so the grid is read again.
     nav_tile_cache_clear();

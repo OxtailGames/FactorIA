@@ -11,7 +11,7 @@ struct ScriptArrays {
     ArrayI32 ids;
     ArrayF32 weights;
     ArrayU8 mask;
-    ArrayI32 small;  // range(0, 3)
+    ArrayI32 small;   // range(0, 3)
     ArrayF32 ratios;  // range(0.1, 0.3)
     ArrayF32 tiny;    // range(0.00001, 0.5)
 };
@@ -110,11 +110,14 @@ TEST_CASE("script arrays: a bad element or a wrong value names the field, the in
     CHECK(text.find("TestScriptArrays.weights[1] must be a finite number, got 'x'") != std::string::npos);
     const std::string big = eval_error(f.h, "world.find('probe').get('TestScriptArrays').mask = [1, 2, 300]; 0");
     CHECK(big.find("mask[2] must be an integer from 0 to 255, got 300") != std::string::npos);
-    const std::string typedBig = eval_error(f.h, "world.find('probe').get('TestScriptArrays').mask = new Int32Array([-1]); 0");
+    const std::string typedBig =
+        eval_error(f.h, "world.find('probe').get('TestScriptArrays').mask = new Int32Array([-1]); 0");
     CHECK(typedBig.find("mask[0]") != std::string::npos);
-    const std::string range = eval_error(f.h, "world.find('probe').get('TestScriptArrays').small = new Int32Array([0, 9]); 0");
+    const std::string range =
+        eval_error(f.h, "world.find('probe').get('TestScriptArrays').small = new Int32Array([0, 9]); 0");
     CHECK(range.find("small[1] must be an integer from 0 to 3, got 9") != std::string::npos);
-    const std::string nan = eval_error(f.h, "world.find('probe').get('TestScriptArrays').weights = new Float32Array([NaN]); 0");
+    const std::string nan =
+        eval_error(f.h, "world.find('probe').get('TestScriptArrays').weights = new Float32Array([NaN]); 0");
     CHECK(nan.find("weights[0]") != std::string::npos);
     const std::string hole = eval_error(f.h, "world.find('probe').get('TestScriptArrays').ids = [1, , 3]; 0");
     CHECK(hole.find("ids[1] must be an integer") != std::string::npos);
@@ -127,7 +130,8 @@ TEST_CASE("script arrays: a bad element or a wrong value names the field, the in
     const std::string ratio = eval_error(f.h, "world.find('probe').get('TestScriptArrays').ratios = [0.2, 0.5]; 0");
     CHECK(ratio.find("ratios[1] must be a number from 0.1 to 0.3, got 0.5") != std::string::npos);
     // A sparse array of the biggest size fails at its first hole, without allocating the 64 MiB it claims.
-    const std::string sparse = eval_error(f.h, "world.find('probe').get('TestScriptArrays').ids = new Array(1 << 24); 0");
+    const std::string sparse =
+        eval_error(f.h, "world.find('probe').get('TestScriptArrays').ids = new Array(1 << 24); 0");
     CHECK(sparse.find("ids[0] must be an integer") != std::string::npos);
     CHECK(sparse.find("undefined") != std::string::npos);
     // None of the bad writes changed anything.
@@ -147,14 +151,15 @@ TEST_CASE("script arrays: null is refused on an array field with a message that 
     CHECK(f.arrays().ids == ArrayI32{10, -20, 30});
 }
 
-TEST_CASE("script fields: a getter that throws while a vector is set is the error of the write, which changes nothing") {
+TEST_CASE(
+    "script fields: a getter that throws while a vector is set is the error of the write, which changes nothing") {
     Fixture f("fset_getter");
     f.h.w.add<Sprite>(f.e).color = Color{0.1f, 0.2f, 0.3f, 1.0f};
     // An array passes through toFloats untouched, so its getter runs inside the native write.
-    const std::string err = eval_error(f.h,
-                                       "const a = [0.9, 0.9, 0.9, 0.9]; "
-                                       "Object.defineProperty(a, 1, { get() { throw new Error('getter boom'); } }); "
-                                       "world.find('probe').get('Sprite').color = a; 0");
+    const std::string err =
+        eval_error(f.h, "const a = [0.9, 0.9, 0.9, 0.9]; "
+                        "Object.defineProperty(a, 1, { get() { throw new Error('getter boom'); } }); "
+                        "world.find('probe').get('Sprite').color = a; 0");
     CHECK_MESSAGE(err.find("getter boom") != std::string::npos, err);
     CHECK(f.h.w.get<Sprite>(f.e)->color == Color{0.1f, 0.2f, 0.3f, 1.0f});
     // The next write works: no exception was left pending.

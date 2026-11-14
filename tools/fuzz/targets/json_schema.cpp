@@ -106,7 +106,8 @@ extern "C" int LLVMFuzzerTestOneInput(const std::uint8_t* data, std::size_t size
     fa::apply_schema_defaults(*schema, defaulted);
     fa::Json compiledDefaulted = value.value();
     fa::apply_schema_defaults(compiled, compiledDefaulted);
-    if (defaulted != compiledDefaulted) fa::fuzz::fail("compiled schema: the defaults differ from the interpreted ones");
+    if (defaulted != compiledDefaulted)
+        fa::fuzz::fail("compiled schema: the defaults differ from the interpreted ones");
     if (!compiled.has_defaults() && defaulted != value.value())
         fa::fuzz::fail("compiled schema: has_defaults() is false but the defaults changed the value");
     (void)fa::validate_json(fa::close_object_schemas(*schema), defaulted);

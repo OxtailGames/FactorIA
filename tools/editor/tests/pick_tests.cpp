@@ -74,7 +74,8 @@ TEST_CASE("pick bounds: the outline of every kind of 2D entity matches entity.bo
     const Entity map = make_entity(w, "map", {-300, 200, 0}, 0.0f);
     Tilemap& tm = w.add<Tilemap>(map);
     tm.tileSize = {32, 16};
-    set_tilemap_tiles(tm, Json::parse("[[0,0,-1,0],[-1,1,1,1],[2,2,2,2]]"));  // rows form: 4 x 3 tiles, no width/height fields
+    set_tilemap_tiles(
+        tm, Json::parse("[[0,0,-1,0],[-1,1,1,1],[2,2,2,2]]"));  // rows form: 4 x 3 tiles, no width/height fields
 
     const VisualMeasure measure;
     for (Entity e : {dia, tri, scaled, circle, line, sprite, text, map}) {

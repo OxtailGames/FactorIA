@@ -60,7 +60,8 @@ bool field_triangle(const Core& T, const Core& X, float margin, Vec3 up, TriHit&
     barycentric(g.pa, T, u, v, w);
     const int small = (u < kFeatureEps ? 1 : 0) + (v < kFeatureEps ? 1 : 0) + (w < kFeatureEps ? 1 : 0);
     if (small == 0) {
-        if (dot(n, up) < 0.0f) return face();  // the shape is under the surface, above nothing: solid ground pushes it up
+        if (dot(n, up) < 0.0f)
+            return face();  // the shape is under the surface, above nothing: solid ground pushes it up
         out.normal = n;
         out.point = g.pa;
         out.depth = X.radius - g.dist;
@@ -124,7 +125,8 @@ Physics3D::Contact Physics3D::heightfield_contact(const Body& field, const Body&
         };
         bool open = false;
         if (h.feature == 1) {
-            static constexpr int kEdge[2][3][3] = {{{1, 0, 1}, {0, 0, 1}, {0, -1, 1}}, {{0, 1, 0}, {-1, 0, 0}, {0, 0, 0}}};
+            static constexpr int kEdge[2][3][3] = {{{1, 0, 1}, {0, 0, 1}, {0, -1, 1}},
+                                                   {{0, 1, 0}, {-1, 0, 0}, {0, 0, 0}}};
             const int* n = kEdge[which][h.index];
             open = !add(r + n[0], c + n[1], n[2]);
         } else {
@@ -136,7 +138,8 @@ Physics3D::Contact Physics3D::heightfield_contact(const Body& field, const Body&
             struct Around {
                 int dr, dc, which;
             };
-            static constexpr Around kAround[6] = {{-1, -1, 0}, {-1, -1, 1}, {-1, 0, 0}, {0, -1, 1}, {0, 0, 0}, {0, 0, 1}};
+            static constexpr Around kAround[6] = {{-1, -1, 0}, {-1, -1, 1}, {-1, 0, 0},
+                                                  {0, -1, 1},  {0, 0, 0},   {0, 0, 1}};
             for (const Around& a : kAround) {
                 const int nr = vr + a.dr, nc = vc + a.dc;
                 if (nr == r && nc == c && a.which == which) continue;
@@ -214,7 +217,8 @@ Physics3D::Contact Physics3D::heightfield_contact(const Body& field, const Body&
                            other.ax[1] * ((i & 2) ? other.half.y : -other.half.y) +
                            other.ax[2] * ((i & 4) ? other.half.z : -other.half.z));
     } else {
-        for (const Vec3& v : other.data->hull) cand.push_back(other.center + frame_to_world(other.ax, v * other.gscale));
+        for (const Vec3& v : other.data->hull)
+            cand.push_back(other.center + frame_to_world(other.ax, v * other.gscale));
     }
     float lowest = 1e30f;
     for (const Vec3& p : cand) lowest = std::min(lowest, dot(p, n));

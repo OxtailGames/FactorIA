@@ -198,13 +198,13 @@ NavTileGrid nav_tile_grid_from_tilemap(const Tilemap& tm, const Json& costs);
 // reading the whole map again. Writes the edit list does not explain (a whole-array write, an assignment) rebuild the grid.
 // The result is the grid nav_tile_grid_from_tilemap gives, cell for cell.
 struct NavTileCacheStats {
-    std::uint64_t fullBuilds = 0;     // grids made by reading every cell
-    std::uint64_t patches = 0;        // grids brought up to date from the edit list
-    std::uint64_t patchedCells = 0;   // cells those patches rewrote
-    std::uint64_t hits = 0;           // asks answered by a grid that was still current
+    std::uint64_t fullBuilds = 0;    // grids made by reading every cell
+    std::uint64_t patches = 0;       // grids brought up to date from the edit list
+    std::uint64_t patchedCells = 0;  // cells those patches rewrote
+    std::uint64_t hits = 0;          // asks answered by a grid that was still current
 };
 NavTileCacheStats nav_tile_cache_stats();
-void nav_tile_cache_clear();  // forgets every kept grid (and zeroes the counters); tests and the bench start from it
+void nav_tile_cache_clear();    // forgets every kept grid (and zeroes the counters); tests and the bench start from it
 void nav_tile_cache_release();  // forgets every kept grid, keeps the counters; Physics::reset calls it (a scene unload)
 
 // The rule nav_tile_grid_from_tilemap applies to a tile, as data: which tile indexes block and the per-tile cost overrides. Anything

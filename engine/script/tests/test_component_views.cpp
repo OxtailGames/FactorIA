@@ -40,7 +40,8 @@ TEST_CASE("component views: the same entity and type give the same view, other e
     Rig r("views_identity");
     CHECK(eval_ok(r.h, "var a = world.find('a'); a.get('Sprite') === a.get('Sprite')").get<bool>());
     CHECK(eval_ok(r.h, "var a = world.find('a'); a.transform === a.get('Transform')").get<bool>());
-    CHECK(eval_ok(r.h, "var a = world.find('a'), b = world.find('b'); a.get('Sprite') !== b.get('Sprite')").get<bool>());
+    CHECK(
+        eval_ok(r.h, "var a = world.find('a'), b = world.find('b'); a.get('Sprite') !== b.get('Sprite')").get<bool>());
     CHECK(eval_ok(r.h, "var a = world.find('a'); a.get('Sprite') !== a.get('Transform')").get<bool>());
     CHECK(eval_ok(r.h, "var a = world.find('a'); a.get('Sprite') === a.add('Sprite')").get<bool>());
     CHECK(eval_ok(r.h, "var a = world.find('a'); a.position === a.position").get<bool>());
@@ -88,7 +89,8 @@ TEST_CASE("component views: removing the component and adding it again") {
 
 TEST_CASE("component views: a view of a destroyed entity says so, and the cache does not hold the entity") {
     Rig r("views_destroy");
-    eval_ok(r.h, "globalThis.b = world.find('b'); globalThis.sb = b.get('Sprite'); globalThis.pb = b.position; b.hp = 3; 1");
+    eval_ok(r.h,
+            "globalThis.b = world.find('b'); globalThis.sb = b.get('Sprite'); globalThis.pb = b.position; b.hp = 3; 1");
     // the game's own field is listed; the private $h and $v are not (Object.keys, spread, the members of a 'did you mean')
     CHECK(eval_ok(r.h, "JSON.stringify(Object.keys(b))").get<std::string>() == "[\"hp\"]");
     CHECK(eval_ok(r.h, "Object.keys({ ...b }).join()").get<std::string>() == "hp");

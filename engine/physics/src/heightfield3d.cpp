@@ -71,8 +71,8 @@ std::string sample_text(int r, int c, int cols) {
 
 std::string update_heightfield(HeightfieldShape& f, const std::string& who, Heightfield3D& c, HeightfieldEdit& edit) {
     edit = HeightfieldEdit{};
-    const HeightfieldShape::Source now{c.rows,        c.columns,         c.cellSize.x,       c.cellSize.y,
-                                       c.heightScale, c.heightOffset,    c.heights.id(),     c.heights.version(),
+    const HeightfieldShape::Source now{c.rows,        c.columns,        c.cellSize.x,   c.cellSize.y,
+                                       c.heightScale, c.heightOffset,   c.heights.id(), c.heights.version(),
                                        c.holes.id(),  c.holes.version()};
     if (f.attempted && now == f.tried) return f.problem;
     f.attempted = true;
@@ -88,25 +88,29 @@ std::string update_heightfield(HeightfieldShape& f, const std::string& who, Heig
             "entity '{}': Heightfield3D.rows = {} and columns = {}: both are numbers of samples and must be between 2 "
             "(one cell) and {}. Set them to the size of the grid in `heights` (rows * columns numbers, row by row).",
             who, c.rows, c.columns, kMaxSide));
-    if (!(c.cellSize.x > 0.0f) || !(c.cellSize.y > 0.0f) || !std::isfinite(c.cellSize.x) || !std::isfinite(c.cellSize.y))
-        return fail(std::format(
-            "entity '{}': Heightfield3D.cellSize = [{}, {}] must be two finite numbers above 0 (meters between neighbouring "
-            "samples along x and z). Set e.g. [1, 1].",
-            who, c.cellSize.x, c.cellSize.y));
+    if (!(c.cellSize.x > 0.0f) || !(c.cellSize.y > 0.0f) || !std::isfinite(c.cellSize.x) ||
+        !std::isfinite(c.cellSize.y))
+        return fail(std::format("entity '{}': Heightfield3D.cellSize = [{}, {}] must be two finite numbers above 0 "
+                                "(meters between neighbouring "
+                                "samples along x and z). Set e.g. [1, 1].",
+                                who, c.cellSize.x, c.cellSize.y));
     if (!std::isfinite(c.heightScale) || !std::isfinite(c.heightOffset))
-        return fail(std::format("entity '{}': Heightfield3D.heightScale = {} and heightOffset = {} must be finite numbers. "
-                                "Set heightScale 1 and heightOffset 0 to use `heights` as meters.",
-                                who, c.heightScale, c.heightOffset));
+        return fail(
+            std::format("entity '{}': Heightfield3D.heightScale = {} and heightOffset = {} must be finite numbers. "
+                        "Set heightScale 1 and heightOffset 0 to use `heights` as meters.",
+                        who, c.heightScale, c.heightOffset));
     const std::size_t rows = std::size_t(c.rows), cols = std::size_t(c.columns);
     const std::size_t samples = rows * cols, cells = (rows - 1) * (cols - 1);
     if (c.heights.size() != samples)
-        return fail(std::format("entity '{}': Heightfield3D.heights has {} numbers but rows * columns = {} * {} = {}. "
-                                "Give it exactly one number per sample, row by row (or change rows and columns to match).",
-                                who, c.heights.size(), rows, cols, samples));
+        return fail(
+            std::format("entity '{}': Heightfield3D.heights has {} numbers but rows * columns = {} * {} = {}. "
+                        "Give it exactly one number per sample, row by row (or change rows and columns to match).",
+                        who, c.heights.size(), rows, cols, samples));
     if (!c.holes.empty() && c.holes.size() != cells)
-        return fail(std::format("entity '{}': Heightfield3D.holes has {} numbers but the grid has (rows - 1) * (columns - 1) = "
-                                "{} * {} = {} cells. Give it one 0 or 1 per cell, or leave it empty for no holes.",
-                                who, c.holes.size(), rows - 1, cols - 1, cells));
+        return fail(
+            std::format("entity '{}': Heightfield3D.holes has {} numbers but the grid has (rows - 1) * (columns - 1) = "
+                        "{} * {} = {} cells. Give it one 0 or 1 per cell, or leave it empty for no holes.",
+                        who, c.holes.size(), rows - 1, cols - 1, cells));
 
     const float* raw = c.heights.cdata();
     const float scale = c.heightScale, offset = c.heightOffset;
@@ -114,9 +118,10 @@ std::string update_heightfield(HeightfieldShape& f, const std::string& who, Heig
                            f.built.dx == now.dx && f.built.dz == now.dz && f.built.scale == now.scale &&
                            f.built.offset == now.offset;
     auto non_finite = [&](std::size_t i) {
-        return fail(std::format("entity '{}': Heightfield3D.{} is {}: every height must be a finite number. Set it to a "
-                                "number (0 is flat ground); the field has no collider until all are numbers.",
-                                who, sample_text(int(i / cols), int(i % cols), c.columns), raw[i]));
+        return fail(
+            std::format("entity '{}': Heightfield3D.{} is {}: every height must be a finite number. Set it to a "
+                        "number (0 is flat ground); the field has no collider until all are numbers.",
+                        who, sample_text(int(i / cols), int(i % cols), c.columns), raw[i]));
     };
 
     if (!sameShape) {
