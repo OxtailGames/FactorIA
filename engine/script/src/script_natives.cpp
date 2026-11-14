@@ -282,14 +282,26 @@ JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& wha
         hi = std::min(hi, double(f.maxValue));
     }
     // What an element must be, for the error text.
+    // A bound as the field's author wrote it (0.3, not the 0.30000001192092896 of the float widened to a double).
+    auto bound = [](double v) {
+        if constexpr (integral) {
+            return std::format("{}", std::int64_t(v));
+        } else {
+            const Json j = to_json(float(v));
+            const double d = j.get<double>();
+            return d == std::floor(d) && std::fabs(d) < 1e15 ? std::format("{}", std::int64_t(d)) : j.dump();
+        }
+    };
     auto must_be = [&] {
         if constexpr (integral)
-            return std::format("an integer from {} to {}", lo, hi);
+            return std::format("an integer from {} to {}", bound(lo), bound(hi));
         else
-            return ranged ? std::format("a number from {} to {}", lo, hi) : std::string("a finite number");
+            return ranged ? std::format("a number from {} to {}", bound(lo), bound(hi)) : std::string("a finite number");
     };
     auto bad = [&](double d) { return !std::isfinite(d) || d < lo || d > hi || (integral && d != std::floor(d)); };
-    std::vector<T> out(n);
+    // `out` is sized only where the JS side already holds that memory (a typed array); an Array is read element by element and
+    // may be sparse (`new Array(1 << 24)` holds nothing and fails at [0]), so it grows as the elements are accepted.
+    std::vector<T> out;
     // Fast path: a typed array of the field's own element type is copied as bytes, then checked in place.
     const bool sameType = typed && (jsType == int(js_array_type<T>()) ||
                                     (std::is_same_v<T, std::uint8_t> && jsType == JS_TYPED_ARRAY_UINT8C));
@@ -302,7 +314,9 @@ JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& wha
         } else {
             std::size_t size = 0;
             const std::uint8_t* data = JS_GetArrayBuffer(ctx, &size, buf);
+            if (!data) JS_FreeValue(ctx, JS_GetException(ctx));  // a detached buffer: the element loop below reports it
             if (data && per == sizeof(T) && len == n * sizeof(T) && off + len <= size) {
+                out.resize(n);
                 std::memcpy(out.data(), data + off, len);
                 copied = true;
             }
@@ -315,6 +329,7 @@ JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& wha
         }
     }
     if (!copied) {
+        out.reserve(std::min<std::size_t>(n, 65536));
         for (std::size_t i = 0; i < n; ++i) {
             JSValue x = JS_GetPropertyUint32(ctx, v, static_cast<uint32_t>(i));
             double d = 0;
@@ -327,7 +342,7 @@ JSValue array_from_js(JSContext* ctx, const FieldInfo& f, const std::string& wha
                 return throw_err(ctx, std::format("{}[{}] must be {}, got {}", what, i, must_be(), got));
             }
             JS_FreeValue(ctx, x);
-            out[i] = static_cast<T>(d);
+            out.push_back(static_cast<T>(d));
         }
     }
     dst.assign(out.data(), out.size());
@@ -881,6 +896,11 @@ NATIVE(entities) {
     return entities_array(ctx, all);
 }
 
+// The EntityInfo of `e` for writing its name, tags or scriptSpawned flag: those do not change any matrix or "active in
+// hierarchy" answer, so this does not drop the hierarchy cache the way World::info() on a non-const World does (the entry
+// lives in the pool, which is not const: the const access only skips the invalidation). Never write `active` through it.
+EntityInfo& label_info(World& W, Entity e) { return const_cast<EntityInfo&>(std::as_const(W).info(e)); }
+
 NATIVE(tags) {
     SETUP;
     ENTITY(e, 0);
@@ -904,7 +924,7 @@ NATIVE(setTags) {
             if (s.len) tags.push_back(s.str());
         }
     }
-    W.info(e).tags = std::move(tags);
+    label_info(W, e).tags = std::move(tags);
     return JS_UNDEFINED;
 }
 
@@ -918,7 +938,7 @@ NATIVE(addTag) {
     SETUP;
     ENTITY(e, 0);
     std::string t = arg_str(ctx, argc, argv, 1);
-    auto& tags = W.info(e).tags;
+    auto& tags = label_info(W, e).tags;
     if (!t.empty() && std::find(tags.begin(), tags.end(), t) == tags.end()) tags.push_back(t);
     return JS_UNDEFINED;
 }
@@ -927,7 +947,7 @@ NATIVE(removeTag) {
     SETUP;
     ENTITY(e, 0);
     std::string t = arg_str(ctx, argc, argv, 1);
-    auto& tags = W.info(e).tags;
+    auto& tags = label_info(W, e).tags;
     tags.erase(std::remove(tags.begin(), tags.end(), t), tags.end());
     return JS_UNDEFINED;
 }
@@ -951,7 +971,7 @@ NATIVE(getName) {
 NATIVE(setName) {
     SETUP;
     ENTITY(e, 0);
-    W.info(e).name = arg_str(ctx, argc, argv, 1);
+    label_info(W, e).name = arg_str(ctx, argc, argv, 1);
     return JS_UNDEFINED;
 }
 
@@ -1072,7 +1092,7 @@ NATIVE(spawn) {
     }
     for (const auto& m : report.messages)
         if (m.severity == LoadMessage::Severity::Warning) fa::log(LogLevel::Warn, "script", m.to_string());
-    for (Entity c : report.created) W.info(c).scriptSpawned = true;  // scene.save leaves these out
+    for (Entity c : report.created) label_info(W, c).scriptSpawned = true;  // scene.save leaves these out
     for (const DeferredRef& d : report.deferred) I->waitingRefs.push_back({d, 0});
     I->resolve_waiting_refs(false);    // this spawn may be the knob an earlier slider is waiting for
     I->construct_for(report.created);  // entity.behaviour exists right away; onStart runs before the first update
@@ -1096,7 +1116,7 @@ NATIVE(spawnPrefab) {
     Entity e = instantiate_prefab(W, path, parent, report, overrides, index);
     if (!report.ok() || e.is_null())
         return throw_err(ctx, "world.spawnPrefab('" + path + "') failed:\n" + report.summary());
-    for (Entity c : report.created) W.info(c).scriptSpawned = true;  // scene.save leaves these out
+    for (Entity c : report.created) label_info(W, c).scriptSpawned = true;  // scene.save leaves these out
     I->construct_for(report.created);
     localize_created(I, report.created);
     return ent_val(ctx, e);
@@ -2244,7 +2264,7 @@ NATIVE(patchComp) {
         fields.erase("id");
     }
     if (t->name == "EntityInfo" && fields.contains("tags")) {
-        W.info(e).tags = fields["tags"].get<std::vector<std::string>>();
+        label_info(W, e).tags = fields["tags"].get<std::vector<std::string>>();
         fields.erase("tags");
     }
     auto r = patch_component(W, e, *t, fields);
@@ -2448,16 +2468,24 @@ NATIVE(fset) {
                 return wrong(n == 2   ? "{x, y} or [x, y]"
                              : n == 3 ? "{x, y, z} or [x, y, z]"
                                       : "an array or object of numbers");
-            float* fp = static_cast<float*>(p);
-            for (int i = 0; i < n; ++i) {
+            // Read the numbers first: a getter on `v` runs JS, which may read entity.worldPosition (filling the hierarchy cache
+            // after resolve_obj dropped it) or remove the component. The field is looked up again and written afterwards.
+            float values[4] = {0, 0, 0, 0};
+            bool given[4] = {false, false, false, false};
+            for (int i = 0; i < n && i < 4; ++i) {
                 JSValue x = JS_GetPropertyUint32(ctx, v, static_cast<uint32_t>(i));
                 if (JS_IsNumber(x)) {
                     double d = 0;
                     JS_ToFloat64(ctx, &d, x);
-                    fp[i] = static_cast<float>(d);
+                    values[i] = static_cast<float>(d);
+                    given[i] = true;
                 }
                 JS_FreeValue(ctx, x);
             }
+            if (!resolve_obj(I, ctx, argv[0], argv[1], obj, t, e, exc, true)) return exc;
+            float* fp = static_cast<float*>(f.ptr(obj));
+            for (int i = 0; i < n && i < 4; ++i)
+                if (given[i]) fp[i] = values[i];
             break;
         }
     }

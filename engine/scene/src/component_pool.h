@@ -9,6 +9,7 @@
 //  * walk() visits the owners in place, by index over `order_`. While a walk runs
 //    compaction is held back (a counter, so walks nest), so the indices stay valid
 //    whatever the callback adds or removes; the last walk to end compacts.
+//  * Main thread only: walking_ and generation_ are plain integers (jobs read through World, they never add or remove).
 #pragma once
 
 #include <cstddef>

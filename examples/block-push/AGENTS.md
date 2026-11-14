@@ -31,7 +31,7 @@ When the user says they played the game (in the editor) and found problems (slow
 call `play.report` (MCP: `play_report`) first: it has the frame times, errors, the user's notes and
 screenshots, and an input replay of their session (`factoria run --headless --input <replay>`).
 
-After a feature or a fix, and BEFORE you ask the user to play, run `play.auto`. To play the game yourself with nobody at the keyboard, call `play.auto` (MCP: `play_auto`): a bot presses the input actions
+After a feature or a fix, before you ask the user to play, call `play.auto` (MCP: `play_auto`) to play the game yourself with nobody at the keyboard: a bot presses the input actions
 headless and fast, for `seconds` of game time, and writes a session (`play.report` reads it: perf, errors, `phases`, the score,
 how it ended, a picture per phase, and a mark with a screenshot for every place it got stuck, fell out of the world or hit a
 script error loop). The bot is `scripts/autoplay.js`, a `game.autoplay((bot) => [...actions to hold])` hook that finishes the
@@ -136,21 +136,21 @@ Longer guides are skills (the Agent Skills format: `skills/<name>/SKILL.md`), re
 `make-art`, `make-audio` and `review-ready` (keep `REVIEW.md` current so the art critics and game reviewers can play the build:
 read it before you finish a feature). This project can have its own in `skills/` (`skills_new`; `factoria validate` checks them).
 
-## Recording engine gaps (IMPORTANT)
+## Recording engine gaps
 
-FactorIA improves from what game-making AIs report. **Whenever the engine lacked a feature or
-had a bug and you built a workaround or dropped the feature, record it immediately**:
+FactorIA improves from what game-making AIs report. When the engine lacked a feature or had a
+bug and you built a workaround or dropped the feature, record it as soon as you meet it:
 
 - MCP tool `feedback_report`, CLI `factoria feedback add ...` or `factoria call feedback.report '{...}'`,
   or append an object to the `entries` array of `ENGINE_FEEDBACK.json` by hand (schema `schemas/engine-feedback.schema.json`).
-- CHECK FIRST that the engine really lacks it: `docs_search` for the thing, `docs_components` for the fields of the component you mean,
+- Check first that the engine really lacks it (reports of things that exist are rejected): `docs_search` for the thing, `docs_components` for the fields of the component you mean,
   or `feedback_check {title, missing, suggestion}`. A report whose missing thing exists (a component field, a command) is refused with
   where it is documented. If it exists but does not work as documented, report a BUG: what you set, expected and got.
 - Fields: `category`, `severity` (`blocker` | `major` | `minor` | `nice-to-have`), `title` (short
   noun phrase, reuse wording for the same gap), `missing` (what and why you needed it),
   `workaround` (what you did, with `workaroundFiles`), `suggestion` (how the engine could fix it).
-- Reporting the same gap again merges into the existing entry (counts occurrences), so do not
-  worry about duplicates. Not reporting is the only wrong choice.
+- Reporting the same gap again merges into the existing entry (counts occurrences), so a repeat
+  costs nothing.
 - Time or tokens wasted that a doc, guide or command option would have saved: `factoria ai retrospective` files it as `kind: "efficiency"`
   (measured, at most three; never a model choice or a rewrite). Rules: `docs_read {"name":"engine-feedback","heading":"Efficiency feedback"}`.
 - `ENGINE_FEEDBACK.json` holds the open entries; closed ones (including `rejected`, with its `statusReason`) move to `ENGINE_FEEDBACK.archive.json` (never edit it); reporting a fixed gap again reopens it.

@@ -1,4 +1,4 @@
-// ECS and hierarchy benchmarks: World::each, entities_with, spawn / destroy, world_matrix.
+// ECS and hierarchy benchmarks: World::each, entities_with, count / any, spawn / destroy, world_matrix.
 #include <memory>
 #include <vector>
 
@@ -87,11 +87,11 @@ Bench ecs_entities_with() {
     b.make = [] {
         auto w = make_populated_world();
         Prepared p;
-        p.items = 400;
+        p.items = 80000;  // 20000 rounds of four calls: long enough for a stable median
         p.unit = "queries";
         p.run = [w] {
             std::size_t n = 0;
-            for (int i = 0; i < 200; ++i) {
+            for (int i = 0; i < 20000; ++i) {
                 n += w->entities_with(&World::type_of<Sprite>()).size();
                 n += w->entities_with(&World::type_of<Collider2D>()).size();
             }
@@ -105,16 +105,16 @@ Bench ecs_entities_with() {
 Bench ecs_count() {
     Bench b;
     b.name = "ecs.count";
-    b.summary = "World::count<T>() and any<T>() 200 times for a pool of 20000 and 200 times for one of 2500 (O(1), "
-                "no copy; compare ecs.entities_with)";
+    b.summary = "20000 rounds of World::count<T>() and any<T>() on a pool of 20000 and on one of 2500 (O(1), no copy; "
+                "compare ecs.entities_with)";
     b.make = [] {
         auto w = make_populated_world();
         Prepared p;
-        p.items = 400;
+        p.items = 80000;  // 20000 rounds of four calls: long enough for a stable median
         p.unit = "queries";
         p.run = [w] {
             std::size_t n = 0;
-            for (int i = 0; i < 200; ++i) {
+            for (int i = 0; i < 20000; ++i) {
                 n += w->count<Sprite>() + (w->any<Sprite>() ? 1 : 0);
                 n += w->count<Collider2D>() + (w->any<Collider2D>() ? 1 : 0);
             }

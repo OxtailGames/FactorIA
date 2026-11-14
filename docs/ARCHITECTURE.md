@@ -112,7 +112,9 @@ entity, instead of walking the parent chain on every call (`engine/scene/src/wor
 - **Threads**: jobs may read (the render gather does, `world_matrix` from several threads at once): a valid entry is read
   with an acquire load and no lock, a missing one is filled under a small spin lock and published with a release store.
   Nothing may write while jobs read (the rule of every job), so an entry never changes under a reader.
-  `World::hierarchy_version()` counts the dropped entries (tests, and a system that wants to know nothing moved).
+  `World::hierarchy_version()` counts the invalidations that dropped a valid entry (one per write that found its entry valid,
+  not one per entry of the subtree below it; `create` / `destroy` do not move it): tests use it to see that a read did not
+  write, and a system can compare it with the value it saw to know that no entry was dropped since.
 - **Same results on every run**: the matrices are the same bits however the entries were filled (the order of reads, the
   threads), and `game.state_hash` does not read them. Since M94.1c the product is `parent * local` from the root down
   (before it was grouped from the leaf up), which can differ in the last bit of a float from earlier versions of the
