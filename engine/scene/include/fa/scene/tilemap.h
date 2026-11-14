@@ -65,7 +65,7 @@ struct TilemapIssue {
 // Negative numbers are -1 (empty). Entries keep their flip/rotate flag bits (see kTileFlipX): tile_index() says which
 // tile, tile_flags() how it is turned.
 //
-// CHANGES AND CACHES. `tiles` counts its writes (tiles.version(), tiles.dirty_begin()/dirty_end(): fa/core/typed_array.h),
+// CHANGES AND CACHES. `tiles` counts its writes (tiles.version(), tiles.dirty_since(): fa/core/typed_array.h),
 // so a consumer that derives data from a map (physics bodies, render chunks, nav grids) compares a TilemapStamp with the
 // one it built from instead of reading every tile. Every function here that only reads uses the const accessors; a
 // consumer must too (`std::as_const(tm.tiles)`, a `const Tilemap&`), because a mutable `data()` / `operator[]` counts as a
@@ -98,7 +98,7 @@ std::uint32_t tilemap_version(Tilemap& tm);
 // What a cache of data derived from a map keeps next to the data: the identity of the tiles array (a component removed
 // and added again, or a world restored from a copy, is another array at version 0 again), its version, and the size the
 // tiles were read with. The map is unchanged since the stamp was taken exactly when the two stamps are equal (the
-// dirty range, tm.tiles.dirty_begin()/dirty_end(), says WHERE it changed when they are not).
+// write history, tm.tiles.dirty_since(stamp.version, ...), says WHERE it changed when they are not).
 struct TilemapStamp {
     std::uint64_t arrayId = 0;  // tm.tiles.id(); 0 = never taken
     std::uint64_t version = 0;  // tm.tiles.version()
