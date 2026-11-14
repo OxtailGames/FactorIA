@@ -5,20 +5,26 @@
 #
 #   1. risk scan   the lines the branch adds (git diff BASE...HEAD) checked against a table of risky patterns; prints a
 #                  checklist of file:line + why + what to check. Never fails the run, unless --strict.
-#   2. test-all    scripts/test-all.sh (Debug build + Debug ctest, Release build + `ctest -L example`).
-#   3. stress      the editor autotests and example tests the diff touches, repeated (ctest --repeat until-fail:N) while
-#                  CPU burners keep every core busy, like a loaded CI VM. Needs the build dirs of step 2.
-#   4. platforms   scripts/ci-local.sh jobs this host supports (Mac: macos ios web android; Linux: linux windows android
+#   2. lint        what the `lint` job of CI runs, so a push never spends a CI round on them: scripts/format.sh --check
+#                  --changed BASE, scripts/check-ci-cache-keys.py, scripts/ctest_shard.py --self-test and
+#                  scripts/tidy-changed.sh BASE (clang-tidy, the slow one: FA_TIDY_JOBS, default half the CPUs). Each is
+#                  its own line of the summary and a failure does not stop the others.
+#   3. test-all    scripts/test-all.sh (Debug build + Debug ctest, Release build + `ctest -L example`).
+#   4. stress      the editor autotests and example tests the diff touches, repeated (ctest --repeat until-fail:N) while
+#                  CPU burners keep every core busy, like a loaded CI VM. Needs the build dirs of step 3.
+#   5. platforms   scripts/ci-local.sh jobs this host supports (Mac: macos ios web android; Linux: linux windows android
 #                  web; they skip themselves when tooling is missing), then (Mac) scripts/ci-docker.sh linux and
 #                  scripts/ci-remote-windows.sh, the native Windows check on a PC (exit 0 pass, 1 fail, 77 not set
 #                  up, PC off or nobody logged in -> SKIP).
-#   5. summary     PASS/FAIL/SKIP and time per step; logs in build/ci-logs/preflight-<step>.log; exit 1 if a step failed.
+#   6. summary     PASS/FAIL/SKIP and time per step; logs in build/ci-logs/preflight-<step>.log; exit 1 if a step failed.
 #
 #   scripts/ci-preflight.sh                  # everything
-#   scripts/ci-preflight.sh --quick          # risk scan + test-all only
-#   scripts/ci-preflight.sh --no-stress      # without step 3
-#   scripts/ci-preflight.sh --no-platforms   # without step 4
-#   scripts/ci-preflight.sh --no-test        # without step 2 (the build dirs of an earlier run are reused by step 3)
+#   scripts/ci-preflight.sh --lint-only      # risk scan + lint: minutes, builds nothing; run it before EVERY push
+#   scripts/ci-preflight.sh --quick          # risk scan + lint + test-all only
+#   scripts/ci-preflight.sh --no-lint        # without step 2
+#   scripts/ci-preflight.sh --no-stress      # without step 4
+#   scripts/ci-preflight.sh --no-platforms   # without step 5
+#   scripts/ci-preflight.sh --no-test        # without step 3 (the build dirs of an earlier run are reused by step 4)
 #   scripts/ci-preflight.sh --repeat 5       # stress repetitions (default 3)
 #   scripts/ci-preflight.sh --base origin/dev  # diff base (default origin/main, else main)
 #   scripts/ci-preflight.sh --strict         # a risk-scan finding fails the run
@@ -32,10 +38,12 @@ set -uo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT" || exit 2
 
-BASE=""; REPEAT=3; STRICT=0; DO_TEST=1; DO_STRESS=1; DO_PLATFORMS=1; SCAN_ONLY=0; PLAN=0
+BASE=""; REPEAT=3; STRICT=0; DO_LINT=1; LINT_ONLY=0; DO_TEST=1; DO_STRESS=1; DO_PLATFORMS=1; SCAN_ONLY=0; PLAN=0
 while [ $# -gt 0 ]; do
     case "$1" in
         --quick) DO_STRESS=0; DO_PLATFORMS=0 ;;
+        --lint-only) LINT_ONLY=1 ;;
+        --no-lint) DO_LINT=0 ;;
         --no-stress) DO_STRESS=0 ;;
         --no-test) DO_TEST=0 ;;
         --no-platforms) DO_PLATFORMS=0 ;;
@@ -231,6 +239,28 @@ print_summary() {
 }
 
 if [ $SCAN_ONLY = 1 ]; then print_summary; exit $FAILED; fi
+
+# ---------------------------------------------------------------- 2. lint
+# The steps of the `lint` job of .github/workflows/ci.yml, with the same base: keep the two lists in step. They change
+# nothing and build nothing (tidy-changed.sh configures build/tidy once for its compile_commands.json).
+if [ $DO_LINT = 1 ] && [ $PLAN = 0 ]; then
+    run_step lint-format "$ROOT/scripts/format.sh" --check --changed "$BASE"
+    PY="$(command -v python3 || command -v python || true)"
+    if [ -n "$PY" ]; then
+        run_step lint-cache-keys "$PY" "$ROOT/scripts/check-ci-cache-keys.py"
+        run_step lint-test-shards "$PY" "$ROOT/scripts/ctest_shard.py" --self-test
+    else
+        record SKIP "lint-cache-keys" 0 "no python3 on this machine"
+        record SKIP "lint-test-shards" 0 "no python3 on this machine"
+    fi
+    if [ "$HOST" = Windows ]; then
+        record SKIP "lint-tidy" 0 "scripts/tidy-changed.sh runs on Linux and macOS; CI's lint job covers it"
+    else
+        export FA_TIDY_JOBS="${FA_TIDY_JOBS:-$(( NCPU > 3 ? NCPU / 2 : 1 ))}"
+        run_step lint-tidy "$ROOT/scripts/tidy-changed.sh" "$BASE"
+    fi
+fi
+if [ $LINT_ONLY = 1 ]; then print_summary; exit $FAILED; fi
 if [ "$HOST" = Windows ]; then
     record SKIP "everything else" 0 "Windows host: run scripts\\agent-build.ps1 build\\agent-<name> -Test -Examples"
     print_summary; exit $FAILED
@@ -260,12 +290,12 @@ if [ $PLAN = 1 ]; then
     echo "stress plan: editor='${EDITOR_RE:-none}' examples='${EXAMPLE_RE:-none}'"; exit 0
 fi
 
-# ---------------------------------------------------------------- 2. test-all
+# ---------------------------------------------------------------- 3. test-all
 if [ $DO_TEST = 1 ]; then
     run_step test-all "$ROOT/scripts/test-all.sh"
 fi
 
-# ---------------------------------------------------------------- 3. stress
+# ---------------------------------------------------------------- 4. stress
 start_burners() {
     local i
     for i in $(seq 1 "$NCPU"); do yes >/dev/null 2>&1 & BURNERS+=("$!"); done
@@ -309,7 +339,7 @@ if [ $DO_STRESS = 1 ]; then
     fi
 fi
 
-# ---------------------------------------------------------------- 4. other platforms
+# ---------------------------------------------------------------- 5. other platforms
 if [ $DO_PLATFORMS = 1 ]; then
     case "$HOST" in
         Darwin) JOBS_LIST="macos ios web android" ;;
