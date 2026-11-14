@@ -131,7 +131,8 @@ Physics3D::Contact Physics3D::heightfield_contact(const Body& field, const Body&
             int s[3][2];
             f.triangle_samples(r, c, which, s);
             const int vr = s[h.index][0], vc = s[h.index][1];
-            // the six triangles around the sample (vr, vc): cells (vr-1, vc-1) T0 and T1, (vr-1, vc) T0, (vr, vc-1) T1, (vr, vc) T0 and T1
+            // the six triangles around the sample (vr, vc): cells (vr-1, vc-1) T0 and T1, (vr-1, vc) T0, (vr, vc-1) T1,
+            // (vr, vc) T0 and T1
             struct Around {
                 int dr, dc, which;
             };

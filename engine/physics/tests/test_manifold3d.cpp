@@ -43,9 +43,15 @@ Acc::Body make_box(Vec3 centre, Vec3 half, float yaw = 0.0f, float roll = 0.0f, 
     b.center = centre;
     const float ry = yaw * kPiF / 180.0f, rz = roll * kPiF / 180.0f, rx = pitch * kPiF / 180.0f;
     Vec3 x{1, 0, 0}, y{0, 1, 0}, z{0, 0, 1};
-    auto about_x = [&](Vec3 v) { return Vec3{v.x, v.y * std::cos(rx) - v.z * std::sin(rx), v.y * std::sin(rx) + v.z * std::cos(rx)}; };
-    auto about_y = [&](Vec3 v) { return Vec3{v.x * std::cos(ry) + v.z * std::sin(ry), v.y, -v.x * std::sin(ry) + v.z * std::cos(ry)}; };
-    auto about_z = [&](Vec3 v) { return Vec3{v.x * std::cos(rz) - v.y * std::sin(rz), v.x * std::sin(rz) + v.y * std::cos(rz), v.z}; };
+    auto about_x = [&](Vec3 v) {
+        return Vec3{v.x, v.y * std::cos(rx) - v.z * std::sin(rx), v.y * std::sin(rx) + v.z * std::cos(rx)};
+    };
+    auto about_y = [&](Vec3 v) {
+        return Vec3{v.x * std::cos(ry) + v.z * std::sin(ry), v.y, -v.x * std::sin(ry) + v.z * std::cos(ry)};
+    };
+    auto about_z = [&](Vec3 v) {
+        return Vec3{v.x * std::cos(rz) - v.y * std::sin(rz), v.x * std::sin(rz) + v.y * std::cos(rz), v.z};
+    };
     auto turn = [&](Vec3 v) { return about_z(about_y(about_x(v))); };
     set_axes(b, turn(x), turn(y), turn(z));
     b.rotated = yaw != 0.0f || roll != 0.0f || pitch != 0.0f;

@@ -223,6 +223,30 @@ inline std::uint32_t mix_id(std::uint32_t a, std::uint32_t b, std::uint32_t c = 
     return h != 0 ? h : 1u;
 }
 
+// Islands: indices that belong together. The root of a set is its smallest index, so the result never depends on the
+// order the links were made in.
+struct UnionFind {
+    std::vector<std::size_t> p;
+    UnionFind() = default;
+    explicit UnionFind(std::size_t n) { reset(n); }
+    void reset(std::size_t n) {  // n singletons (keeps the storage)
+        p.resize(n);
+        for (std::size_t i = 0; i < n; ++i) p[i] = i;
+    }
+    std::size_t find(std::size_t x) {
+        while (p[x] != x) x = p[x] = p[p[x]];
+        return x;
+    }
+    void unite(std::size_t a, std::size_t b) {
+        a = find(a);
+        b = find(b);
+        if (a < b)
+            p[b] = a;
+        else if (b < a)
+            p[a] = b;
+    }
+};
+
 struct Physics3DTestAccess;  // the manifold tests call collide() on hand-made bodies
 
 class Physics3D {
@@ -245,8 +269,9 @@ public:
     // broad phase) instead of the ones the tree returns. The answers are the same either way.
     void set_brute_force_queries(bool on) { bruteQueries_ = on; }
     // Tests: "" when the tree is complete (every enabled body with a shape owns a leaf, its payload is its index, its fat box
-    // contains the body's bounds), else what is wrong. The queries rely on it after every sync, step and character move.
-    std::string broadphase_problems() const;
+    // contains the body's bounds, the tree's structure holds), else what is wrong (every problem found, up to eight).
+    // The queries rely on it after every sync, step and character move. checkBalance: see Broadphase3D::validate.
+    std::string broadphase_problems(bool checkBalance = true) const;
     void apply_impulse(World& world, Entity e, Vec3 impulse);
     void apply_force(World& world, Entity e, Vec3 force);
     void set_velocity(World& world, Entity e, Vec3 velocity);
@@ -321,8 +346,8 @@ private:
         // selects the exact axis-aligned code paths) unless the box is turned.
         Vec3 ax[3] = {{1, 0, 0}, {0, 1, 0}, {0, 0, 1}};
         bool rotated = false;
-        // Rotation dynamics: a dynamic box (or rigid sphere) without lockRotation is turned by contacts. `orient` is the authority
-        // between steps (the Transform is written from it; `lastEuler` is what was written, so a different Transform
+        // Rotation dynamics: a dynamic box (or rigid sphere) without lockRotation is turned by contacts. `orient` is the
+        // authority between steps (the Transform is written from it; `lastEuler` is what was written, so a different Transform
         // value means gameplay turned the body and `orient` is re-read from it). invI = inverse inertia, body frame.
         bool rotDyn = false;
         bool rotDirty = false;  // orientation changed this step: Transform.rotation must be rewritten
@@ -441,6 +466,55 @@ private:
             Vec3 jt;
         } pt[kMaxPts];
     };
+    // The records and working storage of step(). The vectors live here (not on the stack of step) so that a step that has
+    // seen its biggest scene allocates nothing for them: each is cleared or assigned, never freed. (The job system, the
+    // events handed to the world and a growing scene still allocate; physics3d_alloc tests count what is left.)
+    struct JointLink {  // a joint seen from the bodies it joins (kNoBody: the world)
+        std::size_t a, b;
+        bool motor;
+    };
+    struct RigidHit {  // a manifold the pair scan found
+        std::size_t i, k;
+        bool low;  // found from its higher body (see Physics3D::step, "collect")
+        Contact c;
+    };
+    struct PairRec {  // an overlapping pair the events scan found
+        std::size_t i, k;
+        bool low;
+        PairKey key;
+        bool was, trig;
+        PairState st;
+        Contact c;
+    };
+    struct Begin {  // a pair that began touching this step
+        PairKey key;
+        PairState st;
+        Contact c;
+    };
+    using PairList = std::vector<std::pair<PairKey, PairState>>;
+    struct StepScratch {
+        std::vector<JointLink> jlinks;
+        UnionFind chains, islands;
+        std::vector<int> chainSize, carrier;
+        std::vector<char> inJoint, charCarried, inScope, loaded, isMover, isSpecial, supported, hold, ready;
+        std::vector<std::size_t> carriable, riders, toiBodies, movers, special, groupOf, root;
+        std::vector<Vec3> disp;  // all zero between uses (an island zeroes its members' entries when it is done)
+        std::vector<float> reach, fastest, speeds;
+        std::vector<int> size, restless;
+        std::vector<RigidContact> rigid, held;
+        std::vector<std::uint64_t> playGroups;
+        std::vector<std::vector<std::size_t>> groups;  // the islands of a sub-step (the first `groupCount` are in use)
+        std::vector<std::vector<RigidHit>> hitParts;
+        std::vector<std::vector<PairRec>> pairParts;
+        std::vector<RigidHit*> lowHits;
+        std::vector<PairRec*> lowPairs;
+        std::vector<Begin> begins;
+        std::vector<std::pair<std::size_t, std::size_t>> links;  // touching awake dynamic bodies: they sleep together
+        std::vector<std::uint32_t> liveRow;
+        std::vector<std::size_t> liveRows, liveExtra, liveMerged;
+        PairList thawed, resting, merged;
+    };
+    StepScratch sc_;
 
     static Contact collide(const Body& a, const Body& b, float margin, bool manifold = false);
     // Capsule / convex / mesh pairs (physics3d_shapes.cpp).
@@ -577,7 +651,8 @@ private:
         return it != warm_.end() && it->key == key ? &*it : nullptr;
     }
     // Strongest impact per pair during one step (lookup only, never iterated, so its order does not matter):
-    // open addressing with linear probing; clear() keeps the slots.
+    // open addressing with linear probing; clear() keeps the slots and empties only the ones that were used (a list of
+    // them), so a big table that grew once costs nothing per step afterwards.
     class ImpactMap {
     public:
         float& operator[](PairKey key) {
@@ -593,8 +668,8 @@ private:
             }
         }
         void clear() {
-            if (used_ == 0) return;
-            for (Slot& s : slots_) s.full = false;
+            for (const std::uint32_t i : usedSlots_) slots_[i].full = false;
+            usedSlots_.clear();
             used_ = 0;
         }
 
@@ -617,6 +692,7 @@ private:
                 slots_[i].full = true;
                 slots_[i].key = key;
                 slots_[i].v = 0.0f;
+                usedSlots_.push_back(std::uint32_t(i));
                 ++used_;
             }
             return slots_[i];
@@ -624,11 +700,13 @@ private:
         void grow() {
             std::vector<Slot> old = std::move(slots_);
             slots_.assign(old.empty() ? 64 : old.size() * 2, Slot{});
+            usedSlots_.clear();
             used_ = 0;
             for (const Slot& s : old)
                 if (s.full) slot_for(s.key).v = s.v;
         }
         std::vector<Slot> slots_;
+        std::vector<std::uint32_t> usedSlots_;  // the slots with `full` set, in the order they were filled
         std::size_t used_ = 0;
     };
     ImpactMap impacts_;
@@ -667,7 +745,7 @@ private:
     // "No body" in the body-index links of a step's joints and islands: the joint holds to the world.
     static constexpr std::size_t kNoBody = static_cast<std::size_t>(-1);
     std::vector<JointState*> jointOrder_;  // solve order: by owner body seq, rebuilt by sync_joints
-    void sync_joints(World& world, std::uint64_t stamp);
+    void sync_joints(World& world, std::uint64_t stamp, const std::vector<Entity>& ents);
     void correct_joints(float h);  // position pass: move/turn the bodies so the joint anchors meet (no velocity added)
     bool prepare_joints(float h);  // false when no joint is active
     void solve_joints(float h, int iteration);

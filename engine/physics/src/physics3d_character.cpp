@@ -82,8 +82,8 @@ CharacterMoveResult Physics3D::move_character_body(World& world, Body& b, Vec3 d
     std::vector<int> pushed;  // the bodies already pushed by this move
     auto push = [&](const Hit& h, Vec3 motion) {  // a dynamic body in the way moves off at the character's speed
         Body& o = bodies_[std::size_t(h.body)];
-        if (o.type != BodyType::Dynamic || o.jointed || b.pushStrength <= 0.0f || std::find(pushed.begin(), pushed.end(), h.body) != pushed.end() ||
-            h.normal.y > 0.7f)
+        if (o.type != BodyType::Dynamic || o.jointed || b.pushStrength <= 0.0f ||
+            std::find(pushed.begin(), pushed.end(), h.body) != pushed.end() || h.normal.y > 0.7f)
             return;  // a jointed body (a seesaw, a plank) is held by its joint: shoving it would drag it off
         const float speed = std::max(-dot(motion, h.normal), 0.0f) / std::max(lastDt_, 1e-4f) * b.pushStrength;
         const float have = dot(o.vel, -h.normal);
