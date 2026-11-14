@@ -6,6 +6,12 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
 
 ## Unreleased
 
+- 3D scene queries use the broad phase's tree (M94.4c2): `physics.raycast3d`, `raycast3dAll`, `shapeCast`, `overlapSphere`,
+  `isTouching` (3D) and `moveCharacter` no longer test every body. A ray walks the tree nearest first and is
+  cut at the best hit so far; the other queries test only the bodies near the query's box. The answers are the same as
+  before (same hit, same order of equal distances; a randomized test compares both with sleeping, static, trigger,
+  disabled and just-spawned or just-teleported bodies). New `fa_bench` entries `physics.raycast3d_1000` and
+  `physics.overlap3d_1000`.
 - 3D physics: bodies asleep cost almost nothing while others are awake (M94.4e). The solver walks lists of the awake
   bodies in every stage and skips pairs of two bodies at rest (their contact state is kept aside and comes back when a
   body wakes). A world with 1000 boxes asleep and 20 awake steps in 0.23 ms instead of 8.3 ms (new `fa_bench` entry

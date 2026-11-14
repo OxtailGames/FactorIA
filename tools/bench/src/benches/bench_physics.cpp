@@ -345,6 +345,55 @@ Bench physics_3d() {
     return b;
 }
 
+// Scene queries in a world of 1000 bodies that has settled (most of them asleep): the queries must not walk every body.
+// The world is built once (the queries do not change it).
+enum class QueryKind { Rays, Overlaps };
+Bench physics_3d_queries(QueryKind kind) {
+    const bool rays = kind == QueryKind::Rays;
+    constexpr int kRays = 10000, kOverlaps = 2000;
+    Bench b;
+    b.name = rays ? "physics.raycast3d_1000" : "physics.overlap3d_1000";
+    b.summary = rays ? std::format("Physics::raycast3d x{}: rays through a settled pile of 1000 bodies (3D)", kRays)
+                     : std::format("Physics::overlap_sphere3d x{}: spheres of 1.5 m in a settled pile of 1000 bodies (3D)",
+                                   kOverlaps);
+    b.make = [rays] {
+        auto sim = std::make_shared<Sim>();
+        auto built = std::make_shared<bool>(false);
+        Prepared p;
+        p.items = rays ? kRays : kOverlaps;
+        p.unit = rays ? "rays" : "overlap queries";
+        p.prepare = [sim, built] {
+            if (*built) return;
+            *built = true;
+            sim->reset();
+            build_pit_3d(*sim->world);
+            sim->physics.sync(*sim->world);
+            sim->run_steps(240);  // the pile lands and falls asleep
+        };
+        p.run = [sim, rays] {
+            Rng rng(7);
+            auto unit = [&] { return float(rng.next_u32() >> 8) / float(1u << 24); };
+            double sum = 0.0;
+            if (rays) {
+                for (int i = 0; i < kRays; ++i) {  // from above and from the sides, towards the middle of the pit
+                    const Vec3 from = i % 2 == 0 ? Vec3{-14.0f + 28.0f * unit(), 14.0f, -14.0f + 28.0f * unit()}
+                                                 : Vec3{-20.0f, 4.0f * unit(), -14.0f + 28.0f * unit()};
+                    const Vec3 to{-7.0f + 14.0f * unit(), 4.0f * unit(), -7.0f + 14.0f * unit()};
+                    if (auto h = sim->physics.raycast3d(*sim->world, from, to - from, 40.0f, -1)) sum += h->distance;
+                }
+            } else {
+                for (int i = 0; i < kOverlaps; ++i) {
+                    const Vec3 c{-8.0f + 16.0f * unit(), 6.0f * unit(), -8.0f + 16.0f * unit()};
+                    sum += double(sim->physics.overlap_sphere3d(*sim->world, c, 1.5f, -1).size());
+                }
+            }
+            return sum;
+        };
+        return p;
+    };
+    return b;
+}
+
 }  // namespace
 
 void add_physics_benches(std::vector<Bench>& out) {
@@ -353,6 +402,8 @@ void add_physics_benches(std::vector<Bench>& out) {
     out.push_back(physics_3d_pit());
     out.push_back(physics_3d_stack());
     out.push_back(physics_3d_mostly_asleep(1000, "physics.step3d_mostly_asleep"));
+    out.push_back(physics_3d_queries(QueryKind::Rays));
+    out.push_back(physics_3d_queries(QueryKind::Overlaps));
     out.push_back(physics_tilemap_edit(256));
     out.push_back(physics_tilemap_edit(512));
 }

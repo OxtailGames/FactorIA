@@ -13,6 +13,7 @@
 #pragma once
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <utility>
@@ -87,6 +88,52 @@ public:
             }
         }
     }
+    // Calls visit(payload) for every leaf whose fat box the ray origin + t * dir, 0 <= t <= maxT, touches (the box padded by
+    // 1e-3). visit returns the new maxT: a hit that shortens the ray prunes every subtree that starts beyond it (return the
+    // value you were given, or the one you keep, to prune nothing). The nearer child is visited first, so the usual closest
+    // hit query touches few leaves; WHICH leaves are visited depends on the tree, so the caller's result must not depend on the
+    // order (break ties by payload). `dir` need not be unit length but t is then in its units.
+    template <class F>
+    void ray_query(Vec3 origin, Vec3 dir, float maxT, F&& visit) const {
+        if (root_ == kNone) return;
+        const Vec3 inv{ray_inv(dir.x), ray_inv(dir.y), ray_inv(dir.z)};
+        float tn = 0.0f;
+        if (!ray_slab(nodes_[std::size_t(root_)].box, origin, dir, inv, maxT, tn)) return;
+        struct Item {
+            int node;
+            float t;
+        };
+        Item stack[kStack];
+        int top = 0;
+        stack[top++] = {root_, tn};
+        while (top > 0) {
+            const Item it = stack[--top];
+            if (it.t > maxT) continue;  // the ray was shortened since this node was pushed
+            const Node& n = nodes_[std::size_t(it.node)];
+            if (n.child1 == kNone) {
+                maxT = visit(n.payload);
+            } else if (top + 2 <= kStack) {
+                float t1 = 0.0f, t2 = 0.0f;
+                const bool h1 = ray_slab(nodes_[std::size_t(n.child1)].box, origin, dir, inv, maxT, t1);
+                const bool h2 = ray_slab(nodes_[std::size_t(n.child2)].box, origin, dir, inv, maxT, t2);
+                if (h1 && h2) {  // the nearer one is popped first
+                    if (t1 <= t2) {
+                        stack[top++] = {n.child2, t2};
+                        stack[top++] = {n.child1, t1};
+                    } else {
+                        stack[top++] = {n.child1, t1};
+                        stack[top++] = {n.child2, t2};
+                    }
+                } else if (h1) {
+                    stack[top++] = {n.child1, t1};
+                } else if (h2) {
+                    stack[top++] = {n.child2, t2};
+                }
+            } else {
+                ray_deep(it.node, origin, dir, inv, maxT, visit);
+            }
+        }
+    }
     // The payloads of the leaves overlapping `box`, ascending, appended to `out` after clearing it.
     void sorted_query(const Aabb3& box, std::vector<std::uint32_t>& out) const {
         out.clear();
@@ -109,6 +156,38 @@ private:
         std::uint32_t payload = 0;
         bool used = false;
     };
+    static float ray_inv(float d) { return std::fabs(d) < 1e-9f ? 0.0f : 1.0f / d; }
+    // Does the ray reach `box` (padded) within [0, maxT]? tNear = where it enters (0 when the origin is inside).
+    static bool ray_slab(const Aabb3& box, Vec3 o, Vec3 d, Vec3 inv, float maxT, float& tNear) {
+        constexpr float kPad = 1e-3f;
+        float tmin = 0.0f, tmax = maxT;
+        for (int i = 0; i < 3; ++i) {
+            const float lo = box.lo[i] - kPad, hi = box.hi[i] + kPad;
+            if (std::fabs(d[i]) < 1e-9f) {
+                if (o[i] < lo || o[i] > hi) return false;
+                continue;
+            }
+            float t1 = (lo - o[i]) * inv[i], t2 = (hi - o[i]) * inv[i];
+            if (t1 > t2) std::swap(t1, t2);
+            tmin = std::max(tmin, t1);
+            tmax = std::min(tmax, t2);
+            if (tmin > tmax) return false;
+        }
+        tNear = tmin;
+        return true;
+    }
+    template <class F>
+    void ray_deep(int node, Vec3 o, Vec3 d, Vec3 inv, float& maxT, F& visit) const {  // recursion for a very deep tree
+        const Node& n = nodes_[std::size_t(node)];
+        float t = 0.0f;
+        if (!ray_slab(n.box, o, d, inv, maxT, t)) return;
+        if (n.child1 == kNone) {
+            maxT = visit(n.payload);
+            return;
+        }
+        ray_deep(n.child1, o, d, inv, maxT, visit);
+        ray_deep(n.child2, o, d, inv, maxT, visit);
+    }
     int alloc();
     void release(int n);
     void insert_leaf(int leaf);
