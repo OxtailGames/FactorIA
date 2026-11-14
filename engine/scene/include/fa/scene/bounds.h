@@ -62,9 +62,9 @@ Vec2 sprite_shear_point(Vec2 p, Vec2 skewDegrees);
 // the grid has at most 4096 cells. False = a plain quad (the renderer logs one warning for a grid that is too big).
 bool sprite_mesh_grid(const Sprite& s, int& columns, int& rows);
 // vertexOffsets as (columns + 1) * (rows + 1) * 2 floats [dx, dy, ...], row-major from the top row; missing entries are 0. Empty
-// when the sprite has no offsets (not an array, or empty).
+// when the sprite has no offsets (empty).
 std::vector<float> sprite_vertex_offsets(const Sprite& s, int columns, int rows);
-// vertexColors as (columns + 1) * (rows + 1) * 4 floats [r, g, b, a, ...] (a value that is not a number counts as 1), row-major
+// vertexColors as (columns + 1) * (rows + 1) * 4 floats [r, g, b, a, ...] (a non-finite value counts as 1), row-major
 // from the top row. Empty when the sprite has none, or when its length is not exactly that (see sprite_vertex_colors_problem).
 std::vector<float> sprite_vertex_colors(const Sprite& s, int columns, int rows);
 // "" when vertexColors is fine (empty, or an array of exactly (meshColumns + 1) * (meshRows + 1) * 4 numbers on a deformable

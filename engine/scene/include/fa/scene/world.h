@@ -237,8 +237,9 @@ public:
     //    call is not seen (nothing marks that write): get it again after the read, or write before it.
     //  * Several threads may read (world_matrix, world_position, active_in_hierarchy, drawn_matrix) at once, a missing entry
     //    is filled under a small lock; none may write meanwhile (the usual rule for jobs: they read, the main thread writes).
-    // hierarchy_version() counts the invalidations (it grows when a cached value is dropped), so a system can tell that
-    // nothing moved since it last looked.
+    // hierarchy_version() counts the invalidations that dropped a valid entry (one per write that found its entry valid, not one
+    // per entry of the subtree below it; create / destroy do not move it): equal values mean no cached value was dropped
+    // between two looks.
     Mat4 world_matrix(Entity e) const;
     Vec3 world_position(Entity e) const;
     // world_matrix() with the visual poses of the game feel effects (shake, squash; feel.h) multiplied into each entity of the
@@ -246,8 +247,8 @@ public:
     // and scripts read world_matrix() / the Transform, which an effect never changes.
     Mat4 drawn_matrix(Entity e) const;
     void set_world_position(Entity e, Vec3 p);  // converts into the parent's space
-    // How many times a cached world matrix or active-in-hierarchy answer was dropped because something that can change it was
-    // written (see world_matrix). It never goes down; reading through a const World does not move it.
+    // How many writes dropped a cached world matrix or active-in-hierarchy answer that was valid (see world_matrix); the entries
+    // below it that go with it are not counted one by one. It never goes down; reading through a const World does not move it.
     std::uint64_t hierarchy_version() const;
 
     // --------------------------------------------------------------- misc

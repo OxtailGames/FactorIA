@@ -49,8 +49,9 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   `Json` (M94.2d): the JSON on disk is the same flat list of numbers, a script reads a `Float32Array`, and the renderer,
   `entity.bounds()` and the skinning read floats instead of walking JSON values for every deformable sprite every frame
   (new `fa_bench` entry `sprite.mesh_data`). One difference: an element that is not a number (`"x"`, `null`) used to count
-  as 0 (offsets), 1 (colours) or left the skin unbound; it is now a load error that names the element's index.
-- Hierarchy cache (M94.1c): `World::world_matrix`, `world_position`, `drawn_matrix` and `active_in_hierarchy` keep their result per entity and recompute only what a write dropped, instead of walking every ancestor on every call; `pending_destroy` is O(1). Any mutable access invalidates: the non-const `get`/`get<Transform>`/`get<EntityInfo>`, `add`, `info`, `each` over Transform or EntityInfo, `set_parent`, `set_active`, `set_world_position`, so scripts, reflection, commands, the inspector and animation need no code of their own; a write drops the entity and what hangs below it. Code that only reads must use the const `get` / `std::as_const(world)` (a read through a mutable reference counts as a write; the script bridge's `transform.x` reads and `getName`/`getTags`/`getActive` now do). A `Transform&` kept from an earlier `get` and written after a `world_matrix` read is not seen: get it again after the read (docs/ARCHITECTURE.md, "The hierarchy cache"). Jobs may read the cache at the same time (the fill is lock-protected). `World::hierarchy_version()` counts the invalidations. The world matrix is now the product taken from the root down (`parent_world * local`), which can differ in the last bit from earlier versions at depth 2 or more; the state hash does not read matrices and replays are unchanged. A randomized test compares the cache bit for bit with the plain calculation through every write path. `fa_bench` on macOS, Release, median: `hierarchy.deep` 32.9 ms -> 0.006 ms, `hierarchy.wide` 22.6 -> 0.21 ms, new `hierarchy.moving` (one subtree moved per pass) 43.2 -> 0.4 ms and `hierarchy.active` 1.03 -> 0.15 ms; `ecs.each` and `ecs.spawn_destroy` stay where they were.
+  as 0 (offsets), 1 (colours) or left the skin unbound; it is now a load error that names the element's index, and
+  `null` for the whole field (`"vertexColors": null`) is refused too: write `[]` for none.
+- Hierarchy cache (M94.1c): `World::world_matrix`, `world_position`, `drawn_matrix` and `active_in_hierarchy` keep their result per entity and recompute only what a write dropped, instead of walking every ancestor on every call; `pending_destroy` is O(1). Any mutable access invalidates: the non-const `get`/`get<Transform>`/`get<EntityInfo>`, `add`, `info`, `each` over Transform or EntityInfo, `set_parent`, `set_active`, `set_world_position`, so scripts, reflection, commands, the inspector and animation need no code of their own; a write drops the entity and what hangs below it. Code that only reads must use the const `get` / `std::as_const(world)` (a read through a mutable reference counts as a write; the script bridge's `transform.x` reads and `getName`/`getTags`/`getActive` now do). A `Transform&` kept from an earlier `get` and written after a `world_matrix` read is not seen: get it again after the read (docs/ARCHITECTURE.md, "The hierarchy cache"). Jobs may read the cache at the same time (the fill is lock-protected). `World::hierarchy_version()` counts the writes that dropped a valid entry (not each entry of the subtree below it). The world matrix is now the product taken from the root down (`parent_world * local`), which can differ in the last bit from earlier versions at depth 2 or more; the state hash does not read matrices and replays are unchanged. A randomized test compares the cache bit for bit with the plain calculation through every write path. `fa_bench` on macOS, Release, median: `hierarchy.deep` 32.9 ms -> 0.006 ms, `hierarchy.wide` 22.6 -> 0.21 ms, new `hierarchy.moving` (one subtree moved per pass) 43.2 -> 0.4 ms and `hierarchy.active` 1.03 -> 0.15 ms; `ecs.each` and `ecs.spawn_destroy` stay where they were.
 - Navigation: a path query whose goal is in another connected area (a walled-in room, an island, a passage closed by a
   moving obstacle) fails at once from reachability labels instead of running A* over the whole map (M94.5a). The labels
   follow moving obstacles, walkable bodies and links, and are recomputed only after a search has failed since the last
@@ -71,7 +72,7 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   etc. in `core/typed_array.h`): the JSON on disk is a flat array of numbers, in memory it is contiguous and counts its
   writes (`version()` and a dirty index range, so a system rebuilds only what changed), and in scripts it reads as an
   `Int32Array`, `Float32Array` or `Uint8Array` (a copy) and takes a typed array or a plain array, checking every
-  element. No component uses them yet.
+  element. Used by `Tilemap.tiles`, `Sprite.vertexOffsets` / `vertexColors` and `SpriteSkin.bindPose` (below).
 - Job system (M94.5b2): every worker has its own queue of ready jobs and steals from the others when it runs out,
   instead of one queue under one lock that every thread took for every job. A job with no dependency and no dependent
   never takes the pool's graph lock, a worker runs the first job a finished job releases itself, and a wait for a job
@@ -88,6 +89,17 @@ Older versions, one file per minor version with its patch releases: [0.25](chang
   before and after on the same loaded MacBook (Release, two A/B runs each, medians in ms): 100000 field reads 13 -> 8.7,
   100000 field writes 18 -> 10.6, 40000 `entity.get` + read 29 -> 17, 10000 entity passes of `script.component_access`
   43 -> 17 and 300 behaviours for 30 frames (`script.behaviours`) 42.5 -> 30.3.
+- Polish of the ECS, the typed arrays and the script bridge (M94.P1): the script bridge's `name`, `tags`, `addTag`,
+  `removeTag` and `spawn` flag writes no longer drop the hierarchy cache (only a write that can move or hide an entity
+  does); `drawn_matrix` allocates nothing for a chain up to 32 levels (and is `world_matrix` when no game feel pose is on its chain); the SpriteAnimator
+  step walks the animators in their own insertion order whatever the number of sprites (the order of its `clipEnded`
+  events no longer depends on the counts); `Object.keys(entity)`, a spread and the member list of a "did you mean" no longer show
+  the private `$h` and `$v`, an entity's view cache is a dense array, and `view.$type = x` says it is read-only. A script
+  writing a sparse `new Array(1 << 24)` into an array field fails at its first hole without allocating 64 MiB, and the
+  range of a float array field is printed as written (`0.1 to 0.3`). A schema nested deeper than 64 levels (a command
+  registered from JavaScript) compiles with the deep part unchecked instead of using the native stack, and the defaults
+  of a compiled schema are found in linear time. A mutable `data()` of an empty typed array is no write. `fa_bench`:
+  `ecs.count` runs 20000 rounds for a stable median, new `script.first_views`.
 - 3D physics: contact manifolds with several persistent points (M94.4d). Two boxes in face contact are clipped (the
   incident face against the side planes of the reference face) and touch in up to 4 points, reduced in a way that depends
   only on the geometry; two crossing edges give one point. A box on a mesh or a static box has one point per low corner, a
