@@ -499,7 +499,7 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
   and by `start`, `stop` and `settings`; a job nobody looks at and a wait for a job still queued never take it. A wait
   for a job still queued runs it at once, and a wait that took a job drops its queue entry, so with 0 workers the
   entries do not pile up until the frame ends. A worker that is told a job is queued and finds none (the thread that
-  took it has not counted it yet) looks again 64 times and then naps for 200 microseconds. Give a parallel_for a grain of at least a few hundred cheap items. The design is described at the
+  took it has not counted it yet) looks again 64 times and then naps for about 200 microseconds (at least the timer resolution on Windows; a new job ends the nap at once). Give a parallel_for a grain of at least a few hundred cheap items. The design is described at the
   top of `engine/core/src/jobs.cpp`. Each worker thread is named (`fa-job-1`..)
   in debuggers and profilers; its stack is the platform default (512 KB on macOS and iOS, 1 MB on Windows, 8 MB on
   Linux): keep big buffers on the heap.
