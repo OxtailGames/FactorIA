@@ -520,10 +520,28 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     pieces wrote in bit sets (OR), and its solver colours constraints so that no two pieces touch the same body, so the
     merge order is fixed by the data, not by who finishes first. Joints, the sleeping rules, the callbacks into scripts and
     the write-back to the components stay on the main thread.
+  - *3D physics at scale* (overview of M94.4; the bullets below have the details). A step of a world of a thousand bodies
+    costs what the bodies that are near each other and awake cost, not the number of bodies squared: (1) the broad phase
+    is a dynamic AABB tree of fat boxes, and every pair loop asks it for the partners of a row instead of testing all
+    pairs; (2) a rigid contact is a manifold of up to four points with feature ids, so a box lies flat and the warm start
+    follows a corner from step to step; (3) the contacts are soft (a spring per point, Jacobi over a manifold, relax
+    pass), so a column of 100 boxes stands without bouncing; (4) islands sleep: a pile is asleep when every body was calm
+    for half a second, except that up to N / 64 bodies of a big pile may still creep below 0.3 m/s, and a rotating body
+    that presses on another dynamic body and moves slower than 0.5 m/s is damped, so a pit of a thousand shapes comes to
+    rest (a straggler must rest on something: a body with nothing under it is never one); (5) sleeping bodies stay out of the
+    solver: every loop walks the lists of awake bodies, a pair of bodies at rest is `frozen_` and not visited, and a world
+    with nothing awake costs the sync only; (6) the scene queries (raycasts, shape casts, overlaps, the character
+    controller) walk the same tree; (7) a heightfield is one static body whose contacts read only the cells under the
+    other shape. Every one of them gives the bits of the all-pairs loop it replaced, with 0, 1 or N job threads
+    (`kReferenceHash` and `determinism_expected.txt` pin it). The step keeps its working vectors in `Physics3D::sc_`
+    (cleared, not freed), so a settled step allocates only the list of entities that `sync` takes once (the test
+    `test_physics3d_alloc.cpp` counts it). What stays linear in the number of bodies is `sync`: `World` has no change
+    stamps on a component (a mutable `get` is all a script has), so physics reads the pose, the enabled state and the
+    shape of every body to see what gameplay edited; it is the 0.15 ms per 1000 bodies measured below.
   - *3D physics* (`physics3d.cpp`): the pair loops are sequential, because a contact changes the bodies the next
     pair sees, and each row of a pair loop asks the broad phase (`broadphase3d.h`, "3D broad phase" below) for its
-    partners. Two read-only scans run as `parallel_for` jobs when they have 64 or more rows (`kMinParallelRows`, chunks of 16
-    rows): the rigid-body contact test that builds the manifolds before the solver, and the contact-event pass. A chunk only
+    partners. Two read-only scans run as `parallel_for` jobs when they have 256 or more rows (`kMinParallelRows`, chunks of 16
+    rows; measured at 64 and 256 in M94.4g: with fewer than about 256 bodies the jobs cost more than the scan): the rigid-body contact test that builds the manifolds before the solver, and the contact-event pass. A chunk only
     reads positions and the tree and writes its own slots; the main thread then replays the slots in `(chunk, row, k)`
     order, which is the order of the sequential loop. The iterative solver, the time-of-impact islands, waking, sleeping, joints and
     character controllers stay sequential (the islands of a sub-step are still built on one thread, but from the tree).
@@ -568,7 +586,9 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     with a tolerance like the other sizes: its last bits wobble when a body turns a hair, and each wobble used to reset
     the sleep timer of every slowly rotating capsule.) Measured on the scale tests: the column of 100 sleeps after 240
     steps and the column of 50 after 140, neither leans (drift 0.000), and the walled pit of 1000 bodies is asleep after
-    about 1600 steps (how long a pile creeps depends on the scene: 800 to 1600 steps measured).
+    about 1600 steps (how long a pile creeps depends on the scene: 800 to 1600 steps measured). A straggler is a body
+    at or above `kSleepSpeed` that rests on something (a loaded contact) and is slower than `kStragglerSpeed`; a body with
+    nothing under it counts as at least that fast, so one that starts to fall or rolls off the pile never is one.
     Sleeping bodies cost almost nothing while other bodies are awake (M94.4e). Before the sub-steps a classification
     pass lists the awake bodies, the moved static or kinematic ones, the platforms and the characters (`Rows`); every
     loop of the step (integration, the time-of-impact sweep, contact build, solver, settling, rolling, sleep checks,

@@ -536,7 +536,7 @@ queues a job. The sizes below are counts of items, the same on every machine (ne
 | Work | Runs on the job threads when | Not split further than |
 | --- | --- | --- |
 | 2D physics step (Box2D) | at least 1536 awake bodies or 4096 contacts | 4 pieces per task (the pool's size above 4 is not used) |
-| 3D physics, contact tests and events | 64 or more rows (bodies) in the scan | chunks of 16 rows (each row asks the broad phase for its partners) |
+| 3D physics, contact tests and events | 256 or more rows (bodies) in the scan | chunks of 16 rows (each row asks the broad phase for its partners) |
 | `nav.findPaths` / `nav.findTilePaths` | 8 or more queries in one call | 4 queries per chunk |
 | `render_sfx` (and what uses it) | 2 or more layers and at least 24000 samples (half a second at 48 kHz) | one job per layer |
 
@@ -549,15 +549,16 @@ orders of magnitude; the time of one step, `inline` against 1, 2 and 8 worker th
 | 2D, 1000 bodies | 1.0 ms | 1.0 ms | 0.95 ms | 1.05 ms |
 | 2D, 4000 bodies | 5.3 ms | 4.6 ms | 4.0 ms | 3.9 ms |
 | 2D, 8000 bodies | 9.9 ms | 8.6 ms | 7.8 ms | 7.4 ms |
-| 3D, 100 bodies (below the threshold) | 0.9 ms | 0.9 ms | 0.9 ms | 0.9 ms |
-| 3D, 250 bodies | 4.9 ms | 3.6 ms | 3.2 ms | 3.0 ms |
-| 3D, 600 bodies | 23 ms | 17 ms | 15 ms | 12 ms |
+| 3D, 196 bodies (below the threshold) | 0.47 ms | 0.47 ms | 0.46 ms | 0.5 ms |
+| 3D, 1000 bodies in a pit (the first 10 steps) | 8.2 ms | 8.0 ms | 8.0 ms | 7.3 ms |
 | `render_sfx`, 5 layers, 3 s | 13 ms | 9 ms | 8.6 ms | 9 ms |
 
 The 2D gain is modest because Box2D already makes a step cheap and part of it (the solver's order, the joints) is
 sequential; below about 1500 bodies the jobs cost as much as they save, which is why the threshold is there. The 3D gain is
-bigger because its narrow phase dominates (the table was measured before the broad phase of M94, which made the pair search itself
-cheap; the threshold is now counted in rows). The solver's iterations, the time-of-impact islands,
+small now: since the broad phase of M94 a scan row is cheap, so the jobs gain about 10% on 1000 bodies and cost more than
+they save below about 250 (at a threshold of 64 rows the 196-body scene took 12.5 ms per 20 steps with 4 workers against 9.2
+on the calling thread, which is why the threshold is 256; the 3D rows were remeasured in M94.4g with `fa_bench --jobs`,
+the 2D rows are older). The solver's iterations, the time-of-impact islands,
 sleeping, joints, character controllers and the device's audio callback stay on one thread. The example games all stay
 below these sizes: their draw calls, entities and per-frame time did not change (`perf.measure` with `FA_JOB_THREADS=inline`,
 `4` and `8` on the examples gave the same numbers within noise), so no example budget was tightened.
@@ -628,6 +629,14 @@ cell of a field of a million samples is edited well under a millisecond" (`test_
 field and syncs the physics: about 0.003 ms of CPU time; it fails above 1 ms, in optimized builds only. The end-of-step cover of the
 broad phase now walks only the awake bodies: `physics.step3d_mostly_asleep` went from 4.64 to 4.61 ms (within noise). The numbers
 of llvmpipe and D3D11 were not measured.
+
+3D polish (M94.4g): the step's working vectors are members of the solver (cleared, not freed) and `sync` takes the list of
+entities once for the bodies and the joints, so a settled step allocates only that list (the doctest
+`test_physics3d_alloc.cpp` counts about 2 allocations per step: one per physics backend). Medians in ms (Release, macOS,
+2 runs of 5, inline jobs), before and after: `physics.step3d` 9.3 / 9.2, `physics.step3d_1000` 80.5 / 81.2,
+`physics.step3d_stack100` 14.4 / 14.0, `physics.step3d_mostly_asleep` 4.6 / 3.0 (the allocations of the sleeping pile's
+steps), `physics.raycast3d_1000` 12.8 / 12.8, `physics.overlap3d_1000` 3.8 / 4.0 (within noise), `physics.heightfield_step`
+19.1 / 18.8, `physics.heightfield_edit` 3.8 / 3.7. The numbers of llvmpipe and D3D11 were not measured.
 
 Memory of a heightfield: physics keeps its own scaled copy of the heights next to the component's (4 bytes per sample
 each) and of the holes (1 byte per cell each), so a 4096 x 4096 field (the largest the component accepts) takes about 64 MiB

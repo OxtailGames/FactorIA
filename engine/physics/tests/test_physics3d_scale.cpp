@@ -260,11 +260,11 @@ TEST_CASE("3d scale: 1000 bodies falling into a walled pit stay within a CPU bud
     }
 }
 
-// Optimized builds only (a settled Debug run of 1000 bodies takes minutes): the pit comes to rest, every body asleep, and a
-// step of sleeping bodies costs almost nothing (the sync only: no sub-steps, no broad phase). The pile asleep after about
-// 1560 steps (a Release run measured 65 s of CPU on an M-series laptop, almost all of it the awake steps of the creep: a
-// pile of 1000 bodies keeps a few bodies above the sleep speed for a long while, and one awake body keeps its island awake).
-// The limit of 5400 steps (90 s of simulated time) is 3.5 times that.
+// Optimized builds only (a settled Debug run of 1000 bodies takes minutes): the pit comes to rest, every body asleep,
+// and a step of sleeping bodies costs almost nothing (the sync only: no sub-steps, no broad phase). The pile is asleep
+// after about 1560 steps (a Release run measured 65 s of CPU on an M-series laptop, almost all of it the awake steps of
+// the creep: a pile of 1000 bodies keeps a few bodies above the sleep speed for a long while, and one awake body keeps
+// its island awake). The limit of 5400 steps (90 s of simulated time) is 3.5 times that.
 TEST_CASE("3d scale: 1000 bodies in a walled pit settle asleep and then cost almost nothing") {
     if (!kOptimized) return;
     Sim s;
