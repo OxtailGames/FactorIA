@@ -193,6 +193,47 @@ function e2(x) { return x * 0.5; }
     return b;
 }
 
+// The first access to a component of an entity: the entity's JS object, its view cache, the view of each type (made from the
+// type's field descriptors) and one field read. 200 entities are spawned, read once and destroyed (flushed by one frame) per run.
+Bench script_first_views() {
+    Bench b;
+    b.name = "script.first_views";
+    b.summary = "200 entities spawned from a script, the first read of Transform.position.x and Sprite.layer of each, then "
+                "destroyed (one frame flushes them)";
+    b.make = [] {
+        auto host = std::make_shared<BenchHost>();
+        Prepared p;
+        host->file("scenes/main.scene.json", scene_text(1, ""));
+        if (!host->start()) {
+            p.skip = "the script host did not start: " + host->error;
+            return p;
+        }
+        host->call_number(R"(
+globalThis.bench = function () {
+  const list = [];
+  for (let i = 0; i < 200; i++) list.push(world.spawn({ components: { Transform: {}, Sprite: { layer: i } } }));
+  let n = 0;
+  for (const e of list) n += e.position.x + e.get('Sprite').layer;
+  for (const e of list) e.destroy();
+  return n;
+};)");
+        if (host->call_number("bench()") < 0) {
+            p.skip = "the benchmark script failed: " + host->error;
+            return p;
+        }
+        host->step_frames(1);
+        p.items = 200;
+        p.unit = "entities";
+        p.run = [host] {
+            const double n = host->call_number("bench()");
+            host->step_frames(1);
+            return n;
+        };
+        return p;
+    };
+    return b;
+}
+
 }  // namespace
 
 void add_script_benches(std::vector<Bench>& out) {
@@ -265,6 +306,7 @@ globalThis.bench = function () {
   }
   return n;
 };)"));
+    out.push_back(script_first_views());
     out.push_back(script_behaviours());
 }
 

@@ -45,6 +45,7 @@ TEST_CASE("component views: the same entity and type give the same view, other e
     CHECK(eval_ok(r.h, "var a = world.find('a'); a.get('Sprite') === a.add('Sprite')").get<bool>());
     CHECK(eval_ok(r.h, "var a = world.find('a'); a.position === a.position").get<bool>());
     CHECK(eval_ok(r.h, "var a = world.find('a'); a.get('Sprite').$type").get<std::string>() == "Sprite");
+    CHECK(has(eval_err(r.h, "world.find('a').get('Sprite').$type = 'x'"), "read-only"));
 }
 
 TEST_CASE("component views: reads and writes go to the engine's memory, through a kept view too") {
@@ -87,7 +88,14 @@ TEST_CASE("component views: removing the component and adding it again") {
 
 TEST_CASE("component views: a view of a destroyed entity says so, and the cache does not hold the entity") {
     Rig r("views_destroy");
-    eval_ok(r.h, "globalThis.b = world.find('b'); globalThis.sb = b.get('Sprite'); globalThis.pb = b.position; 1");
+    eval_ok(r.h, "globalThis.b = world.find('b'); globalThis.sb = b.get('Sprite'); globalThis.pb = b.position; b.hp = 3; 1");
+    // the game's own field is listed; the private $h and $v are not (Object.keys, spread, the members of a 'did you mean')
+    CHECK(eval_ok(r.h, "JSON.stringify(Object.keys(b))").get<std::string>() == "[\"hp\"]");
+    CHECK(eval_ok(r.h, "Object.keys({ ...b }).join()").get<std::string>() == "hp");
+    const std::string miss = eval_err(r.h, "b.nope");
+    CHECK(has(miss, "Its members: hp,"));
+    CHECK_FALSE(has(miss, "$"));
+    const Entity bOld = r.h.w.find_by_id("b");
     eval_ok(r.h, "b.destroy(); 1");
     r.h.step_frames(1);
     for (const char* code : {"sb.layer", "pb.x", "sb.layer = 1", "pb.x = 1", "b.get('Sprite')"}) {
@@ -100,6 +108,11 @@ TEST_CASE("component views: a view of a destroyed entity says so, and the cache 
     eval_ok(r.h, "globalThis.n = world.spawn({ id: 'n', components: { Transform: {}, Sprite: { layer: 8 } } }); 1");
     r.h.step_frames(1);
     CHECK(eval_ok(r.h, "n.get('Sprite').layer").get<int>() == 8);
+    // it did reuse the slot (a new generation), and the new entity is a new JS object: nothing of b's fields is on it
+    const Entity nNew = r.h.w.find_by_id("n");
+    CHECK(nNew.index == bOld.index);
+    CHECK(nNew.generation != bOld.generation);
+    CHECK(eval_ok(r.h, "n !== b && !('hp' in n) && Object.keys(n).length === 0").get<bool>());
     CHECK(has(eval_err(r.h, "sb.layer"), "destroyed"));
 }
 
@@ -169,4 +182,24 @@ TEST_CASE("component views: Entity, Asset and Json fields and the scene settings
     CHECK(eval_ok(h, "world.find('a').get('Sprite').color instanceof Color").get<bool>());
     CHECK(eval_ok(h, "var c = world.find('a').get('Sprite').color; c.a = 0.5; world.find('a').get('Sprite').color.a")
               .get<double>() == 0.5);
+}
+
+TEST_CASE("script bridge: writing a name or a tag keeps the hierarchy cache, writing a position drops it") {
+    Rig r("views_labels");
+    const Entity a = r.h.w.find_by_id("a");
+    const World& cw = r.h.w;
+    (void)cw.world_matrix(a);  // fills the cache
+    const std::uint64_t before = cw.hierarchy_version();
+    eval_ok(r.h, R"(const a = world.find('a');
+a.name = 'renamed'; a.addTag('t1'); a.addTag('t2'); a.removeTag('t1'); a.tags = ['x', 'y'];
+a.set('EntityInfo', { tags: ['z'] }); 1)");
+    CHECK(cw.hierarchy_version() == before);
+    CHECK(cw.info(a).name == "renamed");
+    CHECK(cw.info(a).tags == std::vector<std::string>{"z"});
+    eval_ok(r.h, "world.find('a').position.x = 3; 1");
+    CHECK(cw.hierarchy_version() > before);
+    CHECK(cw.world_matrix(a).translation().x == 3.0f);
+    // a vector field set from a script is written, and the cache sees it
+    eval_ok(r.h, "world.find('a').position = vec3(4, 5, 6); 1");
+    CHECK(cw.world_position(a).y == 5.0f);
 }

@@ -367,10 +367,14 @@
   // accessors (Object.keys, spread and for...in list them as before) and no Proxy of its own: the only Proxy of a type
   // sits at the end of the prototype chain, so a field that exists is found before it and only a name that does not
   // exist runs it, to say "did you mean". The private members ($h, the field-view cache $c) are not enumerable.
+  const NO_FIELD_VIEWS = Object.freeze([]);
   function viewClassFor(t) {
     let make = viewClasses.get(t.id);
     if (make) return make;
     const names = t.fields.map((f) => f.name);
+    // $c holds the live field views by field index, as a dense array (an empty one filled at index 3 would turn slow); a type
+    // with no vector field shares one empty array.
+    const hasVecField = t.fields.some((f) => f.kind in FIELD_VIEW);
     const C = function ComponentView() {};
     Object.defineProperty(C, "name", { value: t.name + "View" });
     const proto = C.prototype;
@@ -404,7 +408,7 @@
     Object.defineProperties(proto, {
       toJSON: { value() { return N.compJson(this.$h, t.id); }, configurable: true },
       toString: { value() { return `${t.name}(${this.$h < 0 ? "settings" : N.idOf(this.$h)})`; }, configurable: true },
-      $type: { get() { return t.name; } },
+      $type: { get() { return t.name; }, set() { throw new Error(`${t.name} view: '$type' is read-only`); } },
       // What the script debugger shows for a view: the values of the fields (it never runs a getter itself).
       [DEBUG_VIEW]: { value() { const o = {}; for (const k of names) { try { o[k] = this[k]; } catch (e) { o[k] = `<${e.message}>`; } } return o; }, configurable: true },
     });
@@ -423,7 +427,7 @@
     make = function (h) {
       const v = Object.create(proto, fieldDescs);
       Object.defineProperty(v, "$h", { value: h });
-      Object.defineProperty(v, "$c", { value: [] });
+      Object.defineProperty(v, "$c", { value: hasVecField ? new Array(t.fields.length).fill(undefined) : NO_FIELD_VIEWS });
       return v;
     };
     viewClasses.set(t.id, make);
@@ -529,11 +533,16 @@
   }
 
   class Entity {
-    constructor(h) { this.$h = h; this.$v = null; }
+    // $h and $v are private: not enumerable, so Object.keys(entity), a spread and the "its members" list of a miss do not show them.
+    // $v (the views by type id) is a dense array of one slot per component type: filled by index it stays a fast array.
+    constructor(h) {
+      Object.defineProperty(this, "$h", { value: h, writable: true });
+      Object.defineProperty(this, "$v", { value: null, writable: true });
+    }
     // The component view of this entity for type t: made once, kept here (a view is only a handle, so it cannot go stale).
     $view(t) {
       let a = this.$v;
-      if (a === null) a = this.$v = [];
+      if (a === null) a = this.$v = new Array(types.length).fill(undefined);
       return a[t.id] ?? (a[t.id] = viewClassFor(t)(this.$h));
     }
     get id() { return N.idOf(this.$h); }
@@ -617,8 +626,8 @@
     toString() { return `Entity(${this.id})`; }
   }
   if (STRICT) {
-    const entityMembers = Object.getOwnPropertyNames(Entity.prototype).filter((k) => k !== "constructor");
-    Object.setPrototypeOf(Entity.prototype, strictProto("entity", (e) => [...Object.keys(e).filter((k) => k !== "$h"), ...entityMembers],
+    const entityMembers = Object.getOwnPropertyNames(Entity.prototype).filter((k) => k !== "constructor" && !k.startsWith("$"));
+    Object.setPrototypeOf(Entity.prototype, strictProto("entity", (e) => [...Object.keys(e).filter((k) => !k.startsWith("$")), ...entityMembers],
       "An entity has no field of your own until you assign one (entity.hp = 3); keep game state in the Behaviour (this.hp) or in a component's fields, and read a component with entity.get(\"Name\")."));
   }
 
