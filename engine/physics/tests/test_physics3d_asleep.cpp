@@ -242,7 +242,7 @@ TEST_CASE("3d asleep: 1000 bodies asleep and 20 awake step in about the time of 
     }
     std::printf("[asleep] %d asleep + 20 awake: %.2f ms/step, the 20 alone: %.2f ms/step (ratio %.1f)\n", pileSize,
                 mostly * 1000.0 / kSteps, alone * 1000.0 / kSteps, mostly / std::max(alone, 1e-9));
-    if (kOptimized) CHECK(mostly < 25.0 * alone + 0.01 * test_speed_budget_scale());
+    if constexpr (kOptimized) CHECK(mostly < 25.0 * alone + 0.01 * test_speed_budget_scale());
 }
 
 // The position pass after a time-of-impact stop only touches the islands that had the stop (M94.4e): a box resting on the

@@ -595,7 +595,7 @@ TEST_CASE("heightfield3d: one cell of a field of a million samples is edited wel
     }
     const double perEditMs = (process_cpu_seconds() - t0) * 1000.0 / kEdits;
     std::printf("heightfield3d: edit + sync of one sample in a %dx%d field: %.4f ms\n", kSide, kSide, perEditMs);
-    if (kOptimized) CHECK(perEditMs < 1.0);  // measured ~0.01 ms; the margin is for a loaded 4-vCPU VM
+    if constexpr (kOptimized) CHECK(perEditMs < 1.0);  // measured ~0.01 ms; the margin is for a loaded 4-vCPU VM
 
     // the edit is really in the collider
     const std::size_t centre = std::size_t(kSide / 2) * kSide + std::size_t(kSide / 2);
