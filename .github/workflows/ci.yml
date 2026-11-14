@@ -96,12 +96,15 @@ jobs:
       - name: Install build dependencies
         run: ./scripts/bootstrap-linux.sh
 
+      # The key must not be a prefix of another job's (ccache-Linux-linux-asan-, -tsan-, -fuzz-, -coverage-): restore-keys
+      # would hand this GCC job whichever Clang cache is the newest (2% hits, a 55-minute build). The `bench` job reads this
+      # cache on purpose. scripts/check-ci-cache-keys.py (the `lint` job) fails on such a collision.
       - name: Restore ccache
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ runner.os }}-linux-${{ github.run_id }}
-          restore-keys: ccache-${{ runner.os }}-linux-
+          key: ccache-${{ runner.os }}-gcc-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-gcc-
 
       - name: Configure and build (linux-release)
         run: |
@@ -123,7 +126,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ runner.os }}-linux-${{ github.run_id }}
+          key: ccache-${{ runner.os }}-gcc-${{ github.run_id }}
 
       # The pinned sokol-shdc that custom materials need, installed the way a contributor does it (SHA-256 checked, into
       # ~/.factoria). FA_REQUIRE_SHDC=1 on the tests turns the ones that need it from skipped into failed.
@@ -538,8 +541,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ runner.os }}-linux-${{ github.run_id }}
-          restore-keys: ccache-${{ runner.os }}-linux-
+          key: ccache-${{ runner.os }}-gcc-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-gcc-
 
       - name: Configure and build fa_bench (linux-release)
         run: |
@@ -574,9 +577,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: linux, runner: ubuntu-24.04, preset: linux-release }
-          - { os: windows, runner: windows-2022, preset: windows-release }
-          - { os: macos, runner: macos-latest, preset: macos-release }
+          # ccache: the middle part of the cache key the `linux`, `windows` and `macos` jobs save (the Linux one is "gcc", not "linux").
+          - { os: linux, ccache: gcc, runner: ubuntu-24.04, preset: linux-release }
+          - { os: windows, ccache: windows, runner: windows-2022, preset: windows-release }
+          - { os: macos, ccache: macos, runner: macos-latest, preset: macos-release }
     steps:
       - uses: actions/checkout@v4
 
@@ -593,8 +597,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ matrix.os == 'linux' && '~/.cache/ccache' || '~/Library/Caches/ccache' }}
-          key: ccache-${{ runner.os }}-${{ matrix.os }}-${{ github.run_id }}
-          restore-keys: ccache-${{ runner.os }}-${{ matrix.os }}-
+          key: ccache-${{ runner.os }}-${{ matrix.ccache }}-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-${{ matrix.ccache }}-
 
       - name: Install ccache (windows)
         if: matrix.os == 'windows'
@@ -656,9 +660,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: linux, runner: ubuntu-24.04, preset: linux-release }
-          - { os: windows, runner: windows-2022, preset: windows-release }
-          - { os: macos, runner: macos-latest, preset: macos-release }
+          # ccache: the middle part of the cache key the `linux`, `windows` and `macos` jobs save (the Linux one is "gcc", not "linux").
+          - { os: linux, ccache: gcc, runner: ubuntu-24.04, preset: linux-release }
+          - { os: windows, ccache: windows, runner: windows-2022, preset: windows-release }
+          - { os: macos, ccache: macos, runner: macos-latest, preset: macos-release }
     steps:
       - uses: actions/checkout@v4
 
@@ -676,8 +681,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ matrix.os == 'linux' && '~/.cache/ccache' || '~/Library/Caches/ccache' }}
-          key: ccache-${{ runner.os }}-${{ matrix.os }}-${{ github.run_id }}
-          restore-keys: ccache-${{ runner.os }}-${{ matrix.os }}-
+          key: ccache-${{ runner.os }}-${{ matrix.ccache }}-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-${{ matrix.ccache }}-
 
       - name: Install ccache (windows)
         if: matrix.os == 'windows'
@@ -1511,6 +1516,11 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0  # the merge base of the diff
+
+      # No restore prefix of a ccache may be the start of another job's cache key (restore-keys hands out the newest match:
+      # the GCC job once restored a Clang cache). Seconds, and the first red of a round that renames a cache badly.
+      - name: Cache keys do not collide (scripts/check-ci-cache-keys.py)
+        run: python3 scripts/check-ci-cache-keys.py
 
       - name: Pick the base of the diff
         id: base

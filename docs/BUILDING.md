@@ -948,6 +948,13 @@ Each job that compiles restores a ccache and saves it again with only the entrie
 so a run whose tests fail still leaves the next run a warm cache; `CI result` then
 deletes the older ccaches of the same branch or pull request. That keeps the repository's 10 GB of caches holding
 `main`'s, which every pull request starts from.
+A ccache is found by the START of its key (`restore-keys` gives a job the newest cache whose key begins with its prefix), so
+no job's prefix may begin another job's key: the GCC job's `ccache-Linux-gcc-` (it was `ccache-Linux-linux-`, which the
+Clang jobs' `ccache-Linux-linux-asan-`, `-tsan-`, `-fuzz-` and `-coverage-` also begin with, so the GCC job restored a Clang
+cache and compiled everything again). `scripts/check-ci-cache-keys.py` reads every workflow in `.github/workflows`, expands
+`runner.os` and the matrices, and fails the `lint` job with the file, line and both jobs when a restore prefix is a proper
+prefix of another cache's key; two jobs that share a cache on purpose (`bench` reads the `linux` job's) have equal prefixes
+and pass. Run it by hand after editing a key.
 `./scripts/ci-local.sh` runs the same kind of checks on your own machine before
 you push.
 
