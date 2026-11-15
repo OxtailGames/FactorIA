@@ -51,6 +51,7 @@
 #include "localization_check.h"
 #include "fa/audio/snapshots.h"
 #include "js_scan.h"
+#include "player_commands.h"
 #include "script_lint.h"
 #include "util.h"
 
@@ -1505,6 +1506,8 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     {
         std::map<std::string, std::string> toolCommands;
         bool toolsRead = false;
+        tooling_detail::PlayerCommandContext playerContext;
+        bool playerContextRead = false;
         std::set<std::string> lintFailed;
         for (const auto& s : scripts) {
             if (failedScripts.count(s) || !stdfs::exists(stdfs::path(c.dir) / s)) continue;
@@ -1528,6 +1531,20 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                            "Tools are for working on the game and are not exported; move what the game needs into "
                            "scripts/.");
                 }
+            }
+            // A command the exported player does not have (authoring commands, a misspelled name): the export stops on it.
+            // tools/ and tests/ are not shipped, and neither is the autoplay bot.
+            if (s.rfind("tools/", 0) != 0 && s.rfind("tests/", 0) != 0 && s != "scripts/autoplay.js" &&
+                text->size() <= tooling_detail::kMaxScanScriptBytes && text->find("call") != std::string::npos) {
+                if (!playerContextRead) {
+                    playerContext.plugins = tooling_detail::declared_plugin_names(c.dir);
+                    playerContext.toolCommands = tooling_detail::tool_commands(c.dir);
+                    playerContextRead = true;
+                }
+                for (const tooling_detail::PlayerCommandIssue& issue :
+                     tooling_detail::player_command_issues(s, *text, playerContext))
+                    c.warn(s, "", std::to_string(issue.line) + ":" + std::to_string(issue.column) + ": " + issue.detail,
+                           issue.hint + " `factoria export` stops on this call.");
             }
         }
         if (options.loadCheck) {

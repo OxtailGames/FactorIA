@@ -47,6 +47,17 @@ SourcePos source_pos(const std::string& text, std::size_t offset);
 // cleans it. Empty when there is none: the engine does not register such a file either.
 std::string tool_module_name(const std::string& text);
 
+// A literal `fa.call("<command>"` in a script: the command name and where its opening quote is.
+struct LiteralCall {
+    std::string name;
+    int line = 0;
+    int column = 0;
+};
+// Every command a script calls by a string literal ('...' or "..."), each name once, at its first call, in source order.
+// A call inside a comment or a string is not found; neither is one whose name is not a plain literal (`fa.call(name)`,
+// a template string, a concatenation).
+std::vector<LiteralCall> literal_calls(const std::string& text);
+
 // A literal `fa.call("project.<name>"` in a script.
 struct ProjectCall {
     std::string name;  // <name>
