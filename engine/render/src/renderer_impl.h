@@ -71,18 +71,17 @@ struct Renderer::Impl {
     float textScale = 1.0f;  // Renderer::set_text_scale
     float uiScale = 1.0f;    // Renderer::set_ui_scale
 
-    sg_image colorImg{}, resolveImg{}, depthImg{};
-    sg_view colorAtt{}, resolveAtt{}, depthAtt{}, texView{};
-    sg_view resolveColorAtt{};  // MSAA only: the resolved image as a color attachment (bloom composites into it)
-    Bloom bloom;                // Camera.bloom post-process (intermediate targets are created on first use)
+    // The game target (make_target): gameTarget.colorAtt / resolveAtt / depthAtt are what the passes draw into, gameTarget.texView what
+    // bloom, the colour filter and present() sample; gameTarget.resolveColorAtt (MSAA) is the resolved image as a colour
+    // attachment, which bloom composites into.
+    Target gameTarget;
+    Bloom bloom;  // Camera.bloom post-process (intermediate targets are created on first use)
     // Camera.colorFilter: the filtered copy of the finished frame. A pass cannot read what it writes, so the filter
     // draws into this second image (made on first use) and present(), capture() and the editor viewport show it
     // while `filterActive` (the last frame was filtered).
-    sg_image filterImg{};
-    sg_view filterAtt{}, filterTex{};
+    Target filterTarget;
     bool filterActive = false;
-    sg_image shadowColor{}, shadowDepth{};
-    sg_view shadowColorAtt{}, shadowDepthAtt{}, shadowTexView{};
+    Target shadowTarget;  // the shadow map: R32F colour + depth (shadowTarget.texView is what the mesh programs sample)
     static constexpr int kShadowSize = 2048;
 
     DebugDraw debug;
@@ -101,8 +100,7 @@ struct Renderer::Impl {
     std::string lights2dScene;         // the scene path warnedLights2d and warnedShadows2d belong to
     // The 2D light buffer (light.glsl): the point lights of the frame added up, read by the lit visuals. Made when a frame
     // needs it, at lightScale of the target's size; kept while the size and the format stay.
-    sg_image lightImg{};
-    sg_view lightAtt{}, lightTexView{};
+    Target lightTarget;
     int lightW = 0, lightH = 0;
     sg_pixel_format lightImgFormat = SG_PIXELFORMAT_NONE;
     bool lightTargetFailed = false;
@@ -124,16 +122,14 @@ struct Renderer::Impl {
     // widget, made when a gather asks for it with a size and kept while the widget keeps asking; the ones nobody asked for in a
     // frame are freed at its end. Made like the game target (same sample count, same formats), because the pipelines are.
     struct ViewTarget {
-        sg_image color{}, resolve{}, depth{};
-        sg_view colorAtt{}, resolveAtt{}, depthAtt{}, texView{};
+        Target main;  // the colour (and resolve, depth) the camera draws into; main.texView is what the widget samples
         int w = 0, h = 0;
         bool used = false;   // asked for since the last release_unused_views()
         TextureAsset asset;  // what the UI quad samples: the resolved image, w x h
         // A Camera.renderTarget texture on a backend that stores render targets bottom-up (GL): the picture copied the right way
         // up into `flip`, which `asset` then samples, so a mesh, a Sprite or a Panel reads it like any file texture.
         bool flipCopy = false;
-        sg_image flip{};
-        sg_view flipAtt{}, flipTex{};
+        Target flip;  // the flipped copy: flip.colorAtt is drawn into, flip.texView sampled
     };
     std::unordered_map<std::uint64_t, std::unique_ptr<ViewTarget>> viewTargets;
     bool viewWarned = false;
@@ -170,14 +166,13 @@ struct Renderer::Impl {
     // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
     // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
     bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error);
-    sg_image readImg{};  // the RGBA8 copy read_rgba8 makes, kept for the next capture of the same size
+    Target readbackTarget;  // the RGBA8 copy read_rgba8 makes, kept for the next capture of the same size
     void free_read_image();
     // True when the images and views of the game target were made (create_targets) and the GPU accepted them.
     bool game_targets_valid() const;
-    sg_view readAtt{};
     int readW = 0, readH = 0;
-    sg_image final_image() const { return filterActive ? filterImg : (gpu.sample_count() > 1 ? resolveImg : colorImg); }
-    sg_view final_view() const { return filterActive ? filterTex : texView; }
+    sg_image final_image() const { return filterActive ? filterTarget.color : gameTarget.texture_image(); }
+    sg_view final_view() const { return filterActive ? filterTarget.texView : gameTarget.texView; }
     void create_shadow_targets();
     bool ensure_light_target(float scale);
     sg_view upload_shadow_rows(const Frame& fr);
