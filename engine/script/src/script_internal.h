@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -20,6 +21,7 @@
 #include "fa/core/profiler.h"
 
 #include "fa/platform/accessibility.h"
+#include "fa/platform/websocket.h"
 #include "fa/scene/serialize.h"
 #include "fa/script/script.h"
 #include "fa/services/platform.h"
@@ -124,6 +126,17 @@ struct ScriptSystem::Impl {
         0;  // tilemap.generate generations the script side still advances (tilemap API in factoria.js); dispatch_platform calls its generateTick while it is above 0
     std::vector<int>
         wfcJobIds;  // the jobs tilemap.generate_start answered to calls of the script (ScriptHost::drop_script_jobs)
+    // ---- WebSocket connections of the scripts (the `websocket` object of the prelude, docs/NETWORKING.md "WebSocket"). They
+    // belong to the scene that opened them: resetScene releases every one, and what a client still reports after that is dropped.
+    struct WebSocketEntry {
+        std::unique_ptr<WebSocket> ws;
+        std::deque<WebSocketEvent> pending;  // polled from the client, not yet given to the script
+    };
+    std::map<int, WebSocketEntry> websockets;
+    int nextWebSocketId = 1;  // never reused, so an event can never be given to another connection
+    static constexpr std::size_t kMaxWebSockets = 32;  // open at once; a game talks to a few servers
+    // Gives the script the events that arrived since the last frame: at most 256 events and 8 MB per frame, the rest next frame.
+    void deliver_websockets();
     std::vector<ScriptPlugin> plugins;  // set_plugins: the `plugins` object of scripts
     Json plugins_json() const;          // [{name, error?, functions: [{name, doc}]}] (script_api.cpp)
 

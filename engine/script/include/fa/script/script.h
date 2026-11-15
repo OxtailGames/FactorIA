@@ -50,6 +50,7 @@ class TextMeasurer;
 class CameraSet;
 class UiSystem;
 class Clipboard;
+class WebSocketClient;
 class PlatformServices;
 class I18n;
 
@@ -120,6 +121,9 @@ public:
     // The clipboard `clipboard.*` reads and writes (the system's in a game window, an in-memory one in headless runs and tests).
     // nullptr: none, and clipboard.supports is false.
     virtual Clipboard* clipboard() { return nullptr; }
+    // The WebSocket client behind `websocket.connect` in scripts (the system's in a game window, a memory one in headless runs
+    // and tests: fa/platform/websocket.h). nullptr: none, and websocket.supported is false.
+    virtual WebSocketClient* websocket_client() { return nullptr; }
     // The store services behind `platform.*` in scripts (fa/services/platform.h); nullptr when the host has none, and
     // `platform` then reports the "none" backend.
     virtual PlatformServices* platform_services() { return nullptr; }

@@ -2381,7 +2381,7 @@
 
   // Cross-scene game state: a plain object that survives scene loads for the whole run (reset per test file).
   const session = {};
-  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); generateReset(); storageReset(); servicesReset(); }
+  function resetSession() { for (const k of Object.keys(session)) delete session[k]; platformReset(); preloadReset(); generateReset(); storageReset(); servicesReset(); wsReset(true); }
 
   class ToolError extends Error {
     // Expected failure of a tool: `hint` says how to fix it, `data` (optional object) is reported with the error.
@@ -3003,6 +3003,262 @@
     },
   };
 
+  // ================================================================================================== websocket
+  // websocket.connect(url, options): a WebSocket to a host that factoria.json "network" declares, the same list as http.fetch
+  // (docs/NETWORKING.md, "WebSocket"). What happens on the network arrives as events at the start of an engine frame, never in
+  // the middle of a script. A mistake in the call (an undeclared host, a bad option) throws at once; a failure of the network is
+  // an "error" event followed by a "close" event, and with options.reconnect the connection tries again after a delay that grows
+  // (exponential backoff with a jitter that is the same on every run: no rand(), the engine clock). A scene change closes every
+  // connection without events: what the old scene's server sends later is dropped.
+  const WS_OPTIONS = ["protocols", "headers", "timeout", "maxMessageBytes", "reconnect"];
+  const WS_RECONNECT_OPTIONS = ["maxAttempts", "minDelay", "maxDelay", "factor", "jitter"];
+  const WS_EVENTS = ["open", "message", "error", "close", "reconnecting"];
+  const WS_RECONNECT_DEFAULTS = Object.freeze({ maxAttempts: 10, minDelay: 1, maxDelay: 30, factor: 2, jitter: 0.25 });
+  const wsStates = new WeakMap();   // connection -> its state
+  const wsByNative = new Map();     // id of the engine's connection -> state (a reconnect gets a new id)
+  const wsAll = new Set();          // states of the connections that are not closed for good (waiting to reconnect included)
+  const wsWaiting = new Set();      // the ones that wait for their reconnect time
+  const wsLocal = [];               // failures made here (a platform with no client): delivered at the next serviceTick
+  let wsClock = 0;                  // engine seconds since the last reset, whatever the time scale
+  let wsSeq = 0;                    // connections made since the last reset: part of the seed of the jitter
+  const wsLabel = (url) => `websocket.connect(${platformArg(url)})`;
+  const wsFail = (label, m) => { const e = new Error(`${label}: ${m.message}` + (m.hint ? ` (hint: ${m.hint})` : "")); e.hint = m.hint || ""; return e; };
+
+  // mulberry32: the same sequence for the same seed on every machine.
+  function wsRandom(st) {
+    st.seed = (st.seed + 0x6D2B79F5) | 0;
+    let t = Math.imul(st.seed ^ (st.seed >>> 15), 1 | st.seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  }
+  // The wait before reconnect number st.attempt (1 for the first): minDelay * factor^(attempt-1), at most maxDelay, moved by up to
+  // +-jitter of itself.
+  function wsDelay(st) {
+    const r = st.reconnect;
+    const base = Math.min(r.maxDelay, r.minDelay * Math.pow(r.factor, st.attempt - 1));
+    const moved = base * (1 + r.jitter * (wsRandom(st) * 2 - 1));
+    return Math.round(Math.min(r.maxDelay, Math.max(0, moved)) * 1000) / 1000;
+  }
+  function wsNormalizeReconnect(label, v) {
+    if (v === undefined || v === null || v === false) return null;
+    if (v === true) return Object.assign({}, WS_RECONNECT_DEFAULTS);
+    if (!isObj(v) || Array.isArray(v))
+      throw new Error(`${label}: reconnect must be true, false or an object like { maxAttempts: 5, minDelay: 1 }, but got ${platformArg(v)}`);
+    for (const k of Object.keys(v)) {
+      if (WS_RECONNECT_OPTIONS.includes(k)) continue;
+      const sug = closest(k, WS_RECONNECT_OPTIONS);
+      throw new Error(`${label}: unknown reconnect option '${k}'${sug ? ` (did you mean '${sug}'?)` : ""}; use ${quotedList(WS_RECONNECT_OPTIONS)}`);
+    }
+    const r = Object.assign({}, WS_RECONNECT_DEFAULTS, v);
+    const num = (k, ok, rule) => { if (typeof r[k] !== "number" || Number.isNaN(r[k]) || !ok(r[k])) throw new Error(`${label}: reconnect.${k} must be ${rule}, but got ${platformArg(v[k])}`); };
+    num("maxAttempts", (x) => x >= 1 && (x === Infinity || Number.isInteger(x)), "a whole number of 1 or more (Infinity never gives up)");
+    num("minDelay", (x) => x > 0 && x < Infinity, "seconds above 0");
+    num("maxDelay", (x) => x >= r.minDelay && x < Infinity, "seconds, at least minDelay");
+    num("factor", (x) => x >= 1 && x < Infinity, "1 or more");
+    num("jitter", (x) => x >= 0 && x <= 1, "a fraction from 0 to 1");
+    return r;
+  }
+  function wsEmit(st, name, data) {
+    const list = st.handlers[name];
+    if (!list || !list.length) return;
+    for (const fn of list.slice()) {
+      if (st.dead) return;
+      N.guardBegin(`websocket '${name}' handler`, 2.0);
+      try { fn.call(st.conn, data); } catch (e) { N.reportError(e, "", `websocket.on('${name}')`); }
+      N.guardEnd();
+    }
+  }
+  // Starts one attempt. Returns null, or { message, hint } when the engine refuses the call.
+  function wsStart(st) {
+    const o = { protocols: st.protocols, headers: st.headers, timeout: st.timeout, maxMessageBytes: st.maxMessageBytes };
+    const r = N.wsOpen(st.url, o);
+    if (r.mistake) return r.mistake;
+    st.state = "connecting";
+    if (r.unavailable !== undefined) { wsLocal.push({ st, reason: r.unavailable }); return null; }
+    st.id = r.id;
+    wsByNative.set(r.id, st);
+    return null;
+  }
+  function wsHandle(st, ev) {
+    if (st.dead) return;
+    switch (ev.type) {
+      case "open":
+        st.state = "open"; st.protocol = ev.subprotocol; st.attempt = 0;
+        wsEmit(st, "open", { protocol: ev.subprotocol, reconnected: st.opened });
+        st.opened = true;
+        break;
+      case "text": wsEmit(st, "message", { data: ev.data, binary: false }); break;
+      case "binary": wsEmit(st, "message", { data: ev.data, binary: true }); break;
+      case "error": wsEmit(st, "error", { message: ev.message, hint: ev.hint, httpStatus: ev.httpStatus }); break;
+      case "close": {
+        if (st.id) wsByNative.delete(st.id);
+        st.id = 0; st.protocol = "";
+        const will = !!st.reconnect && !st.userClosed && !ev.unavailable && st.attempt < st.reconnect.maxAttempts;
+        st.state = will ? "connecting" : "closed";
+        wsEmit(st, "close", { code: ev.code, reason: ev.reason, wasClean: ev.wasClean, willReconnect: will });
+        if (st.dead) break;
+        if (will && !st.userClosed) {
+          st.attempt++;
+          const delay = wsDelay(st);
+          st.retryAt = wsClock + delay;
+          wsWaiting.add(st);
+          wsEmit(st, "reconnecting", { attempt: st.attempt, delay });
+        } else {
+          st.state = "closed";
+          wsAll.delete(st);
+        }
+        break;
+      }
+    }
+  }
+  function websocketDeliver(list) {
+    for (const ev of list) {
+      const st = wsByNative.get(ev.id);
+      if (!st || st.id !== ev.id) continue;  // a connection of an old scene, or one that was closed: nobody is waiting
+      wsHandle(st, ev);
+    }
+  }
+  function wsTick(dt) {
+    wsClock += dt;
+    if (wsLocal.length) {
+      for (const l of wsLocal.splice(0)) {
+        if (l.st.dead || l.st.state !== "connecting") continue;
+        wsHandle(l.st, { type: "error", message: `WebSocket is not available here: ${l.reason}`,
+          hint: "Check websocket.supported before connecting, and play the game on a platform that has a WebSocket client.", httpStatus: 0 });
+        wsHandle(l.st, { type: "close", code: 1006, reason: "", wasClean: false, unavailable: true });
+      }
+    }
+    if (wsWaiting.size) {
+      for (const st of Array.from(wsWaiting)) {
+        if (wsClock < st.retryAt) continue;
+        wsWaiting.delete(st);
+        const m = wsStart(st);
+        if (m) {  // the call is refused now (too many connections open): the attempt fails like any other
+          wsLocal.push({ st, reason: m.message });
+        }
+      }
+    }
+  }
+  function wsReset(testRun) {
+    for (const st of wsAll) { st.dead = true; st.state = "closed"; st.id = 0; }
+    wsAll.clear(); wsByNative.clear(); wsWaiting.clear(); wsLocal.length = 0;
+    wsClock = 0; wsSeq = 0;
+    N.wsRelease(0, !!testRun);
+  }
+
+  class WebSocketConnection {
+    // The address, as given to websocket.connect.
+    get url() { return wsStates.get(this).url; }
+    // "connecting" (also while it waits to reconnect), "open", "closing" or "closed".
+    get readyState() { return wsStates.get(this).state; }
+    // The subprotocol the server chose ("" = none); empty until open.
+    get protocol() { return wsStates.get(this).protocol; }
+    // Reconnects tried since the connection was last open (0 while it is open or after the first connect).
+    get attempt() { return wsStates.get(this).attempt; }
+    // Bytes that send() accepted and the network has not taken yet.
+    get bufferedAmount() { const st = wsStates.get(this); return st.id ? N.wsBuffered(st.id) : 0; }
+    // on(event, fn) -> a function that removes the handler. Events: "open" { protocol, reconnected }, "message" { data, binary }
+    // (data is a string, or an ArrayBuffer for a binary message), "error" { message, hint, httpStatus }, "close" { code, reason,
+    // wasClean, willReconnect }, "reconnecting" { attempt, delay }.
+    on(event, fn) {
+      const st = wsStates.get(this);
+      if (!WS_EVENTS.includes(event)) {
+        const sug = closest(String(event), WS_EVENTS);
+        throw new Error(`websocket.on(${platformArg(event)}, fn): unknown event${sug ? ` (did you mean '${sug}'?)` : ""}; use ${quotedList(WS_EVENTS)}`);
+      }
+      if (typeof fn !== "function") throw new Error(`websocket.on(${platformArg(event)}, fn): fn must be a function, but got ${platformArg(fn)}`);
+      st.handlers[event].push(fn);
+      return () => this.off(event, fn);
+    }
+    off(event, fn) {
+      const list = wsStates.get(this).handlers[event];
+      const i = list ? list.indexOf(fn) : -1;
+      if (i >= 0) list.splice(i, 1);
+    }
+    // send(data) -> true when the message was queued, false when the connection is not open (still connecting, waiting to
+    // reconnect, closing or closed). data is a string, an ArrayBuffer or a typed array; to send an object use
+    // ws.send(JSON.stringify(obj)). Throws when the data cannot be sent at all (another type, a message over maxMessageBytes).
+    send(data) {
+      const st = wsStates.get(this);
+      const binary = typeof data !== "string";
+      if (binary && !(data instanceof ArrayBuffer) && !ArrayBuffer.isView(data))
+        throw new Error(`websocket.send(data): data must be a string, an ArrayBuffer or a typed array, but got ${platformArg(data)} (hint: send an object as ws.send(JSON.stringify(obj)))`);
+      if (st.state !== "open" || !st.id) return false;
+      const r = N.wsSend(st.id, binary, data, binary ? data.byteLength : 0);
+      if (r === true) return true;
+      if (r && r.error && r.error.code === "state") return false;
+      throw wsFail("websocket.send(data)", r.error);
+    }
+    // close(code = 1000, reason = ""): starts the closing handshake; a "close" event follows. code is 1000 or 3000 to 4999,
+    // reason at most 123 bytes of UTF-8. A connection that waits to reconnect stops waiting. Closing twice does nothing.
+    close(code = 1000, reason = "") {
+      const st = wsStates.get(this);
+      if (typeof code !== "number" || typeof reason !== "string")
+        throw new Error(`websocket.close(code, reason): expected a number and a string like ws.close(1000, "bye"), but got ${platformArg(code)} and ${platformArg(reason)}`);
+      if (st.state === "closed" || st.state === "closing") return;
+      if (st.id) {
+        const r = N.wsClose(st.id, code, reason);
+        if (r && r.error) throw wsFail("websocket.close(code, reason)", r.error);
+        st.userClosed = true; st.state = "closing";
+        return;
+      }
+      st.userClosed = true;
+      if (wsWaiting.has(st)) { wsWaiting.delete(st); st.state = "closed"; wsAll.delete(st); }
+      // else: an attempt that failed at once is reported at the next frame; its "close" event ends the connection.
+    }
+  }
+
+  const websocket = {
+    // connect(url, options?) -> WebSocketConnection, connecting. url: ws:// or wss://, its host declared in factoria.json "network".
+    // options: { protocols?: string[], headers?: { name: value }, timeout?: seconds (15), maxMessageBytes?: number (4194304),
+    // reconnect?: true | { maxAttempts = 10, minDelay = 1, maxDelay = 30, factor = 2, jitter = 0.25 } }. Headers are not sent by the
+    // browser's WebSocket (web builds): a game for the web leaves them out.
+    connect(url, options) {
+      const label = wsLabel(url);
+      if (typeof url !== "string") throw new Error(`${label}: url must be a string like "wss://game.example.com/room", but got ${platformArg(url)}`);
+      if (options !== undefined && options !== null && (!isObj(options) || Array.isArray(options)))
+        throw new Error(`${label}: options must be an object like { reconnect: true }, but got ${platformArg(options)}`);
+      const o = options || {};
+      for (const k of Object.keys(o)) {
+        if (WS_OPTIONS.includes(k)) continue;
+        const sug = closest(k, WS_OPTIONS);
+        throw new Error(`${label}: unknown option '${k}'${sug ? ` (did you mean '${sug}'?)` : ""}; use ${quotedList(WS_OPTIONS)}`);
+      }
+      if (o.protocols !== undefined && (!Array.isArray(o.protocols) || o.protocols.some((p) => typeof p !== "string")))
+        throw new Error(`${label}: protocols must be an array of strings like ["chat.v1"], but got ${platformArg(o.protocols)}`);
+      if (o.headers !== undefined && (!isObj(o.headers) || Array.isArray(o.headers) || Object.values(o.headers).some((v) => typeof v !== "string")))
+        throw new Error(`${label}: headers must be an object of strings like { Authorization: "Bearer ..." }, but got ${platformArg(o.headers)}`);
+      for (const k of ["timeout", "maxMessageBytes"])
+        if (o[k] !== undefined && (typeof o[k] !== "number" || !(o[k] > 0)))
+          throw new Error(`${label}: ${k} must be a number above 0, but got ${platformArg(o[k])}`);
+      const reconnect = wsNormalizeReconnect(label, o.reconnect);
+      let seed = 2166136261;
+      for (let i = 0; i < url.length; i++) seed = Math.imul(seed ^ url.charCodeAt(i), 16777619);
+      const st = {
+        conn: null, url, protocols: o.protocols ? o.protocols.slice() : [], headers: Object.assign({}, o.headers),
+        timeout: o.timeout, maxMessageBytes: o.maxMessageBytes, reconnect, id: 0, state: "connecting", protocol: "", attempt: 0,
+        userClosed: false, opened: false, dead: false, retryAt: 0, seed: (seed ^ Math.imul(wsSeq + 1, 0x9E3779B1)) | 0,
+        handlers: { open: [], message: [], error: [], close: [], reconnecting: [] },
+      };
+      const m = wsStart(st);
+      if (m) throw wsFail(label, m);
+      wsSeq++;
+      const conn = new WebSocketConnection();
+      st.conn = conn;
+      wsStates.set(conn, st);
+      wsAll.add(st);
+      return conn;
+    },
+    // True when this platform has a WebSocket client; false: connect() still returns a connection, which fails with an "error"
+    // and a "close" event at the next frame.
+    get supported() { return N.wsInfo().supported; },
+    // The name of the client that opens connections: "memory" in tests and headless runs, or the platform's ("winhttp",
+    // "nsurlsession", "curl", "socket", "browser"), or "unavailable".
+    get backend() { return N.wsInfo().backend; },
+    // Why websocket.supported is false ("" when it is true).
+    get unsupportedReason() { const i = N.wsInfo(); return i.supported ? "" : i.reason; },
+  };
+
   // ============================================================================================ analytics, remoteConfig
   // Two services on top of http.fetch (docs/ANALYTICS.md): analytics.event(name, props) queues a small event and sends the
   // queue in batches, only after the player consented; remoteConfig.get(key, default) reads values the game's server hands out,
@@ -3263,6 +3519,7 @@
 
   function serviceTick(dt) {
     svcClock += dt;
+    wsTick(dt);
     if (!svcInTest()) { rcStart(); askAds(); }  // tests fetch on first use, so an unscripted answer never lands in the call log
     if (rc.waiters.length) {
       const due = rc.waiters.filter((w) => svcClock >= w.deadline);
@@ -4017,7 +4274,7 @@
 
   const factoria = {
     Behaviour, Entity, feel, world, input, audio, physics, nav, time, camera, debug, scene, tilemap: tilemapApi, game, screen, storage, rng, fa,
-    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, didYouMean, particles, vfx, ui, assets, plugins, platform, http, analytics, remoteConfig, i18n,
+    vec2, vec3, color, Vec2, Vec3, Color, math, session, ToolError, didYouMean, particles, vfx, ui, assets, plugins, platform, http, websocket, analytics, remoteConfig, i18n,
     window: windowApi, clipboard: clipboardApi, render, mesh, tween, ease, cancelTweens, bt,
   };
   // Read checks (development runs): every plain-object namespace; classes, functions and the plugins Proxy are left as they are.
@@ -4348,6 +4605,11 @@
     if (isObj(p) && typeof p.x === "number") return [p.x, p.y];
     throw new Error(`${what} expects a screen position {x, y} or [x, y], got ${inspect(p)}`);
   };
+  function wsTestCall(op, ...args) {
+    const r = N.wsTest(op, ...args);
+    if (isObj(r) && !Array.isArray(r) && r.error) throw wsFail(`game.websocket.${op}()`, r.error);
+    return r;
+  }
   const gameApiBase = {
     get paused() { return game.paused; },
     set paused(v) { game.paused = v; },
@@ -4662,6 +4924,38 @@
       // Every request the game made: [{ seq, frame, method, args, ok, result | error }], oldest first.
       calls() { const s = fa.call("platform.state"); return s.fake ? s.fake.calls : []; },
     },
+    // The server side of the WebSocket connections of this test run (docs/NETWORKING.md, "Testing"): nothing touches the network,
+    // the memory client makes a scripted server of every websocket.connect. i is the number of the connection in the order the
+    // game made them (reconnects count); the events of an action reach the game at the next game.step().
+    websocket: {
+      // Every connection so far: [{ index, url, protocols, headers, open, closed, closedByGame, closeCode, closeReason, received }],
+      // received = what the game sent (a string, or an ArrayBuffer for a binary message), oldest first.
+      connections() { return wsTestCall("list"); },
+      // accept(i, protocol = ""): completes the handshake (the game's "open" event). Needed only after autoAccept(false).
+      accept(i, protocol = "") { wsTestCall("accept", i, protocol); },
+      // refuse(i, message?, httpStatus = 0): the handshake fails: the game gets "error" and "close" 1006.
+      refuse(i, message, httpStatus = 0) { wsTestCall("refuse", i, message, httpStatus); },
+      // send(i, data): the server sends a message: a string, an ArrayBuffer or a typed array.
+      send(i, data) {
+        const binary = typeof data !== "string";
+        if (binary && !(data instanceof ArrayBuffer) && !ArrayBuffer.isView(data))
+          throw new Error(`game.websocket.send(i, data): data must be a string, an ArrayBuffer or a typed array, but got ${platformArg(data)}`);
+        wsTestCall("send", i, binary, data, binary ? data.byteLength : 0);
+      },
+      // close(i, code = 1000, reason = ""): the server closes cleanly: the game gets "close" with that code.
+      close(i, code = 1000, reason = "") { wsTestCall("close", i, code, reason); },
+      // drop(i, message?): the connection breaks with no close frame: "error" then "close" 1006.
+      drop(i, message) { wsTestCall("drop", i, message); },
+      // autoAccept(on): false = a connection waits for accept(i) or refuse(i). refuseNext(count = 1, message?): the next `count`
+      // attempts fail like an unreachable server (what a reconnect test needs). autoCloseReply(i, on): false = the server
+      // does not answer the game's close() until close(i) is called.
+      autoAccept(on = true) { wsTestCall("autoAccept", on); },
+      refuseNext(count = 1, message) { wsTestCall("refuseNext", count, message); },
+      autoCloseReply(i, on = true) { wsTestCall("autoCloseReply", i, on); },
+      // reset(): closes the game's connections without events, forgets every connection of the server and puts the defaults back
+      // (autoAccept on, no refuseNext). A new test file starts with it done; call it at the start of a test that counts connections.
+      reset() { wsReset(true); },
+    },
     // What analytics (docs/ANALYTICS.md) did in this test run, without a network: the batches go through http.fetch, so script the
     // server with game.platform.respond("http.fetch", ...) (an unscripted request fails like an offline player and is retried).
     analytics: {
@@ -4867,6 +5161,7 @@
 
   function resetScene() {
     generateReset();
+    wsReset(false);  // the connections end with the scene: no event is delivered
     voiceEnded.clear(); timers.reset(); tweens.reset(); listeners.clear(); entityCache.clear(); backHandlers.length = 0; N.inCursor(4, false); pausedScale = null; // a scene load ends the pause bookkeeping: time.scale = v applies at once again
     timers.now = 0;
     tooltipFns.clear(); worldTooltipFn = null; dropFns.clear(); worldDropFn = null;
@@ -4875,7 +5170,7 @@
   return {
     tooltipFor, worldTooltip, dropAccepts, worldDropAccepts,
     factoria, test: testApi,
-    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, generateTick, storageDeliver, back: deliverBack,
+    isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, websocketDeliver, preloadDeliver, generateTick, storageDeliver, back: deliverBack,
     tick: (dt) => { timers.tick(dt); tickTweens(dt); tickVoices(); },
     serviceTick, serviceSuspend, serviceQuit, servicePending,
     resetScene, autoplayStep, autoplayHas,
