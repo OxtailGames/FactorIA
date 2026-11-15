@@ -77,9 +77,9 @@ struct Request {
     // Of scene.import_ascii only (fa_authoring fills them; scene.place_ascii never does):
     bool save = false;
     // File mode: edit the scene FILE `path` in a scratch World instead of the running world.
-    std::string path;     // normalized, project-relative; "" = edit the running world
-    std::string from;     // scene file to start from instead of `path` ("" = `path` itself)
-    bool dryRun = false;  // file mode: write nothing, return the scene JSON
+    std::string path;               // normalized, project-relative; "" = edit the running world
+    std::string from;               // scene file to start from instead of `path` ("" = `path` itself)
+    bool dryRun = false;            // file mode: write nothing, return the scene JSON
     Json edits = Json::object();    // file mode: {entity id: {Component: {field: value}}}
     Json tilemap = Json::object();  // Tilemap fields to apply
     bool place = false;             // position and/or anchor given
