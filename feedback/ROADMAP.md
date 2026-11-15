@@ -112,8 +112,9 @@ file: then put this status and the milestones section back).
 # Next engine milestones
 
 **What comes next (2026-11-15):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
-M92 (0.25.0), M93 (0.26.0), M94 (0.27.0) and M95 (0.28.0) are done. Next M96 and M98 (M97.3-M97.5 alongside), and only
-then M71-M89 in their own order: M71 builds on M95's frame graph and M75 on M94.4. M99 waits for the user's hardware and accounts.
+M92 (0.25.0), M93 (0.26.0), M94 (0.27.0), M95 (0.28.0) and M96 (0.29.0) are done. Next M98 (M97.3-M97.5 alongside), and
+only then M71-M89 in their own order: M71 builds on M95's frame graph and M75 on M94.4. M99 waits for the user's hardware
+and accounts.
 The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of the open
 entries of `examples/*`. Update this paragraph when a milestone lands.
 
@@ -418,6 +419,14 @@ M93 (0.26.0):
 - stb_truetype asserts (`z->ey >= scan_y_top`) on some mutated fonts in sanitized Debug fuzzing; it is upstream code in
   external/, not patched.
 - Platform-specific code (_win32, _android, the D3D11 path) is not covered by the sanitizers, which run on Linux only.
+
+M96 (0.29.0):
+- The dev/test commands (`game.screenshot`, play sessions, `script.eval` and similar) still ship in the player; moving them
+  behind a dev flag or into `fa_authoring` is future work.
+- Player size budgets exist only for macos-arm64; the other platforms get their maxBytes from the first CI round
+  (`scripts/player-size.sh update`).
+- The `ctest_shard.py` weights of the new `authoring` test are estimates (20 s Windows, 100 s ASan) until a CI run measures
+  them.
 
 ## M8. Leftovers of M7, desktop download next steps (L, *proactive*)
 
@@ -1210,7 +1219,7 @@ entry of `examples/*` opens each milestone.
   shadows, post-processing and render targets are passes with their cost in the profiler. M71 (HDR and the stack), M72
   and M76 build on it. Test: every golden unchanged on every backend.
 
-## M96. A smaller player: runtime and authoring apart (L; 3 packages) — outside review, 2026-11-09
+## M96. A smaller player: runtime and authoring apart (L; 3 packages) — outside review, 2026-11-09 — DONE in 0.29.0
 
 - M96.1 (L) `fa_runtime` split: the authoring commands that live in it today (wfc, level, terrain, mesh, anim and vfx
   authoring...) move to a library the player does not link; the editor, the CLI and MCP keep them; the export checks
