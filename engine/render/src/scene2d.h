@@ -41,7 +41,8 @@ namespace fa::render {
 // of that camera's Frame, a `donor`, and the range of items) and where the entity is. The next camera that draws the entity
 // appends a copy of those items to its own list (QuadList::append_items) instead of building them again, with its own sort key.
 // A camera that has nothing to copy builds as before, straight into its Frame. A Scene2D lives for one gather round of one
-// frame: its donors are Frame lists and must stay in place until the last gather of the round (renderer.cpp reserves the
+// frame (apply_sprite_frames runs once per frame before the first gather, so a SpriteAnimator whose texture is its own camera's
+// render target uses the target's real size, not the checker's, and its region at the end of the frame is the real one): its donors are Frame lists and must stay in place until the last gather of the round (renderer.cpp reserves the
 // vectors of Frames that it fills).
 class Scene2D {
 public:
@@ -58,6 +59,10 @@ public:
     void gather(World& world, Frame& f);
     // gather_particles for the camera of `f`.
     void gather_particles(World& world, Frame& f);
+
+    // The caller knows that this Scene2D gathers for one destination only (one frame, no target, no view): nothing is shared, so
+    // no slot is kept (the tables cost ~40 B per entity index, and every frame). The lists are the same. Call before the first gather.
+    void set_single_destination(bool single) { single_ = single; }
 
     const Work& work() const { return work_; }
 
@@ -79,7 +84,8 @@ private:
         Vec3 pos{};         // where the entity is drawn: the perspective sort key is the distance from the camera
         int particles = 0;  // an emitter's live particles, for the stats
     };
-    static Slot& slot_of(std::vector<Slot>& table, Entity e);
+    // The slot of `e` in `table`. A round with one destination keeps no slots (nothing is shared): a scratch slot, reset.
+    Slot& slot_of(std::vector<Slot>& table, const World& world, Entity e);
     float sort_key(const Slot& s, const Frame& f) const;
 
     void gather_sprites(World& world, Frame& f);
@@ -87,6 +93,8 @@ private:
 
     std::vector<Slot> sprites_, shapes_, emitters_;
     Work work_;
+    Slot scratch_;
+    bool single_ = false;
     bool begun_ = false;
 };
 

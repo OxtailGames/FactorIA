@@ -627,6 +627,9 @@ void Renderer::Impl::render(World& world, float dt) {
         // The camera-independent part of the 2D gather is done by the first camera that draws an entity and copied by the others
         // (scene2d.h). It keeps pointers to the quad lists of the Frames it gathered, so those vectors must not reallocate.
         Scene2D scene2d;
+        // One frame, no render target, no CameraView (the UI gather would add a destination after the first gather): nothing
+        // is shared, so Scene2D keeps no per-entity tables.
+        scene2d.set_single_destination(specs.size() == 1 && targetCams.empty() && !world.any<CameraView>());
         targetFrames.clear();
         targetFrames.reserve(targetCams.size());
         for (std::size_t i = 0; i < specs.size(); ++i) {
@@ -646,6 +649,9 @@ void Renderer::Impl::render(World& world, float dt) {
         // One job per CameraView the UI met: a world gather of its camera at the size of its rectangle.
         // One job per render target: a world gather of its camera at the size of its texture. Its own texture is the checker meanwhile.
         for (const TargetCam& tc : targetCams) {
+            // Scene2D keeps pointers into fr.world: the vector must not reallocate (reserved above).
+            FA_ASSERT(targetFrames.size() < targetFrames.capacity(),
+                      "targetFrames would reallocate under Scene2D's donors");
             Frame& fr = targetFrames.emplace_back();
             targetSelf = tc.name;
             const Vec2 size{float(tc.w), float(tc.h)};
@@ -676,6 +682,9 @@ void Renderer::Impl::render(World& world, float dt) {
                 bool seen = false;
                 for (const auto& v : viewFrames) seen = seen || v.first == rq.key;
                 if (seen) continue;
+                // Scene2D keeps pointers into fr.world: the vector must not reallocate (reserved above).
+                FA_ASSERT(viewFrames.size() < viewFrames.capacity(),
+                          "viewFrames would reallocate under Scene2D's donors");
                 Frame& fr = viewFrames.emplace_back(rq.key, Frame{}).second;
                 fr.cam = build_camera(world, rq.camera, &rq.size);
                 fr.wantWorld = true;

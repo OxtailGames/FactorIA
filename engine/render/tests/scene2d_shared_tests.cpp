@@ -129,6 +129,10 @@ void expect_same_list(const QuadList& a, const QuadList& b, const std::string& w
     for (std::size_t i = 0; i < a.items.size(); ++i) {
         INFO("item " << i);
         const QuadItem &x = a.items[i], &y = b.items[i];
+        if (i > 0) {
+            CHECK(a.items[i - 1].seq < x.seq);
+            CHECK(b.items[i - 1].seq < y.seq);
+        }
         CHECK(x.layer == y.layer);
         CHECK(x.secondary == y.secondary);
         CHECK(x.firstVert == y.firstVert);
@@ -487,11 +491,15 @@ TEST_CASE("Scene2D: more Sprites and particles than the jobs split join in order
     }
     for (const Mode& m : modes) {
         INFO("jobs: " << m.name);
-        bool started = false;
+        // Stops the workers also when a REQUIRE below throws.
+        struct JobsGuard {
+            bool started = false;
+            ~JobsGuard() {}
+        } jobsGuard;
         if (m.start) {
             auto r = jobs::start(m.settings);
             REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
-            started = true;
+            jobsGuard.started = true;
         }
         Rig rig(g);
         Run run;
@@ -500,7 +508,6 @@ TEST_CASE("Scene2D: more Sprites and particles than the jobs split join in order
         CHECK(run.work.spritesBuilt == 1500 + 215);
         CHECK(run.work.emittersBuilt == 3);
         CHECK(run.work.emittersCopied == 3);
-        if (started) jobs::stop();
     }
 }
 
