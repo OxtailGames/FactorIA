@@ -418,10 +418,13 @@ public:
     void late_update(float dt);   // onLateUpdate
     void settle_activation();     // onStart/onEnable/onDisable for entities (de)activated this frame, before drawing
     void dispatch_events();       // world.events() -> onCollision*/onTrigger*/world.on(...) handlers, then clear
+    // Start of an engine frame (once per outermost frame, with end_frame): lets on_scene_loaded know a load happens inside a
+    // frame, so the frame that carries its onStart calls is the next one (the frames of a load are left out of the budget).
+    void begin_frame();
     // End of an engine frame (the host calls it once per frame, after everything that runs scripts, with the frame's index and
     // its dt): checks the script time the frame's update, fixed steps, events and platform answers added up against
     // runtime.scriptFrameBudgetMs (fa/script/script_budget.h). Over it, the profiler marks the frame (Profiler::add_over_budget)
-    // and a `warn` is logged in category `script` naming the slowest callbacks, the first time and then at most once every
+    // and a `warn` is logged in category `script.budget` naming the slowest callbacks, the first time and then at most once every
     // 5 seconds of the game clock (the sum of the dt it gets). Measures and logs only: nothing the game computes changes.
     void end_frame(std::uint64_t frame, double dt);
     // What init() resolved for this platform from runtime.scriptMemoryMB (the heap cap) and runtime.scriptFrameBudgetMs (0 = off).

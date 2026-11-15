@@ -215,6 +215,7 @@ double ScriptSystem::Impl::budget_clock() {
 // frame and a warning is logged, the first time and then at most once every kBudgetWarnSeconds of game time.
 void ScriptSystem::Impl::end_frame(std::uint64_t frame, double dt) {
     constexpr double kBudgetWarnSeconds = 5.0;
+    frameOpen = false;
     budgetClock += std::max(0.0, dt);
     const double seconds = frameSeconds;
     const double smallSeconds = frameSmallSeconds;
@@ -1218,6 +1219,7 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
         frameSeconds = 0;
         frameLabels.clear();
         loadFramesLeft = 0;
+        frameOpen = false;
         budgetClock = nextBudgetWarn = 0;
         framesOverSinceWarn = 0;
         budgetWarned = false;
@@ -1402,6 +1404,7 @@ CapabilitySet ScriptSystem::game_capabilities() const { return impl_->gameCaps; 
 void ScriptSystem::set_callback_limit(double seconds) { impl_->callbackLimit = seconds; }
 double ScriptSystem::memory_limit_mb() const { return impl_->memoryLimitMB; }
 double ScriptSystem::frame_budget_ms() const { return impl_->frameBudgetMs; }
+void ScriptSystem::begin_frame() { impl_->frameOpen = true; }
 void ScriptSystem::end_frame(std::uint64_t frame, double dt) { impl_->end_frame(frame, dt); }
 void ScriptSystem::set_plugins(std::vector<ScriptPlugin> plugins) { impl_->plugins = std::move(plugins); }
 bool ScriptSystem::init(ScriptHost& host, std::string* error) { return impl_->init(host, error); }
@@ -1410,8 +1413,11 @@ void ScriptSystem::shutdown() { impl_->shutdown(); }
 void ScriptSystem::on_scene_loaded() {
     if (impl_->host) impl_->host->world().bump_scene_generation();  // every load, also a reload of the same scene
     if (!impl_->initialized) return;
-    // The frame this load happens in, and the one after it (the first onStart calls), are left out of the frame budget.
-    impl_->loadFramesLeft = impl_->frameDepth > 0 ? 2 : 1;
+    // The frames that carry this load are left out of the frame budget (end_frame counts them down): when the load happens
+    // while the engine's frame is open (a script's scene.load is applied in end_of_frame, a hot reload, an async load that
+    // finished: all BEFORE end_frame of that frame) they are that frame, whose time went into the load, and the next one,
+    // which runs the first onStart calls; a load between frames (the first scene, a command) is carried by the next frame.
+    impl_->loadFramesLeft = impl_->frameOpen ? 2 : 1;
     impl_->drop_all_behaviours();
     impl_->call_method("scene reset", "", impl_->hooks.get(), "resetScene", {});
     impl_->run_jobs();

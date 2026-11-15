@@ -553,6 +553,8 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     const LoadTrace::ReadingFor reading(traceOwner);  // play.auto and the headless runner call this directly
     const bool profiled = !inFrame;  // a nested frame (a script stepping the game) belongs to the outer one
     if (profiled) Profiler::get().begin_frame();  // no-op unless the profiler is on (fa/core/profiler.h); measures only
+    if (profiled)
+        scripts.begin_frame();  // so a scene load applied at the end of this frame is told apart (script budget)
     inFrame = true;
     set_log_frame(frame);
     // OnDemand: debug-draw primitives of undrawn frames are dropped (immediate mode: one frame each), but the last
@@ -1426,11 +1428,15 @@ Json Engine::state(const Json& query) {
     for (const std::string& s : I.sceneIssues) issues.push_back(s);
     out["sceneIssues"] = issues;
     Json logs = Json::array();
-    for (const LogEntry& l : recent_logs(50, LogLevel::Warn, I.logSeqAtInit)) {
+    // The script budget's warning carries measured milliseconds (a loaded machine logs it, a fast one does not): it stays
+    // out of the dump (game.logs, play.report and the console show it). Taken before the cut to 50, so it never pushes a real
+    // warning out.
+    std::vector<LogEntry> kept;
+    for (const LogEntry& l : recent_logs(200, LogLevel::Warn, I.logSeqAtInit))
+        if (l.category != kScriptBudgetLogCategory) kept.push_back(l);
+    if (kept.size() > 50) kept.erase(kept.begin(), kept.end() - 50);
+    for (const LogEntry& l : kept) {
         // Only this engine's logs, and no wall-clock time / global seq: state dumps must be reproducible.
-        // The script budget's warning carries measured milliseconds (a loaded machine logs it, a fast one does not): it
-        // stays out of the dump (game.logs, play.report and the console show it).
-        if (l.category == kScriptBudgetLogCategory) continue;
         logs.push_back(Json::object({{"frame", l.frame},
                                      {"level", log_level_name(l.level)},
                                      {"category", l.category},

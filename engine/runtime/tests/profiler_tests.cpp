@@ -206,6 +206,59 @@ TEST_CASE("profiler: the script budget warning is in the logs but never in a sta
     e.shutdown();
 }
 
+TEST_CASE("profiler: the frames of a scene change a script asks for are not over the script budget") {
+    Project p;
+    std::string file = kProject;
+    file.replace(file.find("scenes/main.scene.json"), 22, "scenes/a.scene.json");
+    file.insert(file.rfind('}'), R"(, "runtime": { "scriptFrameBudgetMs": 30 })");
+    p.write("factoria.json", file);
+    auto scene = [](const char* script) {
+        return std::string(R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},)") +
+               R"({"id":"s","components":{"Script":{"path":")" + script + R"("}}}]})";
+    };
+    p.write("scenes/a.scene.json", scene("scripts/a.js"));
+    p.write("scenes/b.scene.json", scene("scripts/b.js"));
+    // The engine applies the change in end_of_frame, before the frame's end_frame: that frame and the next one (the onStart
+    // calls of the new scene) carry the load, and neither is measured against the budget.
+    p.write("scripts/a.js", R"(import { Behaviour, scene } from "factoria";
+export default class A extends Behaviour {
+  onUpdate() {
+    this.n = (this.n || 0) + 1;
+    if (this.n == 3) scene.load("scenes/b.scene.json");
+  }
+}
+)");
+    p.write("scripts/b.js", R"(import { Behaviour } from "factoria";
+function spin() { let x = 0; for (let i = 0; i < 20000000; i++) x += i; return x; }
+export default class B extends Behaviour {
+  onStart() { spin(); }  // far over 30 ms: the loading frame
+  onUpdate() {
+    this.n = (this.n || 0) + 1;
+    if (this.n == 4) spin();  // the same work in an ordinary frame: this one IS over the budget
+  }
+}
+)");
+    clear_recent_logs();
+    Profiler::get().set_enabled(true);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless(p), nullptr, &err), err);
+    std::vector<int> overFrames;
+    for (int i = 0; i < 9; ++i) {
+        e.step(1);
+        if (!Profiler::get().last().overBudget.empty()) overFrames.push_back(i);
+    }
+    e.shutdown();
+    Profiler::get().set_enabled(false);
+    // a.js loads b on frame 2; b's onStart runs in frame 3 (loading), its 4th onUpdate in frame 6.
+    REQUIRE(overFrames.size() == 1);
+    CHECK(overFrames[0] == 6);
+    int warnings = 0;
+    for (const LogEntry& l : recent_logs(4096, LogLevel::Warn))
+        if (l.category == "script.budget") ++warnings;
+    CHECK(warnings == 1);
+}
+
 TEST_CASE("profiler: a run without it has no profile section, and it costs nothing to leave off") {
     Project p;
     HeadlessRunOptions o;

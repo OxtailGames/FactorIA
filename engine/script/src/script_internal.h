@@ -200,9 +200,11 @@ struct ScriptSystem::Impl {
         frameLabels;               // callback label -> time, for the callbacks that took >= 50 us
     double frameSmallSeconds = 0;  // the time of the callbacks that took less, and how many they were
     std::uint64_t frameSmallCalls = 0;
-    // Frames still to end that load a scene: on_scene_loaded sets it (2 when it runs inside a frame, whose rest and the next
-    // frame's onStart calls are both loading work, else 1), end_frame counts it down and leaves those frames out of the budget.
+    // Frames still to end that load a scene: on_scene_loaded sets it (2 while the engine's frame is open, since the load is
+    // applied before that frame's end_frame and the next frame runs the onStart calls, else 1), end_frame counts it down and
+    // leaves those frames out of the budget.
     int loadFramesLeft = 0;
+    bool frameOpen = false;                              // between begin_frame() and end_frame() of the engine's frame
     static constexpr double kMinLabelSeconds = 0.00005;  // a callback shorter than this is only counted, not named
     double budgetClock = 0;     // game time (the sum of the frames' dt): the rate limit of the warning counts it
     double nextBudgetWarn = 0;  // game time before which no further warning is logged

@@ -135,6 +135,7 @@ struct TestHost : ScriptHost {
     }
     void step_frames(int n) override {
         for (int i = 0; i < n; ++i) {
+            scripts.begin_frame();
             float dt = static_cast<float>(fdt);
             platformServices.frame();
             scripts.dispatch_platform();
@@ -148,7 +149,6 @@ struct TestHost : ScriptHost {
             scripts.update(dt);
             au.update(w, dt);
             scripts.late_update(dt);
-            scripts.end_frame(framesRun++, fdt);
             localize_world(w, loc);  // like the engine: keys of what scripts changed this frame
             w.advance_clock(fdt);
             w.flush();
@@ -158,6 +158,7 @@ struct TestHost : ScriptHost {
                 pendingScene.clear();
                 load_scene_now(s);
             }
+            scripts.end_frame(framesRun++, fdt);  // after the scene change, as the engine's end_of_frame comes first
         }
     }
 };
