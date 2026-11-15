@@ -203,7 +203,10 @@ def parse_gnu_map(text):
     return libs
 
 
-LLD_LINE = re.compile(r"^\s*([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(?:\d+\s+)?(\S.*?):\((.*)\)\s*$")
+# The file of an input section line ends in .o, .obj, .lib or `.a(member)`: a demangled symbol line such as
+# `fa::(anonymous namespace)::helper(int)` also reads `<text>:(<text>)` and must not count as an input section.
+LLD_LINE = re.compile(r"^\s*([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(?:\d+\s+)?"
+                      r"(\S.*?(?:\.(?:o|obj|lib)|\.a\([^()]*\))):\(([^()\s]*)\)\s*$", re.I)
 
 
 def parse_lld_map(text):
@@ -395,30 +398,54 @@ def measure_files(entry, build_dir, config, override_files):
     return out
 
 
-def find_libraries(entry, build_dir, config, map_override):
-    """Returns (libraries or None, source description, mapTotalBytes or None, note)."""
-    map_path = map_override or (os.path.join(build_dir, entry["map"]) if entry.get("map") else None)
-    if map_path and os.path.isfile(map_path):
-        libs, fmt = parse_link_map(read_text(map_path))
-        if libs:
-            return libs, f"link map ({fmt}): {map_path}", sum(libs.values()), None
-        note = f"the link map {map_path} lists no input section"
-    elif map_path:
-        note = f"no link map at {map_path} (configure with -DFA_PLAYER_LINK_MAP=ON)"
-    else:
-        note = "this platform writes no link map"
-    lists = sorted(glob.glob(os.path.join(build_dir, "player", "player_libs*.txt")))
-    pref = [p for p in lists if config.lower() in os.path.basename(p).lower()]
-    lists = pref or lists
-    if lists:
+def find_libraries(entry, build_dir, config, map_override, files=()):
+    """Returns (libraries or None, source description, mapTotalBytes or None, note). Never raises: the per-library table is
+    a report, and a map this script cannot read must not fail a job whose only check is the size of the files. The reason
+    goes in `note` and the numbers fall back to the archive list or to nothing."""
+    note = None
+    if entry["kind"] == "archives":
+        # The archives are the measured files themselves: the per-library numbers need no link map.
         libs = {}
-        for line in read_text(lists[0]).splitlines():
-            line = line.strip()
-            path = os.path.join(build_dir, line) if line else ""  # relative to the build directory (absolute stays)
-            if path and os.path.isfile(path):
-                libs[normalize_lib(line)] = libs.get(normalize_lib(line), 0) + os.path.getsize(path)
+        for f in files:
+            libs[normalize_lib(f["path"])] = libs.get(normalize_lib(f["path"]), 0) + f["bytes"]
         if libs:
-            return libs, f"sizes of the archives the player links ({os.path.basename(lists[0])}); {note}", sum(libs.values()), note
+            return libs, "sizes of the archives measured (no link map: the archives are not linked into one file)", sum(
+                libs.values()), None
+        note = "no archive was measured"
+    try:
+        map_path = map_override or (os.path.join(build_dir, entry["map"]) if entry.get("map") else None)
+        if map_path and os.path.isfile(map_path):
+            try:
+                libs, fmt = parse_link_map(read_text(map_path))
+            except Exception as e:  # an unknown format, a binary file, a parser bug: a note, never a failed step
+                libs, fmt = None, None
+                note = f"the link map {map_path} could not be read ({type(e).__name__}: {e})"
+            else:
+                if libs:
+                    return libs, f"link map ({fmt}): {map_path}", sum(libs.values()), None
+                note = f"the link map {map_path} lists no input section"
+        elif map_path:
+            note = f"no link map at {map_path} (configure with -DFA_PLAYER_LINK_MAP=ON)"
+        elif note is None:
+            note = "this platform writes no link map"
+    except Exception as e:
+        note = f"the per-library numbers failed ({type(e).__name__}: {e})"
+    try:
+        lists = sorted(glob.glob(os.path.join(build_dir, "player", "player_libs*.txt")))
+        pref = [p for p in lists if config.lower() in os.path.basename(p).lower()]
+        lists = pref or lists
+        if lists:
+            libs = {}
+            for line in read_text(lists[0]).splitlines():
+                line = line.strip()
+                path = os.path.join(build_dir, line) if line else ""  # relative to the build directory (absolute stays)
+                if path and os.path.isfile(path):
+                    libs[normalize_lib(line)] = libs.get(normalize_lib(line), 0) + os.path.getsize(path)
+            if libs:
+                return (libs, f"sizes of the archives the player links ({os.path.basename(lists[0])}); {note}",
+                        sum(libs.values()), note)
+    except Exception as e:
+        note += f"; the archive list could not be read either ({type(e).__name__}: {e})"
     return None, f"none: {note}, and no archive list (player/player_libs-*.txt)", None, note
 
 
@@ -517,7 +544,7 @@ def markdown(platform, entry, files, size, status, libs, source, total):
             rest = sum(v for _, v in ordered[30:])
             md.append(f"| ({len(ordered) - 30} more) | {rest:,} | {pct(rest, total)}% | | |")
         md += ["", f"The numbers add up to {total:,} bytes, which is not the file size: the map counts what the linker places, "
-               "the file also holds headers, tables and padding." if "map" in source else
+               "the file also holds headers, tables and padding." if source.startswith("link map") else
                f"These are archive file sizes ({total:,} bytes together): what the linker keeps of them is smaller."]
     else:
         md.append(f"No per-library numbers: {source}.")
@@ -541,13 +568,13 @@ def cmd_measure(args):
     entry = plats[args.platform]
     build_dir = args.build_dir or os.path.join("build", entry["preset"])
     files = measure_files(entry, build_dir, args.config, args.file)
-    libs, source, total, _ = find_libraries(entry, build_dir, args.config, args.map)
+    libs, source, total, note = find_libraries(entry, build_dir, args.config, args.map, files)
     size, status = evaluate(args.platform, entry, files, libs)
 
     report = {"schema": REPORT_SCHEMA, "platform": args.platform, "kind": entry["kind"], "status": status,
               "commit": os.environ.get("GITHUB_SHA", ""), "bytes": size, "maxBytes": entry.get("maxBytes"),
               "baselineBytes": entry.get("baselineBytes"), "files": files, "librariesSource": source,
-              "librariesTotalBytes": total,
+              "librariesTotalBytes": total, "note": note,
               "libraries": dict(sorted(libs.items(), key=lambda x: (-x[1], x[0]))) if libs else None}
     os.makedirs(args.out_dir, exist_ok=True)
     jpath = os.path.join(args.out_dir, f"player-size-{args.platform}.json")
@@ -648,6 +675,7 @@ LLD_MAP = """             VMA              LMA     Size Align Out     In      Sy
            200238           200238      3000     8 .text
            200238           200238       100     4         /b/engine/core/libfa_core.a(core.cpp.o):(.text._ZN2fa4coreEv)
            200238           200238       100     1                 _ZN2fa4coreEv
+           200238           200238       100     1                 fa::(anonymous namespace)::helper(int)
            200338           200338        80     4         /b/engine/render/libfa_render.a(render.cpp.o):(.text._ZN2fa6renderEv)
            2003b8           2003b8        10     4         /b/player/CMakeFiles/factoria_player.dir/main.cpp.o:(.text.main)
            300000           300000       400     8 .bss
@@ -758,8 +786,8 @@ def self_test():
                  "maxBytes": None, "baselineBytes": None, "note": "n"}
         budget_path = os.path.join(tmp, "budget.json")
 
-        def run(max_bytes, base, base_libs=None, extra=()):
-            e = dict(entry, maxBytes=max_bytes, baselineBytes=base)
+        def run(max_bytes, base, base_libs=None, extra=(), ent=None):
+            e = dict(ent or entry, maxBytes=max_bytes, baselineBytes=base)
             if base_libs:
                 e["baselineLibraries"] = base_libs
             with open(budget_path, "w", encoding="utf-8") as f:
@@ -801,6 +829,22 @@ def self_test():
         check(up.returncode == 0 and after["baselineBytes"] == 10000 and after["maxBytes"] == 11000
               and after["baselineLibraries"]["fa_core"] == 0x100, f"update: {up.returncode} {up.stderr} {after}")
 
+        # a map in no known format: the numbers fall back to "none" with a note, the size check still decides the exit code
+        with open(os.path.join(build, "player", "factoria_player.map"), "w", encoding="utf-8") as f:
+            f.write("this is not a link map\n")
+        r = run(None, None)
+        rep = load_json(os.path.join(tmp, "out", "player-size-fake-os.json"))
+        check(r.returncode == 0 and rep["bytes"] == 10000 and rep["libraries"] is None
+              and "could not be read" in (rep["note"] or ""),
+              f"an unreadable map with a null budget must pass and say why in the note: {r.returncode} {r.stderr} {rep}")
+        r = run(9000, 8000)
+        check(r.returncode == 1 and "player-size.sh update" in r.stderr and "Traceback" not in r.stderr,
+              f"an unreadable map must not hide an over-budget player: {r.returncode} {r.stderr}")
+        with open(os.path.join(build, "player", "factoria_player.map"), "wb") as f:
+            f.write(b"\xff\xfe\x00 binary \x80\x81")
+        r = run(11000, 10000)
+        check(r.returncode == 0 and "Traceback" not in r.stderr, f"a binary map must not fail the step: {r.returncode} {r.stderr}")
+
         # archive fallback: no map, the list of archives written by CMake
         os.remove(os.path.join(build, "player", "factoria_player.map"))
         with open(os.path.join(build, "libfa_core.a"), "wb") as f:
@@ -823,6 +867,14 @@ def self_test():
                "exclude": ["*.build/*"], "maxBytes": None, "baselineBytes": None, "note": "n"}
         got = measure_files(ios, build, "Release", None)
         check(sum(g["bytes"] for g in got) == 150, f"archives entry: {got}")
+        # ...and takes its per-library numbers from those archives (no link map, no archive list: iOS links no executable)
+        libs, source, total, note = find_libraries(ios, build, "Release", None, got)
+        check(libs == {"a": 100, "b": 50} and total == 150 and note is None, f"archives per-library numbers: {libs} {source}")
+        r = run(None, None, ent=ios)
+        rep = load_json(os.path.join(tmp, "out", "player-size-fake-os.json"))
+        check(r.returncode == 0 and rep["libraries"] == {"a": 100, "b": 50} and rep["bytes"] == 150
+              and "link map" not in rep["librariesSource"].replace("no link map", ""),
+              f"measure of an archives entry: {r.returncode} {r.stderr} {rep}")
 
     if failures:
         print("player-size self-test FAILED:", file=sys.stderr)

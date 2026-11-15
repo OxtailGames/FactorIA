@@ -103,8 +103,15 @@ jobs:
           grep -aq "FA-BUILD-FINGERPRINT:$(git rev-parse --short=12 HEAD);" "$out/libfactoria_player.so"
           ls -l "$out"
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-android-${{ matrix.abi }}
+          path: mobile
+          if-no-files-found: error
+
       # Size of the player against tools/size/player_size_budget.json (scripts/player-size.sh, docs/BUILDING.md "Player size
       # budgets"): a release whose player went over its budget does not ship. The report is an artifact and in the job summary.
+      # Last in the job: a player over its budget fails the job (so the release does not ship) after the artifacts are up.
       - name: Player size (android-${{ matrix.abi }})
         id: size
         run: ./scripts/player-size.sh measure --platform android-${{ matrix.abi }} --build-dir build/${{ matrix.preset }} --out-dir player-size
@@ -116,12 +123,6 @@ jobs:
           name: player-size-android-${{ matrix.abi }}
           path: player-size/
           if-no-files-found: ignore
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mobile-android-${{ matrix.abi }}
-          path: mobile
-          if-no-files-found: error
 
   # The iOS player as static libraries: the player's own archive (target factoria_player_main) and every engine archive it
   # links, for the device (arm64) and the simulator (arm64 + x86_64). Only the macOS package carries them
@@ -167,7 +168,14 @@ jobs:
           done
           du -sh "$out"
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: mobile-ios-${{ matrix.sdk }}
+          path: mobile
+          if-no-files-found: error
+
       # The device archives against their size budget (the sum of the archive files: no job links a Release app).
+      # Last in the job: a player over its budget fails the job (so the release does not ship) after the artifacts are up.
       - name: Player size (ios-arm64)
         id: size
         if: ${{ matrix.sdk == 'iphoneos' }}
@@ -180,12 +188,6 @@ jobs:
           name: player-size-ios-arm64
           path: player-size/
           if-no-files-found: ignore
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: mobile-ios-${{ matrix.sdk }}
-          path: mobile
-          if-no-files-found: error
 
   # The web player (factoria_player.js + .wasm), built once with Emscripten (the SDK version of docs/BUILDING.md, "Web") and
   # carried by every package in FactorIA/web/, so `factoria export --platform web` works from the download. Like the
@@ -239,6 +241,13 @@ jobs:
           ls -l web
           test -s web/factoria_player.js && test -s web/factoria_player.wasm
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-player
+          path: web
+          if-no-files-found: error
+
+      # Last in the job: a player over its budget fails the job (so the release does not ship) after the artifacts are up.
       - name: Player size (web-wasm)
         id: size
         run: ./scripts/player-size.sh measure --platform web-wasm --build-dir build/web-release --out-dir player-size
@@ -250,12 +259,6 @@ jobs:
           name: player-size-web-wasm
           path: player-size/
           if-no-files-found: ignore
-
-      - uses: actions/upload-artifact@v4
-        with:
-          name: web-player
-          path: web
-          if-no-files-found: error
 
   package:
     name: Package (${{ matrix.os }})
@@ -352,9 +355,12 @@ jobs:
           done
 
       # The Release player against its size budget, one report per package (scripts/player-size.sh, docs/BUILDING.md "Player
-      # size budgets"). Before signing: a signature adds bytes the budget does not count.
+      # size budgets"). Before signing: a signature adds bytes the budget does not count. continue-on-error so the signing,
+      # packaging and smoke tests below still run (one round shows every failure); "Player size verdict" at the end of the
+      # job fails it when this step found the player over its budget, so the release does not ship.
       - name: Player size (${{ matrix.size-platform }})
         id: size
+        continue-on-error: true
         run: ./scripts/player-size.sh measure --platform ${{ matrix.size-platform }} --build-dir build/${{ matrix.preset }} --config Release --out-dir player-size
 
       - name: Upload the player size report
@@ -690,6 +696,12 @@ jobs:
           path: dist/FactorIA-linux-x64.AppImage
           if-no-files-found: error
           compression-level: 0
+
+      - name: Player size verdict
+        if: ${{ !cancelled() && steps.size.outcome == 'failure' }}
+        run: |
+          echo "::error::the Player size step failed: the Release player is over its budget in tools/size/player_size_budget.json, or there was no player to measure (its log says which)"
+          exit 1
 
   publish:
     name: Publish GitHub Release
