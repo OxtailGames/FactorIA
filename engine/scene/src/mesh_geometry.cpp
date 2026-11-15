@@ -123,6 +123,7 @@ Result<std::shared_ptr<const MeshGeometry>> load_gltf_geometry(const std::string
         cgltf_data* d;
         ~Guard() { cgltf_free(d); }
     } guard{data};
+    if (auto sizes = gltf_check_buffer_sizes(data, path); !sizes) return sizes.error();
     r = cgltf_load_buffers(&opts, data, path.c_str());
     if (r != cgltf_result_success)
         return make_error(std::format("cannot load the buffers referenced by '{}' (cgltf error {})", path, int(r)),
