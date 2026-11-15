@@ -270,10 +270,7 @@ void register_shot_commands(Engine& engine,
                             Engine::Impl& impl);  // shot_commands.cpp: game.screenshot, render.inspect, render.pick
 void register_music_commands(Engine& engine, Engine::Impl& impl);  // music_commands.cpp: audio.music_state, audio.music
 void register_vfx_commands(Engine& engine,
-                           Engine::Impl& impl);  // vfx_commands.cpp: vfx.play, vfx.stop, vfx.list, vfx.check
-void register_mesh_commands(
-    Engine& engine,
-    Engine::Impl& impl);  // mesh_commands.cpp: mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
+                           Engine::Impl& impl);  // vfx_commands.cpp: vfx.play, vfx.stop, vfx.list; fills vfxHost
 void register_feel_commands(
     Engine& engine,
     Engine::Impl&
@@ -299,6 +296,10 @@ struct AsciiSample {
         legendOnly;  // the legend's other glyphs (placeOnly), in the order of the legend; not part of `glyphs`
 };
 AsciiSample read_ascii_sample(const Json& args);
+
+// A `position` argument ([x, y] or [x, y, z], finite, within +-1e9; absent = the origin) of vfx.play and vfx.filmstrip. Throws
+// CommandError("invalid_argument"). Defined in vfx_commands.cpp.
+Vec3 vfx_position_arg(const Json& args, const char* key);
 
 // Entity named by the string argument `key` (id or name). Throws CommandError("not_found") with a "did you mean".
 Entity need_entity(World& world, const Json& args, const char* key = "id");

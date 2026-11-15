@@ -18,6 +18,9 @@ void register_authoring_commands(Engine& engine) {
     // animation, rigs
     register_anim_commands(engine, impl);   // anim.create_clip, anim.set_keys, anim.list, anim.check, ...
     register_bones_commands(engine, impl);  // bones.create, skin.bind, skin.auto_weights, skin.set_weights
+    // effects, meshes
+    register_vfx_review_commands(engine, impl);  // vfx.check, vfx.budget, vfx.filmstrip
+    register_mesh_commands(engine, impl);  // mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
 }
 
 }  // namespace
