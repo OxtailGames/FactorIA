@@ -410,8 +410,7 @@ void Editor::ai_revert_apply(bool includeShared) {
     auto remembered = std::find_if(aiScenes_.begin(), aiScenes_.end(),
                                    [&](const SceneAtCheckpoint& s) { return s.id == req.target; });
     if (restoreScene && remembered != aiScenes_.end() && remembered->scenePath == scenePath_) {
-        undo_.push_back(worldBefore);
-        if (undo_.size() > 100) undo_.erase(undo_.begin());
+        undo_.push_back(UndoEntry::snapshot(worldBefore));
         redo_.clear();
         restore_scene(remembered->scene);
         dirty_ = remembered->dirty;

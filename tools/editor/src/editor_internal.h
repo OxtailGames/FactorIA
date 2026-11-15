@@ -61,6 +61,8 @@
 #include "ai_usage.h"
 #include "anim3d_ui.h"
 #include "anim_ui.h"
+#include "selection.h"
+#include "undo_stack.h"
 #include "editor_tools.h"
 #include "export_job.h"
 #include "phone_model.h"
@@ -239,17 +241,33 @@ public:
     void ai_attach_last_session();  // summary into the message + mark pictures
 
     // ---------------------------------------------------------------- selection & edits
-    // The selection is what the user points at in the viewport for the AI; nothing edits it by hand.
+    // The selection is what the user points at in the viewport for the AI; nothing edits it by hand. It is a set of entity
+    // ids with a primary (selection.h); selected() and selected_id() are the primary, so a caller that wants one entity
+    // needs nothing else. Every write goes through `selection_`.
     Entity selected();
     void select(Entity e);
-    void select_id(const std::string& id) { selectedId_ = id; }
-    const std::string& selected_id() const { return selectedId_; }
+    void select_id(const std::string& id) { selection_.replace(id); }
+    const std::string& selected_id() const { return selection_.primary(); }
+    // The whole set. It first drops the ids whose entity no longer exists (deleted, or removed by an undo or a scene
+    // load), so what it returns is alive; selected() and selected_id() do not prune, so a selected entity that an
+    // undo removed and a redo brings back is still selected.
+    const Selection& selection();
+    // For the code that edits the set (Ctrl/Shift clicks, select all): add, toggle, range.
+    Selection& selection_mut() { return selection_; }
     // Records an undo snapshot (coalesced per key) and marks the scene dirty. Call BEFORE mutating.
     void begin_edit(const std::string& key);
     void mark_dirty() { dirty_ = true; }
     bool dirty() const { return dirty_; }
     void undo();
     void redo();
+    void step_history(bool forward);
+    bool run_undo_commands(const std::vector<UndoCommand>& cmds, bool forward);
+    // Records a command entry (forward and inverse command lists, nothing of the scene) as one undo step, coalesced the
+    // way begin_edit coalesces: the same key within 0.8 s merges into the previous entry if that one is a command entry.
+    // Clears redo and marks the scene dirty. Returns false (nothing recorded) outside edit mode. Call BEFORE running the
+    // forward commands, like begin_edit. Nothing calls it yet; M98.7e migrates the callers (docs/EDITOR.md, "Undo entries").
+    bool push_command_entry(const std::string& key, std::vector<UndoCommand> forward, std::vector<UndoCommand> inverse,
+                            CoalesceMode mode = CoalesceMode::Replace);
     size_t undo_depth() const { return undo_.size(); }
     size_t redo_depth() const { return redo_.size(); }
 
@@ -922,8 +940,8 @@ public:
     std::function<bool()> slicedJob_;
     std::optional<CommandResult> run_queued(const std::string& name, const Json& args);
     Json playSnapshot_;
-    std::string selectedId_;
-    std::vector<Json> undo_, redo_;
+    Selection selection_;
+    UndoStack undo_, redo_;
     std::string lastEditKey_;
     double lastEditTime_ = -100.0;
     double time_ = 0.0;
@@ -972,7 +990,7 @@ public:
         Vec3 planeStart{};      // free move: where the mouse was on the drag plane
         AngleTracker angle;
         float sign = 1;
-        std::vector<Json> redoBefore;
+        UndoStack redoBefore;
         bool dirtyBefore = false;
     } gizmoDrag_;
     bool showOverlay_ = true;
