@@ -173,7 +173,7 @@ public:
     // and every later call returns 0 at once). A frame drawn before the groups are done makes any missing pipeline on the spot,
     // exactly as before: pictures never depend on this. Not for a headless renderer (returns 0).
     int warm_step(const GfxSwapchain& swapchain, World& world);
-    // {backend, cache, programs, createMs, cache counters (D3D11), pipelinesWarmed, warmMs, groupsLeft}: what the start-up
+    // {backend, cache, programs, createMs, cache counters (D3D11), pipelinesWarmed, pipelines, pipelineHits, pipelinesMade, pipelinesEvicted, warmMs, groupsLeft}: what the start-up
     // spent on shader programs and pipelines (the `loading.startup.gpu` object of play.report).
     Json startup_report() const;
 
