@@ -135,3 +135,52 @@ TEST_CASE("capabilities: game scripts of the player cannot call scene.format or 
 TEST_CASE("capabilities: the editor's Play cannot call scene.format or prefab.save either") {
     check_game_script_set(true);
 }
+
+TEST_CASE(
+    "authoring: anim.*, bones.create and skin.* are not commands of the player, and the writers confine their path") {
+    authoring::install();
+    TempProject p;
+    TempProject outside;
+    EngineConfig c;
+    c.projectDir = p.dir.generic_string();
+    c.headless = true;
+    c.hotReload = false;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    const std::vector<std::string> runtime = e.runtime_command_names();
+    for (const char* name :
+         {"anim.create_clip",  "anim.set_keys",     "anim.remove_keys", "anim.move_keys",  "anim.set_interp",
+          "anim.add_track",    "anim.remove_track", "anim.add_event",   "anim.move_event", "anim.set_event",
+          "anim.remove_event", "anim.set_clip",     "anim.restore",     "anim.list",       "anim.pose",
+          "anim.filmstrip",    "anim.check",        "bones.create",     "skin.bind",       "skin.auto_weights",
+          "skin.set_weights"}) {
+        CAPTURE(name);
+        CHECK_FALSE(std::binary_search(runtime.begin(), runtime.end(), std::string(name)));
+        CHECK(e.commands().info(name) != nullptr);
+    }
+    CHECK_FALSE(capability_sets::game_player().has_all(e.commands().info("anim.set_keys")->capabilities));
+
+    auto code = [](const CommandResult& r) { return r.ok ? std::string("ok") : r.error.value("code", std::string()); };
+    {
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        CHECK(code(e.commands().call("anim.create_clip", Json::object({{"path", "../x.anim.json"},
+                                                                       {"duration", 1.0}}))) == "path_outside_root");
+        CHECK(code(e.commands().call("anim.create_clip",
+                                     Json::object({{"path", (outside.dir / "x.anim.json").generic_string()},
+                                                   {"duration", 1.0}}))) == "absolute_path_denied");
+        CHECK(code(e.commands().call("anim.restore", Json::object({{"path", ".factoria/x.anim.json"},
+                                                                   {"clip", nullptr}}))) == "managed_path_denied");
+    }
+    {
+        CommandCapabilityScope readOnly(capability_sets::mcp_read_only());
+        CHECK(code(e.commands().call("anim.create_clip", Json::object({{"path", "out/y.anim.json"},
+                                                                       {"duration", 1.0}}))) == "capability_denied");
+    }
+    // The command-line user may name an absolute path.
+    CHECK(code(e.commands().call(
+              "anim.create_clip",
+              Json::object({{"path", (outside.dir / "abs.anim.json").generic_string()}, {"duration", 1.0}}))) == "ok");
+    CHECK(stdfs::exists(outside.dir / "abs.anim.json"));
+    e.shutdown();
+}
