@@ -113,8 +113,16 @@ struct Renderer::Impl {
     // The jobs of a frame are all planned (their rows uploaded) before the first one draws, so an image a job planned with
     // must live to the end of the frame: a slot returned (a hit or a new image) in the frame number `usedFrame` is never
     // the one a later upload replaces in that frame. Otherwise the oldest slot is replaced; when every slot was used in
-    // this frame the ring grows by one, and begin_frame_graph() trims it back to kShadowRowsRing (the oldest go first).
+    // this frame the ring grows by one. begin_frame_graph() trims it back (the oldest go first) to the most slots one frame
+    // used in the last kShadowTrimWindow frames, and never below kShadowRowsRing: a scene with more stable keys than the
+    // ring (12 render targets with their own shadows) keeps them all, and uploads nothing in a still frame.
     static constexpr std::size_t kShadowRowsRing = 9;
+    static constexpr int kShadowTrimWindow =
+        60;  // frames; a count, not a time, so the result does not depend on the CPU
+    std::size_t shadowRowsKeep = kShadowRowsRing;  // the ring is trimmed to this many slots
+    std::size_t shadowRowsPeak = 0;                // the most slots one frame of the current window used
+    int shadowRowsWindow = 0;                      // frames of the current window
+    std::uint64_t shadowRowUploads = 0;            // images made since the renderer was (a test counts them)
     struct ShadowRowsSlot {
         sg_image img{};
         sg_view view{};
@@ -285,6 +293,15 @@ struct Renderer::Impl {
     FrameGraph graph;
     std::unique_ptr<TransientTargets> transients;
     bool warnedGraph = false;  // a graph that could not be compiled or run is logged once
+    std::vector<std::string>
+        frameJobs;  // the jobs planned in the frame graph being built (the log of a graph error names them)
+    // What render() uses to order the render targets, kept from frame to frame so that a frame with targets allocates
+    // nothing for it: a small graph of one node per target, and its work vectors.
+    struct TargetOrderScratch {
+        FrameGraph graph;
+        std::vector<int> order, byDepth;
+        std::vector<std::pair<std::string, int>> byName;
+    } orderScratch;
     TransientTargets& transient_targets() {
         if (!transients) transients = std::make_unique<TransientTargets>();
         return *transients;

@@ -11,6 +11,9 @@
 // pattern), so headless runs are reproducible.
 #pragma once
 
+#include <cstdint>
+#include <vector>
+
 #include "frame_graph.h"
 #include "render_internal.h"
 #include "transient_targets.h"
@@ -55,9 +58,18 @@ public:
 private:
     static constexpr int kLevels = 5;  // 1/2, 1/4, 1/8, 1/16, 1/32 of the game target
     bool warned_ = false;
-    // The size and format whose intermediate targets could not be made (0 = none failed).
-    int failedW_ = 0, failedH_ = 0;
-    sg_pixel_format failedFmt_ = SG_PIXELFORMAT_NONE;
+    // The shapes (size + format) whose intermediate targets could not be made: one entry per shape, so two views of
+    // different sizes where one fails do not make each other try again every frame. Bounded (kMaxFailed, the oldest go).
+    struct Shape {
+        int w = 0, h = 0;
+        sg_pixel_format fmt = SG_PIXELFORMAT_NONE;
+        bool operator==(const Shape& o) const { return w == o.w && h == o.h && fmt == o.fmt; }
+    };
+    static constexpr std::size_t kMaxFailed = 16;
+    std::vector<Shape> failed_;
+    // Scratch of add_passes, kept so a frame does not allocate them again.
+    std::vector<TransientDesc> descs_;
+    std::vector<std::uint64_t> held_;
 };
 
 }  // namespace fa::render
