@@ -8,6 +8,16 @@
 #include <set>
 #include <string>
 
+// The test executables of fa_authoring and of every module above it (tooling, mcp, dap, ai, editor, cli) see the header of
+// fa_authoring through their link dependencies and get its commands in every Engine; the runtime's own tests do not link it,
+// so they test exactly what the player has (docs/ARCHITECTURE.md, "Repository layout").
+#if defined(__has_include)
+#if __has_include("fa/authoring/authoring.h")
+#include "fa/authoring/authoring.h"
+#define FA_TEST_HAS_AUTHORING 1
+#endif
+#endif
+
 #if defined(_MSC_VER) && !defined(_DLL)
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -85,6 +95,9 @@ void add_file_filters(doctest::Context& context, int argc, char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef FA_TEST_HAS_AUTHORING
+    fa::authoring::install();
+#endif
     doctest::Context context(argc, argv);
     add_file_filters(context, argc, argv);
     int result = context.run();

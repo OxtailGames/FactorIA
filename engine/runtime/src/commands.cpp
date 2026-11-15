@@ -627,7 +627,6 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_wfc_commands(engine, I);    // tilemap.generate
     register_terrain_commands(engine,
                               I);  // tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
-    register_scene_file_commands(engine, I);       // prefab.save, scene.format
     register_play_session_commands(engine, I);     // play.sessions, play.report
     register_background_load_commands(engine, I);  // scene.preload, assets.preload, load.status, load.cancel
     register_i18n_commands(engine, I);             // i18n.state, i18n.set_language

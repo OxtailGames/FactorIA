@@ -160,6 +160,7 @@ endif()
 
 # ---- developer tools (desktop only) -----------------------------------------
 if(FA_BUILD_TOOLS)
+    add_subdirectory(tools/authoring)  # fa_authoring  the commands only developer tools need (not in the player)
     add_subdirectory(tools/common)  # fa_tooling   project scaffolding, validation, feedback, docs
     add_subdirectory(tools/mcp)     # fa_mcp       Model Context Protocol server (stdio)
     add_subdirectory(tools/dap)     # fa_dap      Debug Adapter Protocol server of the script debugger (stdio)
@@ -197,3 +198,7 @@ if(FA_SANITIZE_THREAD AND FA_BUILD_TESTS)
         endif()
     endforeach()
 endif()
+
+# The player ships to players: it must not link the commands of the developer tools (tools/authoring), through any chain.
+fa_check_not_linked(factoria_player fa_authoring)
+fa_check_not_linked(factoria_player_main fa_authoring)

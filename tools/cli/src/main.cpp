@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/authoring/authoring.h"
 #include "fa/cli/cli.h"
 
 #ifdef _WIN32
@@ -35,6 +36,7 @@ static void put_self_on_path(const char* argv0) {
 }
 
 int main(int argc, char** argv) {
+    fa::authoring::install();  // the commands of the developer tools, in every Engine this process creates
     if (argc > 0) put_self_on_path(argv[0]);
     std::vector<std::string> args(argv + 1, argv + argc);
 #ifdef _WIN32
