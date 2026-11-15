@@ -20,8 +20,6 @@
 namespace fa::render {
 
 namespace {
-constexpr sg_pixel_format kDepthFormat = SG_PIXELFORMAT_DEPTH_STENCIL;
-
 sg_sampler make_sampler(sg_filter minmag, sg_filter mip, sg_wrap wrap, const char* label) {
     sg_sampler_desc d{};
     d.min_filter = minmag;
@@ -157,7 +155,8 @@ bool Gpu::init(int sampleCount, std::string* error) {
 void Gpu::shutdown() {
     if (listening_) sg_remove_commit_listener(sg_commit_listener{&Gpu::count_commit, this});
     listening_ = false;
-    for (auto& [k, p] : pipelines_) sg_destroy_pipeline(p);
+    warming_ = false;
+    for (auto& [k, p] : pipelines_) sg_destroy_pipeline(p.pipeline);
     pipelines_.clear();
     for (auto& t : transient_) sg_destroy_buffer(t.buf);
     transient_.clear();
@@ -186,17 +185,25 @@ void Gpu::shutdown() {
     lightState_ = 0;
 }
 
-void Gpu::drop_pipelines() {
-    // Nothing else holds a pipeline (every caller asks Gpu on each draw), so the whole cache can go: the ones that draw into the
-    // scene (quads, meshes, sky, bloom, colour filter) carry the old format, and making the others again is cheap.
-    for (auto& [k, p] : pipelines_) sg_destroy_pipeline(p);
-    pipelines_.clear();
+void Gpu::sweep_pipelines() {
+    // Nothing else holds a pipeline (every caller asks Gpu on each draw), so one that no draw asked for during the last
+    // pipelineIdleFrames_ frames can go; it is made again if it is ever asked for. See "The pipeline cache" in
+    // render_internal.h.
+    for (auto it = pipelines_.begin(); it != pipelines_.end();) {
+        if (!it->second.warmed && pipelineTick_ - it->second.lastUsed > pipelineIdleFrames_) {
+            sg_destroy_pipeline(it->second.pipeline);
+            it = pipelines_.erase(it);
+            ++pipelinesEvicted_;
+        } else {
+            ++it;
+        }
+    }
 }
 
 void Gpu::destroy_shader(sg_shader shader) {
     for (auto it = pipelines_.begin(); it != pipelines_.end();) {
         if (it->first.shader == shader.id) {
-            sg_destroy_pipeline(it->second);
+            sg_destroy_pipeline(it->second.pipeline);
             it = pipelines_.erase(it);
         } else {
             ++it;
@@ -205,9 +212,40 @@ void Gpu::destroy_shader(sg_shader shader) {
     sg_destroy_shader(shader);
 }
 
-sg_pipeline Gpu::find_or_make(PipelineKey key, const sg_pipeline_desc& desc) {
+void Gpu::begin_pass(const PassDesc& pass) {
+#ifndef NDEBUG
+    FA_ASSERT(!inPass_, "Gpu::begin_pass: a pass is already open (end_pass it first)");
+#endif
+    const sg_pass p = pass.to_sg();
+    sg_begin_pass(&p);
+    inPass_ = true;
+    passFormat_ = pass.format;
+}
+
+void Gpu::end_pass() {
+    sg_end_pass();
+    inPass_ = false;
+}
+
+sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const sg_pipeline_desc& request) {
+#ifndef NDEBUG
+    // A pipeline applied in a pass must have the pass's colour format, depth format and sample count. GL and D3D11
+    // validation reject a mismatch; Metal accepts it and draws wrong, so check here, where every pipeline comes from.
+    FA_ASSERT(!inPass_ || format == passFormat_,
+              "a pipeline was fetched for another target format than the pass being drawn (PassDesc::format)");
+#endif
+    key.format = format;
     auto it = pipelines_.find(key);
-    if (it != pipelines_.end()) return it->second;
+    if (it != pipelines_.end()) {
+        it->second.lastUsed = pipelineTick_;
+        if (warming_) it->second.warmed = true;
+        ++pipelineHits_;
+        return it->second.pipeline;
+    }
+    sg_pipeline_desc desc = request;  // a copy only on a miss (the description is more than 1 KB)
+    desc.colors[0].pixel_format = format.color;
+    desc.depth.pixel_format = format.depth;
+    desc.sample_count = format.samples;
     // A pipeline asked for before its lazily made shader exists (a caller that skipped the *_ready() check) is an engine
     // bug: report it and keep it out of the cache, so the one early call does not break the key for the whole process.
     if (sg_query_shader_state(desc.shader) != SG_RESOURCESTATE_VALID) {
@@ -219,11 +257,13 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const sg_pipeline_desc& desc) {
     if (sg_query_pipeline_state(p) != SG_RESOURCESTATE_VALID) {
         FA_ERROR("render", "failed to create pipeline '{}'", desc.label ? desc.label : "?");
     }
-    pipelines_[key] = p;
+    ++pipelinesMade_;
+    pipelines_[key] = {p, pipelineTick_, warming_};
     return p;
 }
 
-sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend, bool plain, bool opaque) {
+sg_pipeline Gpu::quad_pipeline(const TargetFormat& format, bool depthTest, bool lines, BlendMode blend, bool plain,
+                               bool opaque) {
     PipelineKey key{0x100u | (depthTest ? 1u : 0u) | (lines ? 2u : 0u) | (std::uint32_t(blend) << 2) |
                     (plain ? 0x10u : 0u) | (opaque ? 0x20u : 0u)};
     sg_pipeline_desc d{};
@@ -237,10 +277,8 @@ sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend, bool
     d.layout.attrs[ATTR_quad_quad_shape_rs0].format = SG_VERTEXFORMAT_HALF2;
     d.primitive_type = lines ? SG_PRIMITIVETYPE_LINES : SG_PRIMITIVETYPE_TRIANGLES;
     d.index_type = lines ? SG_INDEXTYPE_NONE : SG_INDEXTYPE_UINT16;
-    d.depth.pixel_format = kDepthFormat;
     d.depth.compare = depthTest ? SG_COMPAREFUNC_LESS_EQUAL : SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
-    d.colors[0].pixel_format = sceneFormat_;
     d.colors[0].blend.enabled = !opaque;
     switch (blend) {
         case BlendMode::Additive:  // dst + src.rgb * src.a  (glow: overlapping items accumulate light)
@@ -265,14 +303,14 @@ sg_pipeline Gpu::quad_pipeline(bool depthTest, bool lines, BlendMode blend, bool
     }
     d.cull_mode = SG_CULLMODE_NONE;
     d.face_winding = SG_FACEWINDING_CCW;
-    d.sample_count = sampleCount_;
     d.label = lines   ? "quad-lines"
               : plain ? (depthTest ? "quad-3d-plain" : "quad-2d-plain")
                       : (depthTest ? "quad-3d" : "quad-2d");
-    return find_or_make(key, d);
+    return find_or_make(key, format, d);
 }
 
-sg_pipeline Gpu::mesh_pipeline(bool blended, bool doubleSided, bool skinned, sg_shader shader) {
+sg_pipeline Gpu::mesh_pipeline(const TargetFormat& format, bool blended, bool doubleSided, bool skinned,
+                               sg_shader shader) {
     PipelineKey key{0x200u | (blended ? 1u : 0u) | (doubleSided ? 2u : 0u) | (skinned ? 4u : 0u), shader.id};
     sg_pipeline_desc d{};
     d.shader = shader.id ? shader : (skinned ? meshSkinShader_ : mesh_shader_);
@@ -285,10 +323,8 @@ sg_pipeline Gpu::mesh_pipeline(bool blended, bool doubleSided, bool skinned, sg_
     set_instance_layout(d, ATTR_mesh_mesh_fa_inst_m0);
     if (skinned) set_skin_layout(d, ATTR_mesh_mesh_skin_fa_joints, ATTR_mesh_mesh_skin_fa_weights);
     d.index_type = SG_INDEXTYPE_UINT32;
-    d.depth.pixel_format = kDepthFormat;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = !blended;
-    d.colors[0].pixel_format = sceneFormat_;
     if (blended) {
         d.colors[0].blend.enabled = true;
         d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_SRC_ALPHA;
@@ -298,27 +334,23 @@ sg_pipeline Gpu::mesh_pipeline(bool blended, bool doubleSided, bool skinned, sg_
     }
     d.cull_mode = (doubleSided || blended) ? SG_CULLMODE_NONE : SG_CULLMODE_BACK;
     d.face_winding = SG_FACEWINDING_CCW;
-    d.sample_count = sampleCount_;
     d.label = "mesh";
-    return find_or_make(key, d);
+    return find_or_make(key, format, d);
 }
 
-sg_pipeline Gpu::sky_pipeline() {
+sg_pipeline Gpu::sky_pipeline(const TargetFormat& format) {
     PipelineKey key{0x300u};
     sg_pipeline_desc d{};
     d.shader = sky_shader_;
     d.layout.attrs[ATTR_sky_sky_pos].format = SG_VERTEXFORMAT_FLOAT2;
-    d.depth.pixel_format = kDepthFormat;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
-    d.colors[0].pixel_format = sceneFormat_;
-    d.sample_count = sampleCount_;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "sky";
-    return find_or_make(key, d);
+    return find_or_make(key, format, d);
 }
 
-sg_pipeline Gpu::shadow_pipeline(bool skinned, sg_shader shader, bool fullVertex) {
+sg_pipeline Gpu::shadow_pipeline(const TargetFormat& format, bool skinned, sg_shader shader, bool fullVertex) {
     PipelineKey key{0x400u | (skinned ? 1u : 0u) | (fullVertex ? 2u : 0u), shader.id};
     sg_pipeline_desc d{};
     d.shader = shader.id ? shader : (skinned ? shadowSkinShader_ : shadow_shader_);
@@ -334,31 +366,24 @@ sg_pipeline Gpu::shadow_pipeline(bool skinned, sg_shader shader, bool fullVertex
     set_instance_layout(d, ATTR_mesh_shadow_fa_inst_m0);
     if (skinned) set_skin_layout(d, ATTR_mesh_shadow_skin_fa_joints, ATTR_mesh_shadow_skin_fa_weights);
     d.index_type = SG_INDEXTYPE_UINT32;
-    d.depth.pixel_format = SG_PIXELFORMAT_DEPTH;
     d.depth.compare = SG_COMPAREFUNC_LESS_EQUAL;
     d.depth.write_enabled = true;
-    d.colors[0].pixel_format = SG_PIXELFORMAT_R32F;
     d.cull_mode = SG_CULLMODE_NONE;
     d.face_winding = SG_FACEWINDING_CCW;
-    d.sample_count = 1;
     d.label = "shadow";
-    return find_or_make(key, d);
+    return find_or_make(key, format, d);
 }
 
-sg_pipeline Gpu::blit_pipeline(sg_pixel_format colorFormat, sg_pixel_format depthFormat, int sampleCount) {
-    PipelineKey key{0x500u | (std::uint32_t(colorFormat) << 12) | (std::uint32_t(depthFormat) << 20) |
-                    (std::uint32_t(sampleCount) << 28)};
+sg_pipeline Gpu::blit_pipeline(const TargetFormat& format) {
+    PipelineKey key{0x500u};
     sg_pipeline_desc d{};
     d.shader = blit_shader_;
     d.layout.attrs[ATTR_blit_blit_pos].format = SG_VERTEXFORMAT_FLOAT2;
-    d.depth.pixel_format = depthFormat;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
-    d.colors[0].pixel_format = colorFormat;
-    d.sample_count = sampleCount;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "blit";
-    return find_or_make(key, d);
+    return find_or_make(key, format, d);
 }
 
 bool Gpu::bloom_ready() {
@@ -386,32 +411,26 @@ bool Gpu::bloom_ready() {
     return true;
 }
 
-sg_pipeline Gpu::blit_keep_pipeline() {
-    PipelineKey key{0x900u};  // 0x800 | format << 12 is the light pipeline's (lightFormat_ NONE = 0 would be this key)
+sg_pipeline Gpu::blit_keep_pipeline(const TargetFormat& format) {
+    PipelineKey key{0x900u};
     sg_pipeline_desc d{};
     d.shader = blitKeepShader_;
     d.layout.attrs[ATTR_blit_blit_keep_pos].format = SG_VERTEXFORMAT_FLOAT2;
-    d.depth.pixel_format = SG_PIXELFORMAT_NONE;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
-    d.colors[0].pixel_format = SG_PIXELFORMAT_RGBA8;
-    d.sample_count = 1;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "blit-keep";
-    return find_or_make(key, d);
+    return find_or_make(key, format, d);
 }
 
-sg_pipeline Gpu::bloom_pipeline(BloomStage stage, int sampleCount) {
-    PipelineKey key{0x600u | std::uint32_t(stage) | (std::uint32_t(sampleCount) << 4)};
+sg_pipeline Gpu::bloom_pipeline(BloomStage stage, const TargetFormat& format) {
+    PipelineKey key{0x600u | std::uint32_t(stage)};
     sg_pipeline_desc d{};
     d.shader = bloom_shaders_[int(stage)];
     // All four programs share the vertex shader and therefore the same single `pos` attribute at location 0.
     d.layout.attrs[ATTR_bloom_bright_pos].format = SG_VERTEXFORMAT_FLOAT2;
-    d.depth.pixel_format = SG_PIXELFORMAT_NONE;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
-    d.colors[0].pixel_format = sceneFormat_;
-    d.sample_count = sampleCount;
     d.face_winding = SG_FACEWINDING_CCW;
     switch (stage) {
         case BloomStage::Composite:  // dst.rgb += src.rgb (intensity is applied in the shader); alpha stays
@@ -426,7 +445,7 @@ sg_pipeline Gpu::bloom_pipeline(BloomStage stage, int sampleCount) {
         case BloomStage::Down: d.label = "bloom-down"; break;
         default: d.label = "bloom-blur"; break;
     }
-    return find_or_make(key, d);
+    return find_or_make(key, format, d);
 }
 
 bool Gpu::colorfilter_ready() {
@@ -447,20 +466,17 @@ bool Gpu::colorfilter_ready() {
     return true;
 }
 
-sg_pipeline Gpu::colorfilter_pipeline() {
+sg_pipeline Gpu::colorfilter_pipeline(const TargetFormat& format) {
     if (!colorfilter_ready()) return {};
     PipelineKey key{0x700u};
     sg_pipeline_desc d{};
     d.shader = colorfilter_shader_;
     d.layout.attrs[ATTR_colorfilter_colorfilter_pos].format = SG_VERTEXFORMAT_FLOAT2;
-    d.depth.pixel_format = SG_PIXELFORMAT_NONE;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
-    d.colors[0].pixel_format = sceneFormat_;
-    d.sample_count = 1;
     d.face_winding = SG_FACEWINDING_CCW;
     d.label = "colorfilter";
-    return find_or_make(key, d);
+    return find_or_make(key, format, d);
 }
 
 bool Gpu::light_ready() {
@@ -485,8 +501,8 @@ bool Gpu::light_ready() {
     return true;
 }
 
-sg_pipeline Gpu::light_pipeline() {
-    PipelineKey key{0x800u | (std::uint32_t(lightFormat_) << 12)};
+sg_pipeline Gpu::light_pipeline(const TargetFormat& format) {
+    PipelineKey key{0x800u};
     sg_pipeline_desc d{};
     d.shader = light_shader_;
     d.layout.attrs[ATTR_light_light_corner] = {.buffer_index = 0, .offset = 0, .format = SG_VERTEXFORMAT_FLOAT2};
@@ -495,10 +511,8 @@ sg_pipeline Gpu::light_pipeline() {
     d.layout.attrs[ATTR_light_light_shadow] = {.buffer_index = 0, .offset = 40, .format = SG_VERTEXFORMAT_FLOAT4};
     d.layout.buffers[0].stride = int(sizeof(LightVertex));
     d.index_type = SG_INDEXTYPE_UINT16;
-    d.depth.pixel_format = SG_PIXELFORMAT_NONE;
     d.depth.compare = SG_COMPAREFUNC_ALWAYS;
     d.depth.write_enabled = false;
-    d.colors[0].pixel_format = lightFormat_;
     d.colors[0].blend.enabled = true;  // dst + src: the lights add up
     d.colors[0].blend.src_factor_rgb = SG_BLENDFACTOR_ONE;
     d.colors[0].blend.dst_factor_rgb = SG_BLENDFACTOR_ONE;
@@ -506,9 +520,8 @@ sg_pipeline Gpu::light_pipeline() {
     d.colors[0].blend.dst_factor_alpha = SG_BLENDFACTOR_ONE;
     d.cull_mode = SG_CULLMODE_NONE;
     d.face_winding = SG_FACEWINDING_CCW;
-    d.sample_count = 1;
     d.label = "light-buffer";
-    return find_or_make(key, d);
+    return find_or_make(key, format, d);
 }
 
 sg_buffer Gpu::acquire_transient(std::size_t bytes) {

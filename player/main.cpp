@@ -488,8 +488,7 @@ int main(int argc, char** argv) {
 #include <memory>
 
 #include "fa/platform/sokol_entry.h"
-#include "sokol_gfx.h"
-#include "sokol_glue.h"
+#include "fa/render/renderer.h"
 
 #if defined(__ANDROID__)
 #include <android/native_activity.h>
@@ -514,22 +513,14 @@ __attribute__((used)) const char kPlayerFingerprint[] = "FA-BUILD-FINGERPRINT:" 
 // carry the explanation.)
 std::string g_errorMessage;
 
+// The graphics context and the cleared frame come from the renderer's own API (Renderer::open_context, present_clear,
+// close_context): the player has no pass or sokol call of its own.
 void error_init() {
-    sg_desc d{};
-    d.environment = sglue_environment();
-    d.logger.func = fa_sokol_log_func;
-    sg_setup(&d);
+    std::string err;
+    if (!fa::Renderer::open_context(fa::app_gfx_environment(), &err)) FA_ERROR("player", "{}", err);
 }
-void error_frame() {
-    sg_pass pass{};
-    pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-    pass.action.colors[0].clear_value = {0.55f, 0.08f, 0.08f, 1.0f};
-    pass.swapchain = sglue_swapchain();
-    sg_begin_pass(&pass);
-    sg_end_pass();
-    sg_commit();
-}
-void error_cleanup() { sg_shutdown(); }
+void error_frame() { fa::Renderer::present_clear(fa::app_gfx_swapchain(), fa::Color{0.55f, 0.08f, 0.08f, 1.0f}); }
+void error_cleanup() { fa::Renderer::close_context(); }
 
 sapp_desc error_desc(const std::string& message) {
     g_errorMessage = message;

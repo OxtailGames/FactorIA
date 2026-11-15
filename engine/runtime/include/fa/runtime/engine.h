@@ -201,6 +201,11 @@ public:
 
     // Draws the current state now when it has not been drawn yet (RenderMode::OnDemand); no-op otherwise.
     void render_now();
+    // Draws the current state again `frames` times, whether or not it was drawn already (a no-op without a renderer). Time does
+    // not move and nothing the game's scripts can read changes, but a draw consumes the debug-draw queue: the redrawn
+    // picture has none of its lines, and lines queued since the last draw are gone. For measuring (the GPU timers answer a few
+    // frames late, render.frame_graph's profileFrames).
+    void redraw(int frames = 1);
     // True when frames were simulated since the last draw (always false in RenderMode::Always).
     bool render_pending() const;
 

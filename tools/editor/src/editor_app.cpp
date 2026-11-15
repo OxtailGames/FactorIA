@@ -23,7 +23,6 @@
 #include "fa/platform/local_date.h"
 #include "fa/platform/sokol_entry.h"
 #include "sokol_gfx.h"
-#include "sokol_glue.h"
 #include "ui_backend.h"
 #include "fa/tooling/feedback_fixed.h"
 #include "fa/tooling/load_order.h"
@@ -1101,14 +1100,12 @@ void Editor::on_frame(double dt) {
     build_ui();
     ui::flush();
 
-    sg_pass pass{};
-    pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-    pass.action.colors[0].clear_value = {0.08f, 0.085f, 0.095f, 1.0f};
-    pass.swapchain = sglue_swapchain();
-    ui::note_window_swapchain(pass.swapchain);
-    sg_begin_pass(&pass);
+    // The window pass: the editor's UI (ImGui, its own GPU client) draws into it; the game's picture is a texture in the UI.
+    const GfxSwapchain swapchain = app_gfx_swapchain();
+    ui::note_window_swapchain(swapchain.get());
+    Renderer::begin_window_pass(swapchain, Color{0.08f, 0.085f, 0.095f, 1.0f});
     ui::draw();
-    sg_end_pass();
+    Renderer::end_window_pass();
     sg_commit();
     if (engine_ && engine_->renderer()) engine_->renderer()->note_commit();
 

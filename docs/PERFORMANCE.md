@@ -285,7 +285,7 @@ line `startup: first frame presented at ... ms, game ready at ... ms`):
 | `windowReadyMs`, `initMs`, `warmupMs` | Window and context ready; reading the game; making the first scene's pipelines. |
 | `startupCpuMs` | CPU time from reading the files to the first game frame. The `startupMs` of `perf.*`, what `maxStartupMs` budgets. |
 | `diskReadsAtFirstPresent`, `diskReadsAtFirstGameFrame` | Files read from disk by then. The first is 0 or the player's own few files: the game's files are read after the first frame. |
-| `gpu` | The renderer's part: `backend`, `cache` (the mode: `d3d11-dxbc` where the engine keeps a shader cache, `none` elsewhere), `programs` and `createMs` (shader programs made and the wall time that took), the cache counters `stages`, `cacheHits`, `cacheMisses`, `cacheStale`, `cacheDamaged`, `cacheStored`, `cacheStoreFailed` (present where the engine has a cache), `pipelinesWarmed`, `warmMs`, `groupsLeft`. |
+| `gpu` | The renderer's part: `backend`, `cache` (the mode: `d3d11-dxbc` where the engine keeps a shader cache, `none` elsewhere), `programs` and `createMs` (shader programs made and the wall time that took), the cache counters `stages`, `cacheHits`, `cacheMisses`, `cacheStale`, `cacheDamaged`, `cacheStored`, `cacheStoreFailed` (present where the engine has a cache), `pipelinesWarmed`, `pipelines` (pipelines in the cache now), `pipelineHits` (asks answered from the cache), `pipelinesMade` and `pipelinesEvicted` (made, and destroyed for being idle: see ARCHITECTURE.md, "Rendering"), `warmMs`, `groupsLeft`. |
 
 `loading.startup` is there for a session that starts its own engine (`factoria run`, `play.auto`, the player); a Play inside the
 editor has none, because the editor's engine started once with the editor and its start-up numbers say nothing about the session.
@@ -442,6 +442,7 @@ profile: {
   systems: {platform, physics, scriptsFixedUpdate, animation, scriptsEvents, ui, scriptsUpdate, audio,
             scriptsLateUpdate, localization, render, endOfFrame: {avgMs, p95Ms, maxMs}},
   behaviours: [{class, path, avgMs, maxMs, callsPerFrame}],   // slowest first
+  zones: [{name, avgMs, maxMs, callsPerFrame}],              // the 30 slowest named stretches: the renderer's passes
   threads: [{name, jobMsAvg, jobMsMax, busyPct, jobsPerFrame,  // "main", "worker 1".., "other"
              jobs: [{name, avgMs, maxMs, callsPerFrame}]}],    // that thread's 10 slowest job names
   gpu: {avgMs, p95Ms, maxMs, samples, reason},                // numbers, or null + reason
@@ -466,6 +467,24 @@ Reading it:
   Direct3D 11 (Windows) and desktop OpenGL (Linux). Everywhere else the numbers are `null` and `reason` says why: Metal
   (macOS, iOS) exposes no GPU times through the graphics layer the engine uses, and OpenGL ES 3 and WebGL2 (Android, web)
   would need the `EXT_disjoint_timer_query` extension, which is not used. A run with no GPU at all also gives `null`.
+- `zones` are stretches of a frame that have a name made at run time. The renderer reports every pass of its frame graph as
+  one, named `<job>/<pass>` (`camera:0/game`, `camera:0/bloom-bright`, `target:minimap/view`; docs/RENDERING.md). `avgMs` is
+  per frame like a behaviour's, and the time is the CPU time the pass took to record its draws (the part of `render`
+  that is not in a pass is the gathering of the scene). A zone that is big here with a small `gpu` time is a pass that
+  records too many draws; compare the passes with each other, not with `frameMs`.
+- The GPU time of each pass is not in `profile`: call `render.frame_graph` for the frame graph of the last frame with
+  `cpuMs` and `gpuMs` for every pass and job (`factoria call --project <dir> render.frame_graph '{"profileFrames":8}'`
+  works with no editor and no running profile). `gpuMs` is measured with a timestamp before and after the pass on
+  Direct3D 11 and desktop OpenGL, only while the profiler is on, for at most 64 passes of a frame, and reads the answer of
+  a recent frame like `gpu`; it is `-1` where there is no number (and `gpu.reason` in the result says why). Nothing else
+  switches the profiler on for that command, so `profileFrames` (default 8, 0 to 60) does: when the profiler is off and the
+  backend can time, the command turns it on, draws the current state again until the first GPU times arrive (at most that
+  many times; the result's `profileFrames` says how many it drew), reads the graph and puts the profiler back. Drawing
+  again does not move the game (time does not advance) but it consumes the debug-draw queue: the redrawn pictures have
+  no debug-draw lines, and lines queued since the last draw are lost. With `profileFrames: 0` (the call that only
+  reads: no profiler, no frame drawn again), or while a profile or the editor's Profiler panel already runs, it only
+  reads what is there. On Metal, GLES3 and WebGL2 no frame is drawn for it and
+  `gpu.reason` says there is no GPU timer.
 - `memory` samples the process (resident memory now and at its peak), the JavaScript heap, texture memory, decoded audio (`audioDecodedMB`: sounds, streaming buffers and the music cache; `musicMB` is the music part of it: a song costs about 10 MB per minute per stem, docs/MUSIC.md)
   and the entity count, at the start, the end and the peak of the run: a number that only grows over a long session is a leak.
 - `threads` has one entry per thread of the job pool (main first, then every worker, idle ones too; `other` when a

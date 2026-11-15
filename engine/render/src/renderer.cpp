@@ -1,44 +1,9 @@
-#include "fa/render/renderer.h"
-#include "fa/scene/camera_geometry.h"
-#include "fa/scene/camera_query.h"
-#include "fa/scene/bones2d.h"
-#include "fa/scene/lod.h"
+#include "renderer_impl.h"
+#include "scene2d.h"
 
-#include <algorithm>
-#include <chrono>
-#include <cmath>
-#include <cstdlib>
-#include <cstring>
-#include <set>
-
-#include "fa/core/fs.h"
-#include "font_internal.h"
-#include "fa/core/strings.h"
-#include "fa/core/load_trace.h"
-#include "fa/core/asset_manifest.h"
-#include "fa/core/log.h"
-#include "fa/core/profiler.h"
-#include "fa/platform/sokol_logging.h"
-#include "fa/scene/text_fit.h"
-#include "fa/scene/ui_rect.h"
-#include "bloom.h"
-#include "shaders/colorfilter.glsl.h"
-#include "frame.h"
-#include "mesh_batch.h"
-#include "font_set.h"
-#include "render_internal.h"
-#include "render_jobs.h"
-#include "shader_cache.h"
-
-#include "shaders/blit.glsl.h"
-#include "shaders/light.glsl.h"
-#include "shaders/mesh.glsl.h"
-#include "shaders/quad.glsl.h"
-#include "shaders/sky.glsl.h"
+#include <map>
 
 namespace fa {
-
-using namespace render;
 
 // ---------------------------------------------------------------------------
 // RenderStats / DebugDraw
@@ -63,6 +28,7 @@ Json RenderStats::to_json() const {
                 {"lights2dShadowed", lights2dShadowed},
                 {"materials", materials},
                 {"materialFallbacks", materialFallbacks},
+                {"sortKeyFallbacks", sortKeyFallbacks},
                 {"cpuMs", std::round(cpuMs * 1000.0) / 1000.0}};
 }
 
@@ -105,793 +71,6 @@ void DebugDraw::clear() {
     impl_->rects.clear();
     impl_->circles.clear();
     impl_->texts.clear();
-}
-
-// ---------------------------------------------------------------------------
-// Renderer::Impl
-// ---------------------------------------------------------------------------
-struct Renderer::Impl {
-    RendererDesc desc;
-    bool initialized = false;
-    bool inFrame = false;
-    bool anyFrameRendered = false;
-    int targetW = 0, targetH = 0;  // logical (design) size: what layouts, cameras and Text are measured in
-    float renderScale = 1.0f;      // GPU images are targetW*renderScale wide (Renderer::set_render_scale)
-    int physW = 0, physH = 0;      // size of the GPU images
-    Gpu gpu;
-    GpuTimer gpuTimer;
-    // Renderer::warm_step: the groups of pipelines to make before the first game frame, built on the first call.
-    std::vector<std::function<void()>> warmGroups;
-    std::size_t warmNext = 0;
-    bool warmBuilt = false;
-    std::size_t warmPipelines = 0;
-    double warmMs = 0;
-    bool adopted = false;  // the graphics context was opened by open_context: this renderer closes it
-    std::unique_ptr<Assets> assets;
-    std::unique_ptr<Fonts> fonts;
-    GradientRamps ramps;     // the baked colour rows of Shape2D gradients with stops or an easing (gradient_ramp.h)
-    float textScale = 1.0f;  // Renderer::set_text_scale
-    float uiScale = 1.0f;    // Renderer::set_ui_scale
-
-    sg_image colorImg{}, resolveImg{}, depthImg{};
-    sg_view colorAtt{}, resolveAtt{}, depthAtt{}, texView{};
-    sg_view resolveColorAtt{};  // MSAA only: the resolved image as a color attachment (bloom composites into it)
-    Bloom bloom;                // Camera.bloom post-process (intermediate targets are created on first use)
-    // Camera.colorFilter: the filtered copy of the finished frame. A pass cannot read what it writes, so the filter
-    // draws into this second image (made on first use) and present(), capture() and the editor viewport show it
-    // while `filterActive` (the last frame was filtered).
-    sg_image filterImg{};
-    sg_view filterAtt{}, filterTex{};
-    bool filterActive = false;
-    sg_image shadowColor{}, shadowDepth{};
-    sg_view shadowColorAtt{}, shadowDepthAtt{}, shadowTexView{};
-    static constexpr int kShadowSize = 2048;
-
-    DebugDraw debug;
-    RenderStats stats;
-    // The rendering cameras of the last update()/draw in draw order (never empty after the first one: a world without a camera
-    // gets one default camera). [0] is "the" camera: the lowest depth.
-    std::vector<CameraInfo> lastCams;
-    bool warnedNoLight = false;
-    std::string
-        warnedViewport;  // the last "bad Camera.viewport" problem logged (a viewport a script sets live is clamped)
-    bool warnedCameras = false;        // the "more cameras than the limit" warning, once per scene
-    bool warnedLights2d = false;       // the "more Light2D in view than the budget" warning, once per scene
-    bool warnedShadows2d = false;      // the "more shadow casters than the budget" warning, once per scene
-    bool warnedSpriteMesh = false;     // the "too many mesh cells" warning, once per scene
-    bool warnedGradientStops = false;  // the "malformed gradientStops" warning, once per scene
-    std::string lights2dScene;         // the scene path warnedLights2d and warnedShadows2d belong to
-    // The 2D light buffer (light.glsl): the point lights of the frame added up, read by the lit visuals. Made when a frame
-    // needs it, at lightScale of the target's size; kept while the size and the format stay.
-    sg_image lightImg{};
-    sg_view lightAtt{}, lightTexView{};
-    int lightW = 0, lightH = 0;
-    sg_pixel_format lightImgFormat = SG_PIXELFORMAT_NONE;
-    bool lightTargetFailed = false;
-    // The shadow rows of the lights with castShadows (light2d.cpp) as an image: an image is reused while its rows stay the
-    // same, a new one replaces the oldest of the ring.
-    ShadowCache shadowCache;
-    // A ring: every camera of a frame may need its own rows, and an image a recorded draw reads is not destroyed within the
-    // frame (kMaxCameras + 1 images).
-    static constexpr int kShadowRowsRing = 9;
-    sg_image shadowRowsImg[kShadowRowsRing]{};
-    sg_view shadowRowsView[kShadowRowsRing]{};
-    std::uint64_t shadowRowsKey[kShadowRowsRing]{};
-    int shadowRowsCurrent = 0;
-    bool updated = false;  // update() ran since the last draw
-    ScaleMode scaleMode = ScaleMode::Fit;
-    std::vector<Vertex2D> stream;
-
-    // The image a CameraView shows (ui2d.cpp, draw_camera_view): the camera is drawn into it before the frame's own jobs. One per
-    // widget, made when a gather asks for it with a size and kept while the widget keeps asking; the ones nobody asked for in a
-    // frame are freed at its end. Made like the game target (same sample count, same formats), because the pipelines are.
-    struct ViewTarget {
-        sg_image color{}, resolve{}, depth{};
-        sg_view colorAtt{}, resolveAtt{}, depthAtt{}, texView{};
-        int w = 0, h = 0;
-        bool used = false;   // asked for since the last release_unused_views()
-        TextureAsset asset;  // what the UI quad samples: the resolved image, w x h
-        // A Camera.renderTarget texture on a backend that stores render targets bottom-up (GL): the picture copied the right way
-        // up into `flip`, which `asset` then samples, so a mesh, a Sprite or a Panel reads it like any file texture.
-        bool flipCopy = false;
-        sg_image flip{};
-        sg_view flipAtt{}, flipTex{};
-    };
-    std::unordered_map<std::uint64_t, std::unique_ptr<ViewTarget>> viewTargets;
-    bool viewWarned = false;
-    TextureAsset* view_image(std::uint64_t key, int w, int h, bool renderTarget = false);
-    void release_view(ViewTarget& t);
-    void release_unused_views();
-    void draw_view_job(World& world, Frame& fr, ViewTarget& target);
-
-    // ---- Camera.renderTarget (docs/RENDERING.md, "Render targets") ----
-    struct TargetCam {
-        Entity entity;
-        std::string name;
-        int w = 1, h = 1;
-        std::uint64_t key = 0;
-        int depth = 0;
-        TextureAsset* asset = nullptr;
-    };
-    std::vector<TargetCam> targetCams;                  // this frame's: active, valid, one per name, in creation order
-    std::unordered_map<std::string, int> targetByName;  // name -> index into targetCams
-    std::unordered_map<const TextureAsset*, int> targetByAsset;
-    std::string
-        targetSelf;  // the name of the target being gathered or drawn: its own texture is the checker (sentinel)
-    TextureAsset selfSentinel;  // what texture("target:<self>") answers meanwhile: the checker, its handles are shared
-    std::set<std::string> targetWarned;
-    void collect_targets(World& world);
-    void warn_target_once(const std::string& key, const std::string& message, const std::string& hint);
-    TextureAsset* resolve_target(const std::string& name);
-    void flip_copy(ViewTarget& t);
-
-    void create_targets(int w, int h);
-    void make_game_targets();  // the images and views of the game target, at physW x physH in gpu.scene_format()
-    void destroy_targets();
-    int apply_color_filter(int mode);
-    // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
-    // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
-    bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error);
-    sg_image readImg{};  // the RGBA8 copy read_rgba8 makes, kept for the next capture of the same size
-    void free_read_image();
-    // True when the images and views of the game target were made (create_targets) and the GPU accepted them.
-    bool game_targets_valid() const;
-    sg_view readAtt{};
-    int readW = 0, readH = 0;
-    sg_image final_image() const { return filterActive ? filterImg : (gpu.sample_count() > 1 ? resolveImg : colorImg); }
-    sg_view final_view() const { return filterActive ? filterTex : texView; }
-    void create_shadow_targets();
-    bool ensure_light_target(float scale);
-    sg_view upload_shadow_rows(const Frame& fr);
-    void destroy_light_resources();
-    // `view` (a CameraView's rectangle in design pixels) makes the camera fill an image of that size instead of its viewport.
-    CameraInfo build_camera(World& world, Entity entity, const Vec2* viewSize = nullptr, bool renderTarget = false);
-    std::vector<CameraInfo> collect_cameras(World& world);
-    const CameraInfo& camera_for(Entity camera, const Vec2* screenPoint) const;
-    struct JobPlan {
-        bool first = false;  // the first pass of the frame: it clears the whole target when its camera clears
-        bool last =
-            false;  // the last job of the frame: it runs the post effects (bloom, the HUD over it, the colour filter)
-        bool view =
-            false;  // a CameraView's image: no post effects, never partial, resolved at once, 2D lights read per pixel
-        const CameraInfo* post =
-            nullptr;  // the camera whose bloom, bloomScreenSpace and colorFilter the frame gets (the first)
-    };
-    void render(World& world, float dt);
-    void setup_frame(Frame& fr, World& world, float dt);
-    void draw_job(World& world, Frame& fr, const JobPlan& plan);
-};
-
-namespace {
-
-// The 3D gather of a camera (matrices, culling boxes, frustum and shadow tests) runs as jobs from this many
-// MeshRenderers on, kMeshGrain per chunk: an item costs ~1 us (a skinned one several), a chunk a few to hand out.
-constexpr std::size_t kParallelMeshes = 256;
-constexpr std::size_t kMeshGrain = 64;
-
-struct Viewport {
-    float x, y, w, h, scale;
-};
-
-Viewport compute_viewport(ScaleMode mode, int fbW, int fbH, int tw, int th) {
-    if (fbW <= 0 || fbH <= 0 || tw <= 0 || th <= 0) return {0, 0, float(fbW), float(fbH), 1.0f};
-    const float fw = float(fbW), fh = float(fbH), tfw = float(tw), tfh = float(th);
-    switch (mode) {
-        case ScaleMode::Stretch: return {0, 0, fw, fh, fw / tfw};
-        case ScaleMode::PixelPerfect: {
-            float s = std::floor(std::min(fw / tfw, fh / tfh));
-            if (s < 1.0f) s = std::min(fw / tfw, fh / tfh);
-            float w = tfw * s, h = tfh * s;
-            return {std::floor((fw - w) * 0.5f), std::floor((fh - h) * 0.5f), w, h, s};
-        }
-        case ScaleMode::Expand:
-        case ScaleMode::Fit:
-        default: {
-            float s = std::min(fw / tfw, fh / tfh);
-            float w = tfw * s, h = tfh * s;
-            return {std::floor((fw - w) * 0.5f), std::floor((fh - h) * 0.5f), w, h, s};
-        }
-    }
-}
-
-template <class T>
-void apply_uniforms(int slot, const T& u) {
-    sg_range r{&u, sizeof(T)};
-    sg_apply_uniforms(slot, &r);
-}
-
-void copy_mat(float* dst, const Mat4& m) { std::memcpy(dst, m.m, sizeof(float) * 16); }
-
-// The palette of glTF skin `skin` (a part is drawn with its own skin's); skin 0 when the animator has none for it.
-const std::vector<Mat4>& palette_of(const Animator& a, int skin) {
-    return skin > 0 && std::size_t(skin) < a.skinPalettes.size() ? a.skinPalettes[std::size_t(skin)] : a.palette;
-}
-
-// The joint palette as the shaders read it: kMaxSkinJoints skinning matrices of 3 rows (a vec4 each); unused joints are the
-// identity (fa_skin of mesh_common.glsl, shared by the mesh and shadow programs).
-mesh_fa_skin_t pack_palette(const std::vector<Mat4>& palette) {
-    mesh_fa_skin_t u{};
-    for (int j = 0; j < kMaxSkinJoints; ++j) {
-        const Mat4 m = std::size_t(j) < palette.size() ? palette[std::size_t(j)] : Mat4::identity();
-        for (int r = 0; r < 3; ++r)
-            for (int c = 0; c < 4; ++c) u.fa_joint_rows[j * 3 + r][c] = m.at(c, r);
-    }
-    return u;
-}
-
-}  // namespace
-
-void Renderer::Impl::create_targets(int w, int h) {
-    destroy_targets();
-    targetW = std::max(1, w);
-    targetH = std::max(1, h);
-    physW = std::max(1, int(std::lround(double(targetW) * renderScale)));
-    physH = std::max(1, int(std::lround(double(targetH) * renderScale)));
-    make_game_targets();
-    // A GPU can list RGBA16F as renderable and still refuse these images: GLES3/WebGL2 with multisampling but without
-    // EXT_color_buffer_float, a framebuffer the driver calls incomplete (sokol marks the image or the attachment view FAILED).
-    // Then the game is drawn in RGBA8 (everything clamps at white, hdr_scene() says false) rather than not at all. The same
-    // check runs on every backend (GL, GLES, D3D11, Metal). FA_SCENE_FORMAT=rgba16f_invalid is a test hook: it makes the
-    // check fail on a GPU that never would, to run the fall-back there.
-    // Only the FIRST creation may change the format, and only when the same size works in RGBA8: later calls (an Expand-mode
-    // resize, a render scale for a big screenshot) can fail for a moment (out of GPU memory), and that must neither downgrade
-    // the game for good nor drop the pipelines in the middle of it. Then the old behaviour stays: the failure is reported by
-    // the capture or the frame that needs the target.
-    if (!initialized && gpu.scene_format() == SG_PIXELFORMAT_RGBA16F) {
-        const char* hook = std::getenv("FA_SCENE_FORMAT");
-        if (!game_targets_valid() || (hook && std::string(hook) == "rgba16f_invalid")) {
-            destroy_targets();
-            gpu.set_scene_format(SG_PIXELFORMAT_RGBA8);
-            make_game_targets();
-            if (game_targets_valid()) {
-                gpu.drop_pipelines();
-                FA_WARN("render",
-                        "The GPU cannot make the {}x{} game target in RGBA16F{}, but can in RGBA8: the game is drawn "
-                        "in RGBA8 "
-                        "(colours above white are clamped, Camera.bloom is weaker, hdr_scene() is false)",
-                        physW, physH, gpu.sample_count() > 1 ? " with multisampling" : "");
-            } else {  // RGBA8 fails too: it is not the format; keep the float one and its errors
-                destroy_targets();
-                gpu.set_scene_format(SG_PIXELFORMAT_RGBA16F);
-                make_game_targets();
-            }
-        }
-    }
-}
-
-void Renderer::Impl::make_game_targets() {
-    int samples = gpu.sample_count();
-    sg_image_desc cd{};
-    cd.usage.color_attachment = true;
-    cd.width = physW;
-    cd.height = physH;
-    cd.pixel_format = gpu.scene_format();
-    cd.sample_count = samples;
-    cd.label = "game-color";
-    colorImg = make_image(cd);
-    sg_view_desc cv{};
-    cv.color_attachment.image = colorImg;
-    cv.label = "game-color-att";
-    colorAtt = sg_make_view(&cv);
-    if (samples > 1) {
-        sg_image_desc rd{};
-        rd.usage.resolve_attachment = true;
-        rd.usage.color_attachment = true;  // Camera.bloom adds its glow to the resolved image
-        rd.width = physW;
-        rd.height = physH;
-        rd.pixel_format = gpu.scene_format();
-        rd.sample_count = 1;
-        rd.label = "game-resolve";
-        resolveImg = make_image(rd);
-        sg_view_desc rv{};
-        rv.resolve_attachment.image = resolveImg;
-        resolveAtt = sg_make_view(&rv);
-        sg_view_desc rc{};
-        rc.color_attachment.image = resolveImg;
-        rc.label = "game-resolve-color-att";
-        resolveColorAtt = sg_make_view(&rc);
-    }
-    sg_view_desc tv{};
-    tv.texture.image = samples > 1 ? resolveImg : colorImg;
-    tv.label = "game-texture";
-    texView = sg_make_view(&tv);
-    sg_image_desc dd{};
-    dd.usage.depth_stencil_attachment = true;
-    dd.width = physW;
-    dd.height = physH;
-    dd.pixel_format = SG_PIXELFORMAT_DEPTH_STENCIL;
-    dd.sample_count = samples;
-    dd.label = "game-depth";
-    depthImg = make_image(dd);
-    sg_view_desc dv{};
-    dv.depth_stencil_attachment.image = depthImg;
-    depthAtt = sg_make_view(&dv);
-}
-
-bool Renderer::Impl::game_targets_valid() const {
-    for (sg_image i : {colorImg, resolveImg, depthImg})
-        if (i.id && sg_query_image_state(i) != SG_RESOURCESTATE_VALID) return false;
-    for (sg_view v : {colorAtt, resolveAtt, resolveColorAtt, depthAtt, texView})
-        if (v.id && sg_query_view_state(v) != SG_RESOURCESTATE_VALID) return false;
-    return colorImg.id != 0 && texView.id != 0;
-}
-
-void Renderer::Impl::free_read_image() {
-    if (readAtt.id) sg_destroy_view(readAtt);
-    readAtt = {};
-    if (readImg.id) sg_destroy_image(readImg);
-    readImg = {};
-    readW = readH = 0;
-}
-
-void Renderer::Impl::destroy_targets() {
-    for (auto& [key, t] : viewTargets) release_view(*t);
-    viewTargets.clear();
-    bloom.release();
-    for (sg_view* v : {&lightAtt, &lightTexView}) {
-        if (v->id) sg_destroy_view(*v);
-        *v = {};
-    }
-    if (lightImg.id) sg_destroy_image(lightImg);
-    lightImg = {};
-    lightW = lightH = 0;
-    filterActive = false;
-    for (sg_view* v : {&filterAtt, &filterTex}) {
-        if (v->id) sg_destroy_view(*v);
-        *v = {};
-    }
-    if (filterImg.id) sg_destroy_image(filterImg);
-    filterImg = {};
-    free_read_image();
-    for (sg_view* v : {&colorAtt, &resolveAtt, &resolveColorAtt, &depthAtt, &texView}) {
-        if (v->id) sg_destroy_view(*v);
-        *v = {};
-    }
-    for (sg_image* i : {&colorImg, &resolveImg, &depthImg}) {
-        if (i->id) sg_destroy_image(*i);
-        *i = {};
-    }
-}
-
-// Makes (or keeps) the image of a CameraView: w x h pixels, drawn into with the game target's formats and sample count.
-// Null (and one logged error) when the GPU cannot make it.
-TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool renderTarget) {
-    std::unique_ptr<ViewTarget>& slot = viewTargets[key];
-    if (!slot) slot = std::make_unique<ViewTarget>();
-    ViewTarget& t = *slot;
-    t.used = true;
-    if (t.color.id && t.w == w && t.h == h) return &t.asset;
-    release_view(t);
-    t.flipCopy = renderTarget && gpu.is_gl();
-    const int samples = gpu.sample_count();
-    sg_image_desc cd{};
-    cd.usage.color_attachment = true;
-    cd.width = w;
-    cd.height = h;
-    cd.pixel_format = gpu.scene_format();
-    cd.sample_count = samples;
-    cd.label = "view-color";
-    t.color = make_image(cd);
-    sg_view_desc cv{};
-    cv.color_attachment.image = t.color;
-    cv.label = "view-color-att";
-    t.colorAtt = sg_make_view(&cv);
-    if (samples > 1) {
-        sg_image_desc rd{};
-        rd.usage.resolve_attachment = true;
-        rd.width = w;
-        rd.height = h;
-        rd.pixel_format = gpu.scene_format();
-        rd.sample_count = 1;
-        rd.label = "view-resolve";
-        t.resolve = make_image(rd);
-        sg_view_desc rv{};
-        rv.resolve_attachment.image = t.resolve;
-        t.resolveAtt = sg_make_view(&rv);
-    }
-    sg_view_desc tv{};
-    tv.texture.image = samples > 1 ? t.resolve : t.color;
-    tv.label = "view-texture";
-    t.texView = sg_make_view(&tv);
-    sg_image_desc dd{};
-    dd.usage.depth_stencil_attachment = true;
-    dd.width = w;
-    dd.height = h;
-    dd.pixel_format = SG_PIXELFORMAT_DEPTH_STENCIL;
-    dd.sample_count = samples;
-    dd.label = "view-depth";
-    t.depth = make_image(dd);
-    sg_view_desc dv{};
-    dv.depth_stencil_attachment.image = t.depth;
-    t.depthAtt = sg_make_view(&dv);
-    const bool ok = sg_query_image_state(t.color) == SG_RESOURCESTATE_VALID &&
-                    sg_query_image_state(t.depth) == SG_RESOURCESTATE_VALID &&
-                    sg_query_view_state(t.texView) == SG_RESOURCESTATE_VALID &&
-                    sg_query_view_state(t.colorAtt) == SG_RESOURCESTATE_VALID;
-    if (!ok) {
-        if (!viewWarned)
-            FA_ERROR("render", "Cannot create the {}x{} image of a CameraView; the widget draws only its background", w,
-                     h);
-        viewWarned = true;
-        release_view(t);
-        return nullptr;
-    }
-    if (t.flipCopy) {
-        sg_image_desc fd{};
-        fd.usage.color_attachment = true;
-        fd.width = w;
-        fd.height = h;
-        fd.pixel_format = gpu.scene_format();
-        fd.sample_count = 1;
-        fd.label = "target-flipped";
-        t.flip = make_image(fd);
-        sg_view_desc fa{};
-        fa.color_attachment.image = t.flip;
-        t.flipAtt = sg_make_view(&fa);
-        sg_view_desc ft{};
-        ft.texture.image = t.flip;
-        t.flipTex = sg_make_view(&ft);
-        if (sg_query_image_state(t.flip) != SG_RESOURCESTATE_VALID ||
-            sg_query_view_state(t.flipAtt) != SG_RESOURCESTATE_VALID ||
-            sg_query_view_state(t.flipTex) != SG_RESOURCESTATE_VALID) {
-            if (!viewWarned) FA_ERROR("render", "Cannot create the {}x{} image of a render target", w, h);
-            viewWarned = true;
-            release_view(t);
-            return nullptr;
-        }
-    }
-    t.w = w;
-    t.h = h;
-    t.asset = TextureAsset{};
-    t.asset.path = renderTarget ? "target" : "view";
-    t.asset.image = t.flipCopy ? t.flip : (samples > 1 ? t.resolve : t.color);
-    t.asset.view = t.flipCopy ? t.flipTex : t.texView;
-    t.asset.width = w;
-    t.asset.height = h;
-    return &t.asset;
-}
-
-void Renderer::Impl::release_view(ViewTarget& t) {
-    for (sg_view* v : {&t.colorAtt, &t.resolveAtt, &t.depthAtt, &t.texView, &t.flipAtt, &t.flipTex}) {
-        if (v->id) sg_destroy_view(*v);
-        *v = {};
-    }
-    for (sg_image* i : {&t.color, &t.resolve, &t.depth, &t.flip}) {
-        if (i->id) sg_destroy_image(*i);
-        *i = {};
-    }
-    t.w = t.h = 0;
-    t.asset = TextureAsset{};
-}
-
-// Frees the images no CameraView asked for in this frame (the widget is gone, hidden or shows no camera any more).
-void Renderer::Impl::release_unused_views() {
-    for (auto it = viewTargets.begin(); it != viewTargets.end();) {
-        if (it->second->used) {
-            it->second->used = false;
-            ++it;
-        } else {
-            release_view(*it->second);
-            it = viewTargets.erase(it);
-        }
-    }
-}
-
-// ---- Camera.renderTarget -------------------------------------------------------------------------------------------------
-
-void Renderer::Impl::warn_target_once(const std::string& key, const std::string& message, const std::string& hint) {
-    if (!targetWarned.insert(key).second) return;
-    FA_ERROR("render", "{}. Hint: {}", message, hint);
-}
-
-// The active cameras with a Camera.renderTarget: valid, one per name, each with its image (made here, so the textures exist
-// before any gather asks for them). The images of the cameras that are gone are freed at the end of the frame.
-void Renderer::Impl::collect_targets(World& world) {
-    targetCams.clear();
-    targetByName.clear();
-    targetByAsset.clear();
-    if (selfSentinel.path.empty()) {  // the checker under another address: a camera that shows its own target gets this
-        selfSentinel = *assets->placeholder();
-        selfSentinel.path = "target-self";
-    }
-    world.each<Camera>([&](Entity e, Camera& c) {
-        if (c.renderTarget.empty() || !entity_active(world, e)) return;
-        const std::string who = "Camera '" + world.id_of(e) + "'";
-        Camera probe = c;
-        probe.renderTargetSize = Vec2{1, 1};
-        if (const std::string problem = camera_render_target_problem(probe); !problem.empty()) {
-            warn_target_once(
-                "name:" + std::to_string(e.bits()) + c.renderTarget, who + ": " + problem + "; the camera is not drawn",
-                "Camera.renderTarget is a short name of letters, digits, '_', '-' and '.' (up to 64 characters).");
-            return;
-        }
-        if (targetByName.count(c.renderTarget)) {
-            const TargetCam& first = targetCams[std::size_t(targetByName[c.renderTarget])];
-            warn_target_once("dup:" + c.renderTarget,
-                             who + " renders into target '" + c.renderTarget + "', which Camera '" +
-                                 world.id_of(first.entity) + "' already renders into; this camera is not drawn",
-                             "Give every render-target camera its own renderTarget name, or deactivate one of them.");
-            return;
-        }
-        int w = 1, h = 1;
-        bool clamped = false;
-        camera_render_target_pixels(c, w, h, &clamped);
-        if (clamped) {
-            const Vec2 sz = c.renderTargetSize;
-            warn_target_once("size:" + std::to_string(e.bits()) + std::to_string(w) + "x" + std::to_string(h),
-                             who + ": Camera.renderTargetSize is [" + std::to_string(sz.x) + ", " +
-                                 std::to_string(sz.y) + "], the texture is made " + std::to_string(w) + " x " +
-                                 std::to_string(h),
-                             "renderTargetSize is [width, height] in pixels, each 1..4096.");
-        }
-        const std::uint64_t key =
-            (1ull << 63) | std::uint64_t(std::hash<std::string>{}(c.renderTarget) & 0x7fffffffffffffffull);
-        TextureAsset* asset = view_image(key, w, h, true);
-        if (!asset) return;
-        targetByName[c.renderTarget] = int(targetCams.size());
-        targetByAsset[asset] = int(targetCams.size());
-        targetCams.push_back(TargetCam{e, c.renderTarget, w, h, key, c.depth, asset});
-    });
-}
-
-// What texture("target:<name>") answers: the target's live texture; the checker (selfSentinel) for the camera that draws that very
-// target (a pass cannot sample the image it writes); null when no camera renders into the name.
-TextureAsset* Renderer::Impl::resolve_target(const std::string& name) {
-    auto it = targetByName.find(name);
-    if (it == targetByName.end()) return nullptr;
-    if (name == targetSelf) return &selfSentinel;
-    return targetCams[std::size_t(it->second)].asset;
-}
-
-// GL stores render targets bottom-up: copy the finished picture the right way up into the image the texture asset samples.
-void Renderer::Impl::flip_copy(ViewTarget& t) {
-    if (!t.flipCopy || !t.flip.id || !gpu.colorfilter_ready())
-        return;  // the copy draws with the colour filter's shader
-    sg_pass p{};
-    p.action.colors[0].load_action = SG_LOADACTION_DONTCARE;
-    p.action.colors[0].store_action = SG_STOREACTION_STORE;
-    p.attachments.colors[0] = t.flipAtt;
-    p.label = "target-flip";
-    sg_begin_pass(&p);
-    sg_apply_pipeline(gpu.colorfilter_pipeline());
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_colorfilter_tex] = t.texView;
-    b.samplers[SMP_colorfilter_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
-    colorfilter_colorfilter_vs_params_t vu{};
-    vu.flip[0] = 0.0f;  // the filter's own flip (1 on GL) reads the target as it is stored; 0 turns it
-    apply_uniforms(UB_colorfilter_colorfilter_vs_params, vu);
-    colorfilter_colorfilter_params_t fu{};
-    fu.p[0] = 0.0f;  // mode 0: a plain copy with the alpha
-    apply_uniforms(UB_colorfilter_colorfilter_params, fu);
-    sg_draw(0, 3, 1);
-    sg_end_pass();
-    ++stats.drawCalls;
-}
-
-// Makes (or keeps) the light buffer: `scale` times the size of the game target, in the format the GPU draws lights in.
-// False (and one logged error) when it cannot be created: lit visuals then use the per-pixel path.
-bool Renderer::Impl::ensure_light_target(float scale) {
-    if (lightTargetFailed) return false;
-    const int w = std::max(1, int(std::lround(double(physW) * double(scale))));
-    const int h = std::max(1, int(std::lround(double(physH) * double(scale))));
-    const sg_pixel_format fmt = gpu.light_format();
-    if (lightImg.id && lightW == w && lightH == h && lightImgFormat == fmt) return true;
-    for (sg_view* v : {&lightAtt, &lightTexView}) {
-        if (v->id) sg_destroy_view(*v);
-        *v = {};
-    }
-    if (lightImg.id) sg_destroy_image(lightImg);
-    lightImg = {};
-    sg_image_desc d{};
-    d.usage.color_attachment = true;
-    d.width = w;
-    d.height = h;
-    d.pixel_format = fmt;
-    d.sample_count = 1;
-    d.label = "light-buffer";
-    lightImg = make_image(d);
-    sg_view_desc av{};
-    av.color_attachment.image = lightImg;
-    av.label = "light-buffer-att";
-    lightAtt = sg_make_view(&av);
-    sg_view_desc tv{};
-    tv.texture.image = lightImg;
-    tv.label = "light-buffer-tex";
-    lightTexView = sg_make_view(&tv);
-    if (sg_query_image_state(lightImg) != SG_RESOURCESTATE_VALID ||
-        sg_query_view_state(lightAtt) != SG_RESOURCESTATE_VALID ||
-        sg_query_view_state(lightTexView) != SG_RESOURCESTATE_VALID) {
-        FA_ERROR(
-            "render",
-            "Cannot create the {}x{} 2D light buffer; lit visuals are shaded per pixel by the first {} lights only", w,
-            h, kDirectLights2D);
-        for (sg_view* v : {&lightAtt, &lightTexView}) {
-            if (v->id) sg_destroy_view(*v);
-            *v = {};
-        }
-        if (lightImg.id) sg_destroy_image(lightImg);
-        lightImg = {};
-        lightTargetFailed = true;
-        return false;
-    }
-    lightW = w;
-    lightH = h;
-    lightImgFormat = fmt;
-    return true;
-}
-
-// The image of the frame's shadow rows (Frame::shadowData); an empty view when no light casts a shadow. Immutable: a new
-// image is made only when the rows changed (a light moved, a tile was edited), so a still scene uploads nothing.
-sg_view Renderer::Impl::upload_shadow_rows(const Frame& fr) {
-    if (fr.shadowRows <= 0) return sg_view{};
-    for (int i = 0; i < kShadowRowsRing; ++i)
-        if (shadowRowsView[i].id && shadowRowsKey[i] == fr.shadowKey) return shadowRowsView[i];
-    const int slot = (shadowRowsCurrent + 1) % kShadowRowsRing;
-    if (shadowRowsView[slot].id) sg_destroy_view(shadowRowsView[slot]);
-    if (shadowRowsImg[slot].id) sg_destroy_image(shadowRowsImg[slot]);
-    sg_image_desc d{};
-    d.width = kShadowAngles;
-    d.height = fr.shadowRows;
-    d.pixel_format = SG_PIXELFORMAT_RGBA8;
-    d.data.mip_levels[0] = {fr.shadowData.data(), fr.shadowData.size()};
-    d.label = "light-shadow-rows";
-    shadowRowsImg[slot] = make_image(d);
-    sg_view_desc tv{};
-    tv.texture.image = shadowRowsImg[slot];
-    tv.label = "light-shadow-rows-tex";
-    shadowRowsView[slot] = sg_make_view(&tv);
-    shadowRowsKey[slot] = fr.shadowKey;
-    shadowRowsCurrent = slot;
-    return shadowRowsView[slot];
-}
-
-void Renderer::Impl::destroy_light_resources() {
-    for (int i = 0; i < kShadowRowsRing; ++i) {
-        if (shadowRowsView[i].id) sg_destroy_view(shadowRowsView[i]);
-        if (shadowRowsImg[i].id) sg_destroy_image(shadowRowsImg[i]);
-        shadowRowsView[i] = {};
-        shadowRowsImg[i] = {};
-        shadowRowsKey[i] = 0;
-    }
-}
-
-// Draws the finished game target through colorfilter.glsl into filterImg. Returns the draw calls issued (0 when the
-// filter was skipped: the shader or the image could not be created, which is logged once).
-int Renderer::Impl::apply_color_filter(int mode) {
-    if (!gpu.colorfilter_ready()) return 0;
-    if (!filterImg.id) {
-        sg_image_desc d{};
-        d.usage.color_attachment = true;
-        d.width = physW;
-        d.height = physH;
-        d.pixel_format = gpu.scene_format();
-        d.sample_count = 1;
-        d.label = "game-filtered";
-        filterImg = make_image(d);
-        sg_view_desc av{};
-        av.color_attachment.image = filterImg;
-        av.label = "game-filtered-att";
-        filterAtt = sg_make_view(&av);
-        sg_view_desc tv{};
-        tv.texture.image = filterImg;
-        tv.label = "game-filtered-tex";
-        filterTex = sg_make_view(&tv);
-        if (sg_query_image_state(filterImg) != SG_RESOURCESTATE_VALID ||
-            sg_query_view_state(filterAtt) != SG_RESOURCESTATE_VALID ||
-            sg_query_view_state(filterTex) != SG_RESOURCESTATE_VALID) {
-            FA_ERROR("render",
-                     "Camera.colorFilter: cannot create the {}x{} target; the game is drawn without the filter", physW,
-                     physH);
-            for (sg_view* v : {&filterAtt, &filterTex}) {
-                if (v->id) sg_destroy_view(*v);
-                *v = {};
-            }
-            sg_destroy_image(filterImg);
-            filterImg = {};
-            return 0;
-        }
-    }
-    sg_pass p{};
-    p.action.colors[0].load_action = SG_LOADACTION_DONTCARE;
-    p.action.colors[0].store_action = SG_STOREACTION_STORE;
-    p.attachments.colors[0] = filterAtt;
-    p.label = "color-filter";
-    sg_begin_pass(&p);
-    sg_apply_pipeline(gpu.colorfilter_pipeline());
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_colorfilter_tex] = texView;
-    b.samplers[SMP_colorfilter_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
-    colorfilter_colorfilter_vs_params_t vu{};
-    vu.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
-    apply_uniforms(UB_colorfilter_colorfilter_vs_params, vu);
-    colorfilter_colorfilter_params_t fu{};
-    fu.p[0] = float(mode);
-    apply_uniforms(UB_colorfilter_colorfilter_params, fu);
-    sg_draw(0, 3, 1);
-    sg_end_pass();
-    filterActive = true;
-    return 1;
-}
-
-bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out,
-                                std::string* error) {
-    if (gpu.scene_format() == SG_PIXELFORMAT_RGBA8) return readback_rgba8(image, w, h, out, error);
-    if (!readImg.id || readW != w || readH != h) {
-        free_read_image();
-        sg_image_desc d{};
-        d.usage.color_attachment = true;
-        d.width = w;
-        d.height = h;
-        d.pixel_format = SG_PIXELFORMAT_RGBA8;
-        d.sample_count = 1;
-        d.label = "readback-rgba8";
-        readImg = make_image(d);
-        sg_view_desc av{};
-        av.color_attachment.image = readImg;
-        av.label = "readback-rgba8-att";
-        readAtt = sg_make_view(&av);
-        if (sg_query_image_state(readImg) != SG_RESOURCESTATE_VALID ||
-            sg_query_view_state(readAtt) != SG_RESOURCESTATE_VALID) {
-            if (error)
-                *error = std::format("the {}x{} image for reading the frame back as 8-bit colour could not be created "
-                                     "(out of GPU memory?)",
-                                     w, h);
-            free_read_image();
-            return false;
-        }
-        readW = w;
-        readH = h;
-    }
-    sg_pass p{};
-    p.action.colors[0].load_action = SG_LOADACTION_DONTCARE;
-    p.action.colors[0].store_action = SG_STOREACTION_STORE;
-    p.attachments.colors[0] = readAtt;
-    p.label = "readback-rgba8";
-    sg_begin_pass(&p);
-    sg_apply_pipeline(gpu.blit_keep_pipeline());
-    sg_bindings b{};
-    b.vertex_buffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_blit_tex] = view;
-    b.samplers[SMP_blit_smp] = gpu.sampler(SamplerKind::Nearest);
-    sg_apply_bindings(&b);
-    blit_blit_vs_params_t u{};
-    u.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
-    apply_uniforms(UB_blit_blit_vs_params, u);
-    sg_draw(0, 3, 1);
-    sg_end_pass();
-    // The read-back waits for the GPU and on Metal only an sg_commit() submits the copy (see Renderer::capture()).
-    sg_commit();
-    gpu.note_commit();
-    return readback_rgba8(readImg, w, h, out, error);
-}
-
-void Renderer::Impl::create_shadow_targets() {
-    if (shadowColor.id || !gpu.shadows_supported()) return;
-    sg_image_desc cd{};
-    cd.usage.color_attachment = true;
-    cd.width = cd.height = kShadowSize;
-    cd.pixel_format = SG_PIXELFORMAT_R32F;
-    cd.label = "shadow-color";
-    shadowColor = make_image(cd);
-    sg_image_desc dd{};
-    dd.usage.depth_stencil_attachment = true;
-    dd.width = dd.height = kShadowSize;
-    dd.pixel_format = SG_PIXELFORMAT_DEPTH;
-    dd.label = "shadow-depth";
-    shadowDepth = make_image(dd);
-    sg_view_desc v{};
-    v.color_attachment.image = shadowColor;
-    shadowColorAtt = sg_make_view(&v);
-    v = {};
-    v.depth_stencil_attachment.image = shadowDepth;
-    shadowDepthAtt = sg_make_view(&v);
-    v = {};
-    v.texture.image = shadowColor;
-    shadowTexView = sg_make_view(&v);
 }
 
 CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* viewSize, bool renderTarget) {
@@ -986,15 +165,24 @@ void Renderer::close_context() {
     if (sg_isvalid()) sg_shutdown();
 }
 
-bool Renderer::present_clear(const GfxSwapchain& swapchain) {
+void Renderer::begin_window_pass(const GfxSwapchain& swapchain, Color clear) {
+    const sg_swapchain& sc = swapchain.get();
+    PassDesc pass = PassDesc::for_swapchain(sc);
+    pass.label = "window";
+    pass.colorLoad = SG_LOADACTION_CLEAR;
+    pass.clearColor = {clear.r, clear.g, clear.b, clear.a};
+    pass.colorStore = SG_STOREACTION_STORE;
+    pass.depthLoad = SG_LOADACTION_CLEAR;  // what sokol did for the pass it was given (SG_LOADACTION_DEFAULT is CLEAR)
+    pass.stencilLoad = SG_LOADACTION_CLEAR;
+    Gpu::begin_pass(pass);
+}
+
+void Renderer::end_window_pass() { Gpu::end_pass(); }
+
+bool Renderer::present_clear(const GfxSwapchain& swapchain, Color color) {
     if (!sg_isvalid()) return false;
-    sg_pass pass{};
-    pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-    pass.action.colors[0].clear_value = {0, 0, 0, 1};
-    pass.swapchain = swapchain.get();
-    pass.label = "present-clear";
-    sg_begin_pass(&pass);
-    sg_end_pass();
+    begin_window_pass(swapchain, color);
+    end_window_pass();
     sg_commit();
     return true;
 }
@@ -1005,12 +193,10 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
     if (!im.warmBuilt) {
         im.warmBuilt = true;
         Gpu* gpu = &im.gpu;
-        const sg_swapchain sc = swapchain.get();
-        const int scSamples = sc.sample_count > 0 ? sc.sample_count : 1;
+        const TargetFormat presentFormat = PassDesc::for_swapchain(swapchain.get()).format;
         // Group order = what the first frames of a game need first. Every pipeline is keyed deterministically in Gpu, so a
         // frame that needs one before its group ran makes it itself, the same pipeline.
-        im.warmGroups.push_back(
-            [gpu, sc, scSamples] { gpu->blit_pipeline(sc.color_format, sc.depth_format, scSamples); });
+        im.warmGroups.push_back([gpu, presentFormat] { gpu->blit_pipeline(presentFormat); });
         im.warmGroups.push_back([gpu] {
             gpu->quad_pipeline(false, false, BlendMode::Alpha);
             gpu->quad_pipeline(false, false, BlendMode::Alpha, true);
@@ -1061,7 +247,9 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
     const auto t0 = std::chrono::steady_clock::now();
     const std::size_t before = im.gpu.pipeline_count();
     do {
+        im.gpu.set_warming(true);  // the warm-up's pipelines are never evicted (Gpu::set_warming)
         im.warmGroups[im.warmNext++]();
+        im.gpu.set_warming(false);
     } while (im.warmNext < im.warmGroups.size() &&
              std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() < kFrameBudgetMs);
     im.warmPipelines += im.gpu.pipeline_count() - before;
@@ -1074,6 +262,10 @@ Json Renderer::startup_report() const {
     j["cache"] = shader_cache_mode();
     if (impl_) {
         j["pipelinesWarmed"] = int(impl_->warmPipelines);
+        j["pipelines"] = int(impl_->gpu.pipeline_count());
+        j["pipelineHits"] = std::int64_t(impl_->gpu.pipeline_hits());
+        j["pipelinesMade"] = std::int64_t(impl_->gpu.pipelines_made());
+        j["pipelinesEvicted"] = std::int64_t(impl_->gpu.pipelines_evicted());
         j["warmMs"] = std::round(impl_->warmMs * 10.0) / 10.0;
         j["groupsLeft"] = int(impl_->warmGroups.size() - std::min(impl_->warmNext, impl_->warmGroups.size()));
     }
@@ -1129,11 +321,9 @@ void Renderer::shutdown() {
         im.ramps.destroy();
         im.assets.reset();
         im.destroy_targets();
+        im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
-        for (sg_view* v : {&im.shadowColorAtt, &im.shadowDepthAtt, &im.shadowTexView})
-            if (v->id) sg_destroy_view(*v);
-        for (sg_image* i : {&im.shadowColor, &im.shadowDepth})
-            if (i->id) sg_destroy_image(*i);
+        destroy_target(im.shadowTarget);
         im.gpu.shutdown();
         if (!im.adopted)
             sg_shutdown();  // an adopted context stays open for close_context(): the player may still present
@@ -1144,6 +334,7 @@ void Renderer::shutdown() {
 void Renderer::set_target_size(int width, int height) {
     if (!initialized()) return;
     if (width == impl_->targetW && height == impl_->targetH) return;
+    impl_->shadowTargetFailed = false;  // a shadow map that could not be made is tried again after a resize
     impl_->create_targets(width, height);
 }
 void Renderer::set_render_scale(float scale) {
@@ -1152,6 +343,7 @@ void Renderer::set_render_scale(float scale) {
     scale = std::min(scale, kMaxRenderScale);
     if (scale == impl_->renderScale) return;
     impl_->renderScale = scale;
+    impl_->shadowTargetFailed = false;
     impl_->create_targets(impl_->targetW, impl_->targetH);
 }
 const char* Renderer::backend_name() {
@@ -1183,7 +375,12 @@ DebugDraw& Renderer::debug() {
     static DebugDraw dummy;
     return impl_ ? impl_->debug : dummy;
 }
-RenderStats Renderer::stats() const { return impl_ ? impl_->stats : RenderStats{}; }
+RenderStats Renderer::stats(bool passTimes) const {
+    if (!impl_) return RenderStats{};
+    RenderStats s = impl_->stats;
+    if (passTimes && impl_->passTimesPending) impl_->pass_times(s.passes, s.jobs);
+    return s;
+}
 std::uint32_t Renderer::game_target_image_id() const {
     if (!impl_) return 0;
     return impl_->final_image().id;
@@ -1222,7 +419,56 @@ bool Renderer::gpu_timing_supported(std::string* reason) const {
 }
 
 void Renderer::take_gpu_ms(std::vector<double>& out) {
-    if (impl_ && Profiler::on()) impl_->gpuTimer.poll(out);
+    if (!impl_ || !Profiler::on()) return;
+    impl_->gpuTimer.poll(impl_->gpuFrames);  // render() polls too: what it read waits in gpuFrames for this call
+    out.insert(out.end(), impl_->gpuFrames.begin(), impl_->gpuFrames.end());
+    impl_->gpuFrames.clear();
+}
+
+Json Renderer::frame_graph_report() const {
+    if (!impl_ || !(impl_->anyFrameRendered || impl_->graphFromCapture)) return Json();
+    Impl& I = *impl_;
+    auto r3 = [](double v) { return std::round(v * 1000.0) / 1000.0; };
+    std::vector<RenderStats::PassTime> passes;
+    std::vector<RenderStats::JobTime> jobs;
+    I.pass_times(passes, jobs);
+    Json out = Json::object();
+    out["source"] = I.graphFromCapture ? "capture" : "frame";
+    out["backend"] = backend_name();
+    out["graph"] = I.graph.to_json();
+    Json passList = Json::array();
+    bool anyGpu = false;
+    for (const RenderStats::PassTime& p : passes) {
+        anyGpu = anyGpu || p.gpuMs >= 0.0;
+        passList.push_back(
+            Json::object({{"name", p.name}, {"job", p.job}, {"cpuMs", r3(p.cpuMs)}, {"gpuMs", r3(p.gpuMs)}}));
+    }
+    out["passTimes"] = std::move(passList);
+    Json jobList = Json::array();
+    for (const RenderStats::JobTime& j : jobs)
+        jobList.push_back(
+            Json::object({{"job", j.job}, {"passes", j.passes}, {"cpuMs", r3(j.cpuMs)}, {"gpuMs", r3(j.gpuMs)}}));
+    out["jobTimes"] = std::move(jobList);
+    Json gpu = Json::object();
+    std::string why;
+    const bool supported = I.gpuTimer.supported();
+    const bool measuring = supported && Profiler::on();
+    if (!supported)
+        why = I.gpuTimer.reason();
+    else if (!measuring)
+        why =
+            "the profiler is off and the GPU timers only run while it is on (perf.profile, play.report's profile, the "
+            "editor's Profiler panel; render.frame_graph switches it on for its own call when profileFrames is above "
+            "0)";
+    else if (!anyGpu)
+        why = "no GPU time has come back yet: timer queries are read a few frames late, so draw a few more frames with "
+              "the profiler on (render.frame_graph's profileFrames: up to 60)";
+    gpu["supported"] = supported;
+    gpu["measuring"] = measuring;
+    gpu["reason"] = why.empty() ? Json(nullptr) : Json(why);
+    gpu["maxTimedPasses"] = GpuTimer::kMaxTimedPasses;
+    out["gpu"] = std::move(gpu);
+    return out;
 }
 
 Json Renderer::asset_report() const {
@@ -1309,6 +555,21 @@ Vec2 Renderer::design_to_framebuffer(Vec2 d, int fbW, int fbH, ScaleMode mode) c
 // render_world
 // ---------------------------------------------------------------------------
 render::Gpu* render::renderer_gpu(Renderer& r) { return r.impl_ ? &r.impl_->gpu : nullptr; }
+const render::FrameGraph* render::renderer_frame_graph(Renderer& r) { return r.impl_ ? &r.impl_->graph : nullptr; }
+render::TransientPoolStats render::renderer_transient_stats(Renderer& r) {
+    render::TransientPoolStats out;
+    if (r.impl_ && r.impl_->transients) {
+        const TargetPoolStats s = r.impl_->transients->pool.stats();
+        out = {s.live, s.inUse, s.created, s.reused, s.destroyed};
+    }
+    return out;
+}
+
+render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r) {
+    render::ShadowRowsStats out;
+    if (r.impl_) out = {int(r.impl_->shadowRowsRing.size()), int(r.impl_->shadowRowUploads)};
+    return out;
+}
 
 void Renderer::update(World& world) {
     if (!initialized()) return;
@@ -1396,9 +657,22 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
 // the finished frame, with the settings of the first camera.
 void Renderer::Impl::render(World& world, float dt) {
     auto t0 = std::chrono::steady_clock::now();
-    if (Profiler::on()) gpuTimer.begin();
+    if (Profiler::on()) {
+        // Answers of earlier frames are read now (never waited for): the passes of this frame report them as their GPU time.
+        gpuTimer.poll(gpuFrames);
+        constexpr std::size_t kKeepGpuFrames = 256;  // nobody called take_gpu_ms(): keep the newest
+        if (gpuFrames.size() > kKeepGpuFrames)
+            gpuFrames.erase(gpuFrames.begin(), gpuFrames.end() - std::ptrdiff_t(kKeepGpuFrames));
+        gpuTimer.begin();
+    } else {
+        // Nothing is measured now: what an earlier run of the profiler left would show as the GPU time of this frame's
+        // passes, and in take_gpu_ms(), the next time it is switched on.
+        gpuTimer.forget();
+        gpuFrames.clear();
+    }
     stats = RenderStats{};
     anyFrameRendered = true;
+    transient_targets().pool.begin_frame();  // the bloom levels of the frame graphs below come from this pool
 
     assets->set_mesh_store(&world.meshes());  // before any camera asks for a "mesh:N" id
     lastCams = collect_cameras(world);
@@ -1430,32 +704,6 @@ void Renderer::Impl::render(World& world, float dt) {
         specs.push_back({lastCams.front(), false, true});
     }
 
-    // The MeshRenderers that show a render target (texture, normalMap or a texture parameter of the material): who shows what is
-    // known from the meshes in view of each camera, below. Nothing is scanned when no camera renders into a target.
-    struct MeshRef {
-        Entity e;
-        std::vector<int> targets;
-    };
-    std::vector<MeshRef> meshRefs;
-    if (!targetCams.empty()) {
-        world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
-            if (!entity_active(world, e)) return;
-            MeshRef ref{e, {}};
-            auto add = [&](const std::string& path) {
-                if (!Assets::is_target_id(path)) return;
-                auto it = targetByName.find(path.substr(7));
-                if (it != targetByName.end() &&
-                    std::find(ref.targets.begin(), ref.targets.end(), it->second) == ref.targets.end())
-                    ref.targets.push_back(it->second);
-            };
-            add(mr.texture);
-            add(mr.normalMap);
-            if (mr.materialParams.is_object())
-                for (auto& [k, v] : mr.materialParams.items())
-                    if (v.is_string()) add(v.get<std::string>());
-            if (!ref.targets.empty()) meshRefs.push_back(std::move(ref));
-        });
-    }
     std::vector<Frame> frames(specs.size());
     std::vector<Frame> targetFrames;        // one per Camera.renderTarget, in targetCams order
     std::vector<std::set<int>> targetDeps;  // targetDeps[i]: the targets that the frame of target i shows
@@ -1466,6 +714,14 @@ void Renderer::Impl::render(World& world, float dt) {
     for (int attempt = 0; attempt < 2; ++attempt) {
         const unsigned atlasEpoch = fonts->atlas_epoch();
         auto setup = [&](Frame& fr) { setup_frame(fr, world, dt); };
+        // The camera-independent part of the 2D gather is done by the first camera that draws an entity and copied by the others
+        // (scene2d.h). It keeps pointers to the quad lists of the Frames it gathered, so those vectors must not reallocate.
+        Scene2D scene2d;
+        // One frame, no render target, no CameraView (the UI gather would add a destination after the first gather): nothing
+        // is shared, so Scene2D keeps no per-entity tables.
+        scene2d.set_single_destination(specs.size() == 1 && targetCams.empty() && !world.any<CameraView>());
+        targetFrames.clear();
+        targetFrames.reserve(targetCams.size());
         for (std::size_t i = 0; i < specs.size(); ++i) {
             frames[i] = Frame{};
             Frame& fr = frames[i];
@@ -1473,16 +729,19 @@ void Renderer::Impl::render(World& world, float dt) {
             fr.wantWorld = specs[i].world;
             fr.wantScreen = specs[i].screen;
             setup(fr);
-            apply_sprite_frames(world, fr);
-            gather_2d(world, fr);
+            // Once per rendered frame: it writes what each animator's `frame` says into Sprite.region, the same for every camera.
+            if (attempt == 0 && i == 0) apply_sprite_frames(world, fr);
+            scene2d.gather(world, fr);
             if (fr.wantScreen) gather_ui(world, fr);
-            gather_particles(world, fr);
+            scene2d.gather_particles(world, fr);
             gather_debug(*debug.impl(), fr);
         }
         // One job per CameraView the UI met: a world gather of its camera at the size of its rectangle.
         // One job per render target: a world gather of its camera at the size of its texture. Its own texture is the checker meanwhile.
-        targetFrames.clear();
         for (const TargetCam& tc : targetCams) {
+            // Scene2D keeps pointers into fr.world: the vector must not reallocate (reserved above).
+            FA_ASSERT(targetFrames.size() < targetFrames.capacity(),
+                      "targetFrames would reallocate under Scene2D's donors");
             Frame& fr = targetFrames.emplace_back();
             targetSelf = tc.name;
             const Vec2 size{float(tc.w), float(tc.h)};
@@ -1493,8 +752,7 @@ void Renderer::Impl::render(World& world, float dt) {
             fr.targetW = tc.w;
             fr.targetH = tc.h;
             fr.renderScale = 1.0f;
-            apply_sprite_frames(world, fr);
-            gather_2d(world, fr);
+            scene2d.gather(world, fr);
             if (fr.cam.studio) {
                 fr.lights2d.clear();
                 fr.ambient2d = Color{1, 1, 1, 1};
@@ -1502,15 +760,21 @@ void Renderer::Impl::render(World& world, float dt) {
                 fr.shadowRows = 0;
                 fr.shadowKey = 0;
             }
-            gather_particles(world, fr);
+            scene2d.gather_particles(world, fr);
             targetSelf.clear();
         }
         viewFrames.clear();
+        std::size_t viewCount = 0;
+        for (const Frame& main : frames) viewCount += main.views.size();
+        viewFrames.reserve(viewCount);
         for (const Frame& main : frames)
             for (const ViewRequest& rq : main.views) {
                 bool seen = false;
                 for (const auto& v : viewFrames) seen = seen || v.first == rq.key;
                 if (seen) continue;
+                // Scene2D keeps pointers into fr.world: the vector must not reallocate (reserved above).
+                FA_ASSERT(viewFrames.size() < viewFrames.capacity(),
+                          "viewFrames would reallocate under Scene2D's donors");
                 Frame& fr = viewFrames.emplace_back(rq.key, Frame{}).second;
                 fr.cam = build_camera(world, rq.camera, &rq.size);
                 fr.wantWorld = true;
@@ -1519,8 +783,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 fr.targetW = rq.pxW;
                 fr.targetH = rq.pxH;
                 fr.renderScale = rq.size.x > 0.0f ? float(rq.pxW) / rq.size.x : 1.0f;
-                apply_sprite_frames(world, fr);
-                gather_2d(world, fr);
+                scene2d.gather(world, fr);
                 if (fr.cam
                         .studio) {  // the scene's 2D lights do not reach a studio camera: lit sprites show at full brightness
                     fr.lights2d.clear();
@@ -1529,7 +792,7 @@ void Renderer::Impl::render(World& world, float dt) {
                     fr.shadowRows = 0;
                     fr.shadowKey = 0;
                 }
-                gather_particles(world, fr);
+                scene2d.gather_particles(world, fr);
             }
         if (fonts->atlas_epoch() == atlasEpoch) break;
     }
@@ -1547,26 +810,57 @@ void Renderer::Impl::render(World& world, float dt) {
         specs.pop_back();
     }
 
-    // The render targets first, each after the targets it shows: the frame's own jobs (and the CameraViews) sample their textures.
-    if (!targetFrames.empty()) {
+    // The 3D world of the frame, gathered once for every camera, render target and CameraView (render_scene.h): after the
+    // targets exist (a mesh may show one) and the 2D gathers (nothing they do changes a MeshRenderer, so the scene's pointers
+    // into the world stay good), before any job. The MeshRenderers that show a render target (texture, normalMap or a texture
+    // parameter of the material) are listed from it: who shows what is known from the meshes in view of each camera, below.
+    // The scene lists the targets of a mesh only when some camera renders into one.
+    renderScene.build(world, *assets, kNullEntity, !targetCams.empty());
+    struct MeshRef {
+        Entity e;
+        const MeshAsset* mesh = nullptr;
+        Mat4 model;
+        std::vector<int> targets;
+    };
+    std::vector<MeshRef> meshRefs;
+    if (!targetCams.empty()) {
+        for (const SceneMesh& sm : renderScene.meshes()) {
+            MeshRef ref{sm.entity, sm.mesh, sm.model, {}};
+            for (const std::string& name : sm.targets) {
+                auto it = targetByName.find(name);
+                if (it != targetByName.end() &&
+                    std::find(ref.targets.begin(), ref.targets.end(), it->second) == ref.targets.end())
+                    ref.targets.push_back(it->second);
+            }
+            if (!ref.targets.empty()) meshRefs.push_back(std::move(ref));
+        }
+    }
+    // The jobs of the frame are the passes of one frame graph (frame_graph.h), declared in the order they run: the render targets,
+    // each after the targets it shows (the frame's own jobs and the CameraViews sample their textures), then the CameraViews, then
+    // the cameras. The jobs that show an image of another job read it in the graph (JobPlan::shows).
+    // Who shows what: the Sprites, Texts and UI quads of a frame and the meshes in its view whose texture is "target:<name>".
+    std::vector<std::set<int>> mainShows(frames.size()), viewShows(viewFrames.size());
+    if (!targetCams.empty()) {
         const bool z01 = gpu.depth_zero_to_one();
         const int n = int(targetFrames.size());
         targetDeps.assign(std::size_t(n), {});
-        auto scan_quads = [&](const Frame& fr, const QuadList& list, std::set<int>& into, bool& self) {
+        // `cull`: a Sprite or Text that is not in the camera's view draws nothing, so it does not count as shown (gather_2d keeps
+        // every quad: the GPU clips them). The quads of the screen-space lists are not in the camera's space: all count.
+        auto scan_quads = [&](const Frame& fr, const QuadList& list, bool cull, std::set<int>& into, bool& self) {
             for (const QuadItem& it : list.items) {
                 bool relevant = false;
                 for (const TextureAsset* t : {it.tex, it.normal})
                     relevant = relevant || (t && (t == &selfSentinel || targetByAsset.count(t)));
                 if (!relevant) continue;
-                // A Sprite or Text that is not in the camera's view draws nothing, so it does not count as shown (gather_2d keeps
-                // every quad: the GPU clips them).
-                Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
-                for (std::uint32_t v = it.firstVert; v < it.firstVert + it.quadCount * 4; ++v) {
-                    const Vertex2D& q = list.raw[v];
-                    lo = Vec3{std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z)};
-                    hi = Vec3{std::max(hi.x, q.x), std::max(hi.y, q.y), std::max(hi.z, q.z)};
+                if (cull) {
+                    Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+                    for (std::uint32_t v = it.firstVert; v < it.firstVert + it.quadCount * 4; ++v) {
+                        const Vertex2D& q = list.raw[v];
+                        lo = Vec3{std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z)};
+                        hi = Vec3{std::max(hi.x, q.x), std::max(hi.y, q.y), std::max(hi.z, q.z)};
+                    }
+                    if (!box_in_frustum(fr.cam.viewProj, z01, lo, hi, Mat4::identity())) continue;
                 }
-                if (!box_in_frustum(fr.cam.viewProj, z01, lo, hi, Mat4::identity())) continue;
                 for (const TextureAsset* t : {it.tex, it.normal}) {
                     if (!t) continue;
                     if (t == &selfSentinel)
@@ -1576,25 +870,28 @@ void Renderer::Impl::render(World& world, float dt) {
                 }
             }
         };
-        for (int i = 0; i < n; ++i) {
-            Frame& fr = targetFrames[std::size_t(i)];
-            const TargetCam& tc = targetCams[std::size_t(i)];
+        // The targets `fr` shows, in `into` (its own target, `own`, only sets `self`: it draws the checker).
+        auto scan_frame = [&](const Frame& fr, int own, std::set<int>& into) {
             bool self = false;
-            scan_quads(fr, fr.world, targetDeps[std::size_t(i)], self);
-            for (const MeshRef& ref : meshRefs) {
-                const MeshRenderer* mr = world.get<MeshRenderer>(ref.e);
-                if (!mr) continue;
-                if (!fr.mask.draws(world, ref.e)) continue;  // a mesh this camera does not draw shows nothing to it
-                const MeshAsset* mesh = assets->mesh(mr->mesh);
-                if (!box_in_frustum(fr.cam.viewProj, z01, mesh->bmin, mesh->bmax, world.drawn_matrix(ref.e))) continue;
-                for (int t : ref.targets) {
-                    if (t == i)
-                        self = true;
-                    else
-                        targetDeps[std::size_t(i)].insert(t);
+            if (fr.wantWorld) {
+                scan_quads(fr, fr.world, true, into, self);
+                for (const MeshRef& ref : meshRefs) {
+                    if (!fr.mask.draws(world, ref.e)) continue;  // a mesh this camera does not draw shows nothing to it
+                    if (!box_in_frustum(fr.cam.viewProj, z01, ref.mesh->bmin, ref.mesh->bmax, ref.model)) continue;
+                    for (int t : ref.targets) {
+                        if (t == own)
+                            self = true;
+                        else
+                            into.insert(t);
+                    }
                 }
             }
-            if (self)
+            if (fr.wantScreen) scan_quads(fr, fr.screen, false, into, self);
+            return self;
+        };
+        for (int i = 0; i < n; ++i) {
+            const TargetCam& tc = targetCams[std::size_t(i)];
+            if (scan_frame(targetFrames[std::size_t(i)], i, targetDeps[std::size_t(i)]))
                 warn_target_once(
                     "self:" + tc.name,
                     "Camera '" + world.id_of(tc.entity) + "' renders into target '" + tc.name +
@@ -1606,959 +903,129 @@ void Renderer::Impl::render(World& world, float dt) {
                     "its frustum), "
                     "or give the picture to another camera: two targets can show each other, each one frame late.");
         }
-        std::vector<char> done(std::size_t(n), 0);
-        std::vector<int> order;
-        for (int k = 0; k < n; ++k) {
-            int pick = -1;
-            for (int i = 0; i < n; ++i) {
-                if (done[std::size_t(i)]) continue;
-                bool ready = true;
-                for (int d : targetDeps[std::size_t(i)]) ready = ready && done[std::size_t(d)];
-                if (ready && (pick < 0 || targetCams[std::size_t(i)].depth < targetCams[std::size_t(pick)].depth))
-                    pick = i;
-            }
-            if (pick <
-                0) {  // a loop (A shows B, B shows A): the one that draws first shows the other's picture of the last frame
-                std::string names;
-                for (int i = 0; i < n; ++i) {
-                    if (done[std::size_t(i)]) continue;
-                    names += (names.empty() ? "'" : ", '") + targetCams[std::size_t(i)].name + "'";
-                    if (pick < 0 || targetCams[std::size_t(i)].depth < targetCams[std::size_t(pick)].depth) pick = i;
-                }
-                if (targetWarned.insert("cycle:" + names).second)
-                    FA_WARN("render",
-                            "The render targets {} show each other, so one of them shows the other's picture of the "
-                            "previous frame "
-                            "(one frame late). Hint: that is fine for a mirror of a mirror; to avoid the lag, break "
-                            "the loop so a target only "
-                            "shows targets drawn before it",
-                            names);
-            }
-            done[std::size_t(pick)] = 1;
-            order.push_back(pick);
+        for (std::size_t i = 0; i < frames.size(); ++i) scan_frame(frames[i], -1, mainShows[i]);
+        for (std::size_t i = 0; i < viewFrames.size(); ++i) scan_frame(viewFrames[i].second, -1, viewShows[i]);
+    }
+    // The order of the render targets: one node per target in a small frame graph, after the targets it shows, declared by depth
+    // (Camera.depth, then creation order); compile() runs the declared-first node among those that are ready. A loop (A shows B,
+    // B shows A) does not fail: the node declared first goes first and shows the other's picture of the previous frame (one
+    // frame late), the same way every frame (CyclePolicy::Break).
+    std::vector<int>& targetOrder = orderScratch.order;
+    targetOrder.clear();
+    if (!targetFrames.empty()) {
+        const int n = int(targetFrames.size());
+        std::vector<int>& byDepth = orderScratch.byDepth;
+        byDepth.clear();
+        for (int i = 0; i < n; ++i) byDepth.push_back(i);
+        std::stable_sort(byDepth.begin(), byDepth.end(), [&](int a, int b) {
+            return targetCams[std::size_t(a)].depth < targetCams[std::size_t(b)].depth;
+        });
+        // Kept between frames (clear() keeps the capacity of its vectors): the graph's vectors are not allocated again each frame,
+        // though the pass names and the `after` lists still are.
+        FrameGraph& jobs = orderScratch.graph;
+        jobs.clear();
+        jobs.set_cycle_policy(CyclePolicy::Break);
+        std::vector<std::pair<std::string, int>>& byName = orderScratch.byName;
+        byName.clear();
+        for (int i : byDepth) {
+            GraphPass p;
+            p.name = "target:" + targetCams[std::size_t(i)].name;
+            for (int d : targetDeps[std::size_t(i)]) p.after.push_back("target:" + targetCams[std::size_t(d)].name);
+            p.sideEffect = true;  // never culled: it has no outputs
+            byName.emplace_back(p.name, i);
+            jobs.add_pass(std::move(p));
         }
-        for (int i : order) {
-            const TargetCam& tc = targetCams[std::size_t(i)];
-            auto it = viewTargets.find(tc.key);
-            if (it == viewTargets.end() || !it->second->color.id) continue;
-            targetSelf = tc.name;
-            draw_view_job(world, targetFrames[std::size_t(i)], *it->second);
-            targetSelf.clear();
-            flip_copy(*it->second);
-            ++stats.renderTargets;
+        auto index_of = [&](const std::string& name) {
+            for (const auto& [n2, i] : byName)
+                if (n2 == name) return i;
+            return byDepth.front();  // cannot happen: every name of the order was declared above
+        };
+        if (jobs.compile().ok()) {
+            for (const std::string& name : jobs.order_names()) targetOrder.push_back(index_of(name));
+            for (const CycleBreak& cb : jobs.cycle_breaks()) {
+                auto quote = [&](const std::string& passName) {
+                    return "'" + passName.substr(std::string("target:").size()) + "'";
+                };
+                // "'A'", "'A' and 'B'", "'A', 'B' and 'C'"
+                auto join = [](const std::vector<std::string>& names) {
+                    std::string out;
+                    for (std::size_t k = 0; k < names.size(); ++k)
+                        out += (k == 0 ? "" : k + 1 == names.size() ? " and " : ", ") + names[k];
+                    return out;
+                };
+                std::vector<std::string> others, all;
+                for (const std::string& w : cb.waitedFor) others.push_back(quote(w));
+                const std::string first = quote(cb.pass);
+                all.push_back(first);
+                all.insert(all.end(), others.begin(), others.end());
+                const std::string waited = join(others);
+                if (targetWarned.insert("cycle:" + first + "<-" + waited).second)
+                    FA_WARN(
+                        "render",
+                        "The render targets {} show each other, so {} is drawn first and shows the picture "
+                        "{} had in the previous frame (one frame late). Hint: that is fine for a mirror of a mirror; "
+                        "to avoid the lag, break the loop so a target only shows targets drawn before it",
+                        join(all), first, waited);
+            }
+        } else {
+            targetOrder = byDepth;  // cannot happen (unique names, every `after` is a target): draw by depth
         }
     }
 
+    begin_frame_graph();
+    auto keys_of = [&](const std::set<int>& targets) {
+        std::vector<std::uint64_t> keys;
+        for (int t : targets) keys.push_back(targetCams[std::size_t(t)].key);
+        return keys;
+    };
+    for (int i : targetOrder) {
+        const TargetCam& tc = targetCams[std::size_t(i)];
+        auto it = viewTargets.find(tc.key);
+        if (it == viewTargets.end() || !it->second->main.color.id) continue;
+        JobPlan plan;
+        plan.name = "target:" + tc.name;
+        plan.shows = keys_of(targetDeps[std::size_t(i)]);
+        targetSelf = tc.name;
+        plan_view_job(world, targetFrames[std::size_t(i)], *it->second, tc.key, plan);
+        targetSelf.clear();
+        ++stats.renderTargets;
+    }
+
     // The CameraViews next: the frame's own jobs sample their images.
-    for (auto& [key, vf] : viewFrames) {
+    for (std::size_t i = 0; i < viewFrames.size(); ++i) {
+        auto& [key, vf] = viewFrames[i];
         auto it = viewTargets.find(key);
-        if (it != viewTargets.end() && it->second->color.id) draw_view_job(world, vf, *it->second);
+        if (it == viewTargets.end() || !it->second->main.color.id) continue;
+        JobPlan plan;
+        plan.name = "view:" + std::to_string(i);
+        plan.shows = keys_of(viewShows[i]);
+        plan_view_job(world, vf, *it->second, key, plan);
     }
     stats.views = int(viewFrames.size());
 
     const CameraInfo post = specs.front().cam;
     for (std::size_t i = 0; i < frames.size(); ++i) {
         JobPlan plan;
+        plan.name = frames[i].wantWorld ? "camera:" + std::to_string(i) : "screen";
         plan.first = i == 0;
         plan.last = i + 1 == frames.size();
         plan.post = &post;
-        draw_job(world, frames[i], plan);
+        plan.shows = keys_of(mainShows[i]);
+        for (const ViewRequest& rq : frames[i].views) plan.shows.push_back(rq.key);
+        plan_job(world, frames[i], plan);
     }
+    run_frame_graph();
+    graphFromCapture = false;
+    passTimesPending = true;  // stats() and the frame graph report build them from the graph when asked for
+    stats.sortKeyFallbacks = int(std::min<std::uint64_t>(renderScene.sort_key_fallbacks(), 0x7fffffffu));
 
+    renderScene.reset();  // it points into the world, which the game may change before the next frame
     release_unused_views();
     assets->set_drawing(false);
     debug.clear();
     gpuTimer.end();  // closes the query begun above even if the profiler was switched off meanwhile
     auto t1 = std::chrono::steady_clock::now();
     stats.cpuMs = std::chrono::duration<double, std::milli>(t1 - t0).count();
-}
-
-// Draws a CameraView's camera into the view's image: the pass(es) of draw_job with the image in the place of the game target.
-// No post effects (the frame has one set, the first camera's), no 2D light buffer.
-void Renderer::Impl::draw_view_job(World& world, Frame& fr, ViewTarget& target) {
-    const int sTargetW = targetW, sTargetH = targetH, sPhysW = physW, sPhysH = physH;
-    const sg_view sColor = colorAtt, sResolve = resolveAtt, sDepth = depthAtt;
-    targetW = physW = target.w;
-    targetH = physH = target.h;
-    colorAtt = target.colorAtt;
-    resolveAtt = target.resolveAtt;
-    depthAtt = target.depthAtt;
-    const CameraInfo noPost;  // bloom off, no colour filter
-    JobPlan plan;
-    plan.first = true;
-    plan.last = false;
-    plan.view = true;
-    plan.post = &noPost;
-    draw_job(world, fr, plan);
-    targetW = sTargetW;
-    targetH = sTargetH;
-    physW = sPhysW;
-    physH = sPhysH;
-    colorAtt = sColor;
-    resolveAtt = sResolve;
-    depthAtt = sDepth;
-}
-
-// Draws one job of the frame into the game target: the pass(es) of one camera's world (and, for the single full-screen
-// camera, the screen-space items too), or the screen-space pass of a split frame. The last job also runs the post effects.
-void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
-    const CameraInfo& post = *plan.post;
-    const bool hudAfterBloom = post.bloom.enabled && post.bloom.intensity > 0.0f && !post.bloom.screenSpace;
-    // The pixels (of the GPU images, `scale` times the design size) of a fraction of the target. The edges are rounded, not
-    // the sizes, so neighbouring viewports meet without a gap or an overlap.
-    struct Px {
-        int x = 0, y = 0, w = 0, h = 0;
-    };
-    auto px_rect = [](const Rect& v, int W, int H) {
-        const int x0 = std::clamp(int(std::lround(double(v.x) * W)), 0, W),
-                  y0 = std::clamp(int(std::lround(double(v.y) * H)), 0, H);
-        const int x1 = std::clamp(int(std::lround(double(v.x + v.w) * W)), x0, W),
-                  y1 = std::clamp(int(std::lround(double(v.y + v.h) * H)), y0, H);
-        return Px{x0, y0, x1 - x0, y1 - y0};
-    };
-    const Px fullPx{0, 0, physW, physH};
-    const Px camPx = fr.wantWorld ? px_rect(fr.cam.viewport, physW, physH) : fullPx;
-    const bool partial = fr.wantWorld && !fr.cam.fullViewport();
-    auto apply_view = [](const Px& r) {
-        sg_apply_viewport(r.x, r.y, r.w, r.h, true);
-        sg_apply_scissor_rect(r.x, r.y, r.w, r.h, true);
-    };
-    // A camera that clears and is not the first one (or the only one) cannot use a load action (it clears the whole target,
-    // not its rectangle): a colour quad over its viewport does it.
-    const bool clearByQuad = fr.wantWorld && fr.cam.clear && partial && !plan.first;
-    const bool clearByLoad = fr.wantWorld && fr.cam.clear && (plan.first || !partial);
-
-    // ---- 3D gather ----
-    const bool z01 = gpu.depth_zero_to_one();
-    std::vector<MeshItem> opaque, blended;
-    std::vector<LightData> lights;
-    int shadowLight = -1;
-    Vec3 lightDirForShadow{0, -1, 0};
-    fr.anyFlash = world.feel().any_flash();
-    // The MeshRenderers this camera draws, in their order; the matrices, bounds and frustum tests run as jobs around the
-    // asset lookups, which stay on this thread (a mesh, texture or material may be loaded).
-    std::vector<MeshItem> meshes;
-    if (fr.wantWorld)
-        world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
-            if (!entity_active(world, fr, e) || !fr.mask.draws(world, e)) return;  // Camera.showTags / hideTags
-            MeshItem mi;
-            mi.mr = &mr;
-            mi.entity = e;
-            meshes.push_back(mi);
-        });
-    const rjobs::Split meshSplit = rjobs::split(meshes.size(), kMeshGrain, kParallelMeshes);
-    rjobs::run("render.mesh_matrices", meshSplit, [&](const jobs::Chunk& c) {
-        for (std::size_t i = c.begin; i < c.end; ++i) {
-            MeshItem& mi = meshes[i];
-            if (const auto flash = inherited_flash(world, fr, mi.entity))
-                mi.flash = *flash;  // feel.h: flashing items never share a draw
-            mi.model = world.drawn_matrix(mi.entity);
-            mi.dist = length(mi.model.translation() - fr.cam.position);
-        }
-    });
-    for (MeshItem& mi : meshes) {
-        const MeshRenderer& mr = *mi.mr;
-        mi.mesh = assets->mesh(mr.lods.empty() ? mr.mesh : lod_mesh(mr, mi.dist));  // MeshRenderer::lods
-        mi.tex = mr.texture.empty() ? nullptr : assets->texture(mr.texture);
-        mi.material = mr.material.empty() ? nullptr : assets->material(mr.material);
-        mi.normalTex = mr.normalMap.empty() ? nullptr : assets->texture(mr.normalMap);
-    }
-    // Per item: the hashes of its overrides, its culling box, the frustum test and whether it is blended (a char: each
-    // chunk writes its own items' slots).
-    std::vector<char> meshBlended(meshes.size(), 0);
-    rjobs::run("render.mesh_cull", meshSplit, [&](const jobs::Chunk& c) {
-        for (std::size_t i = c.begin; i < c.end; ++i) {
-            MeshItem& mi = meshes[i];
-            const MeshRenderer& mr = *mi.mr;
-            if (mi.material && mr.materialParams.is_object() && !mr.materialParams.empty())
-                mi.paramsHash = std::hash<std::string>{}(mr.materialParams.dump());
-            if (mr.materialColors.is_object() && !mr.materialColors.empty())
-                mi.colorsHash = std::hash<std::string>{}(mr.materialColors.dump());
-            mi.bmin = mi.mesh->bmin;
-            mi.bmax = mi.mesh->bmax;
-            // A skinned model with a computed pose is drawn deformed by the Animator's palette (before its first fixed step the
-            // palette is empty and the model shows in bind pose).
-            const Animator* anim = world.get<Animator>(mi.entity);
-            if (anim && !anim->palette.empty()) {
-                for (auto& p : mi.mesh->parts)
-                    if (p.skinVb.id) mi.anim = anim;
-                if (mi.anim) {  // the box of every skinned part carried by the joints of its own skin, joined with the rest
-                    bool first = true;
-                    for (auto& p : mi.mesh->parts) {
-                        Vec3 lo = p.bmin, hi = p.bmax;
-                        if (p.skinVb.id) skinned_bounds(palette_of(*anim, p.skin), p.bmin, p.bmax, lo, hi);
-                        mi.bmin = first ? lo : min(mi.bmin, lo);
-                        mi.bmax = first ? hi : max(mi.bmax, hi);
-                        first = false;
-                    }
-                }
-            }
-            mi.visible = box_in_frustum(fr.cam.viewProj, z01, mi.bmin, mi.bmax, mi.model);
-            // The alphaMode of a material decides (blend = drawn far to near with the blended meshes; opaque and clip are not),
-            // whatever Color.a or the glTF material say.
-            bool anyBlend = mr.color.a < 0.999f;
-            for (auto& p : mi.mesh->parts) anyBlend = anyBlend || p.blended;
-            if (mi.material) anyBlend = mi.material->alphaMode == "blend";
-            meshBlended[i] = anyBlend ? 1 : 0;
-        }
-    });
-    for (std::size_t i = 0; i < meshes.size(); ++i) (meshBlended[i] ? blended : opaque).push_back(meshes[i]);
-    // Far to near; a NaN distance (a NaN transform) counts as the farthest (order_float), so the order stays total.
-    const auto farther = [](const MeshItem& a, const MeshItem& b) {
-        return rjobs::order_float(a.dist) > rjobs::order_float(b.dist);
-    };
-    rjobs::stable_sort("render.sort_blended", blended, farther, kParallelMeshes * 4, kMeshGrain * 4);
-    if (fr.wantWorld && !fr.cam.studio)
-        world.each<Light>([&](Entity e, Light& l) {
-            if (!entity_active(world, e)) return;
-            Mat4 m = world.world_matrix(e);
-            LightData ld;
-            Vec3 col{l.color.r * l.intensity, l.color.g * l.intensity, l.color.b * l.intensity};
-            const float brightness = std::max({col.x, col.y, col.z});
-            if (l.type == LightType::Directional) {
-                Vec3 d = normalize(m.transform_dir(kForward));
-                ld.pos = Vec4{-d, 0.0f};
-                ld.color = Vec4{col, 0.0f};
-                ld.dir = Vec4{d, 1.0f};
-                ld.rank = 1;
-                ld.score = brightness;
-                if (shadowLight < 0 && l.castShadows) {
-                    lightDirForShadow = d;
-                    shadowLight = 0;
-                    ld.rank = 0;
-                }
-            } else {
-                Vec3 d = normalize(m.transform_dir(kForward));
-                ld.pos = Vec4{m.translation(), l.range};
-                ld.color = Vec4{col, l.type == LightType::Point ? 1.0f : 2.0f};
-                ld.dir = Vec4{d, std::cos(radians(l.spotAngle))};
-                // Relevance to the camera: bright and close first (the light's own range scales the fall-off).
-                const float r2 = std::max(l.range * l.range, 1e-4f);
-                ld.score = brightness * r2 / (r2 + length_sq(m.translation() - fr.cam.position));
-            }
-            lights.push_back(ld);
-        });
-    // Camera.lighting = studio: the rig of the camera takes the place of the scene's lights. Directions are relative to the camera
-    // (right, up, forward), so an item looks the same wherever its stage is: a warm key from the upper left in front, a cool fill
-    // from the right, a rim from behind and above.
-    if (fr.wantWorld && fr.cam.studio) {
-        auto directional = [&](float toRight, float toUp, float toCamera, Vec3 color, float intensity) {
-            const Vec3 toward = normalize(fr.cam.right * toRight + fr.cam.up * toUp - fr.cam.forward * toCamera);
-            LightData ld;
-            ld.pos = Vec4{toward, 0.0f};
-            ld.color = Vec4{color * (intensity * fr.cam.studioIntensity), 0.0f};
-            ld.dir = Vec4{-toward, 1.0f};
-            ld.rank = 1;
-            ld.score = intensity;
-            lights.push_back(ld);
-        };
-        directional(-0.55f, 0.65f, 0.55f, Vec3{1.0f, 0.96f, 0.9f}, 0.9f);  // key
-        directional(0.8f, 0.1f, 0.45f, Vec3{0.7f, 0.8f, 1.0f}, 0.32f);     // fill
-        directional(0.3f, 0.55f, -0.8f, Vec3{1.0f, 1.0f, 1.0f}, 0.5f);     // rim
-    }
-    // The shadow caster in slot 0, then the other directional lights, then point and spot lights by relevance; what the
-    // shader's arrays cannot hold is left out.
-    stats.lightsDropped += select_lights(lights, size_t(kMaxLights));
-    stats.lights += int(lights.size());
-    bool haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0;
-    if (!opaque.empty() && lights.empty() && !warnedNoLight && !plan.view) {
-        warnedNoLight = true;
-        FA_WARN("render", "the scene has MeshRenderer entities but no Light entity: meshes only receive ambient light "
-                          "(SceneSettings.ambientLight). Add an entity with a Light component (type Directional) or "
-                          "set MeshRenderer.unlit.");
-    }
-
-    // ---- shadow bounds ----
-    Mat4 lightVP;
-    bool doShadows = false;
-    if (haveShadowCaster) {
-        // The world box of each caster's parts as jobs, joined here in the order of the items.
-        Vec3 bmin{1e30f, 1e30f, 1e30f}, bmax{-1e30f, -1e30f, -1e30f};
-        bool any = false;
-        for (auto* list : {&opaque, &blended}) {
-            struct Box {
-                Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
-                bool any = false;
-            };
-            std::vector<Box> boxes(list->size());
-            rjobs::run("render.shadow_bounds", rjobs::split(list->size(), kMeshGrain, kParallelMeshes),
-                       [&](const jobs::Chunk& ch) {
-                           for (std::size_t i = ch.begin; i < ch.end; ++i) {
-                               const MeshItem& mi = (*list)[i];
-                               if (!mi.mr->castShadows) continue;
-                               Box& b = boxes[i];
-                               for (auto& p : mi.mesh->parts) {
-                                   for (int c = 0; c < 8; ++c) {
-                                       Vec3 corner{(c & 1) ? p.bmax.x : p.bmin.x, (c & 2) ? p.bmax.y : p.bmin.y,
-                                                   (c & 4) ? p.bmax.z : p.bmin.z};
-                                       Vec3 w = mi.model.transform_point(corner);
-                                       b.lo = min(b.lo, w);
-                                       b.hi = max(b.hi, w);
-                                       b.any = true;
-                                   }
-                               }
-                           }
-                       });
-            for (const Box& b : boxes) {
-                if (!b.any) continue;
-                bmin = min(bmin, b.lo);
-                bmax = max(bmax, b.hi);
-                any = true;
-            }
-        }
-        if (any && gpu.shadows_supported()) {
-            create_shadow_targets();
-            Vec3 center = (bmin + bmax) * 0.5f;
-            float radius = std::max(0.5f, length(bmax - bmin) * 0.5f);
-            Vec3 up = std::fabs(lightDirForShadow.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};
-            Mat4 lv = Mat4::look_at(center - lightDirForShadow * (radius * 2.0f), center, up);
-            Mat4 lp = Mat4::ortho(-radius, radius, -radius, radius, 0.1f, radius * 4.0f, gpu.depth_zero_to_one());
-            lightVP = lp * lv;
-            doShadows = true;
-        }
-    }
-
-    // ---- cull, then group into instanced batches ----
-    // A mesh outside the camera frustum is not drawn in the main pass but can still cast a shadow into view, so it stays
-    // in the shadow pass (when it is inside the light's volume); an item that does neither is dropped here.
-    for (auto* list : {&opaque, &blended}) {
-        if (doShadows)
-            rjobs::run("render.shadow_cull", rjobs::split(list->size(), kMeshGrain, kParallelMeshes),
-                       [&](const jobs::Chunk& ch) {
-                           for (std::size_t i = ch.begin; i < ch.end; ++i) {
-                               MeshItem& mi = (*list)[i];
-                               mi.casts =
-                                   mi.mr->castShadows && box_in_frustum(lightVP, z01, mi.bmin, mi.bmax, mi.model);
-                           }
-                       });
-        for (auto& mi : *list) {
-            if (!mi.visible) ++stats.meshesCulled;
-            if (!doShadows) mi.casts = false;
-            if (mi.casts) ++stats.shadowCasters;
-        }
-        list->erase(
-            std::remove_if(list->begin(), list->end(), [](const MeshItem& m) { return !m.visible && !m.casts; }),
-            list->end());
-    }
-    std::vector<MeshBatch> opaqueBatches, blendedBatches;
-    std::vector<Mat4> mainMats, shadowMats;
-    build_batches(opaque, true, opaqueBatches, mainMats, shadowMats);
-    build_batches(blended, false, blendedBatches, mainMats, shadowMats);
-
-    // ---- flatten quads into one vertex stream ----
-    struct Group {
-        std::vector<QuadBatch> batches;
-    };
-    Group gClear, gWorld, gDebugWorld, gScreen, gDebugScreen;
-    stream.clear();
-    if (clearByQuad) {
-        // The camera's clear colour over its viewport: one opaque quad over the unit square, which the viewport maps to the
-        // camera's rectangle (see the draw below).
-        QuadList clearList;
-        clearList.begin_item(0, 0, assets->white(), SamplerKind::Nearest);
-        clearList.set_opaque();
-        QuadEmitter em{clearList, Mat4::identity(), false, pack_color(fr.cam.clearColor), kModeTextured, 0};
-        em.rect(0, 0, 1, 1, 0, 0, 1, 1);
-        clearList.end_item();
-        clearList.flatten(stream, gClear.batches);
-    }
-    fr.world.flatten(stream, gWorld.batches);
-    fr.debugWorld.flatten(stream, gDebugWorld.batches);
-    fr.screen.flatten(stream, gScreen.batches);
-    fr.debugScreen.flatten(stream, gDebugScreen.batches);
-    std::size_t lineFirst = stream.size();
-    stream.insert(stream.end(), fr.debugLines.begin(), fr.debugLines.end());
-
-    sg_buffer vbuf{};
-    if (!stream.empty()) {
-        vbuf = gpu.acquire_transient(stream.size() * sizeof(Vertex2D));
-        sg_write_buffer_desc wd{};
-        wd.src.data = {stream.data(), stream.size() * sizeof(Vertex2D)};
-        wd.dst.buffer = vbuf;
-        sg_write_buffer_transient(&wd);
-    }
-
-    Mat4 screenProj = Mat4::ortho(0, float(targetW), float(targetH), 0, -1000.0f, 1000.0f, z01);
-
-    // ---- instance data: one model matrix per drawn mesh, written before any pass binds the buffers ----
-    static_assert(sizeof(Mat4) == kMeshInstanceBytes, "an instance is one Mat4");
-    auto upload_instances = [&](const std::vector<Mat4>& mats) {
-        if (mats.empty()) return sg_buffer{};
-        const std::size_t bytes = mats.size() * kMeshInstanceBytes;
-        sg_buffer buf = gpu.acquire_transient(bytes);
-        sg_write_buffer_desc wd{};
-        wd.src.data = {mats.data(), bytes};
-        wd.dst.buffer = buf;
-        sg_write_buffer_transient(&wd);
-        return buf;
-    };
-    const sg_buffer mainInst = upload_instances(mainMats);
-    const sg_buffer shadowInst = upload_instances(shadowMats);
-
-    // ---- how a mesh part is drawn: shared by the main pass and the shadow pass of alphaMode "clip" materials ----
-    SceneSettings ss = world.settings();
-    if (fr.cam.studio) {  // a neutral room: no scene ambient, sky or fog reaches the camera
-        const float k = fr.cam.studioIntensity;
-        ss.ambientLight = Color{0.2f * k, 0.2f * k, 0.22f * k, 1.0f};
-        ss.skyColor = Color{0.55f * k, 0.58f * k, 0.65f * k, 1.0f};
-        ss.horizonColor = Color{0.4f * k, 0.4f * k, 0.42f * k, 1.0f};
-        ss.fogDensity = 0.0f;
-    }
-    TextureAsset* white = assets->white();
-    mesh_fa_lights_t lightUniforms{};
-    for (std::size_t i = 0; i < lights.size(); ++i) {
-        for (int c = 0; c < 4; ++c) {
-            lightUniforms.fa_light_pos[i][c] = lights[i].pos[c];
-            lightUniforms.fa_light_color[i][c] = lights[i].color[c];
-            lightUniforms.fa_light_dir[i][c] = lights[i].dir[c];
-        }
-    }
-    mesh_fa_mesh_vs_params_t vuScene{};
-    copy_mat(vuScene.fa_view_proj, fr.cam.viewProj);
-    copy_mat(vuScene.fa_light_vp, lightVP);
-    vuScene.fa_time[0] = float(world.time());
-    mesh_fa_mesh_fs_params_t fuScene{};
-    fuScene.fa_camera_pos[0] = fr.cam.position.x;
-    fuScene.fa_camera_pos[1] = fr.cam.position.y;
-    fuScene.fa_camera_pos[2] = fr.cam.position.z;
-    fuScene.fa_ambient[0] = ss.ambientLight.r;
-    fuScene.fa_ambient[1] = ss.ambientLight.g;
-    fuScene.fa_ambient[2] = ss.ambientLight.b;
-    fuScene.fa_fog[0] = ss.fogColor.r;
-    fuScene.fa_fog[1] = ss.fogColor.g;
-    fuScene.fa_fog[2] = ss.fogColor.b;
-    fuScene.fa_fog[3] = ss.fogDensity;
-    fuScene.fa_counts[0] = float(lights.size());
-    fuScene.fa_counts[1] = 1.0f / float(kShadowSize);
-    fuScene.fa_counts[2] = gpu.is_gl() ? 1.0f : 0.0f;
-    fuScene.fa_env_sky[0] = ss.skyColor.r;
-    fuScene.fa_env_sky[1] = ss.skyColor.g;
-    fuScene.fa_env_sky[2] = ss.skyColor.b;
-    fuScene.fa_env_horizon[0] = ss.horizonColor.r;
-    fuScene.fa_env_horizon[1] = ss.horizonColor.g;
-    fuScene.fa_env_horizon[2] = ss.horizonColor.b;
-    fuScene.fa_pbr[3] = 0.0015f;
-    fuScene.fa_time[0] = float(world.time());
-
-    // What one part of an item is drawn with. A material that built uses its own programs; one that failed uses the engine's
-    // programs as the error material (unlit magenta, white textures, no emission).
-    struct PartDraw {
-        MaterialAsset* mat = nullptr;
-        bool error = false;
-        TextureAsset *tex = nullptr, *normal = nullptr, *mr = nullptr, *occlusion = nullptr, *emissive = nullptr;
-    };
-    auto part_draw = [&](const MeshItem& mi, const SubMesh& part) {
-        PartDraw d;
-        d.error = mi.material && !mi.material->ok;
-        d.mat = mi.material && mi.material->ok ? mi.material : nullptr;
-        d.tex = d.error ? white : mi.tex ? mi.tex : (part.texture ? part.texture : white);
-        d.normal = d.error ? nullptr : (mi.normalTex ? mi.normalTex : part.normalTex);
-        d.mr = d.error || !part.mrTex ? white : part.mrTex;
-        d.occlusion = d.error || !part.occlusionTex ? white : part.occlusionTex;
-        d.emissive = d.error || !part.emissiveTex ? white : part.emissiveTex;
-        return d;
-    };
-    // The glTF base color factor of a part, or the MeshRenderer.materialColors entry for its material name.
-    auto part_base_color = [](const MeshRenderer& mr, const SubMesh& part) {
-        if (!part.materialName.empty() && mr.materialColors.is_object()) {
-            auto it = mr.materialColors.find(part.materialName);
-            if (it != mr.materialColors.end() && it->is_array() && it->size() >= 3 && it->size() <= 4) {
-                float v[4] = {1, 1, 1, 1};
-                for (std::size_t i = 0; i < it->size(); ++i) {
-                    if (!(*it)[i].is_number())
-                        return part.baseColor;  // validate reports it; the part keeps its own colour
-                    v[i] = (*it)[i].get<float>();
-                }
-                return Color{v[0], v[1], v[2], v[3]};
-            }
-        }
-        return part.baseColor;
-    };
-    // The fragment parameters (fa_mesh_fs_params) of one part.
-    auto fill_fs = [&](const MeshItem& mi, const SubMesh& part, const PartDraw& d) {
-        const MeshRenderer& mr = *mi.mr;
-        mesh_fa_mesh_fs_params_t fu = fuScene;
-        const bool unlit = mr.unlit || d.error || (d.mat && d.mat->lighting == "unlit");
-        // MeshRenderer.emissiveStrength scales both the component's colour and the model's own emission; a NaN or negative
-        // value (a script wrote it) counts as 0, no glow.
-        const float strength = mr.emissiveStrength > 0.0f ? std::min(mr.emissiveStrength, 1000.0f) : 0.0f;
-        if (!d.error) {
-            fu.fa_emissive[0] = mr.emissive.r * strength;
-            fu.fa_emissive[1] = mr.emissive.g * strength;
-            fu.fa_emissive[2] = mr.emissive.b * strength;
-        }
-        fu.fa_emissive[3] = unlit ? 1.0f : 0.0f;
-        fu.fa_pbr[2] = (doShadows && mr.receiveShadows) ? 1.0f : 0.0f;
-        const Color base = d.error ? Color{1, 0, 1, 1} : mr.color * part_base_color(mr, part);
-        fu.fa_base_color[0] = base.r;
-        fu.fa_base_color[1] = base.g;
-        fu.fa_base_color[2] = base.b;
-        fu.fa_base_color[3] = base.a;
-        // glTF materials bring their own metallic/roughness; primitives use the MeshRenderer's.
-        fu.fa_pbr[0] = part.hasPbr ? saturate(part.metallic) : saturate(mr.metallic);
-        fu.fa_pbr[1] = part.hasPbr ? saturate(part.roughness) : saturate(mr.roughness);
-        if (!d.error) {
-            fu.fa_model_emissive[0] = part.emissiveFactor.r * strength;
-            fu.fa_model_emissive[1] = part.emissiveFactor.g * strength;
-            fu.fa_model_emissive[2] = part.emissiveFactor.b * strength;
-        }
-        fu.fa_maps[0] = mi.normalTex ? mr.normalScale : part.normalScale;
-        fu.fa_maps[1] = part.occlusionStrength;
-        fu.fa_maps[2] = d.normal ? 1.0f : 0.0f;
-        if (mi.flash.a > 0.0f && !d.error) {
-            // A flash (feel.h) needs no shader change: the surface colour fades to nothing and the emission, which both the lit
-            // and the unlit path add at the end (fog comes after), carries the flash colour. Lit meshes keep a little
-            // specular and image-based reflection of their own.
-            const float k = 1.0f - std::min(mi.flash.a, 1.0f), a = 1.0f - k;
-            const float flash[3] = {mi.flash.r, mi.flash.g, mi.flash.b};
-            for (int i = 0; i < 3; ++i) {
-                fu.fa_base_color[i] *= k;
-                fu.fa_emissive[i] = fu.fa_emissive[i] * k + flash[i] * a;
-                fu.fa_model_emissive[i] *= k;
-            }
-        }
-        return fu;
-    };
-    // The packed params and textures of a custom material for one batch (its overrides are the same for every item).
-    struct MaterialInputs {
-        float params[kMaxMaterialParams][4];
-        TextureAsset* textures[kMaxMaterialTextures]{};
-    };
-    auto material_inputs = [&](const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in) {
-        pack_material_params(*mat, mi.mr->materialParams, in.params);
-        for (std::size_t i = 0; i < mat->textures.size(); ++i)
-            in.textures[i] = material_texture(*mat, int(i), mi.mr->materialParams, *assets);
-    };
-    // Bindings of a custom program: the engine's textures and the material's, only the slots the program declares (sokol
-    // rejects a binding the shader does not have). `shadowPass`: the shadow map is being drawn, so it is not sampled.
-    auto bind_textures = [&](sg_bindings& b, const PartDraw& d, const MaterialProgram* prog, const MaterialInputs& in,
-                             bool shadowPass) {
-        b.views[VIEW_mesh_fa_tex] = d.tex->gpu_view();
-        b.views[VIEW_mesh_fa_shadow_tex] = (doShadows && !shadowPass) ? shadowTexView : white->view;
-        b.views[VIEW_mesh_fa_normal_tex] = (d.normal ? d.normal : white)->gpu_view();
-        b.views[VIEW_mesh_fa_mr_tex] = d.mr->gpu_view();
-        b.views[VIEW_mesh_fa_occlusion_tex] = d.occlusion->gpu_view();
-        b.views[VIEW_mesh_fa_emissive_tex] = d.emissive->gpu_view();
-        b.samplers[SMP_mesh_fa_smp] = gpu.sampler(SamplerKind::LinearRepeat);
-        b.samplers[SMP_mesh_fa_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
-        if (!prog) return;
-        if (d.mat)
-            for (std::size_t i = 0; i < d.mat->textures.size(); ++i) {
-                b.views[kMaterialFirstView + int(i)] = in.textures[i]->gpu_view();
-                b.samplers[kMaterialFirstSampler + int(i)] = gpu.sampler(d.mat->textures[i].sampler);
-            }
-        for (int i = 0; i < SG_MAX_VIEW_BINDSLOTS; ++i)
-            if (!((prog->viewMask >> i) & 1u)) b.views[i] = {};
-        for (int i = 0; i < SG_MAX_SAMPLER_BINDSLOTS; ++i)
-            if (!((prog->samplerMask >> i) & 1u)) b.samplers[i] = {};
-    };
-    // The material's params (fa_material_vs, fa_material), when the program declares them.
-    auto apply_material_params = [&](const MaterialProgram& prog, const MaterialInputs& in) {
-        for (int slot : {kMaterialUbVertex, kMaterialUbFragment}) {
-            if (!prog.has_ub(slot)) continue;
-            sg_range r{in.params, std::min<std::size_t>(prog.ubSize[slot], sizeof(in.params))};
-            sg_apply_uniforms(slot, &r);
-        }
-    };
-    auto declares = [](const MaterialProgram* prog, int ub) { return !prog || prog->has_ub(ub); };
-
-    // ---- 2D light buffer ----
-    // Lit visuals without a normal map read the point lights added up in a light buffer instead of looping over them per
-    // pixel, so the number of lights costs only the pixels the lights cover. The pass runs when the world group has such
-    // a visual, a point light exists and the camera is orthographic (a perspective camera has no screen-space map of the
-    // 2D plane); else flat visuals use the loop over the first kDirectLights2D lights (litMode 0) or, with no point light,
-    // just the ambient and directional lights (litMode 2). Visuals with a normal map always use the loop (the direction of
-    // each light matters), and the screen-space groups too.
-    int litMode = 0;
-    sg_view shadowRowsTex{};
-    {
-        bool anyFlatLit = false;
-        for (const QuadBatch& qb : gWorld.batches) anyFlatLit = anyFlatLit || (qb.lit && !qb.normal);
-        int points = 0;
-        for (const Light2DData& l : fr.lights2d) points += l.pos[3] >= 0.0f ? 1 : 0;
-        shadowRowsTex = upload_shadow_rows(fr);
-        float lightScale = ss.lightScale;
-        lightScale = std::isfinite(lightScale) ? std::clamp(lightScale, 0.25f, 1.0f) : 1.0f;
-        if (anyFlatLit && !fr.cam.perspective && gpu.light_format() != SG_PIXELFORMAT_NONE) {
-            if (points == 0)
-                litMode = 2;
-            else if (!plan.view && gpu.light_ready() && ensure_light_target(lightScale))
-                litMode = 1;  // the buffer is the game target's size
-        }
-        if (litMode == 1) {
-            std::vector<LightVertex> lv;
-            lv.reserve(std::size_t(points) * 4);
-            static const float kCorner[4][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
-            for (const Light2DData& l : fr.lights2d) {
-                if (l.pos[3] < 0.0f) continue;
-                for (const auto& c : kCorner) {
-                    LightVertex v{};
-                    v.corner[0] = c[0];
-                    v.corner[1] = c[1];
-                    std::memcpy(v.pos, l.pos, sizeof(float) * 4);
-                    std::memcpy(v.color, l.color, sizeof(float) * 4);
-                    v.shadow[0] =
-                        l.extra[0] >= 0.0f && fr.shadowRows > 0 ? (l.extra[0] + 0.5f) / float(fr.shadowRows) : -1.0f;
-                    lv.push_back(v);
-                }
-            }
-            static_assert(kMaxLights2D <= kMaxQuadsPerDraw, "every light of a frame is drawn by one draw call");
-            sg_buffer lb = gpu.acquire_transient(lv.size() * sizeof(LightVertex));
-            sg_write_buffer_desc wd{};
-            wd.src.data = {lv.data(), lv.size() * sizeof(LightVertex)};
-            wd.dst.buffer = lb;
-            sg_write_buffer_transient(&wd);
-
-            sg_pass lp{};
-            lp.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-            lp.action.colors[0].clear_value = {0, 0, 0, 0};
-            lp.action.colors[0].store_action = SG_STOREACTION_STORE;
-            lp.attachments.colors[0] = lightAtt;
-            lp.label = "light-buffer";
-            sg_begin_pass(&lp);
-            // The lights of this camera go to its rectangle of the buffer; the lit visuals of the camera read nothing else.
-            if (partial) apply_view(px_rect(fr.cam.viewport, lightW, lightH));
-            sg_apply_pipeline(gpu.light_pipeline());
-            sg_bindings b{};
-            b.vertex_buffers[0] = lb;
-            b.index_buffer = gpu.quad_index_buffer();
-            b.views[VIEW_light_shadow_tex] = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
-            b.samplers[SMP_light_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
-            sg_apply_bindings(&b);
-            light_light_vs_params_t vu{};
-            copy_mat(vu.view_proj, fr.cam.viewProj);
-            apply_uniforms(UB_light_light_vs_params, vu);
-            light_light_fs_params_t fu{};
-            fu.range[0] = 1.0f / gpu.light_range();
-            apply_uniforms(UB_light_light_fs_params, fu);
-            sg_draw(0, int(lv.size() / 4) * 6, 1);
-            sg_end_pass();
-            ++stats.drawCalls;
-        }
-    }
-
-    // ---- shadow pass ----
-    // Meshes cast with the engine's depth-only programs, except materials with their own shadow programs (vertex() moves the
-    // shadow, alphaMode "clip" cuts holes into it).
-    if (doShadows) {
-        sg_pass sp{};
-        sp.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-        sp.action.colors[0].clear_value = {1, 1, 1, 1};
-        sp.action.depth.load_action = SG_LOADACTION_CLEAR;
-        sp.action.depth.clear_value = 1.0f;
-        sp.attachments.colors[0] = shadowColorAtt;
-        sp.attachments.depth_stencil = shadowDepthAtt;
-        sp.label = "shadow";
-        sg_begin_pass(&sp);
-        mesh_fa_mesh_vs_params_t u = vuScene;  // the shadow programs read fa_light_vp (fa_view_proj is unused)
-        for (int pass = 0; pass < 2; ++pass) {
-            const std::vector<MeshBatch>& batches = pass == 0 ? opaqueBatches : blendedBatches;
-            const std::vector<MeshItem>& items = pass == 0 ? opaque : blended;
-            for (const MeshBatch& batch : batches) {
-                if (batch.shadowCount == 0) continue;
-                const MeshItem& rep = items[batch.rep];
-                u.fa_uv_scale[0] = rep.mr->uvScale.x;
-                u.fa_uv_scale[1] = rep.mr->uvScale.y;
-                MaterialAsset* mat = rep.material && rep.material->ok ? rep.material : nullptr;
-                MaterialInputs inputs{};
-                if (mat && (mat->programs[kProgShadow].shader.id || mat->programs[kProgShadowSkin].shader.id))
-                    material_inputs(rep, mat, inputs);
-                for (auto& p : rep.mesh->parts) {
-                    const bool skinned = rep.anim && p.skinVb.id;
-                    const MaterialProgram* prog =
-                        mat ? &mat->programs[skinned ? kProgShadowSkin : kProgShadow] : nullptr;
-                    if (prog && !prog->shader.id) prog = nullptr;
-                    sg_apply_pipeline(prog ? gpu.shadow_pipeline(skinned, prog->shader, true)
-                                           : gpu.shadow_pipeline(skinned));
-                    sg_bindings b{};
-                    b.vertex_buffers[0] = p.vb;
-                    b.vertex_buffers[1] = shadowInst;
-                    b.vertex_buffer_offsets[1] = int(batch.shadowFirst * kMeshInstanceBytes);
-                    if (skinned) b.vertex_buffers[2] = p.skinVb;
-                    b.index_buffer = p.ib;
-                    b.index_buffer_offset = p.ibOffset;
-                    const PartDraw pd = part_draw(rep, p);
-                    if (prog) bind_textures(b, pd, prog, inputs, true);
-                    sg_apply_bindings(&b);
-                    apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
-                    if (skinned && declares(prog, UB_mesh_fa_skin))
-                        apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
-                    if (prog) {
-                        if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
-                            apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(rep, p, pd));
-                        if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
-                        apply_material_params(*prog, inputs);
-                    }
-                    sg_draw(0, p.indexCount, int(batch.shadowCount));
-                    ++stats.drawCalls;
-                }
-            }
-        }
-        sg_end_pass();
-    }
-
-    // quad groups
-    auto draw_group = [&](const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest, const Px& base,
-                          int flatMode = 0) {
-        if (batches.empty()) return;
-        quad_vs_params_t u{};
-        copy_mat(u.view_proj, vp);
-        Rect
-            scissor;  // the clip applied now (w <= 0: `base`, the whole target or the camera's viewport); a ScrollList's content is cut at its rectangle
-        auto apply_clip = [&](const Rect& c) {
-            if (c == scissor) return;
-            scissor = c;
-            if (c.w <= 0) {
-                sg_apply_scissor_rect(base.x, base.y, base.w, base.h, true);
-                return;
-            }
-            Rect r = c;
-            const float k = renderScale;
-            const int x0 = std::clamp(int(std::lround(r.x * k)), 0, physW),
-                      y0 = std::clamp(int(std::lround(r.y * k)), 0, physH);
-            const int x1 = std::clamp(int(std::lround((r.x + r.w) * k)), x0, physW),
-                      y1 = std::clamp(int(std::lround((r.y + r.h) * k)), y0, physH);
-            sg_apply_scissor_rect(x0, y0, x1 - x0, y1 - y0, true);
-        };
-        // fragment uniforms of the 2D lights: the same for every lit batch except the normal map's uv transform
-        quad_quad_fs_params_t unlit{};
-        quad_quad_fs_params_t litUniforms{};
-        litUniforms.lit[0] = float(std::min<std::size_t>(fr.lights2d.size(), std::size_t(kDirectLights2D)));
-        litUniforms.lit[2] = float(flatMode);
-        litUniforms.ambient[0] = fr.ambient2d.r;
-        litUniforms.ambient[1] = fr.ambient2d.g;
-        litUniforms.ambient[2] = fr.ambient2d.b;
-        // A flat visual gets every directional light in full (it faces them head on): they join the ambient light.
-        litUniforms.flat_ambient[0] = fr.ambient2d.r;
-        litUniforms.flat_ambient[1] = fr.ambient2d.g;
-        litUniforms.flat_ambient[2] = fr.ambient2d.b;
-        for (const Light2DData& l : fr.lights2d) {
-            if (l.pos[3] >= 0.0f) continue;
-            for (int c = 0; c < 3; ++c) litUniforms.flat_ambient[c] += l.color[c];
-        }
-        litUniforms.light_map[0] = 1.0f / float(std::max(1, physW));
-        litUniforms.light_map[1] = 1.0f / float(std::max(1, physH));
-        litUniforms.light_map[2] = gpu.light_range();
-        for (std::size_t i = 0; i < fr.lights2d.size() && i < std::size_t(kDirectLights2D); ++i) {
-            std::memcpy(litUniforms.light_pos[i], fr.lights2d[i].pos, sizeof(float) * 4);
-            std::memcpy(litUniforms.light_color[i], fr.lights2d[i].color, sizeof(float) * 4);
-            const float row = fr.lights2d[i].extra[0];
-            litUniforms.light_shadow_v[i][0] =
-                row >= 0.0f && fr.shadowRows > 0 ? (row + 0.5f) / float(fr.shadowRows) : -1.0f;
-        }
-        const sg_view lightTexBound = flatMode == 1 ? lightTexView : assets->white()->view;
-        const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
-        for (const QuadBatch& qb : batches) {
-            apply_clip(qb.clip);
-            sg_apply_pipeline(gpu.quad_pipeline(depthTest, false, qb.blend, qb.plain, qb.opaque));
-            apply_uniforms(UB_quad_vs_params, u);
-            if (qb.lit) {
-                litUniforms.lit[1] = qb.normal ? 1.0f : 0.0f;
-                if (qb.normal) normal_uv_transform(*qb.tex, *qb.normal, litUniforms.normal_uv);
-                apply_uniforms(UB_quad_quad_fs_params, litUniforms);
-            } else if (!qb.plain) {  // quad_plain declares no fragment uniforms
-                apply_uniforms(UB_quad_quad_fs_params, unlit);
-            }
-            std::uint32_t done = 0;
-            while (done < qb.quadCount) {
-                std::uint32_t n = std::min<std::uint32_t>(qb.quadCount - done, kMaxQuadsPerDraw);
-                sg_bindings b{};
-                b.vertex_buffers[0] = vbuf;
-                b.vertex_buffer_offsets[0] = int((qb.firstQuad + done) * 4 * sizeof(Vertex2D));
-                b.index_buffer = gpu.quad_index_buffer();
-                b.views[VIEW_quad_tex] = qb.tex->gpu_view();
-                b.views[VIEW_quad_normal_tex] = (qb.lit && qb.normal ? qb.normal : assets->white())->gpu_view();
-                b.views[VIEW_quad_light_tex] = lightTexBound;
-                b.views[VIEW_quad_shadow_tex] = shadowTexBound;
-                b.samplers[SMP_quad_smp] = gpu.sampler(qb.smp);
-                b.samplers[SMP_quad_light_smp] = gpu.sampler(SamplerKind::LinearClamp);
-                b.samplers[SMP_quad_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
-                sg_apply_bindings(&b);
-                sg_draw(0, int(n * 6), 1);
-                ++stats.drawCalls;
-                done += n;
-            }
-        }
-        apply_clip(Rect{});
-    };
-    // ---- main pass ----
-    // Camera.bloomScreenSpace = false: the frame is split in two passes. This one draws the world, the bloom then
-    // glows it, and a second pass (below) draws the screen-space groups (HUD) on top, so the HUD never glows.
-    // With MSAA the multisampled image must survive every pass but the last one (STORE): the next pass loads it, and with
-    // the HUD over the bloom the bloom adds its glow to it, the HUD pass loads it again, so the HUD is multisampled too and
-    // the final resolve contains everything.
-    const bool msaa = gpu.sample_count() > 1;
-    // Does this job begin a pass? The screen-space job of a frame whose HUD goes over the bloom draws after it instead.
-    const bool mainPass = fr.wantWorld || !hudAfterBloom;
-    const bool drawHudInPass = fr.wantScreen && !hudAfterBloom;
-    if (mainPass) {
-        sg_pass mp{};
-        mp.action.colors[0].load_action = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
-        mp.action.colors[0].clear_value = {fr.cam.clearColor.r, fr.cam.clearColor.g, fr.cam.clearColor.b,
-                                           fr.cam.clearColor.a};
-        mp.action.colors[0].store_action =
-            (msaa && (plan.last || plan.view) && !hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
-        mp.action.depth.load_action = SG_LOADACTION_CLEAR;
-        mp.action.depth.clear_value = 1.0f;
-        mp.action.stencil.load_action = SG_LOADACTION_CLEAR;
-        mp.attachments.colors[0] = colorAtt;
-        if (gpu.sample_count() > 1) mp.attachments.resolves[0] = resolveAtt;
-        mp.attachments.depth_stencil = depthAtt;
-        mp.label = plan.view ? "view" : fr.wantWorld ? "game" : "game-hud";
-        sg_begin_pass(&mp);
-        if (partial) apply_view(camPx);
-
-        // clear of a camera that shares the target with others
-        if (clearByQuad) draw_group(gClear.batches, Mat4::ortho(0, 1, 1, 0, -1.0f, 1.0f, z01), false, camPx);
-
-        // sky
-        if (fr.wantWorld && fr.cam.perspective && fr.cam.clear && !fr.cam.studio) {
-            sg_apply_pipeline(gpu.sky_pipeline());
-            sg_bindings b{};
-            b.vertex_buffers[0] = gpu.fullscreen_triangle();
-            sg_apply_bindings(&b);
-            sky_sky_vs_params_t vu{};
-            copy_mat(vu.inv_view_proj, fr.cam.invViewProj);
-            vu.cam_pos[0] = fr.cam.position.x;
-            vu.cam_pos[1] = fr.cam.position.y;
-            vu.cam_pos[2] = fr.cam.position.z;
-            apply_uniforms(UB_sky_sky_vs_params, vu);
-            sky_sky_fs_params_t fu{};
-            fu.sky_color[0] = ss.skyColor.r;
-            fu.sky_color[1] = ss.skyColor.g;
-            fu.sky_color[2] = ss.skyColor.b;
-            fu.sky_color[3] = 1;
-            fu.horizon_color[0] = ss.horizonColor.r;
-            fu.horizon_color[1] = ss.horizonColor.g;
-            fu.horizon_color[2] = ss.horizonColor.b;
-            fu.horizon_color[3] = 1;
-            apply_uniforms(UB_sky_sky_fs_params, fu);
-            sg_draw(0, 3, 1);
-            ++stats.drawCalls;
-        }
-
-        // meshes: one instanced draw per part of every batch
-        std::vector<const MaterialAsset*> materialsDrawn;
-        auto draw_meshes = [&](const std::vector<MeshBatch>& batches, const std::vector<MeshItem>& items,
-                               bool isBlend) {
-            mesh_fa_mesh_vs_params_t vu = vuScene;
-            for (const MeshBatch& batch : batches) {
-                if (batch.mainCount == 0) continue;
-                const MeshItem& mi = items[batch.rep];
-                const MeshRenderer& mr = *mi.mr;
-                vu.fa_uv_scale[0] = mr.uvScale.x;
-                vu.fa_uv_scale[1] = mr.uvScale.y;
-                MaterialInputs inputs{};
-                if (mi.material && mi.material->ok) {
-                    material_inputs(mi, mi.material, inputs);
-                    if (std::find(materialsDrawn.begin(), materialsDrawn.end(), mi.material) == materialsDrawn.end())
-                        materialsDrawn.push_back(mi.material);
-                } else if (mi.material && std::find(stats.materialFallbacks.begin(), stats.materialFallbacks.end(),
-                                                    mi.material->path) == stats.materialFallbacks.end()) {
-                    stats.materialFallbacks.push_back(mi.material->path);
-                }
-                for (auto& part : mi.mesh->parts) {
-                    const bool skinned = mi.anim && part.skinVb.id;
-                    const PartDraw pd = part_draw(mi, part);
-                    const MaterialProgram* prog =
-                        pd.mat ? &pd.mat->programs[skinned ? kProgMeshSkin : kProgMesh] : nullptr;
-                    sg_apply_pipeline(gpu.mesh_pipeline(isBlend, part.doubleSided || (pd.mat && pd.mat->doubleSided),
-                                                        skinned, prog ? prog->shader : sg_shader{}));
-                    sg_bindings b{};
-                    b.vertex_buffers[0] = part.vb;
-                    b.vertex_buffers[1] = mainInst;
-                    b.vertex_buffer_offsets[1] = int(batch.mainFirst * kMeshInstanceBytes);
-                    if (skinned) b.vertex_buffers[2] = part.skinVb;
-                    b.index_buffer = part.ib;
-                    b.index_buffer_offset = part.ibOffset;
-                    bind_textures(b, pd, prog, inputs, false);
-                    sg_apply_bindings(&b);
-                    apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
-                    if (skinned && declares(prog, UB_mesh_fa_skin))
-                        apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
-                    apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(mi, part, pd));
-                    apply_uniforms(UB_mesh_fa_lights, lightUniforms);
-                    if (prog) apply_material_params(*prog, inputs);
-                    sg_draw(0, part.indexCount, int(batch.mainCount));
-                    ++stats.drawCalls;
-                    stats.triangles += part.indexCount / 3 * int(batch.mainCount);
-                }
-                stats.meshes += int(batch.mainCount);
-                ++stats.meshBatches;
-            }
-        };
-        draw_meshes(opaqueBatches, opaque, false);
-        draw_meshes(blendedBatches, blended, true);
-        stats.materials += int(materialsDrawn.size());
-
-        draw_group(gWorld.batches, fr.cam.viewProj, fr.cam.perspective, camPx, litMode);
-        draw_group(gDebugWorld.batches, fr.cam.viewProj, false, camPx);
-        if (!fr.debugLines.empty()) {
-            sg_apply_pipeline(gpu.quad_pipeline(false, true));
-            quad_vs_params_t u{};
-            copy_mat(u.view_proj, fr.cam.viewProj);
-            apply_uniforms(UB_quad_vs_params, u);
-            quad_quad_fs_params_t unlit{};
-            apply_uniforms(UB_quad_quad_fs_params, unlit);
-            sg_bindings b{};
-            b.vertex_buffers[0] = vbuf;
-            b.vertex_buffer_offsets[0] = int(lineFirst * sizeof(Vertex2D));
-            b.views[VIEW_quad_tex] = assets->white()->view;
-            b.views[VIEW_quad_normal_tex] = assets->white()->view;
-            b.views[VIEW_quad_light_tex] = assets->white()->view;
-            b.views[VIEW_quad_shadow_tex] = assets->white()->view;
-            b.samplers[SMP_quad_smp] = gpu.sampler(SamplerKind::Nearest);
-            b.samplers[SMP_quad_light_smp] = gpu.sampler(SamplerKind::LinearClamp);
-            b.samplers[SMP_quad_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
-            sg_apply_bindings(&b);
-            sg_draw(0, int(fr.debugLines.size()), 1);
-            ++stats.drawCalls;
-        }
-        if (drawHudInPass) {
-            draw_group(gScreen.batches, screenProj, false, fullPx);
-            draw_group(gDebugScreen.batches, screenProj, false, fullPx);
-        }
-
-        sg_end_pass();
-    }  // mainPass
-
-    if (!plan.last) return;
-
-    // ---- post-process: bloom adds its glow into the game target ----
-    if (post.bloom.enabled) {
-        BloomTarget dst;
-        if (hudAfterBloom && msaa) {
-            // Glow into the multisampled image (resolved again at the end of the composite pass) so the HUD pass below
-            // can load it. Reads the already resolved image of the main pass.
-            dst = BloomTarget{colorAtt, resolveAtt, gpu.sample_count()};
-        } else {
-            // The finished frame: the resolved image when MSAA is on (the main pass already resolved into it).
-            dst = BloomTarget{msaa ? resolveColorAtt : colorAtt, sg_view{}, 1};
-        }
-        stats.drawCalls += bloom.apply(gpu, post.bloom, physW, physH, texView, dst);
-    }
-
-    // ---- HUD pass (Camera.bloomScreenSpace = false): screen-space groups over the glowing frame ----
-    if (hudAfterBloom && fr.wantScreen && (!gScreen.batches.empty() || !gDebugScreen.batches.empty())) {
-        sg_pass hp{};
-        hp.action.colors[0].load_action = SG_LOADACTION_LOAD;  // keep the world and its glow
-        hp.action.colors[0].store_action = msaa ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
-        hp.action.depth.load_action = SG_LOADACTION_CLEAR;
-        hp.action.depth.clear_value = 1.0f;
-        hp.action.stencil.load_action = SG_LOADACTION_CLEAR;
-        hp.attachments.colors[0] = colorAtt;
-        if (msaa) hp.attachments.resolves[0] = resolveAtt;
-        hp.attachments.depth_stencil = depthAtt;
-        hp.label = "game-hud";
-        sg_begin_pass(&hp);
-        draw_group(gScreen.batches, screenProj, false, fullPx);
-        draw_group(gDebugScreen.batches, screenProj, false, fullPx);
-        sg_end_pass();
-    }
-
-    // ---- last post-process: Camera.colorFilter (costs nothing with "none") ----
-    filterActive = false;
-    if (post.colorFilter != 0) stats.drawCalls += apply_color_filter(post.colorFilter);
 }
 
 void Renderer::end_frame() {
@@ -2568,180 +1035,6 @@ void Renderer::end_frame() {
         impl_->gpu.note_commit();
     }
     impl_->inFrame = false;
-}
-
-void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMode mode) {
-    if (!initialized()) return;
-    Impl& im = *impl_;
-    const sg_swapchain& sc = swapchain.get();
-    im.scaleMode = mode;
-    Viewport vp = compute_viewport(mode, fbW, fbH, im.targetW, im.targetH);
-    sg_pass pass{};
-    pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-    pass.action.colors[0].clear_value = {0, 0, 0, 1};
-    pass.swapchain = sc;
-    pass.label = "present";
-    sg_begin_pass(&pass);
-    sg_apply_viewportf(vp.x, vp.y, vp.w, vp.h, true);
-    sg_apply_pipeline(
-        im.gpu.blit_pipeline(sc.color_format, sc.depth_format, sc.sample_count > 0 ? sc.sample_count : 1));
-    sg_bindings b{};
-    b.vertex_buffers[0] = im.gpu.fullscreen_triangle();
-    b.views[VIEW_blit_tex] = im.final_view();
-    bool integer = mode == ScaleMode::PixelPerfect || std::fabs(vp.scale - std::round(vp.scale)) < 1e-3f;
-    b.samplers[SMP_blit_smp] = im.gpu.sampler(integer ? SamplerKind::Nearest : SamplerKind::Linear);
-    sg_apply_bindings(&b);
-    blit_blit_vs_params_t u{};
-    u.flip[0] = im.gpu.is_gl() ? 1.0f : 0.0f;
-    apply_uniforms(UB_blit_blit_vs_params, u);
-    sg_draw(0, 3, 1);
-    sg_end_pass();
-    sg_commit();
-    im.gpu.note_commit();
-    im.inFrame = false;
-}
-
-bool Renderer::capture(Image& out, std::string* error) {
-    if (!initialized()) {
-        if (error) *error = "Renderer is not initialized";
-        return false;
-    }
-    Impl& im = *impl_;
-    // A read-back waits for the GPU. On Metal sokol's command buffer of the frame is already queued but only submitted by
-    // sg_commit(): a read-back behind it waits forever. The editor commits once per UI frame, after the game is drawn, so a
-    // screenshot taken in between (the toolbar button, a Play mark, game.screenshot) submits the game's work itself. Always
-    // outside a pass: the game pass is closed when drawing returns.
-    if (!im.gpu.committed()) {
-        sg_commit();
-        im.gpu.note_commit();
-    }
-    sg_image img = im.final_image();
-    std::vector<std::uint8_t> px;
-    if (!im.read_rgba8(img, im.final_view(), im.physW, im.physH, px, error)) return false;
-    out.width = im.physW;
-    out.height = im.physH;
-    out.rgba = std::move(px);
-    return true;
-}
-
-bool Renderer::capture_fitted(Image& out, int width, int height, bool stretch, std::string* error) {
-    if (width < 1 || height < 1) {
-        if (error) *error = "capture: the size must be at least 1 x 1";
-        return false;
-    }
-    Image full;
-    if (!capture(full, error)) return false;
-    out = stretch ? resize_image(full, width, height) : cover_image(full, width, height);
-    return true;
-}
-
-bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out, std::string* error) {
-    auto fail = [&](std::string message) {
-        if (error) *error = std::move(message);
-        return false;
-    };
-    if (!initialized()) return fail("Renderer is not initialized");
-    Impl& im = *impl_;
-    const Rect& r = spec.rect;
-    if (!std::isfinite(r.x) || !std::isfinite(r.y) || !std::isfinite(r.w) || !std::isfinite(r.h) || !(r.w > 0.0f) ||
-        !(r.h > 0.0f))
-        return fail(
-            "the rectangle [" + std::to_string(r.x) + ", " + std::to_string(r.y) + ", " + std::to_string(r.w) + ", " +
-            std::to_string(r.h) +
-            "] is empty or not a number. Pass [x, y, width, height] in world units with a positive width and height");
-    if (!std::isfinite(spec.scale) || !(spec.scale > 0.0f))
-        return fail("scale must be a number above 0 (pixels per world unit), but got " + std::to_string(spec.scale));
-    const double pw = std::ceil(double(r.w) * double(spec.scale) - 1e-4),
-                 ph = std::ceil(double(r.h) * double(spec.scale) - 1e-4);
-    if (pw > kMaxWorldCaptureSide || ph > kMaxWorldCaptureSide)
-        return fail("the picture would be " + std::to_string(std::llround(pw)) + " x " +
-                    std::to_string(std::llround(ph)) + " pixels (" + std::to_string(r.w) + " x " + std::to_string(r.h) +
-                    " world units at scale " + std::to_string(spec.scale) + "), more than the " +
-                    std::to_string(kMaxWorldCaptureSide) +
-                    " a side a texture may have. Use a smaller scale or a smaller rectangle");
-    const int w = std::max(1, int(pw)), h = std::max(1, int(ph));
-
-    // The camera: orthographic, centred on the rect, showing exactly w x h pixels at `scale` pixels per unit.
-    CameraInfo ci;
-    const float cx = r.x + r.w * 0.5f, cy = r.y + r.h * 0.5f;
-    ci.halfW = float(w) / (2.0f * spec.scale);
-    ci.halfH = float(h) / (2.0f * spec.scale);
-    ci.pixelsPerUnit = spec.scale;
-    ci.position = Vec3{cx, cy, 0.0f};
-    ci.view = Mat4::identity();
-    ci.view.at(3, 0) = -cx;
-    ci.view.at(3, 1) = -cy;
-    ci.proj = Mat4::ortho(-ci.halfW, ci.halfW, -ci.halfH, ci.halfH, -1000.0f, 1000.0f, im.gpu.depth_zero_to_one());
-    ci.viewProj = ci.proj * ci.view;
-    ci.invViewProj = ci.viewProj.inverse();
-    ci.visible = Rect{cx - ci.halfW, cy - ci.halfH, ci.halfW * 2.0f, ci.halfH * 2.0f};
-    ci.clear = true;
-    ci.clearColor = Color{0, 0, 0, 0};
-
-    const RenderStats savedStats = im.stats;
-    im.targetSelf.clear();
-    im.ramps.begin_frame();
-    Frame fr;
-    for (int attempt = 0; attempt < 2; ++attempt) {
-        const unsigned atlasEpoch = im.fonts->atlas_epoch();
-        fr = Frame{};
-        fr.cam = ci;
-        fr.wantWorld = true;
-        fr.wantScreen = false;
-        fr.scopeRoot = spec.subject;
-        im.setup_frame(fr, world, 0.0f);
-        fr.targetW = w;
-        fr.targetH = h;
-        fr.renderScale = spec.scale;
-        apply_sprite_frames(world, fr);
-        gather_2d(world, fr);
-        gather_particles(world, fr);
-        if (im.fonts->atlas_epoch() == atlasEpoch) break;  // else the atlas was remade halfway: gather again
-    }
-    // gather_2d shifted the layers for the capture's own camera: put back the shift for the scene's first camera. A renderer that
-    // has not drawn or updated yet has no cameras collected, so look them up (collect_cameras always returns at least one).
-    {
-        std::vector<CameraInfo> fresh;
-        if (im.lastCams.empty()) fresh = im.collect_cameras(world);
-        const std::vector<CameraInfo>& sceneCams = im.lastCams.empty() ? fresh : im.lastCams;
-        if (!sceneCams.empty()) update_parallax(world, sceneCams.front().position.xy());
-    }
-    im.fonts->sync();
-    im.ramps.sync();
-
-    constexpr std::uint64_t kKey =
-        1ull << 62;  // not a CameraView widget (entity bits) and not a render target (bit 63)
-    TextureAsset* tex = im.view_image(kKey, w, h);
-    if (!tex)
-        return fail("the " + std::to_string(w) + " x " + std::to_string(h) +
-                    " image could not be created (out of GPU memory?)");
-    im.gpu.begin_frame();
-    im.draw_view_job(world, fr, *im.viewTargets[kKey]);
-    // Read-back waits for the GPU, and on Metal the work is only submitted by sg_commit (see capture()).
-    sg_commit();
-    im.gpu.note_commit();
-    const Impl::ViewTarget& vt = *im.viewTargets[kKey];
-    std::vector<std::uint8_t> px;
-    std::string readError;
-    const bool ok = im.read_rgba8(vt.asset.image, vt.asset.view, w, h, px, &readError);
-    im.release_view(*im.viewTargets[kKey]);
-    im.viewTargets.erase(kKey);
-    // The RGBA8 copy of a big picture (a 4K capture is 64 MB) is not worth keeping: only the game target's size is asked for again.
-    if (im.readW != im.physW || im.readH != im.physH) im.free_read_image();
-    im.stats = savedStats;
-    if (!ok) return fail("reading the picture back from the GPU failed: " + readError);
-    // The pass blended onto a transparent background, so the colour is premultiplied by alpha; texture fields expect straight alpha.
-    for (std::size_t i = 0; i + 3 < px.size(); i += 4) {
-        const unsigned a = px[i + 3];
-        if (a == 0 || a == 255) continue;
-        for (int c = 0; c < 3; ++c)
-            px[i + std::size_t(c)] =
-                std::uint8_t(std::min(255u, (unsigned(px[i + std::size_t(c)]) * 255u + a / 2) / a));
-    }
-    out.width = w;
-    out.height = h;
-    out.rgba = std::move(px);
-    return true;
 }
 
 std::string Renderer::create_runtime_texture(const Image& img, std::string* error) {

@@ -12,20 +12,14 @@
 #include "frame.h"
 #include "nine_slice.h"
 #include "render_jobs.h"
+#include "render_scene.h"
+#include "scene2d.h"
 
 namespace fa::render {
 
 bool entity_active(const World& w, Entity e) { return w.active_in_hierarchy(e) && !w.pending_destroy(e); }
 
-bool entity_active(const World& w, const Frame& f, Entity e) {
-    if (f.scopeRoot == kNullEntity) return entity_active(w, e);
-    if (!w.alive(e) || w.pending_destroy(e)) return false;
-    for (Entity x = e; x != kNullEntity; x = w.parent(x)) {
-        if (x == f.scopeRoot) return true;  // reached the subject: what is above it does not matter
-        if (!w.info(x).active) return false;
-    }
-    return false;  // not part of the subject
-}
+bool entity_active(const World& w, const Frame& f, Entity e) { return entity_active_in_scope(w, f.scopeRoot, e); }
 
 Color inherited_tint(const World& world, const Frame& f, Entity e) {
     if (!f.anyTint) return Color{1, 1, 1, 1};
@@ -346,6 +340,8 @@ struct SpritePrep {
     Rect clip;
     Vec2 pivot{0.5f, 0.5f};
     bool screen = false, mirrored = false, lit = false;
+    std::uint32_t slotIndex = 0;  // the Scene2D slot of the entity (Entity::index)
+    bool share = false;           // the first drawing of a shareable Sprite: Scene2D keeps where its items end up
 };
 
 // What drawing a Sprite had to report: gather_2d logs it afterwards, in the order of the sprites, so the warnings (each
@@ -354,6 +350,7 @@ struct SpriteNotes {
     std::string meshColorsProblem;  // vertexColors that do not fit the mesh
     bool meshTooBig = false;        // meshColumns x meshRows over kMaxSpriteMeshCells
     std::string skinProblem;        // build_skin_mesh's
+    Vec3 pos{};  // where the Sprite is drawn (its matrix's translation), for the perspective sort key
 };
 
 // Sprites are drawn as jobs from this many on, kSpriteGrain per chunk: one costs ~0.3 us (a mesh or skinned one more),
@@ -383,6 +380,7 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
     }
     Mat4 m = draw_matrix(world, e, screen);
     if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f, mirrored);
+    notes.pos = m.translation();
     list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear,
                     s.blend, prep.clip);
     if (lit) list.set_lit(prep.normal);
@@ -545,223 +543,149 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
 
 }  // namespace
 
-void gather_2d(World& world, Frame& f) {
+namespace {
+
+// Draws the Shape2D `s` of entity `e` into `list`, in the space it says. Reads the World and the Frame (its mask is not looked at:
+// the caller has decided that the camera draws it). Writes where the shape is drawn to `*pos` (when it is drawn). Returns false
+// when it draws nothing (inactive, transparent, clipped away): nothing is counted then; true counts it in the stats, even when
+// its quads are none (a line of no length).
+bool emit_shape(World& world, Frame& f, Entity e, Shape2D& s, QuadList& list, Vec3* pos) {
+    Assets& assets = *f.assets;
+    // Invisible only when every colour the shape draws with is transparent: a gradient fill also uses color2 (the
+    // documented vignette starts at alpha 0 and ends opaque).
+    const bool usesColor2 = s.filled && s.gradient != ShapeGradient::None;
+    if (!entity_active(world, f, e)) return false;
+    const Color tint = inherited_tint(world, f, e);
+    Color color1 = s.color * tint, color2 = s.color2 * tint;
+    // A flash (feel.h) is mixed into the colours here: the SDF shape mode has no room for it in the shader.
+    const std::optional<Color> flash = inherited_flash(world, f, e);
+    if (flash) {
+        color1 = flash_mix(color1, *flash);
+        color2 = flash_mix(color2, *flash);
+    }
+    // A gradient with stops or an easing is read from a row of the ramp texture (gradient_ramp.h); only the shapes the SDF
+    // path draws (rectangle, circle) have a gradient.
+    GradientSpec spec;
+    int rampRow = -1;
+    const bool rampShape = usesColor2 && (s.shape == ShapeType::Rectangle || s.shape == ShapeType::Circle);
+    if (rampShape) {
+        std::string problem;
+        if (gradient_spec(s, tint, spec, &problem)) {
+            if (!problem.empty() && f.warnedGradientStops && !*f.warnedGradientStops) {
+                *f.warnedGradientStops = true;
+                FA_WARN("render", "{} (entity '{}'; reported once per scene)", problem, world.info(e).name);
+            }
+            if (flash)
+                for (int i = 0; i < spec.count; ++i)
+                    spec.color[std::size_t(i)] = flash_mix(spec.color[std::size_t(i)], *flash);
+            if (f.ramps) rampRow = f.ramps->acquire(spec);
+            if (rampRow <
+                0) {  // no ramp room (all rows used by this frame's shapes): the first and last stop, blended linearly
+                color1 = spec.color[0];
+                color2 = spec.color[std::size_t(spec.count - 1)];
+            }
+        }
+    }
+    bool visible = color1.a > 0.0f || (usesColor2 && color2.a > 0.0f);
+    if (rampRow >= 0)
+        for (int i = 0; i < spec.count; ++i) visible = visible || spec.color[std::size_t(i)].a > 0.0f;
+    if (!visible) return false;
+    bool screen = s.space == RenderSpace::Screen;
+    Mat4 m = draw_matrix(world, e, screen);
+    Rect clip;
+    if (screen && !screen_clip(world, e, f, clip)) return false;
+    if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f, screen && ui_mirrored(world, e));
+    if (screen && ui_mirrored(world, e))
+        m = m * Mat4::scale({-1.0f, 1.0f, 1.0f});  // every shape is symmetric about its box, but a line
+    if (pos) *pos = m.translation();
+    if (rampRow >= 0)
+        list.begin_item(s.layer, secondary_key(f, m, false), f.ramps->texture(), SamplerKind::LinearClamp, s.blend,
+                        clip);
+    else
+        list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
+    if (s.lit && !screen) list.set_lit(nullptr);
+    QuadEmitter em{list, m, screen, pack_color(color1), kModeTextured, 0};
+    // Bounding box [bx0,bx1] x [by0,by1] in local units (y up; screen space flips it): pivot (0,0) = bottom-left.
+    float bx0 = -s.pivot.x * s.size.x, bx1 = bx0 + s.size.x;
+    float by0 = -s.pivot.y * s.size.y, by1 = by0 + s.size.y;
+    float hw = s.size.x * 0.5f, hh = s.size.y * 0.5f;
+    float t = std::max(0.0f, s.thickness);
+    // Rounded corners, a soft edge or a gradient go through the SDF shader; plain shapes keep the batched fast path.
+    const bool fx = s.softness > 0.0f || (s.filled && s.gradient != ShapeGradient::None);
+    switch (s.shape) {
+        case ShapeType::Rectangle:
+            if (fx || s.cornerRadius > 0.0f) {
+                sdf_shape(em, s, bx0 + hw, by0 + hh, hw, hh, std::min(s.cornerRadius, std::min(hw, hh)), t,
+                          pack_color(color2), rampRow);
+            } else if (s.filled) {
+                em.rect(bx0, by0, bx1, by1, 0, 0, 1, 1);
+            } else {
+                t = std::min(t, std::min(hw, hh));
+                em.rect(bx0, by1 - t, bx1, by1, 0, 0, 1, 1);
+                em.rect(bx0, by0, bx1, by0 + t, 0, 0, 1, 1);
+                em.rect(bx0, by0 + t, bx0 + t, by1 - t, 0, 0, 1, 1);
+                em.rect(bx1 - t, by0 + t, bx1, by1 - t, 0, 0, 1, 1);
+            }
+            break;
+        case ShapeType::Circle: {
+            float r = hw;  // diameter = size.x; the pivot refers to the circle's bounding square
+            float cx = bx0 + r, cy = -s.pivot.y * s.size.x + r;
+            if (fx) {
+                sdf_shape(em, s, cx, cy, r, r, r, t, pack_color(color2), rampRow);
+                break;
+            }
+            em.mode = float(s.filled ? kModeCircle : kModeRing);
+            em.aux = s.filled ? 0.0f : std::clamp(1.0f - t / std::max(r, 1e-4f), 0.0f, 1.0f);
+            em.rect(cx - r, cy - r, cx + r, cy + r, -1, -1, 1, 1);
+            break;
+        }
+        case ShapeType::Line: line_quad(em, {0, 0}, s.size, std::max(t, 0.5f)); break;
+        case ShapeType::Triangle: {
+            const Vec2 pts[3] = {{bx0 + hw, by1}, {bx0, by0}, {bx1, by0}};  // apex, bottom-left, bottom-right
+            // The incentre is equally far from all three edges, so the inward outline is as thick on every side.
+            const float a = distance(pts[1], pts[2]), b = distance(pts[2], pts[0]), c = distance(pts[0], pts[1]);
+            const float perimeter = a + b + c;
+            const Vec2 incentre = perimeter > 1e-6f ? (pts[0] * a + pts[1] * b + pts[2] * c) / perimeter : pts[0];
+            polygon_shape(em, pts, 3, incentre, s.filled, t);
+            break;
+        }
+        case ShapeType::Diamond: {
+            // Rhombus whose 4 points are the middles of the size box's edges.
+            const float cx = bx0 + hw, cy = by0 + hh;
+            const Vec2 pts[4] = {{cx, by1}, {bx0, cy}, {cx, by0}, {bx1, cy}};  // top, left, bottom, right
+            polygon_shape(em, pts, 4, {cx, cy}, s.filled, t);
+            break;
+        }
+        case ShapeType::Polygon:
+        case ShapeType::Star: {
+            // Vertices on the ellipse inscribed in the size box, counter-clockwise, the first one pointing up. A star
+            // alternates tips (full radius) and notches (`innerRadius` of it).
+            const bool star = s.shape == ShapeType::Star;
+            const int n = std::clamp(star ? s.points : s.sides, kShape2DMinTips, kMaxPolygonTips) * (star ? 2 : 1);
+            const float notch = std::clamp(s.innerRadius, 0.0f, 1.0f), cx = bx0 + hw, cy = by0 + hh;
+            Vec2 pts[kMaxPolygonVerts];
+            for (int i = 0; i < n; ++i) {
+                const float ang = radians(90.0f) + kTau * float(i) / float(n), k = star && (i & 1) ? notch : 1.0f;
+                pts[i] = {cx + hw * k * std::cos(ang), cy + hh * k * std::sin(ang)};
+            }
+            polygon_shape(em, pts, n, {cx, cy}, s.filled, t);
+            break;
+        }
+    }
+    list.end_item();
+    ++f.stats->shapes;
+    return true;
+}
+
+}  // namespace
+
+namespace {
+
+// The part of gather_2d that every camera does for itself: Tilemaps (only the cells in the camera's rectangle) and Text (the glyph
+// raster, the pixel snapping and the lit facing depend on the camera), see scene2d.h.
+void gather_tilemaps_and_text(World& world, Frame& f) {
     Assets& assets = *f.assets;
     auto pick = [&](RenderSpace sp) -> QuadList& { return sp == RenderSpace::Screen ? f.screen : f.world; };
-
-    f.anyTint = world.any<Tint>();
-    f.anyFlash = world.feel().any_flash();
-    if (f.wantWorld) {
-        // The layers are drawn shifted for THIS camera; the caller puts the first camera's offset back after its gathers (the rule
-        // of a run with no renderer, see Renderer::update).
-        update_parallax(world, f.cam.position.xy());
-        gather_lights(world, f);
-    }
-
-    // A SpriteSkin that has not recorded its bind pose yet does it now, at the pose the bones have (the engine already did it at
-    // the start of the step; this covers a scene drawn without stepping, e.g. a screenshot of a freshly loaded scene).
-    if (world.any<SpriteSkin>()) bind_pending_skins(world);
-
-    // ---- sprites ----
-    // On this thread, in the order of the sprites: which are drawn and what they need looked up. The quads are then made
-    // as jobs into each chunk's own lists, joined in chunk order (QuadList::append keeps the draw order of a single list).
-    std::vector<SpritePrep> sprites;
-    world.each<Sprite>([&](Entity e, Sprite& s) {
-        if (!entity_active(world, f, e) || s.color.a <= 0.0f) return;
-        if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
-        if (s.space == RenderSpace::World && !f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
-        SpritePrep p;
-        p.color = s.color * inherited_tint(world, f, e);
-        if (p.color.a <= 0.0f) return;
-        p.e = e;
-        p.s = &s;
-        p.tex = assets.texture(s.texture);
-        p.screen = s.space == RenderSpace::Screen;
-        if (p.screen && !screen_clip(world, e, f, p.clip)) return;
-        p.mirrored = p.screen && ui_mirrored(world, e);
-        p.lit = s.lit && !p.screen;
-        if (p.lit && !s.normalMap.empty()) p.normal = assets.texture(s.normalMap);
-        p.pivot = s.pivot;
-        if (const SpriteAnimator* anim = world.get<SpriteAnimator>(e))
-            p.pivot = sprite_effective_pivot(s, *anim, animator_plan(f, *anim, s.texture));
-        sprites.push_back(p);
-    });
-    if (!sprites.empty()) {
-        const bool warnMesh = f.warnedSpriteMesh && !*f.warnedSpriteMesh;
-        std::vector<SpriteNotes> notes(sprites.size());
-        const rjobs::Split spriteSplit = rjobs::split(sprites.size(), kSpriteGrain, kParallelSprites);
-        if (spriteSplit.chunks <= 1) {
-            for (std::size_t i = 0; i < sprites.size(); ++i)
-                emit_sprite(world, f, sprites[i], warnMesh, pick(sprites[i].s->space), notes[i]);
-        } else {
-            std::vector<QuadList> worldParts(spriteSplit.chunks), screenParts(spriteSplit.chunks);
-            rjobs::run("render.gather_sprites", spriteSplit, [&](const jobs::Chunk& c) {
-                for (std::size_t i = c.begin; i < c.end; ++i)
-                    emit_sprite(world, f, sprites[i], warnMesh,
-                                sprites[i].screen ? screenParts[c.index] : worldParts[c.index], notes[i]);
-            });
-            for (std::size_t k = 0; k < spriteSplit.chunks; ++k) {
-                f.world.append(worldParts[k]);
-                f.screen.append(screenParts[k]);
-            }
-        }
-        for (std::size_t i = 0; i < sprites.size(); ++i) {
-            const SpriteNotes& n = notes[i];
-            const Entity e = sprites[i].e;
-            const Sprite& s = *sprites[i].s;
-            if (f.warnedSpriteMesh && !*f.warnedSpriteMesh) {
-                if (!n.meshColorsProblem.empty()) {
-                    *f.warnedSpriteMesh = true;
-                    FA_WARN("render", "on '{}': {}. The colours are ignored.", world.info(e).name, n.meshColorsProblem);
-                } else if (n.meshTooBig) {
-                    *f.warnedSpriteMesh = true;
-                    FA_WARN("render",
-                            "Sprite meshColumns {} x meshRows {} on '{}' is more than {} cells (at most {} columns, {} "
-                            "rows): it is "
-                            "drawn as a plain quad. Use fewer cells; 16 x 1 bends a page, 8 x 8 a flag.",
-                            s.meshColumns, s.meshRows, world.info(e).name, kMaxSpriteMeshCells, kMaxSpriteMeshSide,
-                            kMaxSpriteMeshSide);
-                }
-            }
-            if (!n.skinProblem.empty()) {
-                SpriteSkin* skin = world.get<SpriteSkin>(e);
-                if (skin && !skin->warned) {
-                    skin->warned = true;
-                    FA_WARN("render", "{} (reported once)", n.skinProblem);
-                }
-            }
-        }
-        f.stats->sprites += int(sprites.size());
-    }
-
-    // ---- shapes ----
-    world.each<Shape2D>([&](Entity e, Shape2D& s) {
-        // Invisible only when every colour the shape draws with is transparent: a gradient fill also uses color2 (the
-        // documented vignette starts at alpha 0 and ends opaque).
-        const bool usesColor2 = s.filled && s.gradient != ShapeGradient::None;
-        if (!entity_active(world, f, e)) return;
-        if (s.space == RenderSpace::Screen ? !f.wantScreen : !f.wantWorld) return;
-        if (s.space == RenderSpace::World && !f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
-        const Color tint = inherited_tint(world, f, e);
-        Color color1 = s.color * tint, color2 = s.color2 * tint;
-        // A flash (feel.h) is mixed into the colours here: the SDF shape mode has no room for it in the shader.
-        const std::optional<Color> flash = inherited_flash(world, f, e);
-        if (flash) {
-            color1 = flash_mix(color1, *flash);
-            color2 = flash_mix(color2, *flash);
-        }
-        // A gradient with stops or an easing is read from a row of the ramp texture (gradient_ramp.h); only the shapes the SDF
-        // path draws (rectangle, circle) have a gradient.
-        GradientSpec spec;
-        int rampRow = -1;
-        const bool rampShape = usesColor2 && (s.shape == ShapeType::Rectangle || s.shape == ShapeType::Circle);
-        if (rampShape) {
-            std::string problem;
-            if (gradient_spec(s, tint, spec, &problem)) {
-                if (!problem.empty() && f.warnedGradientStops && !*f.warnedGradientStops) {
-                    *f.warnedGradientStops = true;
-                    FA_WARN("render", "{} (entity '{}'; reported once per scene)", problem, world.info(e).name);
-                }
-                if (flash)
-                    for (int i = 0; i < spec.count; ++i)
-                        spec.color[std::size_t(i)] = flash_mix(spec.color[std::size_t(i)], *flash);
-                if (f.ramps) rampRow = f.ramps->acquire(spec);
-                if (rampRow <
-                    0) {  // no ramp room (all rows used by this frame's shapes): the first and last stop, blended linearly
-                    color1 = spec.color[0];
-                    color2 = spec.color[std::size_t(spec.count - 1)];
-                }
-            }
-        }
-        bool visible = color1.a > 0.0f || (usesColor2 && color2.a > 0.0f);
-        if (rampRow >= 0)
-            for (int i = 0; i < spec.count; ++i) visible = visible || spec.color[std::size_t(i)].a > 0.0f;
-        if (!visible) return;
-        bool screen = s.space == RenderSpace::Screen;
-        Mat4 m = draw_matrix(world, e, screen);
-        Rect clip;
-        if (screen && !screen_clip(world, e, f, clip)) return;
-        if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f, screen && ui_mirrored(world, e));
-        if (screen && ui_mirrored(world, e))
-            m = m * Mat4::scale({-1.0f, 1.0f, 1.0f});  // every shape is symmetric about its box, but a line
-        QuadList& list = pick(s.space);
-        if (rampRow >= 0)
-            list.begin_item(s.layer, secondary_key(f, m, false), f.ramps->texture(), SamplerKind::LinearClamp, s.blend,
-                            clip);
-        else
-            list.begin_item(s.layer, secondary_key(f, m, false), assets.white(), SamplerKind::Nearest, s.blend, clip);
-        if (s.lit && !screen) list.set_lit(nullptr);
-        QuadEmitter em{list, m, screen, pack_color(color1), kModeTextured, 0};
-        // Bounding box [bx0,bx1] x [by0,by1] in local units (y up; screen space flips it): pivot (0,0) = bottom-left.
-        float bx0 = -s.pivot.x * s.size.x, bx1 = bx0 + s.size.x;
-        float by0 = -s.pivot.y * s.size.y, by1 = by0 + s.size.y;
-        float hw = s.size.x * 0.5f, hh = s.size.y * 0.5f;
-        float t = std::max(0.0f, s.thickness);
-        // Rounded corners, a soft edge or a gradient go through the SDF shader; plain shapes keep the batched fast path.
-        const bool fx = s.softness > 0.0f || (s.filled && s.gradient != ShapeGradient::None);
-        switch (s.shape) {
-            case ShapeType::Rectangle:
-                if (fx || s.cornerRadius > 0.0f) {
-                    sdf_shape(em, s, bx0 + hw, by0 + hh, hw, hh, std::min(s.cornerRadius, std::min(hw, hh)), t,
-                              pack_color(color2), rampRow);
-                } else if (s.filled) {
-                    em.rect(bx0, by0, bx1, by1, 0, 0, 1, 1);
-                } else {
-                    t = std::min(t, std::min(hw, hh));
-                    em.rect(bx0, by1 - t, bx1, by1, 0, 0, 1, 1);
-                    em.rect(bx0, by0, bx1, by0 + t, 0, 0, 1, 1);
-                    em.rect(bx0, by0 + t, bx0 + t, by1 - t, 0, 0, 1, 1);
-                    em.rect(bx1 - t, by0 + t, bx1, by1 - t, 0, 0, 1, 1);
-                }
-                break;
-            case ShapeType::Circle: {
-                float r = hw;  // diameter = size.x; the pivot refers to the circle's bounding square
-                float cx = bx0 + r, cy = -s.pivot.y * s.size.x + r;
-                if (fx) {
-                    sdf_shape(em, s, cx, cy, r, r, r, t, pack_color(color2), rampRow);
-                    break;
-                }
-                em.mode = float(s.filled ? kModeCircle : kModeRing);
-                em.aux = s.filled ? 0.0f : std::clamp(1.0f - t / std::max(r, 1e-4f), 0.0f, 1.0f);
-                em.rect(cx - r, cy - r, cx + r, cy + r, -1, -1, 1, 1);
-                break;
-            }
-            case ShapeType::Line: line_quad(em, {0, 0}, s.size, std::max(t, 0.5f)); break;
-            case ShapeType::Triangle: {
-                const Vec2 pts[3] = {{bx0 + hw, by1}, {bx0, by0}, {bx1, by0}};  // apex, bottom-left, bottom-right
-                // The incentre is equally far from all three edges, so the inward outline is as thick on every side.
-                const float a = distance(pts[1], pts[2]), b = distance(pts[2], pts[0]), c = distance(pts[0], pts[1]);
-                const float perimeter = a + b + c;
-                const Vec2 incentre = perimeter > 1e-6f ? (pts[0] * a + pts[1] * b + pts[2] * c) / perimeter : pts[0];
-                polygon_shape(em, pts, 3, incentre, s.filled, t);
-                break;
-            }
-            case ShapeType::Diamond: {
-                // Rhombus whose 4 points are the middles of the size box's edges.
-                const float cx = bx0 + hw, cy = by0 + hh;
-                const Vec2 pts[4] = {{cx, by1}, {bx0, cy}, {cx, by0}, {bx1, cy}};  // top, left, bottom, right
-                polygon_shape(em, pts, 4, {cx, cy}, s.filled, t);
-                break;
-            }
-            case ShapeType::Polygon:
-            case ShapeType::Star: {
-                // Vertices on the ellipse inscribed in the size box, counter-clockwise, the first one pointing up. A star
-                // alternates tips (full radius) and notches (`innerRadius` of it).
-                const bool star = s.shape == ShapeType::Star;
-                const int n = std::clamp(star ? s.points : s.sides, kShape2DMinTips, kMaxPolygonTips) * (star ? 2 : 1);
-                const float notch = std::clamp(s.innerRadius, 0.0f, 1.0f), cx = bx0 + hw, cy = by0 + hh;
-                Vec2 pts[kMaxPolygonVerts];
-                for (int i = 0; i < n; ++i) {
-                    const float ang = radians(90.0f) + kTau * float(i) / float(n), k = star && (i & 1) ? notch : 1.0f;
-                    pts[i] = {cx + hw * k * std::cos(ang), cy + hh * k * std::sin(ang)};
-                }
-                polygon_shape(em, pts, n, {cx, cy}, s.filled, t);
-                break;
-            }
-        }
-        list.end_item();
-        ++f.stats->shapes;
-    });
 
     // ---- tilemaps ----
     world.each<Tilemap>([&](Entity e, Tilemap& tm) {
@@ -999,6 +923,258 @@ void gather_2d(World& world, Frame& f) {
         f.stats->textGlyphs += emit_text(pick(t.space), m, screen, lay, t.color * textTint, *f.fonts, assets, t.layer,
                                          secondary_key(f, m, false), clip, t.visibleCharacters, textTint);
     });
+}
+
+}  // namespace
+
+// ---------------------------------------------------------------------------
+// Scene2D: the camera-independent part of the gather, once per frame (scene2d.h)
+// ---------------------------------------------------------------------------
+Scene2D::Slot& Scene2D::slot_of(std::vector<Slot>& table, const World& world, Entity e) {
+    if (single_) return scratch_ = Slot{};
+    // Sized once from the world's index range; an entity created during the gather grows it.
+    if (table.empty()) table.resize(world.index_bound());
+    if (e.index >= table.size()) table.resize(std::size_t(e.index) + 1);
+    return table[e.index];
+}
+
+float Scene2D::sort_key(const Slot& s, const Frame& f) const {
+    if (f.cam.perspective) return length(s.pos - f.cam.position);
+    return s.ySort ? s.pos.y : 0.0f;
+}
+
+namespace {
+
+// Whether what an entity draws can be copied from the quads another camera made: not when it follows a Parallax layer (its matrix
+// holds the shift of the camera that drew it, and its repeat the camera's rectangle) or shows a render target's texture (the
+// target's own camera sees the checker where the others see the target).
+bool camera_independent(const World& world, Entity e, bool screen, const std::string& tex, const std::string& tex2) {
+    return !screen && !world.has<Parallax>(e) && !Assets::is_target_id(tex) && !Assets::is_target_id(tex2);
+}
+
+}  // namespace
+
+void Scene2D::gather_sprites(World& world, Frame& f) {
+    Assets& assets = *f.assets;
+    using State = Slot::State;
+    // One step per Sprite this camera draws, in the order of the Sprites: copied from a donor (prep < 0) or built (preps[prep]).
+    struct Step {
+        std::uint32_t slot;
+        int prep;
+    };
+    std::vector<SpritePrep> preps;
+    std::vector<Step> steps;
+    std::size_t copies = 0;
+    world.each<Sprite>([&](Entity e, Sprite& s) {
+        Slot& sl = slot_of(sprites_, world, e);
+        if (sl.state == State::Skip) return;
+        if (sl.state == State::Todo && (!entity_active(world, f, e) || s.color.a <= 0.0f)) {
+            sl.state = State::Skip;
+            return;
+        }
+        const bool screen = s.space == RenderSpace::Screen;
+        if (screen ? !f.wantScreen : !f.wantWorld) return;
+        if (!screen && !f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
+        if (sl.state == State::Share && sl.donor != &f.world) {
+            steps.push_back({e.index, -1});
+            ++copies;
+            return;
+        }
+        SpritePrep p;
+        p.color = s.color * inherited_tint(world, f, e);
+        if (p.color.a <= 0.0f) {
+            sl.state = State::Skip;  // the Tint of the ancestors hides it from every camera
+            return;
+        }
+        p.e = e;
+        p.s = &s;
+        p.tex = assets.texture(s.texture);
+        p.screen = screen;
+        if (p.screen && !screen_clip(world, e, f, p.clip)) return;
+        p.mirrored = p.screen && ui_mirrored(world, e);
+        p.lit = s.lit && !p.screen;
+        if (p.lit && !s.normalMap.empty()) p.normal = assets.texture(s.normalMap);
+        p.pivot = s.pivot;
+        if (const SpriteAnimator* anim = world.get<SpriteAnimator>(e))
+            p.pivot = sprite_effective_pivot(s, *anim, animator_plan(f, *anim, s.texture));
+        p.slotIndex = e.index;
+        if (sl.state == State::Todo) {
+            if (camera_independent(world, e, screen, s.texture, p.lit ? s.normalMap : std::string()))
+                p.share = true;
+            else
+                sl.state = State::Direct;
+        }
+        steps.push_back({e.index, int(preps.size())});
+        preps.push_back(p);
+    });
+    if (steps.empty()) return;
+
+    // The Sprites to build go into this camera's lists as before (as jobs from kParallelSprites on, joined in chunk order). When some
+    // Sprites are copied from a donor the two kinds must interleave in the order of the Sprites, so the built ones go into scratch
+    // lists first and are merged below.
+    const bool merge = copies > 0;
+    QuadList scratchWorld, scratchScreen;
+    QuadList& outWorld = merge ? scratchWorld : f.world;
+    QuadList& outScreen = merge ? scratchScreen : f.screen;
+    struct Range {
+        std::uint32_t first = 0, count = 0;  // items of the Sprite, in the list its quads were made into
+    };
+    std::vector<Range> ranges(preps.size());
+    if (!preps.empty()) {
+        const bool warnMesh = f.warnedSpriteMesh && !*f.warnedSpriteMesh;
+        std::vector<SpriteNotes> notes(preps.size());
+        auto build = [&](std::size_t i, QuadList& worldList, QuadList& screenList) {
+            QuadList& list = preps[i].screen ? screenList : worldList;
+            ranges[i].first = std::uint32_t(list.items.size());
+            emit_sprite(world, f, preps[i], warnMesh, list, notes[i]);
+            ranges[i].count = std::uint32_t(list.items.size()) - ranges[i].first;
+        };
+        const rjobs::Split spriteSplit = rjobs::split(preps.size(), kSpriteGrain, kParallelSprites);
+        if (spriteSplit.chunks <= 1) {
+            for (std::size_t i = 0; i < preps.size(); ++i) build(i, outWorld, outScreen);
+        } else {
+            std::vector<QuadList> worldParts(spriteSplit.chunks), screenParts(spriteSplit.chunks);
+            std::vector<std::pair<std::size_t, std::size_t>> chunkRange(spriteSplit.chunks);
+            rjobs::run("render.gather_sprites", spriteSplit, [&](const jobs::Chunk& c) {
+                chunkRange[c.index] = {c.begin, c.end};
+                for (std::size_t i = c.begin; i < c.end; ++i) build(i, worldParts[c.index], screenParts[c.index]);
+            });
+            for (std::size_t k = 0; k < spriteSplit.chunks; ++k) {
+                const std::uint32_t baseWorld = std::uint32_t(outWorld.items.size()),
+                                    baseScreen = std::uint32_t(outScreen.items.size());
+                for (std::size_t i = chunkRange[k].first; i < chunkRange[k].second; ++i)
+                    ranges[i].first += preps[i].screen ? baseScreen : baseWorld;
+                outWorld.append(worldParts[k]);
+                outScreen.append(screenParts[k]);
+            }
+        }
+        for (std::size_t i = 0; i < preps.size(); ++i) {
+            const SpriteNotes& n = notes[i];
+            const Entity e = preps[i].e;
+            const Sprite& s = *preps[i].s;
+            if (f.warnedSpriteMesh && !*f.warnedSpriteMesh) {
+                if (!n.meshColorsProblem.empty()) {
+                    *f.warnedSpriteMesh = true;
+                    FA_WARN("render", "on '{}': {}. The colours are ignored.", world.info(e).name, n.meshColorsProblem);
+                } else if (n.meshTooBig) {
+                    *f.warnedSpriteMesh = true;
+                    FA_WARN("render",
+                            "Sprite meshColumns {} x meshRows {} on '{}' is more than {} cells (at most {} columns, {} "
+                            "rows): it is "
+                            "drawn as a plain quad. Use fewer cells; 16 x 1 bends a page, 8 x 8 a flag.",
+                            s.meshColumns, s.meshRows, world.info(e).name, kMaxSpriteMeshCells, kMaxSpriteMeshSide,
+                            kMaxSpriteMeshSide);
+                }
+            }
+            if (!n.skinProblem.empty()) {
+                SpriteSkin* skin = world.get<SpriteSkin>(e);
+                if (skin && !skin->warned) {
+                    skin->warned = true;
+                    FA_WARN("render", "{} (reported once)", n.skinProblem);
+                }
+            }
+        }
+        // What the first camera built is kept for the others: where its items are in the list that is this camera's.
+        auto keep = [&](std::size_t i, std::size_t firstInWorld) {
+            if (single_ || !preps[i].share) return;
+            Slot& sl = sprites_[preps[i].slotIndex];
+            sl.state = State::Share;
+            sl.donor = &f.world;
+            sl.first = std::uint32_t(firstInWorld);
+            sl.count = ranges[i].count;
+            sl.pos = notes[i].pos;
+            sl.ySort = true;
+            sl.counted = true;
+        };
+        if (!merge) {
+            for (std::size_t i = 0; i < preps.size(); ++i) keep(i, ranges[i].first);
+        } else {
+            for (const Step& st : steps) {
+                if (st.prep < 0) {
+                    const Slot& sl = sprites_[st.slot];
+                    const float key = sort_key(sl, f);
+                    f.world.append_items(*sl.donor, sl.first, sl.count, &key);
+                } else if (!preps[std::size_t(st.prep)].screen) {
+                    const Range& r = ranges[std::size_t(st.prep)];
+                    keep(std::size_t(st.prep), f.world.append_items(scratchWorld, r.first, r.count));
+                }
+            }
+            f.screen.append(scratchScreen);
+        }
+        work_.spritesBuilt += int(preps.size());
+    } else {
+        // Every Sprite of this camera is a copy.
+        for (const Step& st : steps) {
+            const Slot& sl = sprites_[st.slot];
+            const float key = sort_key(sl, f);
+            f.world.append_items(*sl.donor, sl.first, sl.count, &key);
+        }
+    }
+    work_.spritesCopied += int(copies);
+    f.stats->sprites += int(steps.size());
+}
+
+void Scene2D::gather_shapes(World& world, Frame& f) {
+    using State = Slot::State;
+    world.each<Shape2D>([&](Entity e, Shape2D& s) {
+        Slot& sl = slot_of(shapes_, world, e);
+        if (sl.state == State::Skip) return;
+        const bool screen = s.space == RenderSpace::Screen;
+        if (screen ? !f.wantScreen : !f.wantWorld) return;
+        if (!screen && !f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
+        QuadList& list = screen ? f.screen : f.world;
+        if (sl.state == State::Share && sl.donor != &list) {
+            const float key = sort_key(sl, f);
+            list.append_items(*sl.donor, sl.first, sl.count, &key);
+            if (sl.counted) ++f.stats->shapes;
+            ++work_.shapesCopied;
+            return;
+        }
+        const std::size_t first = list.items.size();
+        Vec3 pos{};
+        const bool counted = emit_shape(world, f, e, s, list, &pos);
+        ++work_.shapesBuilt;
+        if (screen) return;  // a screen-space Shape2D is built by the one frame that draws the screen
+        if (!counted) {
+            sl.state = State::Skip;  // whatever stopped it drawing (inactive, transparent) holds for every camera
+        } else if (camera_independent(world, e, false, std::string(), std::string())) {
+            sl.state = State::Share;
+            sl.donor = &list;
+            sl.first = std::uint32_t(first);
+            sl.count = std::uint32_t(list.items.size() - first);
+            sl.pos = pos;
+            sl.ySort = false;
+            sl.counted = true;
+        } else {
+            sl.state = State::Direct;
+        }
+    });
+}
+
+void Scene2D::gather(World& world, Frame& f) {
+    f.anyTint = world.any<Tint>();
+    f.anyFlash = world.feel().any_flash();
+    if (f.wantWorld) {
+        // The layers are drawn shifted for THIS camera; the caller puts the first camera's offset back after its gathers (the rule
+        // of a run with no renderer, see Renderer::update).
+        update_parallax(world, f.cam.position.xy());
+        gather_lights(world, f);
+    }
+
+    // A SpriteSkin that has not recorded its bind pose yet does it now, at the pose the bones have (the engine already did it at
+    // the start of the step; this covers a scene drawn without stepping, e.g. a screenshot of a freshly loaded scene).
+    if (!begun_ && world.any<SpriteSkin>()) bind_pending_skins(world);
+    begun_ = true;
+
+    gather_sprites(world, f);
+    gather_shapes(world, f);
+    gather_tilemaps_and_text(world, f);
+}
+
+void gather_2d(World& world, Frame& f) {
+    Scene2D scene;
+    scene.set_single_destination(true);
+    scene.gather(world, f);
 }
 
 // ---------------------------------------------------------------------------

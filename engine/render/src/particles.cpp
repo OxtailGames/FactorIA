@@ -15,6 +15,7 @@
 #include "fa/scene/ui_rect.h"
 #include "frame.h"
 #include "render_jobs.h"
+#include "scene2d.h"
 
 namespace fa::render {
 
@@ -131,6 +132,9 @@ struct DrawItem {
     bool screen = false;
     Rect clip;
     std::vector<TextureAsset*> groupTex;  // the texture of each group (white for soft dots and pixel mode)
+    std::uint32_t slotIndex = 0;          // the Scene2D slot of the entity (Entity::index)
+    bool share = false;  // the first drawing of a shareable emitter: Scene2D keeps where its items end up
+    int count = 0;       // its live particles, for the stats
 };
 
 // Draws one emitter into `list`: a chunk's own list, so this only reads the World and the Frame.
@@ -325,15 +329,28 @@ void draw_emitter(const World& world, const Frame& f, const DrawItem& item, cons
 
 }  // namespace
 
-void gather_particles(World& world, Frame& f) {
+void Scene2D::gather_particles(World& world, Frame& f) {
+    using State = Slot::State;
     auto& all = world.particles();
+    // One step per emitter this camera draws, in the order of the emitters: copied from a donor (item < 0) or built (items[item]).
+    struct Step {
+        std::uint32_t slot;
+        int item;
+    };
     // On this thread: which emitters are drawn, the textures of their groups (a texture may be loaded) and, when an
     // emitter in pixel mode without a palette of its own is drawn, the project palette (read once per frame).
     std::vector<DrawItem> items;
     std::vector<std::size_t> weights;
+    std::vector<Step> steps;
+    std::size_t copies = 0;
     std::shared_ptr<const std::vector<Color>> frameStylePalette;
     world.each<ParticleEmitter>([&](Entity e, ParticleEmitter& em) {
-        if (!entity_active(world, f, e)) return;
+        Slot& sl = slot_of(emitters_, world, e);
+        if (sl.state == State::Skip) return;
+        if (sl.state == State::Todo && !entity_active(world, f, e)) {
+            sl.state = State::Skip;
+            return;
+        }
         ParticleEmitterState* found = all.find(e);
         if (!found) return;
         ParticleEmitterState& st = *found;
@@ -342,6 +359,12 @@ void gather_particles(World& world, Frame& f) {
         const bool screen = particle_screen_space(em);
         if (screen ? !f.wantScreen : !f.wantWorld) return;
         if (!screen && !f.mask.draws(world, e)) return;  // Camera.showTags / hideTags
+        if (sl.state == State::Share && sl.donor != &f.world) {
+            steps.push_back({e.index, -1});
+            ++copies;
+            f.stats->particles += sl.particles;
+            return;
+        }
         DrawItem item;
         item.e = e;
         item.em = &em;
@@ -349,38 +372,109 @@ void gather_particles(World& world, Frame& f) {
         item.screen = screen;
         if (screen && !screen_clip(world, e, f, item.clip)) return;
         item.groupTex.resize(std::size_t(sim.group_count()));
+        // Copyable by another camera: world space, no group that faces the camera (is3D) or shows a render target's texture.
+        bool independent = !screen;
         for (int g = 0; g < sim.group_count(); ++g) {
             const ParticleEmitter& c = sim.group_emitter(g, em);
+            independent = independent && !c.is3D && !Assets::is_target_id(c.texture);
             item.groupTex[std::size_t(g)] = f.assets->white();
             if (sim.live(g) <= 0) continue;  // nothing of this group is drawn: nothing to look up
             if (!c.texture.empty() && !c.pixelMode) item.groupTex[std::size_t(g)] = f.assets->texture(c.texture);
             if (c.pixelMode && !(c.palette.is_array() && !c.palette.empty()) && !frameStylePalette)
                 frameStylePalette = style_palette();
         }
-        f.stats->particles += int(sim.particles.size());
+        item.slotIndex = e.index;
+        if (sl.state == State::Todo) {
+            if (independent)
+                item.share = true;
+            else
+                sl.state = State::Direct;
+        }
+        item.count = int(sim.particles.size());
+        f.stats->particles += item.count;
         weights.push_back(sim.particles.size() + kEmitterWeight);
+        steps.push_back({e.index, int(items.size())});
         items.push_back(std::move(item));
     });
+    work_.emittersCopied += int(copies);
+    if (steps.empty()) return;
     static const std::vector<Color> kNoStylePalette;
     const std::vector<Color>& stylePalette = frameStylePalette ? *frameStylePalette : kNoStylePalette;
 
-    // The quads, a run of emitters per chunk into the chunk's own lists, joined in chunk order: the lists end up as if
-    // every emitter had been drawn into them one after the other.
-    const auto ranges = rjobs::weighted_ranges(weights, kParticleChunk, kParallelParticles);
-    if (ranges.size() <= 1) {
-        for (const DrawItem& item : items) draw_emitter(world, f, item, stylePalette, item.screen ? f.screen : f.world);
+    // The quads of the emitters to build, a run of emitters per chunk into the chunk's own lists, joined in chunk order: the lists
+    // end up as if every emitter had been drawn into them one after the other. When some emitters are copied from a donor the two
+    // kinds must interleave in the order of the emitters, so the built ones go into scratch lists first and are merged below.
+    const bool merge = copies > 0;
+    QuadList scratchWorld, scratchScreen;
+    QuadList& outWorld = merge ? scratchWorld : f.world;
+    QuadList& outScreen = merge ? scratchScreen : f.screen;
+    struct Range {
+        std::uint32_t first = 0, count = 0;  // items of the emitter, in the list its quads were made into
+    };
+    std::vector<Range> ranges(items.size());
+    if (!items.empty()) {
+        auto build = [&](std::size_t i, QuadList& worldList, QuadList& screenList) {
+            QuadList& list = items[i].screen ? screenList : worldList;
+            ranges[i].first = std::uint32_t(list.items.size());
+            draw_emitter(world, f, items[i], stylePalette, list);
+            ranges[i].count = std::uint32_t(list.items.size()) - ranges[i].first;
+        };
+        const auto runs = rjobs::weighted_ranges(weights, kParticleChunk, kParallelParticles);
+        if (runs.size() <= 1) {
+            for (std::size_t i = 0; i < items.size(); ++i) build(i, outWorld, outScreen);
+        } else {
+            std::vector<QuadList> worldParts(runs.size()), screenParts(runs.size());
+            rjobs::run("render.gather_particles", rjobs::split(runs.size(), 1, 2), [&](const jobs::Chunk& c) {
+                for (std::size_t r = c.begin; r < c.end; ++r)
+                    for (std::size_t i = runs[r].first; i < runs[r].second; ++i)
+                        build(i, worldParts[r], screenParts[r]);
+            });
+            for (std::size_t r = 0; r < runs.size(); ++r) {
+                const std::uint32_t baseWorld = std::uint32_t(outWorld.items.size()),
+                                    baseScreen = std::uint32_t(outScreen.items.size());
+                for (std::size_t i = runs[r].first; i < runs[r].second; ++i)
+                    ranges[i].first += items[i].screen ? baseScreen : baseWorld;
+                outWorld.append(worldParts[r]);
+                outScreen.append(screenParts[r]);
+            }
+        }
+        work_.emittersBuilt += int(items.size());
+    }
+    // What the first camera built is kept for the others: where its items are in the list that is this camera's. The sort key of
+    // every item of an emitter is the same (its distance to a perspective camera, else 0), so it is patched from the position.
+    auto keep = [&](std::size_t i, std::size_t firstInWorld) {
+        if (single_ || !items[i].share) return;
+        Slot& sl = emitters_[items[i].slotIndex];
+        sl.state = State::Share;
+        sl.donor = &f.world;
+        sl.first = std::uint32_t(firstInWorld);
+        sl.count = ranges[i].count;
+        sl.pos = world.world_matrix(items[i].e).translation();
+        sl.ySort = false;
+        sl.counted = true;
+        sl.particles = items[i].count;
+    };
+    if (!merge) {
+        for (std::size_t i = 0; i < items.size(); ++i) keep(i, ranges[i].first);
         return;
     }
-    std::vector<QuadList> worldParts(ranges.size()), screenParts(ranges.size());
-    rjobs::run("render.gather_particles", rjobs::split(ranges.size(), 1, 2), [&](const jobs::Chunk& c) {
-        for (std::size_t r = c.begin; r < c.end; ++r)
-            for (std::size_t i = ranges[r].first; i < ranges[r].second; ++i)
-                draw_emitter(world, f, items[i], stylePalette, items[i].screen ? screenParts[r] : worldParts[r]);
-    });
-    for (std::size_t r = 0; r < ranges.size(); ++r) {
-        f.world.append(worldParts[r]);
-        f.screen.append(screenParts[r]);
+    for (const Step& st : steps) {
+        if (st.item < 0) {
+            const Slot& sl = emitters_[st.slot];
+            const float key = sort_key(sl, f);
+            f.world.append_items(*sl.donor, sl.first, sl.count, &key);
+        } else if (!items[std::size_t(st.item)].screen) {
+            const Range& r = ranges[std::size_t(st.item)];
+            keep(std::size_t(st.item), f.world.append_items(scratchWorld, r.first, r.count));
+        }
     }
+    f.screen.append(scratchScreen);
+}
+
+void gather_particles(World& world, Frame& f) {
+    Scene2D scene;
+    scene.set_single_destination(true);
+    scene.gather_particles(world, f);
 }
 
 }  // namespace fa::render

@@ -58,7 +58,7 @@ struct RenderEnv {
         renderer.render_world(world, 0.0f);
         renderer.end_frame();
         gpu.end_frame();
-        const RenderStats s = renderer.stats();
+        const RenderStats s = renderer.stats(false);
         return double(s.drawCalls) * 1000.0 + double(s.sprites) + double(s.meshes) * 7.0 + double(s.triangles) * 0.001;
     }
 };
