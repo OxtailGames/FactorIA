@@ -10,7 +10,6 @@ namespace {
 constexpr std::size_t kParallelMeshes = 256;
 constexpr std::size_t kMeshGrain = 64;
 
-
 void copy_mat(float* dst, const Mat4& m) { std::memcpy(dst, m.m, sizeof(float) * 16); }
 
 // The palette of glTF skin `skin` (a part is drawn with its own skin's); skin 0 when the animator has none for it.

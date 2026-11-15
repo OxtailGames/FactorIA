@@ -3,14 +3,15 @@
 //  * TargetFormat: what a render pass writes into. A pipeline is only valid for passes with the same formats and
 //    sample count, so it is the key of the pipelines made for a pass (a map keyed by TargetFormat, in gpu.cpp).
 //  * PassDesc: one render pass as data: where it draws, what it does with the old contents and how it ends. The
-//    sg_begin_pass call sites of the renderer (the game and view passes, shadow, 2D light buffer, colour filter, flip copy,
-//    RGBA8 readback, present, bloom stages) are to build one and begin it with sg_begin_pass(&desc.to_sg()) instead of each
-//    filling an sg_pass. Nothing uses these types yet.
+//    sg_begin_pass call sites of the renderer (the game and view passes, shadow, 2D light buffer, colour filter, flip
+//    copy, RGBA8 readback, present, bloom stages) are to build one and begin it with sg_begin_pass(&desc.to_sg())
+//    instead of each filling an sg_pass. Nothing uses these types yet.
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <initializer_list>
 
 #include "sokol_gfx.h"
 
@@ -19,8 +20,9 @@ namespace fa::render {
 // The formats and sample count of the attachments a pass writes, which a pipeline drawn in that pass must match.
 struct TargetFormat {
     sg_pixel_format color = SG_PIXELFORMAT_NONE;  // the colour attachment's format; NONE for a depth-only pass
-    sg_pixel_format depth = SG_PIXELFORMAT_NONE;  // the depth(-stencil) attachment's format; NONE for a pass without one
-    int samples = 1;                              // the sample count of the attachments (1 = no multisampling)
+    // The depth(-stencil) attachment's format; NONE for a pass without one.
+    sg_pixel_format depth = SG_PIXELFORMAT_NONE;
+    int samples = 1;  // the sample count of the attachments (1 = no multisampling)
 
     bool operator==(const TargetFormat& o) const {
         return color == o.color && depth == o.depth && samples == o.samples;
@@ -50,10 +52,11 @@ struct PassDesc {
 
     TargetFormat format{};  // the formats and sample count of the attachments, for the pipelines drawn in this pass
 
-    // What the pass does with the old contents of the colour attachment: LOAD to keep them (a second camera, the HUD over
-    // the bloom), CLEAR to fill with `clearColor`, DONTCARE when every pixel is drawn.
+    // What the pass does with the old contents of the colour attachment: LOAD to keep them (a second camera, the HUD
+    // over the bloom), CLEAR to fill with `clearColor`, DONTCARE when every pixel is drawn.
     sg_load_action colorLoad = SG_LOADACTION_DONTCARE;
-    sg_store_action colorStore = SG_STOREACTION_STORE;  // DONTCARE when the pass resolves and nobody reads the MSAA image
+    // DONTCARE when the pass resolves and nobody reads the MSAA image.
+    sg_store_action colorStore = SG_STOREACTION_STORE;
     sg_color clearColor{0.0f, 0.0f, 0.0f, 0.0f};
     sg_load_action depthLoad = SG_LOADACTION_DONTCARE;  // CLEAR to `clearDepth`; the depth is never read after the pass
     float clearDepth = 1.0f;
