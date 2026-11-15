@@ -1724,7 +1724,8 @@ game script cannot do something drives it from a behaviour callback (`game.step`
 The engine library asks for no more than that. `tilemap.generate` with `place` places the level with `scene.place_ascii`
 (the in-memory twin of `scene.import_ascii`, `{read, state}`: no `path`, `from`, `save`, `dryRun` or `edits`), and every
 other helper of `factoria` calls only `{read, state}` commands (`game.state` for `game.state()`, `tilemap.generate_start`
-and its steps). A game script that calls `scene.import_ascii` with a `path` itself is refused.
+and its steps). `scene.import_ascii` and `scene.ascii_edit` are authoring commands: an exported game does not have them at all, and
+from the editor's Play a game script that calls one to write a file is refused.
 
 #### A test asking for more: `capabilities`
 A test that writes a project file (a level rebuilt on disk and compared, a screenshot, a scene saved to check it round-trips)
