@@ -560,7 +560,7 @@ Once a component is registered, the engine derives these from the reflection dat
 - **JSON Schema.** `scene_json_schema()` and `prefab_json_schema()`, plus `type_json_schema()` for a single type.
 - **Scripts.** `entity.get("Wobble")` returns a live view of exactly the reflected fields (`docs/SCRIPTING.md`). Writing `entity.get("Wobble").amplitude = 2` writes into the engine.
 - **TypeScript typings.** `types/factoria.d.ts`, written by `factoria api --dts` (a project gets its own copy from `factoria validate --fix-types`).
-- **Docs.** `docs_components`, `docs.components` and `factoria://docs/components`.
+- **Docs.** `docs_components` and `docs.components`.
 - **MCP and CLI.** `scene_set_component` and `scene.set_component` can patch the field.
 - **Editor.** Desktop builds include the visual editor (`FA_BUILD_EDITOR`, on by default there). Start it with `factoria editor`.
 

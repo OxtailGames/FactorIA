@@ -859,7 +859,7 @@ Command make_docs_command() {
         "printed.";
     read.examples = {"factoria docs read scripting", "factoria docs read ai-guide --heading Index",
                      "factoria docs read ai-guide --heading \"Platformer character\"",
-                     "factoria docs read architecture --start-line 400 --max-bytes 20000"};
+                     "factoria docs read scripting --start-line 400 --max-bytes 20000"};
     read.run = [run = g.run](Context& ctx) {
         if (ctx.args.positional().empty()) throw UsageError("Missing document name.", "See 'factoria docs list'.");
         return run(ctx);
