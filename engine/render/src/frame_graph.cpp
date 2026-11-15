@@ -110,6 +110,32 @@ Result<void> FrameGraph::compile() {
         r.firstUse = r.lastUse = r.slot = -1;
     }
 
+    // Resources: names are unique, transients have a size, imported ones a handle.
+    {
+        std::map<std::string, std::size_t> resByName;
+        for (std::size_t i = 0; i < resources_.size(); ++i) {
+            const Resource& r = resources_[i];
+            auto ins = resByName.emplace(r.name, i);
+            if (!ins.second) {
+                return make_error(
+                    "Frame graph: two resources are named " + qname(r.name) + " (#" +
+                        std::to_string(ins.first->second) + " and #" + std::to_string(i) + ").",
+                    "Resource names must be unique (dumps and errors name resources by them); give one of "
+                    "them another label in import_target() or create_transient().");
+            }
+            if (r.imported && r.handle == 0) {
+                return make_error("Frame graph: the imported resource " + qname(r.name) + " has handle 0.",
+                                  "Pass the id of the target the renderer owns to import_target(), or rebind it with "
+                                  "set_import_handle() before compile(); 0 means no target.");
+            }
+            if (!r.imported && (r.desc.width <= 0 || r.desc.height <= 0)) {
+                return make_error("Frame graph: the transient " + qname(r.name) + " has size " +
+                                      std::to_string(r.desc.width) + "x" + std::to_string(r.desc.height) + ".",
+                                  "Give create_transient() a width and a height of at least 1 pixel.");
+            }
+        }
+    }
+
     // Names and ids.
     std::map<std::string, int> byName;
     std::vector<std::string> names;
@@ -140,8 +166,10 @@ Result<void> FrameGraph::compile() {
         }
         for (const std::string& a : p.after) {
             if (!byName.count(a)) {
+                const std::string dym = did_you_mean(a, names);
+                const std::string suggestion = dym.empty() ? std::string() : " " + dym;
                 return make_error("Frame graph: pass " + qname(p.name) + " must run after " + qname(a) +
-                                      ", which is not a pass. " + did_you_mean(a, names),
+                                      ", which is not a pass." + suggestion,
                                   "Declare the pass " + qname(a) + " or remove it from the after list of " +
                                       qname(p.name) + ".");
             }
@@ -394,10 +422,15 @@ Result<void> FrameGraph::execute(TargetPool& pool) {
                 }
                 ~Timed() {
                     cpuMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
-                    if (hooks.end) hooks.end(name, cpuMs);
+                    // A destructor must not throw (an exception while one is unwinding is std::terminate): a hook
+                    // that fails (a profiler zone that cannot allocate) loses its sample, not the frame.
+                    try {
+                        if (hooks.end) hooks.end(name, cpuMs);
+                    } catch (...) {
+                    }
                 }
             } timed(hooks_, p.name, st.cpuMs);
-            p.execute(PassContext(*this, physical_, p.name));
+            p.execute(PassContext(*this, physical_, p));
         }
         stats_.push_back(std::move(st));
         for (const std::vector<ResourceId>* list : {&p.reads, &p.writes}) {
@@ -422,6 +455,7 @@ Result<void> FrameGraph::execute(TargetPool& pool) {
 
 std::vector<std::string> FrameGraph::order_names() const {
     std::vector<std::string> out;
+    if (!compiled_) return out;
     for (int p : order_) out.push_back(passes_[std::size_t(p)].name);
     return out;
 }
@@ -483,7 +517,7 @@ Json FrameGraph::to_json() const {
         ps.push_back(std::move(o));
     }
     j["passes"] = std::move(ps);
-    j["order"] = order_names();
+    j["order"] = compiled_ ? order_names() : std::vector<std::string>();
     j["culled"] = culled_names();
     Json breaks = Json::array();
     for (const CycleBreak& b : breaks_) {
@@ -494,7 +528,7 @@ Json FrameGraph::to_json() const {
     }
     j["cycleBreaks"] = std::move(breaks);
     Json slots = Json::array();
-    for (std::size_t s = 0; s < slotCount_; ++s) {
+    for (std::size_t s = 0; s < (compiled_ ? slotCount_ : 0); ++s) {
         Json names = Json::array();
         for (const Resource& r : resources_) {
             if (r.slot == int(s)) names.push_back(r.name);

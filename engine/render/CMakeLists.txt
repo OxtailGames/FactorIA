@@ -36,6 +36,12 @@ if(APPLE)
 endif()
 
 fa_add_tests(render LABELS gpu)  # REQUIRE a GPU (Gfx::ok): a host without one runs `ctest -LE gpu`
+# The CPU core of the frame graph needs no GPU: its tests also run on a host that runs `ctest -LE gpu`.
+if(TARGET fa_test_render)
+    add_test(NAME render_frame_graph_core
+        COMMAND fa_test_render --fa-files=frame_graph_tests.cpp
+        WORKING_DIRECTORY ${FA_ROOT})
+endif()
 if(TARGET fa_test_render)
     target_link_libraries(fa_test_render PRIVATE fa_ext_basisu_transcoder)  # tests/data fixtures are checked against it directly
     # The text tests look at the shaped glyphs (src/text_shaper.h), which needs the private headers and HarfBuzz and stb.

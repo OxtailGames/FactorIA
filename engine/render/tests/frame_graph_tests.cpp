@@ -546,3 +546,185 @@ TEST_CASE("frame graph: the end hook also runs when a pass throws") {
     CHECK(begins == 1);
     CHECK(ends == 1);
 }
+
+TEST_CASE("frame graph: a cycle made of a data edge and an after() edge is an error") {
+    FrameGraph g;
+    ResourceId screen = g.import_target("screen", 1);
+    ResourceId t = g.create_transient(desc(8, 8, "t"));
+    g.add_pass(pass("producer", {}, {t}));
+    GraphPass consumer = pass("consumer", {t}, {screen});
+    g.add_pass(std::move(consumer));
+    // producer must run after consumer (explicit), consumer after producer (it reads t).
+    GraphPass again = pass("producer2", {}, {screen});
+    again.after = {"consumer"};
+    g.add_pass(std::move(again));
+    CHECK(g.compile().ok());  // no cycle yet
+    FrameGraph g2;
+    ResourceId s2 = g2.import_target("screen", 1);
+    ResourceId t2 = g2.create_transient(desc(8, 8, "t"));
+    GraphPass producer = pass("producer", {}, {t2});
+    producer.after = {"consumer"};
+    g2.add_pass(std::move(producer));
+    g2.add_pass(pass("consumer", {t2}, {s2}));
+    auto r = g2.compile();
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.find("cycle") != std::string::npos);
+    CHECK(r.error().message.find("'producer'") != std::string::npos);
+    CHECK(r.error().message.find("'consumer'") != std::string::npos);
+}
+
+TEST_CASE("frame graph: a pass that reads and writes a transient an earlier pass wrote runs after it") {
+    FrameGraph g;
+    ResourceId screen = g.import_target("screen", 1);
+    ResourceId t = g.create_transient(desc(8, 8, "t"));
+    std::vector<std::string> log;
+    g.add_pass(pass("first", {}, {t}, &log));
+    g.add_pass(pass("both", {t}, {t}, &log));
+    g.add_pass(pass("last", {t}, {screen}, &log));
+    REQUIRE(g.compile().ok());
+    CHECK(g.order_names() == std::vector<std::string>{"first", "both", "last"});
+    CHECK(g.alias_slot_count() == 1);
+    FakePool fp;
+    REQUIRE(g.execute(fp.pool).ok());
+    CHECK(log == std::vector<std::string>{"first", "both", "last"});
+}
+
+TEST_CASE("frame graph: two writes of a transient (WAW) run in declaration order and the first is not culled") {
+    FrameGraph g;
+    ResourceId screen = g.import_target("screen", 1);
+    ResourceId t = g.create_transient(desc(8, 8, "t"));
+    std::vector<std::string> log;
+    g.add_pass(pass("w1", {}, {t}, &log));
+    g.add_pass(pass("w2", {}, {t}, &log));
+    g.add_pass(pass("use", {t}, {screen}, &log));
+    REQUIRE(g.compile().ok());
+    CHECK(g.order_names() == std::vector<std::string>{"w1", "w2", "use"});
+    CHECK(g.culled_names().empty());
+}
+
+TEST_CASE("frame graph: clear() and release_callbacks() keep the pass hooks") {
+    int begins = 0;
+    PassHooks hooks;
+    hooks.begin = [&](const std::string&) { ++begins; };
+    FakePool fp;
+    FrameGraph g;
+    g.set_pass_hooks(hooks);
+    auto declare = [&] {
+        std::vector<std::string>* none = nullptr;
+        GraphPass p = pass("a", {}, {g.import_target("screen", 1)}, none);
+        p.execute = [](const PassContext&) {};
+        g.add_pass(std::move(p));
+        REQUIRE(g.compile().ok());
+        REQUIRE(g.execute(fp.pool).ok());
+    };
+    declare();
+    CHECK(begins == 1);
+    g.release_callbacks();
+    g.clear();
+    declare();
+    CHECK(begins == 2);
+}
+
+TEST_CASE("frame graph: compile() rejects bad resources with an error that names them") {
+    SUBCASE("a transient with no size") {
+        FrameGraph g;
+        ResourceId screen = g.import_target("screen", 1);
+        ResourceId t = g.create_transient(desc(0, 16, "empty"));
+        g.add_pass(pass("p", {}, {t}));
+        g.add_pass(pass("q", {t}, {screen}));
+        auto r = g.compile();
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("'empty'") != std::string::npos);
+        CHECK(r.error().message.find("0x16") != std::string::npos);
+        CHECK_FALSE(r.error().hint.empty());
+        CHECK_FALSE(g.compiled());
+    }
+    SUBCASE("a transient with a negative height") {
+        FrameGraph g;
+        g.create_transient(desc(4, -1, "neg"));
+        auto r = g.compile();
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("'neg'") != std::string::npos);
+    }
+    SUBCASE("an imported resource with handle 0") {
+        FrameGraph g;
+        g.import_target("nothing", 0);
+        auto r = g.compile();
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("'nothing'") != std::string::npos);
+        CHECK(r.error().message.find("handle 0") != std::string::npos);
+        CHECK_FALSE(r.error().hint.empty());
+    }
+    SUBCASE("two resources with the same name") {
+        FrameGraph g;
+        g.import_target("dup", 1);
+        g.create_transient(desc(4, 4, "dup"));
+        auto r = g.compile();
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("'dup'") != std::string::npos);
+        CHECK_FALSE(r.error().hint.empty());
+    }
+}
+
+TEST_CASE("frame graph: after() to an unknown pass without a close name has no trailing space; to_json of an "
+          "uncompiled graph has no order") {
+    FrameGraph g;
+    ResourceId screen = g.import_target("screen", 1);
+    g.add_pass(pass("a", {}, {screen}));
+    GraphPass p = pass("b", {}, {screen});
+    p.after = {"zzzzzzzzzzzzzzzz"};
+    g.add_pass(std::move(p));
+    auto r = g.compile();
+    REQUIRE_FALSE(r.ok());
+    CHECK(r.error().message.back() != ' ');
+    Json j = g.to_json();
+    CHECK(j["order"].size() == 0);
+    CHECK(j["aliasSlots"].size() == 0);
+}
+
+TEST_CASE("frame graph: to_json of a graph that was compiled and then changed shows no old order or slots") {
+    FrameGraph g;
+    ResourceId screen = g.import_target("screen", 1);
+    ResourceId t = g.create_transient(desc(8, 8, "t"));
+    g.add_pass(pass("a", {}, {t}));
+    g.add_pass(pass("b", {t}, {screen}));
+    REQUIRE(g.compile().ok());
+    CHECK(g.to_json()["order"].size() == 2);
+    CHECK(g.to_json()["aliasSlots"].size() == 1);
+    g.add_pass(pass("c", {}, {screen}));  // not compiled again
+    CHECK(g.to_json()["order"].size() == 0);
+    CHECK(g.to_json()["aliasSlots"].size() == 0);
+}
+
+TEST_CASE("frame graph: PassContext::handle answers only for the resources the pass declared") {
+    FrameGraph g;
+    ResourceId screen = g.import_target("screen", 77);
+    ResourceId other = g.import_target("other", 88);
+    std::uint64_t seenScreen = 1, seenOther = 1;
+    GraphPass p = pass("p", {}, {screen});
+    p.execute = [&](const PassContext& c) {
+        seenScreen = c.handle(screen);
+        seenOther = c.handle(other);
+    };
+    g.add_pass(std::move(p));
+    REQUIRE(g.compile().ok());
+    FakePool fp;
+    REQUIRE(g.execute(fp.pool).ok());
+    CHECK(seenScreen == 77);
+    CHECK(seenOther == 0);
+}
+
+TEST_CASE("frame graph: a pass hook that throws in end() does not terminate") {
+    FrameGraph g;
+    ResourceId screen = g.import_target("screen", 1);
+    g.add_pass(pass("a", {}, {screen}));
+    GraphPass p = pass("b", {}, {screen});
+    p.execute = [](const PassContext&) {};
+    g.add_pass(std::move(p));
+    REQUIRE(g.compile().ok());
+    PassHooks hooks;
+    hooks.end = [](const std::string&, double) { throw std::bad_alloc(); };
+    g.set_pass_hooks(std::move(hooks));
+    FakePool fp;
+    CHECK(g.execute(fp.pool).ok());
+}

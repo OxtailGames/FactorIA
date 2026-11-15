@@ -90,11 +90,13 @@ struct PassHooks {
 class FrameGraph {
 public:
     // A resource the renderer owns (the game target, the swapchain, an image of a render-target asset). `handle` is
-    // opaque to the graph and given back by PassContext::handle. `desc` only describes it in dumps.
+    // opaque to the graph and given back by PassContext::handle (compile() rejects a handle of 0). `desc` only describes
+    // it in dumps.
     ResourceId import_target(const std::string& name, std::uint64_t handle, const TransientDesc& desc = {});
     // Points an imported resource at another target (the game target of another view, a resized light buffer) without
     // rebuilding the graph: the next execute() gives the new handle to the passes. `desc` (when given) replaces the
-    // size and formats shown in dumps. The compiled plan stays valid (the handle is not part of it). False, and
+    // size and formats shown in dumps (the renderer uses it to point the image slots of render targets at their current
+    // targets). The compiled plan stays valid (the handle is not part of it). False, and
     // nothing changes, when `r` is not an imported resource of this graph.
     bool set_import_handle(ResourceId r, std::uint64_t handle, const TransientDesc* desc = nullptr);
     // A target that exists only inside the frame, made by the pool when its first pass starts.
@@ -105,7 +107,9 @@ public:
 
     // What compile() does with a cycle (see "Cycles" above); Error until set.
     void set_cycle_policy(CyclePolicy policy) { cyclePolicy_ = policy; }
-    // Orders, culls and plans the targets. Call again after changing the declaration.
+    // Orders, culls and plans the targets. Call again after changing the declaration. Fails, naming the resource, for a
+    // transient with a width or height <= 0, an imported resource with handle 0 and two resources with the same name;
+    // `order` and `aliasSlots` of to_json() are empty while the graph is not compiled.
     Result<void> compile();
     bool compiled() const { return compiled_; }
 
@@ -176,20 +180,28 @@ private:
 // What a pass's callback sees: the physical target of each resource it declared.
 class PassContext {
 public:
-    PassContext(const FrameGraph& g, const std::vector<std::uint64_t>& physical, const std::string& passName)
-        : graph_(g), physical_(physical), name_(passName) {}
-    // The handle of an imported resource, or of the pool's target for a transient; 0 for an unknown resource.
+    PassContext(const FrameGraph& g, const std::vector<std::uint64_t>& physical, const GraphPass& pass)
+        : graph_(g), physical_(physical), pass_(pass) {}
+    // The handle of an imported resource, or of the pool's target for a transient; 0 for a resource the pass did not
+    // declare in `reads` or `writes` (a transient it does not use is not held for it, and an imported one is not its
+    // business), and for an unknown one.
     std::uint64_t handle(ResourceId r) const {
-        return r.valid() && r.index < physical_.size() ? physical_[r.index] : 0;
+        if (!r.valid() || r.index >= physical_.size()) return 0;
+        for (const std::vector<ResourceId>* list : {&pass_.reads, &pass_.writes}) {
+            for (ResourceId d : *list) {
+                if (d == r) return physical_[r.index];
+            }
+        }
+        return 0;
     }
     // The size and formats the resource was declared with.
     const TransientDesc& desc(ResourceId r) const { return graph_.resources_[r.index].desc; }
-    const std::string& pass_name() const { return name_; }
+    const std::string& pass_name() const { return pass_.name; }
 
 private:
     const FrameGraph& graph_;
     const std::vector<std::uint64_t>& physical_;
-    const std::string& name_;
+    const GraphPass& pass_;
 };
 
 }  // namespace fa::render
