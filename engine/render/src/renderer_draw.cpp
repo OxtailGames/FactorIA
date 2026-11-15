@@ -235,6 +235,7 @@ void Renderer::Impl::begin_frame_graph() {
     }
     graph.clear();
     jobContexts.clear();
+    frameJobs.clear();
     jobImages.clear();
     ++frameSerial;
     trim_shadow_rows();
@@ -245,15 +246,20 @@ void Renderer::Impl::begin_frame_graph() {
 // and the references they hold are gone with the frame. A graph that cannot be compiled or run is logged once and draws
 // nothing.
 void Renderer::Impl::run_frame_graph() {
-    if (Result<void> r = graph.compile(); !r) {
-        if (!warnedGraph) {
-            warnedGraph = true;
-            FA_ERROR("render", "{} {}", r.error().message, r.error().hint);
-        }
-    } else if (Result<void> e = graph.execute(transient_targets().pool); !e && !warnedGraph) {
+    // The first error of a graph is logged (the rest of the run, nothing), and it names the frame and its jobs: the message
+    // of the graph names the pass (`<job>/<pass>`), and the jobs say what else was in the frame.
+    auto report = [&](const Error& e) {
+        if (warnedGraph) return;
         warnedGraph = true;
-        FA_ERROR("render", "{} {}", e.error().message, e.error().hint);
-    }
+        std::string jobs;
+        for (const std::string& j : frameJobs) jobs += (jobs.empty() ? "" : ", ") + j;
+        FA_ERROR("render", "Frame {} (jobs: {}) draws nothing: {} {}", frameSerial, jobs.empty() ? "none" : jobs,
+                 e.message, e.hint);
+    };
+    if (Result<void> r = graph.compile(); !r)
+        report(r.error());
+    else if (Result<void> e = graph.execute(transient_targets().pool); !e)
+        report(e.error());
     graph.release_callbacks();
     jobContexts.clear();
 }
@@ -304,6 +310,7 @@ void Renderer::Impl::pass_times(std::vector<RenderStats::PassTime>& passes,
 // The CPU phases below (gather, cull, batch, upload, uniforms) run now, in the order the jobs are declared; what they decided
 // stays in the job's DrawContext, which the pass callbacks use when run_frame_graph() runs the graph.
 void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
+    frameJobs.push_back(plan.name);
     std::shared_ptr<DrawContext> owner = std::make_shared<DrawContext>(world, fr, plan);
     jobContexts.push_back(owner);  // a shared_ptr<void> keeps the type incomplete outside this file
     DrawContext& ctx = *owner;
@@ -1238,13 +1245,13 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
     const JobPlan& plan = ctx.plan;
     const CameraInfo& post = ctx.post;
     const std::string prefix = plan.name + "/";
-    auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes,
-                   std::function<void(const PassContext&)> fn) {
+    // `fn` keeps its own type instead of becoming a std::function first: the pass's callback wraps it once, not twice.
+    auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes, auto&& fn) {
         GraphPass p;
         p.name = prefix + name;
         p.reads = std::move(reads);
         p.writes = std::move(writes);
-        p.execute = [this, &ctx, body = std::move(fn)](const PassContext& c) {
+        p.execute = [this, &ctx, body = std::forward<decltype(fn)>(fn)](const PassContext& c) {
             EnvScope env(*this, ctx.env);
             body(c);
         };

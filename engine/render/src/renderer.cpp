@@ -557,6 +557,12 @@ render::TransientPoolStats render::renderer_transient_stats(Renderer& r) {
     return out;
 }
 
+render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r) {
+    render::ShadowRowsStats out;
+    if (r.impl_) out = {int(r.impl_->shadowRowsRing.size()), int(r.impl_->shadowRowUploads)};
+    return out;
+}
+
 void Renderer::update(World& world) {
     if (!initialized()) return;
     Impl& im = *impl_;
@@ -891,42 +897,51 @@ void Renderer::Impl::render(World& world, float dt) {
     // (Camera.depth, then creation order); compile() runs the declared-first node among those that are ready. A loop (A shows B,
     // B shows A) does not fail: the node declared first goes first and shows the other's picture of the previous frame (one
     // frame late), the same way every frame (CyclePolicy::Break).
-    std::vector<int> targetOrder;
+    std::vector<int>& targetOrder = orderScratch.order;
+    targetOrder.clear();
     if (!targetFrames.empty()) {
         const int n = int(targetFrames.size());
-        std::vector<int> byDepth;
+        std::vector<int>& byDepth = orderScratch.byDepth;
+        byDepth.clear();
         for (int i = 0; i < n; ++i) byDepth.push_back(i);
         std::stable_sort(byDepth.begin(), byDepth.end(), [&](int a, int b) {
             return targetCams[std::size_t(a)].depth < targetCams[std::size_t(b)].depth;
         });
-        FrameGraph jobs;
+        // Kept between frames (clear() keeps the capacity of its vectors): a frame with render targets allocates no graph.
+        FrameGraph& jobs = orderScratch.graph;
+        jobs.clear();
         jobs.set_cycle_policy(CyclePolicy::Break);
-        std::map<std::string, int> byName;
+        std::vector<std::pair<std::string, int>>& byName = orderScratch.byName;
+        byName.clear();
         for (int i : byDepth) {
             GraphPass p;
             p.name = "target:" + targetCams[std::size_t(i)].name;
             for (int d : targetDeps[std::size_t(i)]) p.after.push_back("target:" + targetCams[std::size_t(d)].name);
             p.sideEffect = true;  // never culled: it has no outputs
-            byName[p.name] = i;
+            byName.emplace_back(p.name, i);
             jobs.add_pass(std::move(p));
         }
+        auto index_of = [&](const std::string& name) {
+            for (const auto& [n2, i] : byName)
+                if (n2 == name) return i;
+            return byDepth.front();  // cannot happen: every name of the order was declared above
+        };
         if (jobs.compile().ok()) {
-            for (const std::string& name : jobs.order_names()) targetOrder.push_back(byName[name]);
+            for (const std::string& name : jobs.order_names()) targetOrder.push_back(index_of(name));
             for (const CycleBreak& cb : jobs.cycle_breaks()) {
-                std::string names;
-                auto add_name = [&](const std::string& passName) {
-                    names += (names.empty() ? "'" : ", '") + passName.substr(std::string("target:").size()) + "'";
+                std::string waited;
+                auto quote = [&](const std::string& passName) {
+                    return "'" + passName.substr(std::string("target:").size()) + "'";
                 };
-                add_name(cb.pass);
-                for (const std::string& w : cb.waitedFor) add_name(w);
-                if (targetWarned.insert("cycle:" + names).second)
-                    FA_WARN("render",
-                            "The render targets {} show each other, so one of them shows the other's picture of the "
-                            "previous frame "
-                            "(one frame late). Hint: that is fine for a mirror of a mirror; to avoid the lag, break "
-                            "the loop so a target only "
-                            "shows targets drawn before it",
-                            names);
+                for (const std::string& w : cb.waitedFor) waited += (waited.empty() ? "" : ", ") + quote(w);
+                const std::string first = quote(cb.pass);
+                if (targetWarned.insert("cycle:" + first + "<-" + waited).second)
+                    FA_WARN(
+                        "render",
+                        "The render targets {} and {} show each other, so {} is drawn first and shows the picture "
+                        "{} had in the previous frame (one frame late). Hint: that is fine for a mirror of a mirror; "
+                        "to avoid the lag, break the loop so a target only shows targets drawn before it",
+                        first, waited, first, waited);
             }
         } else {
             targetOrder = byDepth;  // cannot happen (unique names, every `after` is a target): draw by depth
