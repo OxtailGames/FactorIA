@@ -69,13 +69,14 @@ TEST_CASE("validate: tiles that do not match width*height are an error at the ti
     CHECK_FALSE(i->hint.empty());
 }
 
-TEST_CASE("validate: ASCII strings or ragged rows in tiles are errors that point at scene.import_ascii") {
+TEST_CASE("validate: ASCII strings or ragged rows in tiles are errors that point at scene.place_ascii") {
     testing::TempDir tmp;
     auto r = validate_with_tilemap(tmp, R"({"width":3,"height":2,"tiles":["#..","###"]})");
     REQUIRE_FALSE(r.ok);
     const ValidationIssue* i = find_issue(r.errors, "/components/Tilemap/tiles/0");
     REQUIRE(i != nullptr);
     CHECK(i->message.find("string") != std::string::npos);
+    CHECK(i->hint.find("scene.place_ascii") != std::string::npos);
     CHECK(i->hint.find("scene.import_ascii") != std::string::npos);
 
     testing::TempDir tmp2;

@@ -9,6 +9,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
+#include "fa/scene/mesh_store.h"
 
 using namespace fa;
 namespace stdfs = std::filesystem;
@@ -193,6 +194,24 @@ Json page_mesh(int cols, int rows, float x0, float width, float bend) {
     return Json{{"positions", positions}, {"uvs", uvs}, {"indices", indices}};
 }
 
+// The mesh commands (mesh.create...) are tools of tools/authoring, which this executable does not link: the test makes and changes
+// meshes in the MeshStore of the world, the store the `mesh` API of scripts and those commands share. `args` are their arguments.
+// "" when it worked, else the message.
+std::string mesh_create(Engine& e, const Json& args, std::string* id) {
+    auto in = mesh_input_from_json(args);
+    if (!in.ok()) return in.error().message;
+    auto made = e.world().meshes().create(*in);
+    if (!made.ok()) return made.error().message;
+    *id = *made;
+    return {};
+}
+std::string mesh_update(Engine& e, const Json& args) {
+    auto in = mesh_input_from_json(args);
+    if (!in.ok()) return in.error().message;
+    auto r = e.world().meshes().update(args["id"].get<std::string>(), *in);
+    return r.ok() ? std::string() : r.error().message;
+}
+
 // Rig whose "screen" entity shows a procedural mesh instead of a built-in one.
 struct ProceduralRig : Rig {
     int cols, rows;
@@ -200,9 +219,8 @@ struct ProceduralRig : Rig {
     std::string meshId;
 
     ProceduralRig(const char* name, int c, int r) : Rig(name, "quad", "[1, 1, 1]"), cols(c), rows(r) {
-        auto made = e.commands().call("mesh.create", page_mesh(cols, rows, x0, width, bend));
-        REQUIRE_MESSAGE(made.ok, made.error);
-        meshId = made.result["id"].get<std::string>();
+        const std::string failed = mesh_create(e, page_mesh(cols, rows, x0, width, bend), &meshId);
+        REQUIRE_MESSAGE(failed.empty(), failed);
         e.world().get<MeshRenderer>(id("screen"))->mesh = meshId;
         e.step(2);
     }
@@ -211,8 +229,8 @@ struct ProceduralRig : Rig {
         bend = newBend;
         Json args = page_mesh(cols, rows, x0, width, bend);
         args["id"] = meshId;
-        auto r = e.commands().call("mesh.update", args);
-        REQUIRE_MESSAGE(r.ok, r.error);
+        const std::string failed = mesh_update(e, args);
+        REQUIRE_MESSAGE(failed.empty(), failed);
         e.step(1);
     }
     // The screen point where the page shows page pixel (px, py), on the mesh as it is NOW.
@@ -299,7 +317,7 @@ TEST_CASE("render target pointer: a procedural mesh shows the target through a s
     Json args = page_mesh(1, 1, 0.0f, 2.0f, 0.0f);
     args["id"] = r.meshId;
     args["submeshes"] = Json::array({Json{{"material", Json{{"name", "page"}, {"texture", "target:page"}}}}});
-    REQUIRE(r.e.commands().call("mesh.update", args).ok);
+    REQUIRE(mesh_update(r.e, args).empty());
     r.e.commands().call("scene.set_component",
                         Json{{"id", "screen"}, {"component", "MeshRenderer"}, {"fields", Json{{"texture", ""}}}});
     r.e.step(2);
@@ -313,13 +331,13 @@ TEST_CASE("render target pointer: a procedural mesh shows the target through a s
         {{"id", r.meshId},
          {"indices", Json::array({0, 2, 1})},
          {"submeshes", Json::array({Json{{"material", Json{{"name", "page"}, {"texture", "target:page"}}}}})}});
-    REQUIRE(r.e.commands().call("mesh.update", args).ok);
+    REQUIRE(mesh_update(r.e, args).empty());
     r.e.step(1);
     r.mouse(r.at(60, 50), false);
     CHECK(r.ia("toggle").hovered);
     r.mouse(r.at(150, 30), false);
     CHECK_FALSE(r.ia("back").hovered);
-    REQUIRE(r.e.commands().call("mesh.destroy", Json{{"id", r.meshId}}).ok);
+    REQUIRE(r.e.world().meshes().destroy(r.meshId).ok());
     r.e.step(2);
     r.mouse(r.at(60, 50), false);  // the mesh is gone: nothing is reached, and nothing crashes
     CHECK_FALSE(r.ia("toggle").hovered);

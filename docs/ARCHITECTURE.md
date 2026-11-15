@@ -45,9 +45,10 @@ engine/            runtime modules (ship inside every game)
   ui/              fa_ui       game UI behaviour: Panel/ScrollList layout, focus + keyboard/gamepad/mouse navigation, widget values, `ui.*` events
   services/        fa_services store and platform services: the `"platform"` catalog, the request dispatcher (`PlatformServices`), the fake and "none" backends, the `platform.*` commands
   script/          fa_script   QuickJS bindings, behaviours, JS tools, test runner, scripts compiled to bytecode for game packs (bytecode.h), the script debugger runtime (debugger.h, docs/design/SCRIPT_DEBUGGER.md)
-  runtime/         fa_runtime  Engine (game loop), project file, built-in commands
-player/            factoria_player — minimal runtime for exported games
+  runtime/         fa_runtime  Engine (game loop), project file, built-in commands, the command extension hook (command_extension.h); fa/runtime/internal/ is the engine's private state for engine tools (not for games or plugins)
+player/            factoria_player — minimal runtime for exported games; it links fa_runtime and never fa_authoring (the configure fails otherwise)
 tools/             developer tools (desktop only)
+  authoring/       fa_authoring the commands only developer tools use (the scene file commands `prefab.save` and `scene.format`; `anim.*`, `skin.*` and `bones.*` editing and viewing (`anim.pose`, `anim.filmstrip`, `anim.list`); the vfx review commands `vfx.check`, `vfx.budget`, `vfx.filmstrip`; the `mesh.*` tools including `mesh.save`; `scene.import_ascii` and `scene.ascii_edit`); registered into every Engine by `fa::authoring::install()` (the CLI, editor and tests call it), not in the player
   common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export, export (platform settings, icons, exe icon patcher, texture compression with the Basis Universal encoder, atlas packing), setup (one-click install of the JDK, Android SDK, players, CMake), palette lock, AI-content disclosure
   mcp/             fa_mcp      Model Context Protocol server (stdio; loopback HTTP for the editor)
   dap/             fa_dap      Debug Adapter Protocol server of the script debugger (framing, launch validation, DapServer); `factoria dap` runs it
@@ -75,10 +76,30 @@ external/          vendored third-party code (do not edit)
 Module dependency order (a module may only include modules above it):
 
 ```
-core -> scene -> platform -> render, physics, audio, ui, services -> script -> runtime -> tooling -> mcp, dap, ai -> editor -> cli
+core -> scene -> platform -> render, physics, audio, ui, services -> script -> runtime -> authoring -> tooling -> mcp, dap, ai -> editor -> cli
 ```
 
-(`platform` is the OS layer: window, input, gamepads. `services` is the stores' side: achievements, purchases.)
+(`platform` is the OS layer: window, input, gamepads. `services` is the stores' side: achievements, purchases.
+`authoring` is the commands of the developer tools: `engine/` ships in every game, `tools/authoring` only in the factoria CLI,
+the editor and the servers.)
+
+#### Where a command goes
+
+A command that an exported game's player does not need (it writes project files, bakes or imports assets, edits animations
+or levels) goes to `tools/authoring/src/`, not to `engine/runtime/src/`: the player has no code for it, and a game script
+cannot see it. The command file registers itself from `register_<area>_commands(Engine&, Engine::Impl&)` (declared in
+`tools/authoring/src/authoring_internal.h`, called from `src/authoring.cpp`) and includes
+`fa/runtime/internal/engine_impl.h` (`Engine::Impl`; for engine tools only, never a game or plugin). The commands arrive in an
+Engine through a process-wide extension list (`fa/runtime/command_extension.h`): `fa::authoring::install()`
+(`fa/authoring/authoring.h`) adds the extension, and every `Engine::init` after it runs the extensions right after the built-in
+commands and the plugins' commands. A program that creates engines calls `install()` once at start-up (the mains of the
+`factoria` binary and of `fa_editor_autotest`; the test executables of every module at or above `fa_authoring` get it from
+`cmake/doctest_main.cpp`, the runtime's tests do not). `Engine::runtime_command_names()` is what the player has: the
+commands registered before plugins and extensions. The root `CMakeLists.txt` fails the configure when `factoria_player`
+reaches `fa_authoring` through any chain of links (`fa_check_not_linked`). When an authoring command shares code with one the
+player keeps, the shared part stays in the runtime and is declared in an internal header for the authoring file to use (never
+copied): `scene.import_ascii` (authoring, can write a scene file) and `scene.place_ascii` (player, running world only) share
+`fa/runtime/internal/ascii_level.h`.
 
 ## Core concepts
 
@@ -252,13 +273,13 @@ this engine, not an external program, and the command judges every path it passe
 has a "Capabilities:" line ("not declared yet" while `capabilitiesDeclared` is false); an MCP tool carries them in its
 `_meta` (`factoria/capabilities`, `factoria/capabilitiesDeclared`) and `tool_describe` returns them per command.
 
-A command that writes a file only when the caller passes a `path` (`game.screenshot`, `anim.filmstrip`, `vfx.filmstrip`)
+A command that writes a file only when the caller passes a `path` (`game.screenshot`; the authoring commands `anim.filmstrip` and `vfx.filmstrip` too)
 declares the capabilities of its default behaviour (`{read, state}`: the picture goes under `.factoria/`) and its handler
 calls `resolve_caller_write_path` for the `path`: it needs `writeProject` (`require_capability`) and keeps the file inside
 the project (`fs::resolve_for_write`; an absolute path needs `writeAnywhere`); the schema property carries `"x-fa-path": "write"`.
 `resolve_caller_project_path` is the same check returning the path in the project's own spelling (relative to the project when
 the file is inside it): the runtime's file commands use it for the path they also read back or report, so `scene.save`,
-`scene.import_ascii` (`path`), `scene.ascii_edit` (`file`), `input.record` (`path`), `anim.*` (`path`), `mesh.save`
+`input.record` (`path`) and, in fa_authoring (developer tools only), `scene.import_ascii` (`path`), `scene.ascii_edit` (`file`), `anim.*` (`path`), `mesh.save`
 (`save_mesh_glb(data, path, allowAnywhere)`; a game script's `mesh.save` is always confined to the project) refuse `..`, absolute paths, `.git/` and `.factoria/` (except `.factoria/tmp/`) for an MCP client
 or an agent and check the path before any other work (`input.record` keeps its recording when the path is refused).
 `prefab.save` (`path`) and `scene.format` (`paths`) are confined the same way, and so is the editor's own `scene.save`.
@@ -772,7 +793,7 @@ files while frames run. The pieces and who owns what:
   thread `take()`s it; `take()` of an item the IO thread has not started does it at once on the calling thread, so it never
   waits behind other files and never deadlocks, also with 0 workers. Without workers there is no IO thread and `take()`
   does the read and the decode itself: the result is the same either way.
-- **`fa::BackgroundLoader`** (`runtime/src/background_loader.h`, main thread only): the jobs of one Engine. A job's first
+- **`fa::BackgroundLoader`** (`runtime/include/fa/runtime/internal/background_loader.h`, main thread only): the jobs of one Engine. A job's first
   item (the SCAN) reads the scene and the text files it names into `fs`'s warm set and lists the binary files; then one item
   per binary file: the renderer decodes a texture, model or font off the main thread (`Renderer::background_*`) and the
   main thread uploads it; audio decodes a sound (`Audio::decode_clip`) and the main thread adopts it. `tick()` runs once per
@@ -1319,7 +1340,9 @@ becomes the engine roadmap.
 
 ## Testing
 
-- C++ unit tests: doctest, one `fa_test_<module>` per module (`ctest`).
+- C++ unit tests: doctest, one `fa_test_<module>` per module (`ctest`). The test main (`cmake/doctest_main.cpp`) calls
+  `fa::authoring::install()` when the executable sees `fa/authoring/authoring.h` (fa_authoring and every module above it), so
+  their engines have the authoring commands; `fa_test_runtime` does not link it and tests what the player has.
 - A module whose tests take minutes is split into several ctest entries that `ctest -j` runs at the same time, each its
   own process of the same executable. `fa_test_tooling` is `tooling_1` ... `tooling_5` (label `tooling`):
   `tools/common/CMakeLists.txt` names the heavy test files of the first four, balanced by seconds, and the fifth runs every

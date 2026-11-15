@@ -7,6 +7,7 @@
 #include <functional>
 #include <vector>
 
+#include "confinement_variants.h"
 #include "fa/core/capability.h"
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
@@ -71,14 +72,12 @@ TEST_CASE("capabilities: every command of the runtime declares them, and readOnl
 
     auto caps = [&](const char* name) { return e.commands().info(name)->capabilities; };
     // What a game script may call (read + state)...
-    for (const char* n :
-         {"scene.spawn", "scene.set_component", "scene.load", "game.step", "game.input", "ui.set_slider", "mesh.create",
-          "tilemap.set_tile", "vfx.play", "game.screenshot", "anim.filmstrip", "vfx.filmstrip", "script.eval",
-          "game.state", "nav.find_path", "audio.music"})
+    for (const char* n : {"scene.spawn", "scene.set_component", "scene.load", "game.step", "game.input",
+                          "ui.set_slider", "tilemap.set_tile", "vfx.play", "game.screenshot", "script.eval",
+                          "game.state", "nav.find_path", "audio.music"})
         CHECK_MESSAGE(capability_sets::game_player().has_all(caps(n)), n);
     // ...and what it may not.
-    for (const char* n :
-         {"scene.save", "input.record", "mesh.save", "prefab.save", "scene.format", "anim.set_keys", "storage.clear"})
+    for (const char* n : {"scene.save", "input.record", "storage.clear"})
         CHECK_FALSE_MESSAGE(capability_sets::game_player().has_all(caps(n)), n);
     CHECK(caps("storage.clear")
               .has(Capability::WriteProject));  // the game's own save files; an MCP agent resets a game with it
@@ -89,7 +88,7 @@ TEST_CASE("capabilities: every command of the runtime declares them, and readOnl
 namespace {
 
 // A game script that tries commands of every kind from onStart, and tilemap.generate with `place` (the library helper that
-// used to call scene.import_ascii, a command that can write a file).
+// used to call scene.import_ascii, a command that can write a file and is not in the player any more).
 const char* kProbeScript = R"JS(
 import { Behaviour, fa, tilemap } from "factoria";
 export default class Probe extends Behaviour {
@@ -99,9 +98,7 @@ export default class Probe extends Behaviour {
       "scene.spawn": { id: "spawned", components: { Transform: { position: [1, 2] } } },
       "game.state": {},
       "scene.save": { path: "scenes/never.scene.json" },
-      "scene.import_ascii": { rows: ["#"], legend: { "#": 0 }, path: "scenes/never.scene.json", save: true },
       "scene.place_ascii": { rows: ["#"], legend: { "#": 0 }, entity: "viaPlace", tilemap: { tileSize: [16, 16] } },
-      "scene.format": { path: "scenes/main.scene.json" },
     };
     for (const name of Object.keys(tries)) {
       try { fa.call(name, tries[name]); globalThis.R[name] = "ok"; }
@@ -144,7 +141,7 @@ void check_game_script_set(bool editorMode) {
         CAPTURE(ok);
         CHECK(r[ok] == "ok");
     }
-    for (const char* denied : {"scene.save", "scene.import_ascii", "scene.format"}) {
+    for (const char* denied : {"scene.save"}) {
         CAPTURE(denied);
         REQUIRE(r[denied].is_object());
         CHECK(r[denied]["code"] == "capability_denied");
@@ -255,23 +252,11 @@ struct WriterCase {
     std::function<Json(const std::string& p)> args;
 };
 
-std::vector<WriterCase> writer_cases(const std::string& mesh) {
+std::vector<WriterCase> writer_cases() {
     return {
+        // The authoring writers (scene.import_ascii, scene.ascii_edit, anim.*, mesh.save, vfx.filmstrip) are tested in
+        // tools/authoring/tests/authoring_capabilities_tests.cpp.
         {"scene.save", ".scene.json", [](const std::string& p) { return Json::object({{"path", p}}); }},
-        {"scene.import_ascii", ".scene.json",
-         [](const std::string& p) {
-             return Json::object(
-                 {{"rows", Json::parse(R"(["#."])")}, {"legend", Json::parse(R"({"#":0})")}, {"path", p}});
-         }},
-        {"scene.ascii_edit", ".json",
-         [](const std::string& p) {
-             return Json::object({{"file", p}, {"ops", Json::parse(R"([{"op":"put","col":0,"row":0,"glyph":"#"}])")}});
-         }},
-        {"anim.create_clip", ".anim.json",
-         [](const std::string& p) { return Json::object({{"path", p}, {"duration", 1.0}}); }},
-        {"anim.restore", ".anim.json",
-         [](const std::string& p) { return Json::object({{"path", p}, {"clip", nullptr}}); }},
-        {"mesh.save", ".glb", [mesh](const std::string& p) { return Json::object({{"id", mesh}, {"path", p}}); }},
     };
 }
 
@@ -297,51 +282,26 @@ TEST_CASE("capabilities: every command that writes a caller's path confines it (
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
-    const CommandResult mesh =
-        e.commands().call("mesh.create", Json::object({{"positions", Json::parse("[[0,0,0],[1,0,0],[1,1,0],[0,1,0]]")},
-                                                       {"indices", Json::parse("[0,1,2,0,2,3]")}}));
-    REQUIRE_MESSAGE(mesh.ok, mesh.error.dump());
-    const std::string meshId = mesh.result["id"].get<std::string>();
-    const std::vector<WriterCase> cases = writer_cases(meshId);
+    const std::vector<WriterCase> cases = writer_cases();
 
     {
         CommandCallerScope mcp(CommandCaller::Mcp);
-        for (const WriterCase& w : cases) {
-            CAPTURE(w.command);
-            const std::string name = std::string("x") + w.ext;
-            CHECK(error_code(e.commands().call(w.command, w.args("../" + name))) == "path_outside_root");
-            CHECK(error_code(e.commands().call(w.command, w.args((outside.dir / name).generic_string()))) ==
-                  "absolute_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args("/tmp/" + name))) == "absolute_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args(".git/" + name))) == "managed_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args(".factoria/" + name))) == "managed_path_denied");
-            // A plain project path is not refused by the path rules.
-            CHECK_MESSAGE(!path_refused(error_code(e.commands().call(w.command, w.args("out/" + name)))), w.command);
-        }
-        // The Windows spellings are refused on every system (a project moves between them), and a link into a managed folder too.
+        // The same list of spellings for every writer (a link into a managed folder too: "meta" -> ".factoria").
         std::error_code lec;
         stdfs::create_directories(p.dir / ".factoria", lec);
         stdfs::create_directory_symlink(p.dir / ".factoria", p.dir / "meta", lec);
         const bool linked = !lec;
         for (const WriterCase& w : cases) {
             CAPTURE(w.command);
-            const std::string name = std::string("x") + w.ext;
-            CHECK(error_code(e.commands().call(w.command, w.args("scenes\\..\\..\\" + name))) == "path_outside_root");
-            CHECK(error_code(e.commands().call(w.command, w.args("..\\" + name))) == "path_outside_root");
-            CHECK(error_code(e.commands().call(w.command, w.args("C:" + name))) == "absolute_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args("C:/" + name))) == "absolute_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args("C:\\" + name))) == "absolute_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args("\\\\server\\share\\" + name))) ==
-                  "absolute_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args(".GIT/" + name))) == "managed_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args(".Factoria/" + name))) == "managed_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args(".git./" + name))) == "managed_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args("a/../.git/" + name))) == "managed_path_denied");
-            if (linked)
-                CHECK(error_code(e.commands().call(w.command, w.args("meta/" + name))) == "managed_path_denied");
-            // A name Windows cannot create is refused for a new file ("conx.scene.json" is a normal name).
-            CHECK_MESSAGE(!path_refused(error_code(e.commands().call(w.command, w.args("out/con" + name)))), w.command);
-            CHECK(error_code(e.commands().call(w.command, w.args("out/nul.x/" + name))) == "invalid_path");
+            for (const fa_test::PathVariant& v :
+                 fa_test::confinement_variants(std::string("x") + w.ext, outside.dir.generic_string(), linked)) {
+                CAPTURE(v.path);
+                const std::string got = error_code(e.commands().call(w.command, w.args(v.path)));
+                if (v.code)
+                    CHECK(got == v.code);
+                else
+                    CHECK_MESSAGE(!path_refused(got), w.command);
+            }
         }
         // input.record: a refused path leaves the recording running; a good one stops it.
         REQUIRE(e.commands().call("input.record", Json::object({{"action", "start"}})).ok);
@@ -388,14 +348,6 @@ TEST_CASE("capabilities: every command that writes a caller's path confines it (
     CHECK(error_code(e.commands().call(
               "scene.save", Json::object({{"path", (outside.dir / "abs.scene.json").generic_string()}}))) == "ok");
     CHECK(stdfs::exists(outside.dir / "abs.scene.json"));
-    CHECK(error_code(e.commands().call(
-              "anim.create_clip",
-              Json::object({{"path", (outside.dir / "abs.anim.json").generic_string()}, {"duration", 1.0}}))) == "ok");
-    CHECK(stdfs::exists(outside.dir / "abs.anim.json"));
-    CHECK(error_code(e.commands().call(
-              "mesh.save", Json::object({{"id", meshId}, {"path", (outside.dir / "abs.glb").generic_string()}}))) ==
-          "ok");
-    CHECK(stdfs::exists(outside.dir / "abs.glb"));
     // An absolute path inside the project is the same file as the relative one and is kept in its relative spelling.
     const CommandResult inside = e.commands().call(
         "scene.save", Json::object({{"path", (p.dir / "scenes" / "inside.scene.json").generic_string()}}));

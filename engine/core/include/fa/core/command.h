@@ -23,6 +23,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "fa/core/capability.h"
@@ -305,8 +306,12 @@ struct CommandInterceptor {
 
 class CommandRegistry {
 public:
-    // Replaces an existing command with the same name.
+    // Replaces an existing command with the same name (the name is then recorded for take_replaced_commands()).
     void add(CommandInfo info, CommandHandler handler);
+    // The names add() replaced since the last call, in order, one entry per replacement, and forgets them (so a
+    // long-lived registry that re-adds commands keeps no growing list). A caller that must not hide commands (the command
+    // extensions) takes them before and after. Read on the thread that registers, like add().
+    std::vector<std::string> take_replaced_commands() { return std::exchange(replaced_, {}); }
     // Declares (and flags as declared) the capabilities of an already added command and sets readOnly to match
     // (readOnly == the set holds nothing but "read"): readOnly is recomputed from the set, never kept from add(). False,
     // and nothing changed, if there is no such command or the set is empty (a command needs at least "read"; logged).
@@ -360,6 +365,7 @@ private:
         bool acceptsMeta = false;  // the schema declares a "_meta" property, so call() keeps that key
     };
     std::map<std::string, Entry, std::less<>> commands_;
+    std::vector<std::string> replaced_;  // see take_replaced_commands()
     std::function<void(std::string_view)> beforeCall_;
     std::shared_ptr<const CommandInterceptor> interceptor_;
     jobs::Owner* jobOwner_ = nullptr;

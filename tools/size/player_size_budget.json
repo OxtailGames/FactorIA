@@ -1,0 +1,358 @@
+{
+  "schema": "factoria.size-budget/1",
+  "note": "Size budgets of factoria_player, one entry per platform. maxBytes is what CI fails above, baselineBytes the size when the budget was last set, baselineLibraries what each library added then (the list of what grew most when a budget fails). maxBytes null = not set: the platform is measured and reported, nothing fails. After an intended change: take the artifact player-size-<platform> of the CI run, run `scripts/player-size.sh update player-size-<platform>.json` (baseline = measured, maxBytes = baseline + 10%), commit this file and say in the commit message why the player grew. docs/BUILDING.md, \"Player size budgets\".",
+  "platforms": {
+    "linux-x64": {
+      "description": "factoria_player of the Linux package: preset linux-sniper (GCC 14, libstdc++ and libgcc static), stripped copy. Measured by ci.yml (job linux-sniper) and release.yml (package linux-x64).",
+      "kind": "binary",
+      "preset": "linux-sniper",
+      "files": [
+        {
+          "path": "player/factoria_player",
+          "strip": "gnu"
+        }
+      ],
+      "map": "player/factoria_player.map",
+      "maxBytes": 21009754,
+      "baselineBytes": 19099776,
+      "note": "GNU ld link map (the per-library numbers count what the linker places, without .bss and debug sections).",
+      "baselineLibraries": {
+        "fa_scene": 2697917,
+        "fa_runtime": 2126598,
+        "fa_render": 2087890,
+        "fa_script": 1770747,
+        "fa_audio": 1609466,
+        "fa_core": 1578665,
+        "fa_ext_quickjs": 1095503,
+        "fa_ext_basisu_transcoder": 984175,
+        "stdc++": 913443,
+        "fa_physics": 816231,
+        "fa_platform": 633984,
+        "fa_ext_manifold": 594602,
+        "fa_services": 576199,
+        "(objects)": 555838,
+        "fa_ext_harfbuzz": 445690,
+        "fa_ui": 225762,
+        "fa_ext_box2d": 211278,
+        "gcc": 38277,
+        "fa_ext_meshoptimizer": 36441,
+        "fa_ext_sheenbidi": 30766,
+        "c_nonshared": 308
+      }
+    },
+    "macos-arm64": {
+      "description": "factoria_player of the macos-release preset on Apple Silicon (arm64 only), stripped copy (strip -x). Measured by ci.yml (job macos).",
+      "kind": "binary",
+      "preset": "macos-release",
+      "files": [
+        {
+          "path": "player/factoria_player",
+          "strip": "apple"
+        }
+      ],
+      "map": "player/factoria_player.map",
+      "maxBytes": 16983244,
+      "baselineBytes": 15439312,
+      "note": "ld64 link map.",
+      "baselineLibraries": {
+        "fa_scene": 2281757,
+        "fa_runtime": 2271682,
+        "fa_render": 1852838,
+        "fa_script": 1476154,
+        "fa_audio": 1315392,
+        "fa_core": 1090604,
+        "fa_ext_quickjs": 945396,
+        "fa_ext_basisu_transcoder": 702812,
+        "fa_physics": 553420,
+        "fa_services": 475071,
+        "fa_ext_harfbuzz": 421728,
+        "fa_ext_manifold": 298349,
+        "fa_platform": 281558,
+        "fa_ext_box2d": 137249,
+        "fa_ui": 126611,
+        "(objects)": 121974,
+        "(linker)": 110975,
+        "fa_ext_meshoptimizer": 30448,
+        "fa_ext_sheenbidi": 29508,
+        "c++": 3712,
+        "system_c": 1524,
+        "system_m": 660,
+        "system_kernel": 488,
+        "objc.A": 368,
+        "system_pthread": 320,
+        "CoreGraphics": 176,
+        "CoreFoundation": 128,
+        "AppKit": 120,
+        "AudioToolbox": 120,
+        "system_malloc": 120,
+        "dyld": 108,
+        "Metal": 84,
+        "dispatch": 80,
+        "Foundation": 48,
+        "compiler_rt": 48,
+        "AVFAudio": 24,
+        "unwind": 20,
+        "QuartzCore": 16,
+        "GameController": 8
+      }
+    },
+    "macos-universal": {
+      "description": "factoria_player of the macOS package: arm64 + x86_64 in one binary (-DCMAKE_OSX_ARCHITECTURES=\"arm64;x86_64\"), stripped copy. Measured by release.yml (package macos-universal).",
+      "kind": "binary",
+      "preset": "macos-release",
+      "files": [
+        {
+          "path": "player/factoria_player",
+          "strip": "apple"
+        }
+      ],
+      "map": "player/factoria_player.map",
+      "maxBytes": 33122356,
+      "baselineBytes": 30111232,
+      "note": "ld64 link map of ONE slice: clang links each architecture in turn and both links write the same -Wl,-map path, so the map holds only one of them. The size is of both slices; the per-library numbers are of one slice (about half of it), good to see what grew, not to add up to the file size.",
+      "baselineLibraries": {
+        "fa_scene": 2437822,
+        "fa_render": 1987972,
+        "fa_runtime": 1769138,
+        "fa_script": 1505142,
+        "fa_audio": 1425232,
+        "fa_core": 1119823,
+        "fa_ext_quickjs": 1019049,
+        "fa_ext_basisu_transcoder": 798348,
+        "fa_physics": 730634,
+        "fa_services": 490334,
+        "fa_ext_harfbuzz": 433809,
+        "fa_ext_manifold": 359110,
+        "fa_platform": 336193,
+        "fa_ext_box2d": 161554,
+        "fa_ui": 153161,
+        "(objects)": 127493,
+        "(linker)": 79212,
+        "fa_ext_meshoptimizer": 32032,
+        "fa_ext_sheenbidi": 29778,
+        "c++": 2692,
+        "system_c": 1060,
+        "system_m": 462,
+        "system_kernel": 344,
+        "objc.A": 248,
+        "system_pthread": 238,
+        "CoreGraphics": 128,
+        "AppKit": 120,
+        "CoreFoundation": 116,
+        "AudioToolbox": 84,
+        "system_malloc": 84,
+        "Metal": 78,
+        "dyld": 78,
+        "dispatch": 56,
+        "Foundation": 48,
+        "compiler_rt": 28,
+        "AVFAudio": 24,
+        "QuartzCore": 16,
+        "system_platform": 14,
+        "unwind": 14,
+        "GameController": 8
+      }
+    },
+    "windows-x64": {
+      "description": "factoria_player.exe of the Windows package: preset windows-release (MSVC, Visual Studio 2022), as shipped (a PE file carries no symbols: they are in the .pdb). Measured by ci.yml (job windows, shard 1) and release.yml (package windows-x64).",
+      "kind": "binary",
+      "preset": "windows-release",
+      "files": [
+        {
+          "path": "player/{config}/factoria_player.exe",
+          "strip": "none"
+        }
+      ],
+      "map": "player/factoria_player.map",
+      "maxBytes": 16862208,
+      "baselineBytes": 15329280,
+      "note": "MSVC /MAP: the per-library numbers are the gaps between the public symbols, so a static function counts for the public symbol before it.",
+      "baselineLibraries": {
+        "fa_scene": 2082464,
+        "fa_render": 2010776,
+        "fa_script": 1523100,
+        "fa_ext_basisu_transcoder": 1389328,
+        "fa_runtime": 1325688,
+        "fa_audio": 1203136,
+        "fa_core": 1015345,
+        "fa_ext_quickjs": 840456,
+        "fa_ext_manifold": 838500,
+        "LIBCMT": 810628,
+        "fa_physics": 594968,
+        "ucrt": 517641,
+        "fa_ext_harfbuzz": 465024,
+        "(objects)": 397668,
+        "fa_services": 392220,
+        "fa_platform": 250552,
+        "fa_ext_box2d": 184216,
+        "cpmt": 164408,
+        "fa_ui": 126424,
+        "fa_ext_meshoptimizer": 33800,
+        "vcruntime": 30140,
+        "dbghelp": 25883,
+        "d3d11": 7332,
+        "fa_ext_sheenbidi": 2752,
+        "kernel32": 1395,
+        "user32": 508,
+        "winhttp": 124,
+        "gdi32": 52,
+        "ole32": 52,
+        "shell32": 52,
+        "advapi32": 36
+      }
+    },
+    "android-arm64-v8a": {
+      "description": "libfactoria_player.so for arm64-v8a: preset android-arm64 in Release, llvm-strip --strip-unneeded as in the package. Measured by ci.yml (job android) and release.yml (mobile-android).",
+      "kind": "binary",
+      "preset": "android-arm64",
+      "files": [
+        {
+          "path": "player/libfactoria_player.so",
+          "strip": "llvm"
+        }
+      ],
+      "map": "player/factoria_player.map",
+      "maxBytes": 21488852,
+      "baselineBytes": 19535320,
+      "note": "lld link map.",
+      "baselineLibraries": {
+        "(lto)": 3166009,
+        "fa_scene": 2285372,
+        "fa_render": 1846789,
+        "fa_runtime": 1640684,
+        "fa_script": 1623204,
+        "fa_audio": 1503759,
+        "fa_core": 1277202,
+        "fa_ext_quickjs": 1041901,
+        "fa_ext_basisu_transcoder": 842990,
+        "c++_static": 763544,
+        "fa_physics": 635935,
+        "fa_ext_manifold": 633504,
+        "fa_ext_harfbuzz": 625081,
+        "fa_platform": 575277,
+        "fa_services": 469501,
+        "fa_ext_box2d": 216452,
+        "fa_ui": 139393,
+        "fa_ext_sheenbidi": 81820,
+        "(objects)": 76493,
+        "fa_ext_meshoptimizer": 32320,
+        "c++abi": 28667,
+        "unwind": 19676,
+        "clang_rt.builtins-aarch64-android": 6412
+      }
+    },
+    "android-x86_64": {
+      "description": "libfactoria_player.so for x86_64 (emulators, Chromebooks): preset android-x86_64 in Release, stripped. Measured by release.yml (mobile-android) only.",
+      "kind": "binary",
+      "preset": "android-x86_64",
+      "files": [
+        {
+          "path": "player/libfactoria_player.so",
+          "strip": "llvm"
+        }
+      ],
+      "map": "player/factoria_player.map",
+      "maxBytes": 23629769,
+      "baselineBytes": 21481608,
+      "note": "lld link map.",
+      "baselineLibraries": {
+        "(lto)": 3168871,
+        "fa_scene": 2686403,
+        "fa_render": 2002899,
+        "fa_runtime": 1851848,
+        "fa_audio": 1737947,
+        "fa_script": 1717365,
+        "fa_core": 1455455,
+        "fa_ext_quickjs": 1103299,
+        "fa_ext_basisu_transcoder": 954648,
+        "fa_physics": 754390,
+        "fa_ext_manifold": 735915,
+        "c++_static": 732009,
+        "fa_ext_harfbuzz": 621724,
+        "fa_platform": 610173,
+        "fa_services": 539313,
+        "fa_ext_box2d": 234170,
+        "fa_ui": 163745,
+        "fa_ext_sheenbidi": 82979,
+        "(objects)": 76855,
+        "fa_ext_meshoptimizer": 42251,
+        "c++abi": 25104,
+        "unwind": 18643,
+        "clang_rt.builtins-x86_64-android": 2590
+      }
+    },
+    "ios-arm64": {
+      "description": "The player for iOS devices as the static archives the release package carries: libfactoria_player_main.a and every engine archive it links (arm64, Release). Measured by release.yml (mobile-ios, iphoneos); ci.yml builds a Debug simulator app, whose size says nothing.",
+      "kind": "archives",
+      "preset": "ios",
+      "globs": [
+        "**/Release-iphoneos/*.a"
+      ],
+      "exclude": [
+        "*.build/*"
+      ],
+      "maxBytes": 60505113,
+      "baselineBytes": 55004648,
+      "note": "The size is the sum of the archive files: more than the app, because the linker keeps only what the player reaches and the objects carry symbol tables. It moves with the player's code like the app does, but no job links a Release app, so there is no linked size. The per-library numbers are the sizes of the same archives (this entry needs no link map: release.yml's mobile-ios does not write one).",
+      "baselineLibraries": {
+        "fa_scene": 16793848,
+        "fa_runtime": 6964576,
+        "fa_audio": 5705400,
+        "fa_render": 5534304,
+        "fa_core": 4056040,
+        "fa_script": 3575744,
+        "fa_physics": 2300192,
+        "fa_services": 1870392,
+        "fa_platform": 1604992,
+        "fa_ext_quickjs": 1362128,
+        "fa_ext_manifold": 1252776,
+        "fa_ui": 1088808,
+        "fa_ext_basisu_transcoder": 1071384,
+        "fa_ext_harfbuzz": 915672,
+        "fa_ext_box2d": 321400,
+        "fa_ext_xatlas": 248616,
+        "fa_ext_meshoptimizer": 211120,
+        "fa_ext_sheenbidi": 91464,
+        "factoria_player_main": 35792
+      }
+    },
+    "web-wasm": {
+      "description": "factoria_player.js + factoria_player.wasm of the web player: preset web-release (Emscripten, -O3), uncompressed, as the package carries them. Measured by ci.yml (job web) and release.yml (web-player).",
+      "kind": "binary",
+      "preset": "web-release",
+      "files": [
+        {
+          "path": "player/factoria_player.js",
+          "strip": "none"
+        },
+        {
+          "path": "player/factoria_player.wasm",
+          "strip": "none"
+        }
+      ],
+      "maxBytes": 15267963,
+      "baselineBytes": 13879966,
+      "note": "No link map (wasm-ld's is not asked for): the per-library numbers are the sizes of the archives the player links (player/player_libs-Release.txt, written with FA_PLAYER_LINK_MAP=ON).",
+      "baselineLibraries": {
+        "fa_scene": 20484824,
+        "fa_runtime": 8444868,
+        "fa_audio": 6661960,
+        "fa_render": 6376676,
+        "fa_core": 4730082,
+        "fa_script": 4169126,
+        "fa_physics": 2805726,
+        "fa_services": 2332974,
+        "fa_platform": 1573940,
+        "fa_ext_basisu_transcoder": 1458368,
+        "fa_ui": 1356708,
+        "fa_ext_quickjs": 1305872,
+        "fa_ext_manifold": 1302330,
+        "fa_ext_harfbuzz": 967924,
+        "fa_ext_box2d": 483812,
+        "fa_ext_xatlas": 286568,
+        "fa_ext_meshoptimizer": 206644,
+        "fa_ext_sheenbidi": 114796
+      }
+    }
+  }
+}

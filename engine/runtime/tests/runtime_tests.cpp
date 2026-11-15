@@ -165,6 +165,61 @@ TEST_CASE("project: errors name the field and give a hint") {
     CHECK_FALSE(load_project((stdfs::temp_directory_path() / "fa_does_not_exist_xyz").generic_string()).ok());
 }
 
+TEST_CASE("project: runtime.scriptMemoryMB and scriptFrameBudgetMs take a number or a number per platform") {
+    auto load = [](const std::string& tag, const std::string& runtime) {
+        const std::string text = R"({"name":"x","runtime":)" + runtime + "}";
+        TempProject p(tag, text.c_str(), nullptr);
+        return load_project(p.path());
+    };
+    CHECK(load("budget_num", R"({"scriptMemoryMB":512,"scriptFrameBudgetMs":12.5})").ok());
+    CHECK(load("budget_zero", R"({"scriptFrameBudgetMs":0})").ok());  // 0 turns the warning off
+    CHECK(load("budget_obj", R"({"scriptMemoryMB":{"default":768,"android":384,"web":256},
+                                 "scriptFrameBudgetMs":{"default":8,"ios":16}})")
+              .ok());
+    {  // null is not "absent": the schema rejects it, so the loader does too (the same file passes or fails in both)
+        auto r = load("budget_null", R"({"scriptMemoryMB":null})");
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("/runtime/scriptMemoryMB") != std::string::npos);
+    }
+
+    {  // a wrong type: the pointer, what is expected, an example
+        auto r = load("budget_type", R"({"scriptMemoryMB":"big"})");
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("/runtime/scriptMemoryMB") != std::string::npos);
+        CHECK(r.error().message.find("per platform") != std::string::npos);
+        CHECK(r.error().hint.find("\"android\"") != std::string::npos);
+    }
+    {  // out of range: the range is named
+        auto r = load("budget_range", R"({"scriptMemoryMB":4})");
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("/runtime/scriptMemoryMB") != std::string::npos);
+        CHECK(r.error().message.find("at least 16, at most 2048") != std::string::npos);
+        CHECK(r.error().hint.find("768") != std::string::npos);
+    }
+    {  // too big for a 32-bit size_t
+        auto r = load("budget_big", R"({"scriptMemoryMB":{"web":4096}})");
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("/runtime/scriptMemoryMB/web") != std::string::npos);
+    }
+    {
+        auto r = load("budget_negative", R"({"scriptFrameBudgetMs":-1})");
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("/runtime/scriptFrameBudgetMs") != std::string::npos);
+        CHECK(r.error().message.find("at least 0, at most 1000") != std::string::npos);
+    }
+    {  // a platform that does not exist: did you mean
+        auto r = load("budget_key", R"({"scriptMemoryMB":{"andriod":384}})");
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("/runtime/scriptMemoryMB/andriod") != std::string::npos);
+        CHECK(r.error().hint.find("android") != std::string::npos);
+    }
+    {  // a value inside the object is a number too
+        auto r = load("budget_entry", R"({"scriptFrameBudgetMs":{"default":"fast"}})");
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("/runtime/scriptFrameBudgetMs/default") != std::string::npos);
+    }
+}
+
 TEST_CASE("project: find_project_root walks up; schema matches schemas/project.schema.json") {
     TempProject p("proj_root");
     stdfs::create_directories(p.dir / "a" / "b");

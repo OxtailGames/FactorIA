@@ -42,7 +42,8 @@ std::string sf2_problem(const std::vector<std::uint8_t>& file) {
     static const std::uint32_t sizes[9] = {38, 4, 10, 4, 22, 4, 10, 4, 46};
     std::uint64_t at[9] = {};     // where each table's records start
     std::uint64_t count[9] = {};  // and how many it has
-    bool seen[9] = {};
+    bool seen[9] = {};            // found with a size that is a whole number of records
+    bool named[9] = {};           // found at all
     for (std::uint64_t pos = 12; pos + 8 <= end;) {
         if (!plausible_id(pos)) break;
         const std::uint64_t size = u32(pos + 4), next = pos + 8 + size;
@@ -53,12 +54,21 @@ std::string sf2_problem(const std::vector<std::uint8_t>& file) {
                 if (p + 8 > next || !plausible_id(p)) return "the 'pdta' list of the file is cut short";
                 const std::uint64_t inner = u32(p + 4), innerNext = p + 8 + inner;
                 if (innerNext > next) return "a table of the 'pdta' list runs past the end of the list";
-                for (int t = 0; t < 9; ++t)
-                    if (id_at(p, names[t]) && inner % sizes[t] == 0) {
+                for (int t = 0; t < 9; ++t) {
+                    if (!id_at(p, names[t])) continue;
+                    // TinySoundFont allocates a table every time it meets one and frees only the last: a repeated
+                    // table would leak, and no valid SoundFont has one.
+                    if (named[t])
+                        return "the '" + std::string(names[t]) +
+                               "' table appears twice in the 'pdta' list (second one at byte " + std::to_string(p) +
+                               "); a valid SoundFont has each of its nine pdta tables once";
+                    named[t] = true;
+                    if (inner % sizes[t] == 0) {
                         at[t] = p + 8;
                         count[t] = inner / sizes[t];
                         seen[t] = true;
                     }
+                }
                 p = innerNext;
             }
         } else if (!id_at(pos, "LIST") && (id_at(pos, "pdta") || id_at(pos, "sdta"))) {

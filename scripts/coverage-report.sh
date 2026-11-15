@@ -58,7 +58,7 @@ ignore="^(${root}/(external|build)/|${root}/(engine|tools)/[^/]+/(tests?|test_to
 python3 -I - "$out" "$root" <<'PY'
 import json, os, re, sys
 out, root = sys.argv[1], os.path.realpath(sys.argv[2])
-order = ["core", "scene", "platform", "render", "physics", "audio", "ui", "services", "script", "runtime", "tooling", "mcp", "dap", "ai", "editor", "cli"]
+order = ["core", "scene", "platform", "render", "physics", "audio", "ui", "services", "script", "runtime", "authoring", "tooling", "mcp", "dap", "ai", "editor", "cli"]
 kinds = ("lines", "functions", "regions")
 acc = {m: {"files": 0, **{k: [0, 0] for k in kinds}} for m in order}
 for f in json.load(open(os.path.join(out, "llvm-export.json")))["data"][0]["files"]:

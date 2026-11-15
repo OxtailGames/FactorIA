@@ -14,6 +14,7 @@
 #include "fa/core/fs.h"
 #include "fa/core/i18n.h"
 #include "fa/core/strings.h"
+#include "fa/script/script_budget.h"
 
 namespace fa {
 
@@ -557,6 +558,49 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
         };
         FA_TRY(budget("loadBudgetMs", 100.0, s.loadBudgetMs, "4"));
         FA_TRY(budget("uploadBudgetMB", 1024.0, s.uploadBudgetMB, "16"));
+        // The script budgets: a number, or {"default": n, "<platform>": n}. The script system resolves the value for the platform
+        // it runs on (fa/script/script_budget.h); here the file is only checked.
+        auto per_platform = [&](const char* key, double lo, double hi, const char* unit, const char* example,
+                                const char* what) -> Result<void> {
+            auto b = it->find(key);
+            if (b == it->end()) return {};  // absent: the default (null is an error, as in the schema)
+            const std::string ptr = std::string("/runtime/") + key;
+            const std::string shape = std::string("a number of ") + unit + " like " + example +
+                                      ", or an object with one number per platform like {\"default\": " + example +
+                                      ", \"android\": ...}";
+            auto check = [&](const Json& v, const std::string& at_ptr) -> Result<void> {
+                if (!v.is_number()) return field_error(at_ptr, "a number of " + std::string(unit), v, what);
+                const double d = v.get<double>();
+                if (!(d >= lo && d <= hi))
+                    return make_error(at(at_ptr) + ": " + std::format("{}", d) + " is out of range (at least " +
+                                          std::format("{}", lo) + ", at most " + std::format("{}", hi) + " " + unit +
+                                          ")",
+                                      what);
+                return {};
+            };
+            if (b->is_object()) {
+                std::vector<std::string> keys = {"default"};
+                for (const std::string& p : platform_names()) keys.push_back(p);
+                for (auto e = b->begin(); e != b->end(); ++e) {
+                    if (std::find(keys.begin(), keys.end(), e.key()) == keys.end())
+                        return make_error(
+                            at(ptr + "/" + e.key()) + ": '" + e.key() + "' is neither \"default\" nor a platform",
+                            did_you_mean(e.key(), keys) + " Use \"default\" for every platform not named.");
+                    FA_TRY(check(e.value(), ptr + "/" + e.key()));
+                }
+                return {};
+            }
+            if (!b->is_number()) return field_error(ptr, shape, *b, what);
+            return check(*b, ptr);
+        };
+        FA_TRY(
+            per_platform("scriptMemoryMB", kMinScriptMemoryMB, kMaxScriptMemoryMB, "megabytes", "768",
+                         "The heap cap of the scripts (default 768 on every platform). Example: \"scriptMemoryMB\": "
+                         "{\"default\": 768, \"android\": 384, \"web\": 256}. Remove the field to use the default."));
+        FA_TRY(per_platform(
+            "scriptFrameBudgetMs", 0.0, kMaxScriptFrameBudgetMs, "milliseconds", "8",
+            "The script time of one frame above which the engine warns (default 8; 0 turns the warning off). "
+            "Example: \"scriptFrameBudgetMs\": {\"default\": 8, \"android\": 12}."));
     }
     if (auto it = j.find("input"); it != j.end() && !it->is_null()) {
         if (!it->is_object()) return field_error("/input", "an object like {\"actions\": {...}}", *it);
@@ -954,6 +998,30 @@ constexpr const char* kSchemaText =
           "maximum": 1024,
           "default": 16,
           "description": "Background loading: how many megabytes of textures and meshes a frame may upload to the GPU, in a game with a window (the frame stops taking files once it passed this; at least one file per frame). Default 16."
+        },
+        "scriptMemoryMB": {
+          "description": "Heap cap of the scripts in megabytes (docs/PERFORMANCE.md, \"Script budgets\"): a script that needs more fails with 'out of memory', and the error names this setting and its value. A number for every platform, or an object with one number per platform: {\"default\": 768, \"android\": 384, \"web\": 256} (platforms: windows, macos, linux, ios, android, web; \"default\" covers the others). Default 768 on every platform. From 16 to 2048.",
+          "oneOf": [
+            { "type": "number", "minimum": 16, "maximum": 2048 },
+            {
+              "type": "object",
+              "propertyNames": { "enum": ["default", "windows", "macos", "linux", "ios", "android", "web"] },
+              "additionalProperties": { "type": "number", "minimum": 16, "maximum": 2048 }
+            }
+          ],
+          "default": 768
+        },
+        "scriptFrameBudgetMs": {
+          "description": "Script time budget of one frame in milliseconds (docs/PERFORMANCE.md, \"Script budgets\"): when the callbacks, timers, event handlers and promise jobs of a frame add up to more, the engine logs a warning in category `script.budget` (the slowest callbacks, this setting) at most once every 5 seconds of game time, marks the frame in the profiler (`overBudget` of the profile) and play.report lists the warning. The frames that load a scene are not counted. 0 turns it off. A number for every platform, or an object with one number per platform like scriptMemoryMB. Default 8. It never stops a script (the watchdog does that, after 2 seconds) and never changes what the game computes.",
+          "oneOf": [
+            { "type": "number", "minimum": 0, "maximum": 1000 },
+            {
+              "type": "object",
+              "propertyNames": { "enum": ["default", "windows", "macos", "linux", "ios", "android", "web"] },
+              "additionalProperties": { "type": "number", "minimum": 0, "maximum": 1000 }
+            }
+          ],
+          "default": 8
         }
       }
     },

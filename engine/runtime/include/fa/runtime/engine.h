@@ -334,6 +334,12 @@ public:
     // points (play.auto's bot hook) opens a LoadTrace::ReadingFor with it, so those reads are the game's too.
     LoadTrace::Owner load_trace_owner() const;
 
+    // The names of the commands an exported game's player has: the engine's built-in commands, as registered by init, before
+    // the project's plugins and before the command extensions of the process (fa/runtime/command_extension.h: tools/authoring's
+    // commands in the factoria CLI, the editor and the MCP server). Sorted; empty before init. A command that is in
+    // commands() and not here is a developer-tool command, or one that a plugin, a JS tool or the project added.
+    std::vector<std::string> runtime_command_names() const;
+
     struct Impl;
     Impl& runtime_impl() { return *impl_; }  // internal (runners, commands)
 

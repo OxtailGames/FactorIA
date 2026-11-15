@@ -112,6 +112,11 @@ struct ExportOptions {
                          // windows: "msix" also writes <out>/<slug>-windows.msix, the Microsoft Store package, next to
                          // the folder (any host; export.windows.format in factoria.json); "folder" is the default.
                          // The other platforms have one format and ignore it
+    std::uint32_t scriptCheckMaxAgeMs =
+        0;  // plan_export only: reuse, for this many milliseconds, the last result of the check that the scripts call only
+            // commands the player has, without reading the scripts or walking the project, unless factoria.json or the
+    // output folder changed or forget_script_check() was called (the editor's Export window plans every platform
+    // every two seconds). 0 = read the scripts now; export_project always does
     std::function<void(const std::string& line)> progress;  // optional: called from the exporting thread with each line
     // the Gradle build of an Android export prints (the same lines go to <out>/build.log);
     // may be empty
@@ -212,6 +217,10 @@ struct ExportPlan {
 };
 
 Result<ExportPlan> plan_export(const ExportOptions& options);
+
+// Drops the results plan_export kept under ExportOptions::scriptCheckMaxAgeMs: the next plan reads the scripts. Call it when
+// the project's files may have changed (a save, a reload, an export).
+void forget_script_check();
 
 // Normalizes "win"/"mac"/"osx"/"Linux" -> "windows"/"macos"/"linux"; "" if unknown.
 std::string normalize_export_platform(const std::string& name);

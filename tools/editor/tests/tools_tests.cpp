@@ -229,6 +229,25 @@ TEST_CASE("profiler view: smooths the per-frame profile, sorts the behaviour cla
     CHECK(v.rows.empty());
 }
 
+TEST_CASE("profiler view: counts the frames whose scripts went over runtime.scriptFrameBudgetMs") {
+    ProfilerView v;
+    ProfFrame ok;
+    ok.totalMs = 4;
+    v.add_frame(ok);
+    CHECK(v.framesOverScriptBudget == 0);
+    ProfFrame over;
+    over.totalMs = 20;
+    over.overBudget = {{"scripts", 12.5, 8.0}};
+    v.add_frame(over);
+    over.overBudget = {{"scripts", 9.0, 8.0}};
+    v.add_frame(over);
+    CHECK(v.framesOverScriptBudget == 2);
+    CHECK(v.worstOverScriptBudgetMs == doctest::Approx(12.5));
+    CHECK(v.scriptBudgetMs == doctest::Approx(8.0));
+    v.reset();
+    CHECK(v.framesOverScriptBudget == 0);
+}
+
 TEST_CASE("profiler view: one row per thread, in the frame's order, with each thread's slowest jobs") {
     ProfilerView v;
     auto lane = [](const char* name, std::vector<ProfJobSample> samples) {

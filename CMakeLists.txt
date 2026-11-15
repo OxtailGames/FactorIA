@@ -5,7 +5,7 @@ if(POLICY CMP0141)
 endif()
 
 project(FactorIA
-    VERSION 0.28.0
+    VERSION 0.29.0
     DESCRIPTION "AI-native 2D/3D game engine"
     LANGUAGES C CXX)
 
@@ -65,6 +65,9 @@ option(FA_BUILD_TESTS  "Build unit tests"                                   ON)
 option(FA_BUILD_TOOLS  "Build the factoria CLI, MCP server, AI hub, editor" ${FA_DESKTOP})
 option(FA_BUILD_EDITOR "Build the visual editor (requires FA_BUILD_TOOLS)"   ${FA_DESKTOP})
 option(FA_WARNINGS_AS_ERRORS "Treat engine warnings as errors"              OFF)
+# The CI jobs that measure the player (scripts/player-size.sh, docs/BUILDING.md "Player size budgets") turn it on: the player's
+# link writes a map next to it and the list of the archives it links, so the report says what each library adds.
+option(FA_PLAYER_LINK_MAP "Write the player's link map and the list of archives it links (player size report)" OFF)
 # ctest runs every test with the "Windows file rules" emulation of fa::fs (docs/BUILDING.md, "Windows file rules in tests"):
 # macOS and Linux then find the file bugs that only Windows had (a replace of a file another thread has open, a file time
 # that moves in 15.6 ms steps). OFF registers the tests without it; one run: `FA_FS_WINDOWS_RULES=0 ctest ...`.
@@ -160,6 +163,7 @@ endif()
 
 # ---- developer tools (desktop only) -----------------------------------------
 if(FA_BUILD_TOOLS)
+    add_subdirectory(tools/authoring)  # fa_authoring  the commands only developer tools need (not in the player)
     add_subdirectory(tools/common)  # fa_tooling   project scaffolding, validation, feedback, docs
     add_subdirectory(tools/mcp)     # fa_mcp       Model Context Protocol server (stdio)
     add_subdirectory(tools/dap)     # fa_dap      Debug Adapter Protocol server of the script debugger (stdio)
@@ -196,4 +200,18 @@ if(FA_SANITIZE_THREAD AND FA_BUILD_TESTS)
             set_property(TEST ${_t} PROPERTY LABELS tsan)
         endif()
     endforeach()
+endif()
+
+# The player ships to players: it must not link the commands of the developer tools (tools/authoring), through any chain.
+fa_check_not_linked(factoria_player fa_authoring)
+fa_check_not_linked(factoria_player_main fa_authoring)
+
+# fa_check_not_linked itself: a configure-only project where a target reaches the forbidden library directly, through a
+# chain and inside generator expressions must fail with the message (cmake/tests/check_not_linked_test.cmake).
+if(FA_BUILD_TESTS)
+    add_test(NAME cmake_check_not_linked
+        COMMAND ${CMAKE_COMMAND} -DFA_ROOT=${FA_ROOT} -DWORK=${CMAKE_BINARY_DIR}/cmake_check_not_linked
+                "-DGEN=${CMAKE_GENERATOR}" "-DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
+                -P ${FA_ROOT}/cmake/tests/check_not_linked_test.cmake)
+    set_tests_properties(cmake_check_not_linked PROPERTIES TIMEOUT 120 LABELS "size")
 endif()

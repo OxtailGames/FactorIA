@@ -1007,7 +1007,7 @@ void register_builtin_components(TypeRegistry& r) {
                "RigidBody2D, else the topmost ancestor, and everything under it) are ignored, so a container that "
                "holds both the character "
                "and the terrain works as long as the character has a RigidBody2D. The distance solve_ik2d and "
-               "anim.check report "
+               "anim.check (CLI, editor, MCP) report "
                "(ik_out_of_reach) is to this grounded aim, not to the target entity. Needs the physics world: the "
                "engine's fixed step has it, a one-off solve (ik2d solve "
                "commands, the editor) does not and leaves feet alone. Example: 1 for a ground on layer 0.")
@@ -1315,7 +1315,7 @@ void register_builtin_components(TypeRegistry& r) {
             "The tiles are one batched mesh drawn row by row from row 0 and left to right, which is back to front, so "
             "a "
             "tile covers the edge of the ones behind it. Collision (a diamond per solid tile), light occluders, "
-            "nav.findTilePath points and scene.import_ascii objects all follow it; entity.tilemap.cellAt / cellToWorld "
+            "nav.findTilePath points and scene.place_ascii objects all follow it; entity.tilemap.cellAt / cellToWorld "
             "convert between cells and world points for both projections.")
         .field("groundHeight", &Tilemap::groundHeight,
                "Isometric only. Height of the ground diamond, in world units: the rows of the map are groundHeight / 2 "
@@ -1375,7 +1375,7 @@ void register_builtin_components(TypeRegistry& r) {
             "first, then flipped in x, then in y; a 90 degree clockwise turn is transpose + flipX = 1342177280 + "
             "index, "
             "180 is flipX + flipY = 805306368 + index, 90 counter-clockwise is transpose + flipY = 1610612736 + index. "
-            "scene.import_ascii legends write these for you: {\"tile\": 3, \"rotate\": 90, \"flipX\": true}.")
+            "scene.place_ascii legends write these for you: {\"tile\": 3, \"rotate\": 90, \"flipX\": true}.")
         .field("solidTiles", &Tilemap::solidTiles,
                "List of plain tile indices (no flip flags) that block movement; static colliders are generated for "
                "them. A "
