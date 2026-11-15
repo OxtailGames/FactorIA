@@ -305,8 +305,11 @@ struct CommandInterceptor {
 
 class CommandRegistry {
 public:
-    // Replaces an existing command with the same name.
+    // Replaces an existing command with the same name (the name is then appended to replaced_commands()).
     void add(CommandInfo info, CommandHandler handler);
+    // The names add() replaced, in order, one entry per replacement: a caller that must not hide commands (the command
+    // extensions) compares its size before and after.
+    const std::vector<std::string>& replaced_commands() const { return replaced_; }
     // Declares (and flags as declared) the capabilities of an already added command and sets readOnly to match
     // (readOnly == the set holds nothing but "read"): readOnly is recomputed from the set, never kept from add(). False,
     // and nothing changed, if there is no such command or the set is empty (a command needs at least "read"; logged).
@@ -360,6 +363,7 @@ private:
         bool acceptsMeta = false;  // the schema declares a "_meta" property, so call() keeps that key
     };
     std::map<std::string, Entry, std::less<>> commands_;
+    std::vector<std::string> replaced_;  // see replaced_commands()
     std::function<void(std::string_view)> beforeCall_;
     std::shared_ptr<const CommandInterceptor> interceptor_;
     jobs::Owner* jobOwner_ = nullptr;

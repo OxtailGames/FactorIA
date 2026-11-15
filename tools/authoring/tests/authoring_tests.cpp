@@ -7,10 +7,12 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <string>
 
 #include "fa/authoring/authoring.h"
 #include "fa/core/fs.h"
+#include "fa/core/log.h"
 #include "fa/runtime/command_extension.h"
 #include "fa/runtime/engine.h"
 
@@ -132,4 +134,39 @@ TEST_CASE("authoring: a command extension runs after the built-in commands, in E
     REQUIRE_MESSAGE(later.init(p.config(), nullptr, &err), err);
     CHECK_FALSE(later.commands().has("authoring_test.ping"));  // disarmed: the extension ran and added nothing
     later.shutdown();
+}
+
+TEST_CASE("authoring: a command extension that replaces a command is warned about, naming both") {
+    auto armedFlag = std::make_shared<std::atomic<bool>>(false);
+    const std::string extName = "authoring-test-replace-" + std::to_string(++g_pingRuns);
+    REQUIRE(register_command_extension(extName, [armedFlag](Engine& engine) {
+        if (!*armedFlag) return;
+        engine.commands().add({"scene.save", "Replaced.", "Replaced by a test extension.",
+                               Json::parse(R"({"type":"object","properties":{}})"), true, "test"},
+                              [](const Json&) { return Json::object(); });
+    }));
+    auto warnings = std::make_shared<std::vector<std::string>>();
+    auto mu = std::make_shared<std::mutex>();
+    const int sink = add_log_sink([warnings, mu](const LogEntry& e) {
+        if (e.level == LogLevel::Warn && e.category == "command") {
+            std::lock_guard<std::mutex> lock(*mu);
+            warnings->push_back(e.message);
+        }
+    });
+    TempProject p;
+    *armedFlag = true;
+    Engine armed;
+    std::string err;
+    const bool ok = armed.init(p.config(), nullptr, &err);
+    *armedFlag = false;
+    REQUIRE_MESSAGE(ok, err);
+    armed.shutdown();
+    remove_log_sink(sink);
+    bool found = false;
+    {
+        std::lock_guard<std::mutex> lock(*mu);
+        for (const std::string& w : *warnings)
+            if (w.find(extName) != std::string::npos && w.find("'scene.save'") != std::string::npos) found = true;
+    }
+    CHECK(found);
 }

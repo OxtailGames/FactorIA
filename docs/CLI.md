@@ -32,9 +32,10 @@ into `.factoria/` or the version-control folder, except the scratch folder `.fac
 and deleted.
 
 The path a command writes to (`scene.save`, `scene.import_ascii` `path`, `scene.ascii_edit` `file`, `input.record` `path`,
-`anim.*`, `mesh.save`; `scene.import_ascii`, `scene.ascii_edit`, `anim.*` and `mesh.save` are authoring commands: CLI, editor and MCP, not an exported game) is confined to the project for an MCP client or an agent: no `..` out
+`anim.*`, `mesh.save`) is confined to the project for an MCP client or an agent: no `..` out
 of the project, no absolute path (`absolute_path_denied`, `path_outside_root`). From `factoria call` you may name an absolute
-path, except into the project's managed folders (`managed_path_denied`).
+path, except into the project's managed folders (`managed_path_denied`). `scene.import_ascii`, `scene.ascii_edit`,
+`anim.*` and `mesh.save` are authoring commands: they exist in the CLI, the editor and MCP, not in an exported game.
 
 A symbolic link is judged by where it leads, not by its name: a relative path that goes through a link to a folder outside the
 project (a shared asset folder linked into the project, say) is `path_outside_root` for every caller, the command-line user

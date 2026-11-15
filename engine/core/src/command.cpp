@@ -259,6 +259,7 @@ void CommandRegistry::add(CommandInfo info, CommandHandler handler) {
     CompiledSchema compiled(info.inputSchema);
     const bool acceptsMeta =
         info.inputSchema.contains("properties") && info.inputSchema["properties"].contains("_meta");
+    if (commands_.find(name) != commands_.end()) replaced_.push_back(name);
     commands_[name] = Entry{std::move(info), std::move(handler), std::move(compiled), acceptsMeta};
 }
 

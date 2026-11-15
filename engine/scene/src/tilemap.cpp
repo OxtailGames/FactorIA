@@ -12,8 +12,8 @@ namespace {
 
 constexpr std::size_t kMaxReported = 5;  // element-level problems reported per component
 
-const char* kAsciiHint =
-    "To author a level from ASCII art use the scene.place_ascii command (rows + legend): it writes valid tiles.";
+const char* kAsciiHint = "To author a level from ASCII art use scene.place_ascii (running world) or scene.import_ascii "
+                         "with `path` (CLI, editor, MCP: rewrites the file): they write valid tiles.";
 
 std::string number_text(double v) {
     if (v == std::floor(v) && std::fabs(v) < 1e15) return std::to_string(static_cast<long long>(v));

@@ -30,7 +30,12 @@ function(fa_check_not_linked target forbidden)
             foreach(entry IN LISTS libs)
                 # An entry is a target name or a generator expression around one ($<LINK_ONLY:x> for a static library's
                 # private dependency, $<$<CONFIG:Release>:x>, $<BUILD_INTERFACE:x>...): look at every name inside it.
-                string(REGEX MATCHALL "[A-Za-z0-9_.+-]+(::[A-Za-z0-9_.+-]+)*" names "${entry}")
+                # Any other entry (a path such as /a/b/libfoo.a, a flag) is used as it is.
+                if(entry MATCHES "^\\$<")
+                    string(REGEX MATCHALL "[A-Za-z0-9_.+-]+(::[A-Za-z0-9_.+-]+)*" names "${entry}")
+                else()
+                    set(names "${entry}")
+                endif()
                 foreach(lib IN LISTS names)
                     if(lib STREQUAL forbidden)
                         message(FATAL_ERROR "${target} links ${forbidden} (${via_${current}} -> ${forbidden}). ${forbidden} "

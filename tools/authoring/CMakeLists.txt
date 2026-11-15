@@ -4,3 +4,7 @@
 # creates afterwards has them (fa/authoring/authoring.h). The root CMakeLists.txt fails the configure when the player links it.
 fa_add_module(authoring DEPS fa_runtime)
 fa_add_tests(authoring)
+if(TARGET fa_test_authoring)
+    # confinement_variants.h is shared with the runtime tests: included by name, not by a relative path.
+    target_include_directories(fa_test_authoring PRIVATE ${FA_ROOT}/engine/runtime/tests)
+endif()
