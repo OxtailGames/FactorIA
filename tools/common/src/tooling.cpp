@@ -3,6 +3,7 @@
 #include <filesystem>
 
 #include "fa/runtime/engine.h"
+#include "fa/tooling/api_export.h"
 #include "fa/tooling/ci_workflow.h"
 #include "fa/tooling/ios_sim.h"
 #include "fa/tooling/menu_kit.h"
@@ -77,6 +78,7 @@ ValidateOptions engine_validate_options(Engine& engine) {
 }
 
 void register_project_commands(Engine& engine, const std::string& projectDir) {
+    install_deprecations();  // the runtime warnings of the deprecated commands and fields (a CLI start-up did it already)
     CommandRegistry& registry = engine.commands();
     if (!projectDir.empty()) {
         register_tooling_commands(registry, projectDir);

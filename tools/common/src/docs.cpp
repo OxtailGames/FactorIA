@@ -115,13 +115,8 @@ const std::vector<DocManifestEntry>& manifest() {
          aud({kUser})},
         {"analytics", "Analytics events and remote config: send, read and test them from a game.", aud({kGameAi})},
         {"animation", "Skeletal and 2D clips, animator state machines and tweens.", aud({kGameAi})},
-        {"architecture", "Engine internals: modules, threads, reflection, commands, loading, rendering, testing.",
-         aud({kEngineDev})},
         {"assets", "Generate, import and ship textures, models, sounds and other assets.", aud({kGameAi, kUser})},
-        {"building", "Build FactorIA from source: presets, scripts, CI, caches, platforms.", aud({kEngineDev})},
         {"cli", "Every `factoria` command line verb and flag.", aud({kGameAi, kUser})},
-        {"components", "Reference of every component, field and command (1.8 MB: ask by name, never read it whole).",
-         aud({kGameAi})},
         {"debugging", "Debug scripts: breakpoints, the script debugger and the VS Code extension.",
          aud({kGameAi, kUser})},
         {"editor", "The FactorIA editor: panels, shortcuts, play mode, autotest.", aud({kUser, kEngineDev})},
@@ -172,6 +167,44 @@ const DocManifestEntry* find_manifest(const std::string& name) {
     return nullptr;
 }
 
+// The menu kit (templates/menus/) is served from the embedded kit, not copied into docs/MENUS.md: "menu-kit" lists its
+// files, "menu-kit/<path>" reads one.
+constexpr std::string_view kMenuKitName = "menu-kit";
+constexpr std::string_view kMenuKitRoot = "templates/menus/";
+
+std::string menu_kit_listing() {
+    std::vector<std::string> files = bundled_list(kMenuKitRoot);
+    std::sort(files.begin(), files.end());
+    std::string out =
+        "# Menu kit files\n\n"
+        "The files of the menu kit (`templates/menus/` in the FactorIA install): what `project.add_menu_kit` copies "
+        "into a "
+        "game, and what FactorIA's own tests run. Read one with `docs.read {\"name\":\"menu-kit/<file>\"}` (for "
+        "example "
+        "`menu-kit/scripts/settings.js`); `kit.json` says which files make each part. The recipes are in the `menus` "
+        "page.\n\n| File | Bytes |\n|---|---|\n";
+    for (const std::string& f : files) {
+        auto text = bundled_read(f);
+        out += "| `" + f.substr(kMenuKitRoot.size()) + "` | " + std::to_string(text ? text->size() : 0) + " |\n";
+    }
+    return out;
+}
+
+Result<std::string> read_menu_kit(const std::string& q) {
+    std::string rel = q.size() > kMenuKitName.size() ? q.substr(kMenuKitName.size() + 1) : std::string();
+    if (rel.empty()) return menu_kit_listing();
+    if (auto t = bundled_read(std::string(kMenuKitRoot) + rel)) return *t;
+    std::vector<std::string> names;
+    for (const std::string& f : bundled_list(kMenuKitRoot)) names.push_back(f.substr(kMenuKitRoot.size()));
+    return make_error("The menu kit has no file '" + rel + "'. " + did_you_mean(rel, names),
+                      "docs.read {\"name\":\"menu-kit\"} lists the files of the kit.");
+}
+
+bool is_menu_kit_name(const std::string& q) {
+    return q == kMenuKitName || (q.size() > kMenuKitName.size() &&
+                                 q.compare(0, kMenuKitName.size(), kMenuKitName) == 0 && q[kMenuKitName.size()] == '/');
+}
+
 }  // namespace
 
 const std::vector<DocManifestEntry>& doc_manifest() { return manifest(); }
@@ -198,7 +231,20 @@ Result<std::string> read_doc(std::string_view nameOrPath) {
     if (q.rfind("docs/", 0) == 0 || q.rfind("schemas/", 0) == 0) {
         if (auto t = bundled_read(q)) return *t;
     }
+    if (is_menu_kit_name(q)) return read_menu_kit(q);
     std::string want = doc_name_from_path(q);
+    if (want == "components" || want == "commands")
+        return make_error(
+            "There is no '" + want +
+                "' page to read: the whole reference (components, fields, commands and the scripting "
+                "API) is 1.8 MB, so it is served in pieces and not embedded as a page.",
+            want == "components"
+                ? "docs.components {\"name\":\"Sprite\"} reads one component (or {\"filter\":\"physics\"}; with no "
+                  "argument it lists the names and pages with a cursor). The scripting API is in the `scripting` page "
+                  "and "
+                  "`factoria api --md`; the commands are docs.commands."
+                : "docs.commands {\"name\":\"scene.spawn\"} reads one command (or {\"filter\":\"scene\"}); with no "
+                  "argument it lists the names and pages with a cursor.");
     std::vector<std::string> names;
     for (const auto& d : list_docs()) {
         if (d.name == want) {
@@ -350,6 +396,15 @@ void register_docs_commands(CommandRegistry& registry) {
                                             {"path", d.path},
                                             {"bytes", d.bytes}}));
             }
+            if (wanted({"gameAi"}))
+                arr.push_back(Json::object(
+                    {{"name", std::string(kMenuKitName)},
+                     {"title", "The files of the menu kit (templates/menus/)"},
+                     {"summary",
+                      "The files of the menu kit, one by one: read `menu-kit/<file>`; this name lists them."},
+                     {"audience", Json::array({"gameAi"})},
+                     {"path", ""},
+                     {"bytes", 0}}));
             if (wanted({"user", "engineDev"}))
                 arr.push_back(Json::object(
                     {{"name", "licenses"},
@@ -375,7 +430,9 @@ void register_docs_commands(CommandRegistry& registry) {
             "{\"name\":\"ai-guide\",\"heading\":\"Platformer character\"} "
             "(case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range "
             "with "
-            "startLine/maxLines. Names: see docs.list (e.g. ai-guide, architecture, scripting, components, licenses). "
+            "startLine/maxLines. Names: see docs.list (e.g. ai-guide, scripting, licenses). The menu kit's files are "
+            "`menu-kit/<file>` (the name \"menu-kit\" lists them). The component and command references are not pages: "
+            "use docs.components and docs.commands. "
             "To find where something is, docs.search returns sections with their line numbers.";
         info.inputSchema = Json::object(
             {{"type", "object"},

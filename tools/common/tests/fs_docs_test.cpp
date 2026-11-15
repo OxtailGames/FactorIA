@@ -9,6 +9,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/tooling/api_export.h"
+#include "fa/tooling/bundle.h"
 #include "fa/tooling/docs.h"
 #include "fa/tooling/project_fs.h"
 #include "fa_test_paths.h"
@@ -236,11 +237,11 @@ TEST_CASE("docs: list, read and search the bundled documentation") {
     REQUIRE_FALSE(docs.empty());
     bool arch = false, script = false;
     for (auto& d : docs) {
-        arch = arch || d.name == "architecture";
+        arch = arch || d.name == "architecture" || d.name == "building" || d.name == "components";  // not embedded
         script = script || d.name == "scripting";
         CHECK(d.path.rfind("docs/", 0) == 0);
     }
-    CHECK(arch);
+    CHECK_FALSE(arch);  // docs/design/ and the generated COMPONENTS.md stay out of the binary
     CHECK(script);
 
     auto r = read_doc("scripting");
@@ -321,12 +322,13 @@ TEST_CASE("docs.list: summary and audience per doc, audience filter") {
         CHECK(std::find(d["audience"].begin(), d["audience"].end(), "gameAi") != d["audience"].end());
     }
     CHECK(names.count("ai-guide") == 1);
-    CHECK(names.count("architecture") == 0);
+    CHECK(names.count("editor") == 0);
+    CHECK(names.count("menu-kit") == 1);  // the kit's files are listed by name
     auto dev = reg.call("docs.list", {{"audience", "engineDev"}});
     REQUIRE(dev.ok);
-    bool arch = false;
-    for (const auto& d : dev.result["docs"]) arch = arch || d["name"] == "architecture";
-    CHECK(arch);
+    bool editor = false;
+    for (const auto& d : dev.result["docs"]) editor = editor || d["name"] == "editor";
+    CHECK(editor);
     auto bad = reg.call("docs.list", {{"audience", "gameai"}});
     CHECK_FALSE(bad.ok);
     CHECK(bad.error.dump().find("gameAi") != std::string::npos);  // did you mean
@@ -341,8 +343,8 @@ TEST_CASE("docs: commands") {
     CHECK(list.result["docs"].size() >= 2);
     int components = 0;
     for (const auto& d : list.result["docs"]) components += d["name"] == "components" ? 1 : 0;
-    CHECK(components == 1);  // listed once, by the bundled page
-    auto read = reg.call("docs.read", {{"name", "architecture"}, {"maxLines", 5}});
+    CHECK(components == 0);  // not a page: docs.components serves it per component
+    auto read = reg.call("docs.read", {{"name", "editor"}, {"maxLines", 5}});
     REQUIRE(read.ok);
     CHECK(read.result["truncated"] == true);
     CHECK(read.result["endLine"] == 5);
@@ -415,7 +417,7 @@ TEST_CASE("docs.read: the default result fits an MCP tool result, a cut read end
     CommandRegistry reg;
     register_docs_commands(reg);
     register_api_export_commands(reg);
-    for (const char* doc : {"ai-guide", "components", "licenses"}) {
+    for (const char* doc : {"ai-guide", "licenses"}) {
         CAPTURE(doc);
         auto r = reg.call("docs.read", {{"name", doc}});
         REQUIRE(r.ok);
@@ -722,4 +724,49 @@ TEST_CASE("docs.list: the pages FINISHING links (mcp, legal, publishing) are for
     std::set<std::string> names;
     for (const auto& d : game.result["docs"]) names.insert(d["name"].get<std::string>());
     for (const char* n : {"mcp", "legal", "publishing"}) CHECK_MESSAGE(names.count(n) == 1, n);
+}
+
+TEST_CASE("docs.read components: no 1.8 MB page, a pointer to docs.components instead") {
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    register_api_export_commands(reg);
+    for (const char* name : {"components", "COMPONENTS.md", "docs/COMPONENTS.md", "factoria://docs/components"}) {
+        CAPTURE(name);
+        auto r = reg.call("docs.read", {{"name", name}});
+        REQUIRE_FALSE(r.ok);
+        const std::string error = r.error.dump();
+        CHECK(error.find("docs.components") != std::string::npos);
+        CHECK(error.find("Sprite") != std::string::npos);
+    }
+    CHECK(read_doc("components").error().hint.find("docs.components") != std::string::npos);
+    // The pointer works: one component by name.
+    auto sprite = reg.call("docs.components", {{"name", "Sprite"}});
+    REQUIRE(sprite.ok);
+}
+
+TEST_CASE("docs: the menu kit is served from the embedded kit, not copied into MENUS.md") {
+    auto listing = read_doc("menu-kit");
+    REQUIRE(listing.ok());
+    CHECK(listing->find("`kit.json`") != std::string::npos);
+    CHECK(listing->find("`scripts/settings.js`") != std::string::npos);
+    auto settings = read_doc("menu-kit/scripts/settings.js");
+    REQUIRE(settings.ok());
+    CHECK(*settings == *bundled_read("templates/menus/scripts/settings.js"));
+    CHECK(read_doc("factoria://docs/menu-kit/kit.json").ok());
+    auto bad = read_doc("menu-kit/scripts/setings.js");
+    REQUIRE_FALSE(bad.ok());
+    CHECK(bad.error().message.find("scripts/settings.js") != std::string::npos);  // did you mean
+    CHECK_FALSE(read_doc("menu-kitten").ok());
+
+    CommandRegistry reg;
+    register_docs_commands(reg);
+    auto r = reg.call("docs.read", {{"name", "menu-kit/scripts/ui/options.js"}, {"maxLines", 5}});
+    REQUIRE(r.ok);
+    CHECK(r.result["truncated"] == true);
+    // MENUS.md keeps the recipes: it prints no file of the kit.
+    auto menus = read_doc("menus");
+    REQUIRE(menus.ok());
+    CHECK(menus->size() < 100000);
+    CHECK(menus->find("```js scripts/settings.js") == std::string::npos);
+    CHECK(menus->find("menu-kit") != std::string::npos);
 }

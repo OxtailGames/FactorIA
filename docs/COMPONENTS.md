@@ -1,6 +1,6 @@
 # Components reference
 
-Generated from the engine's reflection data. Version marks: a component added after 0.1.0 has a "Since 0.1.x." line under its heading, and a field added later than its component ends with "(since 0.1.x)"; "Not released yet" means it is only on the main branch, in no download. Nothing is printed for what existed in 0.1.0; if your factoria is older than a mark, that item is missing there. The scripting API at the end marks its functions, types and members the same way, with a JSDoc `@since` tag. In scene JSON a component is `"Name": { field: value, ... }` (omitted fields keep their defaults); in scripts use `entity.get("Name")`. Vectors accept `[x, y]` or `{x, y}`; colors accept `[r, g, b, a]` (0..1) or `"#rrggbb"`.
+Generated from the engine's reflection data. Version marks: a component added after 0.1.0 has a "Since 0.1.x." line under its heading, and a field added later than its component ends with "(since 0.1.x)"; "Not released yet" means it is only on the main branch, in no download. Nothing is printed for what existed in 0.1.0; if your factoria is older than a mark, that item is missing there. The scripting API at the end marks its functions, types and members the same way, with a JSDoc `@since` tag. A deprecated component, field or command (it still works; it will be removed two minor versions after the one that deprecated it) has a bold "Deprecated since 0.x.y - use ..." line. In scene JSON a component is `"Name": { field: value, ... }` (omitted fields keep their defaults); in scripts use `entity.get("Name")`. Vectors accept `[x, y]` or `{x, y}`; colors accept `[r, g, b, a]` (0..1) or `"#rrggbb"`.
 
 ## Core
 
@@ -3365,7 +3365,7 @@ Read a documentation page (Markdown), a section or a line range; long pages come
 
 Capabilities: read
 
-Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and `next`, the exact call that continues. Read one section by heading: {"name":"ai-guide","heading":"Platformer character"} (case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with startLine/maxLines. Names: see docs.list (e.g. ai-guide, architecture, scripting, components, licenses). To find where something is, docs.search returns sections with their line numbers.
+Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and `next`, the exact call that continues. Read one section by heading: {"name":"ai-guide","heading":"Platformer character"} (case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with startLine/maxLines. Names: see docs.list (e.g. ai-guide, scripting, licenses). The menu kit's files are `menu-kit/<file>` (the name "menu-kit" lists them). The component and command references are not pages: use docs.components and docs.commands. To find where something is, docs.search returns sections with their line numbers.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

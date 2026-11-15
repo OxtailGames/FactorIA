@@ -42,7 +42,9 @@ CI builds and tests every pull request and every push to `main` on Linux, Window
 an Android emulator (not on real devices; see [docs/MOBILE.md](docs/MOBILE.md)). Open gaps and next milestones:
 [feedback/ROADMAP.md](feedback/ROADMAP.md).
 
-## Download
+## Try it
+
+### Download
 
 No compiler or dev tools needed. Download the latest version for your system once:
 [Windows installer](https://github.com/OxtailGames/FactorIA/releases/latest/download/FactorIA-windows-x64-setup.exe)
@@ -70,7 +72,14 @@ Claude Code from a terminal outside the editor, add the folder to your PATH (the
 Android (JDK and Android SDK only) and iOS (macOS package, Xcode) export all work from the download, with no engine
 source. Details: [Download in GETTING_STARTED](docs/GETTING_STARTED.md#download-no-build-tools).
 
-## Quick start (build from source)
+### Your first game
+
+Open the editor, create a project, and ask the AI for a game: [docs/FIRST_GAME_WITH_AI.md](docs/FIRST_GAME_WITH_AI.md)
+walks a person through it step by step, and [docs/MAKE_BY_HAND.md](docs/MAKE_BY_HAND.md) makes a small one by editing
+the files yourself, to see what the AI does for you. From a terminal: `factoria new my-game`, then `factoria run
+my-game` ([docs/GETTING_STARTED.md](docs/GETTING_STARTED.md)).
+
+### Build from source (engine developers)
 
 Linux (Debian or Ubuntu) and macOS, from the repository root:
 
@@ -92,7 +101,7 @@ iOS (simulator) and Android (arm64):
 ./scripts/build-android.sh
 ```
 
-Platform requirements, presets and troubleshooting: [docs/BUILDING.md](docs/BUILDING.md).
+Platform requirements, presets and troubleshooting: [docs/design/BUILDING.md](docs/design/BUILDING.md).
 
 Then create and run a game with the `factoria` CLI (built into `build/<preset>/tools/cli/`):
 
@@ -113,7 +122,7 @@ player/      factoria_player: minimal runtime that exported games ship with
 tools/       development tools (desktop): CLI, MCP server, AI agent, editor
 cmake/       CMake functions and platform selection
 external/    bundled third-party dependencies (do not edit)
-docs/        documentation in English (included in the binary; AIs read it through MCP)
+docs/        documentation in English (built into the binary; AIs read it through MCP); docs/design/ is for engine developers and stays out
 scripts/     build, test, CI and packaging scripts for each operating system
 templates/   project templates for `factoria new`
 skills/      the engine's AI skills, baked into the binary
@@ -126,37 +135,63 @@ platforms/   packaging for Android (Gradle), iOS and the web, the store and ads 
 
 ## Documentation
 
-- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md): build, create a game, connect an AI.
-- [docs/AI_GUIDE.md](docs/AI_GUIDE.md): how to build a game with FactorIA (for AI agents).
-- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md): design, modules, conventions, commands and reflection.
-- [docs/SCRIPTING.md](docs/SCRIPTING.md): JavaScript scripting: behaviours, tools and tests.
-- [docs/reference/README.md](docs/reference/README.md): browsable API reference, one page per component and command category (generated).
-- [docs/COMPONENTS.md](docs/COMPONENTS.md): every component and field in one file (generated).
-- [docs/DEBUGGING.md](docs/DEBUGGING.md): debug scripts: breakpoints and stepping in VS Code (F5), `script.trace` for AIs.
-- [docs/RENDERING.md](docs/RENDERING.md): cameras that draw into textures (a screen on a model, a mirror, a book page whose buttons work) and off-screen photographs of the world at a pixel scale.
-- [docs/PARTICLES.md](docs/PARTICLES.md): particle effects: colour gradient and curves, flipbook, emission shapes, turbulence, trails, sub-emitters, collision with a plane or a Tilemap, pixel mode, with worked examples (hit spark, smoke puff, pixel fire).
-- [docs/SHADERS.md](docs/SHADERS.md): custom shaders per material: the material file, the GLSL snippet contract, five worked examples.
-- [docs/EXTENDING.md](docs/EXTENDING.md): creating tools, commands, components and systems.
-- [docs/CLI.md](docs/CLI.md) and [docs/MCP.md](docs/MCP.md): the `factoria` CLI and the MCP server.
-- [docs/EDITOR.md](docs/EDITOR.md): the AI-first visual editor: viewport, AI chat, picking, audio log.
-- [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md): AI providers (Claude Code, Codex, API keys) and roles.
-- [docs/HOOKS.md](docs/HOOKS.md): hooks: programs or JavaScript modules that run before and after the AI's tool calls and the engine's commands, for every provider.
-- [docs/ASSETS.md](docs/ASSETS.md): generating and importing art, sound and models; import settings and provenance.
-- [docs/TEXT.md](docs/TEXT.md): fonts per language, fallback fonts, shaping, right-to-left text, wrapping and the text size option.
-- [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): how AIs record what the engine is missing.
-- [docs/BUILDING.md](docs/BUILDING.md): platform requirements, presets, CI, tests and troubleshooting.
-- [docs/MOBILE.md](docs/MOBILE.md) and [docs/EXPORTING.md](docs/EXPORTING.md): iOS/Android and exporting games.
+Every page of `docs/` and `docs/design/` is linked here (a test checks it). The ones in `docs/` are built into the
+binary, so an AI reads them with `factoria docs list` / `docs read` or the MCP `docs_*` tools; `docs/design/` is for people
+working on the engine and stays out of the binary. The translations are in `docs/i18n/`.
+
+### Making a game with an AI
+
+Start with the first three; the AI guide is what an agent reads first.
+
+- [docs/GETTING_STARTED.md](docs/GETTING_STARTED.md): install, create a game, connect an AI.
 - [docs/FIRST_GAME_WITH_AI.md](docs/FIRST_GAME_WITH_AI.md): tutorial for a person: your first game with an AI in the editor, step by step.
 - [docs/MAKE_BY_HAND.md](docs/MAKE_BY_HAND.md): tutorial: make a small game by hand (scene, script, test, export) to see what the AI does for you.
+- [docs/AI_GUIDE.md](docs/AI_GUIDE.md): how to build a game with FactorIA (for AI agents): the loop, the project layout, recipes by genre.
+- [docs/SCRIPTING.md](docs/SCRIPTING.md): JavaScript scripting: behaviours, tools and tests.
+- [docs/CLI.md](docs/CLI.md) and [docs/MCP.md](docs/MCP.md): the `factoria` CLI and the MCP server.
+- [docs/reference/README.md](docs/reference/README.md): browsable API reference, one page per component and command category (generated).
+- [docs/COMPONENTS.md](docs/COMPONENTS.md): every component and field in one file (generated, 1.8 MB, not in the binary: `docs.components` serves it per component).
+- [docs/DEBUGGING.md](docs/DEBUGGING.md): debug scripts: breakpoints and stepping in VS Code (F5), `script.trace` for AIs.
+- [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): how AIs record what the engine is missing.
+- [docs/SKILLS.md](docs/SKILLS.md): Agent Skills: topic guides an AI loads when the work needs them.
+- [docs/HOOKS.md](docs/HOOKS.md): hooks: programs or JavaScript modules that run before and after the AI's tool calls and the engine's commands, for every provider.
+- [docs/EXTENDING.md](docs/EXTENDING.md): project tools (`tools/*.js`), native plugins, and (for engine developers) commands, components and systems.
+
+Topics, one page each:
+
+- 2D and 3D art: [docs/ASSETS.md](docs/ASSETS.md) (generate, import and ship art, sound and models; import settings and provenance), [docs/IMAGES.md](docs/IMAGES.md) (layered images), [docs/VECTOR.md](docs/VECTOR.md) (vector illustration and SVG import), [docs/MODELING.md](docs/MODELING.md) (3D models as data), [docs/RIGGING.md](docs/RIGGING.md) (skeletons for 3D models), [docs/ANIMATION.md](docs/ANIMATION.md) (skeletal and 2D clips, state machines, tweens).
+- Look and feel: [docs/PARTICLES.md](docs/PARTICLES.md) (particle effects), [docs/EFFECTS.md](docs/EFFECTS.md) (visual and audio effects), [docs/GAME_FEEL.md](docs/GAME_FEEL.md) (shake, hit-stop, flash, knockback, squash and stretch), [docs/SHADERS.md](docs/SHADERS.md) (custom shaders per material), [docs/RENDERING.md](docs/RENDERING.md) (cameras that draw into textures, photographs of the world).
+- Sound: [docs/SOUND.md](docs/SOUND.md) (sound patches and audio documents), [docs/MUSIC.md](docs/MUSIC.md) (songs as data).
+- Text and menus: [docs/TEXT.md](docs/TEXT.md) (fonts, fallback, shaping, right-to-left text, text size), [docs/LOCALIZATION.md](docs/LOCALIZATION.md) (string tables, `key` fields, the `i18n` API), [docs/MENUS.md](docs/MENUS.md) (main menu, options, credits, loading screen, pause).
+- World and services: [docs/NAVIGATION.md](docs/NAVIGATION.md) (navmeshes and agents), [docs/NETWORKING.md](docs/NETWORKING.md) (`http.fetch`), [docs/PLATFORM.md](docs/PLATFORM.md) (achievements, stats, leaderboards, cloud saves, purchases), [docs/ANALYTICS.md](docs/ANALYTICS.md) (events and remote config).
+
+### Finishing and shipping a game
+
+- [docs/FINISHING.md](docs/FINISHING.md): finish your game: menus, options, saves, languages, accessibility, store services, credits, tests, and a checklist.
+- [docs/PERFORMANCE.md](docs/PERFORMANCE.md): frame time, memory and draw-call budgets: measure a game, keep a baseline per machine, fail CI on a regression.
+- [docs/EXPORTING.md](docs/EXPORTING.md) and [docs/MOBILE.md](docs/MOBILE.md): exporting games, and iOS/Android.
 - [docs/PUBLISHING.md](docs/PUBLISHING.md): publishing guide with one checklist per store (Steam, Epic, GOG, Microsoft Store, Google Play, App Store, itch.io, web).
 - [docs/LEGAL.md](docs/LEGAL.md): privacy policy and EULA templates for a shipped game, and what the engine itself sends (nothing).
-- [docs/LOCALIZATION.md](docs/LOCALIZATION.md): several languages: string tables, `key` fields, the `i18n` script API.
-- [docs/AI_COSTS.md](docs/AI_COSTS.md): what making a game with AI costs (measured on a real game), what drives it, how to cap and check it.
-- [docs/PERFORMANCE.md](docs/PERFORMANCE.md): frame time, memory and draw-call budgets: measure a game, keep a baseline per machine, fail CI on a regression.
-- [docs/FINISHING.md](docs/FINISHING.md): finish your game: menus, options, saves, languages, accessibility, store services, credits, tests, and a checklist.
 
-If you are going to modify the engine, read [CLAUDE.md](CLAUDE.md) and
-[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) first.
+### Using the editor
+
+- [docs/EDITOR.md](docs/EDITOR.md): the AI-first visual editor: viewport, AI chat, picking, audio log.
+- [docs/AI_PROVIDERS.md](docs/AI_PROVIDERS.md): AI providers (Claude Code, Codex, API keys) and roles.
+- [docs/AI_COSTS.md](docs/AI_COSTS.md): what making a game with AI costs (measured on a real game), what drives it, how to cap and check it.
+- The tutorials above ([docs/FIRST_GAME_WITH_AI.md](docs/FIRST_GAME_WITH_AI.md)), [docs/HOOKS.md](docs/HOOKS.md) and [docs/SKILLS.md](docs/SKILLS.md) are for editor users too.
+
+### Engine development
+
+Read [CLAUDE.md](CLAUDE.md) and [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md) first. These pages are not in the binary.
+
+- [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md): design, modules, conventions, commands, reflection, threads, loading, rendering, testing.
+- [docs/design/BUILDING.md](docs/design/BUILDING.md): platform requirements, presets, CI, tests, releases and troubleshooting.
+- [docs/EXTENDING.md](docs/EXTENDING.md): adding commands, components and systems (sections B to F; A and G are for games).
+- [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): "Collecting" and "Triage loop" are for engine developers.
+- [docs/design/CUSTOM_SHADERS.md](docs/design/CUSTOM_SHADERS.md): design of custom shaders per material.
+- [docs/design/FEEDBACK_SHARING.md](docs/design/FEEDBACK_SHARING.md): design of sharing feedback with the engine developer.
+- [docs/design/SCRIPT_DEBUGGER.md](docs/design/SCRIPT_DEBUGGER.md): design of the script debugger and its VS Code extension.
+- [feedback/ROADMAP.md](feedback/ROADMAP.md) (open gaps and next milestones) and [CHANGELOG.md](CHANGELOG.md).
 
 ## License
 

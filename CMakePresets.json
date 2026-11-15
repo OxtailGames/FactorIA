@@ -45,7 +45,7 @@
 
     {
       "name": "linux-asan",
-      "displayName": "Linux x64, Debug, Clang, AddressSanitizer + UndefinedBehaviorSanitizer (CI job linux-asan; docs/BUILDING.md, Sanitizers)",
+      "displayName": "Linux x64, Debug, Clang, AddressSanitizer + UndefinedBehaviorSanitizer (CI job linux-asan; docs/design/BUILDING.md, Sanitizers)",
       "inherits": "linux-debug",
       "cacheVariables": {
         "CMAKE_C_COMPILER": "clang",
@@ -57,7 +57,7 @@
     },
     {
       "name": "linux-tsan",
-      "displayName": "Linux x64, Debug, Clang, ThreadSanitizer (CI job linux-tsan; docs/BUILDING.md, Sanitizers)",
+      "displayName": "Linux x64, Debug, Clang, ThreadSanitizer (CI job linux-tsan; docs/design/BUILDING.md, Sanitizers)",
       "inherits": "linux-debug",
       "cacheVariables": {
         "CMAKE_C_COMPILER": "clang",

@@ -39,7 +39,7 @@ for pair in $expected; do
     if [ "$have" != "$want" ]; then
         echo "det-hash: section '$key' differs: this platform computed '${have:-(missing)}', the committed value is '$want'." \
             "math = the scripts' Math.*, script = a seeded generator plus Math, physics2d = Box2D, physics3d = the 3D solver," \
-            "nav = the nav bake and path search (docs/ARCHITECTURE.md, 'Determinism')."
+            "nav = the nav bake and path search (docs/design/ARCHITECTURE.md, 'Determinism')."
         status=1
     fi
 done

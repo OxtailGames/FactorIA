@@ -14,6 +14,7 @@
 
 #include "fa/audio/audio.h"
 #include "fa/audio/sfx.h"
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
@@ -674,6 +675,15 @@ NATIVE(watchdogCuts) {
     for (size_t i = first; i < first + shown; ++i) text += (text.empty() ? "" : "; ") + I->cuts[i].to_string();
     if (const size_t more = I->cuts.size() - first - shown; more > 0) text += std::format(" ... and {} more", more);
     return JS_NewString(ctx, text.c_str());
+}
+
+// deprecated(key): the warning for a deprecated script export or member (the "script" part of the deprecated section of
+// api_since.json); the prelude calls it on the first use of each one, the table gives it once per key per process.
+NATIVE(deprecated) {
+    (void)thisv;
+    CStr key(ctx, argc > 0 ? argv[0] : JS_UNDEFINED);
+    fa::warn_deprecated(fa::kDeprecatedScript, key.view());
+    return JS_UNDEFINED;
 }
 
 NATIVE(logSeq) {
@@ -4828,6 +4838,7 @@ const Reg kRegs[] = {
     R(nowMs, 0),
     R(sourceCaret, 3),
     R(logSeq, 0),
+    R(deprecated, 1),
     R(logErrors, 1),
     R(forgetLoggedErrors, 0),
     R(watchdogCuts, 1),

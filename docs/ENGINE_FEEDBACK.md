@@ -554,7 +554,7 @@ its arguments, exits 0 when everything was done and 1 when a `shareId` is not on
 3. **Reject or keep.**
    - `factoria feedback reject --suggested` rejects every suggested report with its ready reason; add shareIds to narrow it
      (`reject --suggested r_8f3k2m`), `--reason TEXT` to replace the ready reason.
-   - `factoria feedback reject r_8f3k2m r_9abcde --reason "Collider2D.oneWay exists (docs/COMPONENTS.md). File a bug if it fails."`: the same
+   - `factoria feedback reject r_8f3k2m r_9abcde --reason "Collider2D.oneWay exists (docs.components). File a bug if it fails."`: the same
      reason for each; `--file batch.json` takes `[{"shareId": "r_8f3k2m", "reason": "..."}]`, one reason each.
    - `factoria feedback reject --quarantined --reason TEXT` tells the installations of the quarantined (junk) reports why (only the text you write is sent).
    - `factoria feedback keep r_8f3k2m` drops a wrong suggestion (without shareIds: all); nothing is sent.
