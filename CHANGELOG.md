@@ -6,6 +6,34 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+## 0.29.1
+
+FactorIA 0.29.1 fixes the two crashes the weekly fuzz run found in 0.29.0: a damaged PostScript (`CFF `)
+font made stb_truetype read outside the file, and a small `.gltf` could ask for 2^63 bytes of memory. Fonts and glTF
+models are now checked before the third-party readers see them, and a damaged one is an error that names the part
+and how to fix it.
+
+### Fixes
+
+- glTF: a small `.gltf` whose base64 buffer declared a huge `byteLength` made the engine ask for that much memory (the
+  weekly fuzz run found 2^63-1 bytes). Every glTF reader now refuses it, before cgltf allocates, with an error that names
+  the file, `/buffers/N`, the declared size and the most the data can hold. The input is in the fuzz corpus and in
+  `fa_test_scene`.
+- glTF: an accessor whose start in its buffer, or whose stride, is not a multiple of its component size (a float read
+  from an odd address) is refused with an error that names `/accessors/N`, instead of being read through a misaligned
+  pointer. This changes behaviour: a model with a misaligned accessor (the glTF specification forbids it, but some old
+  exporters wrote it) that loaded before is now refused; the error names
+  `/accessors/N` and the fix is to export the model again. A GLB whose JSON chunk is not a multiple of 4 bytes long is
+  refused the same way.
+- Fonts: an `.otf` with PostScript outlines (a `CFF ` table) whose INDEXes, Top DICT or Private DICT point outside the
+  table made stb_truetype read outside the file while loading (found by the weekly fuzz run). The `CFF ` table is now
+  walked before stb_truetype sees it: a damaged one is an error that names the part (Name INDEX, Top DICT, FDArray...),
+  its offset in the table and what is wrong. A glyph the CharStrings INDEX or the FDSelect has no entry for is drawn as
+  the `.notdef` box, and a CFF font whose `hmtx` table is shorter than its glyph count is refused like a TrueType one.
+- Fonts: a font whose `head` table says 0 units per em (stb_truetype's scale would be infinite) is an error that says so,
+  for TrueType and CFF fonts. An FDSelect (format 3) range that ends before it starts no longer condemns a CFF font: the
+  glyphs no range holds are drawn as `.notdef`.
+
 ## 0.29.0
 
 FactorIA 0.29.0 (M96) makes the exported player smaller and its scripts safer to ship. The commands only developer tools

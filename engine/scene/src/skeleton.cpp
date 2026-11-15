@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 #include <cstdlib>
 #include <cstring>
 #include <filesystem>
@@ -119,7 +120,100 @@ void gltf_use_fs(cgltf_options& opts) {
     opts.file.release = &file_release;
 }
 
+Result<void> gltf_check_buffer_sizes(const cgltf_data* data, std::string_view path) {
+    for (cgltf_size i = 0; i < data->buffers_count; ++i) {
+        const cgltf_buffer& b = data->buffers[i];
+        if (b.data || !b.uri || std::strncmp(b.uri, "data:", 5) != 0) continue;
+        const char* comma = std::strchr(b.uri, ',');
+        if (!comma || comma - b.uri < 7 || std::strncmp(comma - 7, ";base64", 7) != 0) continue;
+        const std::size_t payload = std::strlen(comma + 1);
+        const std::size_t available = payload / 4 * 3 + (payload % 4 ? payload % 4 - 1 : 0);
+        if (std::size_t(b.size) <= available) continue;
+        return make_error(
+            std::format(
+                "'{}' is not a consistent glTF file: /buffers/{} declares byteLength {} but its base64 data URI "
+                "holds at most {} bytes",
+                path, i, std::size_t(b.size), available),
+            std::format("Set /buffers/{}/byteLength to the real size of the data (at most {}), or export the model "
+                        "again from the tool that made it.",
+                        i, available));
+    }
+    return {};
+}
+
+namespace {
+
+cgltf_size component_bytes(cgltf_component_type t) {
+    switch (t) {
+        case cgltf_component_type_r_16:
+        case cgltf_component_type_r_16u: return 2;
+        case cgltf_component_type_r_32u:
+        case cgltf_component_type_r_32f: return 4;
+        default: return 1;
+    }
+}
+
+// cgltf (cgltf_validate included: it reads every index of an index accessor) loads floats and indices through typed pointers
+// at the REAL address (the buffer's data plus the view and accessor offsets), so that address and the stride must be multiples
+// of the component size, or the load is misaligned. The glTF 2.0 specification forbids misaligned offsets; the address of the
+// buffer itself is not under the file's control alone: a GLB whose JSON chunk is not a multiple of 4 bytes long puts its BIN
+// chunk at an odd address, which cgltf accepts. Offsets and strides are numbers cgltf_parse has already resolved and the
+// buffers are loaded (cgltf_load_buffers), so nothing is read from a buffer here; a buffer that is not loaded counts as aligned.
+Result<void> gltf_check_alignment(const cgltf_data* data, std::string_view path) {
+    // `start`: offset in the buffer; `stride` 0 when the block has none. `what` names the block.
+    auto misaligned = [&](const cgltf_buffer_view* view, cgltf_size start, cgltf_size stride, cgltf_size comp,
+                          const std::string& what) -> Result<void> {
+        const auto base = view->buffer ? reinterpret_cast<std::uintptr_t>(view->buffer->data) : std::uintptr_t(0);
+        const bool offsetBad = start % comp != 0, strideBad = stride % comp != 0;
+        if (!offsetBad && !strideBad && (base + start) % comp == 0) return {};
+        std::string why;
+        if (offsetBad) why = std::format("starts at byte {} of its buffer", std::size_t(start));
+        if (strideBad) why += std::format("{}has a stride of {}", why.empty() ? "" : " and ", std::size_t(stride));
+        if (!offsetBad && !strideBad)
+            why =
+                "starts at an address that is not aligned: its buffer's data begins at an odd place (a GLB whose JSON "
+                "chunk is not a multiple of 4 bytes long puts its BIN chunk there)";
+        return make_error(
+            std::format("'{}' is not a consistent glTF file: {} {}, and its components are {} bytes wide (they must be "
+                        "aligned)",
+                        path, what, why, std::size_t(comp)),
+            offsetBad || strideBad
+                ? std::format(
+                      "Make the byteOffset of {0} plus the byteOffset of its buffer view, and the buffer view's "
+                      "byteStride, multiples of {1}, or export the model again from the tool that made it.",
+                      what, std::size_t(comp))
+                : std::string(
+                      "Pad the JSON chunk of the .glb with spaces to a multiple of 4 bytes, or export the model "
+                      "again from the tool that made it."));
+    };
+    for (cgltf_size i = 0; i < data->accessors_count; ++i) {
+        const cgltf_accessor& a = data->accessors[i];
+        const std::string name = std::format("/accessors/{}", i);
+        if (a.buffer_view)
+            if (auto r = misaligned(a.buffer_view, a.buffer_view->offset + a.offset, a.stride,
+                                    component_bytes(a.component_type), name);
+                !r)
+                return r;
+        if (!a.is_sparse) continue;
+        const cgltf_accessor_sparse& sp = a.sparse;
+        if (sp.indices_buffer_view)
+            if (auto r = misaligned(sp.indices_buffer_view, sp.indices_buffer_view->offset + sp.indices_byte_offset, 0,
+                                    component_bytes(sp.indices_component_type), name + "/sparse/indices");
+                !r)
+                return r;
+        if (sp.values_buffer_view)
+            if (auto r = misaligned(sp.values_buffer_view, sp.values_buffer_view->offset + sp.values_byte_offset, 0,
+                                    component_bytes(a.component_type), name + "/sparse/values");
+                !r)
+                return r;
+    }
+    return {};
+}
+
+}  // namespace
+
 Result<void> gltf_check(cgltf_data* data, std::string_view path) {
+    if (auto aligned = gltf_check_alignment(data, path); !aligned) return aligned;
     const cgltf_result r = cgltf_validate(data);
     if (r == cgltf_result_success) return {};
     const char* what = "a value is out of range";
@@ -169,6 +263,7 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
         cgltf_data* d;
         ~Guard() { cgltf_free(d); }
     } guard{data};
+    if (auto sizes = gltf_check_buffer_sizes(data, path); !sizes) return sizes.error();
     r = cgltf_load_buffers(&opts, data, path.c_str());
     if (r != cgltf_result_success)
         return make_error(std::format("cannot load the buffers referenced by '{}' (cgltf error {})", path, int(r)),

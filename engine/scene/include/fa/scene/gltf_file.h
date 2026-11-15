@@ -13,10 +13,19 @@ namespace fa {
 // Points opts.file.read / release at fa::fs. Call before cgltf_parse / cgltf_load_buffers.
 void gltf_use_fs(cgltf_options& opts);
 
+// Refuses a glTF whose base64 data URI buffer declares more bytes than its payload can decode to (cgltf allocates the
+// declared byteLength before decoding, so a few KB of file could ask for any size). Error: the file, /buffers/N, declared
+// versus available bytes, how to fix. External .bin files are read whole by opts.file.read (its size wins over the
+// declared one) and the GLB BIN chunk is compared with byteLength by cgltf, so only data URIs need this. Every reader of a
+// glTF calls it between cgltf_parse and cgltf_load_buffers.
+Result<void> gltf_check_buffer_sizes(const cgltf_data* data, std::string_view path);
+
 // Checks a parsed glTF whose buffers are loaded (cgltf_load_buffers) before anything reads its accessors: every accessor,
 // buffer view, index, sparse block and texture reference lies inside what it points at. cgltf_parse checks the JSON's shape,
 // not the numbers, so a file whose accessor runs past its buffer would be read out of bounds. The error names `path` and
-// the first thing wrong. Every reader of a glTF calls it once, after cgltf_load_buffers.
+// the first thing wrong. It also refuses an accessor whose start in its buffer, or whose stride, is not a multiple of its
+// component size (the specification forbids it, and cgltf reads floats and indices through typed pointers). Every reader of
+// a glTF calls it once, after cgltf_load_buffers.
 Result<void> gltf_check(cgltf_data* data, std::string_view path);
 
 }  // namespace fa

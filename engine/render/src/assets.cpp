@@ -438,6 +438,10 @@ bool decode_gltf(const std::string& path, const std::uint8_t* bytes, std::size_t
         cgltf_data* d;
         ~Guard() { cgltf_free(d); }
     } guard{data};
+    if (auto sizes = gltf_check_buffer_sizes(data, path); !sizes) {
+        error = sizes.error().message + ". " + sizes.error().hint;
+        return false;
+    }
     r = cgltf_load_buffers(&opts, data, path.c_str());
     if (r != cgltf_result_success) {
         error = std::format("cannot load the buffers referenced by '{}' (cgltf error {}). External .bin files must sit "
