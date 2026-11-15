@@ -157,6 +157,65 @@ TEST_CASE("frame graph: a cycle is an error that names the passes") {
     CHECK_FALSE(g.execute(fp.pool).ok());
 }
 
+TEST_CASE("frame graph: CyclePolicy::Break runs the pass declared first of a cycle first and records it") {
+    FrameGraph g;
+    g.set_cycle_policy(CyclePolicy::Break);
+    ResourceId img = g.import_target("img", 1);
+    std::vector<std::string> log;
+    g.add_pass(pass("one", {}, {img}, &log));
+    GraphPass two = pass("two", {}, {}, &log);
+    two.sideEffect = true;
+    two.after = {"three"};
+    g.add_pass(std::move(two));
+    GraphPass three = pass("three", {}, {}, &log);
+    three.sideEffect = true;
+    three.after = {"two"};
+    g.add_pass(std::move(three));
+    GraphPass four = pass("four", {}, {}, &log);
+    four.sideEffect = true;
+    four.after = {"three"};
+    g.add_pass(std::move(four));
+    REQUIRE(g.compile().ok());
+    CHECK(g.order_names() == std::vector<std::string>{"one", "two", "three", "four"});
+    REQUIRE(g.cycle_breaks().size() == 1);
+    CHECK(g.cycle_breaks()[0].pass == "two");
+    CHECK(g.cycle_breaks()[0].waitedFor == std::vector<std::string>{"three"});
+    CHECK(g.to_json()["cycleBreaks"].size() == 1);
+    FakePool fp;
+    REQUIRE(g.execute(fp.pool).ok());
+    CHECK(log == std::vector<std::string>{"one", "two", "three", "four"});
+    // The same declaration breaks the same way, and a graph without a cycle records nothing.
+    REQUIRE(g.compile().ok());
+    CHECK(g.order_names() == std::vector<std::string>{"one", "two", "three", "four"});
+    CHECK(g.cycle_breaks().size() == 1);
+    FrameGraph plain;
+    plain.set_cycle_policy(CyclePolicy::Break);
+    plain.add_pass(pass("a", {}, {plain.import_target("t", 1)}));
+    REQUIRE(plain.compile().ok());
+    CHECK(plain.cycle_breaks().empty());
+}
+
+TEST_CASE("frame graph: release_callbacks keeps the dump and refuses to execute") {
+    FrameGraph g;
+    ResourceId screen = g.import_target("screen", 1);
+    std::vector<std::string> log;
+    g.add_pass(pass("a", {}, {screen}, &log));
+    REQUIRE(g.compile().ok());
+    FakePool fp;
+    REQUIRE(g.execute(fp.pool).ok());
+    CHECK(log.size() == 1);
+    g.release_callbacks();
+    CHECK(g.order_names() == std::vector<std::string>{"a"});
+    CHECK(g.to_json()["order"].size() == 1);
+    CHECK_FALSE(g.execute(fp.pool).ok());
+    CHECK(log.size() == 1);
+    g.clear();
+    g.add_pass(pass("b", {}, {g.import_target("screen", 1)}, &log));
+    REQUIRE(g.compile().ok());
+    REQUIRE(g.execute(fp.pool).ok());
+    CHECK(log.size() == 2);
+}
+
 TEST_CASE("frame graph: reading a transient before it is written is an error with a hint") {
     SUBCASE("written by a pass declared later") {
         FrameGraph g;

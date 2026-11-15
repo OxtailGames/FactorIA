@@ -8,7 +8,8 @@
 //   * finds the first and last pass that use each transient and groups the transients whose lifetimes do not overlap
 //     (and that have the same size and formats) in alias slots: one physical target serves a whole slot;
 //   * reports a graph that cannot run (a cycle, a transient read before anything writes it, a name that does not
-//     exist) as an Error that names the passes and the resource and says what to change.
+//     exist) as an Error that names the passes and the resource and says what to change. A graph whose cycle policy is
+//     CyclePolicy::Break (the renderer's order of the render-target jobs) does not fail on a cycle: see below.
 // execute() runs the live passes in order with their physical targets (transients come from a TargetPool and go back
 // to it after their last pass) and records each pass's CPU time. to_json() describes the compiled graph.
 //
@@ -19,6 +20,11 @@
 //   after(name)        an explicit order, by pass name, for the rest (the name may be declared later).
 // Reading a transient that no earlier pass writes is an error (its contents would be garbage); an imported resource
 // can be read without a writer (it already has contents).
+//
+// Cycles: with CyclePolicy::Error (the default) a cycle makes compile() fail. With CyclePolicy::Break, when no pass is
+// ready and some are left, the one declared first goes next as if its unmet dependencies were met (it uses what the
+// resource held before the frame: "the other's picture of the last frame"), and the break is recorded in
+// cycle_breaks() and to_json(). Nothing depends on the CPU or on hash order: the same declaration breaks the same way.
 //
 // Culling: a pass is live when it has side effects, or writes an imported resource (the world sees it), or writes
 // something a live pass reads. Culled passes do not run and their transients are never created.
@@ -47,6 +53,15 @@ struct ResourceId {
 };
 
 class PassContext;
+
+enum class CyclePolicy { Error, Break };
+
+// A pass that went first although it waits for passes that wait for it (CyclePolicy::Break): `waitedFor` are the
+// passes it did not wait for, in declaration order.
+struct CycleBreak {
+    std::string pass;
+    std::vector<std::string> waitedFor;
+};
 
 // One pass as declared.
 struct GraphPass {
@@ -80,6 +95,8 @@ public:
     // Adds a pass; passes run in declaration order unless a dependency says otherwise. Returns its index.
     int add_pass(GraphPass pass);
 
+    // What compile() does with a cycle (see "Cycles" above); Error until set.
+    void set_cycle_policy(CyclePolicy policy) { cyclePolicy_ = policy; }
     // Orders, culls and plans the targets. Call again after changing the declaration.
     Result<void> compile();
     bool compiled() const { return compiled_; }
@@ -88,6 +105,9 @@ public:
     // their last one; whatever the way out, a failure or a pass that throws, none stays acquired). Fails when
     // compile() has not succeeded.
     Result<void> execute(TargetPool& pool);
+
+    // The cycles the last compile() broke (CyclePolicy::Break), in the order they were broken.
+    const std::vector<CycleBreak>& cycle_breaks() const { return breaks_; }
 
     // Per pass of the last execute(): the executed ones in order, then the culled ones.
     const std::vector<PassStats>& stats() const { return stats_; }
@@ -105,6 +125,10 @@ public:
     Json to_json() const;
 
     void clear();  // forget every resource and pass
+    // Forgets what the pass callbacks captured and keeps the declaration, the compiled plan and the stats (what to_json,
+    // order_names and stats show): the renderer calls it after execute(), because the callbacks hold references to
+    // state of the frame that is gone by then. execute() fails after it until the passes are declared again.
+    void release_callbacks();
 
 private:
     friend class PassContext;
@@ -130,6 +154,9 @@ private:
     std::vector<int> order_;  // live passes in execution order (indices into passes_)
     std::size_t slotCount_ = 0;
     bool compiled_ = false;
+    CyclePolicy cyclePolicy_ = CyclePolicy::Error;
+    std::vector<CycleBreak> breaks_;
+    bool released_ = false;  // release_callbacks() ran: the passes cannot execute
     std::vector<PassStats> stats_;
     std::vector<std::uint64_t> physical_;  // per resource, valid while execute() runs
 };

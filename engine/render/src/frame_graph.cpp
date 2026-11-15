@@ -75,6 +75,7 @@ ResourceId FrameGraph::create_transient(const TransientDesc& desc) {
 int FrameGraph::add_pass(GraphPass pass) {
     passes_.push_back(std::move(pass));
     compiled_ = false;
+    released_ = false;
     return int(passes_.size() - 1);
 }
 
@@ -85,8 +86,15 @@ void FrameGraph::clear() {
     order_.clear();
     stats_.clear();
     physical_.clear();
+    breaks_.clear();
     slotCount_ = 0;
     compiled_ = false;
+    released_ = false;
+}
+
+void FrameGraph::release_callbacks() {
+    for (GraphPass& p : passes_) p.execute = nullptr;
+    released_ = true;
 }
 
 const std::string& FrameGraph::resource_name(ResourceId r) const { return resources_[r.index].name; }
@@ -95,6 +103,7 @@ Result<void> FrameGraph::compile() {
     compiled_ = false;
     const int n = int(passes_.size());
     order_.clear();
+    breaks_.clear();
     culled_.assign(std::size_t(n), false);
     slotCount_ = 0;
     for (Resource& r : resources_) {
@@ -205,12 +214,29 @@ Result<void> FrameGraph::compile() {
     }
     std::vector<int> all;
     std::vector<bool> done(std::size_t(n), false);
-    while (!ready.empty()) {
+    while (int(all.size()) < n) {
+        if (ready.empty()) {
+            if (cyclePolicy_ != CyclePolicy::Break) break;
+            // A cycle: the pass declared first of those left goes next, without waiting for the passes that wait for it.
+            int first = 0;
+            while (done[std::size_t(first)]) ++first;
+            CycleBreak cb;
+            cb.pass = passes_[std::size_t(first)].name;
+            std::vector<int> unmet;
+            for (const Edge& e : preds[std::size_t(first)]) {
+                if (!done[std::size_t(e.from)]) unmet.push_back(e.from);
+            }
+            std::sort(unmet.begin(), unmet.end());
+            for (int u : unmet) cb.waitedFor.push_back(passes_[std::size_t(u)].name);
+            breaks_.push_back(std::move(cb));
+            ready.insert(first);
+        }
         int p = *ready.begin();
         ready.erase(ready.begin());
         done[std::size_t(p)] = true;
         all.push_back(p);
         for (int s : succs[std::size_t(p)]) {
+            if (done[std::size_t(s)]) continue;  // a pass that went first through a cycle break
             if (--degree[std::size_t(s)] == 0) ready.insert(s);
         }
     }
@@ -311,6 +337,10 @@ Result<void> FrameGraph::compile() {
 }
 
 Result<void> FrameGraph::execute(TargetPool& pool) {
+    if (released_) {
+        return make_error("Frame graph: execute() called on a graph whose pass callbacks were released.",
+                          "Declare the passes again (clear(), add_pass(), compile()) before executing.");
+    }
     if (!compiled_) {
         return make_error("Frame graph: execute() called on a graph that is not compiled.",
                           "Call compile() after the last add_pass() and check its result.");
@@ -442,6 +472,14 @@ Json FrameGraph::to_json() const {
     j["passes"] = std::move(ps);
     j["order"] = order_names();
     j["culled"] = culled_names();
+    Json breaks = Json::array();
+    for (const CycleBreak& b : breaks_) {
+        Json o = Json::object();
+        o["pass"] = b.pass;
+        o["waitedFor"] = b.waitedFor;
+        breaks.push_back(std::move(o));
+    }
+    j["cycleBreaks"] = std::move(breaks);
     Json slots = Json::array();
     for (std::size_t s = 0; s < slotCount_; ++s) {
         Json names = Json::array();
