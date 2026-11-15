@@ -97,7 +97,7 @@ TEST_CASE("scaffold: AGENTS.md is a crisp guide") {
     CHECK(guide.find("never the bare command") != std::string::npos);
     CHECK(guide.find("docs list") != std::string::npos);        // other docs are found by their summary
     CHECK(guide.find("docs.components") != std::string::npos);  // one component at a time
-    CHECK(guide.find("never the `components` page whole") != std::string::npos);
+    CHECK(guide.find("there is no `components` page to read whole") != std::string::npos);
 }
 
 TEST_CASE("scaffold: refuses non-empty dir unless forced, unknown template teaches") {

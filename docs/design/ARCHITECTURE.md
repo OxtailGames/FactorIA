@@ -57,7 +57,7 @@ tools/             developer tools (desktop only)
   cli/             factoria    the single developer binary
   vscode/          the VS Code extension of the script debugger (plain JS, no build step): embedded in fa_tooling and installed by `factoria setup vscode`; it starts `factoria dap` (docs/DEBUGGING.md)
   bench/           fa_bench    the engine's microbenchmarks (ECS queries, hierarchy, physics, render gather, command dispatch, script bridge, audio mix) with a baseline per machine kind (docs/PERFORMANCE.md, "Microbenchmarks")
-  fuzz/            fuzz targets of the loaders and decoders (libFuzzer with `FA_FUZZ`, a corpus replay ctest otherwise; docs/BUILDING.md, "Fuzzing")
+  fuzz/            fuzz targets of the loaders and decoders (libFuzzer with `FA_FUZZ`, a corpus replay ctest otherwise; docs/design/BUILDING.md, "Fuzzing")
   shaders/         compile_shaders.sh: regenerates the engine's shader headers with sokol-shdc
   feedback-server/ the Cloudflare Worker behind feedback sharing (JavaScript, its own npm tooling; docs/design/FEEDBACK_SHARING.md)
   ci/              docker/: the image of the local Linux CI job (scripts/ci-local.sh)
@@ -68,7 +68,7 @@ docs/              documentation in English (embedded into the binary); translat
 examples/          sample games (also used as integration tests: the `example_*` ctest tests, run in Release builds)
 platforms/         android/ (Gradle), ios/, web/ and plugins/ (the store and ads backend plugins) packaging; windows/ (installer script) and linux/ (AppImage files) for the downloads
 cmake/             CMake functions, platform selection and toolchain files
-scripts/           build, test, CI and packaging scripts for each operating system (docs/BUILDING.md)
+scripts/           build, test, CI and packaging scripts for each operating system (docs/design/BUILDING.md)
 feedback/          ROADMAP.md, done/ (one file per finished milestone) and the feedback collected from the examples
 external/          vendored third-party code (do not edit)
 ```
@@ -349,7 +349,7 @@ Everything the engine reads of a game (scenes, prefabs, textures, sounds, fonts,
 `fa::fs` (`core/fs.h`), by project-relative path (forward slashes, no `..`). The paths are answered from one of three
 sources: the project folder on disk (`set_project_root`), the APK's assets on Android, or a **game pack**: one read-only
 archive (`core/pack.h`) that `fa::fs::mount_pack` mounts, which is how a `--release` desktop export ships a game
-([EXPORTING.md](EXPORTING.md#release-build-gamepak)). While a pack is mounted it answers every project-relative path alone
+([EXPORTING.md](../EXPORTING.md#release-build-gamepak)). While a pack is mounted it answers every project-relative path alone
 (`read_*`, `exists`, `is_directory`, `file_size`, `modified_time`, `list`); absolute paths and writes still go to the host.
 So engine code must not open a game file with `std::ifstream` or `std::filesystem` on a path it built from the project
 folder: use `fs::`, or the file will be missing from a packed game. A pack (format 2) holds each file in checksummed blocks of
@@ -405,7 +405,7 @@ swapped in between is out of scope (it takes a local attacker with write access 
 
 **Windows file rules.** Windows refuses to replace or delete a file another thread has open for reading and moves a file's
 time in steps of about 15.6 ms; POSIX does neither, so bugs that follow from them only showed in the Windows CI job. On
-macOS and Linux the environment variable `FA_FS_WINDOWS_RULES=1` (ctest sets it for every test: docs/BUILDING.md, "Running
+macOS and Linux the environment variable `FA_FS_WINDOWS_RULES=1` (ctest sets it for every test: docs/design/BUILDING.md, "Running
 tests") makes `fa::fs` follow both rules: `fs::ReadStream` (a `std::ifstream` that registers its file while open; `fs::read_*`
 use it) makes `fs::replace_file`, `fs::remove_file`, `fs::remove_tree` and `fs::write_bytes` fail on that file the way Windows
 does, and `fs::modified_time` / `fs::host_modified_time` round down to 15.625 ms. Code that reads a file another thread or
@@ -977,7 +977,7 @@ rim, so it needs no shader change. `Camera.viewportSpace = design` converts the 
 target's in `build_camera`. The pointer side is `fa_ui` (`view.cpp`): the topmost widget under the pointer (`ui_widget_at`)
 decides, and the game event `ui.viewPointer` goes out like the other ui.* events.
 
-**Custom materials** ([guide for game makers](SHADERS.md), [design](design/CUSTOM_SHADERS.md)):
+**Custom materials** ([guide for game makers](../SHADERS.md), [design](CUSTOM_SHADERS.md)):
 
 - *Template and hook points.* `mesh_common.glsl` defines the contract structs (`SurfaceInput`, `Surface`, `VertexData`)
   and calls `vertex(v)` (with `FA_HAS_VERTEX`) inside `fa_shade_vertex`, after the instance and skin matrices, and
@@ -1137,7 +1137,7 @@ Text has ONE layout too: `Fonts::layout` (`render/src/fonts.cpp`) draws screen a
 `Renderer::measure_text` returns its size. `text_shaper.cpp` is the GPU-free part (font chain per character, HarfBuzz shaping,
 SheenBidi reordering, line breaking), so tests can look at glyph ids and positions; `fa/render/fonts.h` is its coverage check
 for tools. Fallback fonts and the text size option live on the `Renderer` (`set_fallback_fonts`, `set_text_scale`). Details for
-game makers: [TEXT.md](TEXT.md).
+game makers: [TEXT.md](../TEXT.md).
 
 ### Animation
 Skeletal animation is GPU-free and lives in `fa_scene`, so simulation and tests never need a renderer:
@@ -1197,7 +1197,7 @@ Skeletal animation is GPU-free and lives in `fa_scene`, so simulation and tests 
   renderer (Latin, CJK, Arabic, the missing-glyph fallback, wrapping, rich text, the text and interface scales) with `==`, and
   one test with no renderer at all checks fixed sizes of the bundled font (4% tolerance) so it also runs where there is no GPU. The
   `TextMeasurer` is kept in step with the project settings only while there is no renderer.
-Game-maker docs: [ANIMATION.md](ANIMATION.md).
+Game-maker docs: [ANIMATION.md](../ANIMATION.md).
 
 ### UI
 Menus and settings screens are components (`Panel`, `Button`, `Toggle`, `Slider`, `TextField`, `ScrollList` in
@@ -1246,11 +1246,11 @@ request is `(method, args)` and gets one answer, a result or `{code, message, hi
   `fa/services/network.h` parses their `factoria.json` sections (`parse_analytics`, `parse_remote_config`) and `factoria
   validate` checks them. The script system ticks them with the unscaled frame time, and runs `app.suspend` and the quit
   flush (`request_quit` and `close_requested` wait up to 3 seconds for a pending request) through hooks of the prelude.
-Docs: [PLATFORM.md](PLATFORM.md), [NETWORKING.md](NETWORKING.md), [ANALYTICS.md](ANALYTICS.md).
+Docs: [PLATFORM.md](../PLATFORM.md), [NETWORKING.md](../NETWORKING.md), [ANALYTICS.md](../ANALYTICS.md).
 
 ### Localization
 Text lives in string tables, `locales/<language>.json`, and the engine shows the player's language (docs:
-[LOCALIZATION.md](LOCALIZATION.md)).
+[LOCALIZATION.md](../LOCALIZATION.md)).
 - **Pure logic** is `fa_core` (`fa/core/i18n.h`): BCP 47 tags and best match, CLDR plural rules, `{placeholder}`
   formatting, table parsing with JSON-pointer errors, and `I18n` (current language, fallback chain current -> base ->
   default, warn once per missing key). It reads files through `fa::fs`.
@@ -1289,7 +1289,7 @@ without a GPU), Metal (macOS), D3D11 with WARP fallback (Windows). Used by
   attached; in the editor, Claude Code attaches the editor's own MCP endpoint,
   so it edits the open scene). API keys live in the user config (`~/.factoria/ai.json`) or env
   vars — never in projects.
-- **Roles** (seven; the table is in [AI_PROVIDERS.md](AI_PROVIDERS.md#roles)): `orchestrator` plans and delegates,
+- **Roles** (seven; the table is in [AI_PROVIDERS.md](../AI_PROVIDERS.md#roles)): `orchestrator` plans and delegates,
   `worker` implements, `fast` handles small mechanical tasks, `artist` makes the art, `audio` makes sound and music, and
   `artCritic` and `reviewer` are read-only critics of the art and of the game. Defaults: Claude Opus 5.5 (`orchestrator`
   `xhigh`; `artist`, `artCritic` and `reviewer` `high`), Claude Sonnet 5.5 (`worker` and `audio`, `medium`), Claude
@@ -1358,10 +1358,10 @@ becomes the engine roadmap.
   `tools/cli/tests/golden/`). One golden serves every backend (Metal, D3D11, GL on llvmpipe). A picture matches when its
   mean error, the share of pixels more than 4/255 off and its largest error are all within the limits of
   `engine/core/tests/golden_check.h`. A golden that does not exist FAILS the test; `FA_UPDATE_GOLDENS=1` writes it
-  (docs/BUILDING.md, "Golden images").
+  (docs/design/BUILDING.md, "Golden images").
 - Game tests: `factoria test` runs `tests/*.test.js` headless.
 - Examples: each has `example_<name>_validate` and `example_<name>_test` ctest tests, and some also an autoplay and a
-  perf budget (label `example`; they run in Release builds, see docs/BUILDING.md).
+  perf budget (label `example`; they run in Release builds, see docs/design/BUILDING.md).
 - Determinism: the maths of the simulation and the replay hashes, below.
 
 ### Determinism of the maths

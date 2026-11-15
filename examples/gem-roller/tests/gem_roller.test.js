@@ -287,7 +287,7 @@ test("the gems are drawn with the pulsing gem material, not the magenta error ma
   const info = fa.call("material.info", { material: "materials/gem.material.json" });
   expect(info.params.map((p) => p.name).sort()).toEqual(["glow", "speed"]);
   if (info.compile.toolFound) {
-    // The shader compiler is installed (CI always has it: docs/BUILDING.md): the material must build and draw.
+    // The shader compiler is installed (CI always has it: docs/design/BUILDING.md): the material must build and draw.
     expect(stats.materialFallbacks).toEqual([]);
     expect(stats.materials).toBeGreaterThan(0);
   } else {

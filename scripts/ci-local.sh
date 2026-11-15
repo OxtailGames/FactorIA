@@ -63,7 +63,7 @@ with_display() {
     else "$@"; fi
 }
 
-# The shader compiler custom materials need, installed the way CI does it (docs/BUILDING.md): the CLI built in $1 runs
+# The shader compiler custom materials need, installed the way CI does it (docs/design/BUILDING.md): the CLI built in $1 runs
 # `factoria setup shaders` (a SOKOL_SHDC that is set counts as installed). The test runs after it get FA_REQUIRE_SHDC=1,
 # which turns the tests that need the compiler from skipped into failed.
 install_shaders() {
@@ -200,7 +200,7 @@ job_sniper() {
 job_web() {
     note "web"
     if [ -z "${EMSDK:-}" ] || [ ! -f "$EMSDK/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake" ]; then
-        record web SKIP "set EMSDK: source emsdk_env.sh of an activated Emscripten SDK 6.0.10 (docs/BUILDING.md, \"Web\")"; return
+        record web SKIP "set EMSDK: source emsdk_env.sh of an activated Emscripten SDK 6.0.10 (docs/design/BUILDING.md, \"Web\")"; return
     fi
     local major; major="$(node --version 2>/dev/null | sed -E 's/^v([0-9]+).*/\1/')"
     if [ -z "$major" ] || [ "$major" -lt 22 ]; then record web SKIP "needs Node 22+ (the emsdk ships one: \$EMSDK/node/*/bin)"; return; fi

@@ -1268,7 +1268,7 @@ animations are not used by the engine yet. Check scale and orientation with `gam
 ### Video
 
 The engine plays one video format on every platform: MPEG-1 video with MP2 sound in an `.mpg` file (decoded on the CPU by
-pl_mpeg; the `Video` component, [COMPONENTS.md](COMPONENTS.md)). `assets.import` of an `.mp4`, `.m4v`, `.mov`, `.webm`,
+pl_mpeg; the `Video` component, `docs.components`). `assets.import` of an `.mp4`, `.m4v`, `.mov`, `.webm`,
 `.mkv` or `.avi` converts it with **ffmpeg**, which does not ship with FactorIA: `factoria setup ffmpeg` installs one, and
 the importer also finds `FACTORIA_FFMPEG`, the `publish.ffmpeg` entry of `export.json`, or an `ffmpeg` in `PATH`. Without
 one the error says so and names the command.
