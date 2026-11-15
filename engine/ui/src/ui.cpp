@@ -342,8 +342,12 @@ void UiSystem::reset() {
     release_platform_keyboard(nullptr);
     askedField_ = kNullEntity;
     focus_ = hover_ = press_ = prevHover_ = hoverFocused_ = kNullEntity;
-    if (imeOn_) ime_set_enabled(false);
+    if (imeOn_) {
+        ime_cancel();
+        ime_set_enabled(false);
+    }
     imeOn_ = false;
+    imeField_ = kNullEntity;
     warnedKnobs_.clear();
     focusCleared_ = false;
     pointerOn_ = pointerDown_ = pointerPrevDown_ = pointerOverUi_ = wheelConsumed_ = false;
@@ -788,6 +792,17 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     lastPointer_ = mouse;
     update_tooltip(w, in, design, dt, measure, mouse, ptrDown);
 
+    // ---- an IME composition belongs to the TextField that had the focus when it began: when the focus moves to another field
+    // or leaves, it is cancelled (here, before the flags below hand it to the new field), and the backend is told to drop it.
+    {
+        const Entity field = focus_ && w.get<TextField>(focus_) ? focus_ : kNullEntity;
+        if (field != imeField_) {
+            if (in.composing()) in.on_composition_cancel();
+            if (imeField_) ime_cancel();
+            imeField_ = field;
+        }
+    }
+
     // ---- runtime flags the renderer and scripts read
     for (const Item& it : items) {
         if (it.custom) {
@@ -851,7 +866,6 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     if (imeWanted != imeOn_) {
         imeOn_ = imeWanted;
         ime_set_enabled(imeWanted);
-        if (!imeWanted && in.composing()) in.on_composition_cancel();  // the field lost the focus: nothing is typed
     }
     if (imeWanted)
         if (const std::optional<Rect> fr = ui_rect(w, focus_, design)) {

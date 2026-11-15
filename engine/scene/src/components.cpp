@@ -3074,7 +3074,9 @@ void register_builtin_components(TypeRegistry& r) {
                 "caretIndex", &TextField::caretIndex,
                 "Where the caret is, in code points from the start of `text` (0 = before the first character). Clamped "
                 "to 0..length of `text` every frame. The editing model that moves it with the arrows, Home / End and "
-                "clicks is M98.6; until then typing still appends at the end.")
+                "clicks is M98.6b; until then caretIndex does NOT follow the caret (typing still appends at the end) "
+                "and "
+                "only holds what a scene or script wrote, clamped.")
             .range(0, 1000000)
             .field(
                 "selectionStart", &TextField::selectionStart,

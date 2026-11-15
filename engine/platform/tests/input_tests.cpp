@@ -1490,13 +1490,12 @@ TEST_CASE("text field editing keys: cut and select all are chords like copy and 
     CHECK(in.select_all_pressed());
     CHECK(in.cut_pressed());
     CHECK_FALSE(in.copy_pressed());
-    CHECK(in.word_modifier_down() == (
 #if defined(__APPLE__)
-                                         false
+    constexpr bool kCtrlIsWordModifier = false;
 #else
-                                         true
+    constexpr bool kCtrlIsWordModifier = true;
 #endif
-                                         ));
+    CHECK(in.word_modifier_down() == kCtrlIsWordModifier);
     in.begin_frame();
     CHECK_FALSE(in.select_all_pressed());  // an edge: gone with the frame
     CHECK_FALSE(in.cut_pressed());
@@ -1508,8 +1507,15 @@ TEST_CASE("text field editing keys: cut and select all are chords like copy and 
     CHECK_FALSE(in.select_all_pressed());
 }
 
+namespace {
+struct ImeStateGuard {  // the IME state is global: every test that touches it starts and ends clean
+    ImeStateGuard() { ime_reset_state(); }
+    ~ImeStateGuard() { ime_reset_state(); }
+};
+}  // namespace
+
 TEST_CASE("IME hook: the requests are kept, repeated ones change nothing, the rectangle needs the IME on") {
-    ime_reset_state();
+    ImeStateGuard guard;
     ime_set_caret_rect({1, 2, 3, 4});  // off: ignored
     CHECK(ime_state().caretRect.w == 0);
     ime_set_enabled(true);
@@ -1519,5 +1525,6 @@ TEST_CASE("IME hook: the requests are kept, repeated ones change nothing, the re
     ime_set_enabled(false);
     CHECK_FALSE(ime_state().enabled);
     CHECK(ime_state().caretRect.w == 0);
-    ime_reset_state();
+    ime_cancel();
+    CHECK(ime_state().cancels == 1);
 }

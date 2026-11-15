@@ -1068,7 +1068,7 @@
       },
       {
        "sig": "readonly composing: boolean",
-       "doc": "True while an input method (IME: Japanese, Chinese, Korean, dead keys) is composing text that is not typed yet: from its first pre-edit string until the player commits it or cancels. The committed text then arrives once in input.text. A focused TextField shows the pre-edit string at its caret and keeps it in TextField.composition. Needs a platform that sends composition events; until then it stays false."
+       "doc": "True while an input method (IME: Japanese, Chinese, Korean, dead keys) is composing text that is not typed yet: from its first pre-edit string until the player commits it or cancels. The committed text then arrives once in input.text. A focused TextField keeps the pre-edit string in TextField.composition (drawn at its caret from M98.6b). Needs a platform that sends composition events (from M98.6c / 6d); until then it stays false."
       },
       {
        "sig": "readonly compositionText: string",

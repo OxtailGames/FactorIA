@@ -17,10 +17,15 @@ void ime_set_enabled(bool enabled) {
     ime_backend_set_enabled(enabled);
 }
 
-void ime_set_caret_rect(Rect windowPixels) {
-    if (!g_state.enabled || same(windowPixels, g_state.caretRect)) return;
-    g_state.caretRect = windowPixels;
-    ime_backend_set_caret_rect(windowPixels);
+void ime_set_caret_rect(Rect framebufferPixels) {
+    if (!g_state.enabled || same(framebufferPixels, g_state.caretRect)) return;
+    g_state.caretRect = framebufferPixels;
+    ime_backend_set_caret_rect(framebufferPixels);
+}
+
+void ime_cancel() {
+    ++g_state.cancels;
+    ime_backend_cancel();
 }
 
 ImeState ime_state() { return g_state; }

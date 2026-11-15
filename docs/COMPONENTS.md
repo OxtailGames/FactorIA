@@ -944,7 +944,7 @@ Single-line text input. While focused it appends the typed characters (Input tex
 | `placeholder` | string | `""` | Hint drawn at half alpha while `text` is empty. |
 | `maxLength` | int | `64` | Longest text, in characters (code points). 0 = unlimited. Range 0..1000000. |
 | `caret` | bool | `false` | Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled clock; it restarts visible on every edit). Drawn only while focused. Read-only. Runtime-only (not saved). |
-| `caretIndex` | int | `0` | Where the caret is, in code points from the start of `text` (0 = before the first character). Clamped to 0..length of `text` every frame. The editing model that moves it with the arrows, Home / End and clicks is M98.6; until then typing still appends at the end. Range 0..1000000. (not released yet, on main after 0.29.1) |
+| `caretIndex` | int | `0` | Where the caret is, in code points from the start of `text` (0 = before the first character). Clamped to 0..length of `text` every frame. The editing model that moves it with the arrows, Home / End and clicks is M98.6b; until then caretIndex does NOT follow the caret (typing still appends at the end) and only holds what a scene or script wrote, clamped. Range 0..1000000. (not released yet, on main after 0.29.1) |
 | `selectionStart` | int | `0` | Start of the selected text, in code points. selectionStart == selectionEnd means nothing is selected. Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd). Clamped to 0..length of `text` every frame. Range 0..1000000. (not released yet, on main after 0.29.1) |
 | `selectionEnd` | int | `0` | End of the selected text, in code points (see selectionStart). Clamped to 0..length of `text` every frame. Range 0..1000000. (not released yet, on main after 0.29.1) |
 | `composition` | string | `""` | Runtime: the text an input method (IME) is composing in this field, UTF-8, "" when none. It is not part of `text` until the player commits it. Only the focused field has one. Read-only. Runtime-only (not saved). (not released yet, on main after 0.29.1) |
@@ -10156,7 +10156,7 @@ declare module "factoria" {
      */
     readonly text: string;
     /**
-     * True while an input method (IME: Japanese, Chinese, Korean, dead keys) is composing text that is not typed yet: from its first pre-edit string until the player commits it or cancels. The committed text then arrives once in input.text. A focused TextField shows the pre-edit string at its caret and keeps it in TextField.composition. Needs a platform that sends composition events; until then it stays false.
+     * True while an input method (IME: Japanese, Chinese, Korean, dead keys) is composing text that is not typed yet: from its first pre-edit string until the player commits it or cancels. The committed text then arrives once in input.text. A focused TextField keeps the pre-edit string in TextField.composition (drawn at its caret from M98.6b). Needs a platform that sends composition events (from M98.6c / 6d); until then it stays false.
      * @since unreleased
      */
     readonly composing: boolean;
@@ -18273,7 +18273,7 @@ declare module "factoria" {
      */
     readonly caret: boolean;
     /**
-     * Where the caret is, in code points from the start of `text` (0 = before the first character). Clamped to 0..length of `text` every frame. The editing model that moves it with the arrows, Home / End and clicks is M98.6; until then typing still appends at the end.
+     * Where the caret is, in code points from the start of `text` (0 = before the first character). Clamped to 0..length of `text` every frame. The editing model that moves it with the arrows, Home / End and clicks is M98.6b; until then caretIndex does NOT follow the caret (typing still appends at the end) and only holds what a scene or script wrote, clamped.
      * @since unreleased
      */
     caretIndex: number;
