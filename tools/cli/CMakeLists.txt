@@ -110,6 +110,14 @@ if(FA_BUILD_TESTS)
             COMMAND ${Python3_EXECUTABLE} -I ${CMAKE_CURRENT_SOURCE_DIR}/tests/mcp_update_test.py $<TARGET_FILE:factoria>
             WORKING_DIRECTORY ${FA_ROOT})
         set_tests_properties(cli_mcp_update PROPERTIES TIMEOUT 300)
+
+        # scripts/player-size.sh (player size budgets, docs/BUILDING.md): the schema of tools/size/player_size_budget.json, the
+        # link map readers (GNU ld, lld, ld64, MSVC) on sample maps, and `measure` on a fake binary over, under and with no
+        # budget, a missing file, `update`, and the archive fallback. Needs no build: a second or two.
+        add_test(NAME player_size_script
+            COMMAND ${Python3_EXECUTABLE} -I ${FA_ROOT}/scripts/player-size.py self-test
+            WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(player_size_script PROPERTIES TIMEOUT 120 LABELS "size")
     endif()
 
     # scripts/agent-cost.sh against a fake engine and a fake CLI (no model, no quota): the wall-clock cap and TERM end the
