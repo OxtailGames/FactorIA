@@ -6,6 +6,8 @@
 // Two targets share the import code (ascii_level::apply_import): the RUNNING world (no `path`), or, with `path`, a scratch World
 // loaded from the scene file and written back to it (import_into_scene_file), which leaves the running engine untouched.
 #include <algorithm>
+#include <array>
+#include <functional>
 #include <map>
 #include <set>
 

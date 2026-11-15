@@ -7,6 +7,7 @@
 #include <functional>
 #include <vector>
 
+#include "confinement_variants.h"
 #include "fa/core/capability.h"
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
@@ -285,42 +286,22 @@ TEST_CASE("capabilities: every command that writes a caller's path confines it (
 
     {
         CommandCallerScope mcp(CommandCaller::Mcp);
-        for (const WriterCase& w : cases) {
-            CAPTURE(w.command);
-            const std::string name = std::string("x") + w.ext;
-            CHECK(error_code(e.commands().call(w.command, w.args("../" + name))) == "path_outside_root");
-            CHECK(error_code(e.commands().call(w.command, w.args((outside.dir / name).generic_string()))) ==
-                  "absolute_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args("/tmp/" + name))) == "absolute_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args(".git/" + name))) == "managed_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args(".factoria/" + name))) == "managed_path_denied");
-            // A plain project path is not refused by the path rules.
-            CHECK_MESSAGE(!path_refused(error_code(e.commands().call(w.command, w.args("out/" + name)))), w.command);
-        }
-        // The Windows spellings are refused on every system (a project moves between them), and a link into a managed folder too.
+        // The same list of spellings for every writer (a link into a managed folder too: "meta" -> ".factoria").
         std::error_code lec;
         stdfs::create_directories(p.dir / ".factoria", lec);
         stdfs::create_directory_symlink(p.dir / ".factoria", p.dir / "meta", lec);
         const bool linked = !lec;
         for (const WriterCase& w : cases) {
             CAPTURE(w.command);
-            const std::string name = std::string("x") + w.ext;
-            CHECK(error_code(e.commands().call(w.command, w.args("scenes\\..\\..\\" + name))) == "path_outside_root");
-            CHECK(error_code(e.commands().call(w.command, w.args("..\\" + name))) == "path_outside_root");
-            CHECK(error_code(e.commands().call(w.command, w.args("C:" + name))) == "absolute_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args("C:/" + name))) == "absolute_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args("C:\\" + name))) == "absolute_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args("\\\\server\\share\\" + name))) ==
-                  "absolute_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args(".GIT/" + name))) == "managed_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args(".Factoria/" + name))) == "managed_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args(".git./" + name))) == "managed_path_denied");
-            CHECK(error_code(e.commands().call(w.command, w.args("a/../.git/" + name))) == "managed_path_denied");
-            if (linked)
-                CHECK(error_code(e.commands().call(w.command, w.args("meta/" + name))) == "managed_path_denied");
-            // A name Windows cannot create is refused for a new file ("conx.scene.json" is a normal name).
-            CHECK_MESSAGE(!path_refused(error_code(e.commands().call(w.command, w.args("out/con" + name)))), w.command);
-            CHECK(error_code(e.commands().call(w.command, w.args("out/nul.x/" + name))) == "invalid_path");
+            for (const fa_test::PathVariant& v :
+                 fa_test::confinement_variants(std::string("x") + w.ext, outside.dir.generic_string(), linked)) {
+                CAPTURE(v.path);
+                const std::string got = error_code(e.commands().call(w.command, w.args(v.path)));
+                if (v.code)
+                    CHECK(got == v.code);
+                else
+                    CHECK_MESSAGE(!path_refused(got), w.command);
+            }
         }
         // input.record: a refused path leaves the recording running; a good one stops it.
         REQUIRE(e.commands().call("input.record", Json::object({{"action", "start"}})).ok);

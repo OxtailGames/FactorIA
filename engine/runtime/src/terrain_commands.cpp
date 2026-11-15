@@ -33,7 +33,7 @@ Tilemap& need_tilemap(Engine::Impl& I, const Json& a, Entity& e) {
     if (!tm)
         throw CommandError(
             "invalid_argument", "Entity '" + I.world.id_of(e) + "' has no Tilemap component",
-            "Pass the id of the entity that holds the Tilemap (scene.import_ascii names it 'tilemap' by default).");
+            "Pass the id of the entity that holds the Tilemap (scene.place_ascii names it 'tilemap' by default).");
     return *tm;
 }
 

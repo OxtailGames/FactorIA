@@ -48,7 +48,7 @@ engine/            runtime modules (ship inside every game)
   runtime/         fa_runtime  Engine (game loop), project file, built-in commands, the command extension hook (command_extension.h); fa/runtime/internal/ is the engine's private state for engine tools (not for games or plugins)
 player/            factoria_player — minimal runtime for exported games; it links fa_runtime and never fa_authoring (the configure fails otherwise)
 tools/             developer tools (desktop only)
-  authoring/       fa_authoring the commands only developer tools use (they write project files: `prefab.save`, `scene.format`, `scene.import_ascii`, `scene.ascii_edit`; more move here); registered into every Engine by `fa::authoring::install()` (the CLI, editor and tests call it), not in the player
+  authoring/       fa_authoring the commands only developer tools use (the scene file commands `prefab.save` and `scene.format`; `anim.*`, `skin.*` and `bones.*` editing and viewing (`anim.pose`, `anim.filmstrip`, `anim.list`); the vfx review commands `vfx.check`, `vfx.budget`, `vfx.filmstrip`; the `mesh.*` tools including `mesh.save`; `scene.import_ascii` and `scene.ascii_edit`); registered into every Engine by `fa::authoring::install()` (the CLI, editor and tests call it), not in the player
   common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export, export (platform settings, icons, exe icon patcher, texture compression with the Basis Universal encoder, atlas packing), setup (one-click install of the JDK, Android SDK, players, CMake), palette lock, AI-content disclosure
   mcp/             fa_mcp      Model Context Protocol server (stdio; loopback HTTP for the editor)
   dap/             fa_dap      Debug Adapter Protocol server of the script debugger (framing, launch validation, DapServer); `factoria dap` runs it
@@ -273,13 +273,13 @@ this engine, not an external program, and the command judges every path it passe
 has a "Capabilities:" line ("not declared yet" while `capabilitiesDeclared` is false); an MCP tool carries them in its
 `_meta` (`factoria/capabilities`, `factoria/capabilitiesDeclared`) and `tool_describe` returns them per command.
 
-A command that writes a file only when the caller passes a `path` (`game.screenshot`, `anim.filmstrip`, `vfx.filmstrip`)
+A command that writes a file only when the caller passes a `path` (`game.screenshot`; the authoring commands `anim.filmstrip` and `vfx.filmstrip` too)
 declares the capabilities of its default behaviour (`{read, state}`: the picture goes under `.factoria/`) and its handler
 calls `resolve_caller_write_path` for the `path`: it needs `writeProject` (`require_capability`) and keeps the file inside
 the project (`fs::resolve_for_write`; an absolute path needs `writeAnywhere`); the schema property carries `"x-fa-path": "write"`.
 `resolve_caller_project_path` is the same check returning the path in the project's own spelling (relative to the project when
 the file is inside it): the runtime's file commands use it for the path they also read back or report, so `scene.save`,
-`scene.import_ascii` (`path`), `scene.ascii_edit` (`file`), `input.record` (`path`), `anim.*` (`path`), `mesh.save`
+`input.record` (`path`) and, in fa_authoring (developer tools only), `scene.import_ascii` (`path`), `scene.ascii_edit` (`file`), `anim.*` (`path`), `mesh.save`
 (`save_mesh_glb(data, path, allowAnywhere)`; a game script's `mesh.save` is always confined to the project) refuse `..`, absolute paths, `.git/` and `.factoria/` (except `.factoria/tmp/`) for an MCP client
 or an agent and check the path before any other work (`input.record` keeps its recording when the path is refused).
 `prefab.save` (`path`) and `scene.format` (`paths`) are confined the same way, and so is the editor's own `scene.save`.

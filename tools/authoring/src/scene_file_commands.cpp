@@ -20,7 +20,7 @@ namespace sfs = std::filesystem;
 
 constexpr const char* kPrefabExt = ".prefab.json";
 constexpr const char* kSceneExt = ".scene.json";
-// scene.import_ascii tags the objects it places with "tilemap:<tilemap id>" (see level_commands.cpp).
+// scene.import_ascii tags the objects it places with "tilemap:<tilemap id>" (see tools/authoring/src/level_commands.cpp).
 constexpr const char* kTilemapTagPrefix = "tilemap:";
 
 [[noreturn]] void bad_arg(const std::string& message, const std::string& hint = {}) {
