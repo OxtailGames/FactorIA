@@ -23,7 +23,7 @@ constexpr const char* kTagPrefix = "tilemap:";
 // Throws CommandError("invalid_argument", message, hint).
 [[noreturn]] void bad_arg(const std::string& message, const std::string& hint = {});
 
-// `v` as an int when it is an integral number (not a string, not 1.5).
+// `v` as an int when it is an integral number within int range (not a string, not 1.5).
 bool as_int(const Json& v, int& out);
 // One UTF-8 character per entry.
 std::vector<std::string> split_glyphs(const std::string& s);

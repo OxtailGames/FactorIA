@@ -609,7 +609,7 @@
     }
     get tilemap() {
       if (!N.hasComp(this.$h, "Tilemap"))
-        throw new Error(`entity '${this.id}' has no Tilemap component; add one with entity.add("Tilemap", {...}) or build it with scene.import_ascii`);
+        throw new Error(`entity '${this.id}' has no Tilemap component; add one with entity.add("Tilemap", {...}) or build it with scene.place_ascii`);
       return new TilemapApi(this.$h);
     }
     get video() {
@@ -2016,7 +2016,7 @@
     get error() { return this.$error; }
     /** How to fix `error`, or "". */
     get hint() { return this.$hint; }
-    /** What tilemap.generate returns (rows, legend, counts, stats...; `placed` has the scene.import_ascii report when `place` was given), or null until done. */
+    /** What tilemap.generate returns (rows, legend, counts, stats...; `placed` has the scene.place_ascii report when `place` was given), or null until done. */
     get result() { return this.$result; }
     /** Attempts started so far (a dead end restarts with the next derived seed). */
     get attempts() { return this.$attempts; }
@@ -2044,7 +2044,7 @@
     if (h.$place) {
       if (N.sceneGeneration() !== h.$gen) return generateFail(h, { message: "the scene that asked for this level is no longer the current one, so its objects were not placed", hint: "Start the generation again in the new scene." }, false);
       const args = Object.assign({}, h.$place, { rows: result.rows, legend: result.legend });
-      // scene.place_ascii is the running-world half of scene.import_ascii: it never writes a file, so a game script (read + state) may place a level.
+      // scene.place_ascii is the running-world half of scene.place_ascii: it never writes a file, so a game script (read + state) may place a level.
       const r = N.callCommand("scene.place_ascii", plain(args));
       if (!r.ok) {
         const err = r.error || {};
@@ -2088,9 +2088,9 @@
         delete args.place;
         if (p === true) place = {};
         else if (p !== null && typeof p === "object" && !Array.isArray(p) && !(p instanceof Entity)) place = Object.assign({}, p);
-        else if (p !== false) throw new Error(`tilemap.generate: \`place\` must be true or an object with the options of scene.import_ascii (entity, tilemap, position, anchor, replace), got ${inspect(p)}`);
+        else if (p !== false) throw new Error(`tilemap.generate: \`place\` must be true or an object with the options of scene.place_ascii (entity, tilemap, position, anchor, replace), got ${inspect(p)}`);
         if (place) {
-          // Checked now: a mistake found by scene.import_ascii would only show after the whole generation, and lose its result.
+          // Checked now: a mistake found by scene.place_ascii would only show after the whole generation, and lose its result.
           const allowed = ["entity", "tilemap", "position", "anchor", "replace"];
           for (const k of Object.keys(place)) {
             if (allowed.includes(k) || ["rows", "legend", "legendFrom", "path", "from", "save", "dryRun"].includes(k)) continue;
@@ -2672,8 +2672,13 @@
       const r = N.callCommand(name, plain(args));
       if (!r.ok) {
         const err = r.error || {};
-        const e = new Error(`${name} failed: ${err.message || "unknown error"}` + (err.hint ? ` (hint: ${err.hint})` : ""));
-        e.code = err.code; e.hint = err.hint;
+        let hint = err.hint;
+        // The mesh, vfx and anim commands of developer tools are not in a shipped game: say which script API a game uses instead.
+        const api = err.code === "unknown_command" && /^(mesh|vfx|anim)\./.exec(String(name));
+        if (api) hint = `${hint ? hint + " " : ""}A shipped game does not have the ${api[1]}.* tool commands (CLI, editor, MCP); ` +
+          (api[1] === "anim" ? "play clips with the Animator component (entity.animator)." : `use the \`${api[1]}\` script API.`);
+        const e = new Error(`${name} failed: ${err.message || "unknown error"}` + (hint ? ` (hint: ${hint})` : ""));
+        e.code = err.code; e.hint = hint;
         if (err.data !== undefined) e.data = err.data; // structured details, e.g. the report of a ToolError(message, hint, data)
         throw e;
       }
