@@ -1,7 +1,9 @@
 // Private implementation of ScriptSystem (QuickJS glue).
 #pragma once
 
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -172,6 +174,7 @@ struct ScriptSystem::Impl {
     struct GuardFrame {
         std::string label;
         double seconds = 0;
+        double cpuStart = 0;     // thread_cpu_seconds() when the guard was pushed (the frame budget times from it)
         double cpuDeadline = 0;  // thread_cpu_seconds() value at which the CPU limit runs out
         std::chrono::steady_clock::time_point wallDeadline;
     };
@@ -184,6 +187,46 @@ struct ScriptSystem::Impl {
     size_t timedOutDepth = 0;  // index in `guards` of the frame that ran out (a caller's frame is below the callee's)
     double timedOutSeconds = 0;
     double callbackLimit = 2.0;
+
+    // ---- budgets (runtime.scriptMemoryMB, runtime.scriptFrameBudgetMs; fa/script/script_budget.h)
+    double memoryLimitMB = 768.0;    // the heap cap of this runtime, resolved for this platform at init
+    bool memoryLimitDefault = true;  // factoria.json did not set it (the error text says so)
+    double frameBudgetMs = 8.0;      // 0 = off
+    // Script time of the frame being played: the entry points of a frame (update, fixed_update, events...) add the time they
+    // took, outermost one only. CPU time of this thread where the platform measures it finely, else the clock (budget_clock).
+    int frameDepth = 0;       // > 0 inside an entry point of a frame
+    double frameSeconds = 0;  // script time of the frame so far
+    std::unordered_map<std::string, double>
+        frameLabels;               // callback label -> time, for the callbacks that took >= 50 us
+    double frameSmallSeconds = 0;  // the time of the callbacks that took less, and how many they were
+    std::uint64_t frameSmallCalls = 0;
+    // Frames still to end that load a scene: on_scene_loaded sets it (2 while the engine's frame is open, since the load is
+    // applied before that frame's end_frame and the next frame runs the onStart calls, else 1), end_frame counts it down and
+    // leaves those frames out of the budget.
+    int loadFramesLeft = 0;
+    bool frameOpen = false;                              // between begin_frame() and end_frame() of the engine's frame
+    static constexpr double kMinLabelSeconds = 0.00005;  // a callback shorter than this is only counted, not named
+    double budgetClock = 0;     // game time (the sum of the frames' dt): the rate limit of the warning counts it
+    double nextBudgetWarn = 0;  // game time before which no further warning is logged
+    std::uint64_t framesOverSinceWarn = 0;
+    bool budgetWarned = false;
+    static double budget_clock();
+    bool budget_active() const { return frameBudgetMs > 0.0 && !debugger; }
+    void end_frame(std::uint64_t frame, double dt);
+    // Adds the time of its lifetime to the frame's script time, unless an outer one already counts it.
+    struct FrameScope {
+        explicit FrameScope(Impl& i) : I(i) {
+            if (I.frameDepth++ == 0 && I.budget_active()) t0 = budget_clock();
+        }
+        ~FrameScope() {
+            --I.frameDepth;
+            if (t0 >= 0.0) I.frameSeconds += std::max(0.0, budget_clock() - t0);
+        }
+        FrameScope(const FrameScope&) = delete;
+        FrameScope& operator=(const FrameScope&) = delete;
+        Impl& I;
+        double t0 = -1.0;
+    };
     // "(> 5 s of CPU time)" or "(> 40 s on the clock)" for the guard that ran out last.
     std::string limit_text(double seconds) const;
     static double thread_cpu_seconds();
@@ -331,6 +374,8 @@ struct ScriptSystem::Impl {
 
     // ================= errors
     ScriptError error_from_exception(JSValueConst exc, const std::string& entityId, const std::string& where);
+    // The heap holds 90% of runtime.scriptMemoryMB or more (an uncaught null then means QuickJS ran out of memory).
+    bool heap_near_cap() const;
     void record_error(ScriptError e, const std::string& where);
     void report_pending_exception(const std::string& entityId, const std::string& where);
 

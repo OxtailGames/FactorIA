@@ -382,7 +382,7 @@ jobs:
 
       - name: Build in the sniper SDK container (GCC 14, static libstdc++)
         id: build
-        run: ./scripts/build-sniper.sh build -- -DFA_WARNINGS_AS_ERRORS=ON
+        run: ./scripts/build-sniper.sh build -- -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
 
       # Saved right after the build (see the linux job: also when it failed or a newer push cancelled it). No trim: ccache is
       # not installed on the host, only in the container, and its own size limit keeps the directory bounded.
@@ -406,6 +406,22 @@ jobs:
 
       - name: Run in the sniper runtime container (version, new project, headless frame)
         run: ./scripts/build-sniper.sh smoke
+
+      # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
+      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets". Last in
+      # the job, so a player over its budget does not skip the tests: one round shows both.
+      - name: Player size (linux-x64)
+        id: size
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ./scripts/player-size.sh measure --platform linux-x64 --build-dir build/linux-sniper --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-linux-x64
+          path: player-size/
+          if-no-files-found: ignore
 
   # Windows: MSVC through the Visual Studio 2022 generator. Headless GPU code
   # uses the D3D11 software adapter (WARP).
@@ -453,7 +469,7 @@ jobs:
         run: '"$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --zero-stats'
 
       - name: Configure (windows-release)
-        run: cmake --preset windows-release -DFA_WARNINGS_AS_ERRORS=ON
+        run: cmake --preset windows-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
 
       - name: Build (windows-release)
         id: build
@@ -536,6 +552,23 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
+      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets". Last in
+      # the job, so a player over its budget does not skip the tests: one round shows both.
+      - name: Player size (windows-x64)
+        id: size
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.shard == 1 }}
+        shell: bash
+        run: ./scripts/player-size.sh measure --platform windows-x64 --build-dir build/windows-release --config Release --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-windows-x64
+          path: player-size/
+          if-no-files-found: ignore
+
   # macOS: Apple Clang + Ninja. The whole suite runs, GPU-labelled tests included: Metal on the runner's GPU, and the
   # editor autotests in a real window of the runner's desktop session.
   macos:
@@ -565,7 +598,7 @@ jobs:
         id: build
         run: |
           ccache --zero-stats
-          cmake --preset macos-release -DFA_WARNINGS_AS_ERRORS=ON
+          cmake --preset macos-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
           cmake --build --preset macos-release -- -k 0
           ccache --show-stats --verbose
 
@@ -626,6 +659,22 @@ jobs:
             build/**/test-output/**/*.png
           if-no-files-found: ignore
           retention-days: 7
+
+      # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
+      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets". Last in
+      # the job, so a player over its budget does not skip the tests: one round shows both.
+      - name: Player size (macos-arm64)
+        id: size
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ./scripts/player-size.sh measure --platform macos-arm64 --build-dir build/macos-release --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-macos-arm64
+          path: player-size/
+          if-no-files-found: ignore
 
   # Microbenchmarks (fa_bench, docs/PERFORMANCE.md, "Microbenchmarks"): a Release build of the benchmark program only, run
   # under Xvfb with Mesa llvmpipe like the tests, and compared with tools/bench/baselines/<runner>.json (runner linux-gcc).
@@ -1048,7 +1097,7 @@ jobs:
         run: |
           EMSDK_QUIET=1 source ~/emsdk/emsdk_env.sh
           emcc --version | head -n 1
-          cmake --preset web-release -DFA_WARNINGS_AS_ERRORS=ON
+          cmake --preset web-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
           cmake --build --preset web-release -- -k 0
           ls -l build/web-release/player
 
@@ -1100,6 +1149,22 @@ jobs:
           if-no-files-found: ignore
           retention-days: 7
 
+      # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
+      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets". Last in
+      # the job, so a player over its budget does not skip the tests: one round shows both.
+      - name: Player size (web-wasm)
+        id: size
+        if: ${{ !cancelled() && steps.build-player.outcome == 'success' }}
+        run: ./scripts/player-size.sh measure --platform web-wasm --build-dir build/web-release --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-web-wasm
+          path: player-size/
+          if-no-files-found: ignore
+
   # Android: arm64-v8a player library with the preinstalled NDK on the runner.
   android:
     name: Android arm64 (NDK, Ninja)
@@ -1123,8 +1188,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ runner.os }}-android-${{ github.run_id }}
-          restore-keys: ccache-${{ runner.os }}-android-
+          key: ccache-${{ runner.os }}-android-release-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-android-release-
 
       # The runner image preinstalls several NDKs; the preset reads ANDROID_NDK_HOME.
       - name: Select the preinstalled NDK
@@ -1135,7 +1200,7 @@ jobs:
       - name: Configure and build factoria_player (android-arm64)
         id: build
         run: |
-          cmake --preset android-arm64 -DFA_WARNINGS_AS_ERRORS=ON
+          cmake --preset android-arm64 -DCMAKE_BUILD_TYPE=Release -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
           cmake --build --preset android-arm64 --target factoria_player -- -k 0
 
       # Trim, save and prune: see the linux job.
@@ -1148,7 +1213,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ runner.os }}-android-${{ github.run_id }}
+          key: ccache-${{ runner.os }}-android-release-${{ github.run_id }}
 
       - name: Delete this ref's older ccaches
         if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
@@ -1156,7 +1221,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-android-
+        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-android-release-
 
       # The player must export ANativeActivity_onCreate (sokol_app) or NativeActivity cannot start it.
       - name: Check the entry points of libfactoria_player.so
@@ -1164,6 +1229,22 @@ jobs:
           nm="$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm"
           "$nm" -D --defined-only build/android-arm64/player/libfactoria_player.so | tee /tmp/symbols.txt
           grep -q ANativeActivity_onCreate /tmp/symbols.txt
+
+      # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
+      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets". Last in
+      # the job, so a player over its budget does not skip the tests: one round shows both.
+      - name: Player size (android-arm64-v8a)
+        id: size
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ./scripts/player-size.sh measure --platform android-arm64-v8a --build-dir build/android-arm64 --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-android-arm64-v8a
+          path: player-size/
+          if-no-files-found: ignore
 
   # Android end to end: `factoria export --platform android` writes the Gradle project and builds the APK itself, with
   # the project's own Gradle wrapper (AGP 8.13 + NDK + CMake 3.31 from the SDK). Slow: builds the host tools and the
@@ -1706,6 +1787,10 @@ jobs:
       # The test split of the Windows and ASan jobs gives every test to exactly one shard (a made-up list: no build needed).
       - name: Test shards are disjoint and complete (scripts/ctest_shard.py --self-test)
         run: python3 scripts/ctest_shard.py --self-test
+
+      # The player and the templates use the public headers of fa_runtime only.
+      - name: Player and templates do not include fa/runtime/internal (scripts/check-player-includes.py)
+        run: python3 scripts/check-player-includes.py
 
       - name: Pick the base of the diff
         id: base

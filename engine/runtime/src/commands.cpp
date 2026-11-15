@@ -546,7 +546,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "and its tools: "
          "only the scratch folder .factoria/tmp/ may be written there (the same rule as fs.write and fs.delete). To "
          "change a "
-         "scene FILE without touching the running world use scene.import_ascii with `path`. Example: "
+         "scene FILE without touching the running world use scene.import_ascii (CLI, editor, MCP) with `path`. "
+         "Example: "
          "scene.save {\"path\":\"scenes/snapshot.scene.json\"}. Entities a script created at runtime (world.spawn, "
          "world.spawnPrefab) and their children are NOT written: the script builds them again when the scene loads, so "
          "saving "
@@ -623,23 +624,19 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                        return Json::object({{"ok", ok}, {"scene", I.currentScene}, {"messages", I.sceneIssues}});
                    });
 
-    register_level_commands(engine, I);  // scene.import_ascii
+    register_level_commands(engine, I);  // scene.place_ascii, tilemap.set_tile, tilemap.cell_at, tilemap.cell_to_world
     register_wfc_commands(engine, I);    // tilemap.generate
     register_terrain_commands(engine,
                               I);  // tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
-    register_scene_file_commands(engine, I);       // prefab.save, scene.format
     register_play_session_commands(engine, I);     // play.sessions, play.report
     register_background_load_commands(engine, I);  // scene.preload, assets.preload, load.status, load.cancel
     register_i18n_commands(engine, I);             // i18n.state, i18n.set_language
     register_ui_check_commands(engine, I);         // ui.check_layout
     register_shot_commands(engine, I);             // game.screenshot, render.inspect, render.pick
-    register_anim_commands(engine, I);             // anim.create_clip, anim.set_keys, anim.list, anim.check, ...
     register_music_commands(engine, I);            // audio.music_state, audio.music
-    register_vfx_commands(engine, I);              // vfx.play, vfx.stop, vfx.list, vfx.check
-    register_mesh_commands(engine, I);  // mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
+    register_vfx_commands(engine, I);              // vfx.play, vfx.stop, vfx.list; fills Impl::vfxHost
     register_feel_commands(engine,
                            I);  // feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.cancel, ...
-    register_bones_commands(engine, I);                  // bones.create, skin.bind, skin.auto_weights, skin.set_weights
     register_platform_commands(I.commands, I.platform);  // platform.state, platform.respond, ... (fa/services)
 
     // --------------------------------------------------------------------- game
@@ -1073,7 +1070,10 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add(
         {"game.logs", "Read recent log lines (engine, scripts, assets...).",
          "Each line has `wallTime`, the computer's local time when it was logged (ISO 8601 with offset). Use `after` "
-         "(a seq from a previous call) to fetch only new lines. Example: game.logs {\"minLevel\":\"warn\",\"max\":50}",
+         "(a seq from a previous call) to fetch only new lines. Script `console.*` lines have category `script`; the "
+         "warning of a "
+         "frame over runtime.scriptFrameBudgetMs has category `script.budget`. Example: game.logs "
+         "{\"minLevel\":\"warn\",\"max\":50}",
          parse_schema(R"({"type":"object","properties":{
                "minLevel":{"type":"string","enum":["trace","debug","info","warn","error"],"default":"info"},
                "after":{"type":"integer","default":0,"description":"Only entries with seq greater than this."},

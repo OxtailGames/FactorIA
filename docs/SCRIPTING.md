@@ -140,6 +140,11 @@ Each issue starts with `file:line:column`:
   name that matches only ignoring case is still reported).
 - **`fa.call("project.<name>")` in a game script** (warning, `file:line`): `<name>` is a command a module under `tools/`
   defines, and `tools/` is left out of an export, so the call fails in the shipped game. `factoria export` warns the same.
+- **`fa.call("<command>")` of a command the exported player lacks** (warning, `file:line:column`; an error for `factoria
+  export`): the player has the runtime commands and the ones of the game's native plugins, not the commands that write project
+  files or author assets (`scene.format`, `prefab.save`...). A misspelled name gets "did you mean"; `mesh.*`, `anim.*` and
+  `scene.import_ascii` name their JS way. Only a string literal is checked, in the scripts that ship (not `tools/`, `tests/` or
+  `scripts/autoplay.js`); a name built at run time (`fa.call(name)`) is not (docs/EXPORTING.md, "What is shipped").
 - **A module whose top level throws** (error): every script is imported in the validating engine, as the game loads it, so
   an exception at the top of the file (or of a module it imports) is reported with its own file and line. A top level that
   reads the scene (`world.find("player").x` outside a function) throws there because no scene is loaded (`factoria
@@ -1511,7 +1516,9 @@ m.update({ positions: newPositions });            // the rest is kept
 - **In the editor.** A procedural mesh in a running (play) scene is picked and outlined by its real bounds and triangles, and the inspector
   shows its vertex and triangle counts next to `MeshRenderer.mesh`.
 
-The same operations are commands (CLI, MCP and the editor's AI): `mesh.create` (the options above as JSON;
+The same operations are commands for the tools that work on a project (the `factoria` CLI, MCP and the editor's AI; the editor's Play
+has them too, the exported player does not, and a game script uses the `mesh` API above, which acts on the same meshes):
+`mesh.create` (the options above as JSON;
 a flat list or lists of triples), `mesh.update {id, ...}`, `mesh.destroy {id}`, `mesh.save {id, path}`, `mesh.list` and
 `mesh.info {id}`. They act on the scene that is loaded in the process that runs them (a mesh lives only as long as that process and scene), and you set the field with
 `scene.set_component {"id": "...", "component": "MeshRenderer", "fields": {"mesh": "mesh:1"}}`.
@@ -1702,7 +1709,7 @@ more fails with code `capability_denied`, before its arguments are looked at, an
 `{read, state}` means a game can read anything and change the running game or the open scene in memory (`scene.spawn`,
 `scene.set_component`, `game.state`, `game.step`, `ui.*`, `vfx.play`, `tilemap.set_tile`...), but cannot write a file
 (`scene.save`, `scene.import_ascii`, `scene.format`, `fs.write`...), reach the network, start a program or spend money:
-a shipped game must not be able to do to a player's machine what a tool does to a project. Do those from the editor,
+a shipped game must not be able to do to a player's machine what a tool does to a project. In the exported player (and `factoria run`) `fa.call` also sees only the commands of the runtime (`Engine::runtime_command_names`); the commands only developer tools need (`scene.import_ascii`, `scene.ascii_edit`, `scene.format`, `prefab.save`, `mesh.*`, `vfx.check`/`budget`/`filmstrip`, `anim.*`, `skin.*`, `bones.*`) are CLI, editor and MCP only, and calling one fails with `unknown_command` and a hint. A game uses the `mesh` and `vfx` script APIs, `scene.place_ascii` for an ASCII level and the Animator component for clips. Do those from the editor,
 from a project tool, with `factoria call`, or from a test that asks for them. A tool a game script calls through
 `fa.call("project.<name>")` runs with the **game's** set (a scope only narrows), so a script cannot widen its permissions
 by going through a tool; a tool called from outside keeps the caller's set, never narrowed to the game's. The callbacks of
@@ -1722,7 +1729,12 @@ game script cannot do something drives it from a behaviour callback (`game.step`
 The engine library asks for no more than that. `tilemap.generate` with `place` places the level with `scene.place_ascii`
 (the in-memory twin of `scene.import_ascii`, `{read, state}`: no `path`, `from`, `save`, `dryRun` or `edits`), and every
 other helper of `factoria` calls only `{read, state}` commands (`game.state` for `game.state()`, `tilemap.generate_start`
-and its steps). A game script that calls `scene.import_ascii` with a `path` itself is refused.
+and its steps). `scene.import_ascii` and `scene.ascii_edit` are authoring commands: an exported game does not have them at all, and
+from the editor's Play a game script that calls one to write a file is refused.
+
+The exported player does not have every command of this table's callers: the commands only developer tools use are left out of
+it, so `fa.call("scene.format")` in a game script fails there as an unknown command. `factoria validate` warns about such a
+call and `factoria export` stops on it (docs/EXPORTING.md, "What is shipped"); scripts under `tools/` and `tests/` may call them.
 
 #### A test asking for more: `capabilities`
 A test that writes a project file (a level rebuilt on disk and compared, a screenshot, a scene saved to check it round-trips)
@@ -2071,6 +2083,9 @@ test files with `factoria test <project> tests/saves.test.js "tests/ui*.test.js"
   "INVALID RUN" in their notes and the cut in `scriptErrors`; (4) a windowed run with `--frames` exits with code 1. Fix
   the loop that spins (the cause is almost always a `while` that never ends or a pathfinding call per frame), do not raise
   the limit. `script.trace` is the one tool that keeps running after a cut, to show where the time goes.
+  Long before the watchdog, `runtime.scriptFrameBudgetMs` (default 8 ms of script time per frame) logs a `script.budget` warning
+  naming the slowest callbacks and marks the frame in the profile; `runtime.scriptMemoryMB` (default 768) is the heap cap,
+  and both can be set per platform (docs/PERFORMANCE.md, "Script budgets").
 - `world.on(name, fn)` listeners get `(data, source)`; `this.on(name, fn)` is the
   same. All listeners/timers are dropped when a scene loads.
 - Unknown input actions, keys, components and fields throw errors with

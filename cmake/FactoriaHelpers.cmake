@@ -202,3 +202,6 @@ function(fa_allow_duplicate_libraries target)
         target_link_options(${target} PRIVATE "LINKER:-no_warn_duplicate_libraries")
     endif()
 endfunction()
+
+# fa_check_not_linked() lives in FactoriaChecks.cmake (it needs no compiler, so a test can configure with it alone).
+include("${CMAKE_CURRENT_LIST_DIR}/FactoriaChecks.cmake")

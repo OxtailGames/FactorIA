@@ -57,7 +57,10 @@ ctest --test-dir build/dev --output-on-failure
   globbed: adding a `.cpp` needs no CMake edit. Platform files use suffixes `_linux`, `_win32`, `_apple` (.m/.mm),
   `_android`, `_posix`, `_egl`, `_web` (cmake/FactoriaHelpers.cmake).
 - Module dependency order; a module never includes a module below it:
-  `core -> scene -> platform -> render, physics, audio, ui, services -> script -> runtime -> tooling -> mcp, dap, ai -> editor -> cli`.
+  `core -> scene -> platform -> render, physics, audio, ui, services -> script -> runtime -> authoring -> tooling -> mcp, dap, ai -> editor -> cli`.
+  `engine/` ships in every game; `tools/authoring` (`fa_authoring`) holds the commands only the editor, CLI and MCP need
+  (they write project files, import assets, edit animations): never add one to `engine/runtime` (docs/ARCHITECTURE.md,
+  "Where a command goes").
 - No exceptions across module boundaries (except `fa::CommandError` inside command handlers). Use `fa::Result<T>`
   with message + hint.
 - Errors must teach: location (file, JSON pointer, line), what is wrong, how to fix it, and "did you mean"

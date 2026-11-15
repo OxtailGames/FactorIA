@@ -122,15 +122,16 @@ TEST_CASE("validate scripts: a game script that calls a command of a tool warns 
     const std::string dir = make_game(tmp);
     write_script(dir, "tools/scatter.js",
                  "export default { name: \"scatter\", summary: \"x\", run() { return {}; } };\n");
-    write_script(dir, "scripts/uses.js",
-                 "import { Behaviour, fa } from \"factoria\";\nexport default class U extends Behaviour {\n"
-                 "  onStart() {\n    fa.call(\"project.scatter\", {});\n    fa.call(\"scene.list\");\n  }\n}\n");
+    write_script(
+        dir, "scripts/uses.js",
+        "import { Behaviour, fa } from \"factoria\";\nexport default class U extends Behaviour {\n"
+        "  onStart() {\n    fa.call(\"project.scatter\", {});\n    fa.call(\"scene.list_entities\");\n  }\n}\n");
     const ValidationReport r = validate_with_engine(dir);
     const ValidationIssue* w =
         find_issue(r.warnings, "scripts/uses.js:4 calls project.scatter, the command of tools/scatter.js");
     REQUIRE(w != nullptr);
     CHECK(r.ok);
-    CHECK(find_issue(r.warnings, "scene.list") == nullptr);
+    CHECK(find_issue(r.warnings, "scene.list_entities") == nullptr);
 }
 
 TEST_CASE("validate scripts: a module whose top level throws is an error with the file and line of the throw, once") {

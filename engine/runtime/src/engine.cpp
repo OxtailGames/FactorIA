@@ -15,11 +15,13 @@
 #include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
 #include "fa/platform/app.h"
+#include "fa/runtime/command_extension.h"
 #include "fa/runtime/platform_backend.h"
 #include "fa/runtime/plugins.h"
 #include "fa/scene/camera_mask.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/feel.h"
+#include "fa/script/script_budget.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/ik3d.h"
@@ -552,6 +554,8 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     const LoadTrace::ReadingFor reading(traceOwner);  // play.auto and the headless runner call this directly
     const bool profiled = !inFrame;  // a nested frame (a script stepping the game) belongs to the outer one
     if (profiled) Profiler::get().begin_frame();  // no-op unless the profiler is on (fa/core/profiler.h); measures only
+    if (profiled)
+        scripts.begin_frame();  // so a scene load applied at the end of this frame is told apart (script budget)
     inFrame = true;
     set_log_frame(frame);
     // OnDemand: debug-draw primitives of undrawn frames are dropped (immediate mode: one frame each), but the last
@@ -695,6 +699,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         ProfSystemScope prof(ProfSystem::EndOfFrame);
         end_of_frame(dt);
     }
+    if (profiled) scripts.end_frame(frame, dt);  // the script time of this frame against runtime.scriptFrameBudgetMs
     ++frame;
     if (recorder.recording())
         recorder.timing(frame, dt, fixedSteps, fixedDt);  // [dt, steps] of the frame that just ran
@@ -928,11 +933,14 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     device_overridden(
         device_info());  // MusicPlayer.mode "auto" chooses between live synthesis and stems for this device (docs/MUSIC.md)
     register_builtin_commands(*this, I);  // before scripts.init: JS tools (tools/*.js) are added on top
+    I.runtimeCommandNames.clear();        // what an exported player has: before plugins and the tools' extensions
+    for (const CommandInfo* info : I.commands.list()) I.runtimeCommandNames.push_back(info->name);
     // Native plugins: their commands, and their functions for the scripts (plugins.<name>), before scripts.init.
     PluginInstall installed = install_plugins(I.project, dir, config.pluginDir, I.commands, I.scripts);
     for (std::string& problem : installed.problems) I.startupProblems.push_back(std::move(problem));
     I.pluginSteamDeck = installed.steamDeck;
-    plugin_take_submitted_text();  // text meant for an earlier engine of this process
+    run_command_extensions(*this);  // the commands of developer tools (tools/authoring): none in a player
+    plugin_take_submitted_text();   // text meant for an earlier engine of this process
     if (!installed.textInputs.empty()) {
         // The platform's own keyboard: the first plugin that answers 1 takes the field and is told when it loses the focus.
         auto taker = std::make_shared<int>(-1);
@@ -1083,6 +1091,8 @@ void Engine::begin_load_trace() {
 }
 
 LoadTrace::Owner Engine::load_trace_owner() const { return impl_->traceOwner; }
+
+std::vector<std::string> Engine::runtime_command_names() const { return impl_->runtimeCommandNames; }
 
 Json Engine::loading_report() const {
     if (!impl_->loadTrace) return Json();
@@ -1424,7 +1434,14 @@ Json Engine::state(const Json& query) {
     for (const std::string& s : I.sceneIssues) issues.push_back(s);
     out["sceneIssues"] = issues;
     Json logs = Json::array();
-    for (const LogEntry& l : recent_logs(50, LogLevel::Warn, I.logSeqAtInit)) {
+    // The script budget's warning carries measured milliseconds (a loaded machine logs it, a fast one does not): it stays
+    // out of the dump (game.logs, play.report and the console show it). Taken before the cut to 50, so it never pushes a real
+    // warning out.
+    std::vector<LogEntry> kept;
+    for (const LogEntry& l : recent_logs(200, LogLevel::Warn, I.logSeqAtInit))
+        if (l.category != kScriptBudgetLogCategory) kept.push_back(l);
+    if (kept.size() > 50) kept.erase(kept.begin(), kept.end() - 50);
+    for (const LogEntry& l : kept) {
         // Only this engine's logs, and no wall-clock time / global seq: state dumps must be reproducible.
         logs.push_back(Json::object({{"frame", l.frame},
                                      {"level", log_level_name(l.level)},

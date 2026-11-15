@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "fa/core/fs.h"
+#include "fa/core/log.h"
 #include "fa/core/profiler.h"
 #include "fa/runtime/engine.h"
 
@@ -147,6 +148,115 @@ TEST_CASE("profiler: run_headless reports systems, behaviour classes, gpu and me
     CHECK(prof["memory"]["peak"]["processMB"].get<double>() > 0.0);
     CHECK(prof["memory"]["end"]["jsHeapMB"].get<double>() > 0.0);
     CHECK_FALSE(Profiler::on());  // switched back off when the run ended
+}
+
+TEST_CASE("profiler: the frames over runtime.scriptFrameBudgetMs are counted in overBudget, and a warning is logged") {
+    auto run = [](const char* budget) {
+        Project p;
+        std::string file = kProject;
+        file.insert(file.rfind('}'), std::string(R"(, "runtime": { "scriptFrameBudgetMs": )") + budget + " }");
+        p.write("factoria.json", file);
+        clear_recent_logs();
+        HeadlessRunOptions o;
+        o.frames = 40;
+        o.profile = true;
+        o.profileWarmup = 5;
+        Json report;
+        REQUIRE(run_headless(headless(p), o, &report) == 0);
+        REQUIRE(report.contains("profile"));
+        return report["profile"]["overBudget"];
+    };
+    int warnings = 0;
+    const Json tiny = run("0.001");  // every frame runs the busy behaviour: all 35 counted frames are over
+    REQUIRE(tiny.size() == 1);
+    CHECK(tiny[0]["name"] == "scripts");
+    CHECK(tiny[0]["frames"] == 35);
+    CHECK(tiny[0]["limitMs"].get<double>() == doctest::Approx(0.001));
+    CHECK(tiny[0]["maxMs"].get<double>() > 0.001);
+    for (const LogEntry& e : recent_logs(4096, LogLevel::Warn))
+        if (e.category == "script.budget" && e.message.find("runtime.scriptFrameBudgetMs") != std::string::npos) {
+            ++warnings;
+            CHECK(e.message.find("scripts/busy.js#onUpdate") != std::string::npos);
+        }
+    CHECK(warnings == 1);  // 40 frames over budget, one line
+
+    const Json off = run("0");
+    CHECK(off.empty());
+    for (const LogEntry& e : recent_logs(4096, LogLevel::Warn))
+        CHECK(e.message.find("runtime.scriptFrameBudgetMs") == std::string::npos);
+}
+
+TEST_CASE("profiler: the script budget warning is in the logs but never in a state dump") {
+    Project p;
+    std::string file = kProject;
+    file.insert(file.rfind('}'), R"(, "runtime": { "scriptFrameBudgetMs": 0.001 })");
+    p.write("factoria.json", file);
+    clear_recent_logs();
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless(p), nullptr, &err), err);
+    e.step(10);
+    int logged = 0;
+    for (const LogEntry& l : recent_logs(4096, LogLevel::Warn))
+        if (l.category == "script.budget") ++logged;  // what game.logs, the console and play.report read
+    CHECK(logged == 1);
+    const Json st = e.state();
+    REQUIRE(st.contains("recentLogs"));
+    for (const Json& l : st["recentLogs"]) CHECK(l["category"] != "script.budget");  // measured ms: not reproducible
+    e.shutdown();
+}
+
+TEST_CASE("profiler: the frames of a scene change a script asks for are not over the script budget") {
+    Project p;
+    std::string file = kProject;
+    file.replace(file.find("scenes/main.scene.json"), 22, "scenes/a.scene.json");
+    file.insert(file.rfind('}'), R"(, "runtime": { "scriptFrameBudgetMs": 30 })");
+    p.write("factoria.json", file);
+    auto scene = [](const char* script) {
+        return std::string(R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},)") +
+               R"({"id":"s","components":{"Script":{"path":")" + script + R"("}}}]})";
+    };
+    p.write("scenes/a.scene.json", scene("scripts/a.js"));
+    p.write("scenes/b.scene.json", scene("scripts/b.js"));
+    // The engine applies the change in end_of_frame, before the frame's end_frame: that frame and the next one (the onStart
+    // calls of the new scene) carry the load, and neither is measured against the budget.
+    p.write("scripts/a.js", R"(import { Behaviour, scene } from "factoria";
+export default class A extends Behaviour {
+  onUpdate() {
+    this.n = (this.n || 0) + 1;
+    if (this.n == 3) scene.load("scenes/b.scene.json");
+  }
+}
+)");
+    p.write("scripts/b.js", R"(import { Behaviour } from "factoria";
+function spin() { let x = 0; for (let i = 0; i < 20000000; i++) x += i; return x; }
+export default class B extends Behaviour {
+  onStart() { spin(); }  // far over 30 ms: the loading frame
+  onUpdate() {
+    this.n = (this.n || 0) + 1;
+    if (this.n == 4) spin();  // the same work in an ordinary frame: this one IS over the budget
+  }
+}
+)");
+    clear_recent_logs();
+    Profiler::get().set_enabled(true);
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless(p), nullptr, &err), err);
+    std::vector<int> overFrames;
+    for (int i = 0; i < 9; ++i) {
+        e.step(1);
+        if (!Profiler::get().last().overBudget.empty()) overFrames.push_back(i);
+    }
+    e.shutdown();
+    Profiler::get().set_enabled(false);
+    // a.js loads b on frame 2; b's onStart runs in frame 3 (loading), its 4th onUpdate in frame 6.
+    REQUIRE(overFrames.size() == 1);
+    CHECK(overFrames[0] == 6);
+    int warnings = 0;
+    for (const LogEntry& l : recent_logs(4096, LogLevel::Warn))
+        if (l.category == "script.budget") ++warnings;
+    CHECK(warnings == 1);
 }
 
 TEST_CASE("profiler: a run without it has no profile section, and it costs nothing to leave off") {

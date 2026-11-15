@@ -1,0 +1,22 @@
+# Fixture of cmake/tests/check_not_linked_test.cmake: a configure-only project (no compiler) whose `player` target reaches
+# `forbidden` the way the variable LINK_STYLE says; fa_check_not_linked must fail the configure, or pass for `none`.
+cmake_minimum_required(VERSION 3.20)
+project(not_linked LANGUAGES NONE)
+include("${FA_ROOT}/cmake/FactoriaChecks.cmake")
+
+add_library(forbidden INTERFACE)
+add_library(middle INTERFACE)
+add_library(player INTERFACE)
+target_link_libraries(player INTERFACE middle)
+if(LINK_STYLE STREQUAL "direct")
+    target_link_libraries(player INTERFACE forbidden)
+elseif(LINK_STYLE STREQUAL "indirect")
+    target_link_libraries(middle INTERFACE forbidden)
+elseif(LINK_STYLE STREQUAL "link_only")
+    target_link_libraries(middle INTERFACE $<LINK_ONLY:forbidden>)
+elseif(LINK_STYLE STREQUAL "config")
+    target_link_libraries(middle INTERFACE $<$<CONFIG:Release>:forbidden>)
+elseif(NOT LINK_STYLE STREQUAL "none")
+    message(FATAL_ERROR "unknown LINK_STYLE '${LINK_STYLE}'")
+endif()
+fa_check_not_linked(player forbidden)

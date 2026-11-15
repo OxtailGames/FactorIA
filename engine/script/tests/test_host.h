@@ -38,6 +38,7 @@ struct TestHost : ScriptHost {
     Json proj = Json::object();
     ScriptSystem scripts;
     double fdt = 1.0 / 60.0;
+    std::uint64_t framesRun = 0;  // step_frames calls scripts.end_frame with it
     std::string pendingScene;
     bool quitRequested = false;
     std::string initError;
@@ -134,6 +135,7 @@ struct TestHost : ScriptHost {
     }
     void step_frames(int n) override {
         for (int i = 0; i < n; ++i) {
+            scripts.begin_frame();
             float dt = static_cast<float>(fdt);
             platformServices.frame();
             scripts.dispatch_platform();
@@ -156,6 +158,7 @@ struct TestHost : ScriptHost {
                 pendingScene.clear();
                 load_scene_now(s);
             }
+            scripts.end_frame(framesRun++, fdt);  // after the scene change, as the engine's end_of_frame comes first
         }
     }
 };

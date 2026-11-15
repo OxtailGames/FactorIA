@@ -324,6 +324,66 @@
           "maximum": 1024,
           "default": 16,
           "description": "Background loading: how many megabytes of textures and meshes a frame may upload to the GPU, in a game with a window (the frame stops taking files once it passed this; at least one file per frame). Default 16."
+        },
+        "scriptMemoryMB": {
+          "description": "Heap cap of the scripts in megabytes (docs/PERFORMANCE.md, \"Script budgets\"): a script that needs more fails with 'out of memory', and the error names this setting and its value. A number for every platform, or an object with one number per platform: {\"default\": 768, \"android\": 384, \"web\": 256} (platforms: windows, macos, linux, ios, android, web; \"default\" covers the others). Default 768 on every platform. From 16 to 2048.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 16,
+              "maximum": 2048
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "default",
+                  "windows",
+                  "macos",
+                  "linux",
+                  "ios",
+                  "android",
+                  "web"
+                ]
+              },
+              "additionalProperties": {
+                "type": "number",
+                "minimum": 16,
+                "maximum": 2048
+              }
+            }
+          ],
+          "default": 768
+        },
+        "scriptFrameBudgetMs": {
+          "description": "Script time budget of one frame in milliseconds (docs/PERFORMANCE.md, \"Script budgets\"): when the callbacks, timers, event handlers and promise jobs of a frame add up to more, the engine logs a warning in category `script.budget` (the slowest callbacks, this setting) at most once every 5 seconds of game time, marks the frame in the profiler (`overBudget` of the profile) and play.report lists the warning. The frames that load a scene are not counted. 0 turns it off. A number for every platform, or an object with one number per platform like scriptMemoryMB. Default 8. It never stops a script (the watchdog does that, after 2 seconds) and never changes what the game computes.",
+          "oneOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1000
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "enum": [
+                  "default",
+                  "windows",
+                  "macos",
+                  "linux",
+                  "ios",
+                  "android",
+                  "web"
+                ]
+              },
+              "additionalProperties": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1000
+              }
+            }
+          ],
+          "default": 8
         }
       }
     },
