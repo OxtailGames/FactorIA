@@ -9,15 +9,16 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     const sg_swapchain& sc = swapchain.get();
     im.scaleMode = mode;
     Viewport vp = compute_viewport(mode, fbW, fbH, im.targetW, im.targetH);
-    sg_pass pass{};
-    pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-    pass.action.colors[0].clear_value = {0, 0, 0, 1};
-    pass.swapchain = sc;
+    PassDesc pass = PassDesc::for_swapchain(sc);
     pass.label = "present";
-    sg_begin_pass(&pass);
+    pass.colorLoad = SG_LOADACTION_CLEAR;  // the letterbox bars
+    pass.clearColor = {0, 0, 0, 1};
+    pass.colorStore = SG_STOREACTION_STORE;
+    pass.depthLoad = SG_LOADACTION_CLEAR;  // what sokol did for the pass it was given (SG_LOADACTION_DEFAULT is CLEAR)
+    pass.stencilLoad = SG_LOADACTION_CLEAR;
+    im.gpu.begin_pass(pass);
     sg_apply_viewportf(vp.x, vp.y, vp.w, vp.h, true);
-    sg_apply_pipeline(
-        im.gpu.blit_pipeline(sc.color_format, sc.depth_format, sc.sample_count > 0 ? sc.sample_count : 1));
+    sg_apply_pipeline(im.gpu.blit_pipeline(pass.format));
     sg_bindings b{};
     b.vertex_buffers[0] = im.gpu.fullscreen_triangle();
     b.views[VIEW_blit_tex] = im.final_view();
@@ -28,7 +29,7 @@ void Renderer::present(const GfxSwapchain& swapchain, int fbW, int fbH, ScaleMod
     u.flip[0] = im.gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(UB_blit_blit_vs_params, u);
     sg_draw(0, 3, 1);
-    sg_end_pass();
+    im.gpu.end_pass();
     sg_commit();
     im.gpu.note_commit();
     im.inFrame = false;

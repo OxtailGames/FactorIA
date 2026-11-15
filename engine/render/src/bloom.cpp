@@ -51,14 +51,15 @@ void apply_uniforms(int slot, const T& u) {
 template <class U>
 void run_pass(Gpu& gpu, sg_pixel_format fmt, BloomStage stage, sg_view srcTex, const BloomTarget& dst, bool additive,
               const U* fsParams, int fsSlot, const char* label) {
-    sg_pass p{};
-    p.action.colors[0].load_action = additive ? SG_LOADACTION_LOAD : SG_LOADACTION_DONTCARE;
-    p.action.colors[0].store_action = SG_STOREACTION_STORE;
-    p.attachments.colors[0] = dst.att;
-    if (dst.resolve.id) p.attachments.resolves[0] = dst.resolve;
+    PassDesc p;
     p.label = label;
-    sg_begin_pass(&p);
-    sg_apply_pipeline(gpu.bloom_pipeline(stage, TargetFormat{fmt, SG_PIXELFORMAT_NONE, dst.samples}));
+    p.color = dst.att;
+    p.resolve = dst.resolve;  // id 0 when the pass does not resolve
+    p.format = TargetFormat{fmt, SG_PIXELFORMAT_NONE, dst.samples};
+    p.colorLoad = additive ? SG_LOADACTION_LOAD : SG_LOADACTION_DONTCARE;
+    p.colorStore = SG_STOREACTION_STORE;
+    gpu.begin_pass(p);
+    sg_apply_pipeline(gpu.bloom_pipeline(stage, p.format));
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_bloom_tex] = srcTex;
@@ -69,7 +70,7 @@ void run_pass(Gpu& gpu, sg_pixel_format fmt, BloomStage stage, sg_view srcTex, c
     apply_uniforms(UB_bloom_bloom_vs_params, vu);
     if (fsParams) apply_uniforms(fsSlot, *fsParams);
     sg_draw(0, 3, 1);
-    sg_end_pass();
+    gpu.end_pass();
 }
 
 }  // namespace
@@ -86,14 +87,7 @@ BloomSettings sanitize_bloom(bool enabled, float threshold, float intensity, flo
 
 void Bloom::release() {
     for (Level& l : levels_) {
-        for (sg_view* v : {&l.att[0], &l.att[1], &l.tex[0], &l.tex[1]}) {
-            if (v->id) sg_destroy_view(*v);
-            *v = {};
-        }
-        for (sg_image& i : l.img) {
-            if (i.id) sg_destroy_image(i);
-            i = {};
-        }
+        for (Target& t : l.t) destroy_target(t);
         l.w = l.h = 0;
     }
     targetW_ = targetH_ = 0;
@@ -105,26 +99,15 @@ bool Bloom::ensure(int level, int targetW, int targetH, bool needSecond, sg_pixe
     l.w = std::max(1, (targetW + div - 1) / div);
     l.h = std::max(1, (targetH + div - 1) / div);
     for (int i = 0; i < (needSecond ? 2 : 1); ++i) {
-        if (l.img[i].id) continue;
-        sg_image_desc d{};
-        d.usage.color_attachment = true;
+        if (l.t[i].color.id) continue;
+        TargetDesc d;
+        d.label = "bloom-level";
         d.width = l.w;
         d.height = l.h;
-        d.pixel_format = fmt;
-        d.sample_count = 1;
-        d.label = "bloom-level";
-        l.img[i] = make_image(d);
-        sg_view_desc av{};
-        av.color_attachment.image = l.img[i];
-        av.label = "bloom-level-att";
-        l.att[i] = sg_make_view(&av);
-        sg_view_desc tv{};
-        tv.texture.image = l.img[i];
-        tv.label = "bloom-level-tex";
-        l.tex[i] = sg_make_view(&tv);
-        if (sg_query_image_state(l.img[i]) != SG_RESOURCESTATE_VALID ||
-            sg_query_view_state(l.att[i]) != SG_RESOURCESTATE_VALID ||
-            sg_query_view_state(l.tex[i]) != SG_RESOURCESTATE_VALID) {
+        d.colorFormat = fmt;
+        l.t[i] = make_target(d);
+        if (!l.t[i].valid()) {
+            destroy_target(l.t[i]);
             if (!warned_) {
                 warned_ = true;
                 FA_ERROR("render", "Camera.bloom: cannot create the {}x{} intermediate target; bloom is skipped", l.w,
@@ -159,14 +142,14 @@ int Bloom::apply(Gpu& gpu, const BloomSettings& s, int targetW, int targetH, sg_
         u.p[2] = s.threshold;
         u.p[3] = 1.0f / std::max(1.0f - s.threshold, 1.0f / 255.0f);
         u.q[0] = plan.first == 0 ? 2.0f : 4.0f;
-        run_pass(gpu, fmt, BloomStage::Bright, srcTex, BloomTarget{levels_[plan.first].att[0]}, false, &u,
+        run_pass(gpu, fmt, BloomStage::Bright, srcTex, BloomTarget{levels_[plan.first].t[0].colorAtt}, false, &u,
                  UB_bloom_bloom_bright_params, "bloom-bright");
         ++passes;
     }
     // 2. downsample to the working level.
     for (int l = plan.first + 1; l <= plan.level; ++l) {
-        run_pass<bloom_bloom_bright_params_t>(gpu, fmt, BloomStage::Down, levels_[l - 1].tex[0],
-                                              BloomTarget{levels_[l].att[0]}, false, nullptr, 0, "bloom-down");
+        run_pass<bloom_bloom_bright_params_t>(gpu, fmt, BloomStage::Down, levels_[l - 1].t[0].texView,
+                                              BloomTarget{levels_[l].t[0].colorAtt}, false, nullptr, 0, "bloom-down");
         ++passes;
     }
     // 3. separable gaussian at the working level: A -> B (horizontal), B -> A (vertical).
@@ -178,19 +161,19 @@ int Bloom::apply(Gpu& gpu, const BloomSettings& s, int targetW, int targetH, sg_
         u.p[3] = std::ceil(plan.halfWidth);
         u.p[0] = 1.0f / float(w.w);
         u.p[1] = 0.0f;
-        run_pass(gpu, fmt, BloomStage::Blur, w.tex[0], BloomTarget{w.att[1]}, false, &u, UB_bloom_bloom_blur_params,
-                 "bloom-blur-h");
+        run_pass(gpu, fmt, BloomStage::Blur, w.t[0].texView, BloomTarget{w.t[1].colorAtt}, false, &u,
+                 UB_bloom_bloom_blur_params, "bloom-blur-h");
         u.p[0] = 0.0f;
         u.p[1] = 1.0f / float(w.h);
-        run_pass(gpu, fmt, BloomStage::Blur, w.tex[1], BloomTarget{w.att[0]}, false, &u, UB_bloom_bloom_blur_params,
-                 "bloom-blur-v");
+        run_pass(gpu, fmt, BloomStage::Blur, w.t[1].texView, BloomTarget{w.t[0].colorAtt}, false, &u,
+                 UB_bloom_bloom_blur_params, "bloom-blur-v");
         passes += 2;
     }
     // 4. composite: game target += glow * intensity (bilinear upsample from the working level).
     {
         bloom_bloom_composite_params_t u{};
         u.p[0] = s.intensity;
-        run_pass(gpu, fmt, BloomStage::Composite, levels_[plan.level].tex[0], dst, true, &u,
+        run_pass(gpu, fmt, BloomStage::Composite, levels_[plan.level].t[0].texView, dst, true, &u,
                  UB_bloom_bloom_composite_params, "bloom-composite");
         ++passes;
     }

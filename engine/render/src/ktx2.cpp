@@ -15,14 +15,14 @@ namespace fa::render {
 
 namespace {
 
-struct Target {
+struct TranscodeTarget {
     sg_pixel_format gpu;
     basist::transcoder_texture_format basis;
     const char* name;  // what FA_TEXTURE_FORMAT calls it
 };
 
 // Best first: ASTC 4x4 is what mobile GPUs sample, BC7 what desktop GPUs sample, and every GLES3 device samples ETC2.
-constexpr Target kTargets[] = {
+constexpr TranscodeTarget kTargets[] = {
     {SG_PIXELFORMAT_ASTC_4x4_RGBA, basist::transcoder_texture_format::cTFASTC_4x4_RGBA, "astc"},
     {SG_PIXELFORMAT_BC7_RGBA, basist::transcoder_texture_format::cTFBC7_RGBA, "bc7"},
     {SG_PIXELFORMAT_ETC2_RGBA8, basist::transcoder_texture_format::cTFETC2_RGBA, "etc2"},
@@ -32,10 +32,10 @@ std::uint32_t readle32(const std::uint8_t* p) {
     return std::uint32_t(p[0]) | std::uint32_t(p[1]) << 8 | std::uint32_t(p[2]) << 16 | std::uint32_t(p[3]) << 24;
 }
 
-const Target* pick_target() {
+const TranscodeTarget* pick_target() {
     const char* forced = std::getenv("FA_TEXTURE_FORMAT");
     const std::string only = forced ? to_lower(forced) : std::string();
-    for (const Target& t : kTargets) {
+    for (const TranscodeTarget& t : kTargets) {
         if (!only.empty() && only != t.name) continue;
         const sg_pixelformat_info info = sg_query_pixelformat(t.gpu);
         if (info.sample && info.filter) return &t;
@@ -55,7 +55,7 @@ const char* pixel_format_name(sg_pixel_format format) {
 }
 
 sg_pixel_format ktx2_target_format() {
-    const Target* t = pick_target();
+    const TranscodeTarget* t = pick_target();
     return t ? t->gpu : SG_PIXELFORMAT_RGBA8;
 }
 
@@ -101,9 +101,9 @@ Result<TranscodedTexture> transcode_ktx2_as(const std::uint8_t* data, std::size_
     // D3D11 and WebGPU create block-compressed textures only when the size is a multiple of the block, so any other size
     // is transcoded to RGBA8 (the export leaves such textures as PNG: tools/common/src/export_textures.cpp).
     const bool blockAligned = ktx.get_width() % 4 == 0 && ktx.get_height() % 4 == 0;
-    const Target* target = nullptr;
+    const TranscodeTarget* target = nullptr;
     if (blockAligned)
-        for (const Target& t : kTargets)
+        for (const TranscodeTarget& t : kTargets)
             if (t.gpu == format) target = &t;
     TranscodedTexture out;
     out.width = int(ktx.get_width());
