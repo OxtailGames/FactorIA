@@ -50,6 +50,20 @@ std::string says(const Bytes& font, const char* text = "A") {
 
 bool has(const std::string& s, const char* part) { return s.find(part) != std::string::npos; }
 
+// What rasterize_text makes of a damaged font: an error that says what and how to fix it, or a consistent bitmap (the font
+// draws). Nothing else, and no read outside the buffer (the sanitizer builds look for that).
+void error_or_draws(const Bytes& font) {
+    auto bitmap = rasterize_text("A", font, 20.0f);
+    if (bitmap.ok()) {
+        CHECK(bitmap->width >= 0);
+        CHECK(bitmap->height >= 0);
+        CHECK(bitmap->coverage.size() == std::size_t(bitmap->width) * std::size_t(bitmap->height));
+    } else {
+        CHECK_FALSE(bitmap.error().message.empty());
+        CHECK_FALSE(bitmap.error().hint.empty());
+    }
+}
+
 struct CffFont {
     Bytes cff;  // the table
     // where things are in the table
@@ -59,7 +73,9 @@ struct CffFont {
 
 // A CFF table with two glyphs (.notdef and one that moves to 0,0). `cid`: a CID font (FDArray with one font dict that has a
 // Private DICT and a local subroutine INDEX, and an FDSelect of format 3 that gives both glyphs to that font dict).
-CffFont make_cff(bool cid) {
+// `subrs`: the local subroutine INDEX holds one subroutine (else it is empty), and a font that is not a CID font gets a
+// Private DICT too (named by its Top DICT). `fdSelect0`: the FDSelect has format 0 (one byte per glyph).
+CffFont make_cff(bool cid, bool subrs = false, bool fdSelect0 = false) {
     CffFont c;
     Bytes& t = c.cff;
     auto put = [&](std::initializer_list<int> bytes) {
@@ -69,7 +85,7 @@ CffFont make_cff(bool cid) {
     put({1, 0, 4, 1});                              // header: major, minor, hdrSize, offSize
     c.nameIndex = t.size();
     put({0, 1, 1, 1, 5, 'T', 'e', 's', 't'});
-    put({0, 1, 1, 1, cid ? 21 : 7});  // Top DICT INDEX with one entry
+    put({0, 1, 1, 1, cid ? 21 : subrs ? 18 : 7});  // Top DICT INDEX with one entry
     c.topDict = t.size();
     i32();
     c.topCharStrings = t.size() - 4;
@@ -81,6 +97,11 @@ CffFont make_cff(bool cid) {
         i32();
         c.topFdSelect = t.size() - 4;
         put({0x0c, 0x25});  // FDSelect
+    } else if (subrs) {
+        c.fontDict = t.size();  // the Top DICT itself names the Private DICT
+        i32();
+        i32();
+        put({0x12});
     }
     put({0, 0, 0, 0});  // String INDEX, Global Subr INDEX
     if (cid) {
@@ -90,15 +111,25 @@ CffFont make_cff(bool cid) {
         i32();  // Private: size, offset
         i32();
         put({0x12});
+    }
+    if (cid || subrs) {
         c.privateDict = t.size();
         i32();  // Subrs: offset from the Private DICT
         put({0x13});
-        put({0, 0});  // the local subroutine INDEX, empty
-        c.fdSelect = t.size();
-        put({3, 0, 1, 0, 0, 0, 0, 2});  // format 3, one range from glyph 0 to glyph 2 for font dict 0
+        if (subrs)
+            put({0, 1, 1, 1, 3, 0x0b, 0x0b});  // the local subroutine INDEX: one subroutine, `return`
+        else
+            put({0, 0});  // the local subroutine INDEX, empty
         set32(t, c.fontDict + 1, 6);
         set32(t, c.fontDict + 6, std::uint32_t(c.privateDict));
         set32(t, c.privateDict + 1, 6);
+    }
+    if (cid) {
+        c.fdSelect = t.size();
+        if (fdSelect0)
+            put({0, 0, 0});  // format 0: font dict 0 for each of the two glyphs
+        else
+            put({3, 0, 1, 0, 0, 0, 0, 2});  // format 3, one range from glyph 0 to glyph 2 for font dict 0
         set32(t, c.topFdArray, std::uint32_t(c.fdArray));
         set32(t, c.topFdSelect, std::uint32_t(c.fdSelect));
     }
@@ -258,8 +289,10 @@ TEST_CASE(
 
 TEST_CASE(
     "cff font: every byte of a CFF table set to 0, 0x80 or 0xFF, and every cut of the font, is an error or draws") {
-    for (bool cid : {false, true}) {
-        const CffFont c = make_cff(cid);
+    // plain, CID, and the variants with a local subroutine and with an FDSelect of format 0
+    for (int variant = 0; variant < 4; ++variant) {
+        const bool cid = variant & 1;
+        const CffFont c = make_cff(cid, variant >= 2, variant == 3);
         const Bytes good = make_otf(c.cff);
         const std::size_t at = table_at(good, "CFF ");
         REQUIRE(at != 0);
@@ -267,12 +300,89 @@ TEST_CASE(
             for (std::uint8_t v : {0x00, 0x80, 0xFF}) {
                 Bytes font = good;
                 font[at + i] = v;
-                (void)says(font);
+                error_or_draws(font);
             }
         }
         for (std::size_t n = 0; n < good.size(); ++n) {
             const Bytes cut(good.begin(), good.begin() + std::ptrdiff_t(n));
-            (void)says(cut);
+            error_or_draws(cut);
         }
     }
+}
+
+TEST_CASE("cff font: local subroutines, an FDSelect of format 0, and ranges that do not rise") {
+    // a Private DICT with a local subroutine, in the Top DICT of a plain font and in the font dict of a CID font
+    for (bool cid : {false, true}) {
+        const Bytes font = make_otf(make_cff(cid, true).cff);
+        CHECK(problem_of(font).empty());
+        CHECK(says(font).empty());
+    }
+    // damage in the Private DICT or its subroutine INDEX of a plain font names that part, not the Top DICT
+    const CffFont plain = make_cff(false, true);
+    Bytes t = plain.cff;
+    set32(t, plain.fontDict + 6, 0x00FFFFFF);
+    std::string why = problem_of(make_otf(t));
+    CHECK(has(why, "the Private DICT it names"));
+    CHECK_FALSE(has(why, "the Top DICT"));
+    t = plain.cff;
+    set32(t, plain.privateDict + 1, 0x00FFFFFF);
+    why = problem_of(make_otf(t));
+    CHECK(has(why, "the local subroutine INDEX of its Private DICT"));
+    CHECK_FALSE(has(why, "the Top DICT"));
+    t = plain.cff;
+    t[plain.privateDict + 8] = 9;  // the subroutine INDEX's offset size
+    why = problem_of(make_otf(t));
+    CHECK(has(why, "offset size of 9"));
+    CHECK(has(why, "the local subroutine INDEX"));
+
+    // FDSelect of format 0: one font dict number per glyph
+    CffFont f0 = make_cff(true, false, true);
+    {
+        const Bytes font = make_otf(f0.cff);
+        const render::FontCheck check = render::check_font_bytes(font.data(), font.size(), 0);
+        CHECK(check.problem.empty());
+        CHECK(check.unsafeGlyphs.empty());
+        CHECK(says(font).empty());
+    }
+    f0.cff[f0.fdSelect + 2] = 3;  // glyph 1 names font dict 3; the FDArray has one
+    {
+        const Bytes font = make_otf(f0.cff);
+        const render::FontCheck check = render::check_font_bytes(font.data(), font.size(), 0);
+        CHECK(check.problem.empty());
+        REQUIRE(check.unsafeGlyphs.size() == 2);
+        CHECK(check.unsafeGlyphs[0] == 0);
+        CHECK(check.unsafeGlyphs[1] == 1);
+        CHECK(says(font).empty());
+    }
+    f0.cff[f0.fdSelect + 1] = 3;  // glyph 0 too: the .notdef box cannot be read
+    CHECK(has(problem_of(make_otf(f0.cff)), "glyph 0"));
+    // glyph 0 with no FDSelect entry of its own: the FDSelect starts at the last byte of the table, which names no font dict
+    CffFont last = make_cff(true, false, true);
+    last.cff.back() = 0;
+    set32(last.cff, last.topFdSelect, std::uint32_t(last.cff.size() - 1));
+    CHECK(has(problem_of(make_otf(last.cff)), "glyph 0"));
+
+    // FDSelect of format 3 with a range that ends before it starts: stb_truetype skips it, so the glyphs only such a range
+    // names are unsafe (.notdef) and the font still loads. Here glyph 0 is in [0,1), a second range ends at 0 and holds
+    // nothing, and glyph 1 is in no range.
+    CffFont back = make_cff(true);
+    Bytes& b = back.cff;
+    b.insert(b.begin() + std::ptrdiff_t(back.fdSelect) + 8, {0, 0, 0});  // a second range: font dict 0, end 0
+    set16(b, back.fdSelect + 1, 2);                                      // two ranges
+    set16(b, back.fdSelect + 6, 1);                                      // the first ends at glyph 1
+    set32(b, back.topCharStrings, std::uint32_t(back.charStrings + 3));  // the CharStrings INDEX moved by 3 bytes
+    const Bytes font = make_otf(b);
+    const render::FontCheck check = render::check_font_bytes(font.data(), font.size(), 0);
+    CHECK(check.problem.empty());
+    REQUIRE(check.unsafeGlyphs.size() == 2);
+    CHECK(check.unsafeGlyphs[0] == 0);
+    CHECK(check.unsafeGlyphs[1] == 1);
+    CHECK(says(font).empty());
+}
+
+TEST_CASE("font: a head table with 0 units per em is an error (stb_truetype's scale would be infinite)") {
+    Bytes font = make_otf(make_cff(false).cff);
+    set16(font, table_at(font, "head") + 18, 0);
+    const std::string why = says(font);
+    CHECK(has(why, "0 units per em"));
 }

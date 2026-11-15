@@ -23,7 +23,9 @@ Result<void> gltf_check_buffer_sizes(const cgltf_data* data, std::string_view pa
 // Checks a parsed glTF whose buffers are loaded (cgltf_load_buffers) before anything reads its accessors: every accessor,
 // buffer view, index, sparse block and texture reference lies inside what it points at. cgltf_parse checks the JSON's shape,
 // not the numbers, so a file whose accessor runs past its buffer would be read out of bounds. The error names `path` and
-// the first thing wrong. Every reader of a glTF calls it once, after cgltf_load_buffers.
+// the first thing wrong. It also refuses an accessor whose start in its buffer, or whose stride, is not a multiple of its
+// component size (the specification forbids it, and cgltf reads floats and indices through typed pointers). Every reader of
+// a glTF calls it once, after cgltf_load_buffers.
 Result<void> gltf_check(cgltf_data* data, std::string_view path);
 
 }  // namespace fa
