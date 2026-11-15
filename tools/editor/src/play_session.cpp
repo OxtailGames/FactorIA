@@ -42,7 +42,7 @@ void Editor::session_frame(double dt, std::uint64_t frameBefore) {
         k.frame = frameBefore - run_.startFrame;
         k.ms = ms;
         k.entities = int(world().entity_count());
-        if (engine_->renderer()) k.renderStats = engine_->renderer()->stats().to_json();
+        if (engine_->renderer()) k.renderStats = engine_->renderer()->stats(false).to_json();
         keep_worst_spike(run_.session.spikes, std::move(k));
     }
 }

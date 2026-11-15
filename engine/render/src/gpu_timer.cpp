@@ -50,6 +50,11 @@ struct GpuTimer::State {
     int openPass = -1;  // index of the pass begun and not ended in the current slot
     std::size_t next = 0;
     std::vector<PassTime> lastPasses;
+    std::size_t stale = 0;  // the next `stale` results to arrive are of frames timed before forget(): dropped
+    void forget() {
+        lastPasses.clear();
+        stale = pending.size();
+    }
 
     ID3D11Device* device() const { return static_cast<ID3D11Device*>(const_cast<void*>(sg_d3d11_device())); }
     ID3D11DeviceContext* context() const {
@@ -166,6 +171,10 @@ struct GpuTimer::State {
                 passes.push_back(std::move(pt));
             }
             pending.pop_front();
+            if (stale > 0) {
+                --stale;
+                continue;
+            }
             if (!dj.Disjoint && dj.Frequency > 0 && t1 >= t0) {
                 out.push_back(double(t1 - t0) * 1000.0 / double(dj.Frequency));
                 lastPasses = std::move(passes);
@@ -196,6 +205,11 @@ struct GpuTimer::State {
     int openPass = -1;  // index of the pass begun and not ended in the current slot
     std::size_t next = 0;
     std::vector<PassTime> lastPasses;
+    std::size_t stale = 0;  // the next `stale` results to arrive are of frames timed before forget(): dropped
+    void forget() {
+        lastPasses.clear();
+        stale = pending.size();
+    }
 
     void init() {
         if (tried) return;
@@ -284,6 +298,10 @@ struct GpuTimer::State {
                 passes.push_back(std::move(pt));
             }
             pending.pop_front();
+            if (stale > 0) {
+                --stale;
+                continue;
+            }
             out.push_back(double(ns) * 1e-6);
             lastPasses = std::move(passes);
         }
@@ -306,6 +324,7 @@ struct GpuTimer::State {
 #endif
         ;
     std::vector<PassTime> lastPasses;  // always empty
+    void forget() {}
     void begin() {}
     void end() {}
     void begin_pass(const std::string&) {}
@@ -328,6 +347,7 @@ void GpuTimer::begin() { s_->begin(); }
 void GpuTimer::end() { s_->end(); }
 void GpuTimer::begin_pass(const std::string& name) { s_->begin_pass(name); }
 void GpuTimer::end_pass() { s_->end_pass(); }
+void GpuTimer::forget() { s_->forget(); }
 void GpuTimer::poll(std::vector<double>& out) { s_->poll(out); }
 const std::vector<GpuTimer::PassTime>& GpuTimer::last_passes() const { return s_->lastPasses; }
 

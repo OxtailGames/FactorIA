@@ -717,7 +717,7 @@ Result<Json> play_auto(const EngineConfig& configIn, const PlayAutoOptions& opt)
             k.frame = std::uint64_t(frames - 1);
             k.ms = ms;
             k.entities = int(world.entity_count());
-            if (engine.renderer()) k.renderStats = engine.renderer()->stats().to_json();
+            if (engine.renderer()) k.renderStats = engine.renderer()->stats(false).to_json();
             keep_worst_spike(s.spikes, std::move(k));
         }
 

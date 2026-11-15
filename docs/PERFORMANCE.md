@@ -472,11 +472,17 @@ Reading it:
   per frame like a behaviour's, and the time is the CPU time the pass took to record its draws (the part of `render`
   that is not in a pass is the gathering of the scene). A zone that is big here with a small `gpu` time is a pass that
   records too many draws; compare the passes with each other, not with `frameMs`.
-- The GPU time of each pass is not in `profile`: call `render.frame_graph` (also while `perf.profile` or the editor's
-  Profiler panel runs) for the frame graph of the last frame with `cpuMs` and `gpuMs` for every pass and job. `gpuMs` is
-  measured with a timestamp before and after the pass on Direct3D 11 and desktop OpenGL, only while the profiler is on,
-  for at most 64 passes of a frame, and reads the answer of a recent frame like `gpu`; it is `-1` where there is no number
-  (and `gpu.reason` in the result says why).
+- The GPU time of each pass is not in `profile`: call `render.frame_graph` for the frame graph of the last frame with
+  `cpuMs` and `gpuMs` for every pass and job (`factoria call --project <dir> render.frame_graph '{"profileFrames":8}'`
+  works with no editor and no running profile). `gpuMs` is measured with a timestamp before and after the pass on
+  Direct3D 11 and desktop OpenGL, only while the profiler is on, for at most 64 passes of a frame, and reads the answer of
+  a recent frame like `gpu`; it is `-1` where there is no number (and `gpu.reason` in the result says why). Nothing else
+  switches the profiler on for that command, so `profileFrames` (default 8, 0 to 60) does: when the profiler is off and the
+  backend can time, the command turns it on, draws the current state again until the first GPU times arrive (at most that
+  many times; the result's `profileFrames` says how many it drew), reads the graph and puts the profiler back. Drawing
+  again does not move the game (time does not advance). With `profileFrames: 0`, or while a profile or the editor's
+  Profiler panel already runs, it only reads what is there. On Metal, GLES3 and WebGL2 no frame is drawn for it and
+  `gpu.reason` says there is no GPU timer.
 - `memory` samples the process (resident memory now and at its peak), the JavaScript heap, texture memory, decoded audio (`audioDecodedMB`: sounds, streaming buffers and the music cache; `musicMB` is the music part of it: a song costs about 10 MB per minute per stem, docs/MUSIC.md)
   and the entity count, at the start, the end and the peak of the run: a number that only grows over a long session is a leak.
 - `threads` has one entry per thread of the job pool (main first, then every worker, idle ones too; `other` when a
