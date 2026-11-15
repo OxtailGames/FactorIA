@@ -987,8 +987,13 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   view or target job, `game-hud` for the job of a split frame that draws only the screen-space groups), the bloom stages
   of the last job (`bloom-bright`, `bloom-down-<n>`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite`), the HUD over the
   glow (`hud-over-bloom`, with `bloomScreenSpace = false`), the colour filter (`color-filter`) and, where the backend
-  stores a target bottom-up (GL), `<job>/flip`, the copy of a target's picture into the image its texture samples. The
-  CPU phases of a job (gather, cull, batch, upload) run while it is declared; the GPU work runs in `execute`, and each
+  stores a target bottom-up (GL), `<job>/flip`, the copy of a target's picture into the image its texture samples; it
+  exists only for render targets and only in GL, and it is declared right after the target's `view` pass (so in GL the
+  order reads `target:B/view`, `target:B/flip`, `target:A/view`, `target:A/flip`, `camera:0/game`; Metal and D3D11 have
+  no flip pass). The CPU phases of a job (gather, cull, batch, upload) run while it is declared, and that includes the
+  upload of its 2D shadow rows: `upload_shadow_rows` keeps a ring of nine images that grows (and is trimmed at the next
+  frame) when more jobs than that need distinct rows, because an image a planned job will bind is never replaced within
+  its frame. The GPU work runs in `execute`, and each
   callback puts the job's `JobEnv` (target size, game image and views) back first, because the jobs of a frame draw
   into images of different sizes. *Order of the jobs:* the render targets first, then the CameraViews, then the cameras,
   as they were drawn before the graph. Among the targets, a small graph of its own (`CyclePolicy::Break`) orders one

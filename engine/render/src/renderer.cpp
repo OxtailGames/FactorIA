@@ -1,7 +1,7 @@
-#include <map>
-
 #include "renderer_impl.h"
 #include "scene2d.h"
+
+#include <map>
 
 namespace fa {
 
