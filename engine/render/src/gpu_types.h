@@ -42,10 +42,11 @@ struct TargetFormat {
 
 // One render pass. A pass draws either into the views below or into a swapchain (present), never both.
 //
-// The defaults of the load/store actions are NOT sokol's: a zero sg_pass means "clear to grey" (SG_LOADACTION_DEFAULT is
-// CLEAR for colour, depth and stencil), while a PassDesc says DONTCARE for what it does not set, so a pass that forgets
-// a field is cheap rather than clearing. Every site that begins a pass sets colorLoad, colorStore and, when it has a
-// depth or stencil attachment (a swapchain has them), depthLoad and stencilLoad explicitly, to what its sg_pass did.
+// The defaults of the load/store actions are NOT sokol's: a zero sg_pass means "clear to grey" (SG_LOADACTION_DEFAULT
+// is CLEAR for colour, depth and stencil), while a PassDesc says DONTCARE for what it does not set, so a pass that
+// forgets a field is cheap rather than clearing. Every site that begins a pass sets colorLoad, colorStore and, when it
+// has a depth or stencil attachment (a swapchain has them), depthLoad and stencilLoad explicitly, to what its sg_pass
+// did.
 struct PassDesc {
     const char* label = "";  // the debug label of the pass (GPU captures, validation messages): a string literal
 
@@ -68,10 +69,10 @@ struct PassDesc {
     sg_load_action stencilLoad = SG_LOADACTION_DONTCARE;  // the main passes CLEAR it (to 0)
 
     // A pass into the window: `swapchain` (not owned: it must outlive the pass) and the formats it really has. sokol
-    // accepts 0 for the colour format, the depth format and the sample count of an sg_swapchain and uses the defaults of
-    // the environment (sg_desc.environment.defaults) then; `defaults` is that environment, so `format` is what a pipeline
-    // drawn in the pass has to match (Gpu::blit_pipeline(format)). The load/store actions are the ones of a pass that
-    // fills the window: the caller sets them.
+    // accepts 0 for the colour format, the depth format and the sample count of an sg_swapchain and uses the defaults
+    // of the environment (sg_desc.environment.defaults) then; `defaults` is that environment, so `format` is what a
+    // pipeline drawn in the pass has to match (Gpu::blit_pipeline(format)). The load/store actions are the ones of a
+    // pass that fills the window: the caller sets them.
     static PassDesc for_swapchain(const sg_swapchain& sc, const sg_environment_defaults& defaults) {
         PassDesc p;
         p.swapchain = &sc;

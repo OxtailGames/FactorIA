@@ -123,33 +123,7 @@ TEST_CASE("emissiveStrength splits a batch exactly like a different emissive col
     CHECK(otherColour == same + 1);
 }
 
-namespace {
-
-// Sets (or, with nullptr, clears) an environment variable for the life of the object.
-struct EnvGuard {
-    std::string name, old;
-    bool had = false;
-    EnvGuard(const char* n, const char* value) : name(n) {
-        if (const char* cur = std::getenv(n)) {
-            had = true;
-            old = cur;
-        }
-        set(value);
-    }
-    ~EnvGuard() { set(had ? old.c_str() : nullptr); }
-    void set(const char* value) const {
-#if defined(_WIN32)
-        _putenv_s(name.c_str(), value ? value : "");  // an empty value removes the variable
-#else
-        if (value)
-            setenv(name.c_str(), value, 1);
-        else
-            unsetenv(name.c_str());
-#endif
-    }
-};
-
-}  // namespace
+namespace {}  // namespace
 
 TEST_CASE(
     "the game target falls back to RGBA8 when the GPU cannot make the float images, and the picture does not change") {
