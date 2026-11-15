@@ -514,11 +514,83 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             return j;
         });
 
+    I.commands.add(
+        {"render.frame_graph",
+         "Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass.",
+         "Returns the frame graph of the last frame the renderer drew and what each of its passes cost, so you can see "
+         "which job and which pass makes a frame slow. Result: {source, backend, graph, passTimes, jobTimes, gpu}. "
+         "`passTimes` has one {name, job, cpuMs, gpuMs} per pass that ran, in order (cpuMs: time to record the pass on "
+         "the CPU; gpuMs: GPU time, or -1 when not measured: D3D11 and desktop OpenGL only, while the profiler is "
+         "on); `jobTimes` adds them per job; `gpu` says whether GPU times exist and why not. Compare passes with "
+         "each other, not the decimals. Draws a frame first when none is current. Example: render.frame_graph "
+         "{}" FA_COMMAND_DETAILS
+         "`source` is \"frame\" (a normal frame) or \"capture\" (the last graph was the picture of one entity's "
+         "subtree, "
+         "not a frame of the game: the next frame shows the game's own). `backend` is the graphics backend (metal, "
+         "d3d11, "
+         "glcore, gles3, dummy). READ `graph` like this: a JOB is one picture the frame draws: `camera:<i>` (a camera "
+         "of the "
+         "frame, in depth order), `screen` (the screen-space items of a split frame), `view:<n>` (a CameraView's "
+         "image), "
+         "`target:<name>` (a Camera.renderTarget texture) or `capture`; a PASS is named `<job>/<pass>` (`game` draws "
+         "the world, "
+         "`light-buffer` the 2D lights, `shadow` the shadow map, `bloom-*` the glow, `hud-over-bloom`, `color-filter`, "
+         "`flip`). "
+         "graph.resources are the images the passes read and write: `imported` ones are owned by the renderer and "
+         "persist "
+         "(the game image, a view's image, the light buffer, the shadow map); `transient` ones exist only inside the "
+         "frame "
+         "(the bloom levels) and share a physical target when their lifetimes do not overlap (`aliasSlot`, listed in "
+         "graph.aliasSlots; `firstUse` and `lastUse` are positions in `order`). graph.passes lists every declared pass "
+         "with "
+         "what it reads and writes; a pass is `culled` when nothing reads what it writes and it has no side effect, so "
+         "it did "
+         "not run (graph.culled names them) and it has no time. graph.order is the order the live passes ran. "
+         "graph.cycleBreaks lists passes that ran before a pass they waited for because two render targets show each "
+         "other: "
+         "the one that went first shows the other's picture of the PREVIOUS frame (empty is normal). "
+         "`passTimes` has one entry per pass that ran, in `order`: {name, job, cpuMs, gpuMs}. cpuMs is the wall-clock "
+         "time the "
+         "pass took to record its GPU commands on the CPU (a pass that is cheap here can still be slow on the GPU). "
+         "gpuMs is "
+         "the GPU time of that pass in a recent frame (timer queries are read a few frames late and never waited for), "
+         "or "
+         "-1 when it was not measured; the numbers jitter from frame to frame, so compare passes against each other "
+         "rather "
+         "than reading the decimals. `jobTimes` adds the passes of each job: {job, passes, cpuMs, gpuMs} (gpuMs is -1 "
+         "when no "
+         "pass of the job has one). `gpu` says whether GPU times exist: {supported, measuring, reason, "
+         "maxTimedPasses}: "
+         "they exist on Direct3D 11 (Windows) and desktop OpenGL (Linux), only while the profiler is on (perf.profile, "
+         "play.report's profile, the editor's Profiler panel), and at most maxTimedPasses passes per frame are timed; "
+         "`reason` "
+         "says why there are none (Metal, GLES3 and WebGL2 have no timer queries here). The same pass times are in "
+         "the profiler's `zones`. Like game.render_stats it draws a frame first when none was drawn since the last "
+         "change (a headless run draws on demand). Errors: `unavailable` without graphics, or when no frame could be "
+         "drawn. Example: render.frame_graph {}",
+         parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
+        [&engine, &I](const Json& a) {
+            check_args_known(a, {}, "render.frame_graph");
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so no frame graph exists.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            engine.render_now();  // an on-demand run may not have drawn the current state yet
+            Json j = I.renderer->frame_graph_report();
+            if (j.is_null())
+                throw CommandError("unavailable", "No frame has been drawn yet, so there is no frame graph to show.",
+                                   "Load a scene and step at least one frame (game.step), or take a game.screenshot, "
+                                   "then call render.frame_graph again.");
+            j["frame"] = I.frame;
+            return j;
+        });
+
     // Capabilities (capability.h): what each command does outside the engine's memory.
     declare_command_capabilities(I.commands, {
                                                  {"game.screenshot", capability_sets::changes_state()},
                                                  {"render.inspect", capability_sets::reads()},
                                                  {"render.pick", capability_sets::reads()},
+                                                 {"render.frame_graph", capability_sets::reads()},
                                              });
 }
 

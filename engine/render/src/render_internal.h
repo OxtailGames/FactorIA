@@ -947,20 +947,37 @@ void destroy_target(Target& t);
 // DONTCARE.
 PassDesc pass_into(const Target& t, const char* label);
 
-// GPU time of the drawing of a frame (profiler). One timer query in flight per frame in a small ring; results are read a few
-// frames later and never waited for. D3D11 (timestamp queries) and GLCORE (GL_TIME_ELAPSED) measure; the other backends
-// say why not (reason()). Backend specific: gpu_timer.cpp.
+// GPU time of the drawing of a frame and of each of its frame-graph passes (profiler). One timer query in flight per frame in
+// a small ring; results are read a few frames later and never waited for. D3D11 (timestamp queries inside a disjoint query:
+// one pair per pass) and GLCORE (GL_TIME_ELAPSED for the frame, glQueryCounter(GL_TIMESTAMP) pairs for the passes, because
+// GL_TIME_ELAPSED cannot nest) measure; the other backends say why not (reason()). Backend specific: gpu_timer.cpp.
 class GpuTimer {
 public:
+    // Passes timed per frame; the ones after that are drawn but not measured (their gpuMs stays -1). A frame is not
+    // measured at all when the ring of frames in flight is full.
+    static constexpr int kMaxTimedPasses = 64;
+    // One timed pass of a frame: the name it was begun with and its GPU milliseconds.
+    struct PassTime {
+        std::string name;
+        double ms = 0.0;
+    };
     GpuTimer();
     ~GpuTimer();
     GpuTimer(const GpuTimer&) = delete;
     GpuTimer& operator=(const GpuTimer&) = delete;
-    bool supported() const;               // false once it is known that this backend/device cannot time
-    std::string reason() const;           // why not, when !supported()
-    void begin();                         // before the first pass of the frame
-    void end();                           // after the last pass
+    bool supported() const;      // false once it is known that this backend/device cannot time
+    std::string reason() const;  // why not, when !supported()
+    void begin();                // before the first pass of the frame
+    void end();                  // after the last pass (closes a pass left open)
+    // The passes of the frame between begin() and end(): timestamps right before and right after the pass's GPU work.
+    // begin_pass closes a pass still open; both do nothing outside a measured frame.
+    void begin_pass(const std::string& name);
+    void end_pass();
     void poll(std::vector<double>& out);  // appends the milliseconds of every frame whose result is ready
+    // The passes of the newest frame that poll() has resolved, in the order they ran; empty until one is. They are some
+    // frames older than the frame being drawn.
+    const std::vector<PassTime>& last_passes() const;
+
 private:
     struct State;
     std::unique_ptr<State> s_;

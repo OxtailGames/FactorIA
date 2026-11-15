@@ -232,6 +232,14 @@ struct Renderer::Impl {
     };
     void begin_frame_graph();
     void run_frame_graph();
+    // The time of every pass that ran in the graph (graph.stats(), in order) and of every job (the passes whose name starts
+    // with the same `<job>/`), with the GPU time of the newest finished measurement of each pass name (-1 without one, and
+    // always while the profiler is off: the GPU timer only runs with it).
+    void pass_times(std::vector<RenderStats::PassTime>& passes, std::vector<RenderStats::JobTime>& jobs) const;
+    // GPU frame times the timer resolved while the renderer polled it for pass times, kept for take_gpu_ms().
+    std::vector<double> gpuFrames;
+    bool passHooksSet = false;      // begin_frame_graph() gave the graph its pass hooks
+    bool graphFromCapture = false;  // the graph holds the last capture_world's frame, not the last render()'s
     std::unordered_map<std::uint64_t, JobImage> jobImages;
     // The targets the jobs of the frame share, one resource each (imported when the first job that uses it is declared).
     ResourceId sharedGame, sharedLight, sharedShadow;

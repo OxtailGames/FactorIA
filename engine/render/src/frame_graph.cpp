@@ -382,9 +382,22 @@ Result<void> FrameGraph::execute(TargetPool& pool) {
         PassStats st;
         st.name = p.name;
         if (p.execute) {
-            auto t0 = std::chrono::steady_clock::now();
+            // Times the callback and calls the hooks on every way out of it, an exception included.
+            struct Timed {
+                const PassHooks& hooks;
+                const std::string& name;
+                double& cpuMs;
+                std::chrono::steady_clock::time_point t0;
+                Timed(const PassHooks& h, const std::string& n, double& out) : hooks(h), name(n), cpuMs(out) {
+                    if (hooks.begin) hooks.begin(name);
+                    t0 = std::chrono::steady_clock::now();
+                }
+                ~Timed() {
+                    cpuMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+                    if (hooks.end) hooks.end(name, cpuMs);
+                }
+            } timed(hooks_, p.name, st.cpuMs);
             p.execute(PassContext(*this, physical_, p.name));
-            st.cpuMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
         }
         stats_.push_back(std::move(st));
         for (const std::vector<ResourceId>* list : {&p.reads, &p.writes}) {

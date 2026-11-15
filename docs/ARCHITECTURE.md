@@ -1029,7 +1029,21 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   draws no glow until the size or the format changes, so a failed creation is not retried every frame.
   `FrameGraph::set_import_handle` rebinds an imported resource to another image without a new compile. Not graph passes
   yet: the read-back copies. The render tests reach the graph of the last frame and the pool's counters through
-  `render::renderer_frame_graph` and `render::renderer_transient_stats`.
+  `render::renderer_frame_graph` and `render::renderer_transient_stats`. *What a pass cost:* `execute` times every
+  callback with the steady clock (`PassStats::cpuMs`, also when it throws) and calls the `PassHooks` of the graph around
+  it (`FrameGraph::set_pass_hooks`, kept by `clear()` and `release_callbacks()`); the renderer sets them once. The
+  `begin` hook starts a GPU timestamp pair of `GpuTimer` and the `end` hook closes it and adds a zone `<job>/<pass>` to
+  the profiler (`Profiler::add_zone`, summed per name, listed in `profile.zones`); both only do something while the profiler is on.
+  `Impl::pass_times` turns `graph.stats()` into `RenderStats::passes` and `jobs` (the job is the name up to the last `/`;
+  a culled pass has no entry; `gpuMs` is -1 without a measurement), and `Renderer::frame_graph_report()` adds the
+  graph's `to_json()`: that is the `render.frame_graph` command. A `capture_world` leaves its small graph as the last one
+  (`source: "capture"`) until the next `render()`, and does not touch `RenderStats`.
+- *GPU timer.* `gpu_timer.cpp` (`GpuTimer`, a ring of 6 slots, results a few frames late, never waited for). The whole
+  frame is one query (`GL_TIME_ELAPSED` on GLCORE, a disjoint query with two timestamps on Direct3D 11); each pass has a
+  pair of timestamps (`glQueryCounter(GL_TIMESTAMP)` on GLCORE, timestamp queries inside the disjoint one on D3D11),
+  because `GL_TIME_ELAPSED` does not nest. At most `GpuTimer::kMaxTimedPasses` (64) passes of a frame are timed; the rest
+  report -1. A disjoint D3D11 frame (a clock change) drops its pass times too. Metal, GLES3 and WebGL2 have no timer and
+  `reason()` says so. The timestamp code of D3D11 and GL is not compiled on macOS: Windows and Linux CI build it.
 
 ### Start-up order and the shader cache
 A window host (`run_windowed` in `runtime/src/runners.cpp`: the player and a windowed `factoria run`) starts in this order, decided by

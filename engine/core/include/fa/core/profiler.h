@@ -73,10 +73,19 @@ struct ProfLane {
     std::vector<ProfJobSample> samples;  // sorted by ms, slowest first
 };
 
+// A named stretch of the frame that is no system, behaviour or job: the renderer's frame-graph passes ("camera:0/game",
+// "view:1/view", "camera:0/bloom-bright"). The name is dynamic; the same name added twice in a frame is one zone with 2 calls.
+struct ProfZoneSample {
+    std::string name;
+    double ms = 0;
+    int calls = 0;
+};
+
 struct ProfFrame {
     double totalMs = 0;  // begin_frame .. end_frame
     std::array<double, kProfSystemCount> systemMs{};
     std::vector<ProfClassSample> classes;  // sorted by ms, slowest first
+    std::vector<ProfZoneSample> zones;     // sorted by ms, slowest first
     std::vector<ProfLane> lanes;           // main first, then every worker of the pool (idle ones too)
 };
 
@@ -108,6 +117,9 @@ public:
     // Probes (call only when on(); the scopes below check).
     void add_system(ProfSystem s, double ms) { cur_.systemMs[std::size_t(s)] += ms; }
     void add_behaviour(const std::string& className, const std::string& path, double ms);
+    // Main thread only. Charges `ms` to the zone `name` (a frame-graph pass of the renderer). The zone's time is also part of
+    // the system that ran it (Render), so zones are not added to the systems.
+    void add_zone(std::string_view name, double ms);
     // `count` jobs of one name and their total time on a lane (jobs::current_lane()). Any thread; the job system calls
     // it when on(), once per job and once per thread for the chunks of a parallel_for call.
     void add_job(int lane, std::string_view name, double ms, int count = 1);
@@ -124,6 +136,8 @@ private:
     std::vector<ProfLane> jobLanes_;                      // indexed by lane, grown on demand
     std::unordered_map<std::string, std::size_t> index_;  // path + '\n' + className -> slots_ index
     std::vector<ProfClassSample> slots_;
+    std::unordered_map<std::string, std::size_t> zoneIndex_;  // zone name -> zoneSlots_ index
+    std::vector<ProfZoneSample> zoneSlots_;
     double t0_ = 0;
     double childMs_ = 0;
     std::uint64_t frames_ = 0;
@@ -174,6 +188,7 @@ public:
     static constexpr std::size_t kMaxWindow = 20000;  // p95 is over the last this many frames; avg and max are exact
     static constexpr std::size_t kMaxClasses = 30;    // behaviour classes listed (the slowest by average)
     static constexpr std::size_t kMaxLaneJobs = 10;   // job names listed per thread (the slowest by average)
+    static constexpr std::size_t kMaxZones = 30;      // zones listed (the slowest by average)
 
     void add_frame(const ProfFrame& f);
     void add_gpu_ms(double ms);  // one resolved GPU frame time (they arrive a few frames late)
@@ -200,6 +215,10 @@ private:
         double sumMs = 0, maxMs = 0;
         std::uint64_t count = 0;
     };
+    struct ZoneAcc {
+        double sumMs = 0, maxMs = 0;
+        std::uint64_t calls = 0;
+    };
     struct LaneAcc {
         std::string name;
         double sumMs = 0, maxMs = 0;
@@ -210,6 +229,7 @@ private:
     Acc frame_;
     std::array<Acc, kProfSystemCount> systems_;
     std::unordered_map<std::string, ClassAcc> classes_;
+    std::unordered_map<std::string, ZoneAcc> zones_;
     std::vector<LaneAcc> lanes_;  // in the order the lanes first appeared (main, worker 1..)
     Acc gpu_;
     bool gpuSupported_ = false;
