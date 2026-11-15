@@ -17,8 +17,8 @@ void Renderer::Impl::create_targets(int w, int h) {
     // check runs on every backend (GL, GLES, D3D11, Metal). FA_SCENE_FORMAT=rgba16f_invalid is a test hook: it makes the
     // check fail on a GPU that never would, to run the fall-back there.
     // Only the FIRST creation may change the format, and only when the same size works in RGBA8: later calls (an Expand-mode
-    // resize, a render scale for a big screenshot) can fail for a moment (out of GPU memory), and that must neither downgrade
-    // the game for good nor drop the pipelines in the middle of it. Then the old behaviour stays: the failure is reported by
+    // resize, a render scale for a big screenshot) can fail for a moment (out of GPU memory), and that must not downgrade
+    // the game for good in the middle of it. Then the old behaviour stays: the failure is reported by
     // the capture or the frame that needs the target.
     if (!initialized && gpu.scene_format() == SG_PIXELFORMAT_RGBA16F) {
         const char* hook = std::getenv("FA_SCENE_FORMAT");
@@ -27,7 +27,6 @@ void Renderer::Impl::create_targets(int w, int h) {
             gpu.set_scene_format(SG_PIXELFORMAT_RGBA8);
             make_game_targets();
             if (game_targets_valid()) {
-                gpu.drop_pipelines();
                 FA_WARN("render",
                         "The GPU cannot make the {}x{} game target in RGBA16F{}, but can in RGBA8: the game is drawn "
                         "in RGBA8 "
@@ -336,7 +335,7 @@ void Renderer::Impl::flip_copy(ViewTarget& t) {
     p.attachments.colors[0] = t.flipAtt;
     p.label = "target-flip";
     sg_begin_pass(&p);
-    sg_apply_pipeline(gpu.colorfilter_pipeline());
+    sg_apply_pipeline(gpu.colorfilter_pipeline(TargetFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, 1}));
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_colorfilter_tex] = t.texView;
@@ -482,7 +481,7 @@ int Renderer::Impl::apply_color_filter(int mode) {
     p.attachments.colors[0] = filterAtt;
     p.label = "color-filter";
     sg_begin_pass(&p);
-    sg_apply_pipeline(gpu.colorfilter_pipeline());
+    sg_apply_pipeline(gpu.colorfilter_pipeline(TargetFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, 1}));
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_colorfilter_tex] = texView;
@@ -535,7 +534,7 @@ bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std:
     p.attachments.colors[0] = readAtt;
     p.label = "readback-rgba8";
     sg_begin_pass(&p);
-    sg_apply_pipeline(gpu.blit_keep_pipeline());
+    sg_apply_pipeline(gpu.blit_keep_pipeline(Gpu::blit_keep_target_format()));
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_blit_tex] = view;
