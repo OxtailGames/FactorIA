@@ -440,7 +440,8 @@ them (`color`, `padding`). Text uses `font`, `fontSize`, `textColor` and, before
 A `TextField` takes the characters in `input.text`, Backspace (it repeats while held) and Enter (`ui.submit`). Where those
 come from depends on the device, and the game does not change for any of them:
 
-- **Desktop.** The operating system's text input: composed text (shift, dead keys, IME) arrives as typed.
+- **Desktop.** The operating system's text input: composed text (shift, dead keys, IME) arrives as typed. On **macOS** a
+  focused `TextField` also composes natively (below).
 - **Phones and tablets.** The `TextField` raises the system keyboard when it gets the focus and hides it when it loses it
   (the UI does this by itself: [MOBILE.md](MOBILE.md#the-on-screen-keyboard)). iOS delivers composed text; Android
   delivers what each key types in its layout.
@@ -455,6 +456,36 @@ come from depends on the device, and the game does not change for any of them:
   has it, which is what makes a phone browser show its keyboard; what it receives (typed text, Backspace) goes to the same
   `input.text` and Backspace. Text that a keyboard composes (predictive words, swipe, IME) arrives when the composition
   ends.
+
+### What composes where
+
+While a `TextField` has the focus the platform's input method (IME) is on, and what it is still building (Japanese kana
+turning into kanji, Chinese pinyin, Korean jamo, a dead key) reaches the game as a composition (`input.composing`,
+`input.compositionText`, an `Input::on_composition_*` event in C++), not as typed text. Only its end types: the text of
+the commit goes to `input.text` once. With no `TextField` focused the IME is off and the keys are the game's.
+
+| Platform | Composes natively | How |
+|---|---|---|
+| macOS | yes | the game's view takes marked text (`NSTextInputClient`) while a field has the focus: the candidate window sits under the caret, a dead key shows its pending accent as a composition |
+| iOS | yes | the keyboard's marked text in the hidden text field, on-screen and hardware keyboards; the candidate bar follows the field |
+| Windows, Linux, Android, web | not yet | composed text arrives as typed text, when it is finished |
+
+On macOS and iOS:
+
+- A key the input method used (it composes, converts or confirms) is not also a game key: Enter that confirms a conversion
+  does not submit the field. Every other key, Backspace, arrows and Enter included, reaches the game as before, and so do
+  all keys while no field has the focus. Command and Control chords are never offered to the input method (shortcuts, Cmd+V).
+- The clause the input method is converting is the composition's selection (`compositionCaret` .. `+ selectionLength`, in code
+  points; the platform counts UTF-16 and the engine converts).
+- When the system ends a composition without a commit (the window loses the focus, the input source changes, a click) the
+  text built so far is accepted and typed, as `NSTextInputClient` says. A cancel (the focus moving to another field) and a
+  marked text the input method emptied (Backspace on the last character) type nothing.
+- iOS: `input.showKeyboard` (the UI does it with the focus) is still what shows the keyboard; turning the IME on or off
+  shows and hides nothing. The IME starts working at the first time the keyboard is shown.
+- iOS reads the keyboard's text field after each change; its text starts with a fixed first character that the engine puts
+  back after every change. If the keyboard (autocorrect) ever replaces it, the composition is cancelled, the field starts over
+  and one log line says so.
+- Not attached when the game runs inside the editor: the editor's own windows and its Play mode take their text as before.
 
 ## Limits
 

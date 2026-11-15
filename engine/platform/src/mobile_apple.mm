@@ -7,6 +7,7 @@
 #import <AudioToolbox/AudioToolbox.h>
 #import <UIKit/UIKit.h>
 
+#include "ime_apple.h"
 #include "mobile_impl.h"
 #include "sokol_app.h"
 #include "sokol_window.h"
@@ -38,7 +39,10 @@ void mobile_vibrate(float seconds) {
 
 // sokol_app shows the keyboard with a hidden UITextField and delivers what is typed as CHAR events (one UTF-16 unit each:
 // emoji, which are surrogate pairs, are dropped by sokol_app) and Enter / Backspace as key events.
-void mobile_show_keyboard(bool show) { sapp_show_keyboard(show); }
+void mobile_show_keyboard(bool show) {
+    sapp_show_keyboard(show);
+    ime_apple_keyboard_shown();  // the hidden text field exists now: the IME takes over its delegate (ime_apple.mm)
+}
 
 void mobile_poll(Input&) {}
 bool mobile_native_event(const void*) { return false; }
