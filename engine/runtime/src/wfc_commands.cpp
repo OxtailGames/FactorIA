@@ -230,7 +230,7 @@ SampleData read_sample(Engine::Impl& I, const Json& a) {
             const TilemapGrid grid = tilemap_grid(*tm);
             if (grid.empty())
                 bad_arg("The Tilemap of entity '" + text + "' is empty (0 x 0 tiles): there is nothing to learn from",
-                        "Paint or import a small example level first (scene.import_ascii).");
+                        "Paint or import a small example level first (scene.place_ascii).");
             out.width = grid.width;
             out.height = grid.height;
             out.tiles = grid.tiles;
@@ -1773,7 +1773,7 @@ std::shared_ptr<GenRun> prepare_generation(Engine::Impl& I, const Json& a) {
         into = I.world.get<Tilemap>(intoEntity);
         if (!into)
             bad_arg("Entity '" + id + "' has no Tilemap component, so the level cannot be written into it",
-                    "Pass the id of the entity that holds the Tilemap (scene.import_ascii names it 'tilemap'), or "
+                    "Pass the id of the entity that holds the Tilemap (scene.place_ascii names it 'tilemap'), or "
                     "leave `into` out to get the rows back.");
     }
 
@@ -2073,7 +2073,7 @@ Json finish_generation(Engine::Impl& I, GenRun& r) {
     if (prefabCells > 0)
         warnings.push_back(std::to_string(prefabCells) + " cell(s) hold glyphs that spawn objects: " +
                            std::string(hasInto ? "`into` wrote only their tiles; " : "") +
-                           "call scene.import_ascii with the returned rows and legend to place the objects.");
+                           "call scene.place_ascii with the returned rows and legend to place the objects.");
 
     Json out = Json::object();
     out["model"] = model;
@@ -2265,7 +2265,7 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
          "patterns, about 256 MB of solver memory (checked first, before anything is built for the "
          "constraints; the error says what to shrink), 65536 fixed cells. An argument name that is not "
          "listed is refused with the valid ones (`place` belongs to the script API's tilemap.generate, which "
-         "places the objects of the sample; with this command call scene.import_ascii on the returned rows "
+         "places the objects of the sample; with this command call scene.place_ascii on the returned rows "
          "and legend).",
          generateSchema, false, "scene"},
         [&I](const Json& a) {

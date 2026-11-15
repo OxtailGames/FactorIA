@@ -107,7 +107,7 @@ void register_vfx_commands(Engine& /*engine*/, Engine::Impl& I) {
             auto r = vfx_play(I.world, effect, o);
             if (!r.ok())
                 throw CommandError("invalid_argument", "vfx.play: " + r.error().message,
-                                   r.error().hint.empty() ? "vfx.check lists every problem of the file."
+                                   r.error().hint.empty() ? "vfx.check (CLI, editor) lists every problem of the file."
                                                           : r.error().hint);
             if (r->is_null())
                 return Json::object({{"id", nullptr}, {"dropped", true}, {"playing", vfx_playing_count(I.world)}});

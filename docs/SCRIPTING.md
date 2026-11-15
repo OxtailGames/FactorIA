@@ -1704,7 +1704,7 @@ more fails with code `capability_denied`, before its arguments are looked at, an
 `{read, state}` means a game can read anything and change the running game or the open scene in memory (`scene.spawn`,
 `scene.set_component`, `game.state`, `game.step`, `ui.*`, `vfx.play`, `tilemap.set_tile`...), but cannot write a file
 (`scene.save`, `scene.import_ascii`, `scene.format`, `fs.write`...), reach the network, start a program or spend money:
-a shipped game must not be able to do to a player's machine what a tool does to a project. Do those from the editor,
+a shipped game must not be able to do to a player's machine what a tool does to a project. In the exported player (and `factoria run`) `fa.call` also sees only the commands of the runtime (`Engine::runtime_command_names`); the commands only developer tools need (`scene.import_ascii`, `scene.ascii_edit`, `scene.format`, `prefab.save`, `mesh.*`, `vfx.check`/`budget`/`filmstrip`, `anim.*`, `skin.*`, `bones.*`) are CLI, editor and MCP only, and calling one fails with `unknown_command` and a hint. A game uses the `mesh` and `vfx` script APIs, `scene.place_ascii` for an ASCII level and the Animator component for clips. Do those from the editor,
 from a project tool, with `factoria call`, or from a test that asks for them. A tool a game script calls through
 `fa.call("project.<name>")` runs with the **game's** set (a scope only narrows), so a script cannot widen its permissions
 by going through a tool; a tool called from outside keeps the caller's set, never narrowed to the game's. The callbacks of

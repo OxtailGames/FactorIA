@@ -32,7 +32,7 @@ into `.factoria/` or the version-control folder, except the scratch folder `.fac
 and deleted.
 
 The path a command writes to (`scene.save`, `scene.import_ascii` `path`, `scene.ascii_edit` `file`, `input.record` `path`,
-`anim.*`, `mesh.save`) is confined to the project for an MCP client or an agent: no `..` out
+`anim.*`, `mesh.save`; `scene.import_ascii`, `scene.ascii_edit`, `anim.*` and `mesh.save` are authoring commands: CLI, editor and MCP, not an exported game) is confined to the project for an MCP client or an agent: no `..` out
 of the project, no absolute path (`absolute_path_denied`, `path_outside_root`). From `factoria call` you may name an absolute
 path, except into the project's managed folders (`managed_path_denied`).
 

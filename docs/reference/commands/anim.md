@@ -80,7 +80,7 @@ Creates the file with `duration` seconds, `loop`, and optionally its `tracks` an
 
 Since 0.7.0.
 
-One picture with a grid of a clip's poses, to see the whole motion at once.
+One picture with a grid of a clip's poses, to see the whole motion at once. CLI, editor, MCP only (not in the exported player).
 
 Capabilities: read, state
 
@@ -101,7 +101,7 @@ Poses the entity as `clip` at `frames` evenly spaced times (a looping clip: 0, d
 
 Since 0.7.0.
 
-List the 2D clips of an entity's Animator (or of a clip file): tracks, events, layers and the current state.
+List the 2D clips of an entity's Animator (or of a clip file): tracks, events, layers and the current state. CLI, editor, MCP only (not in the exported player).
 
 Capabilities: read
 
@@ -153,7 +153,7 @@ Capabilities: read, writeProject
 
 Since 0.7.0.
 
-Pose an entity as one of its clips is at a time, and leave it there.
+Pose an entity as one of its clips is at a time, and leave it there. CLI, editor, MCP only (not in the exported player).
 
 Capabilities: read, state
 

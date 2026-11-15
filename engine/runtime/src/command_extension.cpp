@@ -1,7 +1,14 @@
 #include "fa/runtime/command_extension.h"
 
+#include <functional>
 #include <mutex>
+#include <string>
+#include <unordered_map>
 #include <utility>
+
+#include "fa/core/command.h"
+#include "fa/core/log.h"
+#include "fa/runtime/engine.h"
 
 namespace fa {
 
@@ -42,12 +49,27 @@ std::vector<std::string> command_extension_names() {
 
 void run_command_extensions(Engine& engine) {
     // Copy the functions out of the lock: an extension may register another one, or create an Engine.
-    std::vector<CommandExtensionFn> fns;
+    std::vector<Extension> fns;
     {
         std::lock_guard<std::mutex> lock(list_mutex());
-        for (const Extension& e : extensions()) fns.push_back(e.fn);
+        fns = extensions();
     }
-    for (const CommandExtensionFn& fn : fns) fn(engine);
+    for (const Extension& ext : fns) {
+        // CommandRegistry::add replaces a name silently; an extension that does it hides a command, so say so. A command
+        // whose description changed after the extension ran was replaced (one replaced by an identical description is not seen).
+        std::unordered_map<std::string, std::size_t> before;
+        for (const CommandInfo* c : engine.commands().list())
+            before[c->name] = std::hash<std::string>{}(c->description);
+        ext.fn(engine);
+        for (const CommandInfo* c : engine.commands().list()) {
+            auto it = before.find(c->name);
+            if (it != before.end() && it->second != std::hash<std::string>{}(c->description))
+                FA_WARN("command",
+                        "command extension '{}' replaced the command '{}' (names must be unique; the extension's "
+                        "version wins)",
+                        ext.name, c->name);
+        }
+    }
 }
 
 }  // namespace fa

@@ -229,7 +229,7 @@ TEST_CASE("tilemap.generate: glyphs that spawn prefabs come back as glyphs and a
     CHECK(r.result["legend"].contains("#"));
     CHECK(r.result["counts"]["c"].get<int>() > 0);
     REQUIRE(r.result.contains("warnings"));
-    CHECK(contains(r.result["warnings"][0].get<std::string>(), "scene.import_ascii"));
+    CHECK(contains(r.result["warnings"][0].get<std::string>(), "scene.place_ascii"));
 }
 
 TEST_CASE("tilemap.generate: errors teach") {

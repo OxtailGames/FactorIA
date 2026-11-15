@@ -12,8 +12,6 @@
 // prefab files, ids), then the world is changed; failures after that point (a bad `tilemap` value, a prefab that does not
 // load, a tile outside the tileset) restore the tilemap and remove what was spawned, so a failed call changes nothing.
 #include <algorithm>
-#include <array>
-#include <functional>
 #include <cctype>
 #include <cmath>
 #include <map>
@@ -150,7 +148,7 @@ Grid parse_rows(const Json& a) {
     if (g.width > 65536 || g.height > 65536)
         bad_arg("the map is " + std::to_string(g.width) + " x " + std::to_string(g.height) +
                     " tiles but a Tilemap holds at most 65536 per side",
-                "Split the level into several Tilemaps (call scene.import_ascii with another 'entity' id).");
+                "Split the level into several Tilemaps (call scene.place_ascii with another 'entity' id).");
     return g;
 }
 
@@ -837,7 +835,8 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
          "the "
          "next step. This is the command form of `entity.tilemap.setTile(col, row, tile)` in scripts. It changes the "
          "RUNNING "
-         "world only (not the scene file; use scene.save to keep it, scene.import_ascii to rebuild a level file). A "
+         "world only (not the scene file; use scene.save to keep it, scene.import_ascii (CLI, editor, MCP) to rebuild "
+         "a level file). A "
          "cell "
          "outside the map or a value that is not a tile is refused and nothing changes. Returns {id, col, row, tile, "
          "previous}. Example: tilemap.set_tile {\"id\":\"map\",\"col\":12,\"row\":7,\"tile\":-1}",
@@ -852,7 +851,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
             Tilemap* tm = I.world.get<Tilemap>(e);
             if (!tm)
                 throw CommandError("invalid_argument", "Entity '" + I.world.id_of(e) + "' has no Tilemap component",
-                                   "Pass the id of the entity that holds the Tilemap (scene.import_ascii names it "
+                                   "Pass the id of the entity that holds the Tilemap (scene.place_ascii names it "
                                    "'tilemap' by default).");
             const int col = a["col"].get<int>(), row = a["row"].get<int>(), tile = a["tile"].get<int>();
             const TilemapSize size = tilemap_size(*tm);
@@ -889,7 +888,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
             const Tilemap* tm = I.world.get<Tilemap>(e);
             if (!tm)
                 throw CommandError("invalid_argument", "Entity '" + I.world.id_of(e) + "' has no Tilemap component",
-                                   "Pass the id of the entity that holds the Tilemap (scene.import_ascii names it "
+                                   "Pass the id of the entity that holds the Tilemap (scene.place_ascii names it "
                                    "'tilemap' by default).");
             const Vec3 local =
                 I.world.world_matrix(e).inverse().transform_point({a["x"].get<float>(), a["y"].get<float>(), 0.0f});
@@ -928,7 +927,7 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
             const Tilemap* tm = I.world.get<Tilemap>(e);
             if (!tm)
                 throw CommandError("invalid_argument", "Entity '" + I.world.id_of(e) + "' has no Tilemap component",
-                                   "Pass the id of the entity that holds the Tilemap (scene.import_ascii names it "
+                                   "Pass the id of the entity that holds the Tilemap (scene.place_ascii names it "
                                    "'tilemap' by default).");
             const int col = a["col"].get<int>(), row = a["row"].get<int>();
             const Vec2 local = tilemap_cell_center(*tm, col, row);

@@ -1,12 +1,16 @@
-// The capabilities of the authoring commands (core/capability.h): they declare them, and a game script (the player's, and the
-// editor's Play) may not call them. The same checks as engine/runtime/tests/command_capabilities_tests.cpp makes for the
+// The capabilities of the authoring commands (core/capability.h): they declare them; the ones that write a file need more than
+// the set of a game script (capability_sets::game_player(), {read, state}), and two tests run a real game script that tries
+// them. The same checks as engine/runtime/tests/command_capabilities_tests.cpp makes for the
 // commands of the player.
 #include <doctest.h>
 
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <functional>
+#include <vector>
 
+#include "../../../engine/runtime/tests/confinement_variants.h"
 #include "fa/authoring/authoring.h"
 #include "fa/core/capability.h"
 #include "fa/core/command.h"
@@ -100,8 +104,8 @@ void check_game_script_set(bool editorMode) {
 
 }  // namespace
 
-TEST_CASE(
-    "capabilities: every authoring command declares them, and a game script may not call prefab.save or scene.format") {
+TEST_CASE("capabilities: every authoring command declares them, and prefab.save and scene.format are outside the game "
+          "script's capability set") {
     authoring::install();
     TempProject p;
     EngineConfig c;
@@ -147,11 +151,11 @@ TEST_CASE("capabilities: the vfx and mesh tools are what they were when the runt
         REQUIRE_MESSAGE(info != nullptr, name);
         return info->capabilities;
     };
-    // What the editor's Play lets a game script call (read + state)...
+    // Inside the capability set of a game script (game_player(): read + state), as when the runtime had them...
     for (const char* n : {"mesh.create", "mesh.update", "mesh.destroy", "mesh.list", "mesh.info", "vfx.check",
                           "vfx.budget", "vfx.filmstrip"})
         CHECK_MESSAGE(capability_sets::game_player().has_all(caps(n)), n);
-    // ...and what it may not: mesh.save writes a .glb at the caller's path.
+    // ...and outside it: mesh.save writes a .glb at the caller's path.
     CHECK_FALSE(capability_sets::game_player().has_all(caps("mesh.save")));
     CHECK(caps("mesh.save").has(Capability::WriteProject));
     e.shutdown();
@@ -182,14 +186,7 @@ TEST_CASE("capabilities: mesh.save and vfx.filmstrip confine the path of their c
     };
     {
         CommandCallerScope mcp(CommandCaller::Mcp);
-        for (const char* command : {"mesh.save", "vfx.filmstrip"}) {
-            CAPTURE(command);
-            const std::string ext = std::string(command) == "mesh.save" ? ".glb" : ".png";
-            CHECK(code(command, "../x" + ext) == "path_outside_root");
-            CHECK(code(command, (outside.dir / ("x" + ext)).generic_string()) == "absolute_path_denied");
-            CHECK(code(command, ".git/x" + ext) == "managed_path_denied");
-            CHECK(code(command, ".factoria/x" + ext) == "managed_path_denied");
-        }
+        // The refused spellings of mesh.save and vfx.filmstrip are in the table test at the end of this file.
         // A plain project path passes the path rules.
         CHECK(code("mesh.save", "out/x.glb") == "ok");
         CHECK(stdfs::exists(p.dir / "out" / "x.glb"));
@@ -236,18 +233,23 @@ TEST_CASE(
         CHECK_FALSE(std::binary_search(runtime.begin(), runtime.end(), std::string(name)));
         CHECK(e.commands().info(name) != nullptr);
     }
+    // The list above is written by hand: walk the registry too, so a new anim.*, skin.*, bones.*, mesh.* or vfx review command
+    // that lands in the runtime set is found without anybody adding its name here.
+    for (const CommandInfo* info : e.commands().list()) {
+        const std::string& n = info->name;
+        const bool tool = n.rfind("anim.", 0) == 0 || n.rfind("skin.", 0) == 0 || n.rfind("bones.", 0) == 0 ||
+                          n.rfind("mesh.", 0) == 0 || n == "vfx.check" || n == "vfx.budget" || n == "vfx.filmstrip";
+        if (!tool) continue;
+        CAPTURE(n);
+        CHECK_FALSE(std::binary_search(runtime.begin(), runtime.end(), n));
+    }
+    // The capability set of a game script (game_player) does not cover an anim.* editor: it writes a file.
     CHECK_FALSE(capability_sets::game_player().has_all(e.commands().info("anim.set_keys")->capabilities));
 
     auto code = [](const CommandResult& r) { return r.ok ? std::string("ok") : r.error.value("code", std::string()); };
     {
         CommandCallerScope mcp(CommandCaller::Mcp);
-        CHECK(code(e.commands().call("anim.create_clip", Json::object({{"path", "../x.anim.json"},
-                                                                       {"duration", 1.0}}))) == "path_outside_root");
-        CHECK(code(e.commands().call("anim.create_clip",
-                                     Json::object({{"path", (outside.dir / "x.anim.json").generic_string()},
-                                                   {"duration", 1.0}}))) == "absolute_path_denied");
-        CHECK(code(e.commands().call("anim.restore", Json::object({{"path", ".factoria/x.anim.json"},
-                                                                   {"clip", nullptr}}))) == "managed_path_denied");
+        // The refused spellings of anim.create_clip and anim.restore are in the table test at the end of this file.
     }
     {
         CommandCapabilityScope readOnly(capability_sets::mcp_read_only());
@@ -262,9 +264,10 @@ TEST_CASE(
     e.shutdown();
 }
 
-// The same path rules as engine/runtime/tests/command_capabilities_tests.cpp ("every command that writes a caller's path
-// confines it") makes for the commands of the player, for the authoring commands that write a path their caller gives.
-TEST_CASE("capabilities: scene.import_ascii and scene.ascii_edit confine the path they write") {
+// The same path rules, with the same list of spellings, as engine/runtime/tests/command_capabilities_tests.cpp ("every command
+// that writes a caller's path confines it") makes for the commands of the player, for every authoring command that writes
+// a path its caller gives.
+TEST_CASE("capabilities: every authoring writer confines the path it writes, with every spelling") {
     authoring::install();
     TempProject p;
     TempProject outside;
@@ -275,12 +278,26 @@ TEST_CASE("capabilities: scene.import_ascii and scene.ascii_edit confine the pat
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    const CommandResult mesh =
+        e.commands().call("mesh.create", Json::object({{"positions", Json::parse("[[0,0,0],[1,0,0],[1,1,0],[0,1,0]]")},
+                                                       {"indices", Json::parse("[0,1,2,0,2,3]")}}));
+    REQUIRE_MESSAGE(mesh.ok, mesh.error.dump());
+    const std::string meshId = mesh.result["id"].get<std::string>();
     struct Writer {
         const char* command;
         const char* ext;
-        Json (*args)(const std::string& path);
+        std::function<Json(const std::string& path)> args;
     };
-    const Writer writers[] = {
+    const std::vector<Writer> writers = {
+        {"anim.create_clip", ".anim.json",
+         [](const std::string& path) { return Json::object({{"path", path}, {"duration", 1.0}}); }},
+        {"anim.restore", ".anim.json",
+         [](const std::string& path) { return Json::object({{"path", path}, {"clip", nullptr}}); }},
+        {"mesh.save", ".glb", [&](const std::string& path) { return Json::object({{"id", meshId}, {"path", path}}); }},
+        {"vfx.filmstrip", ".png",
+         [](const std::string& path) {
+             return Json::object({{"effect", "assets/vfx/none.vfx.json"}, {"path", path}});
+         }},
         {"scene.import_ascii", ".scene.json",
          [](const std::string& path) {
              return Json::object(
@@ -296,17 +313,28 @@ TEST_CASE("capabilities: scene.import_ascii and scene.ascii_edit confine the pat
         const CommandResult r = e.commands().call(w.command, w.args(path));
         return r.ok ? std::string("ok") : r.error.value("code", std::string());
     };
+    auto refused = [](const std::string& code) {
+        return code == "capability_denied" || code == "absolute_path_denied" || code == "path_outside_root" ||
+               code == "managed_path_denied" || code == "invalid_path";
+    };
     {
         CommandCallerScope mcp(CommandCaller::Mcp);
+        // A link into a managed folder is refused too (not every file system lets a test make one).
+        std::error_code lec;
+        stdfs::create_directories(p.dir / ".factoria", lec);
+        stdfs::create_directory_symlink(p.dir / ".factoria", p.dir / "meta", lec);
+        const bool linked = !lec;
         for (const Writer& w : writers) {
             CAPTURE(w.command);
-            const std::string name = std::string("x") + w.ext;
-            CHECK(code(w, "../" + name) == "path_outside_root");
-            CHECK(code(w, (outside.dir / name).generic_string()) == "absolute_path_denied");
-            CHECK(code(w, ".git/" + name) == "managed_path_denied");
-            CHECK(code(w, ".factoria/" + name) == "managed_path_denied");
-            CHECK(code(w, "..\\" + name) == "path_outside_root");
-            CHECK(code(w, "out/nul.x/" + name) == "invalid_path");
+            for (const fa_test::PathVariant& v :
+                 fa_test::confinement_variants(std::string("x") + w.ext, outside.dir.generic_string(), linked)) {
+                CAPTURE(v.path);
+                const std::string got = code(w, v.path);
+                if (v.code)
+                    CHECK(got == v.code);
+                else
+                    CHECK_MESSAGE(!refused(got), w.command);
+            }
         }
     }
     {

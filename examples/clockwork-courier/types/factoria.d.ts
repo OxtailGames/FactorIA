@@ -2105,7 +2105,7 @@ declare module "factoria" {
      */
     sample?: string | Entity | string[] | { rows: string[]; legend?: Json; legendFrom?: string };
     /**
-     * Glyph -> tile index or {tile?, prefab?, id?, overrides?, offset?...}, the format of scene.import_ascii. "." and " " are empty unless defined here.
+     * Glyph -> tile index or {tile?, prefab?, id?, overrides?, offset?...}, the format of scene.place_ascii. "." and " " are empty unless defined here.
      * @since 0.17.0
      */
     legend?: Json;
@@ -2185,7 +2185,7 @@ declare module "factoria" {
      */
     into?: string | Entity;
     /**
-     * When the level is ready, build it in the running scene the way scene.import_ascii does: the Tilemap entity (`entity`, default "tilemap", created or updated, with the `tilemap` fields such as tileset and tileSize, at `position`/`anchor`) and one entity per glyph of the sample whose legend entry has a `prefab` (spawn points, coins, enemies), ids and tags as scene.import_ascii names them. The report of scene.import_ascii is in `result.placed`. With `replace` (default true) the objects of an earlier placement into the same entity are destroyed first. `true` uses the defaults. The level is placed in the scene that called tilemap.generate: if another scene is current when the level is ready, nothing is placed and the generation fails.
+     * When the level is ready, build it in the running scene the way scene.place_ascii does: the Tilemap entity (`entity`, default "tilemap", created or updated, with the `tilemap` fields such as tileset and tileSize, at `position`/`anchor`) and one entity per glyph of the sample whose legend entry has a `prefab` (spawn points, coins, enemies), ids and tags as scene.place_ascii names them. The report of scene.place_ascii is in `result.placed`. With `replace` (default true) the objects of an earlier placement into the same entity are destroyed first. `true` uses the defaults. The level is placed in the scene that called tilemap.generate: if another scene is current when the level is ready, nothing is placed and the generation fails.
      * @since 0.17.0
      */
     place?: boolean | { entity?: string; tilemap?: Json; position?: Vec2Like; anchor?: string; replace?: boolean };

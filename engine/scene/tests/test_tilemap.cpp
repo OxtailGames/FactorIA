@@ -44,7 +44,7 @@ TEST_CASE("tilemap: a flat array must have width*height entries") {
     CHECK(issues[0].message.find("6 entries") != std::string::npos);
     CHECK(issues[0].message.find("3 x 3 = 9") != std::string::npos);
     CHECK(issues[0].hint.find("row 0 at the TOP") != std::string::npos);
-    CHECK(issues[0].hint.find("scene.import_ascii") != std::string::npos);
+    CHECK(issues[0].hint.find("scene.place_ascii") != std::string::npos);
 }
 
 TEST_CASE("tilemap: a rows form must be equal rows that match width and height (flatten_tilemap_rows)") {
@@ -90,13 +90,13 @@ TEST_CASE("tilemap: a rows form must be equal rows that match width and height (
     CHECK(fields["tiles"] == Json::parse("[0,1,2]"));
 }
 
-TEST_CASE("tilemap: tile values must be integers >= -1 (strings point at scene.import_ascii)") {
+TEST_CASE("tilemap: tile values must be integers >= -1 (strings point at scene.place_ascii)") {
     Json fields = Json::parse(R"({"tiles":[[0,"#"],[-2,1.5]]})");
     auto issues = flatten_tilemap_rows(fields);
     REQUIRE(issues.size() == 2);
     const TilemapIssue* str = find_issue(issues, "/tiles/0/1", "string");
     REQUIRE(str != nullptr);
-    CHECK(str->hint.find("scene.import_ascii") != std::string::npos);
+    CHECK(str->hint.find("scene.place_ascii") != std::string::npos);
     CHECK(find_issue(issues, "/tiles/1/1", "integer") != nullptr);
     // -2 is a whole number, so it reaches the array and check_tilemap names it.
     Tilemap bad = map_with(2, 1, "[0, 0]");
