@@ -16,7 +16,7 @@ TargetPool::~TargetPool() {
     entries_.clear();
 }
 
-std::uint64_t TargetPool::acquire(const TargetDesc& desc) {
+std::uint64_t TargetPool::acquire(const TransientDesc& desc) {
     for (Entry& e : entries_) {
         if (!e.inUse && e.desc.same_shape(desc)) {
             e.inUse = true;

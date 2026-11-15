@@ -172,6 +172,7 @@ void Renderer::Impl::destroy_targets() {
     for (auto& [key, t] : viewTargets) release_view(*t);
     viewTargets.clear();
     bloom.release();
+    if (transients) transients->pool.clear_free();  // the bloom levels are made again, at the new size
     destroy_target(lightTarget);
     lightW = lightH = 0;
     filterActive = false;
@@ -407,25 +408,28 @@ void Renderer::Impl::destroy_light_resources() {
     }
 }
 
-// Draws the finished game target through colorfilter.glsl into filterTarget. Returns the draw calls issued (0 when the
-// filter was skipped: the shader or the image could not be created, which is logged once).
-int Renderer::Impl::apply_color_filter(int mode) {
-    if (!gpu.colorfilter_ready()) return 0;
-    if (!filterTarget.color.id) {
-        TargetDesc d;
-        d.label = "game-filtered";
-        d.width = physW;
-        d.height = physH;
-        d.colorFormat = gpu.scene_format();
-        filterTarget = make_target(d);
-        if (!filterTarget.valid()) {
-            FA_ERROR("render",
-                     "Camera.colorFilter: cannot create the {}x{} target; the game is drawn without the filter", physW,
-                     physH);
-            destroy_target(filterTarget);
-            return 0;
-        }
+// Makes (or keeps) the image the colour filter draws into. False (and one logged error) when the GPU cannot make it: the
+// game is then drawn without the filter. It is the frame's output while filterActive: present() and capture() sample it after
+// the frame graph ran, so it is an imported target of the graph and not a transient of the pool.
+bool Renderer::Impl::ensure_filter_target() {
+    if (filterTarget.color.id) return true;
+    TargetDesc d;
+    d.label = "game-filtered";
+    d.width = physW;
+    d.height = physH;
+    d.colorFormat = gpu.scene_format();
+    filterTarget = make_target(d);
+    if (!filterTarget.valid()) {
+        FA_ERROR("render", "Camera.colorFilter: cannot create the {}x{} target; the game is drawn without the filter",
+                 physW, physH);
+        destroy_target(filterTarget);
+        return false;
     }
+    return true;
+}
+
+// Draws the finished game target through colorfilter.glsl into filterTarget (ensure_filter_target made it).
+void Renderer::Impl::color_filter_pass(int mode) {
     PassDesc p = pass_into(filterTarget, "color-filter");
     p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
     p.colorStore = SG_STOREACTION_STORE;
@@ -445,7 +449,7 @@ int Renderer::Impl::apply_color_filter(int mode) {
     sg_draw(0, 3, 1);
     gpu.end_pass();
     filterActive = true;
-    return 1;
+    ++stats.drawCalls;
 }
 
 bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out,

@@ -5,11 +5,15 @@
 //        ^                                              |  blur H, blur V (separable gaussian)
 //        '------------------- composite (add) ----------'
 //
-// Every target is in the game target's format (Gpu::scene_format(): RGBA16F where the GPU can, so a colour above white keeps its
-// strength through the blur) and deterministic (no randomness, fixed tap pattern), so headless runs are reproducible.
+// The stages are passes of the frame's graph (frame_graph.h) and every intermediate target is a transient of it (a
+// TargetPool target, kept across frames) in the game target's format (Gpu::scene_format(): RGBA16F where the GPU can, so a
+// colour above white keeps its strength through the blur). The stages are deterministic (no randomness, fixed tap
+// pattern), so headless runs are reproducible.
 #pragma once
 
+#include "frame_graph.h"
 #include "render_internal.h"
+#include "transient_targets.h"
 
 namespace fa::render {
 
@@ -33,26 +37,25 @@ public:
     Bloom(const Bloom&) = delete;
     Bloom& operator=(const Bloom&) = delete;
 
-    // Adds the glow of `srcTex` (a texture view of the finished game target) into `dst` (see BloomTarget: a
-    // color-attachment view of the same image, or of its multisampled twin). Must be called outside a pass, after
-    // the scene was drawn. Returns the number of draw calls issued, 0 when bloom was skipped (disabled,
-    // unsupported shaders, degenerate size).
-    int apply(Gpu& gpu, const BloomSettings& s, int targetW, int targetH, sg_view srcTex, const BloomTarget& dst);
+    // Declares the passes that add the glow of `srcTex` (a texture view of the finished game target, the imported
+    // resource `game` of `graph`) into `dst` (see BloomTarget: a color-attachment view of the same image, or of its
+    // multisampled twin): bright, down (0 to 4), blur-h, blur-v, composite, in that order. The intermediate levels are
+    // transients of the graph (the pool of `targets`, in the game target's format) and each pass adds one to
+    // *drawCalls when it runs. Returns the number of passes declared, 0 when bloom is skipped (disabled, unsupported
+    // shaders, degenerate size, an intermediate target the GPU cannot make: logged once, and not tried again until the
+    // size or the format changes). Call before graph.compile(), after the passes that draw the scene.
+    int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const BloomSettings& s, int targetW,
+                   int targetH, ResourceId game, sg_view srcTex, const BloomTarget& dst, int* drawCalls);
 
-    // Frees the intermediate targets (call when the game target is resized or on shutdown).
+    // Forgets that creating the intermediate targets failed (the game target was resized or recreated).
     void release();
 
 private:
     static constexpr int kLevels = 5;  // 1/2, 1/4, 1/8, 1/16, 1/32 of the game target
-    struct Level {
-        int w = 0, h = 0;
-        Target t[2];  // t[i].colorAtt is drawn into, t[i].texView sampled
-    };
-    bool ensure(int level, int targetW, int targetH, bool needSecond, sg_pixel_format fmt);
-
-    Level levels_[kLevels];
-    int targetW_ = 0, targetH_ = 0;
     bool warned_ = false;
+    // The size and format whose intermediate targets could not be made (0 = none failed).
+    int failedW_ = 0, failedH_ = 0;
+    sg_pixel_format failedFmt_ = SG_PIXELFORMAT_NONE;
 };
 
 }  // namespace fa::render

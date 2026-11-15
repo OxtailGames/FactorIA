@@ -18,14 +18,16 @@ namespace fa::render {
 
 // What a transient target is: its size and formats. `label` names it in dumps and in error messages; it is not part
 // of the pool key (two targets with another label but the same size and formats are interchangeable).
-struct TargetDesc {
+struct TransientDesc {
     int width = 0;
     int height = 0;
     TargetFormat format{};
     std::string label;
 
     // The pool key: the size and formats, never the label.
-    bool same_shape(const TargetDesc& o) const { return width == o.width && height == o.height && format == o.format; }
+    bool same_shape(const TransientDesc& o) const {
+        return width == o.width && height == o.height && format == o.format;
+    }
 };
 
 struct TargetPoolStats {
@@ -38,7 +40,7 @@ struct TargetPoolStats {
 
 class TargetPool {
 public:
-    using CreateFn = std::function<std::uint64_t(const TargetDesc&)>;
+    using CreateFn = std::function<std::uint64_t(const TransientDesc&)>;
     using DestroyFn = std::function<void(std::uint64_t)>;
 
     // `maxIdleFrames`: whole frames a free target may stay unused before begin_frame destroys it (>= 0).
@@ -48,7 +50,7 @@ public:
     TargetPool& operator=(const TargetPool&) = delete;
 
     // A free target of the same shape (reused) or a new one (created). Returns 0 when `create` returned 0.
-    std::uint64_t acquire(const TargetDesc& desc);
+    std::uint64_t acquire(const TransientDesc& desc);
     // Gives a target back. A handle the pool does not know, or one already free, is ignored.
     void release(std::uint64_t handle);
 
@@ -63,7 +65,7 @@ public:
 private:
     struct Entry {
         std::uint64_t handle = 0;
-        TargetDesc desc;
+        TransientDesc desc;
         bool inUse = false;
         int lastUsedFrame = 0;
     };

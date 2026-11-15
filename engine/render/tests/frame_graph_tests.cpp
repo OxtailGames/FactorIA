@@ -12,8 +12,8 @@ using namespace fa::render;
 
 namespace {
 
-TargetDesc desc(int w, int h, const char* label, sg_pixel_format color = SG_PIXELFORMAT_RGBA8) {
-    TargetDesc d;
+TransientDesc desc(int w, int h, const char* label, sg_pixel_format color = SG_PIXELFORMAT_RGBA8) {
+    TransientDesc d;
     d.width = w;
     d.height = h;
     d.format.color = color;
@@ -28,7 +28,7 @@ struct FakePool {
     TargetPool pool;
     explicit FakePool(int maxIdle = 4)
         : pool(
-              [this](const TargetDesc&) {
+              [this](const TransientDesc&) {
                   ++alive;
                   return next++;
               },
@@ -286,7 +286,7 @@ TEST_CASE("frame graph: transients that are alive together never get the same ph
 TEST_CASE("target pool: reuse across frames, eviction after N idle frames, counters") {
     FakePool fp(2);
     TargetPool& pool = fp.pool;
-    TargetDesc d = desc(100, 50, "x");
+    TransientDesc d = desc(100, 50, "x");
     std::uint64_t h1 = pool.acquire(d);
     CHECK(h1 != 0);
     CHECK(pool.stats().created == 1);
@@ -327,7 +327,7 @@ TEST_CASE("target pool: reuse across frames, eviction after N idle frames, count
 TEST_CASE("target pool: the destructor destroys every target") {
     int alive = 0;
     {
-        TargetPool pool([&](const TargetDesc&) { return std::uint64_t(++alive); }, [&](std::uint64_t) { --alive; });
+        TargetPool pool([&](const TransientDesc&) { return std::uint64_t(++alive); }, [&](std::uint64_t) { --alive; });
         pool.acquire(desc(4, 4, "a"));
         std::uint64_t b = pool.acquire(desc(5, 5, "b"));
         pool.release(b);
@@ -348,7 +348,7 @@ TEST_CASE("frame graph: a pool that cannot create a target fails the frame and g
     g.add_pass(pass("p2", {b}, {screen}));
     REQUIRE(g.compile().ok());
     int made = 0;
-    TargetPool pool([&](const TargetDesc&) { return made++ == 0 ? std::uint64_t(1) : std::uint64_t(0); },
+    TargetPool pool([&](const TransientDesc&) { return made++ == 0 ? std::uint64_t(1) : std::uint64_t(0); },
                     [](std::uint64_t) {});
     auto r = g.execute(pool);
     REQUIRE_FALSE(r.ok());
@@ -358,7 +358,7 @@ TEST_CASE("frame graph: a pool that cannot create a target fails the frame and g
 
 TEST_CASE("frame graph: to_json describes resources, passes, order, culling and aliasing") {
     FrameGraph g;
-    TargetDesc gd = desc(1280, 720, "game", SG_PIXELFORMAT_RGBA16F);
+    TransientDesc gd = desc(1280, 720, "game", SG_PIXELFORMAT_RGBA16F);
     gd.format.depth = SG_PIXELFORMAT_DEPTH_STENCIL;
     ResourceId game = g.import_target("game", 3, gd);
     ResourceId a = g.create_transient(desc(64, 32, "a"));
@@ -397,4 +397,49 @@ TEST_CASE("frame graph: to_json describes resources, passes, order, culling and 
     CHECK(j["culled"] == Json::array({"orphan"}));
     REQUIRE(j["aliasSlots"].size() == 2);
     CHECK(j["aliasSlots"][0]["resources"] == Json::array({"a"}));
+}
+
+TEST_CASE("frame graph: set_import_handle rebinds an imported resource and refuses the others") {
+    FrameGraph g;
+    ResourceId screen = g.import_target("screen", 5, desc(32, 32, "screen"));
+    ResourceId a = g.create_transient(desc(8, 8, "a"));
+    CHECK_FALSE(g.set_import_handle(a, 9));  // a transient has no handle to set
+    CHECK_FALSE(g.set_import_handle(ResourceId{}, 9));
+    CHECK_FALSE(g.set_import_handle(ResourceId{99}, 9));
+    std::uint64_t seen = 0;
+    GraphPass p = pass("draw", {}, {screen});
+    p.execute = [&](const PassContext& c) { seen = c.handle(screen); };
+    g.add_pass(std::move(p));
+    REQUIRE(g.compile().ok());
+    FakePool fp;
+    REQUIRE(g.execute(fp.pool).ok());
+    CHECK(seen == 5);
+    // The same compiled graph, another image: no new compile is needed.
+    CHECK(g.set_import_handle(screen, 6));
+    REQUIRE(g.execute(fp.pool).ok());
+    CHECK(seen == 6);
+    CHECK(g.to_json()["resources"][0]["width"] == 32);  // no desc given: the shape stays
+    // A new desc replaces the shape and keeps the label when it has none.
+    const TransientDesc bigger = desc(64, 48, "");
+    CHECK(g.set_import_handle(screen, 7, &bigger));
+    CHECK(g.to_json()["resources"][0]["width"] == 64);
+    CHECK(g.to_json()["resources"][0]["height"] == 48);
+    CHECK(g.to_json()["resources"][0]["name"] == "screen");
+}
+
+TEST_CASE("frame graph: a pass that throws gives every transient back to the pool") {
+    FrameGraph g;
+    ResourceId screen = g.import_target("screen", 1);
+    ResourceId a = g.create_transient(desc(8, 8, "a"));
+    ResourceId b = g.create_transient(desc(9, 9, "b"));
+    g.add_pass(pass("p0", {}, {a}));
+    GraphPass thrower = pass("p1", {a}, {b});
+    thrower.execute = [](const PassContext&) { throw 42; };
+    g.add_pass(std::move(thrower));
+    g.add_pass(pass("p2", {b}, {screen}));
+    REQUIRE(g.compile().ok());
+    FakePool fp;
+    CHECK_THROWS(static_cast<void>(g.execute(fp.pool)));
+    CHECK(fp.pool.stats().inUse == 0);  // back in the pool, not leaked
+    CHECK(fp.pool.stats().live == 2);
 }
