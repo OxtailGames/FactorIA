@@ -302,7 +302,7 @@ public:
     ScriptSystem& scripts();
 
     // How a design-pixel point becomes a window pixel, for the rectangle a TextField hands to a plugin's text input handler
-    // (fa_plugin.h, FaTextInput). A game window sets it (the letterbox mapping of the renderer); without it, design pixels.
+    // (fa_plugin.h, FaTextInput) and for the IME caret rectangle (fa/platform/ime.h). A game window sets it (the letterbox mapping of the renderer); without it, design pixels.
     void set_design_to_window(std::function<Vec2(Vec2)> mapper);
 
     // Profiler (switch it with Profiler::get().set_enabled; fa/core/profiler.h, docs/PERFORMANCE.md). Measurement only:

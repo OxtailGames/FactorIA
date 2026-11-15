@@ -3,6 +3,7 @@
 #include <cmath>
 
 #include "fa/platform/gamepad.h"
+#include "fa/platform/ime.h"
 #include "fa/platform/input.h"
 
 using namespace fa;
@@ -1427,4 +1428,96 @@ TEST_CASE("text input mode: printable keys stop reading as actions, other keys d
     in.begin_frame();
     in.on_key(Key::P, true);
     CHECK(in.action_pressed("pause"));
+}
+
+TEST_CASE("IME composition: a state across frames, a commit types the text once, a cancel types nothing") {
+    Input in;
+    CHECK_FALSE(in.composing());
+    CHECK(in.composition_text().empty());
+    in.on_composition_update(U"ni", 2, 0);
+    CHECK(in.composing());
+    CHECK(in.composition_text() == U"ni");
+    CHECK(in.composition_caret() == 2);
+    in.begin_frame();  // a composition outlives the frame
+    CHECK(in.composing());
+    in.on_composition_update(U"\u4F60", 1, 5);  // replaced; the selection is cut to the text
+    CHECK(in.composition_text() == U"\u4F60");
+    CHECK(in.composition_selection_length() == 0);
+    in.on_composition_update(U"\u4F60\u597D", 9, -3);  // the caret is clamped, the selection too
+    CHECK(in.composition_caret() == 2);
+    CHECK(in.composition_selection_length() == 0);
+    in.on_composition_update(U"abc", 1, 9);
+    CHECK(in.composition_selection_length() == 2);
+    CHECK(in.text_input().empty());  // a composition is not typed text
+    in.on_composition_commit(U"\u4F60\u597D");
+    CHECK_FALSE(in.composing());
+    CHECK(in.composition_text().empty());
+    CHECK(in.text_input() == U"\u4F60\u597D");  // exactly once
+    CHECK(in.text_utf8() == "\xE4\xBD\xA0\xE5\xA5\xBD");
+    in.begin_frame();
+    CHECK(in.text_input().empty());
+
+    in.on_composition_update(U"x", 1, 0);
+    in.on_composition_cancel();
+    CHECK_FALSE(in.composing());
+    CHECK(in.text_input().empty());
+
+    in.on_composition_update(U"x", 1, 0);
+    in.on_composition_update(U"", 0, 0);  // an empty update ends it
+    CHECK_FALSE(in.composing());
+
+    in.on_composition_update(U"y", 1, 0);
+    in.release_all();  // the window lost the focus
+    CHECK_FALSE(in.composing());
+    in.on_composition_update(U"y", 1, 0);
+    in.reset_options();
+    CHECK_FALSE(in.composing());
+}
+
+TEST_CASE("IME composition: an over-long pre-edit string is cut") {
+    Input in;
+    in.on_composition_update(std::u32string(Input::kMaxCompositionLength + 50, U'a'), 100000, 100000);
+    CHECK(in.composition_text().size() == Input::kMaxCompositionLength);
+    CHECK(in.composition_caret() == int(Input::kMaxCompositionLength));
+}
+
+TEST_CASE("text field editing keys: cut and select all are chords like copy and paste") {
+    Input in;
+    in.begin_frame();
+    in.on_key(Key::LeftControl, true);
+    in.on_key(Key::A, true);
+    in.on_key(Key::X, true);
+    CHECK(in.select_all_pressed());
+    CHECK(in.cut_pressed());
+    CHECK_FALSE(in.copy_pressed());
+    CHECK(in.word_modifier_down() == (
+#if defined(__APPLE__)
+                                         false
+#else
+                                         true
+#endif
+                                         ));
+    in.begin_frame();
+    CHECK_FALSE(in.select_all_pressed());  // an edge: gone with the frame
+    CHECK_FALSE(in.cut_pressed());
+    in.on_key(Key::LeftControl, false);
+    in.on_key(Key::A, false);
+    in.on_key(Key::X, false);
+    in.begin_frame();
+    in.on_key(Key::A, true);  // no chord: a plain letter
+    CHECK_FALSE(in.select_all_pressed());
+}
+
+TEST_CASE("IME hook: the requests are kept, repeated ones change nothing, the rectangle needs the IME on") {
+    ime_reset_state();
+    ime_set_caret_rect({1, 2, 3, 4});  // off: ignored
+    CHECK(ime_state().caretRect.w == 0);
+    ime_set_enabled(true);
+    ime_set_caret_rect({1, 2, 3, 4});
+    CHECK(ime_state().enabled);
+    CHECK(ime_state().caretRect.h == 4);
+    ime_set_enabled(false);
+    CHECK_FALSE(ime_state().enabled);
+    CHECK(ime_state().caretRect.w == 0);
+    ime_reset_state();
 }

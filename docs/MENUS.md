@@ -316,6 +316,15 @@ What the command does, file by file; do it by hand when you want to see each fil
   with Ctrl/Cmd+C. A paste is appended at the end, drops newlines and control characters, stops at `maxLength` and sends
   `ui.change` once; the letter of the chord is not typed. Phones have no clipboard for games
   (`window.supports("clipboard")`; docs/SCRIPTING.md "Clipboard").
+- **Caret, selection and IME composition (the contract of M98.6).** A `TextField` has `caretIndex`, `selectionStart` and
+  `selectionEnd` (code-point indices into `text`; `selectionStart == selectionEnd` means no selection; the UI clamps all three
+  to the text every frame, so a scene or a script that writes a wrong one is harmless) and a runtime, read-only
+  `composition` (the pre-edit string an input method is composing in the focused field, never part of `text` until it is
+  committed). Scripts read the composition in `input.composing` / `input.compositionText`. While a field has the focus the UI
+  turns the platform's IME on and sends it the caret rectangle in window pixels (`ime_set_enabled`, `ime_set_caret_rect`,
+  fa/platform/ime.h). Today nothing moves the caret or edits the selection, and the platform backends do not send
+  composition events yet: M98.6b adds the editing (arrows, Home / End, selection, word moves, cut and select all) and
+  M98.6c / 6d the IME on each platform, filling these fields without changing their names.
 - **On-screen keyboard (gamepad players).** A `TextField` takes typed text from a keyboard, and a phone raises its own
   keyboard when one gets the focus (the engine does that, not the game: docs/MOBILE.md). A player with only a pad has
   neither, so `scripts/ui/keyboard.js` (a behaviour: put it on one entity of the scene) opens

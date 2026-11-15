@@ -2821,6 +2821,15 @@ NATIVE(inText) {
     return JS_NewString(ctx, I->host->input().text_utf8().c_str());
 }
 
+NATIVE(inComposition) {  // (kind 0 composing: boolean | 1 composition text: string)
+    SETUP;
+    const Input& in = I->host->input();
+    if (arg_num(ctx, argc, argv, 0) == 0) return JS_NewBool(ctx, in.composing());
+    std::string utf8;
+    for (char32_t c : in.composition_text()) utf8_append(utf8, c);
+    return JS_NewString(ctx, utf8.c_str());
+}
+
 NATIVE(inActions) {
     SETUP;
     return I->from_json(Json(I->host->input().action_names()));
@@ -4896,6 +4905,7 @@ const Reg kRegs[] = {
     R(inDeadzone, 1),
     R(testPad, 5),
     R(inText, 0),
+    R(inComposition, 1),
     R(inActions, 0),
     R(inBindings, 1),
     R(inRebind, 2),
