@@ -51,6 +51,7 @@
 #include "localization_check.h"
 #include "fa/audio/snapshots.h"
 #include "js_scan.h"
+#include "player_commands.h"
 #include "script_lint.h"
 #include "util.h"
 
@@ -80,11 +81,12 @@ struct Ctx {
     bool analyticsDeclared = false;  // factoria.json "analytics" has an endpoint
     bool networkDeclared = false;    // factoria.json "network" lists at least one host
     std::vector<PlatformCatalog::TextKeyRef>
-        catalogKeys;                      // locale keys the "platform" catalog names, checked with the string tables
-    bool projectFileRead = false;         // factoria.json parsed as an object
-    RichTextStyle richStyle;              // the "text" section of factoria.json, for the markup checks
-    std::set<std::string> boldSuggested;  // fonts already told to get a bold face (one warning per font)
-    std::set<std::string> entityTags;     // every tag a scene or prefab entity carries, for Camera.showTags / hideTags
+        catalogKeys;                         // locale keys the "platform" catalog names, checked with the string tables
+    bool projectFileRead = false;            // factoria.json parsed as an object
+    std::vector<std::string> exportExclude;  // "export.exclude" of factoria.json: what the export leaves out
+    RichTextStyle richStyle;                 // the "text" section of factoria.json, for the markup checks
+    std::set<std::string> boldSuggested;     // fonts already told to get a bold face (one warning per font)
+    std::set<std::string> entityTags;  // every tag a scene or prefab entity carries, for Camera.showTags / hideTags
     struct CameraTags {
         std::string file, pointer;
         std::vector<std::string> show, hide;
@@ -1023,6 +1025,7 @@ void check_project_file(Ctx& c, std::string& mainScene, std::string& feedbackFil
     }
     const Json& pj = parsed.value();
     const ExportSettingsParse exportSettings = parse_export_settings(pj);
+    c.exportExclude = exportSettings.settings.exclude;
     const PublishSettingsParse publish = parse_publish_settings(pj);
     const PlatformCatalogParse platform =
         parse_platform_catalog(pj.is_object() && pj.contains(kPlatformKey) ? pj[kPlatformKey] : Json());
@@ -1505,6 +1508,8 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
     {
         std::map<std::string, std::string> toolCommands;
         bool toolsRead = false;
+        tooling_detail::PlayerCommandContext playerContext;
+        bool playerContextRead = false;
         std::set<std::string> lintFailed;
         for (const auto& s : scripts) {
             if (failedScripts.count(s) || !stdfs::exists(stdfs::path(c.dir) / s)) continue;
@@ -1528,6 +1533,20 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
                            "Tools are for working on the game and are not exported; move what the game needs into "
                            "scripts/.");
                 }
+            }
+            // A command the exported player does not have (authoring commands, a misspelled name): the export stops on it.
+            // Only the scripts the export ships: tools/, tests/, the autoplay bot and export.exclude stay out.
+            if (!tooling_detail::dev_only_path(s) && !tooling_detail::export_excluded(c.exportExclude, s) &&
+                text->size() <= tooling_detail::kMaxScanScriptBytes && text->find("call") != std::string::npos) {
+                if (!playerContextRead) {
+                    playerContext.plugins = tooling_detail::declared_plugin_names(c.dir);
+                    playerContext.toolCommands = tooling_detail::tool_commands(c.dir);
+                    playerContextRead = true;
+                }
+                for (const tooling_detail::PlayerCommandIssue& issue :
+                     tooling_detail::player_command_issues(s, *text, playerContext))
+                    c.warn(s, "", std::to_string(issue.line) + ":" + std::to_string(issue.column) + ": " + issue.detail,
+                           issue.hint + " `factoria export` stops on this call.");
             }
         }
         if (options.loadCheck) {

@@ -38,6 +38,18 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
   and logs a `script.budget` warning naming the three slowest callbacks, once and then at most every 5 seconds of game time.
   Neither changes what the game does. docs/PERFORMANCE.md, "Script budgets".
 
+- **The export checks that a game's scripts call only commands its player has.** A shipped script with a literal
+  `fa.call("scene.format")` (a command of the editor, the CLI and MCP that the exported player lacks) now stops
+  `factoria export` before it writes anything, with `file:line:column`, the command, why, and the JS way where there is
+  one (`mesh.*` is the `mesh` API, `anim.*` clips are played by the Animator, `scene.import_ascii` is `scene.place_ascii`
+  at play time). A misspelled name gets "did you mean" against the player's commands; the commands of the game's native
+  plugins count as the player's. `factoria validate` reports the same calls as warnings. `factoria serve`'s web export
+  and `project.export` with `dryRun` refuse such a script too (they plan the export first). Scripts under `tools/` and
+  `tests/`, files `export.exclude` leaves out and names built at run time (`fa.call(name)`) are not checked. The editor's
+  Export window keeps the check's result for ten seconds (dropped at once by a save, a project reload, an export or a
+  changed `factoria.json`), so its two-second refresh neither walks the project nor reads the scripts. `tools/`, `tests/` and `scripts/autoplay.js` are now left out
+  of an export in any capitalization.
+
 ### Fixes
 
 - Audio: two memory leaks the weekly fuzz run found. A SoundFont whose `pdta` list repeats a table is refused with an

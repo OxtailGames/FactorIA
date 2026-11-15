@@ -92,7 +92,7 @@ if(FA_BUILD_TESTS)
         add_executable(fa_test_tooling ${tooling_tests} ${FA_ROOT}/cmake/doctest_main.cpp)
         target_link_libraries(fa_test_tooling PRIVATE fa_tooling fa_ai fa_ext_doctest fa_warnings fa_ext_cgltf fa_ext_basisu_encoder fa_ext_quickjs)  # script_instrument_test.cpp runs the instrumented code in QuickJS; # export_web_test.cpp unzips with its miniz; api_since_test.cpp registers ai.* like the CLI
         fa_allow_duplicate_libraries(fa_test_tooling)
-        target_include_directories(fa_test_tooling PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_REPO_ROOT
+        target_include_directories(fa_test_tooling PRIVATE ${FA_GENERATED_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)  # fa_test_paths.h: FA_REPO_ROOT; src: export_script_commands_test.cpp tests the private player_commands.h
         # One process ran all the test cases one after another and took 100 s (more than any other test of the suite; 20 minutes
         # under ASan), so the files are split over five ctest entries that `ctest -j` runs at the same time, each in its own
         # process (temp folders are named after the process id; nothing else is shared, see docs/ARCHITECTURE.md, "Testing"):

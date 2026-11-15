@@ -42,6 +42,7 @@ constexpr float kTileW = 84.0f, kThumb = 56.0f;
 void Editor::project_files_changed() {
     projBrowser_.stale = true;
     projBrowser_.recipesDirty = true;
+    forget_script_check();  // the Export window's check of the scripts reads them again
 }
 
 void Editor::draw_project_panel() {

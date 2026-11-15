@@ -21,6 +21,12 @@ bool export_excluded(const std::vector<std::string>& globs, std::string_view rel
     return false;
 }
 
+bool dev_only_path(std::string_view rel) {
+    const std::string lower = to_lower(std::string(rel));
+    const std::string first = lower.substr(0, lower.find('/'));
+    return first == "tools" || first == "tests" || lower == "scripts/autoplay.js";
+}
+
 std::string today_utc() {
     std::time_t t = std::chrono::system_clock::to_time_t(std::chrono::system_clock::now());
     std::tm tm{};

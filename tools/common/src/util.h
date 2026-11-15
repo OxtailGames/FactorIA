@@ -19,6 +19,10 @@ namespace fa::tooling_detail {
 
 // export.exclude: true when `rel` (project-relative, forward slashes) or one of its folders matches one of the globs.
 bool export_excluded(const std::vector<std::string>& globs, std::string_view rel);
+// true for what an export never ships whatever export.exclude says: the top-level tools/ and tests/ (a file of that name too)
+// and scripts/autoplay.js (the bot play.auto runs), the names compared ignoring case (Windows and macOS open them under any
+// capitalization). `rel` is project-relative with forward slashes. The one rule of collect_game_files and of validate.
+bool dev_only_path(std::string_view rel);
 std::string today_utc();  // YYYY-MM-DD
 std::optional<std::string> read_file(const std::filesystem::path& p);
 bool write_file(const std::filesystem::path& p, std::string_view data, std::string* err = nullptr);  // creates dirs
