@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <utility>
@@ -769,4 +771,143 @@ TEST_CASE("docs: the menu kit is served from the embedded kit, not copied into M
     CHECK(menus->size() < 100000);
     CHECK(menus->find("```js scripts/settings.js") == std::string::npos);
     CHECK(menus->find("menu-kit") != std::string::npos);
+}
+
+namespace {
+// A small split doc: docs/BIG.md (entry page) with two pages in docs/big/, and a doc that is not split.
+struct DocFamilyFixture {
+    std::map<std::string, std::string> files;
+    DocFiles source;
+    explicit DocFamilyFixture(bool linkSecondPage = true) {
+        files["docs/BIG.md"] = "# Big\n\nIndex:\n\n- [Input](big/BIG_INPUT.md): keys\n" +
+                               std::string(linkSecondPage ? "- [Audio](big/BIG_AUDIO.md): sound\n" : "") +
+                               "\n## Essentials\n\nText.\n";
+        files["docs/big/BIG_INPUT.md"] =
+            "# Big input\n\n## Keyboard\n\nkeys\n\n### Repeat\n\nrepeat\n\n## Shared\n\nin input\n";
+        files["docs/big/BIG_AUDIO.md"] = "# Big audio\n\n## Mixer\n\nbus\n\n## Shared\n\nin audio\n";
+        files["docs/SMALL.md"] = "# Small\n\n## Only\n\nx\n";
+        source.list = [this](std::string_view) {
+            std::vector<std::string> out;
+            for (const auto& [k, v] : files) out.push_back(k);
+            return out;
+        };
+        source.read = [this](std::string_view p) -> std::optional<std::string> {
+            auto it = files.find(std::string(p));
+            if (it == files.end()) return std::nullopt;
+            return it->second;
+        };
+        set_doc_files_for_tests(&source);
+    }
+    ~DocFamilyFixture() { set_doc_files_for_tests(nullptr); }
+};
+}  // namespace
+
+TEST_CASE("docs: a split doc's heading is served from the page that has it, and the entry page lists its pages") {
+    DocFamilyFixture f;
+    CommandRegistry reg;
+    register_docs_commands(reg);
+
+    bool sawPage = false, sawEntry = false;
+    for (const auto& d : list_docs()) {
+        if (d.name == "big-input") sawPage = d.family == "big";
+        if (d.name == "big") sawEntry = d.family.empty();
+    }
+    CHECK(sawPage);
+    CHECK(sawEntry);
+    auto list = reg.call("docs.list", Json::object());
+    REQUIRE(list.ok);
+    bool listed = false;
+    for (const auto& d : list.result["docs"])
+        if (d["name"] == "big-input") listed = d.value("family", "") == "big";
+    CHECK(listed);
+
+    // A heading of the entry page itself: no page field.
+    auto own = reg.call("docs.read", {{"name", "big"}, {"heading", "Essentials"}});
+    REQUIRE(own.ok);
+    CHECK_FALSE(own.result.contains("page"));
+    CHECK(own.result["name"] == "big");
+
+    // An old reference: the heading is on a page.
+    auto r = reg.call("docs.read", {{"name", "big"}, {"heading", "Keyboard"}});
+    REQUIRE(r.ok);
+    CHECK(r.result["page"] == "big-input");
+    CHECK(r.result["name"] == "big-input");
+    CHECK(r.result["requestedName"] == "big");
+    CHECK(r.result["note"].get<std::string>().find("this section is on page `big-input`") != std::string::npos);
+    CHECK(r.result["content"].get<std::string>().find("keys") != std::string::npos);
+    CHECK(r.result["heading"] == "Keyboard");
+    // Reading the page by name works the same, without the page field.
+    auto direct = reg.call("docs.read", {{"name", "big-input"}, {"heading", "Keyboard"}});
+    REQUIRE(direct.ok);
+    CHECK_FALSE(direct.result.contains("page"));
+
+    // Two pages: an error that lists both. An exact title on one page beats a part of a title on the other.
+    auto amb = reg.call("docs.read", {{"name", "big"}, {"heading", "Shared"}});
+    REQUIRE_FALSE(amb.ok);
+    CHECK(amb.error["message"].get<std::string>().find("big-input") != std::string::npos);
+    CHECK(amb.error["message"].get<std::string>().find("big-audio") != std::string::npos);
+    auto exact = reg.call("docs.read", {{"name", "big"}, {"heading", "Mixer"}});
+    REQUIRE(exact.ok);
+    CHECK(exact.result["page"] == "big-audio");
+
+    // Not found anywhere: did you mean, with the titles of the whole family.
+    auto none = reg.call("docs.read", {{"name", "big"}, {"heading", "Keybord"}});
+    REQUIRE_FALSE(none.ok);
+    CHECK(none.error["message"].get<std::string>().find("Keyboard") != std::string::npos);
+    // A doc that is not split keeps its behaviour.
+    CHECK_FALSE(reg.call("docs.read", {{"name", "small"}, {"heading", "Keyboard"}}).ok);
+
+    // The entry page read without a heading carries `pages`; a cut read lists them in `contents` as well.
+    auto whole = reg.call("docs.read", {{"name", "big"}});
+    REQUIRE(whole.ok);
+    REQUIRE(whole.result["pages"].size() == 2);
+    CHECK(whole.result["pages"][0]["name"] == "big-audio");  // sorted by path
+    CHECK(whole.result["pages"][1]["title"] == "Big input");
+    CHECK(whole.result["pages"][1]["bytes"].get<size_t>() == f.files["docs/big/BIG_INPUT.md"].size());
+    CHECK_FALSE(whole.result.contains("contents"));
+    auto cut = reg.call("docs.read", {{"name", "big"}, {"maxLines", 1}});
+    REQUIRE(cut.ok);
+    const std::string contents = cut.result["contents"].get<std::string>();
+    CHECK(contents.find("big-input: Big input (") != std::string::npos);
+    CHECK_FALSE(reg.call("docs.read", {{"name", "small"}}).result.contains("pages"));
+
+    // docs.search names the page.
+    auto hits = search_docs("Mixer");
+    REQUIRE_FALSE(hits.empty());
+    CHECK(hits[0].doc == "big-audio");
+    CHECK(hits[0].family == "big");
+    auto searched = reg.call("docs.search", {{"query", "mixer"}});
+    REQUIRE(searched.ok);
+    CHECK(searched.result["results"][0]["family"] == "big");
+}
+
+TEST_CASE("docs: the layout check names duplicate names, orphan pages and pages the entry page does not link to") {
+    {
+        DocFamilyFixture f;
+        CHECK(doc_layout_problems().empty());
+    }
+    {
+        DocFamilyFixture f(false);  // BIG.md forgets to link BIG_AUDIO.md
+        const auto problems = doc_layout_problems();
+        REQUIRE(problems.size() == 1);
+        CHECK(problems[0].find("docs/BIG.md") != std::string::npos);
+        CHECK(problems[0].find("docs/big/BIG_AUDIO.md") != std::string::npos);
+    }
+    {
+        DocFamilyFixture f;
+        f.files["docs/other/BIG.md"] = "# Again\n";  // the name "big" twice, and no entry page for docs/other/
+        const auto problems = doc_layout_problems();
+        REQUIRE(problems.size() == 2);
+        std::string all = problems[0] + problems[1];
+        CHECK(all.find("docs/BIG.md") != std::string::npos);
+        CHECK(all.find("docs/other/BIG.md") != std::string::npos);
+        CHECK(all.find("docs/OTHER.md") != std::string::npos);
+    }
+}
+
+TEST_CASE("docs: the real docs follow the layout (unique names, every page linked from its entry page)") {
+    const auto problems = doc_layout_problems();
+    std::string all;
+    for (const auto& p : problems) all += "\n  - " + p;
+    CHECK_MESSAGE(problems.empty(), "docs layout problems:" << all);
 }

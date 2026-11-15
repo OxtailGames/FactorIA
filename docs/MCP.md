@@ -60,8 +60,12 @@ that.)
   `factoria://project/factoria.json`, `.../ENGINE_FEEDBACK.json`, `.../AGENTS.md`.
 - **Prompts**: `make-game` (idea), `add-feature` (feature), `fix-bug` (description), `report-engine-gap`. They tell the AI to read by section, not whole: the guide's index first
   (`docs_read {"name":"ai-guide","heading":"Index"}`), then only the sections the task needs, `docs_list` (a summary and
-  an `audience` per doc, filter `{"audience":"gameAi"}`) to find other docs, and components or commands one at a time
+  an `audience` per doc, filter `{"audience":"gameAi"}`; a page of a big doc has `family`, the name of its entry page) to find other docs, and components or commands one at a time
   (`docs_components {"name":"Sprite"}`), never with `full`.
+- **Split docs**: a big doc is an entry page (`scripting`) with an index of pages (`scripting-input`, ...). `docs_read` of the
+  entry page carries `pages` (name, title, bytes) and, when cut, lists them in `contents`; a `heading` that is only on a page is
+  served from it (`page`, `requestedName`, `note` in the result; `name` is then the page, so `next` continues there); a heading on
+  two pages is an error that lists both. `docs_search` names the page in `doc` (and `family`).
 - **Notifications**: `notifications/tools/list_changed` when project tools (`tools/*.js`) change;
   `notifications/message` for logs (`logging/setLevel`); `notifications/resources/list_changed` and a log message after the
   server restarted itself because FactorIA was updated (see [After an update](#after-an-update)). Project tools are also

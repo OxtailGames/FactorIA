@@ -1307,6 +1307,29 @@ Text lives in string tables, `locales/<language>.json`, and the engine shows the
 without a GPU), Metal (macOS), D3D11 with WARP fallback (Windows). Used by
 `factoria run --headless`, tests, the MCP server and CI.
 
+### Docs: names, sizes and pages
+`docs/*.md` is embedded in the binary (not `docs/design/`, `docs/i18n/`, `docs/reference/`, `COMPONENTS.md`) and served by
+`docs.list`, `docs.read` and `docs.search` (`tools/common/src/docs.cpp`). A doc's name is its file name without the
+folder, lower case, `_` as `-` (`doc_name_from_path`), so two embedded docs must never share a file name, whatever
+their folder. Every doc has an entry in the manifest of that file (summary, audience).
+
+A doc over about 60 KB is split into an **entry page** and **pages**:
+
+- The entry page stays `docs/<NAME>.md`, so every link to it and `docs.read <name>` keep working. It says what the doc
+  covers, gives the essentials a reader needs first, and has an index of its pages, one line each, linking each by relative
+  path: `- [Input](scripting/SCRIPTING_INPUT.md): keys, actions, gamepads.`
+- Each page is `docs/<name>/<NAME>_<PART>.md` (folder = the doc's lower-case name; `docs/scripting/SCRIPTING_INPUT.md`
+  is the doc `scripting-input`). The file name starts with the doc's name so that the embedded name is unique and flat.
+  A design doc does the same under `docs/design/<name>/`.
+- The doc's **family** is its entry page plus every embedded doc in that folder. `docs.list` gives a page
+  `family` (the entry page's name). `docs.read {name:"scripting", heading:"Input"}` serves a heading that is not in the entry
+  page from the page of the family that has it (the result has `page`, `requestedName` and a `note`; two pages with it are an
+  error that lists both), so an old reference such as `docs/SCRIPTING.md, "Input"` keeps working. A read of the entry page
+  without `heading` has `pages` ([{name,title,bytes,path}]), and a cut read lists them in `contents` too.
+- A test (`doc_layout_problems()`, `fs_docs_test.cpp`) fails when two embedded docs share a name, when a page sits in a
+  folder without its entry page, or when an entry page does not link to one of its pages by that relative path. A page needs
+  a manifest entry like any doc.
+
 ## AI integration
 
 - **External agents** (Claude Code, Codex, any MCP client) connect to

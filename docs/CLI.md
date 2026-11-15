@@ -439,6 +439,11 @@ case-insensitive, an exact title wins, else part of a title), `--start-line N`, 
 so a long guide is read by section like over MCP. When the read is cut, stderr gets the exact next call and the page's
 contents (headings with line numbers); stdout stays the text. With `--json` stdout is the `docs.read` result instead
 (`content`, `startLine`, `endLine`, `totalLines`, `truncated`, `next`, `contents`).
+A big doc is split into an entry page (the name you know, with an index of its pages) and pages (`scripting-input`, ...):
+a `--heading` that is not in the entry page but is on one of its pages is read from that page, and stderr says
+`this section is on page \`scripting-input\``; `--json` then has `page` and `requestedName`. A heading on two pages is an
+error that lists both. `--contents` of an entry page also lists its pages (name, title, size), `--json` has them as `pages`, and
+`docs list --json` gives a page its `family` (the entry page's name).
 Read `ai-guide` this way, never whole: `factoria docs read ai-guide --heading Index`, then `factoria docs read ai-guide --heading "Platformer character"`.
 
 ### `factoria version` / `--version`, `factoria help [command]`
