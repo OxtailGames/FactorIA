@@ -614,32 +614,6 @@ void Renderer::Impl::render(World& world, float dt) {
         specs.push_back({lastCams.front(), false, true});
     }
 
-    // The MeshRenderers that show a render target (texture, normalMap or a texture parameter of the material): who shows what is
-    // known from the meshes in view of each camera, below. Nothing is scanned when no camera renders into a target.
-    struct MeshRef {
-        Entity e;
-        std::vector<int> targets;
-    };
-    std::vector<MeshRef> meshRefs;
-    if (!targetCams.empty()) {
-        world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
-            if (!entity_active(world, e)) return;
-            MeshRef ref{e, {}};
-            auto add = [&](const std::string& path) {
-                if (!Assets::is_target_id(path)) return;
-                auto it = targetByName.find(path.substr(7));
-                if (it != targetByName.end() &&
-                    std::find(ref.targets.begin(), ref.targets.end(), it->second) == ref.targets.end())
-                    ref.targets.push_back(it->second);
-            };
-            add(mr.texture);
-            add(mr.normalMap);
-            if (mr.materialParams.is_object())
-                for (auto& [k, v] : mr.materialParams.items())
-                    if (v.is_string()) add(v.get<std::string>());
-            if (!ref.targets.empty()) meshRefs.push_back(std::move(ref));
-        });
-    }
     std::vector<Frame> frames(specs.size());
     std::vector<Frame> targetFrames;        // one per Camera.renderTarget, in targetCams order
     std::vector<std::set<int>> targetDeps;  // targetDeps[i]: the targets that the frame of target i shows
@@ -737,6 +711,31 @@ void Renderer::Impl::render(World& world, float dt) {
         specs.pop_back();
     }
 
+    // The 3D world of the frame, gathered once for every camera, render target and CameraView (render_scene.h): after the
+    // targets exist (a mesh may show one) and the 2D gathers (nothing they do changes a MeshRenderer, so the scene's pointers
+    // into the world stay good), before any job. The MeshRenderers that show a render target (texture, normalMap or a texture
+    // parameter of the material) are listed from it: who shows what is known from the meshes in view of each camera, below.
+    // The scene lists the targets of a mesh only when some camera renders into one.
+    renderScene.build(world, *assets, kNullEntity, !targetCams.empty());
+    struct MeshRef {
+        Entity e;
+        const MeshAsset* mesh = nullptr;
+        Mat4 model;
+        std::vector<int> targets;
+    };
+    std::vector<MeshRef> meshRefs;
+    if (!targetCams.empty()) {
+        for (const SceneMesh& sm : renderScene.meshes()) {
+            MeshRef ref{sm.entity, sm.mesh, sm.model, {}};
+            for (const std::string& name : sm.targets) {
+                auto it = targetByName.find(name);
+                if (it != targetByName.end() &&
+                    std::find(ref.targets.begin(), ref.targets.end(), it->second) == ref.targets.end())
+                    ref.targets.push_back(it->second);
+            }
+            if (!ref.targets.empty()) meshRefs.push_back(std::move(ref));
+        }
+    }
     // The render targets first, each after the targets it shows: the frame's own jobs (and the CameraViews) sample their textures.
     if (!targetFrames.empty()) {
         const bool z01 = gpu.depth_zero_to_one();
@@ -772,11 +771,8 @@ void Renderer::Impl::render(World& world, float dt) {
             bool self = false;
             scan_quads(fr, fr.world, targetDeps[std::size_t(i)], self);
             for (const MeshRef& ref : meshRefs) {
-                const MeshRenderer* mr = world.get<MeshRenderer>(ref.e);
-                if (!mr) continue;
                 if (!fr.mask.draws(world, ref.e)) continue;  // a mesh this camera does not draw shows nothing to it
-                const MeshAsset* mesh = assets->mesh(mr->mesh);
-                if (!box_in_frustum(fr.cam.viewProj, z01, mesh->bmin, mesh->bmax, world.drawn_matrix(ref.e))) continue;
+                if (!box_in_frustum(fr.cam.viewProj, z01, ref.mesh->bmin, ref.mesh->bmax, ref.model)) continue;
                 for (int t : ref.targets) {
                     if (t == i)
                         self = true;
@@ -855,6 +851,7 @@ void Renderer::Impl::render(World& world, float dt) {
         draw_job(world, frames[i], plan);
     }
 
+    renderScene.reset();  // it points into the world, which the game may change before the next frame
     release_unused_views();
     assets->set_drawing(false);
     debug.clear();

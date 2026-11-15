@@ -1,0 +1,122 @@
+// The 3D world of one frame, gathered once and shared by every camera job (the cameras, the render targets, the
+// CameraViews): each MeshRenderer with its drawn matrix, its resolved assets, its bounds and the hashes of its
+// overrides. A camera then only tests its frustum and tag mask over the list and sorts its own blended meshes
+// (Renderer::Impl::gather_meshes). docs/ARCHITECTURE.md, "Rendering".
+#pragma once
+
+#include <atomic>
+#include <cstdint>
+#include <string>
+#include <unordered_map>
+#include <vector>
+
+#include "fa/scene/world.h"
+#include "mesh_batch.h"
+
+namespace fa::render {
+
+// The 3D gather of a frame (the scene's matrices, boxes and hashes, a camera's frustum tests) runs as jobs from this many
+// MeshRenderers on, kMeshGrain per chunk: an item costs ~1 us (a skinned one several), a chunk a few to hand out.
+constexpr std::size_t kParallelMeshes = 256;
+constexpr std::size_t kMeshGrain = 64;
+
+// The palette of glTF skin `skin` of an animator (a part is drawn with its own skin's); skin 0 when it has none for it.
+inline const std::vector<Mat4>& palette_of(const Animator& a, int skin) {
+    return skin > 0 && std::size_t(skin) < a.skinPalettes.size() ? a.skinPalettes[std::size_t(skin)] : a.palette;
+}
+
+// The culling box of `mesh` as `mr` is drawn: the mesh's own, or, for a skinned mesh whose Animator has a pose, the box of
+// every skinned part carried by the joints of its own skin, joined with the rest. `anim` is set when the mesh is drawn
+// deformed by that Animator's palette (such an item is never batched with another).
+void mesh_cull_bounds(const MeshAsset& mesh, const Animator* animator, Vec3& bmin, Vec3& bmax, const Animator*& anim);
+
+// Whether `mr` is drawn with the blended meshes (far to near) rather than the opaque ones. The alphaMode of a material
+// decides; without one, a translucent colour or a blended glTF part does.
+bool mesh_is_blended(const MeshRenderer& mr, const MeshAsset& mesh, const MaterialAsset* material);
+
+// Hashes of MeshRenderer.materialParams and materialColors: items with different overrides never share a draw. They were
+// computed (dump + hash) per mesh, per camera, per frame; now a copy of each entity's JSON is kept and a hash is made again
+// only when the value differs from the copy (a JSON comparison, no allocation). Nothing in the scene module counts the
+// writes of a component (any code holding the MeshRenderer may assign its fields), so comparing is the one place that
+// sees every write: through the reflection, a script, a command, a prefab, the inspector or an undo.
+class MaterialHashCache {
+public:
+    struct Entry {
+        Json params, colors;  // the values the hashes are of (null = no overrides)
+        std::size_t paramsHash = 0, colorsHash = 0;
+        std::uint64_t seen = 0;  // the frame that last asked for it
+    };
+    // Starts a frame: the entries it does not ask for are dropped at end_frame().
+    void begin_frame() { ++frame_; touched_ = 0; }
+    // The entry of `e` (made if missing), marked as used this frame. Pointers stay valid until end_frame().
+    Entry* touch(Entity e);
+    // Makes the hashes of `entry` right for these values (nullptr = none, hash 0): when they equal the kept copy, nothing is
+    // computed. Entries of different entities may be refreshed from different threads at once.
+    void refresh(Entry& entry, const Json* params, const Json* colors);
+    // Drops the entries nobody asked for this frame (entities that died, were hidden or lost their overrides), so a slot
+    // that is reused starts from nothing.
+    void end_frame();
+    // Both hashes of `e` in one call: touch + refresh.
+    void hashes(Entity e, const Json* params, const Json* colors, std::size_t& paramsHash, std::size_t& colorsHash);
+    std::size_t size() const { return entries_.size(); }
+    // Hashes computed since the cache was made (a test looks at it: no edit, no new hash).
+    std::uint64_t computed() const { return computed_.load(std::memory_order_relaxed); }
+    void clear() { entries_.clear(); }
+
+private:
+    std::unordered_map<std::uint64_t, Entry> entries_;  // by Entity::bits()
+    std::uint64_t frame_ = 0;
+    std::size_t touched_ = 0;
+    std::atomic<std::uint64_t> computed_{0};
+};
+
+// One MeshRenderer of the scene.
+struct SceneMesh {
+    const MeshRenderer* mr = nullptr;
+    Entity entity;
+    Mat4 model;                      // World::drawn_matrix
+    MeshAsset* mesh = nullptr;       // MeshRenderer.mesh (the nearest level: lods are chosen per camera)
+    TextureAsset* tex = nullptr;     // as MeshItem
+    TextureAsset* normalTex = nullptr;
+    MaterialAsset* material = nullptr;
+    Color flash{0, 0, 0, 0};         // feel.h flash, a = 0 when none
+    const Animator* anim = nullptr;  // drawn skinned by this Animator's palette
+    Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};  // culling box of `mesh` (mesh_cull_bounds)
+    std::size_t paramsHash = 0, colorsHash = 0;
+    bool blended = false;
+    bool hasLods = false;  // MeshRenderer.lods: mesh, box and blending are chosen again per camera
+    // texture or normalMap is a render target ("target:<name>"): which image that is depends on the job that draws (a
+    // camera's own target is the checker in its own frame), so every job resolves the texture again.
+    bool liveTextures = false;
+    std::vector<std::string> targets;  // the names of the render targets this mesh shows (only when asked for)
+};
+
+class RenderScene {
+public:
+    // Gathers every MeshRenderer that is active (and, with `scopeRoot`, inside that subtree: Renderer::capture_world), with
+    // the asset lookups on this thread and the matrices, flashes, boxes and hashes as jobs ("render.mesh_matrices",
+    // "render.mesh_cull"). The order is the world's own, whatever the job threads. `wantTargets` also lists, per mesh, the
+    // render targets it shows.
+    void build(World& world, Assets& assets, Entity scopeRoot, bool wantTargets);
+    const std::vector<SceneMesh>& meshes() const { return meshes_; }
+    Entity scope() const { return scope_; }
+    bool built() const { return built_; }
+    MaterialHashCache& hash_cache() { return hashes_; }
+    // Forgets the meshes (the world they point into may go away) but keeps the hash cache.
+    void reset() {
+        meshes_.clear();
+        built_ = false;
+    }
+
+private:
+    std::vector<SceneMesh> meshes_;
+    MaterialHashCache hashes_;
+    Entity scope_;
+    bool built_ = false;
+};
+
+// `e` is drawn inside `scopeRoot` (entity_active of a Frame with that scopeRoot): with none, active in the hierarchy; with
+// one, the root and the descendants whose own flag and whose ancestors' flags below the root are on.
+bool entity_active_in_scope(const World& w, Entity scopeRoot, Entity e);
+
+}  // namespace fa::render

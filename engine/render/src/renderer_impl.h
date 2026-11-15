@@ -30,6 +30,7 @@
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
 #include "mesh_batch.h"
+#include "render_scene.h"
 #include "font_set.h"
 #include "render_internal.h"
 #include "render_jobs.h"
@@ -181,6 +182,9 @@ struct Renderer::Impl {
     CameraInfo build_camera(World& world, Entity entity, const Vec2* viewSize = nullptr, bool renderTarget = false);
     std::vector<CameraInfo> collect_cameras(World& world);
     const CameraInfo& camera_for(Entity camera, const Vec2* screenPoint) const;
+    // The 3D world of the frame, gathered once by render() (capture_world: scoped to its subject) before any job and read by the
+    // gather_meshes of every camera, render target and CameraView.
+    RenderScene renderScene;
     struct JobPlan {
         bool first = false;  // the first pass of the frame: it clears the whole target when its camera clears
         bool last =
