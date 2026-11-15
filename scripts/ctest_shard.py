@@ -59,6 +59,7 @@ WINDOWS_SECONDS = {
     "scene": 27.5,
     "audio": 24.6,
     "script": 23.7,
+    "authoring": 20.0,  # ESTIMATE (new test, split from runtime): replace from the next green run
     "editor": 19.6,
     "example_kindlewatch_perf": 16.6,
     "core": 15.2,
@@ -91,6 +92,7 @@ ASAN_SECONDS = {
     "editor_autotest_1": 171.3,
     "audio": 165.5,
     "editor_autotest_3": 153.2,
+    "authoring": 100.0,  # ESTIMATE (new test, split from runtime): replace from the next green run
     "editor": 137.1,
     "editor_autotest_2": 135.6,
     "scene": 122.2,

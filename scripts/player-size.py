@@ -166,7 +166,9 @@ def owner_of(path):
     return normalize_lib(path)
 
 
-SKIP_SECTION = re.compile(r"^(\.debug|\.comment|\.bss|\.tbss|\.lbss|COMMON|\*fill\*|\.stab|\.symtab|\.strtab)")
+# Zero-fill sections take no room in the file: .bss, .sbss (small data), .dynbss (copy relocations), .tbss (thread-local) and
+# .lbss are skipped on purpose; the prefix match also covers `.bss.foo` and `.sbss2`.
+SKIP_SECTION = re.compile(r"^(\.debug|\.comment|\.bss|\.dynbss|\.sbss|\.tbss|\.lbss|COMMON|\*fill\*|\.stab|\.symtab|\.strtab)")
 
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -205,8 +207,10 @@ def parse_gnu_map(text):
 
 # The file of an input section line ends in .o, .obj, .lib or `.a(member)`: a demangled symbol line such as
 # `fa::(anonymous namespace)::helper(int)` also reads `<text>:(<text>)` and must not count as an input section.
+# Link-time optimization hands lld input sections that belong to no file (`<internal>`, `lto.tmp`, `/tmp/lto.o`): they are
+# counted under "(lto)" so the per-library numbers still add up to the map's total.
 LLD_LINE = re.compile(r"^\s*([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+([0-9a-fA-F]+)\s+(?:\d+\s+)?"
-                      r"(\S.*?(?:\.(?:o|obj|lib)|\.a\([^()]*\))):\(([^()\s]*)\)\s*$", re.I)
+                      r"(\S.*?(?:\.(?:o|obj|lib)|\.a\([^()]*\))|<internal>|\S*lto[^\s:]*\.tmp):\(([^()\s]*)\)\s*$", re.I)
 
 
 def parse_lld_map(text):
@@ -219,7 +223,8 @@ def parse_lld_map(text):
             continue
         n = int(m.group(3), 16)
         if n:
-            owner = owner_of(m.group(4))
+            f = m.group(4)
+            owner = "(lto)" if f == "<internal>" or f.lower().endswith(".tmp") else owner_of(f)
             libs[owner] = libs.get(owner, 0) + n
     return libs
 
@@ -262,9 +267,12 @@ def parse_ld64_map(text):
 
 
 def parse_msvc_map(text):
-    sections = {}
+    sections = {}  # section number -> (total length, name, class): a section has one "Start Length Name" line per contribution
     for m in re.finditer(r"^\s*([0-9a-fA-F]{4}):[0-9a-fA-F]{8}\s+([0-9a-fA-F]{8})H\s+(\S+)\s+(\S+)\s*$", text, re.M):
-        sections[int(m.group(1), 16)] = (int(m.group(2), 16), m.group(3), m.group(4))
+        idx = int(m.group(1), 16)
+        old = sections.get(idx)
+        sections[idx] = ((old[0] if old else 0) + int(m.group(2), 16), old[1] if old else m.group(3),
+                         old[2] if old else m.group(4))
     pub = re.compile(r"^\s*([0-9a-fA-F]{4}):([0-9a-fA-F]{8})\s+(\S+)\s+([0-9a-fA-F]{8,16})\s+(?:[fi]\s+)*(\S+)\s*$")
     by_section = {}
     in_publics = False
@@ -402,7 +410,7 @@ def find_libraries(entry, build_dir, config, map_override, files=()):
     """Returns (libraries or None, source description, mapTotalBytes or None, note). Never raises: the per-library table is
     a report, and a map this script cannot read must not fail a job whose only check is the size of the files. The reason
     goes in `note` and the numbers fall back to the archive list or to nothing."""
-    note = None
+    note = ""
     if entry["kind"] == "archives":
         # The archives are the measured files themselves: the per-library numbers need no link map.
         libs = {}
@@ -426,7 +434,7 @@ def find_libraries(entry, build_dir, config, map_override, files=()):
                 note = f"the link map {map_path} lists no input section"
         elif map_path:
             note = f"no link map at {map_path} (configure with -DFA_PLAYER_LINK_MAP=ON)"
-        elif note is None:
+        elif not note:
             note = "this platform writes no link map"
     except Exception as e:
         note = f"the per-library numbers failed ({type(e).__name__}: {e})"
@@ -628,6 +636,11 @@ def cmd_update(args):
         e["maxBytes"] = (rep["bytes"] * (100 + args.percent) + 99) // 100
         if rep.get("libraries"):
             e["baselineLibraries"] = rep["libraries"]
+        elif e.get("baselineLibraries"):
+            # The old table came from another source (map, archives): comparing a later report with it would mislead.
+            e.pop("baselineLibraries")
+            print(f"warning: {rpath} has no per-library numbers: the old baselineLibraries of {rep['platform']} were dropped",
+                  file=sys.stderr)
         print(f"{rep['platform']}: baseline {rep['bytes']:,}, maxBytes {e['maxBytes']:,} (+{args.percent}%)")
     with open(args.budget, "w", encoding="utf-8", newline="\n") as f:
         json.dump(doc, f, indent=2)
@@ -875,6 +888,34 @@ def self_test():
         check(r.returncode == 0 and rep["libraries"] == {"a": 100, "b": 50} and rep["bytes"] == 150
               and "link map" not in rep["librariesSource"].replace("no link map", ""),
               f"measure of an archives entry: {r.returncode} {r.stderr} {rep}")
+
+    # MSVC: a section has one line per contribution, its size is their sum (not the last line's); symbols of the same
+    # section are measured to the end of that total
+    msvc = ("Start         Length     Name                   Class\n"
+            " 0001:00000000 00000100H .text$mn                CODE\n"
+            " 0001:00000100 00000200H .text$x                 CODE\n"
+            "  Address         Publics by Value              Rva+Base       Lib:Object\n"
+            " 0001:00000000       a                  0000000140001000 f   liba.lib:a.obj\n"
+            " 0001:00000100       b                  0000000140001100 f   libb.lib:b.obj\n"
+            "  Static symbols\n")
+    got = parse_msvc_map(msvc)
+    check(got == {"a": 0x100, "b": 0x200}, f"msvc section sizes are summed: {got}")
+    # lld: LTO input sections have no object file; they stay in the total under "(lto)"
+    lld = ("             VMA              LMA     Size Align Out     In      Symbol\n"
+           "            1000             1000      100    16 .text\n"
+           "            1000             1000       40     4         /x/libfa_core.a(a.o):(.text.f)\n"
+           "            1040             1040       30     4         <internal>:(.text)\n"
+           "            1070             1070       20     4         /tmp/lto.tmp:(.text.g)\n"
+           "            1090             1090       50     4         /x/libfa_core.a(a.o):(.bss.z)\n")
+    got = parse_lld_map(lld)
+    check(got == {"fa_core": 0x40, "(lto)": 0x50}, f"lld lto sections are counted: {got}")
+    # GNU: zero-fill sections are skipped
+    gnu = ("Linker script and memory map\n"
+           " .text          0x0000000000001000       0x40 /x/libfa_core.a(a.o)\n"
+           " .dynbss        0x0000000000002000       0x10 /x/libfa_core.a(a.o)\n"
+           " .sbss          0x0000000000002010       0x10 /x/libfa_core.a(a.o)\n")
+    got = parse_gnu_map(gnu)
+    check(got == {"fa_core": 0x40}, f"gnu zero-fill sections are skipped: {got}")
 
     if failures:
         print("player-size self-test FAILED:", file=sys.stderr)
