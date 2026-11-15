@@ -17,6 +17,7 @@
 #include "fa/core/build_info.h"
 #include "fa/core/command.h"
 #include "fa/core/crash.h"
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
@@ -750,6 +751,7 @@ bool Editor::boot(const std::string& dirIn) {
         }
         scenePath_ = world().scene_path();
         if (scenePath_.empty()) scenePath_ = engine_->project().mainScene;
+        Deprecations::global().reset_warned();  // a deprecation is warned about once per project load
         register_project_commands(*engine_, projectDir_);
         engine_->set_paused(true);
         install_command_overrides();

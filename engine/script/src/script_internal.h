@@ -457,6 +457,9 @@ struct ScriptSystem::Impl {
     Json api_manifest() const;
     std::string typescript_declarations(const ScriptSystem::SinceFn& since) const;
     std::vector<std::string> script_api_keys() const;
+    // Where each deprecated export or member (the "script" keys of fa::Deprecations) lives in the module objects, as
+    // [{key, test, path}] for the prelude's applyDeprecations; what has no object at run time (an interface, an alias) is left out.
+    Json deprecation_targets() const;
 
     // ================= natives (script_natives.cpp)
     void install_natives(JSValue N);

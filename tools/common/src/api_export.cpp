@@ -6,11 +6,13 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <optional>
 #include <sstream>
 
 #include "fa/core/capability.h"
 #include "fa/core/command.h"
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/reflect.h"
 #include "fa/core/strings.h"
@@ -57,6 +59,23 @@ std::string since_line(const std::string& since) {
     if (since.empty() || since == "0.1.0") return {};
     return api_since_label(since) + ".";
 }
+// "Deprecated since 0.30.0 - use `x`. Removed in 0.32.0. <note>" under a heading; "" for what is not deprecated.
+std::string deprecated_line(const Json& entry) {
+    if (!entry.is_object()) return {};
+    std::string out = entry.value("summary", "");
+    if (!entry.value("note", "").empty()) out += " " + entry.value("note", "");
+    return out;
+}
+// The text after `@deprecated ` in the typings: "0.30.0: use `x`. Removed in 0.32.0. <note>".
+std::string deprecated_tag(const Json& entry) {
+    if (!entry.is_object()) return {};
+    std::string out = entry.value("since", "") +
+                      (entry.value("use", "").empty() ? ": no replacement" : ": use `" + entry.value("use", "") + "`");
+    out += entry.value("removedIn", "").empty() ? "." : ". Removed in " + entry.value("removedIn", "") + ".";
+    if (!entry.value("note", "").empty()) out += " " + entry.value("note", "");
+    return out;
+}
+
 // The explanation under "# Components reference" / "# Commands reference". The full paged docs.components / docs.commands
 // put it on their first page, so the paged text carries the same marks and conventions as the single file.
 std::string components_preamble() {
@@ -67,6 +86,9 @@ std::string components_preamble() {
            "for what existed in 0.1.0; if your factoria is older than a mark, that item is missing there. "
            "The scripting API at the end marks its functions, types and members the same way, with a JSDoc `@since` "
            "tag. "
+           "A deprecated component, field or command (it still works; it will be removed two minor versions after the "
+           "one "
+           "that deprecated it) has a bold \"Deprecated since 0.x.y - use ...\" line. "
            "In scene JSON a component is `\"Name\": { field: value, ... }` "
            "(omitted fields keep their defaults); in scripts use `entity.get(\"Name\")`. Vectors accept `[x, y]` or "
            "`{x, y}`; "
@@ -82,6 +104,7 @@ void write_component(std::ostream& o, const Json& t, const char* heading) {
     const std::string compSince = t.value("since", "");
     o << heading << " " << t.value("name", "") << "\n\n";
     if (!since_line(compSince).empty()) o << since_line(compSince) << "\n\n";
+    if (t.contains("deprecated")) o << "**" << deprecated_line(t["deprecated"]) << "**\n\n";
     o << t.value("doc", "") << "\n\n";
     if (t["fields"].empty()) {
         o << "_No fields._\n\n";
@@ -105,6 +128,7 @@ void write_component(std::ostream& o, const Json& t, const char* heading) {
                     bound_text(f["max"], f.value("kind", "") == "int") + ".";
         if (f.value("readOnly", false)) desc += " Read-only.";
         if (f.value("runtimeOnly", false)) desc += " Runtime-only (not saved).";
+        if (f.contains("deprecated")) desc += " **" + deprecated_line(f["deprecated"]) + "**";
         const std::string fieldSince = f.value("since", "");
         if (!fieldSince.empty() && fieldSince != compSince && fieldSince != "0.1.0")
             desc += fieldSince == "unreleased" ? " (not released yet, on main after " FA_ENGINE_VERSION ")"
@@ -121,6 +145,8 @@ void write_command(std::ostream& o, const CommandInfo* c, const char* heading) {
     o << heading << " `" << c->name << "`" << (c->readOnly ? "" : " (modifies state)") << "\n\n";
     const std::string since = since_line(api_since("commands", c->name));
     if (!since.empty()) o << since << "\n\n";
+    if (const std::string dep = deprecated_line(deprecation_json("commands", c->name)); !dep.empty())
+        o << "**" << dep << "**\n\n";
     o << c->summary << "\n\n";
     o << "Capabilities: " << capabilities_line(*c) << "\n\n";
     if (!c->description.empty()) o << c->description << "\n\n";
@@ -181,6 +207,26 @@ std::string api_since_label(const std::string& since) {
     return "Since " + since;
 }
 
+void install_deprecations(bool reload) {
+    static std::once_flag once;
+    bool first = false;
+    std::call_once(once, [&first] { first = true; });
+    if (!first && !reload) return;
+    const Json& d = since_data();
+    Deprecations::global().set(d.contains("deprecated") ? d["deprecated"] : Json::object());
+}
+
+Json deprecation_json(std::string_view section, std::string_view key) {
+    install_deprecations();
+    const std::optional<Deprecation> d = Deprecations::global().find(section, key);
+    if (!d) return nullptr;
+    Json out = Json::object({{"since", d->since}, {"use", d->use}, {"note", d->note}});
+    const std::string removed = deprecation_removal_version(d->since);
+    if (!removed.empty()) out["removedIn"] = removed;
+    out["summary"] = deprecation_summary(*d);
+    return out;
+}
+
 Json export_components_json() {
     ensure_builtin_components();
     Json all = TypeRegistry::global().describe_all();
@@ -188,9 +234,12 @@ Json export_components_json() {
         std::string name = t.value("name", "");
         std::string since = api_since("components", name);
         if (!since.empty()) t["since"] = since;
+        if (Json dep = deprecation_json("components", name); !dep.is_null()) t["deprecated"] = std::move(dep);
         for (Json& f : t["fields"]) {
             std::string fs = api_since("components", name + "." + f.value("name", ""));
             if (!fs.empty()) f["since"] = fs;
+            if (Json dep = deprecation_json("components", name + "." + f.value("name", "")); !dep.is_null())
+                f["deprecated"] = std::move(dep);
         }
     }
     return all;
@@ -198,6 +247,12 @@ Json export_components_json() {
 
 std::string export_typescript(const ScriptSystem& scripts) {
     return scripts.typescript_declarations([](const std::string& section, const std::string& key) {
+        if (section == "deprecated") {  // "script:NavAPI.x" or "components:Sprite.x": the text of a @deprecated tag
+            const size_t colon = key.find(':');
+            return colon == std::string::npos
+                       ? std::string()
+                       : deprecated_tag(deprecation_json(key.substr(0, colon), key.substr(colon + 1)));
+        }
         std::string v = api_since(section, key);
         return v == "0.1.0" ? std::string() : v;
     });
@@ -224,6 +279,8 @@ Json export_commands_json(const CommandRegistry& registry) {
     for (Json& c : all) {
         std::string since = api_since("commands", c.value("name", ""));
         if (!since.empty()) c["since"] = since;
+        if (Json dep = deprecation_json("commands", c.value("name", "")); !dep.is_null())
+            c["deprecated"] = std::move(dep);
     }
     return all;
 }
@@ -329,7 +386,8 @@ std::vector<ApiReferencePage> export_api_reference(const CommandRegistry& regist
             const std::string name = t.value("name", "");
             write_component(page, t, "##");
             idx << "- [" << name << "](" << file << "#" << heading_anchor(name)
-                << "): " << first_sentence(t.value("doc", "")) << index_mark(t.value("since", "")) << "\n";
+                << "): " << first_sentence(t.value("doc", "")) << index_mark(t.value("since", ""))
+                << (t.contains("deprecated") ? " _Deprecated._" : "") << "\n";
         }
         idx << "\n";
         catPages.push_back({"reference/" + file, page.str()});
@@ -349,7 +407,8 @@ std::vector<ApiReferencePage> export_api_reference(const CommandRegistry& regist
             write_command(page, c, "##");
             const std::string heading = "`" + c->name + "`" + (c->readOnly ? "" : " (modifies state)");
             idx << "- [`" << c->name << "`](" << file << "#" << heading_anchor(heading)
-                << "): " << md_escape(c->summary) << index_mark(api_since("commands", c->name)) << "\n";
+                << "): " << md_escape(c->summary) << index_mark(api_since("commands", c->name))
+                << (deprecation_json("commands", c->name).is_null() ? "" : " _Deprecated._") << "\n";
         }
         idx << "\n";
         catPages.push_back({"reference/" + file, page.str()});
