@@ -316,6 +316,7 @@ void Renderer::shutdown() {
         im.ramps.destroy();
         im.assets.reset();
         im.destroy_targets();
+        im.transients.reset();  // its pool destroys the targets it still holds: the context is still open
         im.destroy_light_resources();
         destroy_target(im.shadowTarget);
         im.gpu.shutdown();
@@ -493,6 +494,15 @@ Vec2 Renderer::design_to_framebuffer(Vec2 d, int fbW, int fbH, ScaleMode mode) c
 // render_world
 // ---------------------------------------------------------------------------
 render::Gpu* render::renderer_gpu(Renderer& r) { return r.impl_ ? &r.impl_->gpu : nullptr; }
+const render::FrameGraph* render::renderer_frame_graph(Renderer& r) { return r.impl_ ? &r.impl_->graph : nullptr; }
+render::TransientPoolStats render::renderer_transient_stats(Renderer& r) {
+    render::TransientPoolStats out;
+    if (r.impl_ && r.impl_->transients) {
+        const TargetPoolStats s = r.impl_->transients->pool.stats();
+        out = {s.live, s.inUse, s.created, s.reused, s.destroyed};
+    }
+    return out;
+}
 
 void Renderer::update(World& world) {
     if (!initialized()) return;
@@ -583,6 +593,7 @@ void Renderer::Impl::render(World& world, float dt) {
     if (Profiler::on()) gpuTimer.begin();
     stats = RenderStats{};
     anyFrameRendered = true;
+    transient_targets().pool.begin_frame();  // the bloom levels of the frame graphs below come from this pool
 
     assets->set_mesh_store(&world.meshes());  // before any camera asks for a "mesh:N" id
     lastCams = collect_cameras(world);

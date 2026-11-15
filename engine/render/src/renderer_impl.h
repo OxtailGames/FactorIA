@@ -32,9 +32,11 @@
 #include "mesh_batch.h"
 #include "render_scene.h"
 #include "font_set.h"
+#include "frame_graph.h"
 #include "render_internal.h"
 #include "render_jobs.h"
 #include "shader_cache.h"
+#include "transient_targets.h"
 #include "shaders/blit.glsl.h"
 #include "shaders/light.glsl.h"
 #include "shaders/mesh.glsl.h"
@@ -76,7 +78,7 @@ struct Renderer::Impl {
     // bloom, the colour filter and present() sample; gameTarget.resolveColorAtt (MSAA) is the resolved image as a colour
     // attachment, which bloom composites into.
     Target gameTarget;
-    Bloom bloom;  // Camera.bloom post-process (intermediate targets are created on first use)
+    Bloom bloom;  // Camera.bloom post-process (its levels are transients of the frame graph, see bloom.h)
     // Camera.colorFilter: the filtered copy of the finished frame. A pass cannot read what it writes, so the filter
     // draws into this second image (made on first use) and present(), capture() and the editor viewport show it
     // while `filterActive` (the last frame was filtered).
@@ -163,7 +165,10 @@ struct Renderer::Impl {
     void create_targets(int w, int h);
     void make_game_targets();  // the images and views of the game target, at physW x physH in gpu.scene_format()
     void destroy_targets();
-    int apply_color_filter(int mode);
+    // The colour-filter pass: draws the finished game target through colorfilter.glsl into filterTarget (made by
+    // ensure_filter_target; false, with one logged error, when the GPU cannot make it) and sets filterActive.
+    bool ensure_filter_target();
+    void color_filter_pass(int mode);
     // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
     // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
     bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error);
@@ -216,14 +221,25 @@ struct Renderer::Impl {
     void material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in);
     void bind_textures(DrawContext& ctx, sg_bindings& b, const PartDraw& d, const MaterialProgram* prog,
                        const MaterialInputs& in, bool shadowPass);
+    void light_plan(DrawContext& ctx);
     void light_pass(DrawContext& ctx);
     void shadow_pass(DrawContext& ctx);
     void draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
                     const Px& base, int flatMode = 0);
     void main_pass(DrawContext& ctx);
-    void bloom_pass(DrawContext& ctx);
     void hud_pass(DrawContext& ctx);
-    void post_passes(DrawContext& ctx);
+    // Declares the job's passes in `graph` (draw_job compiles and runs it).
+    void build_graph(DrawContext& ctx);
+
+    // The frame graph of the last draw_job (a job of the frame, a CameraView or a render target) and the pool of the
+    // targets its transients are made of (the bloom levels). Both are made on first use.
+    FrameGraph graph;
+    std::unique_ptr<TransientTargets> transients;
+    bool warnedGraph = false;  // a graph that could not be compiled or run is logged once
+    TransientTargets& transient_targets() {
+        if (!transients) transients = std::make_unique<TransientTargets>();
+        return *transients;
+    }
 };
 
 struct Viewport {

@@ -35,6 +35,8 @@ struct Renderer::Impl::DrawContext {
     const CameraInfo& post;
     // draw_job: the viewports and clears of this job
     bool hudAfterBloom = false, msaa = false, z01 = false;
+    // Does this job begin the main pass? The screen-space job of a frame whose HUD goes over the bloom draws it after instead.
+    bool doMainPass = false;
     Px fullPx, camPx;
     bool partial = false, clearByQuad = false, clearByLoad = false;
     // gather_meshes, collect_lights, shadow_bounds, cull_and_batch
@@ -157,7 +159,8 @@ void Renderer::Impl::draw_view_job(World& world, Frame& fr, ViewTarget& target) 
 
 // Draws one job of the frame into the game target: the pass(es) of one camera's world (and, for the single full-screen
 // camera, the screen-space items too), or the screen-space pass of a split frame. The last job also runs the post effects.
-// The phases below run in this order, one GPU command stream, nothing reordered.
+// The phases below describe the job as a frame graph (build_graph), which compiles to the order they were drawn in before the
+// graph and executes them in one GPU command stream.
 void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     DrawContext ctx(world, fr, plan);
     ctx.hudAfterBloom = ctx.post.bloom.enabled && ctx.post.bloom.intensity > 0.0f && !ctx.post.bloom.screenSpace;
@@ -170,6 +173,7 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     ctx.clearByLoad = fr.wantWorld && fr.cam.clear && (plan.first || !ctx.partial);
     ctx.z01 = gpu.depth_zero_to_one();
     ctx.msaa = gpu.sample_count() > 1;
+    ctx.doMainPass = fr.wantWorld || !ctx.hudAfterBloom;
 
     gather_meshes(ctx);
     collect_lights(ctx);
@@ -178,11 +182,21 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     build_quad_stream(ctx);
     upload_instances(ctx);
     scene_uniforms(ctx);
-    light_pass(ctx);
-    shadow_pass(ctx);
-    main_pass(ctx);
-    if (!plan.last) return;
-    post_passes(ctx);
+    light_plan(ctx);
+    // The passes of the job are a graph (frame_graph.h): declared from what the phases above decided, ordered by what each
+    // reads and writes (which is the order they always had) and run.
+    build_graph(ctx);
+    if (Result<void> r = graph.compile(); !r) {
+        if (!warnedGraph) {
+            warnedGraph = true;
+            FA_ERROR("render", "{} {}", r.error().message, r.error().hint);
+        }
+        return;
+    }
+    if (Result<void> r = graph.execute(transient_targets().pool); !r && !warnedGraph) {
+        warnedGraph = true;
+        FA_ERROR("render", "{} {}", r.error().message, r.error().hint);
+    }
 }
 
 // ---- 3D gather ----
@@ -648,11 +662,10 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
 // each light matters), and the screen-space groups too.
 // Reads: fr (lights2d, shadowRows, camera, viewport), ctx.gWorld, ctx.ss.lightScale, ctx.partial, plan.view (no light buffer
 // for a view), gpu light state. Writes: ctx.litMode, ctx.shadowRowsTex (uploads the shadow-rows texture), lightW / lightH and
-// the light target (ensure_light_target), in litMode 1 the light buffer's pass (lightTarget); stats.drawCalls.
-void Renderer::Impl::light_pass(DrawContext& ctx) {
+// the light target (ensure_light_target). It draws nothing: litMode 1 is the graph's "light-buffer" pass (light_pass).
+void Renderer::Impl::light_plan(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     const JobPlan& plan = ctx.plan;
-    const bool partial = ctx.partial;
     const SceneSettings& ss = ctx.ss;
     const DrawContext::Group& gWorld = ctx.gWorld;
     int& litMode = ctx.litMode;
@@ -670,54 +683,62 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
         else if (!plan.view && gpu.light_ready() && ensure_light_target(lightScale))
             litMode = 1;  // the buffer is the game target's size
     }
-    if (litMode == 1) {
-        std::vector<LightVertex> lv;
-        lv.reserve(std::size_t(points) * 4);
-        static const float kCorner[4][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
-        for (const Light2DData& l : fr.lights2d) {
-            if (l.pos[3] < 0.0f) continue;
-            for (const auto& c : kCorner) {
-                LightVertex v{};
-                v.corner[0] = c[0];
-                v.corner[1] = c[1];
-                std::memcpy(v.pos, l.pos, sizeof(float) * 4);
-                std::memcpy(v.color, l.color, sizeof(float) * 4);
-                v.shadow[0] =
-                    l.extra[0] >= 0.0f && fr.shadowRows > 0 ? (l.extra[0] + 0.5f) / float(fr.shadowRows) : -1.0f;
-                lv.push_back(v);
-            }
-        }
-        static_assert(kMaxLights2D <= kMaxQuadsPerDraw, "every light of a frame is drawn by one draw call");
-        sg_buffer lb = gpu.acquire_transient(lv.size() * sizeof(LightVertex));
-        sg_write_buffer_desc wd{};
-        wd.src.data = {lv.data(), lv.size() * sizeof(LightVertex)};
-        wd.dst.buffer = lb;
-        sg_write_buffer_transient(&wd);
+}
 
-        PassDesc lp = pass_into(lightTarget, "light-buffer");
-        lp.colorLoad = SG_LOADACTION_CLEAR;
-        lp.clearColor = {0, 0, 0, 0};
-        lp.colorStore = SG_STOREACTION_STORE;
-        gpu.begin_pass(lp);
-        // The lights of this camera go to its rectangle of the buffer; the lit visuals of the camera read nothing else.
-        if (partial) apply_view(px_rect(fr.cam.viewport, lightW, lightH));
-        sg_apply_pipeline(gpu.light_pipeline());
-        sg_bindings b{};
-        b.vertex_buffers[0] = lb;
-        b.index_buffer = gpu.quad_index_buffer();
-        b.views[VIEW_light_shadow_tex] = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
-        b.samplers[SMP_light_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
-        sg_apply_bindings(&b);
-        light_light_vs_params_t vu{};
-        copy_mat(vu.view_proj, fr.cam.viewProj);
-        apply_uniforms(UB_light_light_vs_params, vu);
-        light_light_fs_params_t fu{};
-        fu.range[0] = 1.0f / gpu.light_range();
-        apply_uniforms(UB_light_light_fs_params, fu);
-        sg_draw(0, int(lv.size() / 4) * 6, 1);
-        gpu.end_pass();
-        ++stats.drawCalls;
+// The light buffer's pass (light_plan chose litMode 1): every point light of the camera is a quad added into the buffer.
+// Reads: fr (lights2d, shadowRows, camera, viewport), ctx.partial, ctx.shadowRowsTex, lightW / lightH, the light target.
+// Writes: the light target; stats.drawCalls.
+void Renderer::Impl::light_pass(DrawContext& ctx) {
+    Frame& fr = ctx.fr;
+    const bool partial = ctx.partial;
+    const sg_view shadowRowsTex = ctx.shadowRowsTex;
+    int points = 0;
+    for (const Light2DData& l : fr.lights2d) points += l.pos[3] >= 0.0f ? 1 : 0;
+    std::vector<LightVertex> lv;
+    lv.reserve(std::size_t(points) * 4);
+    static const float kCorner[4][2] = {{-1, -1}, {1, -1}, {1, 1}, {-1, 1}};
+    for (const Light2DData& l : fr.lights2d) {
+        if (l.pos[3] < 0.0f) continue;
+        for (const auto& c : kCorner) {
+            LightVertex v{};
+            v.corner[0] = c[0];
+            v.corner[1] = c[1];
+            std::memcpy(v.pos, l.pos, sizeof(float) * 4);
+            std::memcpy(v.color, l.color, sizeof(float) * 4);
+            v.shadow[0] = l.extra[0] >= 0.0f && fr.shadowRows > 0 ? (l.extra[0] + 0.5f) / float(fr.shadowRows) : -1.0f;
+            lv.push_back(v);
+        }
     }
+    static_assert(kMaxLights2D <= kMaxQuadsPerDraw, "every light of a frame is drawn by one draw call");
+    sg_buffer lb = gpu.acquire_transient(lv.size() * sizeof(LightVertex));
+    sg_write_buffer_desc wd{};
+    wd.src.data = {lv.data(), lv.size() * sizeof(LightVertex)};
+    wd.dst.buffer = lb;
+    sg_write_buffer_transient(&wd);
+
+    PassDesc lp = pass_into(lightTarget, "light-buffer");
+    lp.colorLoad = SG_LOADACTION_CLEAR;
+    lp.clearColor = {0, 0, 0, 0};
+    lp.colorStore = SG_STOREACTION_STORE;
+    gpu.begin_pass(lp);
+    // The lights of this camera go to its rectangle of the buffer; the lit visuals of the camera read nothing else.
+    if (partial) apply_view(px_rect(fr.cam.viewport, lightW, lightH));
+    sg_apply_pipeline(gpu.light_pipeline());
+    sg_bindings b{};
+    b.vertex_buffers[0] = lb;
+    b.index_buffer = gpu.quad_index_buffer();
+    b.views[VIEW_light_shadow_tex] = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
+    b.samplers[SMP_light_shadow_smp] = gpu.sampler(SamplerKind::Nearest);
+    sg_apply_bindings(&b);
+    light_light_vs_params_t vu{};
+    copy_mat(vu.view_proj, fr.cam.viewProj);
+    apply_uniforms(UB_light_light_vs_params, vu);
+    light_light_fs_params_t fu{};
+    fu.range[0] = 1.0f / gpu.light_range();
+    apply_uniforms(UB_light_light_fs_params, fu);
+    sg_draw(0, int(lv.size() / 4) * 6, 1);
+    gpu.end_pass();
+    ++stats.drawCalls;
 }
 
 // ---- shadow pass ----
@@ -727,7 +748,6 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
 // ctx.white and ctx.fuScene (part_draw, bind_textures, fill_fs), the shadow targets.
 // Writes: the shadow map (shadowTarget); stats.drawCalls.
 void Renderer::Impl::shadow_pass(DrawContext& ctx) {
-    if (!ctx.doShadows) return;
     const std::vector<MeshBatch>& opaqueBatches = ctx.opaqueBatches;
     const std::vector<MeshBatch>& blendedBatches = ctx.blendedBatches;
     const std::vector<MeshItem>& opaque = ctx.opaque;
@@ -913,10 +933,8 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
     const sg_buffer mainInst = ctx.mainInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
     const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
-    // Does this job begin a pass? The screen-space job of a frame whose HUD goes over the bloom draws after it instead.
-    const bool doMainPass = fr.wantWorld || !hudAfterBloom;
     const bool drawHudInPass = fr.wantScreen && !hudAfterBloom;
-    if (doMainPass) {
+    if (ctx.doMainPass) {
         PassDesc mp = pass_into(gameTarget, plan.view ? "view" : fr.wantWorld ? "game" : "game-hud");
         mp.colorLoad = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
         mp.clearColor = {fr.cam.clearColor.r, fr.cam.clearColor.g, fr.cam.clearColor.b, fr.cam.clearColor.a};
@@ -1044,55 +1062,110 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
     }  // doMainPass
 }
 
-// ---- post-process: bloom adds its glow into the game target ----
-// Reads: ctx.post.bloom, ctx.hudAfterBloom, ctx.msaa, the game target images. Writes: the game target (glow); stats.drawCalls.
-void Renderer::Impl::bloom_pass(DrawContext& ctx) {
+// ---- HUD pass (Camera.bloomScreenSpace = false): screen-space groups over the glowing frame ----
+// Reads: ctx.gScreen, ctx.gDebugScreen, ctx.screenProj, ctx.vbuf, ctx.msaa, the game target (LOAD). Writes: the game target;
+// stats.drawCalls. Declared by build_graph when there is something to draw.
+void Renderer::Impl::hud_pass(DrawContext& ctx) {
+    const bool msaa = ctx.msaa;
+    const Px& fullPx = ctx.fullPx;
+    const Mat4& screenProj = ctx.screenProj;
+    const DrawContext::Group& gScreen = ctx.gScreen;
+    const DrawContext::Group& gDebugScreen = ctx.gDebugScreen;
+    PassDesc hp = pass_into(gameTarget, "game-hud");
+    hp.colorLoad = SG_LOADACTION_LOAD;  // keep the world and its glow
+    hp.colorStore = msaa ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+    hp.depthLoad = SG_LOADACTION_CLEAR;
+    hp.clearDepth = 1.0f;
+    hp.stencilLoad = SG_LOADACTION_CLEAR;
+    gpu.begin_pass(hp);
+    draw_group(ctx, gScreen.batches, screenProj, false, fullPx, 0);
+    draw_group(ctx, gDebugScreen.batches, screenProj, false, fullPx, 0);
+    gpu.end_pass();
+}
+
+namespace {
+
+// How an imported target shows in the graph's dumps.
+TransientDesc import_desc(int w, int h, const TargetFormat& format, const char* label) {
+    TransientDesc d;
+    d.width = w;
+    d.height = h;
+    d.format = format;
+    d.label = label;
+    return d;
+}
+
+}  // namespace
+
+// Declares the passes of the job in `graph` (cleared first), in the order they always ran: the light buffer, the shadow map,
+// the main pass, and in the last job of the frame the post effects: bloom (its stages), the HUD over the bloom, then
+// Camera.colorFilter (costs nothing with "none"). The targets that outlive the frame (the game target or the view's image,
+// the light buffer, the shadow map, the colour-filter image: present() and capture() sample them after the graph ran) are
+// imported; the bloom levels are transients of the pool. Declaration order is execution order, because each pass reads or
+// writes what the one before wrote.
+// Reads: what the phases decided (litMode, doShadows, doMainPass, clearByLoad, hudAfterBloom, the screen groups), plan,
+// post, the game, light, shadow and filter targets. Writes: graph, filterActive (false for the frame; the filter pass sets it).
+void Renderer::Impl::build_graph(DrawContext& ctx) {
+    Frame& fr = ctx.fr;
+    const JobPlan& plan = ctx.plan;
     const CameraInfo& post = ctx.post;
-    const bool hudAfterBloom = ctx.hudAfterBloom, msaa = ctx.msaa;
+    graph.clear();
+    auto add = [&](std::string name, std::vector<ResourceId> reads, std::vector<ResourceId> writes,
+                   std::function<void(const PassContext&)> fn) {
+        GraphPass p;
+        p.name = std::move(name);
+        p.reads = std::move(reads);
+        p.writes = std::move(writes);
+        p.execute = std::move(fn);
+        graph.add_pass(std::move(p));
+    };
+    const ResourceId game = graph.import_target(plan.view ? "view" : "game", gameTarget.colorAtt.id,
+                                                import_desc(physW, physH, gameTarget.format, "game"));
+    ResourceId lightRes, shadowRes;
+    if (ctx.litMode == 1) {
+        lightRes = graph.import_target("light-buffer", lightTarget.color.id,
+                                       import_desc(lightW, lightH, lightTarget.format, "light-buffer"));
+        add("light-buffer", {}, {lightRes}, [this, &ctx](const PassContext&) { light_pass(ctx); });
+    }
+    if (ctx.doShadows) {  // no shadow caster, no pass
+        shadowRes = graph.import_target("shadow-map", shadowTarget.color.id,
+                                        import_desc(shadowTarget.w, shadowTarget.h, shadowTarget.format, "shadow-map"));
+        add("shadow", {}, {shadowRes}, [this, &ctx](const PassContext&) { shadow_pass(ctx); });
+    }
+    if (ctx.doMainPass) {
+        std::vector<ResourceId> reads;
+        if (ctx.litMode == 1) reads.push_back(lightRes);
+        if (ctx.doShadows) reads.push_back(shadowRes);
+        if (!ctx.clearByLoad) reads.push_back(game);  // LOAD: a second camera or the HUD job continues the picture
+        add(plan.view      ? "view"
+            : fr.wantWorld ? "game"
+                           : "game-hud",
+            std::move(reads), {game}, [this, &ctx](const PassContext&) { main_pass(ctx); });
+    }
+    if (!plan.last) return;
+
+    filterActive = false;
     if (post.bloom.enabled) {
         BloomTarget dst;
-        if (hudAfterBloom && msaa) {
+        if (ctx.hudAfterBloom && ctx.msaa) {
             // Glow into the multisampled image (resolved again at the end of the composite pass) so the HUD pass below
             // can load it. Reads the already resolved image of the main pass.
             dst = BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()};
         } else {
             // The finished frame: the resolved image when MSAA is on (the main pass already resolved into it).
-            dst = BloomTarget{msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
+            dst = BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
         }
-        stats.drawCalls += bloom.apply(gpu, post.bloom, physW, physH, gameTarget.texView, dst);
+        bloom.add_passes(graph, transient_targets(), gpu, post.bloom, physW, physH, game, gameTarget.texView, dst,
+                         &stats.drawCalls);
     }
-}
-
-// ---- HUD pass (Camera.bloomScreenSpace = false): screen-space groups over the glowing frame ----
-// Reads: ctx.gScreen, ctx.gDebugScreen, ctx.screenProj, ctx.vbuf, ctx.msaa, fr.wantScreen. Writes: the game target; stats.drawCalls.
-void Renderer::Impl::hud_pass(DrawContext& ctx) {
-    Frame& fr = ctx.fr;
-    const bool hudAfterBloom = ctx.hudAfterBloom, msaa = ctx.msaa;
-    const Px& fullPx = ctx.fullPx;
-    const Mat4& screenProj = ctx.screenProj;
-    const DrawContext::Group& gScreen = ctx.gScreen;
-    const DrawContext::Group& gDebugScreen = ctx.gDebugScreen;
-    if (hudAfterBloom && fr.wantScreen && (!gScreen.batches.empty() || !gDebugScreen.batches.empty())) {
-        PassDesc hp = pass_into(gameTarget, "game-hud");
-        hp.colorLoad = SG_LOADACTION_LOAD;  // keep the world and its glow
-        hp.colorStore = msaa ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
-        hp.depthLoad = SG_LOADACTION_CLEAR;
-        hp.clearDepth = 1.0f;
-        hp.stencilLoad = SG_LOADACTION_CLEAR;
-        gpu.begin_pass(hp);
-        draw_group(ctx, gScreen.batches, screenProj, false, fullPx, 0);
-        draw_group(ctx, gDebugScreen.batches, screenProj, false, fullPx, 0);
-        gpu.end_pass();
+    if (ctx.hudAfterBloom && fr.wantScreen && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty()))
+        add("hud-over-bloom", {game}, {game}, [this, &ctx](const PassContext&) { hud_pass(ctx); });
+    if (post.colorFilter != 0 && gpu.colorfilter_ready() && ensure_filter_target()) {
+        const ResourceId filtered = graph.import_target(
+            "game-filtered", filterTarget.color.id, import_desc(physW, physH, filterTarget.format, "game-filtered"));
+        const int mode = post.colorFilter;
+        add("color-filter", {game}, {filtered}, [this, mode](const PassContext&) { color_filter_pass(mode); });
     }
-}
-
-// The last job of the frame: bloom, the HUD over it, then Camera.colorFilter (costs nothing with "none").
-// Reads: ctx.post, plus what bloom_pass and hud_pass read. Writes: the game target, filterTarget / filterActive; stats.drawCalls.
-void Renderer::Impl::post_passes(DrawContext& ctx) {
-    bloom_pass(ctx);
-    hud_pass(ctx);
-    filterActive = false;
-    if (ctx.post.colorFilter != 0) stats.drawCalls += apply_color_filter(ctx.post.colorFilter);
 }
 
 }  // namespace fa

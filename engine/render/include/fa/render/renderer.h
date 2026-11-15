@@ -45,8 +45,16 @@ namespace fa {
 class Renderer;
 namespace render {
 class Gpu;
+class FrameGraph;
 Gpu* renderer_gpu(
     Renderer& r);  // the renderer's GPU objects, for the render tests (engine/render/src/render_internal.h)
+// The frame graph of the last job the renderer drew (engine/render/src/frame_graph.h), for the render tests; null before init.
+const FrameGraph* renderer_frame_graph(Renderer& r);
+// The targets the frame graph's transients are made of (target_pool.h's TargetPoolStats), for the render tests.
+struct TransientPoolStats {
+    int live = 0, inUse = 0, created = 0, reused = 0, destroyed = 0;
+};
+TransientPoolStats renderer_transient_stats(Renderer& r);
 }  // namespace render
 
 enum class ScaleMode : std::int32_t {
@@ -389,6 +397,8 @@ public:
 
 private:
     friend render::Gpu* render::renderer_gpu(Renderer& r);
+    friend const render::FrameGraph* render::renderer_frame_graph(Renderer& r);
+    friend render::TransientPoolStats render::renderer_transient_stats(Renderer& r);
     std::unique_ptr<Impl> impl_;
     std::vector<std::string> fallbackFonts_;
     RichTextStyle richStyle_;

@@ -39,7 +39,7 @@ std::string qname(const std::string& s) { return "'" + s + "'"; }
 
 }  // namespace
 
-ResourceId FrameGraph::import_target(const std::string& name, std::uint64_t handle, const TargetDesc& desc) {
+ResourceId FrameGraph::import_target(const std::string& name, std::uint64_t handle, const TransientDesc& desc) {
     Resource r;
     r.name = name;
     r.imported = true;
@@ -51,7 +51,19 @@ ResourceId FrameGraph::import_target(const std::string& name, std::uint64_t hand
     return ResourceId{std::uint32_t(resources_.size() - 1)};
 }
 
-ResourceId FrameGraph::create_transient(const TargetDesc& desc) {
+bool FrameGraph::set_import_handle(ResourceId r, std::uint64_t handle, const TransientDesc* desc) {
+    if (!r.valid() || r.index >= resources_.size() || !resources_[r.index].imported) return false;
+    Resource& res = resources_[r.index];
+    res.handle = handle;
+    if (desc) {
+        const std::string label = res.desc.label;
+        res.desc = *desc;
+        if (res.desc.label.empty()) res.desc.label = label;
+    }
+    return true;
+}
+
+ResourceId FrameGraph::create_transient(const TransientDesc& desc) {
     Resource r;
     r.name = desc.label.empty() ? "transient" + std::to_string(resources_.size()) : desc.label;
     r.desc = desc;
@@ -308,13 +320,19 @@ Result<void> FrameGraph::execute(TargetPool& pool) {
         if (resources_[i].imported) physical_[i] = resources_[i].handle;
     }
     stats_.clear();
-    auto release_all = [&]() {
-        for (std::size_t i = 0; i < resources_.size(); ++i) {
-            if (resources_[i].imported) continue;
-            if (physical_[i] != 0) pool.release(physical_[i]);
-            physical_[i] = 0;
+    // Gives every transient still held back to the pool on any way out (an error, a pass that throws).
+    struct Release {
+        const std::vector<Resource>& resources;
+        std::vector<std::uint64_t>& physical;
+        TargetPool& pool;
+        ~Release() {
+            for (std::size_t i = 0; i < resources.size(); ++i) {
+                if (resources[i].imported || physical[i] == 0) continue;
+                pool.release(physical[i]);
+                physical[i] = 0;
+            }
         }
-    };
+    } release{resources_, physical_, pool};
     for (int pos = 0; pos < int(order_.size()); ++pos) {
         GraphPass& p = passes_[std::size_t(order_[std::size_t(pos)])];
         for (const std::vector<ResourceId>* list : {&p.reads, &p.writes}) {
@@ -326,7 +344,6 @@ Result<void> FrameGraph::execute(TargetPool& pool) {
                     std::string msg = "Frame graph: the target pool could not create " + qname(res.name) + " (" +
                                       std::to_string(res.desc.width) + "x" + std::to_string(res.desc.height) +
                                       ") for pass " + qname(p.name) + ".";
-                    release_all();
                     return make_error(std::move(msg),
                                       "The GPU is out of memory or the size is invalid; check the size of the target.");
                 }
