@@ -74,7 +74,7 @@
       }
     },
     "macos-universal": {
-      "description": "factoria_player of the macOS package: arm64 + x86_64 in one binary (-DCMAKE_OSX_ARCHITECTURES=\"arm64;x86_64\"), stripped copy. Measured by release.yml (package macos-universal); the link map has both slices.",
+      "description": "factoria_player of the macOS package: arm64 + x86_64 in one binary (-DCMAKE_OSX_ARCHITECTURES=\"arm64;x86_64\"), stripped copy. Measured by release.yml (package macos-universal).",
       "kind": "binary",
       "preset": "macos-release",
       "files": [
@@ -86,7 +86,7 @@
       "map": "player/factoria_player.map",
       "maxBytes": null,
       "baselineBytes": null,
-      "note": "ld64 link map."
+      "note": "ld64 link map of ONE slice: clang links each architecture in turn and both links write the same -Wl,-map path, so the map holds only one of them. The size is of both slices; the per-library numbers are of one slice (about half of it), good to see what grew, not to add up to the file size."
     },
     "windows-x64": {
       "description": "factoria_player.exe of the Windows package: preset windows-release (MSVC, Visual Studio 2022), as shipped (a PE file carries no symbols: they are in the .pdb). Measured by ci.yml (job windows, shard 1) and release.yml (package windows-x64).",
@@ -145,7 +145,7 @@
       ],
       "maxBytes": null,
       "baselineBytes": null,
-      "note": "The size is the sum of the archive files: more than the app, because the linker keeps only what the player reaches and the objects carry symbol tables. It moves with the player's code like the app does, but no job links a Release app, so there is no linked size. The per-library numbers are the sizes of the same archives."
+      "note": "The size is the sum of the archive files: more than the app, because the linker keeps only what the player reaches and the objects carry symbol tables. It moves with the player's code like the app does, but no job links a Release app, so there is no linked size. The per-library numbers are the sizes of the same archives (this entry needs no link map: release.yml's mobile-ios does not write one)."
     },
     "web-wasm": {
       "description": "factoria_player.js + factoria_player.wasm of the web player: preset web-release (Emscripten, -O3), uncompressed, as the package carries them. Measured by ci.yml (job web) and release.yml (web-player).",

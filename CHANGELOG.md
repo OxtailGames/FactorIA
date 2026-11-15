@@ -10,8 +10,11 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
   iOS and the macOS universal binary in `release.yml`), fails above the `maxBytes` of `tools/size/player_size_budget.json`,
   and writes a report with what each library adds (artifact `player-size-<platform>`, job summary). The new CMake option
   `FA_PLAYER_LINK_MAP` makes the player's link write its map. `scripts/player-size.sh update` takes a measurement as the new
-  baseline. The Android job of `ci.yml` now builds Release. Only macOS (arm64) has a budget for now; the others report
-  until their first CI run sets one. See docs/BUILDING.md, "Player size budgets".
+  baseline. The size step is the last of its job (a player over its budget does not skip the tests), and a link map the script
+  cannot read only adds a `note` to the report. The Android job of `ci.yml` now builds Release with
+  `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON` (the flag release.yml uses), so no PR job builds an Android Debug anymore. Only
+  macOS (arm64) has a budget for now; the others report until their first CI run sets one. See docs/BUILDING.md, "Player
+  size budgets".
 
 ## 0.28.0
 
