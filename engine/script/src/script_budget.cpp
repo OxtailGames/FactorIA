@@ -3,27 +3,9 @@
 #include <cmath>
 #include <string>
 
-#if defined(__APPLE__)
-#include <TargetConditionals.h>
-#endif
-
 namespace fa {
 
-const char* script_platform_name() {
-#if defined(__ANDROID__)
-    return "android";
-#elif defined(__APPLE__) && TARGET_OS_IPHONE
-    return "ios";
-#elif defined(__APPLE__)
-    return "macos";
-#elif defined(_WIN32)
-    return "windows";
-#elif defined(__EMSCRIPTEN__)
-    return "web";
-#else
-    return "linux";
-#endif
-}
+const char* script_platform_name() { return FA_PLATFORM_NAME; }
 
 double resolve_per_platform_number(const Json& setting, std::string_view platform, double fallback) {
     auto number = [](const Json& v, double& out) {

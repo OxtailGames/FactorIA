@@ -643,7 +643,9 @@ game itself.
 ## View > Profiler
 While the game plays (Play), the Profiler panel shows a graph of the last frames, the milliseconds each engine system takes
 (physics, scriptsUpdate, render...), a table of script behaviour classes sorted by milliseconds per frame (with the script
-path and calls per frame), the GPU time, and memory (process, JavaScript heap, textures, audio, entities). Numbers are smoothed
+path and calls per frame), the GPU time, and memory (process, JavaScript heap, textures, audio, entities). An orange line
+"Scripts over budget in N frame(s), worst X ms" appears once a frame's script time went over `runtime.scriptFrameBudgetMs`
+(PERFORMANCE.md, "Script budgets"); the Console has the warning that names the slowest callbacks. Numbers are smoothed
 over a few frames. The GPU shows `n/a` with the reason where the graphics backend has no timer queries (PERFORMANCE.md,
 "Finding what is slow"). The **Threads** tab has one row per thread of the job pool (main, worker 1.., and `other` when a
 thread outside the pool ran jobs): the milliseconds it spent in jobs per frame, how many jobs, its share of the frame and

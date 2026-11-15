@@ -176,7 +176,11 @@ TEST_CASE("project: runtime.scriptMemoryMB and scriptFrameBudgetMs take a number
     CHECK(load("budget_obj", R"({"scriptMemoryMB":{"default":768,"android":384,"web":256},
                                  "scriptFrameBudgetMs":{"default":8,"ios":16}})")
               .ok());
-    CHECK(load("budget_null", R"({"scriptMemoryMB":null})").ok());  // like an absent field
+    {  // null is not "absent": the schema rejects it, so the loader does too (the same file passes or fails in both)
+        auto r = load("budget_null", R"({"scriptMemoryMB":null})");
+        REQUIRE_FALSE(r.ok());
+        CHECK(r.error().message.find("/runtime/scriptMemoryMB") != std::string::npos);
+    }
 
     {  // a wrong type: the pointer, what is expected, an example
         auto r = load("budget_type", R"({"scriptMemoryMB":"big"})");

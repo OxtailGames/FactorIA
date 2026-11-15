@@ -23,6 +23,10 @@ inline constexpr double kMaxScriptMemoryMB =
 inline constexpr double kDefaultScriptFrameBudgetMs = 8.0;
 inline constexpr double kMaxScriptFrameBudgetMs = 1000.0;
 
+// The log category of the frame budget's warning. It carries measured milliseconds, which differ from run to run, so
+// Engine::state() (and with it game.state and --dump-state) leaves it out; play.report, game.logs and the console show it.
+inline constexpr const char* kScriptBudgetLogCategory = "script.budget";
+
 // The platform this build runs on, spelled like the keys of "export" and "backend": "windows", "macos", "linux", "ios",
 // "android" or "web".
 const char* script_platform_name();

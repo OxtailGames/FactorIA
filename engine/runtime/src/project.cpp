@@ -563,7 +563,7 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
         auto per_platform = [&](const char* key, double lo, double hi, const char* unit, const char* example,
                                 const char* what) -> Result<void> {
             auto b = it->find(key);
-            if (b == it->end() || b->is_null()) return {};
+            if (b == it->end()) return {};  // absent: the default (null is an error, as in the schema)
             const std::string ptr = std::string("/runtime/") + key;
             const std::string shape = std::string("a number of ") + unit + " like " + example +
                                       ", or an object with one number per platform like {\"default\": " + example +
@@ -1012,7 +1012,7 @@ constexpr const char* kSchemaText =
           "default": 768
         },
         "scriptFrameBudgetMs": {
-          "description": "Script time budget of one frame in milliseconds (docs/PERFORMANCE.md, \"Script budgets\"): when the callbacks, timers, event handlers and promise jobs of a frame add up to more, the engine logs a warning in category `script` (the slowest callbacks, this setting) at most once every 5 seconds of game time, marks the frame in the profiler (`overBudget` of the profile) and play.report lists the warning. 0 turns it off. A number for every platform, or an object with one number per platform like scriptMemoryMB. Default 8. It never stops a script (the watchdog does that, after 2 seconds) and never changes what the game computes.",
+          "description": "Script time budget of one frame in milliseconds (docs/PERFORMANCE.md, \"Script budgets\"): when the callbacks, timers, event handlers and promise jobs of a frame add up to more, the engine logs a warning in category `script.budget` (the slowest callbacks, this setting) at most once every 5 seconds of game time, marks the frame in the profiler (`overBudget` of the profile) and play.report lists the warning. The frames that load a scene are not counted. 0 turns it off. A number for every platform, or an object with one number per platform like scriptMemoryMB. Default 8. It never stops a script (the watchdog does that, after 2 seconds) and never changes what the game computes.",
           "oneOf": [
             { "type": "number", "minimum": 0, "maximum": 1000 },
             {
