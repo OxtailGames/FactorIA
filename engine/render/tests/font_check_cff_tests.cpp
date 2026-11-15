@@ -297,7 +297,7 @@ TEST_CASE(
         const std::size_t at = table_at(good, "CFF ");
         REQUIRE(at != 0);
         for (std::size_t i = 0; i < c.cff.size(); ++i) {
-            for (std::uint8_t v : {0x00, 0x80, 0xFF}) {
+            for (const std::uint8_t v : {std::uint8_t{0x00}, std::uint8_t{0x80}, std::uint8_t{0xFF}}) {
                 Bytes font = good;
                 font[at + i] = v;
                 error_or_draws(font);
