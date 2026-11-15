@@ -623,7 +623,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                        return Json::object({{"ok", ok}, {"scene", I.currentScene}, {"messages", I.sceneIssues}});
                    });
 
-    register_level_commands(engine, I);  // scene.import_ascii
+    register_level_commands(engine, I);  // scene.place_ascii, tilemap.set_tile, tilemap.cell_at, tilemap.cell_to_world
     register_wfc_commands(engine, I);    // tilemap.generate
     register_terrain_commands(engine,
                               I);  // tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
@@ -632,13 +632,10 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     register_i18n_commands(engine, I);             // i18n.state, i18n.set_language
     register_ui_check_commands(engine, I);         // ui.check_layout
     register_shot_commands(engine, I);             // game.screenshot, render.inspect, render.pick
-    register_anim_commands(engine, I);             // anim.create_clip, anim.set_keys, anim.list, anim.check, ...
     register_music_commands(engine, I);            // audio.music_state, audio.music
-    register_vfx_commands(engine, I);              // vfx.play, vfx.stop, vfx.list, vfx.check
-    register_mesh_commands(engine, I);  // mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
+    register_vfx_commands(engine, I);              // vfx.play, vfx.stop, vfx.list; fills Impl::vfxHost
     register_feel_commands(engine,
                            I);  // feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.cancel, ...
-    register_bones_commands(engine, I);                  // bones.create, skin.bind, skin.auto_weights, skin.set_weights
     register_platform_commands(I.commands, I.platform);  // platform.state, platform.respond, ... (fa/services)
 
     // --------------------------------------------------------------------- game

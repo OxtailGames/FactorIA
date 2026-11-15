@@ -751,7 +751,7 @@ To check that a sound really fires, read the play log: in a test, `expect(game.a
 
 ### 9.8 Tilemap levels, objects and tile collision
 
-Author a tile level as ASCII art with the command `scene.import_ascii` (MCP `scene_import_ascii`). It writes the `Tilemap` and spawns the coins, enemies and spawn points that stand on it, at the right place. Do not compute tile positions by hand and do not write a level generator script: to make MORE levels that look like one you drew, use `tilemap.generate` (below).
+Author a tile level as ASCII art with the command `scene.import_ascii` (MCP `scene_import_ascii`; an authoring command of the editor, `factoria call` and MCP: an exported game does not have it, a game builds levels at play time with `tilemap.generate` and `place`, which uses `scene.place_ascii`). It writes the `Tilemap` and spawns the coins, enemies and spawn points that stand on it, at the right place. Do not compute tile positions by hand and do not write a level generator script: to make MORE levels that look like one you drew, use `tilemap.generate` (below).
 
 ```
 factoria call scene.import_ascii @level1.json          # args in a file; or MCP scene_import_ascii {...}
@@ -996,7 +996,8 @@ Production 3D rendering (all automatic; there is nothing to switch on):
   Bounds, culling, shadows, picking and the editor follow the real geometry; `Collider3D` shape `convex` or `mesh` takes the id too (a
   mesh collider rebuilds on every update: do not deform one each frame). The mesh belongs to the running scene and is released when a
   scene loads: after an `await`, compare `scene.generation`. `colors` (per vertex, rgb or rgba) multiply the material's base color like glTF `COLOR_0`; the pointer reaches a render target shown on a procedural mesh too.
-  Commands: `mesh.create`, `mesh.update`, `mesh.destroy`, `mesh.save`, `mesh.list`, `mesh.info`. Full guide: `docs_read {"name":"scripting"}`,
+  Commands for you (CLI, MCP, the editor; not in the exported game, where scripts use the `mesh` API above): `mesh.create`,
+  `mesh.update`, `mesh.destroy`, `mesh.save`, `mesh.list`, `mesh.info`. Full guide: `docs_read {"name":"scripting"}`,
   "Procedural meshes".
 - Not available yet: an environment map image for reflections, shadows from point and spot lights.
 

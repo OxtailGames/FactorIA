@@ -85,7 +85,7 @@ jobs:
 
       - name: Build libfactoria_player.so (${{ matrix.preset }}, Release)
         run: |
-          cmake --preset ${{ matrix.preset }} -DCMAKE_BUILD_TYPE=Release -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON
+          cmake --preset ${{ matrix.preset }} -DCMAKE_BUILD_TYPE=Release -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON -DFA_PLAYER_LINK_MAP=ON
           cmake --build --preset ${{ matrix.preset }} --target factoria_player
 
       # The layout of the packages: FactorIA/mobile/android/jniLibs/<abi>/libfactoria_player.so. Stripped here, so Gradle
@@ -108,6 +108,21 @@ jobs:
           name: mobile-android-${{ matrix.abi }}
           path: mobile
           if-no-files-found: error
+
+      # Size of the player against tools/size/player_size_budget.json (scripts/player-size.sh, docs/BUILDING.md "Player size
+      # budgets"): a release whose player went over its budget does not ship. The report is an artifact and in the job summary.
+      # Last in the job: a player over its budget fails the job (so the release does not ship) after the artifacts are up.
+      - name: Player size (android-${{ matrix.abi }})
+        id: size
+        run: ./scripts/player-size.sh measure --platform android-${{ matrix.abi }} --build-dir build/${{ matrix.preset }} --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-android-${{ matrix.abi }}
+          path: player-size/
+          if-no-files-found: ignore
 
   # The iOS player as static libraries: the player's own archive (target factoria_player_main) and every engine archive it
   # links, for the device (arm64) and the simulator (arm64 + x86_64). Only the macOS package carries them
@@ -159,6 +174,21 @@ jobs:
           path: mobile
           if-no-files-found: error
 
+      # The device archives against their size budget (the sum of the archive files: no job links a Release app).
+      # Last in the job: a player over its budget fails the job (so the release does not ship) after the artifacts are up.
+      - name: Player size (ios-arm64)
+        id: size
+        if: ${{ matrix.sdk == 'iphoneos' }}
+        run: ./scripts/player-size.sh measure --platform ios-arm64 --build-dir build/${{ matrix.preset }} --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-ios-arm64
+          path: player-size/
+          if-no-files-found: ignore
+
   # The web player (factoria_player.js + .wasm), built once with Emscripten (the SDK version of docs/BUILDING.md, "Web") and
   # carried by every package in FactorIA/web/, so `factoria export --platform web` works from the download. Like the
   # Android libraries it does not depend on the game: the game is game.pak next to the page.
@@ -200,7 +230,7 @@ jobs:
       - name: Build the web player (web-release)
         run: |
           EMSDK_QUIET=1 source ~/emsdk/emsdk_env.sh
-          cmake --preset web-release
+          cmake --preset web-release -DFA_PLAYER_LINK_MAP=ON
           cmake --build --preset web-release
 
       # The layout of the packages: FactorIA/web/factoria_player.js and .wasm (both are needed; the page is embedded in factoria).
@@ -217,6 +247,19 @@ jobs:
           path: web
           if-no-files-found: error
 
+      # Last in the job: a player over its budget fails the job (so the release does not ship) after the artifacts are up.
+      - name: Player size (web-wasm)
+        id: size
+        run: ./scripts/player-size.sh measure --platform web-wasm --build-dir build/web-release --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-web-wasm
+          path: player-size/
+          if-no-files-found: ignore
+
   package:
     name: Package (${{ matrix.os }})
     needs: [mobile-android, mobile-ios, web-player]
@@ -231,17 +274,21 @@ jobs:
             preset: windows-release
             cfg: /Release  # Visual Studio is a multi-config generator
             exe: .exe
+            size-platform: windows-x64
+            cmake-args: -DFA_PLAYER_LINK_MAP=ON
             ccache: ~\AppData\Local\ccache
             ccache-key: windows
           - os: macos-universal
             runner: macos-latest
             preset: macos-release
-            cmake-args: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64"  # one binary for Apple Silicon and Intel Macs
+            size-platform: macos-universal
+            cmake-args: -DCMAKE_OSX_ARCHITECTURES="arm64;x86_64" -DFA_PLAYER_LINK_MAP=ON  # one binary for Apple Silicon and Intel Macs
             ccache: ~/Library/Caches/ccache  # ccache skips two-architecture compiles: this build is uncached
             ccache-key: macos
           - os: linux-x64
             runner: ubuntu-24.04
             preset: linux-sniper  # not linux-release: built in the Steam Runtime sniper container (step below)
+            size-platform: linux-x64
             ccache: ~/.cache/ccache
             ccache-key: sniper  # the cache of the ci.yml job that builds the same way
             wrap: xvfb-run -a  # headless tests on Mesa llvmpipe, as in ci.yml
@@ -296,7 +343,7 @@ jobs:
       # sniper runtime image: `--version`, a new project, a headless frame.
       - name: Build in the Steam Runtime sniper container, check and run there (Linux)
         if: runner.os == 'Linux'
-        run: ./scripts/build-sniper.sh all -- -DFA_UPDATE_REPO=${{ github.repository }} "-DFA_FEEDBACK_URL=${{ vars.FA_FEEDBACK_URL }}" "-DFA_FEEDBACK_GITHUB_CLIENT_ID=${{ vars.FA_FEEDBACK_GITHUB_CLIENT_ID }}"
+        run: ./scripts/build-sniper.sh all -- -DFA_PLAYER_LINK_MAP=ON -DFA_UPDATE_REPO=${{ github.repository }} "-DFA_FEEDBACK_URL=${{ vars.FA_FEEDBACK_URL }}" "-DFA_FEEDBACK_GITHUB_CLIENT_ID=${{ vars.FA_FEEDBACK_GITHUB_CLIENT_ID }}"
 
       - name: Check the universal binaries (macOS)
         if: runner.os == 'macOS'
@@ -306,6 +353,23 @@ jobs:
             echo "$f: $archs"
             [[ " $archs " == *" arm64 "* && " $archs " == *" x86_64 "* ]] || { echo "::error::$f is not universal ($archs)"; exit 1; }
           done
+
+      # The Release player against its size budget, one report per package (scripts/player-size.sh, docs/BUILDING.md "Player
+      # size budgets"). Before signing: a signature adds bytes the budget does not count. continue-on-error so the signing,
+      # packaging and smoke tests below still run (one round shows every failure); "Player size verdict" at the end of the
+      # job fails it when this step found the player over its budget, so the release does not ship.
+      - name: Player size (${{ matrix.size-platform }})
+        id: size
+        continue-on-error: true
+        run: ./scripts/player-size.sh measure --platform ${{ matrix.size-platform }} --build-dir build/${{ matrix.preset }} --config Release --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-${{ matrix.size-platform }}
+          path: player-size/
+          if-no-files-found: ignore
 
       # sokol-shdc, the shader compiler of custom materials, goes next to factoria (docs/design/CUSTOM_SHADERS.md, D3). The
       # script reads the commit and the SHA-256 from setup.h, the pin factoria checks `setup shaders` against: a file that
@@ -632,6 +696,12 @@ jobs:
           path: dist/FactorIA-linux-x64.AppImage
           if-no-files-found: error
           compression-level: 0
+
+      - name: Player size verdict
+        if: ${{ !cancelled() && steps.size.outcome == 'failure' }}
+        run: |
+          echo "::error::the Player size step failed: the Release player is over its budget in tools/size/player_size_budget.json, or there was no player to measure (its log says which)"
+          exit 1
 
   publish:
     name: Publish GitHub Release

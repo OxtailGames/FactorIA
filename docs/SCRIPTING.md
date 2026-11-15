@@ -1516,7 +1516,9 @@ m.update({ positions: newPositions });            // the rest is kept
 - **In the editor.** A procedural mesh in a running (play) scene is picked and outlined by its real bounds and triangles, and the inspector
   shows its vertex and triangle counts next to `MeshRenderer.mesh`.
 
-The same operations are commands (CLI, MCP and the editor's AI): `mesh.create` (the options above as JSON;
+The same operations are commands for the tools that work on a project (the `factoria` CLI, MCP and the editor's AI; the editor's Play
+has them too, the exported player does not, and a game script uses the `mesh` API above, which acts on the same meshes):
+`mesh.create` (the options above as JSON;
 a flat list or lists of triples), `mesh.update {id, ...}`, `mesh.destroy {id}`, `mesh.save {id, path}`, `mesh.list` and
 `mesh.info {id}`. They act on the scene that is loaded in the process that runs them (a mesh lives only as long as that process and scene), and you set the field with
 `scene.set_component {"id": "...", "component": "MeshRenderer", "fields": {"mesh": "mesh:1"}}`.
@@ -1727,7 +1729,8 @@ game script cannot do something drives it from a behaviour callback (`game.step`
 The engine library asks for no more than that. `tilemap.generate` with `place` places the level with `scene.place_ascii`
 (the in-memory twin of `scene.import_ascii`, `{read, state}`: no `path`, `from`, `save`, `dryRun` or `edits`), and every
 other helper of `factoria` calls only `{read, state}` commands (`game.state` for `game.state()`, `tilemap.generate_start`
-and its steps). A game script that calls `scene.import_ascii` with a `path` itself is refused.
+and its steps). `scene.import_ascii` and `scene.ascii_edit` are authoring commands: an exported game does not have them at all, and
+from the editor's Play a game script that calls one to write a file is refused.
 
 The exported player does not have every command of this table's callers: the commands only developer tools use are left out of
 it, so `fa.call("scene.format")` in a game script fails there as an unknown command. `factoria validate` warns about such a

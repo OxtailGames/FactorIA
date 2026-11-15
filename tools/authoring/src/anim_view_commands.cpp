@@ -11,7 +11,7 @@
 #include <map>
 #include <set>
 
-#include "engine_impl.h"
+#include "authoring_internal.h"
 #include "fa/core/fs.h"
 #include "fa/core/image_tools.h"
 #include "fa/core/strings.h"

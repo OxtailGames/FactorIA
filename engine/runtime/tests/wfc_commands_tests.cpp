@@ -122,11 +122,11 @@ TEST_CASE("tilemap.generate: ASCII sample to ASCII rows, same seed same level") 
     CHECK(a.result["rows"] == b.result["rows"]);
     CHECK(a.result["rows"] != c.result["rows"]);
 
-    // The output feeds scene.import_ascii: rows and legend are in its format.
+    // The output feeds scene.import_ascii (and the player's scene.place_ascii): rows and legend are in its format.
     Json imp = Json::object();
     imp["rows"] = a.result["rows"];
     imp["legend"] = a.result["legend"];
-    auto im = s.call("scene.import_ascii", imp);
+    auto im = s.call("scene.place_ascii", imp);
     CHECK_MESSAGE(im.ok, error_text(im));
 }
 
