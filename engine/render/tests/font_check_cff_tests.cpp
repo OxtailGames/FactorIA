@@ -202,6 +202,25 @@ TEST_CASE("cff font: an INDEX, offset or DICT that leaves the 'CFF ' table is re
         problem_of(damaged(cid, [](Bytes& t, const CffFont& c) { set16(t, c.fdSelect + 1, 60000); }));  // 60000 ranges
     CHECK(has(why, "FDSelect"));
 
+    // an offset that is the length of the table points at its first byte past the end: reading from there leaves the table
+    // (stb_truetype gives the FDSelect, and every other part, the window up to 512 MB, not the table's length)
+    const std::uint32_t end = std::uint32_t(cid.cff.size());
+    why = problem_of(damaged(cid, [&](Bytes& t, const CffFont& c) { set32(t, c.topFdSelect, end); }));
+    CHECK(has(why, "FDSelect"));
+    CHECK(has(why, "past the end of the table"));
+    why = problem_of(damaged(cid, [&](Bytes& t, const CffFont& c) { set32(t, c.topFdArray, end); }));
+    CHECK(has(why, "the FDArray INDEX"));
+    why = problem_of(damaged(cid, [&](Bytes& t, const CffFont& c) { set32(t, c.topCharStrings, end); }));
+    CHECK(has(why, "the CharStrings INDEX"));
+    why = problem_of(
+        damaged(cid, [&](Bytes& t, const CffFont& c) { set32(t, c.fontDict + 6, end); }));  // Private at the end
+    CHECK(has(why, "Private DICT"));
+    why = problem_of(damaged(
+        cid, [&](Bytes& t, const CffFont& c) { set32(t, c.privateDict + 1, end - std::uint32_t(c.privateDict)); }));
+    CHECK(has(why, "local subroutine INDEX"));
+    why = problem_of(damaged(plain, [&](Bytes& t, const CffFont&) { t[2] = std::uint8_t(t.size()); }));  // header size
+    CHECK(has(why, "the Name INDEX"));
+
     // 'maxp' counts glyphs the 'hmtx' table has no metrics for (stb_truetype reads them for a glyph of a CFF font too)
     CHECK(has(problem_of(make_otf(plain.cff, 0xFFFF)), "hmtx"));
 
