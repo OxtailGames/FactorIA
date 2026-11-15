@@ -613,6 +613,13 @@ the AI can write in the file and the reverse.
 ## Selecting things
 
 Clicking in the viewport selects the entity under the cursor; the selection is how you point at something ("make this one bigger").
+
+Inside the editor the selection is a set (`tools/editor/src/selection.h`): an ordered list of entity ids (the `World::id_of` strings,
+so it survives an undo or a scene load) and one primary, the id selected last. `Editor::selected()` and `selected_id()` are the
+primary, so everything that works on one entity (the Inspector, the gizmos, the AI's "this") is unchanged; `Editor::selection()` is
+the set, after dropping the ids whose entity no longer exists. The set has `replace`, `add`, `toggle` (Ctrl-click), `range`
+(Shift-click, over the ids in the order the Hierarchy lists them), `remove`, `clear` and `prune`. Today the UI still sets one id at a
+time; multi-selection, copy and paste build on this set (M98.7).
 The outline of the selected entity comes from the engine's own geometry (`fa/scene/bounds.h`), the code behind
 `entity.bounds()` in scripts, so what the editor outlines is what a script measures:
 
@@ -633,6 +640,15 @@ A command that rebuilds the scene file that is open (`scene.import_ascii` with `
 file that builds it, from the AI or the Console) is followed by a reload, so the viewport shows the result. Whatever was on screen
 before is one Ctrl+Z away, and commands that only write files (`prefab.save`, `scene.format`, `scene.ascii_edit`,
 `scene.import_ascii` with `path`) neither take an undo step nor mark the scene as changed.
+
+The undo and redo stacks hold `UndoEntry` values (`tools/editor/src/undo_stack.h`), each with a kind. A `snapshot` entry is the whole
+scene before an edit (`begin_edit`, as always), a `special` entry is a `$clip`, `$image`, `$sound`, ... step that a document panel
+undoes itself, and a `command` entry holds a list of forward commands and a list of inverse commands (`{cmd, args}`) and no scene:
+undo runs the inverse list, redo the forward list. `push_command_entry(key, forward, inverse)` records one and coalesces like
+`begin_edit` (the same key within 0.8 s merges into the newest entry when that is a command entry; `Replace` keeps its inverse and
+takes the new forward, `Chain` appends both); no editor action records command entries yet. Every entry knows its approximate memory
+(an estimate of the JSON in memory, not the file size), and the stack drops the oldest entries when it holds more than 100 or more
+than 256 MiB by that estimate; the newest entry always stays. A new edit clears the redo stack.
 
 ## View > Audio
 The Audio panel shows `audio.log`: sequence number, frame, clip path, bus, volume, the entity that played it (`source`) and whether the
