@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <functional>
 
+#include "fa/core/log.h"
 #include "render_jobs.h"
 
 namespace fa::render {
@@ -47,9 +48,10 @@ bool mesh_is_blended(const MeshRenderer& mr, const MeshAsset& mesh, const Materi
 }
 
 MaterialHashCache::Entry* MaterialHashCache::touch(Entity e) {
-    Entry& en = entries_.try_emplace(e.bits()).first->second;
+    const auto [it, fresh] = entries_.try_emplace(e.bits());
+    Entry& en = it->second;
+    if (fresh || en.seen != frame_) ++touched_;  // distinct entries: asking twice for one must not hide a stale one
     en.seen = frame_;
-    ++touched_;
     return &en;
 }
 
@@ -85,7 +87,10 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
     meshes_.clear();
     scope_ = scopeRoot;
     built_ = true;
-    hashes_.begin_frame();
+    // A build of a subtree (Renderer::capture_world) shares the cache without a frame of its own: end_frame would drop the
+    // entries of the rest of the world.
+    const bool wholeWorld = scopeRoot == kNullEntity;
+    if (wholeWorld) hashes_.begin_frame();
     const bool anyFlash = world.feel().any_flash();
 
     world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
@@ -96,8 +101,10 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
     });
 
     // The asset lookups stay on this thread (a mesh, texture or material may be loaded), and so do the cache entries (a map
-    // that grows); the jobs below only read the assets and write their own items and entries.
-    std::vector<MaterialHashCache::Entry*> entries(meshes_.size(), nullptr);
+    // that grows); the jobs below only read the assets and write their own items and entries. Every active MeshRenderer is
+    // resolved, also one no camera shows (a tag filter, outside every frustum): a broken path warns once even then.
+    std::vector<MaterialHashCache::Entry*>& entries = entries_;
+    entries.assign(meshes_.size(), nullptr);
     for (std::size_t i = 0; i < meshes_.size(); ++i) {
         SceneMesh& sm = meshes_[i];
         const MeshRenderer& mr = *sm.mr;
@@ -153,28 +160,37 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
             sm.blended = mesh_is_blended(mr, *sm.mesh, sm.material);
         }
     });
-    hashes_.end_frame();
+    if (wholeWorld) hashes_.end_frame();
 
     // The sort keys, once for every camera: ranks of names and values over the whole scene (a rebuilt table, so nothing
     // accumulates across frames). The lod levels are ranked too, for the cameras that swap them in.
-    std::vector<SortFields> fields(meshes_.size());
-    std::vector<std::string_view> lodNames;
+    fields_.resize(meshes_.size());
+    lodNames_.clear();
     for (std::size_t i = 0; i < meshes_.size(); ++i) {
         const SceneMesh& sm = meshes_[i];
-        fields[i] = {sm.mesh, sm.tex,      sm.normalTex,  sm.mr,         sm.entity,
-                     sm.anim, sm.material, sm.paramsHash, sm.colorsHash, sm.flash};
+        fields_[i] = {sm.mesh, sm.tex,      sm.normalTex,  sm.mr,         sm.entity,
+                      sm.anim, sm.material, sm.paramsHash, sm.colorsHash, sm.flash};
         if (!sm.hasLods || !sm.mr->lods.is_array()) continue;
         for (const Json& e : sm.mr->lods) {
             if (!e.is_object()) continue;
             const auto m = e.find("mesh");
-            if (m != e.end() && m->is_string()) lodNames.push_back(m->get_ref<const std::string&>());
+            if (m != e.end() && m->is_string()) lodNames_.push_back(m->get_ref<const std::string&>());
         }
     }
-    std::vector<std::uint64_t> keys;
-    const bool keyed = sortTable_.build(fields, lodNames, keys);
+    const bool keyed = sortTable_.build(fields_, lodNames_, keys_);
+    if (!keyed) {
+        // Not an error (the comparator gives the same order, only slower), but a scene that big is worth knowing about.
+        if (sortKeyFallbacks_++ == 0)
+            FA_WARN(
+                "render",
+                "the 3D scene has more distinct {} than the sort key holds (4096 meshes, 2048 textures, 2^30 material "
+                "value sets per frame): its opaque meshes are sorted by the slower comparator (same result). Counted "
+                "in RenderScene::sort_key_fallbacks()",
+                sortTable_.overflow() ? sortTable_.overflow() : "values");
+    }
     for (std::size_t i = 0; i < meshes_.size(); ++i) {
         meshes_[i].keyed = keyed;
-        meshes_[i].sortKey = keyed ? keys[i] : 0;
+        meshes_[i].sortKey = keyed ? keys_[i] : 0;
     }
 }
 

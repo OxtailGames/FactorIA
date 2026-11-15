@@ -39,6 +39,11 @@ bool mesh_is_blended(const MeshRenderer& mr, const MeshAsset& mesh, const Materi
 // only when the value differs from the copy (a JSON comparison, no allocation). Nothing in the scene module counts the
 // writes of a component (any code holding the MeshRenderer may assign its fields), so comparing is the one place that
 // sees every write: through the reflection, a script, a command, a prefab, the inspector or an undo.
+//
+// "The same value" is Json::operator==, which finds 1 and 1.0 equal (and 0.0 and -0.0) while dump() prints them differently
+// ("1" and "1.0"). So after an edit from 1 to 1.0 the kept hash stays the one of "1", and two entities with the same
+// overrides written differently can hash differently, or alike, depending on the history of their edits: the batches
+// then split (or merge) by edit history. The pixels are the same either way, as the shader reads the numbers, not the text.
 class MaterialHashCache {
 public:
     struct Entry {
@@ -51,6 +56,8 @@ public:
         ++frame_;
         touched_ = 0;
     }
+    // A build over a subtree (RenderScene::build with a scopeRoot) must not call begin_frame / end_frame: it asks for the
+    // entries of that subtree only, and end_frame would drop the rest, which the next frame of the whole world rehashes.
     // The entry of `e` (made if missing), marked as used this frame. Pointers stay valid until end_frame().
     Entry* touch(Entity e);
     // Makes the hashes of `entry` right for these values (nullptr = none, hash 0): when they equal the kept copy, nothing is
@@ -69,7 +76,7 @@ public:
 private:
     std::unordered_map<std::uint64_t, Entry> entries_;  // by Entity::bits()
     std::uint64_t frame_ = 0;
-    std::size_t touched_ = 0;
+    std::size_t touched_ = 0;  // DISTINCT entries asked for this frame (a second touch of one counts once)
     std::atomic<std::uint64_t> computed_{0};
 };
 
@@ -113,14 +120,24 @@ public:
     // Forgets the meshes (the world they point into may go away) but keeps the hash cache.
     void reset() {
         meshes_.clear();
-        sortTable_ = SortKeyTable();
+        sortTable_.clear();
         built_ = false;
     }
+    // Frames (builds of the whole world or of a subtree) whose sort keys did not fit (SortKeyTable limits): their opaque
+    // meshes were sorted by the comparator, slower but with the same result. Counted since the scene was made; the first one
+    // also logs a warning that names the limit.
+    std::uint64_t sort_key_fallbacks() const { return sortKeyFallbacks_; }
 
 private:
     std::vector<SceneMesh> meshes_;
     MaterialHashCache hashes_;
     SortKeyTable sortTable_;
+    // Work buffers of build(), kept between frames.
+    std::vector<SortFields> fields_;
+    std::vector<std::string_view> lodNames_;
+    std::vector<std::uint64_t> keys_;
+    std::vector<MaterialHashCache::Entry*> entries_;
+    std::uint64_t sortKeyFallbacks_ = 0;
     Entity scope_;
     bool built_ = false;
 };

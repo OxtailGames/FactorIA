@@ -5,6 +5,8 @@
 #include <array>
 #include <cstdint>
 #include <string_view>
+#include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "render_internal.h"
@@ -62,8 +64,14 @@ static_assert(kSortMeshBits + kSortTexBits + kSortNormalBits + kSortRestBits == 
 // Packs the four ranks; false (key untouched) when a rank does not fit its bits.
 bool pack_sort_key(std::uint64_t mesh, std::uint64_t tex, std::uint64_t normal, std::uint64_t rest, std::uint64_t& key);
 
-// The ranks of one frame's items. Rebuilt from nothing by every build() (so it never grows across frames); names are
-// views into the assets and components the items point to, valid while those items are.
+// The ranks of one frame's items. Rebuilt from nothing by every build() (so its content never grows across frames; the
+// work buffers keep their capacity from one frame to the next instead of allocating every frame); names are views into
+// the assets and components the items point to, valid while those items are.
+//
+// Limits (distinct NAMES among the items of ONE frame): meshes 4096 (kSortMeshBits); textures 2048 (kSortTexBits): the
+// normal map ranks come from the same table of texture names, so colour and normal maps share the 2048, and the empty name
+// of "no texture" counts as one; the lod levels a camera may swap in (`extraMeshNames`) count as meshes; "rest" values 2^30.
+// Past a limit build() returns false (overflow() says which) and the caller sorts with the comparator.
 class SortKeyTable {
 public:
     // Ranks `items` and writes their keys (keys[i] for items[i]). `extraMeshNames` are meshes a camera may swap in later
@@ -72,6 +80,10 @@ public:
     bool build(const std::vector<SortFields>& items, const std::vector<std::string_view>& extraMeshNames,
                std::vector<std::uint64_t>& keys);
     bool valid() const { return valid_; }
+    // Which limit made the last build() return false: "meshes", "textures", "values" or "items"; nullptr when it fitted.
+    const char* overflow() const { return overflow_; }
+    // Empties the table (valid() false), keeping the capacity of the work buffers.
+    void clear();
     // The key of an item whose mesh or textures a camera changed; false when a value is not in the table.
     bool key_of(const SortFields& f, std::uint64_t& key) const;
 
@@ -91,6 +103,18 @@ private:
     static bool rest_less(const Rest& a, const Rest& b);
     std::vector<std::string_view> meshNames_, texNames_;  // sorted, distinct
     std::vector<Rest> rests_;                             // sorted, distinct
+    // Asset pointer -> rank of its name, for the items of the last build (key_of looks a camera's asset up by pointer first).
+    std::unordered_map<const void*, std::uint32_t> meshRank_, texRank_;
+    // Work buffers of build(), kept between frames.
+    std::vector<Rest> all_;
+    std::vector<std::pair<std::uint64_t, std::uint32_t>> byHash_;
+    std::vector<std::uint32_t> distinctRep_, distinctOf_, perm_, rankOf_;
+    std::vector<std::uint32_t> itemMesh_, itemTex_,
+        itemNormal_;  // per item: index of its asset among the distinct ones
+    std::vector<std::pair<const void*, std::string_view>> meshAssets_,
+        texAssets_;  // the distinct assets, in first-seen order
+    std::vector<std::uint32_t> meshAssetRank_, texAssetRank_;
+    const char* overflow_ = nullptr;
     bool valid_ = false;
 };
 
