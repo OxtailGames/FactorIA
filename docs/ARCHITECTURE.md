@@ -915,10 +915,11 @@ different overrides never share a draw) were `dump()` + `std::hash` per mesh, pe
 the writes of a component field (any code holding a `MeshRenderer*` may assign it: reflection, a script view, a command,
 a prefab, the inspector, an undo), so there is no choke point for a version counter; `MaterialHashCache` keeps instead, per
 entity (`Entity::bits()`, so a reused slot is another key), a copy of the JSON the hashes are of and hashes again only
-when the value differs from the copy (a JSON comparison, no allocation); entries nobody asked for in a frame (dead, hidden or
-without overrides) are dropped at its end. The comparison is `Json::operator==`, which finds `1` and `1.0` (and `0.0` and
-`-0.0`) equal while `dump()` prints them differently, so which of two equal-valued overrides hash alike can depend on the
-edit history: a batch may split or merge by it, the pixels are the same. A build of a subtree (`capture_world`) is not a
+when the value differs from the copy (a JSON comparison, no allocation); entries nobody asked for in a frame (dead,
+hidden or without overrides) are dropped at its end. The comparison is `Json::operator==`, which finds `1` and `1.0`
+(and `0.0` and `-0.0`) equal while `dump()` prints them differently, so which of two equal-valued overrides hash alike
+can depend on the edit history: a batch may split or merge by it, the pixels are the same. A build of a subtree
+(`capture_world`) is not a
 frame of the cache: it does not drop the entries of the rest of the world. The scene resolves the mesh, texture and
 material of EVERY active `MeshRenderer`, also one no camera shows, so a broken asset path warns once even if the mesh is
 hidden from every camera. A mesh's Animator is the one on the MeshRenderer's own entity.
@@ -938,8 +939,9 @@ and so the 2048, and the empty name of "no texture" counts as one texture), 2^30
 camera's value is not in the table, the items are left unkeyed and that list is sorted by the comparator as before (the same
 order, slower); the first frame that overflowed logs a warning that names the limit, and `RenderScene::sort_key_fallbacks()`
 counts the frames. The table dedupes the assets by pointer first and ranks only the distinct names, and keeps its work
-buffers between frames. Batches are runs of equal keys (unequal keys end a batch without reading the fields; equal ones are still
-checked field by field).
+buffers between frames (one that a huge frame left with more than four times what the frame needs, plus 4096 elements, is
+freed). Batches are runs of equal keys (unequal keys end a batch without reading the fields; equal ones are still checked
+field by field).
 
 **Cameras inside the UI.** A `CameraView` (a UiBox widget) names a Camera. The UI gather (`draw_camera_view` in `ui2d.cpp`)
 asks the renderer for an image of the widget's size (`Frame::viewImage`; `Impl::viewTargets` caches one per widget, same formats

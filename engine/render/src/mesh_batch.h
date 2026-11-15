@@ -64,8 +64,16 @@ static_assert(kSortMeshBits + kSortTexBits + kSortNormalBits + kSortRestBits == 
 // Packs the four ranks; false (key untouched) when a rank does not fit its bits.
 bool pack_sort_key(std::uint64_t mesh, std::uint64_t tex, std::uint64_t normal, std::uint64_t rest, std::uint64_t& key);
 
+// Lets go of the memory of a work buffer that a huge frame left behind: when its capacity is far above what this frame
+// needed (`used` elements), the buffer is freed; a buffer that stays near its use keeps its capacity between frames.
+template <class V>
+void release_peak(V& v, std::size_t used) {
+    if (v.capacity() > 4 * used + 4096) V().swap(v);
+}
+
 // The ranks of one frame's items. Rebuilt from nothing by every build() (so its content never grows across frames; the
-// work buffers keep their capacity from one frame to the next instead of allocating every frame); names are views into
+// work buffers keep their capacity from one frame to the next instead of allocating every frame, and let it go when
+// a frame needs less than a quarter of it, release_peak); names are views into
 // the assets and components the items point to, valid while those items are.
 //
 // Limits (distinct NAMES among the items of ONE frame): meshes 4096 (kSortMeshBits); textures 2048 (kSortTexBits): the
