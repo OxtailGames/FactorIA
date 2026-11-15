@@ -9,6 +9,10 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 - `TextField` has `caretIndex`, `selectionStart`, `selectionEnd` and a runtime `composition`, and scripts read
   `input.composing` / `input.compositionText`: the shared interface for text editing and IME composition (M98.6). Nothing
   moves the caret yet.
+- macOS and iOS: a focused `TextField` composes natively. Japanese, Chinese and Korean input methods show their pre-edit
+  text as a composition, put the candidate window under the caret and type only the committed text, once; dead keys
+  (Option-E) show their pending accent. The keys the input method did not use, and all keys while no field has the focus,
+  reach the game as before. The editor's Play mode does not compose yet. See [docs/TEXT.md](docs/TEXT.md), "Typing text".
 
 ## 0.29.1
 
