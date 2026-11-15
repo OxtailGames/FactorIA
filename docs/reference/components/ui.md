@@ -301,7 +301,7 @@ Horizontal value slider: label in the left 35% (when not empty), the track in th
 
 Since 0.1.6.
 
-Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
+Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement yet: the caret stays at the end (caretIndex, selectionStart, selectionEnd and composition are the contract the editing model fills, M98.6). Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -332,6 +332,10 @@ Single-line text input. While focused it appends the typed characters (Input tex
 | `placeholder` | string | `""` | Hint drawn at half alpha while `text` is empty. |
 | `maxLength` | int | `64` | Longest text, in characters (code points). 0 = unlimited. Range 0..1000000. |
 | `caret` | bool | `false` | Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled clock; it restarts visible on every edit). Drawn only while focused. Read-only. Runtime-only (not saved). |
+| `caretIndex` | int | `0` | Where the caret is, in code points from the start of `text` (0 = before the first character). Clamped to 0..length of `text` every frame. The editing model that moves it with the arrows, Home / End and clicks is M98.6b; until then caretIndex does NOT follow the caret (typing still appends at the end) and only holds what a scene or script wrote, clamped. Range 0..1000000. (not released yet, on main after 0.29.1) |
+| `selectionStart` | int | `0` | Start of the selected text, in code points. selectionStart == selectionEnd means nothing is selected. Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd). Clamped to 0..length of `text` every frame. Range 0..1000000. (not released yet, on main after 0.29.1) |
+| `selectionEnd` | int | `0` | End of the selected text, in code points (see selectionStart). Clamped to 0..length of `text` every frame. Range 0..1000000. (not released yet, on main after 0.29.1) |
+| `composition` | string | `""` | Runtime: the text an input method (IME) is composing in this field, UTF-8, "" when none. It is not part of `text` until the player commits it. Only the focused field has one. Read-only. Runtime-only (not saved). (not released yet, on main after 0.29.1) |
 
 ## Toggle
 

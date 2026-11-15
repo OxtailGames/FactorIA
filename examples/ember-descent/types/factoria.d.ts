@@ -827,6 +827,16 @@ declare module "factoria" {
      */
     readonly text: string;
     /**
+     * True while an input method (IME: Japanese, Chinese, Korean, dead keys) is composing text that is not typed yet: from its first pre-edit string until the player commits it or cancels. The committed text then arrives once in input.text. A focused TextField keeps the pre-edit string in TextField.composition (drawn at its caret from M98.6b). Needs a platform that sends composition events (from M98.6c / 6d); until then it stays false.
+     * @since unreleased
+     */
+    readonly composing: boolean;
+    /**
+     * The pre-edit string of the IME composition in progress, as UTF-8 ("" when input.composing is false). It is not part of any text yet: do not append it to a string, wait for input.text.
+     * @since unreleased
+     */
+    readonly compositionText: string;
+    /**
      * Shows (default) or hides the on-screen keyboard of phones and tablets while a text field has focus; its characters arrive in input.text. Desktop ignores it, a headless run only records it (input.keyboardShown). A text field does this by itself when it gets and loses focus.
      * @since 0.1.6
      */
@@ -8785,7 +8795,7 @@ declare module "factoria" {
     set disabled(value: ColorLike);
   }
   /**
-   * Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
+   * Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement yet: the caret stays at the end (caretIndex, selectionStart, selectionEnd and composition are the contract the editing model fills, M98.6). Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
    * 
    * Category: UI
    * @since 0.1.6
@@ -8933,6 +8943,26 @@ declare module "factoria" {
      * @since 0.1.6
      */
     readonly caret: boolean;
+    /**
+     * Where the caret is, in code points from the start of `text` (0 = before the first character). Clamped to 0..length of `text` every frame. The editing model that moves it with the arrows, Home / End and clicks is M98.6b; until then caretIndex does NOT follow the caret (typing still appends at the end) and only holds what a scene or script wrote, clamped.
+     * @since unreleased
+     */
+    caretIndex: number;
+    /**
+     * Start of the selected text, in code points. selectionStart == selectionEnd means nothing is selected. Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd). Clamped to 0..length of `text` every frame.
+     * @since unreleased
+     */
+    selectionStart: number;
+    /**
+     * End of the selected text, in code points (see selectionStart). Clamped to 0..length of `text` every frame.
+     * @since unreleased
+     */
+    selectionEnd: number;
+    /**
+     * Runtime: the text an input method (IME) is composing in this field, UTF-8, "" when none. It is not part of `text` until the player commits it. Only the focused field has one. Read-only.
+     * @since unreleased
+     */
+    readonly composition: string;
   }
   /**
    * Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer) when it has more content than it shows; that wheel is then consumed: input.mouse.wheel reads 0 for the frame and ui.wheelConsumed is true. Focusing a widget inside scrolls just enough to show it.
@@ -10004,7 +10034,7 @@ declare module "factoria" {
     Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
     Interactable: { kind?: "button" | "toggle" | "slider"; enabled?: boolean; autoFocus?: boolean; focusOnHover?: boolean; size?: Vec2Like; offset?: Vec2Like; space?: "auto" | "world" | "screen"; on?: boolean; value?: number; min?: number; max?: number; step?: number; axis?: "x" | "y"; knob?: EntityLike; fill?: EntityLike; label?: string; key?: string; keyArgs?: any };
     InteractableVisual: { target?: EntityLike; mode?: "show" | "tint"; when?: "always" | "normal" | "hover" | "pressed" | "focused" | "highlighted" | "disabled" | "on" | "off"; normal?: ColorLike; hover?: ColorLike; pressed?: ColorLike; focused?: ColorLike; disabled?: ColorLike };
-    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number };
+    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number; caretIndex?: number; selectionStart?: number; selectionEnd?: number };
     ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean; shrink?: boolean };
     TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
     TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; textColor?: ColorLike; touchOnly?: boolean };

@@ -624,6 +624,41 @@ bool Input::paste_pressed() const {
     return L().paste || (!pasteFromEvents_ && key_pressed(Key::V) && command_chord_down());
 }
 bool Input::copy_pressed() const { return key_pressed(Key::C) && command_chord_down(); }
+bool Input::cut_pressed() const { return key_pressed(Key::X) && command_chord_down(); }
+bool Input::select_all_pressed() const { return key_pressed(Key::A) && command_chord_down(); }
+bool Input::word_modifier_down() const {
+#if defined(__APPLE__)
+    return key_down(Key::LeftAlt) || key_down(Key::RightAlt);
+#else
+    return key_down(Key::LeftControl) || key_down(Key::RightControl);
+#endif
+}
+
+void Input::end_composition() {
+    composing_ = false;
+    compositionText_.clear();
+    compositionCaret_ = compositionSel_ = 0;
+}
+
+void Input::on_composition_update(std::u32string text, int caretCp, int selLen) {
+    if (text.empty()) {
+        end_composition();
+        return;
+    }
+    if (text.size() > kMaxCompositionLength) text.resize(kMaxCompositionLength);
+    const int n = int(text.size());
+    composing_ = true;
+    compositionText_ = std::move(text);
+    compositionCaret_ = std::clamp(caretCp, 0, n);
+    compositionSel_ = std::clamp(selLen, 0, n - compositionCaret_);
+}
+
+void Input::on_composition_commit(std::u32string text) {
+    end_composition();
+    for (char32_t c : text) on_text(std::uint32_t(c));
+}
+
+void Input::on_composition_cancel() { end_composition(); }
 
 void Input::on_text(std::uint32_t codepoint) {
     for (Layer& l : layers_) {
@@ -770,6 +805,7 @@ void Input::reset_options() {
         l.wheel = 0.0f;
         l.back = false;
     }
+    end_composition();
     mouseVisible_ = true;
     mouseLocked_ = keyboardShown_ = platformKeyboard_ = false;
     vibrations_.clear();
@@ -795,6 +831,7 @@ void Input::release_all() {
         keys_[i] = false;
     }
     modKeyUsed_.fill(true);  // the focus loss is not a modifier tap
+    end_composition();       // the IME gives up when the window loses the focus
     for (size_t i = 0; i < mouse_buttons_.size(); ++i) {
         if (mouse_buttons_[i])
             for (Layer& l : layers_) l.mouseReleased[i] = true;
