@@ -4,6 +4,7 @@
 #include <format>
 #include <set>
 
+#include "fa/core/deprecation.h"
 #include "fa/core/reflect.h"
 #include "script_internal.h"
 
@@ -209,7 +210,11 @@ std::string member_key(const std::string& prefix, const std::string& owner, cons
 }
 std::string since_doc(const std::string& doc, const ScriptSystem::SinceFn& since, const std::string& key) {
     std::string v = since ? since("script", key) : std::string();
-    return v.empty() ? doc : (doc.empty() ? "" : doc + "\n") + "@since " + v;
+    std::string out = v.empty() ? doc : (doc.empty() ? "" : doc + "\n") + "@since " + v;
+    // A deprecated export or member also gets a JSDoc @deprecated tag (editors strike the name through).
+    const std::string dep = since ? since("deprecated", "script:" + key) : std::string();
+    if (!dep.empty()) out += (out.empty() ? "" : "\n") + std::string("@deprecated ") + dep;
+    return out;
 }
 
 std::string emit_member(const Json& mem, const std::string& indent, bool isStatic, bool inClass, const std::string& key,
@@ -296,7 +301,10 @@ std::string emit_item(const Json& it, const std::string& indent, bool inModule, 
 std::string emit_components(const ScriptSystem::SinceFn& since) {
     auto since_tag = [&](const std::string& key) {
         std::string v = since ? since("components", key) : std::string();
-        return v.empty() ? v : "\n@since " + v;
+        std::string out = v.empty() ? v : "\n@since " + v;
+        const std::string dep = since ? since("deprecated", "components:" + key) : std::string();
+        if (!dep.empty()) out += "\n@deprecated " + dep;
+        return out;
     };
     std::string out;
     out += "  // ---- Components (generated from the engine's reflection registry) ----\n";
@@ -408,6 +416,53 @@ std::vector<std::string> ScriptSystem::Impl::script_api_keys() const {
             }
         }
     return {keys.begin(), keys.end()};
+}
+
+Json ScriptSystem::Impl::deprecation_targets() const {
+    Json out = Json::array();
+    const Json& data = api_data();
+    if (!data.contains("modules")) return out;
+    for (std::string key : Deprecations::global().keys(kDeprecatedScript)) {
+        const bool test = key.rfind("test:", 0) == 0;
+        const std::string bare = test ? key.substr(5) : key;
+        const size_t dot = bare.find('.');
+        const std::string owner = bare.substr(0, dot);
+        const std::string member = dot == std::string::npos ? std::string() : bare.substr(dot + 1);
+        auto add = [&](std::vector<std::string> path) {
+            Json p = Json::array();
+            for (const std::string& s : path) p.push_back(s);
+            out.push_back(Json::object({{"key", key}, {"test", test}, {"path", p}}));
+        };
+        for (const Json& mod : data["modules"]) {
+            if ((mod.value("name", "") == "factoria:test") != test) continue;
+            for (const Json& it : mod["items"]) {
+                if (item_key("", it) != owner) continue;
+                const std::string kind = it.value("kind", "");
+                if (member.empty()) {
+                    if (kind == "function" || kind == "class" || kind == "const" || kind == "namespace") add({owner});
+                    continue;
+                }
+                auto has = [&](const char* list) {
+                    if (it.contains(list))
+                        for (const Json& m : it[list])
+                            if (parse_sig(m.value("sig", "")).name == member) return true;
+                    return false;
+                };
+                if (kind == "namespace" && has("members")) {
+                    add({owner, member});
+                } else if (kind == "class") {
+                    if (has("statics")) add({owner, member});
+                    if (has("members")) add({owner, "prototype", member});
+                } else if (kind == "interface" && has("members")) {
+                    // The objects of this type the module exports (`nav` is a NavAPI).
+                    for (const Json& c : mod["items"])
+                        if (c.value("kind", "") == "const" && c.value("type", "") == owner)
+                            add({item_key("", c), member});
+                }
+            }
+        }
+    }
+    return out;
 }
 
 Json ScriptSystem::Impl::plugins_json() const {

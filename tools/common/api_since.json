@@ -2606,5 +2606,10 @@
     "VfxAPI.playing": "0.17.0",
     "VfxAPI.stop": "0.17.0",
     "vfx": "0.17.0"
+  },
+  "deprecated": {
+    "commands": {},
+    "components": {},
+    "script": {}
   }
 }
