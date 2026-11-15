@@ -463,6 +463,12 @@ public:
     // Adds the quads of the item open in `part` (begun, not ended) to the item open here, after its own: how a job's
     // share of one big item (a band of rows of a Tilemap) joins it.
     void add_quads_of(const QuadList& part);
+    // Appends a copy of items [firstItem, firstItem + itemCount) of `src` (a list with no item open, not this one) after the items of
+    // this list: their vertices are copied, `seq` continues this list's, and `secondary` (when not null) replaces the items'
+    // secondary sort key. Returns the index the first copy has here. How a camera's list takes in what another camera's list
+    // already holds (Scene2D, scene2d.h): the result is what emitting the same items again would have made.
+    std::size_t append_items(const QuadList& src, std::size_t firstItem, std::size_t itemCount,
+                             const float* secondary = nullptr);
 
 private:
     bool open_ = false;

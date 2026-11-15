@@ -51,6 +51,26 @@ void QuadList::append(QuadList& part) {
     part.clear();
 }
 
+std::size_t QuadList::append_items(const QuadList& src, std::size_t firstItem, std::size_t itemCount,
+                                   const float* secondary) {
+    const std::size_t first = items.size();
+    if (itemCount == 0) return first;
+    const std::uint32_t srcFirst = src.items[firstItem].firstVert;
+    const QuadItem& last = src.items[firstItem + itemCount - 1];
+    const std::uint32_t srcEnd = last.firstVert + last.quadCount * 4;
+    const std::uint32_t base = std::uint32_t(raw.size());
+    items.reserve(items.size() + itemCount);
+    for (std::size_t k = 0; k < itemCount; ++k) {
+        QuadItem it = src.items[firstItem + k];
+        it.firstVert = base + (it.firstVert - srcFirst);  // the items of a range are contiguous in src.raw
+        it.seq = seq_++;
+        if (secondary) it.secondary = *secondary;
+        items.push_back(it);
+    }
+    raw.insert(raw.end(), src.raw.begin() + srcFirst, src.raw.begin() + srcEnd);
+    return first;
+}
+
 void QuadList::add_quads_of(const QuadList& part) {
     if (!open_ || part.raw.size() <= part.cur_.firstVert) return;
     raw.insert(raw.end(), part.raw.begin() + part.cur_.firstVert, part.raw.end());
