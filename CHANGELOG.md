@@ -37,8 +37,12 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
   `factoria export` before it writes anything, with `file:line:column`, the command, why, and the JS way where there is
   one (`mesh.*` is the `mesh` API, `anim.*` clips are played by the Animator, `scene.import_ascii` is `scene.place_ascii`
   at play time). A misspelled name gets "did you mean" against the player's commands; the commands of the game's native
-  plugins count as the player's. `factoria validate` reports the same calls as warnings. Scripts under `tools/` and
-  `tests/` and names built at run time (`fa.call(name)`) are not checked.
+  plugins count as the player's. `factoria validate` reports the same calls as warnings. `factoria serve`'s web export
+  and `project.export` with `dryRun` refuse such a script too (they plan the export first). Scripts under `tools/` and
+  `tests/`, files `export.exclude` leaves out and names built at run time (`fa.call(name)`) are not checked. The editor's
+  Export window reuses the check's result until a shipped script, `factoria.json` or the output folder changes, so its
+  two-second refresh does not read the scripts each time. `tools/`, `tests/` and `scripts/autoplay.js` are now left out
+  of an export in any capitalization.
 
 ### Fixes
 

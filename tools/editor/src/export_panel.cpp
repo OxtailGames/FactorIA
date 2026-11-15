@@ -93,7 +93,9 @@ void Editor::draw_export_window() {
         ImGui::End();
         return;
     }
-    // A few file checks per platform: cheap enough to repeat while the window is open (a player built meanwhile shows up).
+    // A few file checks per platform, repeated while the window is open (a player built meanwhile shows up). The scripts are
+    // not read each time: the check of their fa.call names is reused until a shipped .js file, factoria.json or the output
+    // folder changes (the walk that finds out lists the project's folders without opening a file).
     if (time_ - exportChecked_ > 2.0) refresh_export_status();
     const bool busy = exportJob_.running();
     ImGui::PushTextWrapPos(0);

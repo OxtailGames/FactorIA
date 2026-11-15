@@ -83,7 +83,10 @@ bool export_needs_player(const std::string& platform) {
 
 ExportStatus check_export(const ExportOptions& options) {
     ExportStatus s;
-    auto plan = plan_export(options);
+    ExportOptions planned = options;
+    planned.reuseScriptCheck =
+        true;  // the window plans every platform every two seconds: the scripts are read once, again when one changes
+    auto plan = plan_export(planned);
     if (plan.ok()) {
         s.ready = true;
         s.plan = std::move(plan.value());

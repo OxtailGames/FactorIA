@@ -128,6 +128,8 @@ SourcePos source_pos(const std::string& text, std::size_t offset) {
             lineStart = k + 1;
         }
     p.column = static_cast<int>(offset - lineStart) + 1;
+    // A UTF-8 byte order mark opens some files: it is no column of the first line.
+    if (lineStart == 0 && offset >= 3 && text.compare(0, 3, "\xEF\xBB\xBF") == 0) p.column -= 3;
     return p;
 }
 
@@ -215,7 +217,7 @@ std::string tool_only_call_message(const std::string& scriptFile, const ProjectC
            "Tools are for "
            "working on the game: move what the game needs into a module under scripts/ and import it from both the "
            "tool and the "
-           "script (docs/EXPORTING.md, \"What is shipped and what is not\")";
+           "script (docs/EXPORTING.md, \"What is shipped (and what is not)\")";
 }
 
 }  // namespace fa::tooling_detail

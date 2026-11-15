@@ -112,6 +112,10 @@ struct ExportOptions {
                          // windows: "msix" also writes <out>/<slug>-windows.msix, the Microsoft Store package, next to
                          // the folder (any host; export.windows.format in factoria.json); "folder" is the default.
                          // The other platforms have one format and ignore it
+    bool reuseScriptCheck =
+        false;  // plan_export only: reuse the result of the last check that the scripts call only commands the player has
+    // while no shipped .js file, factoria.json or output folder has changed (the editor's Export window plans
+    // every platform every two seconds); export_project and the other callers always read the scripts
     std::function<void(const std::string& line)> progress;  // optional: called from the exporting thread with each line
     // the Gradle build of an Android export prints (the same lines go to <out>/build.log);
     // may be empty
