@@ -1,7 +1,9 @@
 // Private implementation of ScriptSystem (QuickJS glue).
 #pragma once
 
+#include <algorithm>
 #include <chrono>
+#include <cstdint>
 #include <functional>
 #include <map>
 #include <memory>
@@ -184,6 +186,38 @@ struct ScriptSystem::Impl {
     size_t timedOutDepth = 0;  // index in `guards` of the frame that ran out (a caller's frame is below the callee's)
     double timedOutSeconds = 0;
     double callbackLimit = 2.0;
+
+    // ---- budgets (runtime.scriptMemoryMB, runtime.scriptFrameBudgetMs; fa/script/script_budget.h)
+    double memoryLimitMB = 768.0;    // the heap cap of this runtime, resolved for this platform at init
+    bool memoryLimitDefault = true;  // factoria.json did not set it (the error text says so)
+    double frameBudgetMs = 8.0;      // 0 = off
+    // Script time of the frame being played: the entry points of a frame (update, fixed_update, events...) add the time they
+    // took, outermost one only. CPU time of this thread where the platform measures it finely, else the clock (budget_clock).
+    int frameDepth = 0;       // > 0 inside an entry point of a frame
+    double frameSeconds = 0;  // script time of the frame so far
+    std::unordered_map<std::string, double>
+        frameLabels;            // callback label -> time, for the callbacks that took >= 50 us
+    double budgetClock = 0;     // game time (the sum of the frames' dt): the rate limit of the warning counts it
+    double nextBudgetWarn = 0;  // game time before which no further warning is logged
+    std::uint64_t framesOverSinceWarn = 0;
+    bool budgetWarned = false;
+    static double budget_clock();
+    bool budget_active() const { return frameBudgetMs > 0.0 && !debugger; }
+    void end_frame(std::uint64_t frame, double dt);
+    // Adds the time of its lifetime to the frame's script time, unless an outer one already counts it.
+    struct FrameScope {
+        explicit FrameScope(Impl& i) : I(i) {
+            if (I.frameDepth++ == 0 && I.budget_active()) t0 = budget_clock();
+        }
+        ~FrameScope() {
+            --I.frameDepth;
+            if (t0 >= 0.0) I.frameSeconds += std::max(0.0, budget_clock() - t0);
+        }
+        FrameScope(const FrameScope&) = delete;
+        FrameScope& operator=(const FrameScope&) = delete;
+        Impl& I;
+        double t0 = -1.0;
+    };
     // "(> 5 s of CPU time)" or "(> 40 s on the clock)" for the guard that ran out last.
     std::string limit_text(double seconds) const;
     static double thread_cpu_seconds();

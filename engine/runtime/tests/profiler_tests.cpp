@@ -7,6 +7,7 @@
 #include <sstream>
 
 #include "fa/core/fs.h"
+#include "fa/core/log.h"
 #include "fa/core/profiler.h"
 #include "fa/runtime/engine.h"
 
@@ -147,6 +148,42 @@ TEST_CASE("profiler: run_headless reports systems, behaviour classes, gpu and me
     CHECK(prof["memory"]["peak"]["processMB"].get<double>() > 0.0);
     CHECK(prof["memory"]["end"]["jsHeapMB"].get<double>() > 0.0);
     CHECK_FALSE(Profiler::on());  // switched back off when the run ended
+}
+
+TEST_CASE("profiler: the frames over runtime.scriptFrameBudgetMs are counted in overBudget, and a warning is logged") {
+    auto run = [](const char* budget) {
+        Project p;
+        std::string file = kProject;
+        file.insert(file.rfind('}'), std::string(R"(, "runtime": { "scriptFrameBudgetMs": )") + budget + " }");
+        p.write("factoria.json", file);
+        clear_recent_logs();
+        HeadlessRunOptions o;
+        o.frames = 40;
+        o.profile = true;
+        o.profileWarmup = 5;
+        Json report;
+        REQUIRE(run_headless(headless(p), o, &report) == 0);
+        REQUIRE(report.contains("profile"));
+        return report["profile"]["overBudget"];
+    };
+    int warnings = 0;
+    const Json tiny = run("0.001");  // every frame runs the busy behaviour: all 35 counted frames are over
+    REQUIRE(tiny.size() == 1);
+    CHECK(tiny[0]["name"] == "scripts");
+    CHECK(tiny[0]["frames"] == 35);
+    CHECK(tiny[0]["limitMs"].get<double>() == doctest::Approx(0.001));
+    CHECK(tiny[0]["maxMs"].get<double>() > 0.001);
+    for (const LogEntry& e : recent_logs(4096, LogLevel::Warn))
+        if (e.category == "script" && e.message.find("runtime.scriptFrameBudgetMs") != std::string::npos) {
+            ++warnings;
+            CHECK(e.message.find("scripts/busy.js#onUpdate") != std::string::npos);
+        }
+    CHECK(warnings == 1);  // 40 frames over budget, one line
+
+    const Json off = run("0");
+    CHECK(off.empty());
+    for (const LogEntry& e : recent_logs(4096, LogLevel::Warn))
+        CHECK(e.message.find("runtime.scriptFrameBudgetMs") == std::string::npos);
 }
 
 TEST_CASE("profiler: a run without it has no profile section, and it costs nothing to leave off") {

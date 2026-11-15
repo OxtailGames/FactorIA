@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
 
 ## Unreleased
 
+- Script budgets. `runtime.scriptMemoryMB` (the JavaScript heap cap, default 768 MB as before) is a project setting, a
+  number or `{"default": n, "android": n, "web": n, ...}` per platform, range 16 to 2048 with a teaching error; an
+  out-of-memory error names the setting and its value. `runtime.scriptFrameBudgetMs` (default 8 ms, 0 turns it off, also
+  per platform) adds up the script time of each frame: a frame over it is marked in the profile (`profile.overBudget`)
+  and logs a `script` warning naming the three slowest callbacks, once and then at most every 5 seconds of game time.
+  Neither changes what the game does. docs/PERFORMANCE.md, "Script budgets".
+
 ## 0.28.0
 
 FactorIA 0.28.0 (M95) gives the renderer the core that HDR and what follows will stand on, and draws the same pictures

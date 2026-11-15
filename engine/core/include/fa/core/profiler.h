@@ -81,12 +81,21 @@ struct ProfZoneSample {
     int calls = 0;
 };
 
+// A budget the frame went over (the script frame budget, runtime.scriptFrameBudgetMs). `name` says which ("scripts"), `ms` is the
+// time the frame spent against it and `limitMs` the budget. Reported once per frame and name by Profiler::add_over_budget.
+struct ProfBudgetSample {
+    std::string name;
+    double ms = 0;
+    double limitMs = 0;
+};
+
 struct ProfFrame {
     double totalMs = 0;  // begin_frame .. end_frame
     std::array<double, kProfSystemCount> systemMs{};
-    std::vector<ProfClassSample> classes;  // sorted by ms, slowest first
-    std::vector<ProfZoneSample> zones;     // sorted by ms, slowest first
-    std::vector<ProfLane> lanes;           // main first, then every worker of the pool (idle ones too)
+    std::vector<ProfClassSample> classes;      // sorted by ms, slowest first
+    std::vector<ProfZoneSample> zones;         // sorted by ms, slowest first
+    std::vector<ProfLane> lanes;               // main first, then every worker of the pool (idle ones too)
+    std::vector<ProfBudgetSample> overBudget;  // the budgets this frame went over, sorted by name; usually empty
 };
 
 // Memory the engine can name. Bytes; what the build cannot measure stays 0.
@@ -120,6 +129,10 @@ public:
     // Main thread only. Charges `ms` to the zone `name` (a frame-graph pass of the renderer). The zone's time is also part of
     // the system that ran it (Render), so zones are not added to the systems.
     void add_zone(std::string_view name, double ms);
+    // Main thread only. Marks the frame as over the budget `name` ("scripts"): it spent `ms` against a budget of `limitMs`. The
+    // profile summary counts these frames per name (`overBudget` in perf.profile and play.report) and the editor's Profiler panel
+    // shows the count. A second call with the same name in one frame keeps the larger `ms`.
+    void add_over_budget(std::string_view name, double ms, double limitMs);
     // `count` jobs of one name and their total time on a lane (jobs::current_lane()). Any thread; the job system calls
     // it when on(), once per job and once per thread for the chunks of a parallel_for call.
     void add_job(int lane, std::string_view name, double ms, int count = 1);
@@ -138,6 +151,7 @@ private:
     std::vector<ProfClassSample> slots_;
     std::unordered_map<std::string, std::size_t> zoneIndex_;  // zone name -> zoneSlots_ index
     std::vector<ProfZoneSample> zoneSlots_;
+    std::vector<ProfBudgetSample> budgetSlots_;
     double t0_ = 0;
     double childMs_ = 0;
     std::uint64_t frames_ = 0;
@@ -219,6 +233,10 @@ private:
         double sumMs = 0, maxMs = 0;
         std::uint64_t calls = 0;
     };
+    struct BudgetAcc {
+        double limitMs = 0, maxMs = 0;
+        std::uint64_t frames = 0;
+    };
     struct LaneAcc {
         std::string name;
         double sumMs = 0, maxMs = 0;
@@ -230,7 +248,8 @@ private:
     std::array<Acc, kProfSystemCount> systems_;
     std::unordered_map<std::string, ClassAcc> classes_;
     std::unordered_map<std::string, ZoneAcc> zones_;
-    std::vector<LaneAcc> lanes_;  // in the order the lanes first appeared (main, worker 1..)
+    std::unordered_map<std::string, BudgetAcc> budgets_;  // by name: frames over, worst time, the latest limit
+    std::vector<LaneAcc> lanes_;                          // in the order the lanes first appeared (main, worker 1..)
     Acc gpu_;
     bool gpuSupported_ = false;
     std::string gpuReason_ = "the GPU time was not measured";
