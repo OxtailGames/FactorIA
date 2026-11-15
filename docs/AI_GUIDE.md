@@ -2,7 +2,7 @@
 
 Read this guide before you change a FactorIA game. Read it by section, never whole: `factoria docs read ai-guide --heading Index` (over MCP `docs_read {"name":"ai-guide","heading":"Index"}`) says which section holds what. The whole file is also the resource `factoria://docs/AI_GUIDE.md` (very long). The `AGENTS.md` in your project repeats the short rules.
 
-Every name here is part of this build's contracts. Check a name before you use it: `factoria api --md` lists every component field, `factoria commands` lists every command and its arguments (`factoria commands scene.spawn` shows one), and `factoria docs search <words>` searches these docs. Over MCP use `docs_components`, `docs_commands` and `docs_search`. Do not guess component fields or command arguments.
+Every name here is part of this build's contracts. Check a name before you use it: `factoria api --md` lists every component field, `factoria commands` lists every command and its arguments (`factoria commands scene.spawn` shows one), and `factoria docs search <words>` searches these docs. Over MCP use `docs_components`, `docs_commands` and `docs_search`. Do not guess component fields or command arguments. An entry marked `Deprecated since X - use Y` (or `@deprecated` in the typings, a `deprecated` object in the JSON) still works, logs a warning that names its replacement, and is removed two minor versions later: use the replacement in new code.
 
 ## Index
 

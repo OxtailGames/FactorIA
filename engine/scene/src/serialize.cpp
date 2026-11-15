@@ -6,6 +6,7 @@
 #include <set>
 #include <span>
 
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/scene/bounds.h"
@@ -212,6 +213,12 @@ bool Loader::apply_component(Entity e, const TypeInfo& type, const Json& fieldsI
                   "\": ...}. Use {} for all defaults.");
         return false;
     }
+    // A deprecated component or field still loads; the first load in the process says what replaces it (docs/ARCHITECTURE.md,
+    // "Versions"). The table is empty in an exported game: one atomic load.
+    if (!Deprecations::global().empty())
+        if (std::string text = Deprecations::global().take_warning(kDeprecatedComponents, type.name); !text.empty())
+            warn(ptr, std::move(text),
+                 "The component keeps working until it is removed (its page in docs/reference says what to use).");
     void* obj = world_.add(e, type);
     if (fieldsIn.is_null()) return true;
     // A Tilemap's `tiles` may be written as an array of rows: it is stored flat, and the rows set width and height.
@@ -249,6 +256,13 @@ bool Loader::apply_component(Entity e, const TypeInfo& type, const Json& fieldsI
                 continue;
             }
         }
+        if (!Deprecations::global().empty())
+            if (std::string text =
+                    Deprecations::global().take_warning(kDeprecatedComponents, type.name + "." + f->name);
+                !text.empty())
+                warn(fptr, std::move(text),
+                     "The field keeps working until it is removed (the component's page in docs/reference says what to "
+                     "use).");
         if (f->readOnly) {
             error(fptr, "Field '" + type.name + "." + f->name + "' is read-only",
                   "Remove it; the engine maintains this value.");
