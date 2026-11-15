@@ -9,8 +9,9 @@
 # The work runs as a job detached from the calling shell, and the command waits for it for at most --wait-s seconds
 # (default 100: agent harnesses stop or background a command after two or three minutes, and the agent then spends its
 # turns polling). A job that is still running prints one `agent-build: RUNNING ...` line and exits with status 3: call
-# `--wait` until the last line is `agent-build: DONE ok` (status 0) or `agent-build: DONE FAILED` (status 1). One job
-# per build dir; `--status` reports without waiting and `--stop` ends the job.
+# `--wait` until the last line is `agent-build: DONE ok` (status 0), `agent-build: DONE FAILED` (status 1) or
+# `agent-build: DONE INCOMPLETE` (status 77: nothing failed, but tests were left out, see below). One job per build dir;
+# `--status` reports without waiting and `--stop` ends the job.
 #
 # Output: errors, each distinct warning of the files the branch changes compared with origin/main (the warnings of the
 # rest of the tree are counted; those of external/ are left out), every failing test with its output (at most 80
@@ -24,9 +25,15 @@
 # first configured): assertions stay on and a crash still names functions and lines, and the Debug suite takes less
 # than half the time. For a debugger session configure a plain Debug tree, or pass FA_AGENT_DEBUG_FLAGS=-g.
 #
+# A Mac whose displays are all asleep (lid closed, or idle for longer than the display sleep time) draws no frame in any
+# window, so a test that opens one waits until its time limit (five minutes each). Those tests (ctest label `window`)
+# are left out then and listed as SKIPPED, never as passed; FA_TEST_NO_WINDOW=1 is set for the others (a test case that
+# runs a windowed program skips that step and is listed too), and the job ends as `DONE INCOMPLETE`. Wake the display
+# and run the listed tests, or leave them to CI. FA_AGENT_WINDOW_TESTS=run runs them whatever the display says.
+#
 # Environment: FA_AGENT_JOBS (build jobs, default 8 or the CPU count), FA_AGENT_CTEST_JOBS (parallel tests, default 3:
-# some tests are timing sensitive), FA_AGENT_WAIT_S, FA_AGENT_DEBUG_FLAGS. bash 3.2 (macOS) runs this file: no
-# associative arrays, no mapfile.
+# some tests are timing sensitive), FA_AGENT_WAIT_S, FA_AGENT_DEBUG_FLAGS, FA_AGENT_WINDOW_TESTS. bash 3.2 (macOS) runs
+# this file: no associative arrays, no mapfile.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SELF="$ROOT/scripts/agent-build.sh"
@@ -154,6 +161,17 @@ with_display() {
     fi
 }
 
+# True on a Mac that has displays and every one of them is asleep: no window gets a frame there.
+displays_asleep() {
+    [ "$(uname -s)" = Darwin ] || return 1
+    [ "${FA_AGENT_WINDOW_TESTS:-auto}" = run ] && return 1
+    local info total asleep
+    info="$(system_profiler SPDisplaysDataType 2>/dev/null)" || return 1
+    total="$(printf '%s\n' "$info" | grep -c 'Resolution:')"
+    asleep="$(printf '%s\n' "$info" | grep -c 'Display Asleep: Yes')"
+    [ "$total" -gt 0 ] && [ "$asleep" -ge "$total" ]
+}
+
 configure() {  # configure <dir> <Debug|Release>: only the first time
     local dir="$1" type="$2" log="$1/agent-configure.log" t0=$SECONDS
     [ -f "$dir/build.ninja" ] && return 0
@@ -231,10 +249,53 @@ build() {  # build <dir> <label> [target...]
     return $rc
 }
 
+# What a test run could not do without a window: window_note <label> <asleep 0|1> <tests left out> <steps skipped>
+# <the tests those steps are in>.
+window_note() {
+    local label="$1" asleep="$2" tests="$3" steps="$4" entries="$5" note again
+    note="$label: SKIPPED (not passed):"
+    if [ -n "$tests" ]; then
+        note="$note $(printf '%s\n' "$tests" | wc -w | tr -d ' ') test(s) that open a window ($tests);"
+    fi
+    if [ -n "$steps" ]; then
+        note="$note the step that runs a windowed program, in $(printf '%s\n' "$steps" | wc -w | tr -d ' ') test"
+        note="$note case(s) ($steps);"
+    fi
+    if [ "$asleep" = 1 ]; then
+        note="${note%;}. Every display of this Mac is asleep (lid closed or idle), so a window gets no frame. Wake the"
+        note="$note display and run them again"
+        # shellcheck disable=SC2086  # one name per word
+        again="$(printf '%s\n' $tests $entries | sort -u | tr '\n' '|' | sed 's/^|*//; s/|*$//')"
+        [ -n "$again" ] && note="$note (--tests '^($again)\$')"
+        note="$note, or say in your report that only CI runs them."
+    else
+        note="${note%;}. FA_TEST_NO_WINDOW is set in the environment: unset it and run them again."
+    fi
+    printf '%s\n' "$note"
+}
+
+# Status 0: every test passed. 1: a test failed or none matched. 77: none failed, but tests that open a window were
+# left out (displays_asleep) or a test case skipped the step that runs a windowed program (FA_TEST_NO_WINDOW).
 run_ctest() {  # run_ctest <dir> <label> <log> <ctest arguments...>
     local dir="$1" label="$2" log="$3"; shift 3
-    local t0=$SECONDS rc=0 disabled
+    local t0=$SECONDS rc=0 disabled asleep=0 skipped="" steps="" entries=""
     set_phase "$label" "$log"
+    if displays_asleep; then
+        # No window gets a frame. The tests that open one (label `window`) are left out; a test case of another test
+        # that runs a windowed program skips that step and says so (FA_TEST_NO_WINDOW), which is counted below.
+        asleep=1
+        export FA_TEST_NO_WINDOW=1
+        skipped="$(ctest --test-dir "$dir" -N "$@" -L '^window$' 2>/dev/null | sed -n 's/^ *Test *#[0-9]*: *//p' |
+            tr '\n' ' ' | sed 's/ *$//')"
+        if [ -n "$skipped" ]; then
+            set -- "$@" -LE '^window$'
+            if ctest --test-dir "$dir" -N "$@" 2>/dev/null | grep -q '^Total Tests: 0$'; then
+                : > "$log"
+                say "$(window_note "$label" 1 "$skipped" "")"
+                return 77
+            fi
+        fi
+    fi
     with_display ctest --test-dir "$dir" --output-on-failure "$@" > "$log" 2>&1 || rc=$?
     # A failing test's result line (***Failed, ***Exception, ***Timeout, ***Not Run) is followed by its output, up to
     # the next "Start" or result line (tests run in parallel) or the summary. A doctest program's output is its failed
@@ -282,9 +343,24 @@ run_ctest() {  # run_ctest <dir> <label> <log> <ctest arguments...>
         say "$label: FAILED: no test matches (the names: ctest --test-dir $dir -N)"
         return 1
     fi
+    if [ -n "${FA_TEST_NO_WINDOW:-}" ]; then
+        # ctest keeps what every test printed, the passing ones too: the places (file:line) where a test case said it
+        # skipped its windowed step.
+        steps="$(grep -o '[^/\\ ]*:[0-9]*: MESSAGE: FA_TEST_NO_WINDOW is set' "$dir/Testing/Temporary/LastTest.log" \
+            2>/dev/null | sed 's/: MESSAGE: .*//' | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+        # And the tests they are in: every test's part of that log starts with "<n>/<total> Test: <name>".
+        entries="$(awk '/^[0-9]+\/[0-9]+ Test: / { name = $3 }
+            /: MESSAGE: FA_TEST_NO_WINDOW is set/ && name != "" { print name }' \
+            "$dir/Testing/Temporary/LastTest.log" 2>/dev/null | sort -u | tr '\n' ' ' | sed 's/ *$//')"
+    fi
+    [ -n "$skipped$steps" ] && say "$(window_note "$label" $asleep "$skipped" "$steps" "$entries")"
     if [ $rc -ne 0 ]; then
         say "$label: FAILED ($((SECONDS - t0)) s). Full log: $log"
         return 1
+    fi
+    if [ -n "$skipped$steps" ]; then
+        say "$label: everything else passed ($((SECONDS - t0)) s)"
+        return 77
     fi
     say "$label: ok ($((SECONDS - t0)) s)"
 }
@@ -296,7 +372,7 @@ debug_part() {
     build "$BUILD_DIR" build ${targets[@]+"${targets[@]}"} || return 1
     [ $DO_TEST = 1 ] || return 0
     [ -n "$TESTS_RE" ] && args+=(-R "$TESTS_RE")
-    run_ctest "$BUILD_DIR" ctest "$BUILD_DIR/agent-ctest.log" "${args[@]}"
+    run_ctest "$BUILD_DIR" ctest "$BUILD_DIR/agent-ctest.log" "${args[@]}"  # the function's status: 0, 1 or 77
 }
 
 # Release build of the CLI and `ctest -L example`: the example games run the whole engine for minutes, so they are
@@ -308,11 +384,19 @@ example_part() {
     run_ctest "$rel" "example tests" "$rel/agent-ctest.log" -L example -j "$CTEST_JOBS"
 }
 
+# The job's status: 1 when a part failed, 77 when none failed and one left tests out (run_ctest), else 0. The example
+# part runs after a Debug part that left tests out, not after one that failed.
 run_job() {
-    local rc=0
+    local rc=0 part
     : > "$OUT_FILE"
-    if [ $EXAMPLES_ONLY = 0 ]; then debug_part || rc=1; fi
-    if [ $rc = 0 ] && [ $EXAMPLES = 1 ]; then example_part || rc=1; fi
+    if [ $EXAMPLES_ONLY = 0 ]; then
+        debug_part; part=$?
+        case $part in 0) ;; 77) rc=77 ;; *) rc=1 ;; esac
+    fi
+    if [ $rc != 1 ] && [ $EXAMPLES = 1 ]; then
+        example_part; part=$?
+        case $part in 0) ;; 77) rc=77 ;; *) rc=1 ;; esac
+    fi
     echo $rc > "$RC_FILE.tmp" && mv "$RC_FILE.tmp" "$RC_FILE"
     exit $rc
 }
@@ -346,7 +430,11 @@ report() {  # report <seconds to wait>
     while job_running && [ $SECONDS -lt $deadline ]; do sleep 0.5; done
     if [ -f "$RC_FILE" ]; then
         cat "$OUT_FILE" 2>/dev/null
-        if [ "$(cat "$RC_FILE")" = 0 ]; then echo "agent-build: DONE ok"; exit 0; fi
+        case "$(cat "$RC_FILE")" in
+            0)  echo "agent-build: DONE ok"; exit 0 ;;
+            77) echo "agent-build: DONE INCOMPLETE (nothing failed, but what is listed as SKIPPED did not run)"
+                exit 77 ;;
+        esac
         echo "agent-build: DONE FAILED"
         exit 1
     fi

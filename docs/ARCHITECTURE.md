@@ -1159,6 +1159,17 @@ becomes the engine roadmap.
 ## Testing
 
 - C++ unit tests: doctest, one `fa_test_<module>` per module (`ctest`).
+- A module whose tests take minutes is split into several ctest entries that `ctest -j` runs at the same time, each its
+  own process of the same executable. `fa_test_tooling` is `tooling_1` ... `tooling_5` (label `tooling`):
+  `tools/common/CMakeLists.txt` names the heavy test files of the first four, balanced by seconds, and the fifth runs every
+  other file, so a new test file needs no edit. The files are picked by name with `--fa-files=a_test.cpp,b_test.cpp` and
+  `--fa-files-exclude=...` (`cmake/doctest_main.cpp`, every doctest executable has them; doctest's own `--source-file` would
+  match the raw `__FILE__`, which has slashes on Ninja and backslashes under MSBuild). The ctest entry `tooling_split_check`
+  (`cmake/fa_doctest_split_check.cmake`, plain CMake) fails unless the entries together list exactly the test cases of the
+  whole executable, each once. Entries run at the same time, so two test cases never share a fixed name outside their
+  process: temp folders come from `fa::fs::make_temp_dir` (they carry the process id) and servers bind port 0. The one
+  fixed name is `~/Library/Containers/com.factoria.sandboxprobe`, the container of `sign.macos`'s sandboxed app: one
+  test case uses it, so one entry. `ctest -L tooling` runs the five entries and the check.
 - Rendering: headless golden images (`engine/render/tests/golden/*.png`, plus the menus and export goldens in
   `tools/cli/tests/golden/`). One golden serves every backend (Metal, D3D11, GL on llvmpipe). A picture matches when its
   mean error, the share of pixels more than 4/255 off and its largest error are all within the limits of

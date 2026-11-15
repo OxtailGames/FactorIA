@@ -93,7 +93,65 @@ if(FA_BUILD_TESTS)
         target_link_libraries(fa_test_tooling PRIVATE fa_tooling fa_ai fa_ext_doctest fa_warnings fa_ext_cgltf fa_ext_basisu_encoder fa_ext_quickjs)  # script_instrument_test.cpp runs the instrumented code in QuickJS; # export_web_test.cpp unzips with its miniz; api_since_test.cpp registers ai.* like the CLI
         fa_allow_duplicate_libraries(fa_test_tooling)
         target_include_directories(fa_test_tooling PRIVATE ${FA_GENERATED_DIR})  # fa_test_paths.h: FA_REPO_ROOT
-        add_test(NAME tooling COMMAND fa_test_tooling WORKING_DIRECTORY ${FA_ROOT})
+        # One process ran all the test cases one after another and took 100 s (more than any other test of the suite; 20 minutes
+        # under ASan), so the files are split over five ctest entries that `ctest -j` runs at the same time, each in its own
+        # process (temp folders are named after the process id; nothing else is shared, see docs/ARCHITECTURE.md, "Testing"):
+        # tooling_1..tooling_4 run the files named below, tooling_5 runs every other file, so a new test file needs no edit here
+        # (cmake/doctest_main.cpp: --fa-files, --fa-files-exclude). tooling_split_check fails unless the five together list
+        # exactly the test cases of the whole executable. ctest -L tooling runs all of them.
+        # The table holds only the heavy files, balanced by the seconds their test cases took in the Debug tree of an M5 MacBook
+        # Air (about 20 s per entry of the 99 s in all; Windows and the sanitizers scale it, they do not reorder it much).
+        # Refresh it when an entry gets much slower than the others: `fa_test_tooling -r=junit -d=true > tooling.xml` has the
+        # seconds of every test case, `classname` is its file; add up each file, put the biggest ones in the lightest entry.
+        set(tooling_test_entries
+            "1:review_sheet_test.cpp,assets_capsules_test.cpp,model_texture_test.cpp,serve_web_test.cpp,admob_tools_test.cpp,msix_test.cpp,perf_test.cpp,assets_sfx_test.cpp"
+            "2:steam_setup_test.cpp,model_doc_test.cpp,sign_macos_store_test.cpp,sign_macos_test.cpp,export_icons_test.cpp,publish_test.cpp,assets_recipe_test.cpp,export_web_test.cpp"
+            "3:export_android_test.cpp,script_instrument_test.cpp,test_export.cpp,feedback_test.cpp,recipe_schema_test.cpp,shaders_test.cpp,export_textures_test.cpp,sign_windows_test.cpp"
+            "4:music_render_test.cpp,music_test.cpp,feedback_share_test.cpp,efficiency_share_test.cpp,assets_fbx_test.cpp,assets_bake_test.cpp,shaders_docs_test.cpp,assets_animate_test.cpp,efficiency_test.cpp")
+        set(tooling_test_names "")
+        foreach(tooling_test_file IN LISTS tooling_tests)
+            get_filename_component(tooling_test_name ${tooling_test_file} NAME)
+            if(tooling_test_name IN_LIST tooling_test_names)
+                message(FATAL_ERROR "tools/common/CMakeLists.txt: two test files are named ${tooling_test_name}. The ctest entries "
+                    "tooling_<n> pick files by name (cmake/doctest_main.cpp): rename one of them.")
+            endif()
+            list(APPEND tooling_test_names ${tooling_test_name})
+        endforeach()
+        set(tooling_test_named "")
+        set(tooling_test_args "")
+        foreach(tooling_test_entry IN LISTS tooling_test_entries)
+            string(REGEX REPLACE ":.*$" "" tooling_test_n "${tooling_test_entry}")
+            string(REGEX REPLACE "^[0-9]+:" "" tooling_test_files "${tooling_test_entry}")
+            string(REPLACE "," ";" tooling_test_picked "${tooling_test_files}")
+            foreach(tooling_test_file IN LISTS tooling_test_picked)
+                if(NOT tooling_test_file IN_LIST tooling_test_names)
+                    string(REPLACE ";" ", " tooling_test_all "${tooling_test_names}")
+                    message(FATAL_ERROR "tools/common/CMakeLists.txt: the ctest entry tooling_${tooling_test_n} names the file "
+                        "'${tooling_test_file}', which is not in tools/common/tests. Its files: ${tooling_test_all}. Fix the name "
+                        "(or remove it) in tooling_test_entries.")
+                endif()
+                if(tooling_test_file IN_LIST tooling_test_named)
+                    message(FATAL_ERROR "tools/common/CMakeLists.txt: the file '${tooling_test_file}' is in two tooling entries. "
+                        "Keep it in one of tooling_test_entries: every test case runs exactly once.")
+                endif()
+                list(APPEND tooling_test_named ${tooling_test_file})
+            endforeach()
+            list(APPEND tooling_test_args "--fa-files=${tooling_test_files}")
+            add_test(NAME tooling_${tooling_test_n} COMMAND fa_test_tooling "--fa-files=${tooling_test_files}" WORKING_DIRECTORY ${FA_ROOT})
+            set_tests_properties(tooling_${tooling_test_n} PROPERTIES LABELS "tooling")
+        endforeach()
+        list(LENGTH tooling_test_entries tooling_test_rest)
+        math(EXPR tooling_test_rest "${tooling_test_rest} + 1")
+        string(REPLACE ";" "," tooling_test_named_list "${tooling_test_named}")
+        add_test(NAME tooling_${tooling_test_rest} COMMAND fa_test_tooling "--fa-files-exclude=${tooling_test_named_list}" WORKING_DIRECTORY ${FA_ROOT})
+        list(APPEND tooling_test_args "--fa-files-exclude=${tooling_test_named_list}")
+        set_tests_properties(tooling_${tooling_test_rest} PROPERTIES LABELS "tooling")
+        string(REPLACE ";" "|" tooling_test_entry_args "${tooling_test_args}")
+        add_test(NAME tooling_split_check
+            COMMAND ${CMAKE_COMMAND} -DFA_TEST_EXE=$<TARGET_FILE:fa_test_tooling> "-DFA_SPLIT_ENTRIES=${tooling_test_entry_args}"
+                -P ${FA_ROOT}/cmake/fa_doctest_split_check.cmake
+            WORKING_DIRECTORY ${FA_ROOT})
+        set_tests_properties(tooling_split_check PROPERTIES LABELS "tooling")
         if(WIN32 AND TARGET factoria_player)  # pe_icon_test checks the real player's subsystem and version placeholders
             set_source_files_properties(tests/pe_icon_test.cpp PROPERTIES
                 COMPILE_DEFINITIONS FA_PLAYER_EXE="$<TARGET_FILE:factoria_player>")  # its one file: the ccache, above
