@@ -10,7 +10,9 @@ Older versions, one file per minor version with its patch releases: [0.26](chang
   CameraView (a `RenderScene`: matrices, resolved assets, boxes, flashes and blend flags), so a camera only filters by
   `showTags`/`hideTags`, tests its frustum and sorts its blended meshes; the hash of `MeshRenderer.materialParams` and
   `materialColors` is computed when the value changes, not per mesh per camera per frame. A new job, `render.mesh_frustum`, in
-  `perf.profile`.
+  `perf.profile`. The scene resolves the mesh, texture and material of every active `MeshRenderer`, also one that no camera
+  shows (a tag filter, outside every frustum), so a broken path now warns once even if the mesh is hidden from every
+  camera. `Renderer::capture_world` (editor thumbnails) no longer makes the next frame hash every material override again.
 - Continuous integration (no engine change): the GCC job's ccache key no longer starts with the Clang jobs' keys (it restored
   a Clang cache and compiled everything again; `scripts/check-ci-cache-keys.py` in the `lint` job fails on such a
   collision). A failed build no longer trims the ccache it saves, a cancelled round saves its objects too, and each job

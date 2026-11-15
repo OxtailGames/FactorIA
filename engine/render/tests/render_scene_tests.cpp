@@ -182,7 +182,87 @@ TEST_CASE("render scene: frame cost with 1 and 4 cameras over 2000 meshes (repor
     g.renderer.clear_asset_cache();
 }
 
+TEST_CASE("render scene: a camera re-keys the meshes its lods swap in (the batches are those of the swapped meshes)") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    // 60 items of two colours at two distances from the camera (0,3,18): within and beyond the 30 of the lod level. Every
+    // item has the same mesh name in the scene, so a key not made again would sort cube and sphere items interleaved.
+    auto scene = [&](bool lods, World& w) {
+        perspective_camera(w, "cam0", 0);
+        for (int i = 0; i < 60; ++i) {
+            const bool far = (i / 2) % 2 == 1;
+            Entity e = make(w, "m", {float(i % 10) - 5.0f, 2.0f, far ? -20.0f : 0.0f});
+            auto& m = w.add<MeshRenderer>(e);
+            m.color = i % 2 ? Color{1, 0, 0, 1} : Color{0, 0, 1, 1};
+            if (lods) {
+                m.mesh = "cube";
+                m.lods = Json::array({Json{{"mesh", "sphere"}, {"distance", 30}}});
+            } else {
+                m.mesh = far ? "sphere" : "cube";
+            }
+        }
+    };
+    World withLods, direct;
+    scene(true, withLods);
+    scene(false, direct);
+    const Counts a = frame_counts(withLods);
+    const Counts b = frame_counts(direct);
+    CHECK(a.meshes > 0);
+    CHECK(a == b);
+    CHECK(a.batches == 4);  // two meshes x two colours
+    g.renderer.clear_asset_cache();
+}
+
+TEST_CASE("render scene: a build of a subtree keeps the hash entries of the rest of the world") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    render::Assets assets(*render::renderer_gpu(g.renderer));
+    World w;
+    Entity root = make(w, "root");
+    for (int i = 0; i < 6; ++i) {
+        Entity e = make(w, "m");
+        if (i < 2) w.set_parent(e, root);
+        auto& m = w.add<MeshRenderer>(e);
+        m.mesh = "cube";
+        m.materialColors = Json{{"body", Json::array({0.1f * float(i), 0.5f, 0.5f, 1.0f})}};
+    }
+    render::RenderScene scene;
+    scene.build(w, assets, kNullEntity, false);
+    CHECK(scene.meshes().size() == 6);
+    CHECK(scene.hash_cache().size() == 6);
+    const std::uint64_t computed = scene.hash_cache().computed();
+    scene.build(w, assets, root, false);  // what capture_world does
+    CHECK(scene.meshes().size() == 2);
+    CHECK(scene.hash_cache().size() == 6);  // nothing dropped
+    scene.build(w, assets, kNullEntity, false);
+    CHECK(scene.hash_cache().size() == 6);
+    CHECK(scene.hash_cache().computed() == computed);  // nothing hashed again either
+    CHECK(scene.sort_key_fallbacks() == 0);
+    scene.reset();
+    assets.clear();
+}
+
 // ---- MaterialHashCache: no GPU ----
+
+TEST_CASE("material hash: an entity asked for twice in one frame does not keep a stale entry alive") {
+    World w;
+    Entity a = make(w, "a"), b = make(w, "b");
+    w.add<MeshRenderer>(a);
+    w.add<MeshRenderer>(b);
+    const Json params{{"k", 1}};
+    render::MaterialHashCache cache;
+    std::size_t p = 0, c = 0;
+    cache.begin_frame();
+    cache.hashes(a, &params, nullptr, p, c);
+    cache.hashes(b, &params, nullptr, p, c);
+    cache.end_frame();
+    CHECK(cache.size() == 2);
+    cache.begin_frame();  // only `a`, and twice: two touches, one distinct entry
+    cache.hashes(a, &params, nullptr, p, c);
+    cache.hashes(a, &params, nullptr, p, c);
+    cache.end_frame();
+    CHECK(cache.size() == 1);  // b's entry went
+}
 
 TEST_CASE("material hash: computed when the overrides change, never again while they stay") {
     World w;
