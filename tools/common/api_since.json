@@ -1124,6 +1124,7 @@
     "publish.itch": "0.2.0",
     "publish.microsoft": "0.3.0",
     "publish.steam": "0.2.0",
+    "render.frame_graph": "unreleased",
     "render.inspect": "0.4.0",
     "render.pick": "0.4.0",
     "review.cleanup": "0.18.0",

@@ -260,6 +260,7 @@ factoria call game.screenshot '{"region":[100,60,48,27],"zoom":8,"path":"/tmp/se
 factoria call game.screenshot '{"frames":24,"everyFrames":4,"columns":4,"path":"/tmp/film.png"}'   # a labelled contact sheet of 7 frames
 factoria call render.inspect '{"from":[100,90],"to":[220,90],"threshold":20}'   # where the brightness jumps along a line
 factoria call render.pick '{"position":[160,90]}'   # what draws that pixel, topmost first
+factoria call render.frame_graph   # the last frame's passes with the CPU (and, on D3D11/OpenGL with the profiler on, GPU) time of each
 factoria call game.state --scene scenes/level2.scene.json --press move_right --frames-before 30
 factoria call --batch '[{"command":"game.step","args":{"frames":30}},{"command":"script.eval","args":{"code":"time.elapsed"}}]'
 ```

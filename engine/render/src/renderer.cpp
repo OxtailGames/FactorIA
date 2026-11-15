@@ -28,6 +28,7 @@ Json RenderStats::to_json() const {
                 {"lights2dShadowed", lights2dShadowed},
                 {"materials", materials},
                 {"materialFallbacks", materialFallbacks},
+                {"sortKeyFallbacks", sortKeyFallbacks},
                 {"cpuMs", std::round(cpuMs * 1000.0) / 1000.0}};
 }
 
@@ -411,7 +412,55 @@ bool Renderer::gpu_timing_supported(std::string* reason) const {
 }
 
 void Renderer::take_gpu_ms(std::vector<double>& out) {
-    if (impl_ && Profiler::on()) impl_->gpuTimer.poll(out);
+    if (!impl_ || !Profiler::on()) return;
+    impl_->gpuTimer.poll(impl_->gpuFrames);  // render() polls too: what it read waits in gpuFrames for this call
+    out.insert(out.end(), impl_->gpuFrames.begin(), impl_->gpuFrames.end());
+    impl_->gpuFrames.clear();
+}
+
+Json Renderer::frame_graph_report() const {
+    if (!impl_ || !(impl_->anyFrameRendered || impl_->graphFromCapture)) return Json();
+    Impl& I = *impl_;
+    auto r3 = [](double v) { return std::round(v * 1000.0) / 1000.0; };
+    std::vector<RenderStats::PassTime> passes;
+    std::vector<RenderStats::JobTime> jobs;
+    I.pass_times(passes, jobs);
+    Json out = Json::object();
+    out["source"] = I.graphFromCapture ? "capture" : "frame";
+    out["backend"] = backend_name();
+    out["graph"] = I.graph.to_json();
+    Json passList = Json::array();
+    bool anyGpu = false;
+    for (const RenderStats::PassTime& p : passes) {
+        anyGpu = anyGpu || p.gpuMs >= 0.0;
+        passList.push_back(
+            Json::object({{"name", p.name}, {"job", p.job}, {"cpuMs", r3(p.cpuMs)}, {"gpuMs", r3(p.gpuMs)}}));
+    }
+    out["passTimes"] = std::move(passList);
+    Json jobList = Json::array();
+    for (const RenderStats::JobTime& j : jobs)
+        jobList.push_back(
+            Json::object({{"job", j.job}, {"passes", j.passes}, {"cpuMs", r3(j.cpuMs)}, {"gpuMs", r3(j.gpuMs)}}));
+    out["jobTimes"] = std::move(jobList);
+    Json gpu = Json::object();
+    std::string why;
+    const bool supported = I.gpuTimer.supported();
+    const bool measuring = supported && Profiler::on();
+    if (!supported)
+        why = I.gpuTimer.reason();
+    else if (!measuring)
+        why =
+            "the profiler is off and the GPU timers only run while it is on (perf.profile, play.report's profile, the "
+            "editor's Profiler panel)";
+    else if (!anyGpu)
+        why = "no GPU time has come back yet: timer queries are read a few frames late, so draw a few more frames with "
+              "the profiler on";
+    gpu["supported"] = supported;
+    gpu["measuring"] = measuring;
+    gpu["reason"] = why.empty() ? Json(nullptr) : Json(why);
+    gpu["maxTimedPasses"] = GpuTimer::kMaxTimedPasses;
+    out["gpu"] = std::move(gpu);
+    return out;
 }
 
 Json Renderer::asset_report() const {
@@ -594,7 +643,14 @@ void Renderer::Impl::setup_frame(Frame& fr, World& world, float dt) {
 // the finished frame, with the settings of the first camera.
 void Renderer::Impl::render(World& world, float dt) {
     auto t0 = std::chrono::steady_clock::now();
-    if (Profiler::on()) gpuTimer.begin();
+    if (Profiler::on()) {
+        // Answers of earlier frames are read now (never waited for): the passes of this frame report them as their GPU time.
+        gpuTimer.poll(gpuFrames);
+        constexpr std::size_t kKeepGpuFrames = 256;  // nobody called take_gpu_ms(): keep the newest
+        if (gpuFrames.size() > kKeepGpuFrames)
+            gpuFrames.erase(gpuFrames.begin(), gpuFrames.end() - std::ptrdiff_t(kKeepGpuFrames));
+        gpuTimer.begin();
+    }
     stats = RenderStats{};
     anyFrameRendered = true;
     transient_targets().pool.begin_frame();  // the bloom levels of the frame graphs below come from this pool
@@ -920,6 +976,9 @@ void Renderer::Impl::render(World& world, float dt) {
         plan_job(world, frames[i], plan);
     }
     run_frame_graph();
+    graphFromCapture = false;
+    pass_times(stats.passes, stats.jobs);
+    stats.sortKeyFallbacks = int(std::min<std::uint64_t>(renderScene.sort_key_fallbacks(), 0x7fffffffu));
 
     renderScene.reset();  // it points into the world, which the game may change before the next frame
     release_unused_views();

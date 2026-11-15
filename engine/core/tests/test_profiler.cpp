@@ -139,3 +139,41 @@ TEST_CASE("current_memory_bytes: the process uses memory, and it is not above th
     CHECK(now > 1024 * 1024);
     CHECK(now <= peak_memory_bytes() + 64ull * 1024 * 1024);  // sampled at slightly different moments
 }
+
+TEST_CASE(
+    "profiler: zones with dynamic names are summed per name in a frame, slowest first, and averaged by the summary") {
+    Profiler& p = Profiler::get();
+    p.set_enabled(true);
+    p.begin_frame();
+    p.add_zone("camera:0/bloom-bright", 0.5);
+    p.add_zone(std::string("camera:0/game"), 2.0);
+    p.add_zone("view:0/view", 1.5);
+    p.add_zone("view:0/view", 2.5);
+    p.end_frame();
+    const ProfFrame f = p.last();
+    p.set_enabled(false);
+    REQUIRE(f.zones.size() == 3);
+    CHECK(f.zones[0].name == "view:0/view");  // 4 ms in two calls
+    CHECK(f.zones[0].ms == doctest::Approx(4.0));
+    CHECK(f.zones[0].calls == 2);
+    CHECK(f.zones[1].name == "camera:0/game");
+    CHECK(f.zones[2].name == "camera:0/bloom-bright");
+
+    ProfileSummary s;
+    for (int i = 0; i < 4; ++i) {
+        ProfFrame fr;
+        fr.totalMs = 10;
+        fr.zones = {ProfZoneSample{"camera:0/game", 2.0, 1}, ProfZoneSample{"camera:0/bloom-bright", 0.5, 1}};
+        if (i == 0) fr.zones.push_back(ProfZoneSample{"view:0/view", 4.0, 2});
+        s.add_frame(fr);
+    }
+    const Json j = s.to_json();
+    REQUIRE(j["zones"].size() == 3);
+    CHECK(j["zones"][0]["name"] == "camera:0/game");
+    CHECK(j["zones"][0]["avgMs"].get<double>() == doctest::Approx(2.0));
+    CHECK(j["zones"][0]["callsPerFrame"].get<double>() == doctest::Approx(1.0));
+    CHECK(j["zones"][1]["name"] == "view:0/view");  // 4 ms in one frame of four: 1 ms a frame, above 0.5
+    CHECK(j["zones"][1]["avgMs"].get<double>() == doctest::Approx(1.0));
+    CHECK(j["zones"][1]["maxMs"].get<double>() == doctest::Approx(4.0));
+    CHECK(j["zones"][1]["callsPerFrame"].get<double>() == doctest::Approx(0.5));
+}
