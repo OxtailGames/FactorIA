@@ -1326,9 +1326,14 @@ A doc over about 60 KB is split into an **entry page** and **pages**:
   page from the page of the family that has it (the result has `page`, `requestedName` and a `note`; two pages with it are an
   error that lists both), so an old reference such as `docs/SCRIPTING.md, "Input"` keeps working. A read of the entry page
   without `heading` has `pages` ([{name,title,bytes,path}]), and a cut read lists them in `contents` too.
+- `docs.read` looks for a heading in the entry page and in its pages: an exact title on the entry page wins (the result
+  lists `alsoOnPages` when a page has the same title, a longer version); otherwise an exact title on exactly one page wins;
+  a partial match in several places, or an exact title on several pages, is an error that lists them all.
 - A test (`doc_layout_problems()`, `fs_docs_test.cpp`) fails when two embedded docs share a name, when a page sits in a
-  folder without its entry page, or when an entry page does not link to one of its pages by that relative path. A page needs
-  a manifest entry like any doc.
+  folder without its entry page, when a page's file name does not start with its entry page's (`BIG_`), or when the entry
+  page has no Markdown link `[Title](<folder>/<FILE>.md)` to a page. The rules are the same whether the docs come from the
+  binary or from the repository; `docs/design/` is not embedded, so its names are not checked for uniqueness, but its
+  families are checked for links. A page needs a manifest entry like any doc.
 
 ## AI integration
 
