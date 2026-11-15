@@ -473,6 +473,7 @@ void Scene2D::gather_particles(World& world, Frame& f) {
 
 void gather_particles(World& world, Frame& f) {
     Scene2D scene;
+    scene.set_single_destination(true);
     scene.gather_particles(world, f);
 }
 

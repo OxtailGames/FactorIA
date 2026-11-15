@@ -41,9 +41,10 @@ namespace fa::render {
 // of that camera's Frame, a `donor`, and the range of items) and where the entity is. The next camera that draws the entity
 // appends a copy of those items to its own list (QuadList::append_items) instead of building them again, with its own sort key.
 // A camera that has nothing to copy builds as before, straight into its Frame. A Scene2D lives for one gather round of one
-// frame (apply_sprite_frames runs once per frame before the first gather, so a SpriteAnimator whose texture is its own camera's
-// render target uses the target's real size, not the checker's, and its region at the end of the frame is the real one): its donors are Frame lists and must stay in place until the last gather of the round (renderer.cpp reserves the
+// frame: its donors are Frame lists and must stay in place until the last gather of the round (renderer.cpp reserves the
 // vectors of Frames that it fills).
+// apply_sprite_frames runs once per frame before the first gather, so a SpriteAnimator whose texture is its own camera's render
+// target now uses the target's real size (before: the checker's), and its region at the end of the frame is the real one.
 class Scene2D {
 public:
     // What was built and what was copied, summed over every gather of this Scene2D (the tests check that building happens once
