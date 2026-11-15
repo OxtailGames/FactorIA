@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
 
 ## Unreleased
 
+### Fixes
+
+- Audio: two memory leaks the weekly fuzz run found. A SoundFont whose `pdta` list repeats a table is refused with an
+  error that names the table and its offset (TinySoundFont leaked the first copy). A damaged Ogg Vorbis setup header no
+  longer leaks the scratch blocks stb_vorbis holds when it gives up: the engine's Vorbis wrapper frees them. Both
+  inputs are in the fuzz corpus and in `fa_test_audio`.
+
 ## 0.28.0
 
 FactorIA 0.28.0 (M95) gives the renderer the core that HDR and what follows will stand on, and draws the same pictures
