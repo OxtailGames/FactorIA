@@ -22,6 +22,11 @@
 //
 // Culling: a pass is live when it has side effects, or writes an imported resource (the world sees it), or writes
 // something a live pass reads. Culled passes do not run and their transients are never created.
+//
+// The contents of a transient are UNDEFINED at the start of the first pass that writes it: the pool hands out a target
+// another pass (or another frame) drew into. So the first writer of a transient must CLEAR it, or DONTCARE it and
+// draw every pixel; it must never LOAD. Later writers of the same transient may LOAD (they continue its picture).
+// An imported resource keeps what the renderer put in it, so its passes load or clear as they need.
 #pragma once
 
 #include <cstdint>
@@ -63,9 +68,14 @@ class FrameGraph {
 public:
     // A resource the renderer owns (the game target, the swapchain, an image of a render-target asset). `handle` is
     // opaque to the graph and given back by PassContext::handle. `desc` only describes it in dumps.
-    ResourceId import_target(const std::string& name, std::uint64_t handle, const TargetDesc& desc = {});
+    ResourceId import_target(const std::string& name, std::uint64_t handle, const TransientDesc& desc = {});
+    // Points an imported resource at another target (the game target of another view, a resized light buffer) without
+    // rebuilding the graph: the next execute() gives the new handle to the passes. `desc` (when given) replaces the
+    // size and formats shown in dumps. The compiled plan stays valid (the handle is not part of it). False, and
+    // nothing changes, when `r` is not an imported resource of this graph.
+    bool set_import_handle(ResourceId r, std::uint64_t handle, const TransientDesc* desc = nullptr);
     // A target that exists only inside the frame, made by the pool when its first pass starts.
-    ResourceId create_transient(const TargetDesc& desc);
+    ResourceId create_transient(const TransientDesc& desc);
 
     // Adds a pass; passes run in declaration order unless a dependency says otherwise. Returns its index.
     int add_pass(GraphPass pass);
@@ -75,7 +85,8 @@ public:
     bool compiled() const { return compiled_; }
 
     // Runs the live passes in order. Transients come from `pool` (acquired at their first pass, released after
-    // their last one). Fails when compile() has not succeeded.
+    // their last one; whatever the way out, a failure or a pass that throws, none stays acquired). Fails when
+    // compile() has not succeeded.
     Result<void> execute(TargetPool& pool);
 
     // Per pass of the last execute(): the executed ones in order, then the culled ones.
@@ -101,7 +112,7 @@ private:
         std::string name;
         bool imported = false;
         std::uint64_t handle = 0;
-        TargetDesc desc;
+        TransientDesc desc;
         int firstUse = -1;  // position in `order_` of the first live pass using it (transients only)
         int lastUse = -1;
         int slot = -1;
@@ -133,7 +144,7 @@ public:
         return r.valid() && r.index < physical_.size() ? physical_[r.index] : 0;
     }
     // The size and formats the resource was declared with.
-    const TargetDesc& desc(ResourceId r) const { return graph_.resources_[r.index].desc; }
+    const TransientDesc& desc(ResourceId r) const { return graph_.resources_[r.index].desc; }
     const std::string& pass_name() const { return name_; }
 
 private:
