@@ -72,11 +72,11 @@ TEST_CASE("capabilities: every command of the runtime declares them, and readOnl
     auto caps = [&](const char* name) { return e.commands().info(name)->capabilities; };
     // What a game script may call (read + state)...
     for (const char* n : {"scene.spawn", "scene.set_component", "scene.load", "game.step", "game.input",
-                          "ui.set_slider", "mesh.create", "tilemap.set_tile", "vfx.play", "game.screenshot",
-                          "vfx.filmstrip", "script.eval", "game.state", "nav.find_path", "audio.music"})
+                          "ui.set_slider", "tilemap.set_tile", "vfx.play", "game.screenshot", "script.eval",
+                          "game.state", "nav.find_path", "audio.music"})
         CHECK_MESSAGE(capability_sets::game_player().has_all(caps(n)), n);
     // ...and what it may not.
-    for (const char* n : {"scene.save", "input.record", "mesh.save", "storage.clear"})
+    for (const char* n : {"scene.save", "input.record", "storage.clear"})
         CHECK_FALSE_MESSAGE(capability_sets::game_player().has_all(caps(n)), n);
     CHECK(caps("storage.clear")
               .has(Capability::WriteProject));  // the game's own save files; an MCP agent resets a game with it
@@ -252,7 +252,7 @@ struct WriterCase {
     std::function<Json(const std::string& p)> args;
 };
 
-std::vector<WriterCase> writer_cases(const std::string& mesh) {
+std::vector<WriterCase> writer_cases() {
     return {
         {"scene.save", ".scene.json", [](const std::string& p) { return Json::object({{"path", p}}); }},
         {"scene.import_ascii", ".scene.json",
@@ -264,7 +264,6 @@ std::vector<WriterCase> writer_cases(const std::string& mesh) {
          [](const std::string& p) {
              return Json::object({{"file", p}, {"ops", Json::parse(R"([{"op":"put","col":0,"row":0,"glyph":"#"}])")}});
          }},
-        {"mesh.save", ".glb", [mesh](const std::string& p) { return Json::object({{"id", mesh}, {"path", p}}); }},
     };
 }
 
@@ -290,12 +289,7 @@ TEST_CASE("capabilities: every command that writes a caller's path confines it (
     Engine e;
     std::string err;
     REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
-    const CommandResult mesh =
-        e.commands().call("mesh.create", Json::object({{"positions", Json::parse("[[0,0,0],[1,0,0],[1,1,0],[0,1,0]]")},
-                                                       {"indices", Json::parse("[0,1,2,0,2,3]")}}));
-    REQUIRE_MESSAGE(mesh.ok, mesh.error.dump());
-    const std::string meshId = mesh.result["id"].get<std::string>();
-    const std::vector<WriterCase> cases = writer_cases(meshId);
+    const std::vector<WriterCase> cases = writer_cases();
 
     {
         CommandCallerScope mcp(CommandCaller::Mcp);
@@ -381,10 +375,6 @@ TEST_CASE("capabilities: every command that writes a caller's path confines it (
     CHECK(error_code(e.commands().call(
               "scene.save", Json::object({{"path", (outside.dir / "abs.scene.json").generic_string()}}))) == "ok");
     CHECK(stdfs::exists(outside.dir / "abs.scene.json"));
-    CHECK(error_code(e.commands().call(
-              "mesh.save", Json::object({{"id", meshId}, {"path", (outside.dir / "abs.glb").generic_string()}}))) ==
-          "ok");
-    CHECK(stdfs::exists(outside.dir / "abs.glb"));
     // An absolute path inside the project is the same file as the relative one and is kept in its relative spelling.
     const CommandResult inside = e.commands().call(
         "scene.save", Json::object({{"path", (p.dir / "scenes" / "inside.scene.json").generic_string()}}));

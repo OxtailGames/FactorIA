@@ -6,16 +6,19 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
 
 ## Unreleased
 
-- **A new library, `fa_authoring`, for the commands only developer tools need.** The first step of splitting `fa_runtime`
-  so that an exported game's player carries no authoring code: `tools/authoring` links on top of the runtime, and the
-  `factoria` CLI, the editor, the MCP/DAP/AI servers and their tests get its commands, the player does not (the CMake
-  configure fails when `factoria_player` reaches it). `prefab.save` and `scene.format` are the first to move; their
-  names, arguments and results do not change. For engine developers: `fa/runtime/command_extension.h` is a process-wide
-  list of command extensions that `Engine::init` runs after the built-in and plugin commands, `fa::authoring::install()`
-  registers the authoring one (call it once before the first Engine), and `Engine::runtime_command_names()` lists what the
-  player has. `Engine::Impl` is now declared in `fa/runtime/internal/engine_impl.h`, for engine tools only.
-  The clip, bones and skin commands (`anim.*`, `bones.create`, `skin.*`) moved there too, with their tests; same names,
-  arguments and results.
+- **A new library, `fa_authoring`, for the commands only developer tools need.** The first step of splitting
+  `fa_runtime` so that an exported game's player carries no authoring code: `tools/authoring` links on top of the
+  runtime, and the `factoria` CLI, the editor, the MCP/DAP/AI servers and their tests get its commands, the player does
+  not (the CMake configure fails when `factoria_player` reaches it). `prefab.save` and `scene.format` are the first to
+  move; their names, arguments and results do not change. For engine developers: `fa/runtime/command_extension.h` is a
+  process-wide list of command extensions that `Engine::init` runs after the built-in and plugin commands,
+  `fa::authoring::install()` registers the authoring one (call it once before the first Engine), and
+  `Engine::runtime_command_names()` lists what the player has. `Engine::Impl` is now declared in
+  `fa/runtime/internal/engine_impl.h`, for engine tools only. The clip, bones and skin commands (`anim.*`,
+  `bones.create`, `skin.*`) moved there too, with their tests; same names, arguments and results. The effect and mesh
+  tools move too: `vfx.check`, `vfx.budget`, `vfx.filmstrip` and `mesh.create`, `mesh.update`, `mesh.destroy`,
+  `mesh.save`, `mesh.list`, `mesh.info` are no longer in the player (the `vfx` and `mesh` APIs of scripts are unchanged,
+  and so are `vfx.play`, `vfx.stop` and `vfx.list`).
 - Player size budgets: CI measures `factoria_player` on every platform (Linux, macOS, Windows, Android, web in `ci.yml`; also
   iOS and the macOS universal binary in `release.yml`), fails above the `maxBytes` of `tools/size/player_size_budget.json`,
   and writes a report with what each library adds (artifact `player-size-<platform>`, job summary). The new CMake option

@@ -128,6 +128,79 @@ TEST_CASE(
     e.shutdown();
 }
 
+TEST_CASE("capabilities: the vfx and mesh tools are what they were when the runtime had them") {
+    authoring::install();
+    TempProject p;
+    EngineConfig c;
+    c.projectDir = p.dir.generic_string();
+    c.headless = true;
+    c.hotReload = false;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    auto caps = [&](const char* name) {
+        const CommandInfo* info = e.commands().info(name);
+        REQUIRE_MESSAGE(info != nullptr, name);
+        return info->capabilities;
+    };
+    // What the editor's Play lets a game script call (read + state)...
+    for (const char* n : {"mesh.create", "mesh.update", "mesh.destroy", "mesh.list", "mesh.info", "vfx.check",
+                          "vfx.budget", "vfx.filmstrip"})
+        CHECK_MESSAGE(capability_sets::game_player().has_all(caps(n)), n);
+    // ...and what it may not: mesh.save writes a .glb at the caller's path.
+    CHECK_FALSE(capability_sets::game_player().has_all(caps("mesh.save")));
+    CHECK(caps("mesh.save").has(Capability::WriteProject));
+    e.shutdown();
+}
+
+TEST_CASE("capabilities: mesh.save and vfx.filmstrip confine the path of their caller") {
+    authoring::install();
+    TempProject p;
+    TempProject outside;  // a folder that is not the project
+    EngineConfig c;
+    c.projectDir = p.dir.generic_string();
+    c.headless = true;
+    c.hotReload = false;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    const CommandResult mesh =
+        e.commands().call("mesh.create", Json::object({{"positions", Json::parse("[[0,0,0],[1,0,0],[1,1,0],[0,1,0]]")},
+                                                       {"indices", Json::parse("[0,1,2,0,2,3]")}}));
+    REQUIRE_MESSAGE(mesh.ok, mesh.error.dump());
+    const std::string meshId = mesh.result["id"].get<std::string>();
+    auto code = [&](const char* command, const std::string& path) {
+        const Json args = std::string(command) == "mesh.save"
+                              ? Json::object({{"id", meshId}, {"path", path}})
+                              : Json::object({{"effect", "assets/vfx/none.vfx.json"}, {"path", path}});
+        const CommandResult r = e.commands().call(command, args);
+        return r.ok ? std::string("ok") : r.error.value("code", std::string());
+    };
+    {
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        for (const char* command : {"mesh.save", "vfx.filmstrip"}) {
+            CAPTURE(command);
+            const std::string ext = std::string(command) == "mesh.save" ? ".glb" : ".png";
+            CHECK(code(command, "../x" + ext) == "path_outside_root");
+            CHECK(code(command, (outside.dir / ("x" + ext)).generic_string()) == "absolute_path_denied");
+            CHECK(code(command, ".git/x" + ext) == "managed_path_denied");
+            CHECK(code(command, ".factoria/x" + ext) == "managed_path_denied");
+        }
+        // A plain project path passes the path rules.
+        CHECK(code("mesh.save", "out/x.glb") == "ok");
+        CHECK(stdfs::exists(p.dir / "out" / "x.glb"));
+    }
+    {
+        CommandCapabilityScope readOnly(capability_sets::mcp_read_only());
+        CHECK(code("mesh.save", "out/y.glb") == "capability_denied");
+        CHECK(code("vfx.filmstrip", "out/y.png") == "capability_denied");
+    }
+    // The command-line user (and the editor) may name an absolute path.
+    CHECK(code("mesh.save", (outside.dir / "abs.glb").generic_string()) == "ok");
+    CHECK(stdfs::exists(outside.dir / "abs.glb"));
+    e.shutdown();
+}
+
 TEST_CASE("capabilities: game scripts of the player cannot call scene.format or prefab.save") {
     check_game_script_set(false);
 }
