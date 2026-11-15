@@ -360,6 +360,45 @@ files it was missing. Recording costs one short lock and a set lookup per file r
 does); the file is written when the session ends, under the project's lock, and the editor writes it on a background
 thread so Stop never waits on the disk. An exported game records nothing.
 
+## Script budgets
+
+Two `runtime` settings of factoria.json bound what scripts may use. Both take a number, or an object with one number per
+platform (`windows`, `macos`, `linux`, `ios`, `android`, `web`) and a `default` for the platforms it does not name; the
+value of the platform the game runs on is the one used, and a platform that nothing names gets the engine's default.
+
+```
+"runtime": {
+  "scriptMemoryMB": { "default": 768, "android": 384, "web": 256 },
+  "scriptFrameBudgetMs": 8
+}
+```
+
+- `scriptMemoryMB` (default 768, from 16 to 2048) is the cap of the JavaScript heap, set when the script runtime starts. A
+  script that goes past it fails with `out of memory`, and the error names the setting, its value and the platform
+  ("runtime.scriptMemoryMB is 384 MB on android"). A phone or a browser tab has less memory than a desktop: lower the cap
+  there, so a leak fails early and at the same place on every run instead of when the system kills the game. The size of
+  the heap of a run is `memory.peak.jsHeapMB` of the profile (below).
+- `scriptFrameBudgetMs` (default 8, from 0 to 1000; 0 turns the check off) is the time the scripts of ONE frame may
+  take: every callback the engine runs for scripts in the frame (updates, fixed updates, events, timers, platform and back
+  callbacks), added up. The watchdog stops a callback after 2 s, which is far too late for a game that wants 60 frames a
+  second; the budget warns long before. The time is the CPU time of the thread, so a loaded machine does not trip it (on
+  Windows and in the web build, where the engine has no per-thread clock, it is wall-clock time).
+
+A frame over the budget does two things, and neither changes what the game does (no callback is cut, `game.state` and
+replays are the same):
+
+- With the profiler on (`perf.profile`, `play.report`'s `profile`, the editor's Profiler panel) the frame is recorded in
+  `profile.overBudget`: `[{name: "scripts", limitMs, frames, maxMs}]`, the number of frames of the run that went over and
+  the worst one. An empty list means no frame went over.
+- A `warn` log in the category `script`: the frame number, the time, the budget, the three callbacks that took longest
+  (`scripts/boss.js#onUpdate 5.2 ms`) and the setting to change. It is written the first time, and then at most once every
+  5 seconds of GAME time (the sum of the frame steps, not the wall clock, so it does not depend on how fast the machine
+  is), and says how many frames went over since the last one.
+
+The callbacks named are the ones the engine calls (`onUpdate` of a behaviour, a timer, a `world.on` listener), not the
+functions they call: find those with `script.trace` or the profile's `behaviours`. A game that is over budget only on a
+frame that loads or spawns a lot is better served by spreading that work over frames than by raising the number.
+
 ## Background loading
 
 `scene.load` reads, decodes and uploads a scene's files before the frame goes on, so a big level freezes the game for a
@@ -446,6 +485,7 @@ profile: {
   threads: [{name, jobMsAvg, jobMsMax, busyPct, jobsPerFrame,  // "main", "worker 1".., "other"
              jobs: [{name, avgMs, maxMs, callsPerFrame}]}],    // that thread's 10 slowest job names
   gpu: {avgMs, p95Ms, maxMs, samples, reason},                // numbers, or null + reason
+  overBudget: [{name, limitMs, frames, maxMs}],               // frames over runtime.scriptFrameBudgetMs; [] when none
   memory: {start, end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, musicMB, entities}}
 }
 ```

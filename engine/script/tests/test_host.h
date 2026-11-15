@@ -38,6 +38,7 @@ struct TestHost : ScriptHost {
     Json proj = Json::object();
     ScriptSystem scripts;
     double fdt = 1.0 / 60.0;
+    std::uint64_t framesRun = 0;  // step_frames calls scripts.end_frame with it
     std::string pendingScene;
     bool quitRequested = false;
     std::string initError;
@@ -147,6 +148,7 @@ struct TestHost : ScriptHost {
             scripts.update(dt);
             au.update(w, dt);
             scripts.late_update(dt);
+            scripts.end_frame(framesRun++, fdt);
             localize_world(w, loc);  // like the engine: keys of what scripts changed this frame
             w.advance_clock(fdt);
             w.flush();

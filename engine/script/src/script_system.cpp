@@ -26,6 +26,7 @@
 #include "fa/platform/input.h"
 #include "fa/scene/components.h"
 #include "fa/script/bytecode.h"
+#include "fa/script/script_budget.h"
 #include "fa/ui/ui.h"
 #include "debugger_internal.h"
 #include "script_internal.h"
@@ -196,6 +197,63 @@ double ScriptSystem::Impl::thread_cpu_seconds() {
     if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts) != 0) return 0;
     return static_cast<double>(ts.tv_sec) + static_cast<double>(ts.tv_nsec) * 1e-9;
 #endif
+}
+
+// The clock of the frame budget: the CPU time of this thread (what the watchdog counts, so a loaded machine or a callback waiting
+// on a native is not charged), except where that clock is too coarse (Windows counts it in ticks of ~15 ms) or not kept (the
+// web): there the steady clock. Only the warning and the profiler's mark read it, never the simulation.
+double ScriptSystem::Impl::budget_clock() {
+#if defined(_WIN32) || defined(__EMSCRIPTEN__)
+    return std::chrono::duration<double>(std::chrono::steady_clock::now().time_since_epoch()).count();
+#else
+    return thread_cpu_seconds();
+#endif
+}
+
+// End of a frame of the engine: tests the script time the frame added up against the budget. Over it: the profiler marks the
+// frame and a warning is logged, the first time and then at most once every kBudgetWarnSeconds of game time.
+void ScriptSystem::Impl::end_frame(std::uint64_t frame, double dt) {
+    constexpr double kBudgetWarnSeconds = 5.0;
+    constexpr double kMinLabelSeconds = 0.00005;
+    budgetClock += std::max(0.0, dt);
+    const double seconds = frameSeconds;
+    std::unordered_map<std::string, double> labels;
+    labels.swap(frameLabels);
+    frameSeconds = 0;
+    if (!budget_active()) return;
+    const double ms = seconds * 1000.0;
+    if (!(ms > frameBudgetMs)) return;
+    if (Profiler::on()) Profiler::get().add_over_budget("scripts", ms, frameBudgetMs);
+    ++framesOverSinceWarn;
+    if (budgetWarned && budgetClock < nextBudgetWarn) return;
+    std::vector<std::pair<std::string, double>> top(labels.begin(), labels.end());
+    double attributed = 0;
+    for (const auto& kv : top) attributed += kv.second;
+    if (seconds - attributed > kMinLabelSeconds)
+        top.emplace_back("(timers, promises and other script work outside the behaviours' callbacks)",
+                         seconds - attributed);
+    std::sort(top.begin(), top.end(), [](const auto& a, const auto& b) {
+        return a.second != b.second ? a.second > b.second : a.first < b.first;
+    });
+    std::string slowest;
+    for (std::size_t i = 0; i < top.size() && i < 3; ++i)
+        slowest += std::format("{}{} {:.1f} ms", i ? ", " : "", top[i].first, top[i].second * 1000.0);
+    std::string text = std::format("scripts took {:.1f} ms in frame {}, over the budget of {:g} ms "
+                                   "(runtime.scriptFrameBudgetMs in factoria.json). ",
+                                   ms, frame, frameBudgetMs);
+    if (!slowest.empty()) text += "Slowest: " + slowest + ". ";
+    text += budgetWarned ? std::format("{} frame{} over budget since the last warning. ", framesOverSinceWarn,
+                                       framesOverSinceWarn == 1 ? "" : "s")
+                         : std::string("This is the first warning of this run. ");
+    text += std::format(
+        "It repeats at most once every {:g} s of game time. Make those callbacks cheaper, or raise the budget (0 turns "
+        "the "
+        "check off); the watchdog stops a callback only after {:g} s (docs/PERFORMANCE.md, \"Script budgets\")",
+        kBudgetWarnSeconds, callbackLimit);
+    log(LogLevel::Warn, "script", std::move(text));
+    budgetWarned = true;
+    framesOverSinceWarn = 0;
+    nextBudgetWarn = budgetClock + kBudgetWarnSeconds;
 }
 
 std::string ScriptSystem::Impl::limit_text(double seconds) const {
@@ -514,6 +572,11 @@ ScriptError ScriptSystem::Impl::error_from_exception(JSValueConst exc, const std
     if (e.file.empty()) e.file = where;
     e.message = strip_versions(e.message);
     explain_missing_api(e);
+    if (e.message.find("out of memory") != std::string::npos)
+        e.message += std::format(" (the scripts reached their memory cap: runtime.scriptMemoryMB is {:g} MB on {}{}; "
+                                 "raise it in factoria.json, "
+                                 "or keep less in memory; docs/PERFORMANCE.md, \"Script budgets\")",
+                                 memoryLimitMB, script_platform_name(), memoryLimitDefault ? " (the default)" : "");
     return e;
 }
 
@@ -555,7 +618,14 @@ JSValue ScriptSystem::Impl::call(const std::string& label, const std::string& en
     std::vector<JSValueConst> av(args.begin(), args.end());
     timedOut = false;
     lastCallTimedOut = false;
+    // The frame budget names its slowest callbacks: the callbacks a frame's entry point calls directly, not the ones they call.
+    const bool timed = frameDepth > 0 && depth == 0 && budget_active();
+    const double t0 = timed ? budget_clock() : 0.0;
     JSValue r = JS_Call(ctx, fn, thisVal, static_cast<int>(av.size()), av.data());
+    if (timed) {
+        const double took = budget_clock() - t0;
+        if (took >= 0.00005) frameLabels[label] += took;
+    }
     pop_guard(depth);
     if (JS_IsException(r)) {
         if (failed) *failed = true;
@@ -1097,7 +1167,37 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
         return false;
     }
     reserve_class_ids(rt);
-    JS_SetMemoryLimit(rt, size_t(768) * 1024 * 1024);
+    // runtime.scriptMemoryMB and runtime.scriptFrameBudgetMs: a number or a number per platform (load_project checked the file;
+    // a value out of range here, from a host that did not, is pulled into the range).
+    Json proj = h.project_settings();
+    {
+        const Json none;
+        const Json* runtimeSection = &none;
+        if (proj.is_object())
+            if (auto it = proj.find("runtime"); it != proj.end() && it->is_object()) runtimeSection = &*it;
+        auto setting = [&](const char* key) -> const Json& {
+            if (runtimeSection->is_object())
+                if (auto it = runtimeSection->find(key); it != runtimeSection->end()) return *it;
+            return none;
+        };
+        const std::string platform = script_platform_name();
+        const Json& memory = setting("scriptMemoryMB");
+        memoryLimitMB = std::clamp(resolve_per_platform_number(memory, platform, kDefaultScriptMemoryMB),
+                                   kMinScriptMemoryMB, kMaxScriptMemoryMB);
+        memoryLimitDefault = memory.is_null();
+        frameBudgetMs = std::clamp(
+            resolve_per_platform_number(setting("scriptFrameBudgetMs"), platform, kDefaultScriptFrameBudgetMs), 0.0,
+            kMaxScriptFrameBudgetMs);
+        frameDepth = 0;
+        frameSeconds = 0;
+        frameLabels.clear();
+        budgetClock = nextBudgetWarn = 0;
+        framesOverSinceWarn = 0;
+        budgetWarned = false;
+    }
+    // In 64 bits and saturated: a 32-bit size_t (the web build) cannot hold more than 4095 MB.
+    const std::uint64_t memoryBytes = static_cast<std::uint64_t>(memoryLimitMB * 1024.0 * 1024.0);
+    JS_SetMemoryLimit(rt, static_cast<size_t>(std::min<std::uint64_t>(memoryBytes, SIZE_MAX)));
     JS_SetMaxStackSize(rt, size_t(2) * 1024 * 1024);
     JS_SetInterruptHandler(rt, interrupt_cb, this);
     JS_SetModuleLoaderFunc(rt, normalize_cb, loader_cb, this);
@@ -1110,7 +1210,6 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
     JS_SetContextOpaque(ctx, this);
     install_quickjs_fixes(ctx);
 
-    Json proj = h.project_settings();
     if (proj.is_object() && proj.contains("seed") && proj["seed"].is_number()) seed = proj["seed"].get<std::uint64_t>();
 
     JSValue N = JS_NewObject(ctx);
@@ -1274,6 +1373,9 @@ void ScriptSystem::set_exported_player(bool exported) { impl_->exportedPlayer = 
 void ScriptSystem::set_game_role(GameRole role) { impl_->set_game_role(role); }
 CapabilitySet ScriptSystem::game_capabilities() const { return impl_->gameCaps; }
 void ScriptSystem::set_callback_limit(double seconds) { impl_->callbackLimit = seconds; }
+double ScriptSystem::memory_limit_mb() const { return impl_->memoryLimitMB; }
+double ScriptSystem::frame_budget_ms() const { return impl_->frameBudgetMs; }
+void ScriptSystem::end_frame(std::uint64_t frame, double dt) { impl_->end_frame(frame, dt); }
 void ScriptSystem::set_plugins(std::vector<ScriptPlugin> plugins) { impl_->plugins = std::move(plugins); }
 bool ScriptSystem::init(ScriptHost& host, std::string* error) { return impl_->init(host, error); }
 void ScriptSystem::shutdown() { impl_->shutdown(); }
@@ -1316,6 +1418,7 @@ void ScriptSystem::dispatch_platform() {
     if (I.debugger) I.debugger->impl().frame_start();  // terminate request, then the client's poll
     I.storageWriter
         .pump();  // storage.setAsync without a worker thread (the web, memory storage): its writes run here, between frames
+    const Impl::FrameScope frameScope(I);  // the answers and loads below are script time of this frame
     if (std::vector<storage_files::Job> done = I.storageWriter.take_done(); !done.empty()) {
         Json list = Json::array();
         for (const storage_files::Job& j : done) {
@@ -1371,6 +1474,7 @@ void ScriptSystem::dispatch_back() {
     if (!I.host || !I.host->input().back_pressed()) return;
     bool consumed = false;
     if (I.initialized) {
+        const Impl::FrameScope frameScope(I);
         JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "back");
         ProfBehaviourScope prof(kProfOtherName, kProfNoPath);
         JSValue r = I.call("input.onBack", "", fn, I.hooks.get(), {});
@@ -1398,6 +1502,7 @@ void ScriptSystem::dispatch_gamepads() {
 
 void ScriptSystem::update(float dt) {
     if (!impl_->initialized) return;
+    const Impl::FrameScope frameScope(*impl_);
     const double scale = time_scale();  // time.scale times the running hit-stop (feel.h)
     impl_->lastDt = dt;
     impl_->host->speech().update();
@@ -1420,6 +1525,7 @@ void ScriptSystem::update(float dt) {
 
 void ScriptSystem::fixed_update(float dt) {
     if (!impl_->initialized) return;
+    const Impl::FrameScope frameScope(*impl_);
     const double scale = time_scale();
     impl_->sync();
     if (scale > 0.0) impl_->run_callbacks("onFixedUpdate", static_cast<float>(dt * scale), false);
@@ -1428,6 +1534,7 @@ void ScriptSystem::fixed_update(float dt) {
 
 void ScriptSystem::late_update(float dt) {
     if (!impl_->initialized) return;
+    const Impl::FrameScope frameScope(*impl_);
     const double scale = time_scale();
     if (scale > 0.0)
         impl_->run_callbacks("onLateUpdate", static_cast<float>(dt * scale), false);
@@ -1438,6 +1545,7 @@ void ScriptSystem::late_update(float dt) {
 
 void ScriptSystem::settle_activation() {
     if (!impl_->initialized) return;
+    const Impl::FrameScope frameScope(*impl_);
     impl_->sync();
     impl_->run_jobs();
 }

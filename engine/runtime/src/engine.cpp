@@ -695,6 +695,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         ProfSystemScope prof(ProfSystem::EndOfFrame);
         end_of_frame(dt);
     }
+    if (profiled) scripts.end_frame(frame, dt);  // the script time of this frame against runtime.scriptFrameBudgetMs
     ++frame;
     if (recorder.recording())
         recorder.timing(frame, dt, fixedSteps, fixedDt);  // [dt, steps] of the frame that just ran
