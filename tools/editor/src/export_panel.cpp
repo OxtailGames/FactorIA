@@ -40,6 +40,7 @@ void Editor::open_export_window() {
     showExport_ = true;
     exportFocus_ = true;
     exportChecked_ = -100;  // check every platform again now: a player may have been built meanwhile
+    forget_script_check();  // and the scripts: they may have been edited outside the editor
 }
 
 void Editor::reset_export_state() {
@@ -51,6 +52,7 @@ void Editor::reset_export_state() {
     exportSavedError_.clear();
     exportLast_.reset();
     exportChecked_ = -100;
+    forget_script_check();  // another project, or the same one reloaded
     showExport_ = false;
 }
 
@@ -75,6 +77,7 @@ void Editor::poll_export() {
     notify(export_summary(*done), done->ok ? (done->report.warnings.empty() ? 0 : 1) : 2);
     exportLast_ = std::move(done);
     exportChecked_ = -100;  // the output folder exists now
+    forget_script_check();
     exportScroll_ = true;
 }
 
@@ -94,8 +97,9 @@ void Editor::draw_export_window() {
         return;
     }
     // A few file checks per platform, repeated while the window is open (a player built meanwhile shows up). The scripts are
-    // not read each time: the check of their fa.call names is reused until a shipped .js file, factoria.json or the output
-    // folder changes (the walk that finds out lists the project's folders without opening a file).
+    // not read each time, and the project's tree is not walked: the check of their fa.call names is reused for ten seconds,
+    // and dropped at once by a save or a change the editor made to the project files (project_files_changed), by opening
+    // this window, a project reload and an export (forget_script_check); factoria.json changing drops it too.
     if (time_ - exportChecked_ > 2.0) refresh_export_status();
     const bool busy = exportJob_.running();
     ImGui::PushTextWrapPos(0);

@@ -40,8 +40,8 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
   plugins count as the player's. `factoria validate` reports the same calls as warnings. `factoria serve`'s web export
   and `project.export` with `dryRun` refuse such a script too (they plan the export first). Scripts under `tools/` and
   `tests/`, files `export.exclude` leaves out and names built at run time (`fa.call(name)`) are not checked. The editor's
-  Export window reuses the check's result until a shipped script, `factoria.json` or the output folder changes, so its
-  two-second refresh does not read the scripts each time. `tools/`, `tests/` and `scripts/autoplay.js` are now left out
+  Export window keeps the check's result for ten seconds (dropped at once by a save, a project reload, an export or a
+  changed `factoria.json`), so its two-second refresh neither walks the project nor reads the scripts. `tools/`, `tests/` and `scripts/autoplay.js` are now left out
   of an export in any capitalization.
 
 ### Fixes

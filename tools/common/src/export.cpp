@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <chrono>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -538,55 +539,39 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
 
 std::atomic<std::uint64_t> g_scriptCheckScans{0};
 
-// What decides the result of check_script_commands, read without opening a script: factoria.json (plugins, export.exclude),
-// the output folder, and the name, size and time of every .js file the export may ship. A directory walk, the cost of
-// listing the project; collect_game_files does the same and then reads every script.
-static std::string script_check_key(const Project& p, const stdfs::path& outDirAbs) {
-    auto stamp = [](const stdfs::path& file) {
-        std::error_code ec;
-        const auto size = stdfs::file_size(os_path(file), ec);
-        const auto time = ec ? stdfs::file_time_type{} : stdfs::last_write_time(os_path(file), ec);
-        return std::to_string(ec ? 0 : static_cast<std::uint64_t>(size)) + "@" +
-               std::to_string(ec ? 0 : static_cast<long long>(time.time_since_epoch().count()));
-    };
-    std::string key = generic(outDirAbs) + "|" + stamp(p.dir / "factoria.json");
-    std::error_code ec;
-    for (stdfs::recursive_directory_iterator it(p.dir, ec), end; !ec && it != end; it.increment(ec)) {
-        const stdfs::path& full = it->path();
-        const stdfs::path rel = stdfs::relative(full, p.dir, ec);
-        const bool dir = it->is_directory(ec);
-        if (left_out_by_name(p, rel, fs::path_to_utf8(full.filename()))) {
-            if (dir) it.disable_recursion_pending();
-            continue;
-        }
-        if (dir || to_lower(fs::path_to_utf8(full.extension())) != ".js") continue;
-        key += "\n" + generic(rel) + "|" + stamp(full);
-    }
-    return key;
-}
-
-// check_script_commands on the project's shipped files, or its result from the last time when `reuse` and the key did not
-// change (a script edited, added or removed, factoria.json or the output folder changed). One entry per project folder.
-static Result<void> check_script_commands_of(const Project& p, const stdfs::path& outDirAbs, bool reuse) {
-    struct Entry {
-        std::string key;
-        Result<void> result;
-    };
-    static std::mutex mutex;
-    static std::map<std::string, Entry> entries;
+struct ScriptCheckEntry {
     std::string key;
-    if (reuse) {
-        key = script_check_key(p, outDirAbs);
-        std::lock_guard<std::mutex> lock(mutex);
-        if (const auto it = entries.find(generic(p.dir)); it != entries.end() && it->second.key == key)
+    std::chrono::steady_clock::time_point at;
+    Result<void> result;
+};
+std::mutex g_scriptCheckMutex;
+std::map<std::string, ScriptCheckEntry> g_scriptCheckEntries;  // by project folder
+
+// check_script_commands on the project's shipped files; with `maxAgeMs` > 0, the result of the last check of this project
+// when it is that young, forget_script_check() was not called since, and factoria.json and the output folder are as they
+// were (one stat, no walk of the project). Wall-clock time: editor tooling, not simulation.
+static Result<void> check_script_commands_of(const Project& p, const stdfs::path& outDirAbs, std::uint32_t maxAgeMs) {
+    std::string key;
+    if (maxAgeMs > 0) {
+        std::error_code ec;
+        const stdfs::path json = os_path(p.dir / "factoria.json");
+        const auto size = stdfs::file_size(json, ec);
+        const auto time = ec ? stdfs::file_time_type{} : stdfs::last_write_time(json, ec);
+        key = generic(outDirAbs) + "|" + std::to_string(ec ? 0 : static_cast<std::uint64_t>(size)) + "@" +
+              std::to_string(ec ? 0 : static_cast<long long>(time.time_since_epoch().count()));
+        std::lock_guard<std::mutex> lock(g_scriptCheckMutex);
+        if (const auto it = g_scriptCheckEntries.find(generic(p.dir));
+            it != g_scriptCheckEntries.end() && it->second.key == key &&
+            std::chrono::steady_clock::now() - it->second.at <= std::chrono::milliseconds(maxAgeMs))
             return it->second.result;
     }
     ++g_scriptCheckScans;
     Result<void> result = check_script_commands(p, collect_game_files(p, outDirAbs));
-    if (reuse) {
-        std::lock_guard<std::mutex> lock(mutex);
-        if (entries.size() > 16) entries.clear();
-        entries[generic(p.dir)] = Entry{std::move(key), result};
+    if (maxAgeMs > 0) {
+        std::lock_guard<std::mutex> lock(g_scriptCheckMutex);
+        if (g_scriptCheckEntries.size() > 16) g_scriptCheckEntries.clear();
+        g_scriptCheckEntries[generic(p.dir)] =
+            ScriptCheckEntry{std::move(key), std::chrono::steady_clock::now(), result};
     }
     return result;
 }
@@ -885,10 +870,10 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         return err("export: output folder '" + generic(plan.outRoot) + "' would contain the project",
                    "choose another --out folder");
     if (auto r = check_replaceable(p, plan.platform, plan.outRoot); !r.ok()) return r.error();
-    // The same result on every platform: a plan the editor repeats (reuseScriptCheck) does not read the scripts again until
-    // one changes; an export always reads them.
+    // The same result on every platform: a plan the editor repeats (scriptCheckMaxAgeMs) does not read the scripts again until
+    // the result is old or forget_script_check() was called; an export always reads them.
     if (auto r = check_script_commands_of(p, plan.outParent == p.dir ? plan.outRoot : plan.outParent,
-                                          options.reuseScriptCheck && !forExport);
+                                          forExport ? 0 : options.scriptCheckMaxAgeMs);
         !r.ok())
         return r.error();
 
@@ -970,6 +955,15 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
 namespace export_detail {
 
 std::uint64_t script_check_scans() { return g_scriptCheckScans.load(); }
+
+}  // namespace export_detail
+
+void forget_script_check() {
+    std::lock_guard<std::mutex> lock(g_scriptCheckMutex);
+    g_scriptCheckEntries.clear();
+}
+
+namespace export_detail {
 
 std::vector<std::string> list_game_files(const stdfs::path& dir, const std::string& feedbackFile) {
     Project p;

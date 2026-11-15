@@ -4,7 +4,9 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <chrono>
 #include <fstream>
+#include <thread>
 
 #include "fa/authoring/authoring.h"
 #include "fa/core/fs.h"
@@ -350,41 +352,57 @@ TEST_CASE("validate: a script that export.exclude leaves out is not checked") {
     CHECK(planned.error().message.find("dev_only.js") == std::string::npos);
 }
 
-TEST_CASE("export: a repeated plan reads the scripts once, until one changes; an export and a plain plan always read") {
+TEST_CASE("export: the editor's repeated plans read the scripts once; an export, dryRun and serve always read them") {
     testing::TempDir tmp;
     const std::string proj = make_project(tmp);
     const stdfs::path dir(proj);
     testing::write_all(dir / "scripts" / "a.js", "fa.call(\"game.step\");\n");
+    forget_script_check();
     ExportOptions o = options_for(tmp, proj);
-    o.reuseScriptCheck = true;
+    o.scriptCheckMaxAgeMs = 600000;  // far above the test: only forget_script_check and a changed factoria.json drop it
     const auto base = export_detail::script_check_scans();
     REQUIRE(plan_export(o).ok());
     CHECK(export_detail::script_check_scans() == base + 1);
-    // Nothing changed: the other platforms and the next refreshes do not read the scripts again.
-    for (int i = 0; i < 3; ++i) REQUIRE(plan_export(o).ok());
+    // Nothing changed: the other platforms and the next refreshes neither walk the project nor read a script.
+    for (int i = 0; i < 5; ++i) REQUIRE(plan_export(o).ok());
     CHECK(export_detail::script_check_scans() == base + 1);
     // A caller that does not ask for the reuse (project.export dryRun, serve) reads each time, and so does an export.
     ExportOptions fresh = o;
-    fresh.reuseScriptCheck = false;
+    fresh.scriptCheckMaxAgeMs = 0;
     REQUIRE(plan_export(fresh).ok());
     CHECK(export_detail::script_check_scans() == base + 2);
     REQUIRE(export_project(o).ok());
     CHECK(export_detail::script_check_scans() == base + 3);
-    // A script edited (another size) is read again, and the error reaches the next plans from the cache too.
+    // A script edited meanwhile is not seen by the reusing plans (the editor says forget_script_check when it saves)...
     testing::write_all(dir / "scripts" / "a.js", "fa.call(\"game.step\");\nfa.call(\"scene.format\");\n");
+    REQUIRE(plan_export(o).ok());
+    CHECK(export_detail::script_check_scans() == base + 3);
+    // ...a plan that does not reuse sees it...
+    auto direct = plan_export(fresh);
+    REQUIRE_FALSE(direct.ok());
+    CHECK(direct.error().message.find("scripts/a.js:2:9") != std::string::npos);
+    CHECK(export_detail::script_check_scans() == base + 4);
+    // ...and after forget_script_check the next reusing plan reads again, then keeps the error for the following ones.
+    forget_script_check();
     auto bad = plan_export(o);
     REQUIRE_FALSE(bad.ok());
-    CHECK(bad.error().message.find("scripts/a.js:2:9") != std::string::npos);
-    const auto afterEdit = export_detail::script_check_scans();
-    CHECK(afterEdit == base + 4);
+    CHECK(bad.error().message == direct.error().message);
+    CHECK(export_detail::script_check_scans() == base + 5);
     auto again = plan_export(o);
     REQUIRE_FALSE(again.ok());
     CHECK(again.error().message == bad.error().message);
-    CHECK(export_detail::script_check_scans() == afterEdit);
-    // A new script is a change too.
-    testing::write_all(dir / "scripts" / "b.js", "fa.call(\"prefab.save\");\n");
-    auto two = plan_export(o);
-    REQUIRE_FALSE(two.ok());
-    CHECK(two.error().message.find("scripts/b.js") != std::string::npos);
-    CHECK(export_detail::script_check_scans() == afterEdit + 1);
+    CHECK(export_detail::script_check_scans() == base + 5);
+    // The result expires: a plan that accepts only a 1 ms old result reads the scripts again.
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    ExportOptions young = o;
+    young.scriptCheckMaxAgeMs = 1;
+    REQUIRE_FALSE(plan_export(young).ok());
+    CHECK(export_detail::script_check_scans() == base + 6);
+    // factoria.json changed (another size): read again without a word to forget_script_check.
+    testing::write_all(dir / "scripts" / "a.js", "fa.call(\"game.step\");\n");
+    auto text = read_file(dir / "factoria.json");
+    REQUIRE(text);
+    testing::write_all(dir / "factoria.json", *text + "\n\n");
+    REQUIRE(plan_export(o).ok());
+    CHECK(export_detail::script_check_scans() == base + 7);
 }

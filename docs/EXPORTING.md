@@ -132,8 +132,9 @@ name that matches no command at all gets "did you mean" when one command is clos
 (`fa.call("scene.format")`, in either quote style): a name built at run time (`fa.call(name)`, `fa.call(prefix + ".format")`) or a
 call inside a comment or a string is not, and it still fails in the game if the player lacks it. `factoria validate` reports the same
 calls as warnings, in the scripts the export ships, so you see them before you export. The editor's Export window plans every
-platform every two seconds without reading the scripts each time: it reuses the last result until a shipped `.js` file,
-`factoria.json` or the output folder changes (an export and `dryRun` always read them).
+platform every two seconds without reading the scripts each time: it keeps the last result for ten seconds, and drops it
+at once on a save, a project reload, an export or a changed `factoria.json`, so a script edited outside the editor shows up
+within ten seconds or when the window is opened again (an export, `dryRun` and `factoria serve` always read the scripts).
 
 **Dot-folders never ship** (`.git`, `.factoria`, `.github`, `.vscode`, a `.cache` of your own): anything whose name starts with a dot is
 left out at every depth, so a game must not keep data it loads in a folder like `.data/`. Rename the folder

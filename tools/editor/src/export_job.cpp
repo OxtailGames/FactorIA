@@ -84,8 +84,9 @@ bool export_needs_player(const std::string& platform) {
 ExportStatus check_export(const ExportOptions& options) {
     ExportStatus s;
     ExportOptions planned = options;
-    planned.reuseScriptCheck =
-        true;  // the window plans every platform every two seconds: the scripts are read once, again when one changes
+    // The window plans every platform every two seconds: the scripts are read at most every ten seconds (and again at once
+    // after a save, a reload or an export: forget_script_check), never once per platform.
+    planned.scriptCheckMaxAgeMs = 10000;
     auto plan = plan_export(planned);
     if (plan.ok()) {
         s.ready = true;
