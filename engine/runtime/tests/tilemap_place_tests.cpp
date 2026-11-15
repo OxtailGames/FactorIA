@@ -16,7 +16,6 @@
 using namespace fa;
 namespace stdfs = std::filesystem;
 
-
 namespace {
 
 std::vector<std::int32_t> tiles_of(const Tilemap& tm) {
@@ -168,7 +167,8 @@ std::vector<std::string> ids_with_tag(Session& s, const std::string& tag) {
 
 }  // namespace
 
-TEST_CASE("player commands: scene.place_ascii and the tilemap commands are in the player, scene.import_ascii and scene.ascii_edit "
+TEST_CASE("player commands: scene.place_ascii and the tilemap commands are in the player, scene.import_ascii and "
+          "scene.ascii_edit "
           "are not (they are authoring commands)") {
     Session s("names");
     const std::vector<std::string> names = s.engine.runtime_command_names();

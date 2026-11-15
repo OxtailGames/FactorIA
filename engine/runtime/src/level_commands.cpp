@@ -698,8 +698,7 @@ Json merged_legend(const Json& a) {
 }
 
 Json import_ascii_schema() {
-    return
-         parse_schema(R"json({"type":"object","required":["rows"],"properties":{
+    return parse_schema(R"json({"type":"object","required":["rows"],"properties":{
                "rows":{"type":"array","minItems":1,"items":{"type":"string"},
                        "description":"The map: one string per row, one character per tile, row 0 = TOP row, all rows the same length."},
                "legend":{"type":"object",
@@ -821,10 +820,11 @@ void register_level_commands(Engine& engine, Engine::Impl& I) {
             for (const char* k : {"path", "from", "dryRun", "edits", "save"}) twin.inputSchema["properties"].erase(k);
         // The schema is closed, so a call with one of those arguments fails in validation, before any handler could explain
         // it: the explanation lives in the schema, which the "invalid arguments" hint sends the caller to read.
-        twin.inputSchema["description"] = "scene.place_ascii only changes the running world and never writes a "
-                                          "file, so `path`, `from`, `dryRun`, `edits` and "
-                                          "`save` are not arguments of it. Use scene.import_ascii (editor, CLI and MCP) "
-                                          "for those.";
+        twin.inputSchema["description"] =
+            "scene.place_ascii only changes the running world and never writes a "
+            "file, so `path`, `from`, `dryRun`, `edits` and "
+            "`save` are not arguments of it. Use scene.import_ascii (editor, CLI and MCP) "
+            "for those.";
         I.commands.add(std::move(twin), [&I](const Json& a) { return place_ascii(I, a); });
     }
 
