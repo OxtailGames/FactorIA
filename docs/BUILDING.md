@@ -530,9 +530,11 @@ header can ask for (`kMaxImagePixels` for images, plus a side of at most `kMaxIm
 million reserved frames, `kMaxProceduralVertices` for a glTF once its nodes are placed), `gltf_check_buffer_sizes`
 refuses a base64 data URI buffer whose `byteLength` is more than its payload can decode to (cgltf allocates the declared
 size before it decodes, so a small file could ask for any amount of memory; every reader of a glTF calls it between
-`cgltf_parse` and `cgltf_load_buffers`), `gltf_check` runs `cgltf_validate` before any glTF accessor is read and refuses
-an accessor whose start or stride is not a multiple of its component size (cgltf would load a float from a misaligned
-address), and `check_font_bytes` walks the tables stb_truetype would follow (stb_truetype has no length parameter). It
+`cgltf_parse` and `cgltf_load_buffers`), `gltf_check` first refuses an accessor, or a sparse indices or values block,
+whose real address (the buffer's data plus its offsets) or stride is not a multiple of its component size (cgltf loads
+floats and indices through typed pointers, `cgltf_validate` included; the real address also catches a GLB whose JSON chunk
+is not a multiple of 4 bytes long, which puts the BIN chunk at an odd address), then runs `cgltf_validate` before any glTF
+accessor is read, and `check_font_bytes` walks the tables stb_truetype would follow (stb_truetype has no length parameter). It
 refuses the whole font for table offsets, glyph offsets and `cmap` segments outside the file, a `cmap` subtable format
 the engine does not read, a font with no glyphs and a glyph 0 that is itself unsafe. A format 4 `cmap` search header is
 not required to equal the specification (a few system fonts, such as Shree714.ttc, write other values): the check runs

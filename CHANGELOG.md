@@ -14,7 +14,10 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   `fa_test_scene`.
 - glTF: an accessor whose start in its buffer, or whose stride, is not a multiple of its component size (a float read
   from an odd address; the specification forbids it) is refused with an error that names `/accessors/N`, instead of
-  being read through a misaligned pointer.
+  being read through a misaligned pointer. This changes behaviour: a model with a misaligned accessor (the glTF
+  specification forbids it, but some old exporters wrote it) that loaded before is now refused; the error names
+  `/accessors/N` and the fix is to export the model again. A GLB whose JSON chunk is not a multiple of 4 bytes long is
+  refused the same way.
 - Fonts: an `.otf` with PostScript outlines (a `CFF ` table) whose INDEXes, Top DICT or Private DICT point outside the
   table made stb_truetype read outside the file while loading (found by the weekly fuzz run). The `CFF ` table is now
   walked before stb_truetype sees it: a damaged one is an error that names the part (Name INDEX, Top DICT, FDArray...),

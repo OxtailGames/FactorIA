@@ -195,7 +195,10 @@ TEST_CASE("gltf: an accessor that starts, or strides, off its component size is 
     doc["accessors"][0]["byteOffset"] = 0;
     doc["bufferViews"][0]["byteStride"] = 14;  // not a multiple of 4
     doc["accessors"][0]["count"] = 2;
-    CHECK_FALSE(read_gltf_mesh_bytes(make_glb(doc, 40), "stride.glb").ok());
+    auto stride = read_gltf_mesh_bytes(make_glb(doc, 40), "stride.glb");
+    REQUIRE_FALSE(stride.ok());
+    CHECK(stride.error().message.find("has a stride of 14") != std::string::npos);
+    CHECK(stride.error().message.find("starts at byte") == std::string::npos);  // the offset is fine: not said
 
     // 16-bit indices from an odd byte: cgltf_validate itself reads them through an unsigned short pointer
     doc["bufferViews"][0].erase("byteStride");
@@ -206,6 +209,53 @@ TEST_CASE("gltf: an accessor that starts, or strides, off its component size is 
     auto indices = read_gltf_mesh_bytes(make_glb(doc, 40), "indices.glb");
     REQUIRE_FALSE(indices.ok());
     CHECK(indices.error().message.find("/accessors/1") != std::string::npos);
+}
+
+TEST_CASE("gltf: a misaligned sparse indices or values block is refused, and says nothing about a stride") {
+    Json doc = mesh_doc(3, 4, 1);
+    doc["bufferViews"][0]["byteLength"] = 36;
+    doc["buffers"][0]["byteLength"] = 40;
+    auto sparse = [&](int indicesOffset, int valuesOffset) {
+        doc["accessors"][0]["sparse"] = {
+            {"count", 1},
+            {"indices", {{"bufferView", 0}, {"byteOffset", indicesOffset}, {"componentType", 5123}}},
+            {"values", {{"bufferView", 0}, {"byteOffset", valuesOffset}}}};
+        return read_gltf_mesh_bytes(make_glb(doc, 40), "sparse.glb");
+    };
+    CHECK(sparse(2, 4).ok());
+    auto indices = sparse(1, 4);  // uint16 indices from an odd byte
+    REQUIRE_FALSE(indices.ok());
+    CHECK(indices.error().message.find("/accessors/0/sparse/indices") != std::string::npos);
+    CHECK(indices.error().message.find("stride") == std::string::npos);
+    CHECK_FALSE(indices.error().hint.empty());
+    auto values = sparse(2, 2);  // float values from a byte that is not a multiple of 4
+    REQUIRE_FALSE(values.ok());
+    CHECK(values.error().message.find("/accessors/0/sparse/values") != std::string::npos);
+    CHECK(values.error().message.find("stride") == std::string::npos);
+}
+
+TEST_CASE(
+    "gltf: a GLB whose JSON chunk is not a multiple of 4 bytes puts its floats at an odd address and is refused") {
+    // make_glb pads the JSON chunk; this one is hand-built with a JSON of 4n+1 bytes, so the BIN chunk (and the buffer cgltf
+    // points into it) starts 1 byte off a 4-byte boundary although every offset in the file is a multiple of 4.
+    std::string json = mesh_doc(3, 3, 1).dump();
+    while (json.size() % 4 != 1) json.push_back(' ');
+    std::vector<std::uint8_t> glb = {'g', 'l', 'T', 'F'};
+    put32(glb, 2);
+    put32(glb, std::uint32_t(12 + 8 + json.size() + 8 + 36));
+    put32(glb, std::uint32_t(json.size()));
+    put32(glb, 0x4E4F534Au);
+    glb.insert(glb.end(), json.begin(), json.end());
+    put32(glb, 36);
+    put32(glb, 0x004E4942u);
+    glb.resize(glb.size() + 36, 0);
+    auto mesh = read_gltf_mesh_bytes(glb, "oddjson.glb");
+    REQUIRE_FALSE(mesh.ok());
+    INFO(mesh.error().message);
+    CHECK(mesh.error().message.find("oddjson.glb") != std::string::npos);
+    CHECK(mesh.error().message.find("not aligned") != std::string::npos);
+    CHECK(mesh.error().message.find("stride") == std::string::npos);
+    CHECK(mesh.error().hint.find("JSON chunk") != std::string::npos);
 }
 
 TEST_CASE("gltf: bytes that are not a glTF are an error that names the file") {
