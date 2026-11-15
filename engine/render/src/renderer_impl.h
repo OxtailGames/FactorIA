@@ -84,6 +84,7 @@ struct Renderer::Impl {
     // while `filterActive` (the last frame was filtered).
     Target filterTarget;
     bool filterActive = false;
+    bool shadowTargetFailed = false;  // the shadow map could not be made: no shadows, not tried again
     Target shadowTarget;  // the shadow map: R32F colour + depth (shadowTarget.texView is what the mesh programs sample)
     static constexpr int kShadowSize = 2048;
 
@@ -194,7 +195,7 @@ struct Renderer::Impl {
     int readW = 0, readH = 0;
     sg_image final_image() const { return filterActive ? filterTarget.color : gameTarget.texture_image(); }
     sg_view final_view() const { return filterActive ? filterTarget.texView : gameTarget.texView; }
-    void create_shadow_targets();
+    bool create_shadow_targets();
     bool ensure_light_target(float scale);
     sg_view upload_shadow_rows(const Frame& fr);
     void destroy_light_resources();

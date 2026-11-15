@@ -142,7 +142,6 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
             return 0;
         }
     }
-    failed_.erase(std::remove(failed_.begin(), failed_.end(), shape), failed_.end());
     for (int l = plan.first; l <= plan.level; ++l) a[l] = graph.create_transient(descs[std::size_t(l - plan.first)]);
     b = graph.create_transient(descs.back());
 

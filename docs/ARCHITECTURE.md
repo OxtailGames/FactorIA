@@ -987,7 +987,11 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
 - *Frame graph.* `engine/render/src/frame_graph.h` and `target_pool.h` are the CPU core: passes declare the
   resources they read and write; `compile()` orders them (declaration order where there is no dependency), culls the
   ones nobody reads and plans which transients share one physical target; `TargetPool` reuses targets across frames
-  (keyed by size and `TargetFormat`); `FrameGraph::to_json()` is the dump (`order` and `aliasSlots` are empty until `compile()` succeeds). `compile()` also rejects a transient with a width or height <= 0, an imported resource with handle 0 and two resources with the same name, and `PassContext::handle` answers (else 0) only for the resources the pass declared. The contents of a transient are undefined when it is acquired: its first writer clears it or uses DONTCARE, never LOAD. There is ONE graph per `render()` (and a small
+  (keyed by size and `TargetFormat`); `FrameGraph::to_json()` is the dump (`order` and
+  `aliasSlots` are empty until `compile()` succeeds). `compile()` also rejects a transient with a width or height <= 0,
+  an imported resource with handle 0 and two resources with the same name, and `PassContext::handle` answers (else 0)
+  only for the resources the pass declared. The contents of a transient are undefined when it is acquired: its first
+  writer clears it or uses DONTCARE, never LOAD. There is ONE graph per `render()` (and a small
   one of its own per `capture_world`): `begin_frame_graph` empties it, every job of the frame declares its passes
   (`plan_job`; `plan_view_job` for the jobs that draw into an image of their own), and `run_frame_graph` compiles,
   executes and then calls `release_callbacks()` (the callbacks hold references to the frame's state, so they are dropped

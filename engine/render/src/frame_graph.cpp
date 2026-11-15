@@ -378,6 +378,7 @@ Result<void> FrameGraph::execute(TargetPool& pool) {
         if (resources_[i].imported) physical_[i] = resources_[i].handle;
     }
     stats_.clear();
+    hookFailures_ = 0;
     // Gives every transient still held back to the pool on any way out (an error, a pass that throws).
     struct Release {
         const std::vector<Resource>& resources;
@@ -415,21 +416,25 @@ Result<void> FrameGraph::execute(TargetPool& pool) {
                 const PassHooks& hooks;
                 const std::string& name;
                 double& cpuMs;
+                int& failures;
                 std::chrono::steady_clock::time_point t0;
-                Timed(const PassHooks& h, const std::string& n, double& out) : hooks(h), name(n), cpuMs(out) {
+                Timed(const PassHooks& h, const std::string& n, double& out, int& fails)
+                    : hooks(h), name(n), cpuMs(out), failures(fails) {
                     if (hooks.begin) hooks.begin(name);
                     t0 = std::chrono::steady_clock::now();
                 }
                 ~Timed() {
                     cpuMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
                     // A destructor must not throw (an exception while one is unwinding is std::terminate): a hook
-                    // that fails (a profiler zone that cannot allocate) loses its sample, not the frame.
+                    // that fails (a profiler zone that cannot allocate) loses its sample, not the frame; the
+                    // loss is counted (hook_failures()).
                     try {
                         if (hooks.end) hooks.end(name, cpuMs);
                     } catch (...) {
+                        ++failures;
                     }
                 }
-            } timed(hooks_, p.name, st.cpuMs);
+            } timed(hooks_, p.name, st.cpuMs, hookFailures_);
             p.execute(PassContext(*this, physical_, p));
         }
         stats_.push_back(std::move(st));

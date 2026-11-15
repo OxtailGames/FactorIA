@@ -527,7 +527,10 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "each other, not the decimals. Draws a frame first when none is current. The GPU times need the profiler: "
          "with `profileFrames` (default 8, 0 to 60) this command switches it on for the call when it is off and the "
          "backend can time the GPU, draws the current state up to that many times until the GPU times arrive, and "
-         "puts the profiler back. Example: render.frame_graph {\"profileFrames\":8}" FA_COMMAND_DETAILS
+         "puts the profiler back; `profileFrames: 0` is the call that only reads: it neither switches the profiler on "
+         "nor "
+         "draws a frame again (gpuMs is then -1 unless a profile or the editor's Profiler panel already runs). "
+         "Example: render.frame_graph {\"profileFrames\":8}" FA_COMMAND_DETAILS
          "`frame` is the engine's frame counter (the same number as game.state's `frame`) when the graph was read: "
          "the graph itself is the one of the last frame drawn. `profileFrames` is how many frames this call drew "
          "with the profiler switched on to get the GPU times (0 when it did not need to: the profiler was already "
