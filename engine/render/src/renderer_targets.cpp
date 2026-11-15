@@ -406,6 +406,7 @@ sg_view Renderer::Impl::upload_shadow_rows(const Frame& fr) {
     d.data.mip_levels[0] = {fr.shadowData.data(), fr.shadowData.size()};
     d.label = "light-shadow-rows";
     slot.img = make_image(d);
+    ++shadowRowUploads;
     sg_view_desc tv{};
     tv.texture.image = slot.img;
     tv.label = "light-shadow-rows-tex";
@@ -415,10 +416,23 @@ sg_view Renderer::Impl::upload_shadow_rows(const Frame& fr) {
     return slot.view;
 }
 
-// Called when a frame starts (nothing planned yet uses a slot): drops the slots a frame with many jobs added beyond the
-// ring, the least recently used first, so the memory is bounded again.
+// Called when a frame starts (nothing planned yet uses a slot; frameSerial is the new frame's, so the last one is
+// frameSerial - 1): drops the slots a frame with many jobs added beyond what the scene keeps using, the least recently
+// used first, so the memory is bounded again. The ring is kept as large as the most slots one frame used in the last
+// kShadowTrimWindow frames (and at least kShadowRowsRing): trimming right back to kShadowRowsRing would upload the images
+// beyond it again every frame of a scene with more stable keys than that.
 void Renderer::Impl::trim_shadow_rows() {
-    while (shadowRowsRing.size() > kShadowRowsRing) {
+    std::size_t usedLast = 0;
+    for (const ShadowRowsSlot& s : shadowRowsRing)
+        if (s.usedFrame + 1 == frameSerial) ++usedLast;
+    shadowRowsPeak = std::max(shadowRowsPeak, usedLast);
+    shadowRowsKeep = std::max(shadowRowsKeep, std::max(kShadowRowsRing, usedLast));
+    if (++shadowRowsWindow >= kShadowTrimWindow) {  // a quiet window: the ring may shrink to what the window needed
+        shadowRowsKeep = std::max(kShadowRowsRing, shadowRowsPeak);
+        shadowRowsPeak = 0;
+        shadowRowsWindow = 0;
+    }
+    while (shadowRowsRing.size() > shadowRowsKeep) {
         auto oldest = shadowRowsRing.begin();
         for (auto it = shadowRowsRing.begin(); it != shadowRowsRing.end(); ++it)
             if (it->usedFrame < oldest->usedFrame) oldest = it;

@@ -46,6 +46,10 @@ class Renderer;
 namespace render {
 class Gpu;
 class FrameGraph;
+// Test accessors. A test that has to look inside the renderer (its GPU objects, the frame graph of the last frame, the
+// counts of its pools) does it through a free function declared here and made a friend of Renderer, not by opening
+// Impl up: the tests of a game's code see nothing of the renderer's private headers, and the accessors are not part of
+// the API reference. A new one is for a test only; engine code never calls one.
 Gpu* renderer_gpu(
     Renderer& r);  // the renderer's GPU objects, for the render tests (engine/render/src/render_internal.h)
 // The frame graph of the last frame the renderer drew (engine/render/src/frame_graph.h; every job of the frame is in
@@ -56,6 +60,12 @@ struct TransientPoolStats {
     int live = 0, inUse = 0, created = 0, reused = 0, destroyed = 0;
 };
 TransientPoolStats renderer_transient_stats(Renderer& r);
+// The ring of images that hold the shadow rows of the 2D lights: how many it holds now and how many images were made
+// since the renderer was, for the render tests.
+struct ShadowRowsStats {
+    int slots = 0, uploads = 0;
+};
+ShadowRowsStats renderer_shadow_rows_stats(Renderer& r);
 }  // namespace render
 
 enum class ScaleMode : std::int32_t {
@@ -435,6 +445,7 @@ private:
     friend render::Gpu* render::renderer_gpu(Renderer& r);
     friend const render::FrameGraph* render::renderer_frame_graph(Renderer& r);
     friend render::TransientPoolStats render::renderer_transient_stats(Renderer& r);
+    friend render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r);
     std::unique_ptr<Impl> impl_;
     std::vector<std::string> fallbackFonts_;
     RichTextStyle richStyle_;
