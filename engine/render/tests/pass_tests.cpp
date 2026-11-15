@@ -1,6 +1,6 @@
-// Passes and targets: PassDesc maps every field to the sg_pass sokol gets (the swapchain case included), a window pass takes
-// its formats from the environment, Gpu::begin_pass records the format pipelines are checked against, and make_target
-// makes (and destroy_target frees) one description's images and views, MSAA resolve and depth included.
+// Passes and targets: PassDesc maps every field to the sg_pass sokol gets (the swapchain case included), a window pass
+// takes its formats from the environment, Gpu::begin_pass records the format pipelines are checked against, and
+// make_target makes (and destroy_target frees) one description's images and views, MSAA resolve and depth included.
 #include "test_util.h"
 
 #include <string>
@@ -140,7 +140,12 @@ TEST_CASE("target: a multisampled target resolves into a single-sample image the
     Gfx& g = gfx();
     REQUIRE(g.ok);
     const sg_pixelformat_info info = sg_query_pixelformat(SG_PIXELFORMAT_RGBA8);
-    if (!info.render || !info.msaa) return;  // a GPU that cannot multisample RGBA8 has nothing to resolve
+    const sg_pixelformat_info depthInfo = sg_query_pixelformat(SG_PIXELFORMAT_DEPTH_STENCIL);
+    if (!info.render || !info.msaa || !depthInfo.msaa) {  // e.g. Mesa llvmpipe, D3D11 WARP
+        MESSAGE("this GPU cannot multisample RGBA8 and depth-stencil: the resolve case is skipped");
+        CHECK(sg_query_pixelformat(SG_PIXELFORMAT_RGBA8).render);
+        return;
+    }
     render::TargetDesc d;
     d.label = "unit-msaa";
     d.width = 16;
@@ -150,7 +155,7 @@ TEST_CASE("target: a multisampled target resolves into a single-sample image the
     d.resolveAsColor = true;
     d.depthFormat = SG_PIXELFORMAT_DEPTH_STENCIL;
     render::Target t = render::make_target(d);
-    CHECK(t.valid());
+    REQUIRE(t.valid());
     CHECK(t.resolve.id != 0);
     CHECK(t.resolveAtt.id != 0);
     CHECK(t.resolveColorAtt.id != 0);

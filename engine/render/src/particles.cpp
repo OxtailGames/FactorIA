@@ -345,7 +345,7 @@ void Scene2D::gather_particles(World& world, Frame& f) {
     std::size_t copies = 0;
     std::shared_ptr<const std::vector<Color>> frameStylePalette;
     world.each<ParticleEmitter>([&](Entity e, ParticleEmitter& em) {
-        Slot& sl = slot_of(emitters_, e);
+        Slot& sl = slot_of(emitters_, world, e);
         if (sl.state == State::Skip) return;
         if (sl.state == State::Todo && !entity_active(world, f, e)) {
             sl.state = State::Skip;
@@ -443,7 +443,7 @@ void Scene2D::gather_particles(World& world, Frame& f) {
     // What the first camera built is kept for the others: where its items are in the list that is this camera's. The sort key of
     // every item of an emitter is the same (its distance to a perspective camera, else 0), so it is patched from the position.
     auto keep = [&](std::size_t i, std::size_t firstInWorld) {
-        if (!items[i].share) return;
+        if (single_ || !items[i].share) return;
         Slot& sl = emitters_[items[i].slotIndex];
         sl.state = State::Share;
         sl.donor = &f.world;
@@ -473,6 +473,7 @@ void Scene2D::gather_particles(World& world, Frame& f) {
 
 void gather_particles(World& world, Frame& f) {
     Scene2D scene;
+    scene.set_single_destination(true);
     scene.gather_particles(world, f);
 }
 

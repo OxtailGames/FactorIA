@@ -83,10 +83,11 @@ struct Run {
 
 // Gathers every camera of `cams` the way Renderer::Impl::render does: `shared` = one Scene2D and apply_sprite_frames once; else
 // the old path, a fresh Scene2D (and apply_sprite_frames) for each camera. The Frames of a round are reserved, never moved.
-void gather_all(World& w, Rig& rig, const std::vector<Cam>& cams, bool shared, Run& out) {
+void gather_all(World& w, Rig& rig, const std::vector<Cam>& cams, bool shared, Run& out, bool single = false) {
     out.frames.reserve(cams.size());
     rig.ramps.begin_frame();
     Scene2D one;
+    one.set_single_destination(single);
     for (std::size_t i = 0; i < cams.size(); ++i) {
         Frame& f = out.frames.emplace_back();
         f.cam = cams[i].info;
@@ -129,6 +130,10 @@ void expect_same_list(const QuadList& a, const QuadList& b, const std::string& w
     for (std::size_t i = 0; i < a.items.size(); ++i) {
         INFO("item " << i);
         const QuadItem &x = a.items[i], &y = b.items[i];
+        if (i > 0) {
+            CHECK(a.items[i - 1].seq < x.seq);
+            CHECK(b.items[i - 1].seq < y.seq);
+        }
         CHECK(x.layer == y.layer);
         CHECK(x.secondary == y.secondary);
         CHECK(x.firstVert == y.firstVert);
@@ -325,6 +330,28 @@ TEST_CASE("Scene2D: one camera gives the lists of the old path and builds each e
     CHECK(run.work.emittersBuilt == n.emitters + 1);
 }
 
+TEST_CASE("Scene2D: a single destination keeps no tables and gives the lists of the old path") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    Entity cam = camera_entity(w, "cam", {0, 0, 0});
+    build_scene(w);
+    Rig rig(g);
+    const std::vector<Cam> cams{ortho(cam, {0, 0})};
+    {
+        Run warm;
+        gather_all(w, rig, cams, false, warm);
+    }
+    Run oracle, single;
+    gather_all(w, rig, cams, false, oracle);
+    gather_all(w, rig, cams, true, single, true);
+    expect_same_list(oracle.frames[0].world, single.frames[0].world, "world");
+    expect_same_list(oracle.frames[0].screen, single.frames[0].screen, "screen");
+    CHECK(oracle.stats.sprites == single.stats.sprites);
+    CHECK(oracle.stats.shapes == single.stats.shapes);
+    CHECK(single.work.spritesCopied == 0);
+}
+
 TEST_CASE("Scene2D: split screen, render target and view cameras share what they draw, and each builds only what is "
           "its own") {
     Gfx& g = gfx();
@@ -487,11 +514,22 @@ TEST_CASE("Scene2D: more Sprites and particles than the jobs split join in order
     }
     for (const Mode& m : modes) {
         INFO("jobs: " << m.name);
-        bool started = false;
+        // Stops the workers also when a REQUIRE below throws.
+        struct JobsGuard {
+            bool started = false;
+            JobsGuard() = default;
+            JobsGuard(const JobsGuard&) = delete;
+            JobsGuard& operator=(const JobsGuard&) = delete;
+            ~JobsGuard() {
+                if (started) jobs::stop();
+            }
+        } jobsGuard;
         if (m.start) {
             auto r = jobs::start(m.settings);
             REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : r.error().to_string()));
-            started = true;
+            jobsGuard.started = true;
+            // start() on a running pool only counts a reference: a pool left by an earlier case would hide this mode.
+            REQUIRE(jobs::worker_count() == jobs::resolve_workers(m.settings));
         }
         Rig rig(g);
         Run run;
@@ -500,7 +538,6 @@ TEST_CASE("Scene2D: more Sprites and particles than the jobs split join in order
         CHECK(run.work.spritesBuilt == 1500 + 215);
         CHECK(run.work.emittersBuilt == 3);
         CHECK(run.work.emittersCopied == 3);
-        if (started) jobs::stop();
     }
 }
 

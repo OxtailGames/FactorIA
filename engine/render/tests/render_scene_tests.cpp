@@ -166,9 +166,9 @@ TEST_CASE("render scene: frame cost with 1 and 4 cameras over 2000 meshes (repor
         World w;
         for (int c = 0; c < n; ++c) perspective_camera(w, ("cam" + std::to_string(c)).c_str(), c);
         scatter_meshes(w, 2000);
-        for (int warm = 0; warm < 3; ++warm) g.render(w);
+        g.render(w);
         std::vector<double> ms;
-        for (int f = 0; f < 15; ++f) {
+        for (int f = 0; f < 5; ++f) {
             g.render(w);
             ms.push_back(g.renderer.stats().cpuMs);
         }

@@ -154,6 +154,28 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
         }
     });
     hashes_.end_frame();
+
+    // The sort keys, once for every camera: ranks of names and values over the whole scene (a rebuilt table, so nothing
+    // accumulates across frames). The lod levels are ranked too, for the cameras that swap them in.
+    std::vector<SortFields> fields(meshes_.size());
+    std::vector<std::string_view> lodNames;
+    for (std::size_t i = 0; i < meshes_.size(); ++i) {
+        const SceneMesh& sm = meshes_[i];
+        fields[i] = {sm.mesh, sm.tex,      sm.normalTex,  sm.mr,         sm.entity,
+                     sm.anim, sm.material, sm.paramsHash, sm.colorsHash, sm.flash};
+        if (!sm.hasLods || !sm.mr->lods.is_array()) continue;
+        for (const Json& e : sm.mr->lods) {
+            if (!e.is_object()) continue;
+            const auto m = e.find("mesh");
+            if (m != e.end() && m->is_string()) lodNames.push_back(m->get_ref<const std::string&>());
+        }
+    }
+    std::vector<std::uint64_t> keys;
+    const bool keyed = sortTable_.build(fields, lodNames, keys);
+    for (std::size_t i = 0; i < meshes_.size(); ++i) {
+        meshes_[i].keyed = keyed;
+        meshes_[i].sortKey = keyed ? keys[i] : 0;
+    }
 }
 
 }  // namespace fa::render

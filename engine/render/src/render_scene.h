@@ -87,6 +87,9 @@ struct SceneMesh {
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};  // culling box of `mesh` (mesh_cull_bounds)
     std::size_t paramsHash = 0, colorsHash = 0;
     bool blended = false;
+    // SortKeyTable key of the item as the scene sees it (a camera redoes it for `special` ones).
+    std::uint64_t sortKey = 0;
+    bool keyed = false;
     bool hasLods = false;  // MeshRenderer.lods: mesh, box and blending are chosen again per camera
     // texture or normalMap is a render target ("target:<name>"): which image that is depends on the job that draws (a
     // camera's own target is the checker in its own frame), so every job resolves the texture again.
@@ -105,15 +108,19 @@ public:
     Entity scope() const { return scope_; }
     bool built() const { return built_; }
     MaterialHashCache& hash_cache() { return hashes_; }
+    // The ranks the meshes' sort keys were made with; valid() is false when a field had more values than its bits hold.
+    const SortKeyTable& sort_table() const { return sortTable_; }
     // Forgets the meshes (the world they point into may go away) but keeps the hash cache.
     void reset() {
         meshes_.clear();
+        sortTable_ = SortKeyTable();
         built_ = false;
     }
 
 private:
     std::vector<SceneMesh> meshes_;
     MaterialHashCache hashes_;
+    SortKeyTable sortTable_;
     Entity scope_;
     bool built_ = false;
 };

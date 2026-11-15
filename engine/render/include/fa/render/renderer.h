@@ -48,8 +48,8 @@ class Gpu;
 class FrameGraph;
 Gpu* renderer_gpu(
     Renderer& r);  // the renderer's GPU objects, for the render tests (engine/render/src/render_internal.h)
-// The frame graph of the last frame the renderer drew (engine/render/src/frame_graph.h; every job of the frame is in it,
-// its passes named "<job>/<pass>"), for the render tests; null before init.
+// The frame graph of the last frame the renderer drew (engine/render/src/frame_graph.h; every job of the frame is in
+// it, its passes named "<job>/<pass>"), for the render tests; null before init.
 const FrameGraph* renderer_frame_graph(Renderer& r);
 // The targets the frame graph's transients are made of (target_pool.h's TargetPoolStats), for the render tests.
 struct TransientPoolStats {
@@ -173,13 +173,13 @@ public:
     // sg_shutdown() when a context is open and no renderer owns it (a start that failed before the renderer existed). A
     // renderer that adopted the context closes it in shutdown().
     static void close_context();
-    // One frame that clears the swapchain to `color` (default black, the letterbox colour) and commits it. No renderer needed;
-    // also fine while one exists (the commit is noted). False when no context is open (nothing is drawn). The player's error
-    // screen uses it with red.
+    // One frame that clears the swapchain to `color` (default black, the letterbox colour) and commits it. No renderer
+    // needed; also fine while one exists (the commit is noted). False when no context is open (nothing is drawn). The
+    // player's error screen uses it with red.
     static bool present_clear(const GfxSwapchain& swapchain, Color color = Color{0, 0, 0, 1});
-    // A pass into the window for a client that draws into it itself (the editor's ImGui): clears the swapchain to `clear`,
-    // and the caller draws and calls end_window_pass(). Needs an open context (sg_isvalid); no renderer. present_clear is
-    // these two and a commit. Not for the game's picture: present() draws that.
+    // A pass into the window for a client that draws into it itself (the editor's ImGui): clears the swapchain to
+    // `clear`, and the caller draws and calls end_window_pass(). Needs an open context (sg_isvalid); no renderer.
+    // present_clear is these two and a commit. Not for the game's picture: present() draws that.
     static void begin_window_pass(const GfxSwapchain& swapchain, Color clear);
     static void end_window_pass();
     // Makes, a few at a time, the pipelines the first game frame would otherwise compile in the middle of drawing: the
@@ -188,8 +188,9 @@ public:
     // and every later call returns 0 at once). A frame drawn before the groups are done makes any missing pipeline on the spot,
     // exactly as before: pictures never depend on this. Not for a headless renderer (returns 0).
     int warm_step(const GfxSwapchain& swapchain, World& world);
-    // {backend, cache, programs, createMs, cache counters (D3D11), pipelinesWarmed, pipelines, pipelineHits, pipelinesMade, pipelinesEvicted, warmMs, groupsLeft}: what the start-up
-    // spent on shader programs and pipelines (the `loading.startup.gpu` object of play.report).
+    // {backend, cache, programs, createMs, cache counters (D3D11), pipelinesWarmed, pipelines, pipelineHits,
+    // pipelinesMade, pipelinesEvicted, warmMs, groupsLeft}: what the start-up spent on shader programs and pipelines
+    // (the `loading.startup.gpu` object of play.report).
     Json startup_report() const;
 
     // Resize the game target (e.g. Expand scale mode, editor viewport).
