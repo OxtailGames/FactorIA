@@ -140,6 +140,11 @@ Each issue starts with `file:line:column`:
   name that matches only ignoring case is still reported).
 - **`fa.call("project.<name>")` in a game script** (warning, `file:line`): `<name>` is a command a module under `tools/`
   defines, and `tools/` is left out of an export, so the call fails in the shipped game. `factoria export` warns the same.
+- **`fa.call("<command>")` of a command the exported player lacks** (warning, `file:line:column`; an error for `factoria
+  export`): the player has the runtime commands and the ones of the game's native plugins, not the commands that write project
+  files or author assets (`scene.format`, `prefab.save`...). A misspelled name gets "did you mean"; `mesh.*`, `anim.*` and
+  `scene.import_ascii` name their JS way. Only a string literal is checked, in the scripts that ship (not `tools/`, `tests/` or
+  `scripts/autoplay.js`); a name built at run time (`fa.call(name)`) is not (docs/EXPORTING.md, "What is shipped").
 - **A module whose top level throws** (error): every script is imported in the validating engine, as the game loads it, so
   an exception at the top of the file (or of a module it imports) is reported with its own file and line. A top level that
   reads the scene (`world.find("player").x` outside a function) throws there because no scene is loaded (`factoria
@@ -1726,6 +1731,10 @@ The engine library asks for no more than that. `tilemap.generate` with `place` p
 other helper of `factoria` calls only `{read, state}` commands (`game.state` for `game.state()`, `tilemap.generate_start`
 and its steps). `scene.import_ascii` and `scene.ascii_edit` are authoring commands: an exported game does not have them at all, and
 from the editor's Play a game script that calls one to write a file is refused.
+
+The exported player does not have every command of this table's callers: the commands only developer tools use are left out of
+it, so `fa.call("scene.format")` in a game script fails there as an unknown command. `factoria validate` warns about such a
+call and `factoria export` stops on it (docs/EXPORTING.md, "What is shipped"); scripts under `tools/` and `tests/` may call them.
 
 #### A test asking for more: `capabilities`
 A test that writes a project file (a level rebuilt on disk and compared, a screenshot, a scene saved to check it round-trips)

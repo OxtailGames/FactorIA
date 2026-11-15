@@ -278,9 +278,9 @@ TEST_CASE("export: a shipped script that calls a command of a tool module is war
     testing::write_all(
         dir / "scripts" / "uses_tool.js",
         "fa.call(\"project.scatter_gems\", {});\nfa.call('project.renamed', {});\n"
-        "fa . call ( \"project.make_path\" );\nfa.call(\"project.helper\");\nfa.call(\"project.no_default\");\n"
-        "fa.call(\"project.scatter_gems\", {});\nfa.call(\"project.not_a_tool\", {});\nfa.call(\"scene.list\");\n");
-    testing::write_all(dir / "scripts" / "no_tool.js", "fa.call(\"scene.list\");\n");
+        "fa . call ( \"project.make_path\" );\n"
+        "fa.call(\"project.scatter_gems\", {});\nfa.call(\"project.info\", {});\nfa.call(\"scene.list_entities\");\n");
+    testing::write_all(dir / "scripts" / "no_tool.js", "fa.call(\"scene.list_entities\");\n");
     auto r = export_project(options_for(tmp, proj, "linux", false));
     REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
     int scatter = 0, renamed = 0, nested = 0, other = 0;
@@ -290,7 +290,7 @@ TEST_CASE("export: a shipped script that calls a command of a tool module is war
         if (w.find("scripts/uses_tool.js:2 calls project.renamed, the command of tools/other_file.js") == 0) ++renamed;
         if (w.find("scripts/uses_tool.js:3 calls project.make_path, the command of tools/level/paths.js") == 0)
             ++nested;
-        for (const char* never : {"not_a_tool", "no_tool.js", "project.helper", "project.no_default"})
+        for (const char* never : {"project.info", "no_tool.js", "project.helper", "project.no_default"})
             if (w.find(never) != std::string::npos) ++other;
     }
     CHECK(scatter == 1);  // once per script and command
