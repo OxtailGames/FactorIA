@@ -211,6 +211,7 @@ fa_check_not_linked(factoria_player_main fa_authoring)
 if(FA_BUILD_TESTS)
     add_test(NAME cmake_check_not_linked
         COMMAND ${CMAKE_COMMAND} -DFA_ROOT=${FA_ROOT} -DWORK=${CMAKE_BINARY_DIR}/cmake_check_not_linked
+                "-DGEN=${CMAKE_GENERATOR}" "-DMAKE_PROGRAM=${CMAKE_MAKE_PROGRAM}"
                 -P ${FA_ROOT}/cmake/tests/check_not_linked_test.cmake)
     set_tests_properties(cmake_check_not_linked PROPERTIES TIMEOUT 120 LABELS "size")
 endif()
