@@ -150,7 +150,8 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
         return fail("the " + std::to_string(w) + " x " + std::to_string(h) +
                     " image could not be created (out of GPU memory?)");
     im.gpu.begin_frame();
-    im.draw_view_job(world, fr, *im.viewTargets[kKey]);
+    im.draw_view_job(world, fr, *im.viewTargets[kKey]);  // gather_meshes builds the scene of fr.scopeRoot (the subject)
+    im.renderScene.reset();
     // Read-back waits for the GPU, and on Metal the work is only submitted by sg_commit (see capture()).
     sg_commit();
     im.gpu.note_commit();

@@ -70,17 +70,7 @@ struct Renderer::Impl::DrawContext {
 
 namespace {
 
-// The 3D gather of a camera (matrices, culling boxes, frustum and shadow tests) runs as jobs from this many
-// MeshRenderers on, kMeshGrain per chunk: an item costs ~1 us (a skinned one several), a chunk a few to hand out.
-constexpr std::size_t kParallelMeshes = 256;
-constexpr std::size_t kMeshGrain = 64;
-
 void copy_mat(float* dst, const Mat4& m) { std::memcpy(dst, m.m, sizeof(float) * 16); }
-
-// The palette of glTF skin `skin` (a part is drawn with its own skin's); skin 0 when the animator has none for it.
-const std::vector<Mat4>& palette_of(const Animator& a, int skin) {
-    return skin > 0 && std::size_t(skin) < a.skinPalettes.size() ? a.skinPalettes[std::size_t(skin)] : a.palette;
-}
 
 // The joint palette as the shaders read it: kMaxSkinJoints skinning matrices of 3 rows (a vec4 each); unused joints are the
 // identity (fa_skin of mesh_common.glsl, shared by the mesh and shadow programs).
@@ -196,10 +186,11 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
 }
 
 // ---- 3D gather ----
-// Reads: world (MeshRenderer, Animator, Feel, drawn matrices), fr (camera, tag mask, active filter), ctx.z01. Calls
-// assets->mesh / texture / material on this thread, which may load into the asset cache. Writes: ctx.opaque, ctx.blended
+// Reads: renderScene (the MeshRenderers of the frame, gathered once: matrices, assets, boxes, hashes, flashes; built here only
+// when the job's scope is not the one it was built for), fr (camera, tag mask), ctx.z01. Calls assets->mesh / texture on this
+// thread for the items whose answer depends on the camera (lods, render-target textures). Writes: ctx.opaque, ctx.blended
 // (blended far to near) with every MeshItem field (model, dist, flash, mesh, tex, material, normalTex, hashes, bounds, anim,
-// visible), fr.anyFlash.
+// visible), fr.anyFlash. The camera's own work is the tag mask, the distance, the frustum test and the sort.
 void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     World& world = ctx.world;
     Frame& fr = ctx.fr;
@@ -208,71 +199,57 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
     auto& opaque = ctx.opaque;
     auto& blended = ctx.blended;
     fr.anyFlash = world.feel().any_flash();
-    // The MeshRenderers this camera draws, in their order; the matrices, bounds and frustum tests run as jobs around the
-    // asset lookups, which stay on this thread (a mesh, texture or material may be loaded).
+    if (!fr.wantWorld) return;
+    if (!renderScene.built() || renderScene.scope() != fr.scopeRoot)
+        renderScene.build(world, *assets, fr.scopeRoot, false);
+    const std::vector<SceneMesh>& shared = renderScene.meshes();
+    // The items this camera draws, in the scene's (the world's) order; `special` are those whose mesh or textures depend on the
+    // camera.
     std::vector<MeshItem> meshes;
-    if (fr.wantWorld)
-        world.each<MeshRenderer>([&](Entity e, MeshRenderer& mr) {
-            if (!entity_active(world, fr, e) || !fr.mask.draws(world, e)) return;  // Camera.showTags / hideTags
-            MeshItem mi;
-            mi.mr = &mr;
-            mi.entity = e;
-            meshes.push_back(mi);
-        });
-    const rjobs::Split meshSplit = rjobs::split(meshes.size(), kMeshGrain, kParallelMeshes);
-    rjobs::run("render.mesh_matrices", meshSplit, [&](const jobs::Chunk& c) {
-        for (std::size_t i = c.begin; i < c.end; ++i) {
-            MeshItem& mi = meshes[i];
-            if (const auto flash = inherited_flash(world, fr, mi.entity))
-                mi.flash = *flash;  // feel.h: flashing items never share a draw
-            mi.model = world.drawn_matrix(mi.entity);
-            mi.dist = length(mi.model.translation() - fr.cam.position);
-        }
-    });
-    for (MeshItem& mi : meshes) {
-        const MeshRenderer& mr = *mi.mr;
-        mi.mesh = assets->mesh(mr.lods.empty() ? mr.mesh : lod_mesh(mr, mi.dist));  // MeshRenderer::lods
-        mi.tex = mr.texture.empty() ? nullptr : assets->texture(mr.texture);
-        mi.material = mr.material.empty() ? nullptr : assets->material(mr.material);
-        mi.normalTex = mr.normalMap.empty() ? nullptr : assets->texture(mr.normalMap);
+    std::vector<char> meshBlended;
+    std::vector<std::pair<std::size_t, const SceneMesh*>> special;
+    meshes.reserve(shared.size());
+    meshBlended.reserve(shared.size());
+    const bool masked = !fr.mask.empty();
+    for (const SceneMesh& sm : shared) {
+        if (masked && !fr.mask.draws(world, sm.entity)) continue;  // Camera.showTags / hideTags
+        if (sm.hasLods || sm.liveTextures) special.emplace_back(meshes.size(), &sm);
+        MeshItem& mi = meshes.emplace_back();
+        mi.mr = sm.mr;
+        mi.entity = sm.entity;
+        mi.model = sm.model;
+        mi.mesh = sm.mesh;
+        mi.tex = sm.tex;
+        mi.normalTex = sm.normalTex;
+        mi.material = sm.material;
+        mi.flash = sm.flash;
+        mi.anim = sm.anim;
+        mi.bmin = sm.bmin;
+        mi.bmax = sm.bmax;
+        mi.paramsHash = sm.paramsHash;
+        mi.colorsHash = sm.colorsHash;
+        mi.dist = length(sm.model.translation() - fr.cam.position);
+        meshBlended.push_back(sm.blended ? 1 : 0);
     }
-    // Per item: the hashes of its overrides, its culling box, the frustum test and whether it is blended (a char: each
-    // chunk writes its own items' slots).
-    std::vector<char> meshBlended(meshes.size(), 0);
-    rjobs::run("render.mesh_cull", meshSplit, [&](const jobs::Chunk& c) {
+    for (const auto& [i, sm] : special) {
+        MeshItem& mi = meshes[i];
+        const MeshRenderer& mr = *mi.mr;
+        if (sm->liveTextures) {  // "target:<name>": the image depends on the job (a camera's own target is the checker)
+            mi.tex = mr.texture.empty() ? nullptr : assets->texture(mr.texture);
+            mi.normalTex = mr.normalMap.empty() ? nullptr : assets->texture(mr.normalMap);
+        }
+        if (!sm->hasLods) continue;
+        const std::string& level = lod_mesh(mr, mi.dist);  // MeshRenderer::lods
+        if (level == mr.mesh) continue;
+        mi.mesh = assets->mesh(level);
+        mesh_cull_bounds(*mi.mesh, world.get<Animator>(mi.entity), mi.bmin, mi.bmax, mi.anim);
+        meshBlended[i] = mesh_is_blended(mr, *mi.mesh, mi.material) ? 1 : 0;
+    }
+    const rjobs::Split meshSplit = rjobs::split(meshes.size(), kMeshGrain, kParallelMeshes);
+    rjobs::run("render.mesh_frustum", meshSplit, [&](const jobs::Chunk& c) {
         for (std::size_t i = c.begin; i < c.end; ++i) {
             MeshItem& mi = meshes[i];
-            const MeshRenderer& mr = *mi.mr;
-            if (mi.material && mr.materialParams.is_object() && !mr.materialParams.empty())
-                mi.paramsHash = std::hash<std::string>{}(mr.materialParams.dump());
-            if (mr.materialColors.is_object() && !mr.materialColors.empty())
-                mi.colorsHash = std::hash<std::string>{}(mr.materialColors.dump());
-            mi.bmin = mi.mesh->bmin;
-            mi.bmax = mi.mesh->bmax;
-            // A skinned model with a computed pose is drawn deformed by the Animator's palette (before its first fixed step the
-            // palette is empty and the model shows in bind pose).
-            const Animator* anim = world.get<Animator>(mi.entity);
-            if (anim && !anim->palette.empty()) {
-                for (auto& p : mi.mesh->parts)
-                    if (p.skinVb.id) mi.anim = anim;
-                if (mi.anim) {  // the box of every skinned part carried by the joints of its own skin, joined with the rest
-                    bool first = true;
-                    for (auto& p : mi.mesh->parts) {
-                        Vec3 lo = p.bmin, hi = p.bmax;
-                        if (p.skinVb.id) skinned_bounds(palette_of(*anim, p.skin), p.bmin, p.bmax, lo, hi);
-                        mi.bmin = first ? lo : min(mi.bmin, lo);
-                        mi.bmax = first ? hi : max(mi.bmax, hi);
-                        first = false;
-                    }
-                }
-            }
             mi.visible = box_in_frustum(fr.cam.viewProj, z01, mi.bmin, mi.bmax, mi.model);
-            // The alphaMode of a material decides (blend = drawn far to near with the blended meshes; opaque and clip are not),
-            // whatever Color.a or the glTF material say.
-            bool anyBlend = mr.color.a < 0.999f;
-            for (auto& p : mi.mesh->parts) anyBlend = anyBlend || p.blended;
-            if (mi.material) anyBlend = mi.material->alphaMode == "blend";
-            meshBlended[i] = anyBlend ? 1 : 0;
         }
     });
     for (std::size_t i = 0; i < meshes.size(); ++i) (meshBlended[i] ? blended : opaque).push_back(meshes[i]);
