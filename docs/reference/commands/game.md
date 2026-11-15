@@ -177,7 +177,7 @@ Capabilities: read, state, writeProject
 
 ## `render.frame_graph`
 
-Not released yet (on main after 0.27.0).
+Since 0.28.0.
 
 Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass.
 
