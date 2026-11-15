@@ -1069,7 +1069,10 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add(
         {"game.logs", "Read recent log lines (engine, scripts, assets...).",
          "Each line has `wallTime`, the computer's local time when it was logged (ISO 8601 with offset). Use `after` "
-         "(a seq from a previous call) to fetch only new lines. Example: game.logs {\"minLevel\":\"warn\",\"max\":50}",
+         "(a seq from a previous call) to fetch only new lines. Script `console.*` lines have category `script`; the "
+         "warning of a "
+         "frame over runtime.scriptFrameBudgetMs has category `script.budget`. Example: game.logs "
+         "{\"minLevel\":\"warn\",\"max\":50}",
          parse_schema(R"({"type":"object","properties":{
                "minLevel":{"type":"string","enum":["trace","debug","info","warn","error"],"default":"info"},
                "after":{"type":"integer","default":0,"description":"Only entries with seq greater than this."},

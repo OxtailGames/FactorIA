@@ -31,6 +31,12 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
   `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON` (the flag release.yml uses), so no PR job builds an Android Debug anymore. Only
   macOS (arm64) has a budget for now; the others report until their first CI run sets one. See docs/BUILDING.md, "Player
   size budgets".
+- Script budgets. `runtime.scriptMemoryMB` (the JavaScript heap cap, default 768 MB as before) is a project setting, a
+  number or `{"default": n, "android": n, "web": n, ...}` per platform, range 16 to 2048 with a teaching error; an
+  out-of-memory error names the setting and its value. `runtime.scriptFrameBudgetMs` (default 8 ms, 0 turns it off, also
+  per platform) adds up the script time of each frame: a frame over it is marked in the profile (`profile.overBudget`)
+  and logs a `script.budget` warning naming the three slowest callbacks, once and then at most every 5 seconds of game time.
+  Neither changes what the game does. docs/PERFORMANCE.md, "Script budgets".
 
 ### Fixes
 

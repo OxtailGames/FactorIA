@@ -391,6 +391,7 @@ void Impl::dispatch(const char* method, Entity self, std::initializer_list<JSVal
 void ScriptSystem::dispatch_events() {
     Impl& I = *impl_;
     if (!I.initialized) return;
+    const Impl::FrameScope frameScope(I);
     World& W = I.host->world();
     I.sync();
     for (int round = 0; round < 8; ++round) {

@@ -2074,6 +2074,9 @@ test files with `factoria test <project> tests/saves.test.js "tests/ui*.test.js"
   "INVALID RUN" in their notes and the cut in `scriptErrors`; (4) a windowed run with `--frames` exits with code 1. Fix
   the loop that spins (the cause is almost always a `while` that never ends or a pathfinding call per frame), do not raise
   the limit. `script.trace` is the one tool that keeps running after a cut, to show where the time goes.
+  Long before the watchdog, `runtime.scriptFrameBudgetMs` (default 8 ms of script time per frame) logs a `script.budget` warning
+  naming the slowest callbacks and marks the frame in the profile; `runtime.scriptMemoryMB` (default 768) is the heap cap,
+  and both can be set per platform (docs/PERFORMANCE.md, "Script budgets").
 - `world.on(name, fn)` listeners get `(data, source)`; `this.on(name, fn)` is the
   same. All listeners/timers are dropped when a scene loads.
 - Unknown input actions, keys, components and fields throw errors with

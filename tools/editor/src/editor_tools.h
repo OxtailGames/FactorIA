@@ -76,6 +76,10 @@ struct ProfilerView {
     bool haveGpu = false;
     ProfMemory memory;
     bool haveMemory = false;
+    // The frames the scripts took more than runtime.scriptFrameBudgetMs (ProfFrame::overBudget "scripts"): how many since
+    // reset, the worst one and the limit it was measured against.
+    std::uint64_t framesOverScriptBudget = 0;
+    double worstOverScriptBudgetMs = 0, scriptBudgetMs = 0;
 
     void reset() { *this = ProfilerView{}; }
     void add_frame(const ProfFrame& f);

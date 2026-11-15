@@ -36,6 +36,7 @@ void Profiler::set_enabled(bool on) {
     slots_.clear();
     zoneIndex_.clear();
     zoneSlots_.clear();
+    budgetSlots_.clear();
     childMs_ = 0;
     frames_ = 0;
     t0_ = 0;
@@ -79,6 +80,10 @@ void Profiler::end_frame() {
     std::sort(cur_.zones.begin(), cur_.zones.end(), [](const ProfZoneSample& a, const ProfZoneSample& b) {
         return a.ms != b.ms ? a.ms > b.ms : a.name < b.name;
     });
+    cur_.overBudget = std::move(budgetSlots_);
+    budgetSlots_.clear();
+    std::sort(cur_.overBudget.begin(), cur_.overBudget.end(),
+              [](const ProfBudgetSample& a, const ProfBudgetSample& b) { return a.name < b.name; });
     last_ = std::move(cur_);
     cur_ = ProfFrame{};
     ++frames_;
@@ -114,6 +119,17 @@ void Profiler::add_zone(std::string_view name, double ms) {
     ProfZoneSample& z = zoneSlots_[it->second];
     z.ms += std::max(0.0, ms);
     ++z.calls;
+}
+
+void Profiler::add_over_budget(std::string_view name, double ms, double limitMs) {
+    for (ProfBudgetSample& b : budgetSlots_) {
+        if (b.name == name) {
+            b.ms = std::max(b.ms, ms);
+            b.limitMs = limitMs;
+            return;
+        }
+    }
+    budgetSlots_.push_back(ProfBudgetSample{std::string(name), std::max(0.0, ms), limitMs});
 }
 
 void Profiler::add_job(int lane, std::string_view name, double ms, int count) {
@@ -172,6 +188,12 @@ void ProfileSummary::add_frame(const ProfFrame& f) {
         a.sumMs += z.ms;
         a.maxMs = std::max(a.maxMs, z.ms);
         a.calls += std::uint64_t(z.calls);
+    }
+    for (const ProfBudgetSample& b : f.overBudget) {
+        BudgetAcc& a = budgets_[b.name];
+        a.limitMs = b.limitMs;
+        a.maxMs = std::max(a.maxMs, b.ms);
+        ++a.frames;
     }
     for (const ProfLane& l : f.lanes) {
         auto it = std::find_if(lanes_.begin(), lanes_.end(), [&](const LaneAcc& a) { return a.name == l.name; });
@@ -269,6 +291,16 @@ Json ProfileSummary::to_json() const {
                                       {"maxMs", r3(zoneList[i].second->maxMs)},
                                       {"callsPerFrame", r3(double(zoneList[i].second->calls) / n)}}));
     out["zones"] = zones;
+    std::vector<std::pair<const std::string*, const BudgetAcc*>> budgetList;
+    for (const auto& kv : budgets_) budgetList.emplace_back(&kv.first, &kv.second);
+    std::sort(budgetList.begin(), budgetList.end(), [](const auto& a, const auto& b) { return *a.first < *b.first; });
+    Json over = Json::array();
+    for (const auto& b : budgetList)
+        over.push_back(Json::object({{"name", *b.first},
+                                     {"limitMs", r3(b.second->limitMs)},
+                                     {"frames", b.second->frames},
+                                     {"maxMs", r3(b.second->maxMs)}}));
+    out["overBudget"] = over;
     Json threads = Json::array();
     for (const LaneAcc& l : lanes_) {
         std::vector<std::pair<const std::string*, const JobAcc*>> names;

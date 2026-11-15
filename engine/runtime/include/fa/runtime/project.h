@@ -126,6 +126,8 @@ struct ProjectSettings {
     // (the main thread's share: taking finished files and uploading them; docs/PERFORMANCE.md, "Background loading").
     double loadBudgetMs = 4.0;
     double uploadBudgetMB = 16.0;
+    // "runtime": {"scriptMemoryMB", "scriptFrameBudgetMs"}: each a number or {"default": n, "<platform>": n}. load_project only
+    // checks them; the script system resolves the value for its platform from `raw` (fa/script/script_budget.h).
     Json raw;  // the whole file, for fields the engine does not model yet
 
     // The icon file the window of THIS platform shows: `export.<platform>.icon` of the file (windows | macos | linux |
