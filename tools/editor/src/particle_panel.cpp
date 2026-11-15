@@ -163,7 +163,6 @@ void Editor::particle_edited(const ParticleEditOutcome& out) {
     if (out.step <= 0 || !particle_.model) return;
     particle_drop_stale_step();  // an edit made on top of the outside change: the refused step cannot be applied any more
     undo_.push_back(Json::object({{"$particle", Json::object({{"step", out.step}})}}));
-    if (undo_.size() > 100) undo_.erase(undo_.begin());
     redo_.clear();
     lastEditKey_.clear();
     particle_collect_steps();
@@ -174,12 +173,10 @@ void Editor::particle_drop_stale_step() {
     const int id = particle_.model->take_stale_step();
     if (id <= 0) return;
     for (auto* stack : {&undo_, &redo_})
-        stack->erase(std::remove_if(stack->begin(), stack->end(),
-                                    [id](const Json& e) {
-                                        return e.is_object() && e.contains("$particle") && e["$particle"].is_object() &&
-                                               e["$particle"].value("step", 0) == id;
-                                    }),
-                     stack->end());
+        stack->erase_if([id](const UndoEntry& e) {
+            return e.is_special("$particle") && e.data["$particle"].is_object() &&
+                   e.data["$particle"].value("step", 0) == id;
+        });
     lastEditKey_.clear();
     particle_collect_steps();
 }

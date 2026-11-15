@@ -94,7 +94,6 @@ void Editor::music_edited(const MusicEditOutcome& out) {
     }
     if (out.step <= 0 || !u.model) return;
     undo_.push_back(Json::object({{"$music", Json::object({{"step", out.step}})}}));
-    if (undo_.size() > 100) undo_.erase(undo_.begin());
     redo_.clear();
     lastEditKey_.clear();
     music_collect_steps();
