@@ -10,7 +10,7 @@
 #include <functional>
 #include <vector>
 
-#include "../../../engine/runtime/tests/confinement_variants.h"
+#include "confinement_variants.h"
 #include "fa/authoring/authoring.h"
 #include "fa/core/capability.h"
 #include "fa/core/command.h"
