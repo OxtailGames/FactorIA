@@ -6,6 +6,7 @@ Older versions, one file per minor version with its patch releases: [0.26](chang
 
 ## Unreleased
 
+- GPU captures (RenderDoc, Xcode, PIX): the pass that clears the window is labelled "window".
 - Renderer (no change in what is drawn): the 3D world is gathered once per frame and shared by every camera, render target and
   CameraView (a `RenderScene`: matrices, resolved assets, boxes, flashes and blend flags), so a camera only filters by
   `showTags`/`hideTags`, tests its frustum and sorts its blended meshes; the hash of `MeshRenderer.materialParams` and
