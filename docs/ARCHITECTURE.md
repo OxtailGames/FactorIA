@@ -48,7 +48,7 @@ engine/            runtime modules (ship inside every game)
   runtime/         fa_runtime  Engine (game loop), project file, built-in commands, the command extension hook (command_extension.h); fa/runtime/internal/ is the engine's private state for engine tools (not for games or plugins)
 player/            factoria_player — minimal runtime for exported games; it links fa_runtime and never fa_authoring (the configure fails otherwise)
 tools/             developer tools (desktop only)
-  authoring/       fa_authoring the commands only developer tools use (they write project files: `prefab.save`, `scene.format`; more move here); registered into every Engine by `fa::authoring::install()` (the CLI, editor and tests call it), not in the player
+  authoring/       fa_authoring the commands only developer tools use (they write project files: `prefab.save`, `scene.format`, `scene.import_ascii`, `scene.ascii_edit`; more move here); registered into every Engine by `fa::authoring::install()` (the CLI, editor and tests call it), not in the player
   common/          fa_tooling  scaffolding, validation, ENGINE_FEEDBACK, embedded docs, API export, export (platform settings, icons, exe icon patcher, texture compression with the Basis Universal encoder, atlas packing), setup (one-click install of the JDK, Android SDK, players, CMake), palette lock, AI-content disclosure
   mcp/             fa_mcp      Model Context Protocol server (stdio; loopback HTTP for the editor)
   dap/             fa_dap      Debug Adapter Protocol server of the script debugger (framing, launch validation, DapServer); `factoria dap` runs it
@@ -96,7 +96,10 @@ commands and the plugins' commands. A program that creates engines calls `instal
 `factoria` binary and of `fa_editor_autotest`; the test executables of every module at or above `fa_authoring` get it from
 `cmake/doctest_main.cpp`, the runtime's tests do not). `Engine::runtime_command_names()` is what the player has: the
 commands registered before plugins and extensions. The root `CMakeLists.txt` fails the configure when `factoria_player`
-reaches `fa_authoring` through any chain of links (`fa_check_not_linked`).
+reaches `fa_authoring` through any chain of links (`fa_check_not_linked`). When an authoring command shares code with one the
+player keeps, the shared part stays in the runtime and is declared in an internal header for the authoring file to use (never
+copied): `scene.import_ascii` (authoring, can write a scene file) and `scene.place_ascii` (player, running world only) share
+`fa/runtime/internal/ascii_level.h`.
 
 ## Core concepts
 

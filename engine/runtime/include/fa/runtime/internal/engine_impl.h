@@ -181,7 +181,7 @@ struct Engine::Impl {
     void drop_pending_async_switch();  // forgets the pending scene change of an async load (records it as cancelled)
     std::string currentScene;
     // The current scene is the project's mainScene, loaded at start because no start scene was given (no EngineConfig::scene),
-    // and no scene was loaded since. scene.import_ascii refuses `save` without `path` then: see level_commands.cpp.
+    // and no scene was loaded since. scene.import_ascii refuses `save` without `path` then: see tools/authoring/src/level_commands.cpp.
     bool implicitStartScene = false;
     // tilemap.generate_start jobs (wfc_commands.cpp): the generations the script API advances a little every frame, by id. The
     // pointers are really std::shared_ptr<GenRun>; the type stays private to wfc_commands.cpp. Dropped when the scene changes.
@@ -253,7 +253,7 @@ UiPageAimFn make_ui_page_aim(
 UiSurfaceFn make_ui_surface_pointer(
     Engine::Impl& impl);  // surface_pointer.cpp: the pointer through a render target shown on a mesh
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
-void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
+void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.place_ascii, tilemap.*
 void register_terrain_commands(
     Engine& engine,
     Engine::Impl&
@@ -268,19 +268,13 @@ void register_i18n_commands(Engine& engine, Engine::Impl& impl);      // localiz
 void register_ui_check_commands(Engine& engine, Engine::Impl& impl);  // ui_check.cpp: ui.check_layout
 void register_shot_commands(Engine& engine,
                             Engine::Impl& impl);  // shot_commands.cpp: game.screenshot, render.inspect, render.pick
-void register_anim_commands(Engine& engine,
-                            Engine::Impl& impl);  // anim_commands.cpp (+ anim_view_commands.cpp): anim.*
 void register_music_commands(Engine& engine, Engine::Impl& impl);  // music_commands.cpp: audio.music_state, audio.music
 void register_vfx_commands(Engine& engine,
-                           Engine::Impl& impl);  // vfx_commands.cpp: vfx.play, vfx.stop, vfx.list, vfx.check
-void register_mesh_commands(
-    Engine& engine,
-    Engine::Impl& impl);  // mesh_commands.cpp: mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
+                           Engine::Impl& impl);  // vfx_commands.cpp: vfx.play, vfx.stop, vfx.list; fills vfxHost
 void register_feel_commands(
     Engine& engine,
     Engine::Impl&
         impl);  // feel_commands.cpp: feel.shake, feel.hitStop, feel.flash, feel.knockback, feel.squash, feel.cancel, feel.settings, feel.state
-void register_bones_commands(Engine& engine, Engine::Impl& impl);  // bones_commands.cpp: bones.create, skin.*
 
 // The grid of an ASCII level in the format of scene.import_ascii (`rows`, `legend`, `legendFrom`), read for a command that learns
 // from it (tilemap.generate). Checks it with the errors of scene.import_ascii (ragged rows, unknown glyphs with suggestions).
@@ -302,6 +296,10 @@ struct AsciiSample {
         legendOnly;  // the legend's other glyphs (placeOnly), in the order of the legend; not part of `glyphs`
 };
 AsciiSample read_ascii_sample(const Json& args);
+
+// A `position` argument ([x, y] or [x, y, z], finite, within +-1e9; absent = the origin) of vfx.play and vfx.filmstrip. Throws
+// CommandError("invalid_argument"). Defined in vfx_commands.cpp.
+Vec3 vfx_position_arg(const Json& args, const char* key);
 
 // Entity named by the string argument `key` (id or name). Throws CommandError("not_found") with a "did you mean".
 Entity need_entity(World& world, const Json& args, const char* key = "id");

@@ -1,12 +1,14 @@
 // The commands that make and edit procedural meshes (fa/scene/mesh_store.h, docs/SCRIPTING.md, "Procedural meshes"):
-// mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list and mesh.info. The script API (`mesh` in "factoria") does the
-// same through the same MeshStore of the World, so what a command made a script can use and the other way round.
+// mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list and mesh.info. The script API (`mesh` in "factoria", natives in
+// engine/script/src/script_natives.cpp) does the same by calling the same MeshStore of the World directly, not through these
+// commands, so what a command made a script can use and the other way round. These are tools for the editor, the CLI and MCP; the
+// player's scripts use the `mesh` API.
 //
 // A procedural mesh is run-time data: it is not part of a scene file, and loading a scene releases every mesh. Use mesh.save
 // to turn one into a .glb file that scenes can name.
 #include <format>
 
-#include "engine_impl.h"
+#include "authoring_internal.h"
 #include "fa/core/strings.h"
 #include "fa/scene/mesh_store.h"
 

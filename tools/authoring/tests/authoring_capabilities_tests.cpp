@@ -9,6 +9,7 @@
 
 #include "fa/authoring/authoring.h"
 #include "fa/core/capability.h"
+#include "fa/core/command.h"
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
 
@@ -35,6 +36,8 @@ export default class Probe extends Behaviour {
     const tries = {
       "scene.format": { path: "scenes/main.scene.json" },
       "prefab.save": { id: "probe", path: "prefabs/never.prefab.json" },
+      "scene.import_ascii": { rows: ["#"], legend: { "#": 0 }, path: "scenes/never.scene.json", save: true },
+      "scene.ascii_edit": { file: "levels/never.json", ops: [{ op: "fill", rect: [0, 0, 1, 1], glyph: "#" }] },
     };
     for (const name of Object.keys(tries)) {
       try { fa.call(name, tries[name]); globalThis.R[name] = "ok"; }
@@ -82,7 +85,7 @@ void check_game_script_set(bool editorMode) {
     CommandResult r = e.commands().call("script.eval", Json::object({{"code", "globalThis.R"}}));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     const Json probes = r.result["value"];
-    for (const char* denied : {"scene.format", "prefab.save"}) {
+    for (const char* denied : {"scene.format", "prefab.save", "scene.import_ascii", "scene.ascii_edit"}) {
         CAPTURE(denied);
         REQUIRE(probes[denied].is_object());
         CHECK(probes[denied]["code"] == "capability_denied");
@@ -91,6 +94,7 @@ void check_game_script_set(bool editorMode) {
         CHECK(hint.find("factoria call") != std::string::npos);
     }
     CHECK_FALSE(stdfs::exists(p.dir / "prefabs/never.prefab.json"));
+    CHECK_FALSE(stdfs::exists(p.dir / "scenes/never.scene.json"));
     e.shutdown();
 }
 
@@ -116,7 +120,7 @@ TEST_CASE(
         if (!info->capabilitiesDeclared) undeclared += " " + info->name;
         if (info->readOnly != info->capabilities.without(Capability::Read).empty()) inconsistent += " " + info->name;
     }
-    CHECK(authoringCommands >= 2);
+    CHECK(authoringCommands >= 4);
     CHECK_MESSAGE(undeclared.empty(), "commands without a capability declaration:" << undeclared);
     CHECK_MESSAGE(inconsistent.empty(), "readOnly disagrees with the capabilities of:" << inconsistent);
     for (const char* name : {"prefab.save", "scene.format"}) {
@@ -128,10 +132,192 @@ TEST_CASE(
     e.shutdown();
 }
 
+TEST_CASE("capabilities: the vfx and mesh tools are what they were when the runtime had them") {
+    authoring::install();
+    TempProject p;
+    EngineConfig c;
+    c.projectDir = p.dir.generic_string();
+    c.headless = true;
+    c.hotReload = false;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    auto caps = [&](const char* name) {
+        const CommandInfo* info = e.commands().info(name);
+        REQUIRE_MESSAGE(info != nullptr, name);
+        return info->capabilities;
+    };
+    // What the editor's Play lets a game script call (read + state)...
+    for (const char* n : {"mesh.create", "mesh.update", "mesh.destroy", "mesh.list", "mesh.info", "vfx.check",
+                          "vfx.budget", "vfx.filmstrip"})
+        CHECK_MESSAGE(capability_sets::game_player().has_all(caps(n)), n);
+    // ...and what it may not: mesh.save writes a .glb at the caller's path.
+    CHECK_FALSE(capability_sets::game_player().has_all(caps("mesh.save")));
+    CHECK(caps("mesh.save").has(Capability::WriteProject));
+    e.shutdown();
+}
+
+TEST_CASE("capabilities: mesh.save and vfx.filmstrip confine the path of their caller") {
+    authoring::install();
+    TempProject p;
+    TempProject outside;  // a folder that is not the project
+    EngineConfig c;
+    c.projectDir = p.dir.generic_string();
+    c.headless = true;
+    c.hotReload = false;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    const CommandResult mesh =
+        e.commands().call("mesh.create", Json::object({{"positions", Json::parse("[[0,0,0],[1,0,0],[1,1,0],[0,1,0]]")},
+                                                       {"indices", Json::parse("[0,1,2,0,2,3]")}}));
+    REQUIRE_MESSAGE(mesh.ok, mesh.error.dump());
+    const std::string meshId = mesh.result["id"].get<std::string>();
+    auto code = [&](const char* command, const std::string& path) {
+        const Json args = std::string(command) == "mesh.save"
+                              ? Json::object({{"id", meshId}, {"path", path}})
+                              : Json::object({{"effect", "assets/vfx/none.vfx.json"}, {"path", path}});
+        const CommandResult r = e.commands().call(command, args);
+        return r.ok ? std::string("ok") : r.error.value("code", std::string());
+    };
+    {
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        for (const char* command : {"mesh.save", "vfx.filmstrip"}) {
+            CAPTURE(command);
+            const std::string ext = std::string(command) == "mesh.save" ? ".glb" : ".png";
+            CHECK(code(command, "../x" + ext) == "path_outside_root");
+            CHECK(code(command, (outside.dir / ("x" + ext)).generic_string()) == "absolute_path_denied");
+            CHECK(code(command, ".git/x" + ext) == "managed_path_denied");
+            CHECK(code(command, ".factoria/x" + ext) == "managed_path_denied");
+        }
+        // A plain project path passes the path rules.
+        CHECK(code("mesh.save", "out/x.glb") == "ok");
+        CHECK(stdfs::exists(p.dir / "out" / "x.glb"));
+    }
+    {
+        CommandCapabilityScope readOnly(capability_sets::mcp_read_only());
+        CHECK(code("mesh.save", "out/y.glb") == "capability_denied");
+        CHECK(code("vfx.filmstrip", "out/y.png") == "capability_denied");
+    }
+    // The command-line user (and the editor) may name an absolute path.
+    CHECK(code("mesh.save", (outside.dir / "abs.glb").generic_string()) == "ok");
+    CHECK(stdfs::exists(outside.dir / "abs.glb"));
+    e.shutdown();
+}
+
 TEST_CASE("capabilities: game scripts of the player cannot call scene.format or prefab.save") {
     check_game_script_set(false);
 }
 
 TEST_CASE("capabilities: the editor's Play cannot call scene.format or prefab.save either") {
     check_game_script_set(true);
+}
+
+TEST_CASE(
+    "authoring: anim.*, bones.create and skin.* are not commands of the player, and the writers confine their path") {
+    authoring::install();
+    TempProject p;
+    TempProject outside;
+    EngineConfig c;
+    c.projectDir = p.dir.generic_string();
+    c.headless = true;
+    c.hotReload = false;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    const std::vector<std::string> runtime = e.runtime_command_names();
+    for (const char* name :
+         {"anim.create_clip",  "anim.set_keys",     "anim.remove_keys", "anim.move_keys",  "anim.set_interp",
+          "anim.add_track",    "anim.remove_track", "anim.add_event",   "anim.move_event", "anim.set_event",
+          "anim.remove_event", "anim.set_clip",     "anim.restore",     "anim.list",       "anim.pose",
+          "anim.filmstrip",    "anim.check",        "bones.create",     "skin.bind",       "skin.auto_weights",
+          "skin.set_weights"}) {
+        CAPTURE(name);
+        CHECK_FALSE(std::binary_search(runtime.begin(), runtime.end(), std::string(name)));
+        CHECK(e.commands().info(name) != nullptr);
+    }
+    CHECK_FALSE(capability_sets::game_player().has_all(e.commands().info("anim.set_keys")->capabilities));
+
+    auto code = [](const CommandResult& r) { return r.ok ? std::string("ok") : r.error.value("code", std::string()); };
+    {
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        CHECK(code(e.commands().call("anim.create_clip", Json::object({{"path", "../x.anim.json"},
+                                                                       {"duration", 1.0}}))) == "path_outside_root");
+        CHECK(code(e.commands().call("anim.create_clip",
+                                     Json::object({{"path", (outside.dir / "x.anim.json").generic_string()},
+                                                   {"duration", 1.0}}))) == "absolute_path_denied");
+        CHECK(code(e.commands().call("anim.restore", Json::object({{"path", ".factoria/x.anim.json"},
+                                                                   {"clip", nullptr}}))) == "managed_path_denied");
+    }
+    {
+        CommandCapabilityScope readOnly(capability_sets::mcp_read_only());
+        CHECK(code(e.commands().call("anim.create_clip", Json::object({{"path", "out/y.anim.json"},
+                                                                       {"duration", 1.0}}))) == "capability_denied");
+    }
+    // The command-line user may name an absolute path.
+    CHECK(code(e.commands().call(
+              "anim.create_clip",
+              Json::object({{"path", (outside.dir / "abs.anim.json").generic_string()}, {"duration", 1.0}}))) == "ok");
+    CHECK(stdfs::exists(outside.dir / "abs.anim.json"));
+    e.shutdown();
+}
+
+// The same path rules as engine/runtime/tests/command_capabilities_tests.cpp ("every command that writes a caller's path
+// confines it") makes for the commands of the player, for the authoring commands that write a path their caller gives.
+TEST_CASE("capabilities: scene.import_ascii and scene.ascii_edit confine the path they write") {
+    authoring::install();
+    TempProject p;
+    TempProject outside;
+    EngineConfig c;
+    c.projectDir = p.dir.generic_string();
+    c.headless = true;
+    c.hotReload = false;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(c, nullptr, &err), err);
+    struct Writer {
+        const char* command;
+        const char* ext;
+        Json (*args)(const std::string& path);
+    };
+    const Writer writers[] = {
+        {"scene.import_ascii", ".scene.json",
+         [](const std::string& path) {
+             return Json::object(
+                 {{"rows", Json::parse(R"(["#."])")}, {"legend", Json::parse(R"({"#":0})")}, {"path", path}});
+         }},
+        {"scene.ascii_edit", ".json",
+         [](const std::string& path) {
+             return Json::object(
+                 {{"file", path}, {"ops", Json::parse(R"([{"op":"put","col":0,"row":0,"glyph":"#"}])")}});
+         }},
+    };
+    auto code = [&](const Writer& w, const std::string& path) {
+        const CommandResult r = e.commands().call(w.command, w.args(path));
+        return r.ok ? std::string("ok") : r.error.value("code", std::string());
+    };
+    {
+        CommandCallerScope mcp(CommandCaller::Mcp);
+        for (const Writer& w : writers) {
+            CAPTURE(w.command);
+            const std::string name = std::string("x") + w.ext;
+            CHECK(code(w, "../" + name) == "path_outside_root");
+            CHECK(code(w, (outside.dir / name).generic_string()) == "absolute_path_denied");
+            CHECK(code(w, ".git/" + name) == "managed_path_denied");
+            CHECK(code(w, ".factoria/" + name) == "managed_path_denied");
+            CHECK(code(w, "..\\" + name) == "path_outside_root");
+            CHECK(code(w, "out/nul.x/" + name) == "invalid_path");
+        }
+    }
+    {
+        // A read-only MCP session may not write any of them.
+        CommandCapabilityScope readOnly(capability_sets::mcp_read_only());
+        for (const Writer& w : writers) {
+            CAPTURE(w.command);
+            CHECK(code(w, std::string("out/y") + w.ext) == "capability_denied");
+        }
+    }
+    CHECK_FALSE(stdfs::exists(outside.dir / "x.scene.json"));
+    CHECK_FALSE(stdfs::exists(p.dir / ".git"));
+    e.shutdown();
 }

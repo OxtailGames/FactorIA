@@ -9,7 +9,7 @@
 #include <numbers>
 #include <set>
 
-#include "engine_impl.h"
+#include "authoring_internal.h"
 #include "fa/core/det_math.h"
 #include "fa/core/strings.h"
 #include "fa/scene/bones2d.h"

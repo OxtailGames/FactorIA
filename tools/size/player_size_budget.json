@@ -1,0 +1,169 @@
+{
+  "schema": "factoria.size-budget/1",
+  "note": "Size budgets of factoria_player, one entry per platform. maxBytes is what CI fails above, baselineBytes the size when the budget was last set, baselineLibraries what each library added then (the list of what grew most when a budget fails). maxBytes null = not set: the platform is measured and reported, nothing fails. After an intended change: take the artifact player-size-<platform> of the CI run, run `scripts/player-size.sh update player-size-<platform>.json` (baseline = measured, maxBytes = baseline + 10%), commit this file and say in the commit message why the player grew. docs/BUILDING.md, \"Player size budgets\".",
+  "platforms": {
+    "linux-x64": {
+      "description": "factoria_player of the Linux package: preset linux-sniper (GCC 14, libstdc++ and libgcc static), stripped copy. Measured by ci.yml (job linux-sniper) and release.yml (package linux-x64).",
+      "kind": "binary",
+      "preset": "linux-sniper",
+      "files": [
+        {
+          "path": "player/factoria_player",
+          "strip": "gnu"
+        }
+      ],
+      "map": "player/factoria_player.map",
+      "maxBytes": null,
+      "baselineBytes": null,
+      "note": "GNU ld link map (the per-library numbers count what the linker places, without .bss and debug sections)."
+    },
+    "macos-arm64": {
+      "description": "factoria_player of the macos-release preset on Apple Silicon (arm64 only), stripped copy (strip -x). Measured by ci.yml (job macos).",
+      "kind": "binary",
+      "preset": "macos-release",
+      "files": [
+        {
+          "path": "player/factoria_player",
+          "strip": "apple"
+        }
+      ],
+      "map": "player/factoria_player.map",
+      "maxBytes": 16983244,
+      "baselineBytes": 15439312,
+      "note": "ld64 link map.",
+      "baselineLibraries": {
+        "fa_scene": 2281757,
+        "fa_runtime": 2271682,
+        "fa_render": 1852838,
+        "fa_script": 1476154,
+        "fa_audio": 1315392,
+        "fa_core": 1090604,
+        "fa_ext_quickjs": 945396,
+        "fa_ext_basisu_transcoder": 702812,
+        "fa_physics": 553420,
+        "fa_services": 475071,
+        "fa_ext_harfbuzz": 421728,
+        "fa_ext_manifold": 298349,
+        "fa_platform": 281558,
+        "fa_ext_box2d": 137249,
+        "fa_ui": 126611,
+        "(objects)": 121974,
+        "(linker)": 110975,
+        "fa_ext_meshoptimizer": 30448,
+        "fa_ext_sheenbidi": 29508,
+        "c++": 3712,
+        "system_c": 1524,
+        "system_m": 660,
+        "system_kernel": 488,
+        "objc.A": 368,
+        "system_pthread": 320,
+        "CoreGraphics": 176,
+        "CoreFoundation": 128,
+        "AppKit": 120,
+        "AudioToolbox": 120,
+        "system_malloc": 120,
+        "dyld": 108,
+        "Metal": 84,
+        "dispatch": 80,
+        "Foundation": 48,
+        "compiler_rt": 48,
+        "AVFAudio": 24,
+        "unwind": 20,
+        "QuartzCore": 16,
+        "GameController": 8
+      }
+    },
+    "macos-universal": {
+      "description": "factoria_player of the macOS package: arm64 + x86_64 in one binary (-DCMAKE_OSX_ARCHITECTURES=\"arm64;x86_64\"), stripped copy. Measured by release.yml (package macos-universal).",
+      "kind": "binary",
+      "preset": "macos-release",
+      "files": [
+        {
+          "path": "player/factoria_player",
+          "strip": "apple"
+        }
+      ],
+      "map": "player/factoria_player.map",
+      "maxBytes": null,
+      "baselineBytes": null,
+      "note": "ld64 link map of ONE slice: clang links each architecture in turn and both links write the same -Wl,-map path, so the map holds only one of them. The size is of both slices; the per-library numbers are of one slice (about half of it), good to see what grew, not to add up to the file size."
+    },
+    "windows-x64": {
+      "description": "factoria_player.exe of the Windows package: preset windows-release (MSVC, Visual Studio 2022), as shipped (a PE file carries no symbols: they are in the .pdb). Measured by ci.yml (job windows, shard 1) and release.yml (package windows-x64).",
+      "kind": "binary",
+      "preset": "windows-release",
+      "files": [
+        {
+          "path": "player/{config}/factoria_player.exe",
+          "strip": "none"
+        }
+      ],
+      "map": "player/factoria_player.map",
+      "maxBytes": null,
+      "baselineBytes": null,
+      "note": "MSVC /MAP: the per-library numbers are the gaps between the public symbols, so a static function counts for the public symbol before it."
+    },
+    "android-arm64-v8a": {
+      "description": "libfactoria_player.so for arm64-v8a: preset android-arm64 in Release, llvm-strip --strip-unneeded as in the package. Measured by ci.yml (job android) and release.yml (mobile-android).",
+      "kind": "binary",
+      "preset": "android-arm64",
+      "files": [
+        {
+          "path": "player/libfactoria_player.so",
+          "strip": "llvm"
+        }
+      ],
+      "map": "player/factoria_player.map",
+      "maxBytes": null,
+      "baselineBytes": null,
+      "note": "lld link map."
+    },
+    "android-x86_64": {
+      "description": "libfactoria_player.so for x86_64 (emulators, Chromebooks): preset android-x86_64 in Release, stripped. Measured by release.yml (mobile-android) only.",
+      "kind": "binary",
+      "preset": "android-x86_64",
+      "files": [
+        {
+          "path": "player/libfactoria_player.so",
+          "strip": "llvm"
+        }
+      ],
+      "map": "player/factoria_player.map",
+      "maxBytes": null,
+      "baselineBytes": null,
+      "note": "lld link map."
+    },
+    "ios-arm64": {
+      "description": "The player for iOS devices as the static archives the release package carries: libfactoria_player_main.a and every engine archive it links (arm64, Release). Measured by release.yml (mobile-ios, iphoneos); ci.yml builds a Debug simulator app, whose size says nothing.",
+      "kind": "archives",
+      "preset": "ios",
+      "globs": [
+        "**/Release-iphoneos/*.a"
+      ],
+      "exclude": [
+        "*.build/*"
+      ],
+      "maxBytes": null,
+      "baselineBytes": null,
+      "note": "The size is the sum of the archive files: more than the app, because the linker keeps only what the player reaches and the objects carry symbol tables. It moves with the player's code like the app does, but no job links a Release app, so there is no linked size. The per-library numbers are the sizes of the same archives (this entry needs no link map: release.yml's mobile-ios does not write one)."
+    },
+    "web-wasm": {
+      "description": "factoria_player.js + factoria_player.wasm of the web player: preset web-release (Emscripten, -O3), uncompressed, as the package carries them. Measured by ci.yml (job web) and release.yml (web-player).",
+      "kind": "binary",
+      "preset": "web-release",
+      "files": [
+        {
+          "path": "player/factoria_player.js",
+          "strip": "none"
+        },
+        {
+          "path": "player/factoria_player.wasm",
+          "strip": "none"
+        }
+      ],
+      "maxBytes": null,
+      "baselineBytes": null,
+      "note": "No link map (wasm-ld's is not asked for): the per-library numbers are the sizes of the archives the player links (player/player_libs-Release.txt, written with FA_PLAYER_LINK_MAP=ON)."
+    }
+  }
+}

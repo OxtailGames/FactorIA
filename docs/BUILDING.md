@@ -778,6 +778,54 @@ Pull requests from forks never receive the secrets. A pull request from a branch
 workflow runs on the ones that change `release.yml`: review those like any change that can read the secrets (a GitHub
 Environment with required reviewers is the stricter option).
 
+## Player size budgets
+
+Every game ships the same `factoria_player`, so its size is part of every game's size. CI measures it on each platform and
+fails when it goes over a budget, so a module that moves into `fa_runtime` or a new dependency shows up in the pull request
+that adds it. [EXPORTING.md](EXPORTING.md#size-of-the-player) says what the linker already drops.
+
+- **What is measured.** The file a package ships, from a Release build (a Debug player's size means nothing): a stripped
+  copy of `factoria_player` (Linux `strip --strip-all`, macOS `strip -x`, Android `llvm-strip --strip-unneeded`; the build's
+  own file is left alone), `factoria_player.exe` as built (its symbols are in the `.pdb`), `factoria_player.js` +
+  `.wasm` uncompressed, and for iOS the sum of the device archives the release package carries (`libfactoria_player_main.a`
+  and every engine archive it links; no job links a Release app, so there is no linked size, and the archives are larger
+  than the app).
+- **Where.** `scripts/player-size.sh measure --platform <key>` after the build: `ci.yml` jobs `Linux (Steam Runtime sniper)`
+  (`linux-x64`, the build that ships), `macOS` (`macos-arm64`), `Windows` (`windows-x64`, shard 1), `Web` (`web-wasm`) and
+  `Android` (`android-arm64-v8a`; this job builds Release since a Debug size is meaningless), and `release.yml`: the Android
+  ABIs, `ios-arm64`, `web-wasm` and the three packages (`macos-universal` among them). iOS is measured by `release.yml` only:
+  `ci.yml` builds a Debug simulator app. In `ci.yml` the step is the last of its job, after the tests, and runs also when a
+  test failed, so one round shows both (in `release.yml` the package job fails at its end for a player over its budget, after
+  signing and packaging). The budgets are in `tools/size/player_size_budget.json` (`factoria.size-budget/1`):
+  per platform `maxBytes` (what fails), `baselineBytes`, `baselineLibraries` and the files measured.
+  `maxBytes: null` means no budget is set yet: the platform is measured and reported and nothing fails.
+- **The report.** Each run writes `player-size-<platform>.json` and `.md` (artifact `player-size-<platform>`) and puts the
+  markdown in the job summary: the size against the baseline and the budget, and a table of what each library adds. The
+  per-library numbers come from the link map the build writes with `-DFA_PLAYER_LINK_MAP=ON` (the jobs that measure set it;
+  `player/factoria_player.map`; GNU ld, lld, ld64 and MSVC `/MAP` are read; MSVC's has no sizes, so a library's size is the
+  gaps between its public symbols). The map counts what the linker places (no `.bss`, no debug sections), so its total is
+  not the file size. The universal macOS player is linked once per architecture and both links write the same map file, so
+  its per-library numbers are of one slice (about half of the file): use them to see what grew, not to add up. Where there
+  is no map the numbers are the sizes of archives, which are larger than what the linker keeps of them: for the web player
+  (its linker's map is not read) the archives the player links (`player/player_libs-<config>.txt`, also written by the
+  option), and for iOS the measured archives themselves. A map the script cannot read (an unknown format, a binary file)
+  never fails the step: the report's `note` says why, the numbers fall back to the archive list or to none, and only the
+  comparison with `maxBytes` can fail. The report says which source it used.
+- **When a budget fails.** The step prints the platform, the file, the size and the budget, the libraries that grew most
+  against `baselineLibraries`, and what to do. If the player should not have grown, find what the change pulled in. If the
+  growth is intended, take `player-size-<platform>.json` from the run's artifacts and run
+  `scripts/player-size.sh update player-size-<platform>.json` (baseline = that size, `maxBytes` = baseline + 10%, `--percent`
+  changes it), commit the budget file and say in the commit message why the player grew. The same command fills a platform
+  whose budget is null from its first CI run. After a change that makes the player smaller, update the budget too, so the
+  gain is kept (the step prints a notice when the player is 5% under its baseline).
+- **Locally.** Build a Release player (`cmake -S . -B build/rel -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_PLAYER_LINK_MAP=ON
+  && cmake --build build/rel --target factoria_player`), then `scripts/player-size.sh measure --platform macos-arm64
+  --build-dir build/rel` (the platform key names the budget entry; a Windows build adds `--config Release`).
+  `ctest -L size` runs `player_size_script`, the test of the script (schema of the budget file, the four map readers on
+  sample maps (a demangled symbol line is not an input section), `measure` on a fake binary over, under and with no budget,
+  with an unreadable map, and on archives, `update`). The script is Python 3 (standard library
+  only); the `.sh` only finds the interpreter, also in Git Bash on Windows.
+
 ## Formatting and lint
 
 First-party C and C++ (`.c .cc .cpp .h .hpp` under `engine/`, `tools/`, `player/`, `platforms/`, `examples/`,

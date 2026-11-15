@@ -6,14 +6,31 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
 
 ## Unreleased
 
-- **A new library, `fa_authoring`, for the commands only developer tools need.** The first step of splitting `fa_runtime`
-  so that an exported game's player carries no authoring code: `tools/authoring` links on top of the runtime, and the
-  `factoria` CLI, the editor, the MCP/DAP/AI servers and their tests get its commands, the player does not (the CMake
-  configure fails when `factoria_player` reaches it). `prefab.save` and `scene.format` are the first to move; their
-  names, arguments and results do not change. For engine developers: `fa/runtime/command_extension.h` is a process-wide
-  list of command extensions that `Engine::init` runs after the built-in and plugin commands, `fa::authoring::install()`
-  registers the authoring one (call it once before the first Engine), and `Engine::runtime_command_names()` lists what the
-  player has. `Engine::Impl` is now declared in `fa/runtime/internal/engine_impl.h`, for engine tools only.
+- **A new library, `fa_authoring`, for the commands only developer tools need.** The first step of splitting
+  `fa_runtime` so that an exported game's player carries no authoring code: `tools/authoring` links on top of the
+  runtime, and the `factoria` CLI, the editor, the MCP/DAP/AI servers and their tests get its commands, the player does
+  not (the CMake configure fails when `factoria_player` reaches it). `prefab.save` and `scene.format` are the first to
+  move; their names, arguments and results do not change. For engine developers: `fa/runtime/command_extension.h` is a
+  process-wide list of command extensions that `Engine::init` runs after the built-in and plugin commands,
+  `fa::authoring::install()` registers the authoring one (call it once before the first Engine), and
+  `Engine::runtime_command_names()` lists what the player has. `Engine::Impl` is now declared in
+  `fa/runtime/internal/engine_impl.h`, for engine tools only. The clip, bones and skin commands (`anim.*`,
+  `bones.create`, `skin.*`) moved there too, with their tests; same names, arguments and results. The effect and mesh
+  tools move too: `vfx.check`, `vfx.budget`, `vfx.filmstrip` and `mesh.create`, `mesh.update`, `mesh.destroy`,
+  `mesh.save`, `mesh.list`, `mesh.info` are no longer in the player (the `vfx` and `mesh` APIs of scripts are unchanged,
+  and so are `vfx.play`, `vfx.stop` and `vfx.list`). `scene.import_ascii` (the ASCII level import that can also write a
+  scene file) and `scene.ascii_edit` move too, so an exported game no longer has them; `scene.place_ascii` (the
+  running-world import that `tilemap.generate` with `place` uses), `tilemap.set_tile`, `tilemap.cell_at` and
+  `tilemap.cell_to_world` stay in the player. Their arguments and results do not change.
+- Player size budgets: CI measures `factoria_player` on every platform (Linux, macOS, Windows, Android, web in `ci.yml`; also
+  iOS and the macOS universal binary in `release.yml`), fails above the `maxBytes` of `tools/size/player_size_budget.json`,
+  and writes a report with what each library adds (artifact `player-size-<platform>`, job summary). The new CMake option
+  `FA_PLAYER_LINK_MAP` makes the player's link write its map. `scripts/player-size.sh update` takes a measurement as the new
+  baseline. The size step is the last of its job (a player over its budget does not skip the tests), and a link map the script
+  cannot read only adds a `note` to the report. The Android job of `ci.yml` now builds Release with
+  `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON` (the flag release.yml uses), so no PR job builds an Android Debug anymore. Only
+  macOS (arm64) has a budget for now; the others report until their first CI run sets one. See docs/BUILDING.md, "Player
+  size budgets".
 
 - **The export checks that a game's scripts call only commands its player has.** A shipped script with a literal
   `fa.call("scene.format")` (a command of the editor, the CLI and MCP that the exported player lacks) now stops
