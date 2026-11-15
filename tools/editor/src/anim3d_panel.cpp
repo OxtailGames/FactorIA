@@ -158,7 +158,6 @@ void Editor::anim3d_commit(const Anim3DEdit& e) {
     u.status.clear();
     if (e.undo.is_object() && e.undo.contains("args")) {
         undo_.push_back(Json::object({{"$clip3d", e.undo["args"]}}));
-        if (undo_.size() > 100) undo_.erase(undo_.begin());
         redo_.clear();
         lastEditKey_.clear();
     }

@@ -35,7 +35,7 @@ CommandResult Editor::edit_command(const std::string& key, const std::string& na
     }
     // begin_edit pushes the undo step before the call. A refused call must not leave an empty step (or lose the redo list), so
     // what begin_edit changes is put back when the command fails.
-    std::vector<Json> savedRedo;
+    UndoStack savedRedo;
     std::string savedKey;
     double savedTime = 0;
     bool savedDirty = false, pushed = false;
@@ -112,7 +112,7 @@ void Editor::draw_hierarchy_node(Entity e, const std::string& filter) {
     const std::vector<Entity> kids = w.children(e);  // a copy: a command below may change the tree
     const bool filtered = !filter.empty();
     const bool leaf = filtered || kids.empty();
-    const bool isSelected = id == selectedId_;
+    const bool isSelected = id == selected_id();
 
     ImGuiTreeNodeFlags fl = ImGuiTreeNodeFlags_OpenOnArrow | ImGuiTreeNodeFlags_SpanAvailWidth;
     if (leaf) fl |= ImGuiTreeNodeFlags_Leaf;
@@ -210,9 +210,9 @@ void Editor::draw_hierarchy_panel() {
     }
     World& w = world();
     draw_play_banner(*this);
-    if (selectedId_ != hierLastSelected_) {  // the viewport (or a command) moved the selection: show it in the tree
-        hierLastSelected_ = selectedId_;
-        hierRevealId_ = selectedId_;
+    if (selected_id() != hierLastSelected_) {  // the viewport (or a command) moved the selection: show it in the tree
+        hierLastSelected_ = selected_id();
+        hierRevealId_ = selected_id();
     }
 
     ImGui::SetNextItemWidth(-ImGui::GetFrameHeight() - ImGui::GetStyle().ItemSpacing.x);
