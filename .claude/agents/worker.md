@@ -16,7 +16,9 @@ While you iterate, build and run only what the change touches (`--target fa_test
 suite (`--test`) once the package is finished, and again only after a fix. The harness moves any command that runs
 past two or three minutes to the background, whatever timeout you pass, and looking at it by hand costs a turn per
 look. So the script returns within 100 s: when its last line says `RUNNING`, call it again with `--wait` until it
-says `DONE`. Never wait with `sleep` loops, by reading a log's tail, or with a second build in the same dir. On a Mac
+says `DONE`. Never wait with `sleep` loops, by reading a log's tail, or with a second build in the same dir. `DONE
+INCOMPLETE` (a Mac whose displays are asleep) means nothing failed, but what the `SKIPPED` line lists did not run:
+name it in your report as not run, never as passed, and do not spend turns trying to run it. On a Mac
 never run Docker or `scripts/ci-local.sh` (x86-64 emulation turns minutes into hours): if you need another backend's
 numbers (llvmpipe, D3D11/WARP), say so in the report and the orchestrator measures them on the Windows PC.
 
@@ -57,6 +59,8 @@ Before you report, check what reviews of earlier packages kept finding:
   before the expensive work, with a JSON pointer. Memory: check the budget before allocating, in 64-bit with
   saturation (wasm32). UI: a destructive button asks first or keeps a backup; a tooltip goes right after its widget.
   Autotest: no `const Json::operator[]` on a key that may be missing.
+- Format. `scripts/format.sh --changed <the branch you were cut from>` rewrites the C and C++ files you changed
+  (seconds); run it and commit the result, so the lint job of CI never spends a round on it.
 - Generated files. Docs reference and every example's typings are regenerated after the last API change, each typings
   file starts with "// Generated", and none contains a path of this machine.
 
