@@ -263,7 +263,7 @@ Not covered yet: the web and Android players report memory and time with the lim
 ## Startup
 
 What a player does between the click on its icon and a game you can play, in order (design in
-[ARCHITECTURE.md](ARCHITECTURE.md#start-up-order-and-the-shader-cache)):
+[ARCHITECTURE.md](design/ARCHITECTURE.md#start-up-order-and-the-shader-cache)):
 
 1. **The first frame is presented before any game file is read.** The window and the graphics context come first; the very
    first window frame shows a cleared frame (black, the letterbox colour) and returns, so the window is on screen at once
@@ -541,7 +541,7 @@ Reading it:
 
 ## Job threads
 
-The engine hands pieces of its work to a pool of worker threads (docs/ARCHITECTURE.md, "Jobs and threads"). How many is
+The engine hands pieces of its work to a pool of worker threads (docs/design/ARCHITECTURE.md, "Jobs and threads"). How many is
 the `runtime` setting of factoria.json:
 
 ```json
@@ -580,7 +580,7 @@ of two or more, so read the ratios as an order of magnitude, and measure your ow
 chunks and the main-thread queue did not change (11.9 ms and 8.7 ms before, 11.9 ms and 8.2 ms after).
 
 What runs on the workers: the drawing work of a frame once it is big (the sprites, tilemaps, the quads of the particles, the 3D meshes'
-matrices, culling and shadows, the sorts and the vertex stream; docs/ARCHITECTURE.md, "Systems that run as jobs"
+matrices, culling and shadows, the sorts and the vertex stream; docs/design/ARCHITECTURE.md, "Systems that run as jobs"
 lists each job with its threshold), the simulation of the particles and the poses of many animators. A game under every threshold (a few hundred
 sprites, under 2048 particles, under 256 meshes: most games) runs exactly as with 0 workers. In `perf.profile`'s
 `threads` these show as `render.gather_sprites`, `scene.particles`, `render.mesh_cull`, `scene.animation_poses` and
@@ -601,7 +601,7 @@ Choosing `jobThreads`:
 ### Physics on jobs
 
 Physics, path searches and sound rendering use the job threads when the work is big enough, and always give the same
-result as without them (docs/ARCHITECTURE.md, "Physics, navigation and audio on jobs"). Nothing to switch on: a small
+result as without them (docs/design/ARCHITECTURE.md, "Physics, navigation and audio on jobs"). Nothing to switch on: a small
 game never queues a job. The sizes below are counts of items, the same on every machine (never a measured time):
 
 | Work | Runs on the job threads when | Not split further than |
@@ -685,7 +685,7 @@ pull request that did it, not when an example later goes over its budget. It is 
 Memory of the 2D tile colliders: the cell-to-box index (`boxAt`) holds 4 bytes per cell of every solid-collider Tilemap for as long as the map has a body, and the boxes it points at never shrink (an edit frees a box's slot for the next one, it does not return memory), so a 4096 x 4096 map costs 64 MiB of index. Editing a long run recreates its whole box (a floor cut in two: both halves are new shapes), so a body resting on the far end of it gets an End and a Begin collision event for that frame. The reachability labels of a nav grid cost 5 bytes per span (a label and a flag) and are made only after a search failed.
 
 The 3D contact manifolds (M94.4d: up to four points per box pair with feature ids) and the soft contacts of the stacking
-package (M94.4h: soft step, a Jacobi solve of each manifold, sleeping rules; docs/ARCHITECTURE.md, "3D contact solver,
+package (M94.4h: soft step, a Jacobi solve of each manifold, sleeping rules; docs/design/ARCHITECTURE.md, "3D contact solver,
 stacking") are measured by the scale tests (`engine/physics/tests/test_physics3d_scale.cpp`), which check the result and not
 only the time: a column of 100 boxes (spacing 1.02) stands and falls asleep after 240 steps with a drift of 0 mm, a column
 of 50 after 140 steps, a block of 5 x 5 x 4 boxes after 40, and the walled pit of 1000 spheres, capsules and boxes is asleep
