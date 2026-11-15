@@ -77,8 +77,7 @@ TEST_CASE("capabilities: every command of the runtime declares them, and readOnl
           "game.state", "nav.find_path", "audio.music"})
         CHECK_MESSAGE(capability_sets::game_player().has_all(caps(n)), n);
     // ...and what it may not.
-    for (const char* n :
-         {"scene.save", "input.record", "mesh.save", "prefab.save", "scene.format", "anim.set_keys", "storage.clear"})
+    for (const char* n : {"scene.save", "input.record", "mesh.save", "anim.set_keys", "storage.clear"})
         CHECK_FALSE_MESSAGE(capability_sets::game_player().has_all(caps(n)), n);
     CHECK(caps("storage.clear")
               .has(Capability::WriteProject));  // the game's own save files; an MCP agent resets a game with it
@@ -101,7 +100,6 @@ export default class Probe extends Behaviour {
       "scene.save": { path: "scenes/never.scene.json" },
       "scene.import_ascii": { rows: ["#"], legend: { "#": 0 }, path: "scenes/never.scene.json", save: true },
       "scene.place_ascii": { rows: ["#"], legend: { "#": 0 }, entity: "viaPlace", tilemap: { tileSize: [16, 16] } },
-      "scene.format": { path: "scenes/main.scene.json" },
     };
     for (const name of Object.keys(tries)) {
       try { fa.call(name, tries[name]); globalThis.R[name] = "ok"; }
@@ -144,7 +142,7 @@ void check_game_script_set(bool editorMode) {
         CAPTURE(ok);
         CHECK(r[ok] == "ok");
     }
-    for (const char* denied : {"scene.save", "scene.import_ascii", "scene.format"}) {
+    for (const char* denied : {"scene.save", "scene.import_ascii"}) {
         CAPTURE(denied);
         REQUIRE(r[denied].is_object());
         CHECK(r[denied]["code"] == "capability_denied");

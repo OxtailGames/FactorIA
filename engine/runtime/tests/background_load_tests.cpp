@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-#include "../src/background_loader.h"
+#include "fa/runtime/internal/background_loader.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/jobs.h"
