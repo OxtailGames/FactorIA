@@ -192,7 +192,7 @@ Si el equipo se queda sin memoria, limita los procesos: `cmake --build --preset 
 - **`cl.exe not found`**: usa «Developer PowerShell for VS 2022».
 - **`running scripts is disabled on this system`**: ejecuta el script con `-ExecutionPolicy Bypass`.
 
-Más detalles en `docs/BUILDING.md`.
+Más detalles en `docs/design/BUILDING.md`.
 
 ## 2. Crear tu primer juego
 
@@ -442,9 +442,9 @@ Las claves y los valores fijos (`category`, `severity`) van en inglés, como en 
 
 - `factoria help <comando>` muestra la ayuda y ejemplos de cada comando. `docs/CLI.md` describe todos los comandos y opciones.
 - `docs/AI_GUIDE.md` (en inglés): la guía completa para una IA que construye un juego. Si eres una IA, léela antes de tocar un juego. Está disponible también con `factoria docs read ai-guide`.
-- `docs/ARCHITECTURE.md`: diseño, módulos y convenciones.
+- `docs/design/ARCHITECTURE.md`: diseño, módulos y convenciones.
 - `docs/SCRIPTING.md`: la API de JavaScript: comportamientos, herramientas y tests.
 - `docs/EXTENDING.md`: cómo añadir herramientas de proyecto y comandos del motor.
 - `docs/MCP.md`, `docs/AI_PROVIDERS.md` y `docs/ENGINE_FEEDBACK.md`: conexión con IA y registro de lo que le falta al motor.
-- `docs/BUILDING.md`: requisitos y compilación por plataforma.
+- `docs/design/BUILDING.md`: requisitos y compilación por plataforma.
 - `docs/EXPORTING.md` y `docs/MOBILE.md`: exportar juegos y compilarlos para móvil.

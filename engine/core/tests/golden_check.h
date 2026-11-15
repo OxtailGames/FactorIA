@@ -2,7 +2,7 @@
 // engine/render/tests/golden, the menus and export goldens in tools/cli/tests/golden). Header-only on purpose: the
 // render and CLI test binaries include it by relative path, and engine/core/tests/test_golden.cpp tests it.
 //
-// The rules (docs/ARCHITECTURE.md, "Testing"; docs/BUILDING.md, "Golden images"):
+// The rules (docs/design/ARCHITECTURE.md, "Testing"; docs/design/BUILDING.md, "Golden images"):
 //  - A golden that does not exist FAILS the test. Only FA_UPDATE_GOLDENS=1 writes goldens (FA_UPDATE_GOLDEN=1, the old
 //    spelling, still works). A test that silently wrote its own reference compared the picture with itself.
 //  - A picture matches when all three hold: the mean error over all channels, the share of pixels with any channel off
@@ -119,7 +119,7 @@ inline GoldenResult compare_golden(const Image& img, const std::filesystem::path
             << " does not exist. A missing golden is a failure, not a new reference: "
             << "if this picture is the intended one, run the test once with FA_UPDATE_GOLDENS=1, look at the written "
                "PNG and "
-               "commit it (docs/BUILDING.md, \"Golden images\")";
+               "commit it (docs/design/BUILDING.md, \"Golden images\")";
         r.message = msg.str();
         return r;
     }
@@ -150,7 +150,7 @@ inline GoldenResult compare_golden(const Image& img, const std::filesystem::path
         r.diff.maxError > limits.maxPixelError)
         r.verdict = GoldenVerdict::TooDifferent;
     r.message = msg.str();
-    // FA_GOLDEN_REPORT=1: one line per golden with the measured numbers, to choose limits from a backend (docs/BUILDING.md).
+    // FA_GOLDEN_REPORT=1: one line per golden with the measured numbers, to choose limits from a backend (docs/design/BUILDING.md).
     if (const char* report = std::getenv("FA_GOLDEN_REPORT");
         report && std::string(report) == "1" && r.verdict != GoldenVerdict::Wrote)
         std::fprintf(stderr, "GOLDEN %s mean=%.6f share=%.6f max=%.4f\n", fs::path_to_utf8(golden.filename()).c_str(),

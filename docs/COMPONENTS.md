@@ -3361,7 +3361,7 @@ Read a documentation page (Markdown), a section or a line range; long pages come
 
 Capabilities: read
 
-Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and `next`, the exact call that continues. Read one section by heading: {"name":"ai-guide","heading":"Platformer character"} (case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with startLine/maxLines. Names: see docs.list (e.g. ai-guide, architecture, scripting, components, licenses). To find where something is, docs.search returns sections with their line numbers.
+Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and `next`, the exact call that continues. Read one section by heading: {"name":"ai-guide","heading":"Platformer character"} (case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with startLine/maxLines. Names: see docs.list (e.g. ai-guide, scripting, licenses). The menu kit's files are `menu-kit/<file>` (the name "menu-kit" lists them). The component and command references are not pages: use docs.components and docs.commands. To find where something is, docs.search returns sections with their line numbers.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

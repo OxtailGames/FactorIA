@@ -773,7 +773,7 @@ keyboard instead ([MENUS.md](MENUS.md), "On-screen keyboard (gamepad players)").
 ## Web
 
 A game also runs in a browser page: the player is compiled to WebAssembly with Emscripten and draws with WebGL 2
-(`docs/BUILDING.md`, "Web"). `factoria export --platform web` writes the page and the files next to it (docs/EXPORTING.md):
+(`docs/design/BUILDING.md`, "Web"). `factoria export --platform web` writes the page and the files next to it (docs/EXPORTING.md):
 
 | File | What it is |
 |---|---|

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Player size budgets (docs/BUILDING.md, "Player size budgets"): measures factoria_player, compares it with
+# Player size budgets (docs/design/BUILDING.md, "Player size budgets"): measures factoria_player, compares it with
 # tools/size/player_size_budget.json and writes player-size-<platform>.json and .md (and $GITHUB_STEP_SUMMARY).
 #
 #   scripts/player-size.sh measure --platform <key> [--build-dir <dir>] [--out-dir <dir>]

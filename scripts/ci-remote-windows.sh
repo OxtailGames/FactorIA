@@ -66,7 +66,7 @@ DIR="${FACTORIA_WINDOWS_DIR:-$(conf_get FACTORIA_WINDOWS_DIR)}"
 SKIP_MSG="Windows PC off/unreachable: native MSVC check skipped; the Docker MinGW+Wine job and the Windows file-rules emulation still cover part of it."
 not_set_up() {
     echo "ci-remote-windows: $1" >&2
-    echo "  Set it up once: scripts/setup-windows-remote.sh (it prints what to run on the PC; docs/BUILDING.md, \"Checking Windows from the Mac\")." >&2
+    echo "  Set it up once: scripts/setup-windows-remote.sh (it prints what to run on the PC; docs/design/BUILDING.md, \"Checking Windows from the Mac\")." >&2
     exit 77
 }
 [ -n "$DIR" ] || not_set_up "the PC's folder for the check is not stored ($CONF)."

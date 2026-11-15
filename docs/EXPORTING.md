@@ -302,7 +302,7 @@ download is done; **no** = that host cannot do it. The cells come from the expor
 | `linux --format appimage` ([AppImage](#linux-appimage)) | `factoria setup appimage` (about 16 MB; Linux x86_64 only, so WSL on Windows) | in WSL, after setup | after setup (x86_64) | no |
 | `macos` `.app` | the macOS player, same sources. The ad hoc `codesign` runs only on a Mac; elsewhere the app is not signed | after setup | after setup | yes |
 | `macos` signed and notarized ([Signing and notarizing](#signing-and-notarizing-for-macos)) | `codesign`, `xcrun notarytool` and `stapler` (Xcode command-line tools), a Developer ID Application certificate (Apple Developer Program) and a notary profile. Notarization uploads to Apple | no | no | online (notarization) |
-| `web` ([Web](#web)) | `web/` (`factoria_player.js` + `.wasm`): in the download; for a source build `factoria setup players --platforms web` (about 15-33 MB) or, on a development build ahead of the last release, `factoria setup webplayer` (builds it from the checkout), or an Emscripten 6.0.10 build of the engine passed with `--player` ([BUILDING.md](BUILDING.md)) | after setup | after setup | after setup |
+| `web` ([Web](#web)) | `web/` (`factoria_player.js` + `.wasm`): in the download; for a source build `factoria setup players --platforms web` (about 15-33 MB) or, on a development build ahead of the last release, `factoria setup webplayer` (builds it from the checkout), or an Emscripten 6.0.10 build of the engine passed with `--player` ([BUILDING.md](design/BUILDING.md)) | after setup | after setup | after setup |
 | `android --format gradle` ([Android](#android)) | no JDK, no SDK. The project holds the Android libraries (prebuilt mode) or is generated from an engine checkout (source mode) | after setup (`players --platforms mobile`) or with a checkout: yes | same | same |
 | `android` apk / aab, **prebuilt** ([modes](#mobile-exports-prebuilt-or-source)) | a JDK 17+ (17 and 21 are tested; `factoria setup android` installs Temurin 21) and the Android SDK with `platforms;android-36` and `build-tools;35.0.0` (same command, about 500 MB, accepts the SDK license); the Android libraries as above. No NDK, no CMake. The first build downloads Gradle 8.14.3 and the Android Gradle plugin | after setup, then after one online build | same | same |
 | `android` apk / aab, **from source** | the same JDK and SDK, an engine checkout (`--engine-root` or `FACTORIA_ENGINE_DIR`), and NDK r27+ (`ndk;27.2.12479018`) and a CMake 3.24+: 3.31.6 in the SDK, else any other 3.24+ in the SDK, else one on this computer (the export points Gradle at it with `cmake.dir`). `factoria setup android` does not install the NDK or the CMake: `sdkmanager "ndk;27.2.12479018" "cmake;3.31.6"`. Compiles the engine for two ABIs (minutes) | after setup, then after one online build | same | same |
@@ -430,7 +430,7 @@ interrupted install never looks installed. The programs used are `curl` (macOS, 
 
 **`players` needs a release.** It downloads the packages of release `v<version>` of `OxtailGames/FactorIA`, the version that
 `factoria version` prints. A development build ahead of the last release fails with code `no_release` and names the newest
-release; build the player on the other OS (BUILDING.md) and pass it with `--player`, or use a downloaded factoria. A
+release; build the player on the other OS (docs/design/BUILDING.md) and pass it with `--player`, or use a downloaded factoria. A
 player has to match the factoria that copies it into a game, which is why the folder carries the version.
 
 **The export uses what was installed.** `--player` and `--mobile-dir` still win; then the `mobile/` folder next to
@@ -635,12 +635,12 @@ the players of any release carry another fingerprint. What each player needs:
   `factoria export --platform web` finds it with no flag. A first build takes several minutes; an up-to-date player is not built
   again (`--force` does). Build `factoria` from the same commit: the fingerprint of an uncommitted checkout ends in `-dirty`
   and the setup says when the two differ. By hand, the same is `source emsdk_env.sh; cmake --preset web-release; cmake --build
-  --preset web-release` ([BUILDING.md](BUILDING.md), "Web").
+  --preset web-release` ([BUILDING.md](design/BUILDING.md), "Web").
 - **Windows, Linux, macOS, Android and iOS.** `factoria setup players` does not fail: when `v<version>` has no release it takes
   the players of the newest release, installs them under this version's folder and warns that their fingerprint will not
   match this `factoria`. They run the game when the release is close enough, but an export that uses them stops on the
   mismatch until you pass `--allow-player-mismatch` (`allowPlayerMismatch`). Only when even the newest release cannot be read
-  does it fail (`no_release`); then build the player on that OS (BUILDING.md) and pass `--player`.
+  does it fail (`no_release`); then build the player on that OS (docs/design/BUILDING.md) and pass `--player`.
 
 **A player with no fingerprint** is one from a release older than the check (v0.2.0 and earlier). `factoria setup players`
 installs the players of *this factoria's version*, so on a newer `factoria` built from source it would put the same old
@@ -682,7 +682,7 @@ what `factoria version` prints after `factoria`) and exits.
 linked in), so a Linux game needs glibc 2.31 or newer and the usual desktop libraries (`libX11`, `libXi`, `libXcursor`,
 `libGL.so.1`, `libEGL.so.1`, `libasound.so.2`): it runs in Steam's Linux runtime (Steam Deck included), on Ubuntu 20.04
 and newer, Debian 11 and newer, Fedora and Arch. A player you build yourself with `linux-release` needs at least the glibc
-of the machine that built it; `scripts/build-sniper.sh` makes the portable one ([BUILDING.md](BUILDING.md)).
+of the machine that built it; `scripts/build-sniper.sh` makes the portable one ([BUILDING.md](design/BUILDING.md)).
 
 **Native plugins** ([EXTENDING.md](EXTENDING.md), section G). The export copies the build of every plugin declared for
 the platform next to the executable: the contents of the plugin's `windows/` or `linux/` folder (its library and the
@@ -952,7 +952,7 @@ it) and `packStats` (below); its `files` lists what is on disk.
 
 **How the player uses it.** It looks for `game/` next to the executable first (so a folder always wins, which makes it easy to
 try a changed file), then for `game.pak`; `factoria_player path/to/game.pak` runs a pack from anywhere. It mounts the pack into
-the virtual file system the whole engine reads through (`fa::fs::mount_pack`, [ARCHITECTURE.md](ARCHITECTURE.md)): `factoria.json`, scenes,
+the virtual file system the whole engine reads through (`fa::fs::mount_pack`, [ARCHITECTURE.md](design/ARCHITECTURE.md)): `factoria.json`, scenes,
 prefabs, textures, sounds, fonts, scripts, `import`s and the window icon all come out of it, and a game that works from the folder
 works from the pack. Only the index (the list of paths with their offsets) is read at start; a file is read when the game asks
 for it, and any number of threads can read at once, so a large pack starts as fast as a small one. On a 64-bit desktop
@@ -1086,7 +1086,7 @@ What each desktop export takes from [Platform settings](#platform-settings):
   [AppImage](#linux-appimage) carries the same entry, with `Icon=<name>` and the game's version.
 
 Windows: the player of a release download would carry FactorIA's signature if the release were signed, but the
-Windows releases are not signed yet ([BUILDING.md](BUILDING.md), "Code signing"), and one built from source never is.
+Windows releases are not signed yet ([BUILDING.md](design/BUILDING.md), "Code signing"), and one built from source never is.
 Writing the game's icon and version
 information edits the exe, which invalidates a signature, so the export removes it (the certificate table at the end of
 the file) and says so in the report: an exe with the wrong signature is worse than an unsigned one. Only a player
@@ -1158,7 +1158,7 @@ system Python is too old for `emsdk`: `brew install python@3.13` and `export EMS
 3. The one `factoria setup players --platforms web` installed (`<FactorIA home>/players/<version>/web/`, taken from the
    download of this machine's own OS; a factoria that has `web/` next to it never needs it).
 4. A web build of the engine source: `build/web-release/player/` (or `build/web/player/`) in the checkout factoria was
-   built from ([BUILDING.md](BUILDING.md)). A build directory elsewhere: pass its `player/` folder with `--player`.
+   built from ([BUILDING.md](design/BUILDING.md)). A build directory elsewhere: pass its `player/` folder with `--player`.
 
 Without `--player` the export looks at 2, then the checkout's build (4), then 3, and takes the first whose build
 fingerprint is this factoria's: a fresh `build/web-release` wins over an installed player of an older release. When none

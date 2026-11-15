@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Docs (M97.3a):** the docs are laid out for reading cheaply. `docs/COMPONENTS.md` (1.8 MB) is no longer inside the
+  binary: `docs.read components` answers with a pointer to `docs.components`, which serves one component at a time (the
+  file stays in the repository for GitHub readers). `docs/MENUS.md` no longer prints the files of the menu kit (257 KB
+  to 85 KB): `docs.read menu-kit` lists them and `docs.read menu-kit/scripts/settings.js` reads one, straight from the
+  kit `project.add_menu_kit` copies. `ARCHITECTURE.md` and `BUILDING.md` moved to `docs/design/` and are not in the
+  binary (the engine developers read the repository). README.md and README.es.md are organised by audience and link
+  every doc; a test keeps it so.
+
 ## 0.29.1
 
 FactorIA 0.29.1 fixes the two crashes the weekly fuzz run found in 0.29.0: a damaged PostScript (`CFF `)
@@ -67,7 +75,7 @@ report.
   player over its budget does not skip the tests), and a link map the script cannot read only adds a `note` to the
   report. The Android job of `ci.yml` now builds Release with `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON` (the flag
   release.yml uses), so no PR job builds an Android Debug anymore. Every platform's budget is its size in the M96 CI run
-  plus 10 %. See docs/BUILDING.md, "Player size budgets".
+  plus 10 %. See docs/design/BUILDING.md, "Player size budgets".
 - Script budgets. `runtime.scriptMemoryMB` (the JavaScript heap cap, default 768 MB as before) is a project setting, a
   number or `{"default": n, "android": n, "web": n, ...}` per platform, range 16 to 2048 with a teaching error; an
   out-of-memory error names the setting and its value. `runtime.scriptFrameBudgetMs` (default 8 ms, 0 turns it off, also
