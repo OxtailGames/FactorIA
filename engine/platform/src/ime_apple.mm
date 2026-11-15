@@ -11,6 +11,7 @@
 #include <TargetConditionals.h>
 
 #include <algorithm>
+#include <string>
 #include <vector>
 
 #include <fa/platform/input.h>
@@ -62,6 +63,7 @@ fa::Input* g_input = nullptr;
     BOOL hasMarked;
     NSUInteger markedLength;  // UTF-16 units of the marked text
     NSRange markedSelection;  // the caret / clause inside it, UTF-16
+    std::u32string markedText;  // the pre-edit string last sent: unmarkText commits it
     fa::Rect caret;           // framebuffer pixels, as ime_set_caret_rect() got it
     // While keyDown: runs:
     BOOL inKeyDown;
@@ -89,6 +91,7 @@ fa::Input* g_input = nullptr;
     hasMarked = NO;
     markedLength = 0;
     markedSelection = NSMakeRange(0, 0);
+    markedText.clear();
     if (input && input->composing()) input->on_composition_cancel();
     if (was) [[NSTextInputContext currentInputContext] discardMarkedText];
 }
@@ -164,15 +167,23 @@ fa::Input* g_input = nullptr;
     const std::size_t selLoc = selectedRange.location == NSNotFound ? text.size() : selectedRange.location;
     fa::ime_text::Marked m = fa::ime_text::marked_from_utf16(text, selLoc, selectedRange.length, runs);
     hasMarked = YES;
+    markedText = m.text;
     markedLength = s.length;
     markedSelection = NSMakeRange(std::min<NSUInteger>(selLoc, s.length), selectedRange.length);
     input->on_composition_update(std::move(m.text), m.caret, m.selLength);
 }
 
+// AppKit calls this when the window loses the focus, the input source changes or a click lands with a composition open: the
+// marked text is accepted as if it had been inserted (NSTextInputClient). Only ime_cancel() and an emptied marked text drop it.
 - (void)unmarkText {
     if (!hasMarked) return;
-    consumed = YES;  // the marked text is dropped, not typed: a commit arrives through insertText
-    [self cancelComposition];
+    consumed = YES;
+    hasMarked = NO;
+    markedLength = 0;
+    markedSelection = NSMakeRange(0, 0);
+    std::u32string text = std::move(markedText);
+    markedText.clear();
+    if (input) input->on_composition_commit(std::move(text));
 }
 
 - (NSRange)selectedRange {
@@ -248,8 +259,9 @@ void view_doCommand(id, SEL, SEL s) { [g_client doCommandBySelector:s]; }
 
 Class g_hookedClass = Nil;
 
-void add_method(Class cls, SEL sel, IMP imp, const char* types) {
-    if (!class_addMethod(cls, sel, imp, types)) NSLog(@"FactorIA: the IME could not add %s to the view", sel_getName(sel));
+void add_method(Class cls, SEL sel, IMP imp, const std::string& types) {
+    if (!class_addMethod(cls, sel, imp, types.c_str()))  // the runtime copies the type string
+        NSLog(@"FactorIA: the IME could not add %s to the view", sel_getName(sel));
 }
 
 // Makes sokol_app's view an NSTextInputClient. Idempotent; a key still reaches the game as before until ime_set_enabled(true).
@@ -261,26 +273,23 @@ void install_on_view() {
     g_hookedClass = cls;
     client().view = view;
     class_addProtocol(cls, @protocol(NSTextInputClient));
-    const NSString* range = [NSString stringWithUTF8String:@encode(NSRange)];
-    const NSString* rect = [NSString stringWithUTF8String:@encode(NSRect)];
-    auto t = ^(NSString* format) { return [format UTF8String]; };
+    const std::string range = @encode(NSRange), rect = @encode(NSRect);
     Method key = class_getInstanceMethod(cls, @selector(keyDown:));
     method_setImplementation(key, (IMP)view_keyDown);
-    add_method(cls, @selector(insertText:replacementRange:), (IMP)view_insertText,
-               t([NSString stringWithFormat:@"v@:@%@", range]));
+    add_method(cls, @selector(insertText:replacementRange:), (IMP)view_insertText, "v@:@" + range);
     add_method(cls, @selector(setMarkedText:selectedRange:replacementRange:), (IMP)view_setMarkedText,
-               t([NSString stringWithFormat:@"v@:@%@%@", range, range]));
+               "v@:@" + range + range);
     add_method(cls, @selector(unmarkText), (IMP)view_unmarkText, "v@:");
-    add_method(cls, @selector(selectedRange), (IMP)view_selectedRange, t([NSString stringWithFormat:@"%@@:", range]));
-    add_method(cls, @selector(markedRange), (IMP)view_markedRange, t([NSString stringWithFormat:@"%@@:", range]));
-    add_method(cls, @selector(hasMarkedText), (IMP)view_hasMarkedText, t([NSString stringWithFormat:@"%s@:", @encode(BOOL)]));
+    add_method(cls, @selector(selectedRange), (IMP)view_selectedRange, range + "@:");
+    add_method(cls, @selector(markedRange), (IMP)view_markedRange, range + "@:");
+    add_method(cls, @selector(hasMarkedText), (IMP)view_hasMarkedText, std::string(@encode(BOOL)) + "@:");
     add_method(cls, @selector(attributedSubstringForProposedRange:actualRange:), (IMP)view_attributedSubstring,
-               t([NSString stringWithFormat:@"@@:%@^%@", range, range]));
+               "@@:" + range + "^" + range);
     add_method(cls, @selector(validAttributesForMarkedText), (IMP)view_validAttributes, "@@:");
     add_method(cls, @selector(firstRectForCharacterRange:actualRange:), (IMP)view_firstRect,
-               t([NSString stringWithFormat:@"%@@:%@^%@", rect, range, range]));
+               rect + "@:" + range + "^" + range);
     add_method(cls, @selector(characterIndexForPoint:), (IMP)view_characterIndex,
-               t([NSString stringWithFormat:@"%s@:%s", @encode(NSUInteger), @encode(NSPoint)]));
+               std::string(@encode(NSUInteger)) + "@:" + @encode(NSPoint));
     add_method(cls, @selector(doCommandBySelector:), (IMP)view_doCommand, "v@::");
 }
 
@@ -363,14 +372,20 @@ Rect first_rect(Client* h) {
 
 #else
 // ---- iOS --------------------------------------------------------------------------------------------------------------------
-// sokol_app's hidden UITextField holds "x" (so Backspace has something to delete) and what the keyboard types after it. Its
-// delegate returns NO for everything and sends CHAR events, which cannot compose: ours lets the field change, reads it after
-// each change (UITextFieldTextDidChangeNotification), turns what the keyboard marks into a composition update and what it
-// leaves unmarked into text, and puts the field back to "x". Enter and Backspace stay sokol_app's.
+// sokol_app's hidden UITextField holds the sentinel "x" (so Backspace has something to delete) and what the keyboard types after
+// it. Its delegate returns NO for everything and sends CHAR events, which cannot compose: ours lets the field change, reads it
+// after each change (UITextFieldTextDidChangeNotification), turns what the keyboard marks into a composition update and what it
+// leaves unmarked into text, and puts the field back to the sentinel. Enter and Backspace stay sokol_app's.
+//
+// A keyboard may confirm part of a composition and go on marking after it (Korean: "x" + "han" confirmed + marked "g"): that
+// confirmed text stays in the field while the composition lasts, and g_delivered counts the UTF-16 units of it already sent as a
+// commit, so each is delivered once. If the field ever stops starting with the sentinel (autocorrect or the keyboard replaced
+// it) nothing can be told apart safely: the composition is cancelled, the field reset, and one log line says so.
 namespace {
 bool g_enabled = false;
-bool g_composing = false;  // an update was sent and no commit yet
-bool g_suppress = false;   // the field is being changed by us
+bool g_composing = false;      // an update was sent and no commit yet
+bool g_suppress = false;       // the field is being changed by us
+NSUInteger g_delivered = 0;    // UTF-16 units after the sentinel that were committed while the composition went on
 NSString* const kSentinel = @"x";
 }  // namespace
 
@@ -389,16 +404,50 @@ void reset_field(UITextField* tf) {
     [tf unmarkText];
     tf.text = kSentinel;
     g_suppress = false;
+    g_delivered = 0;
+}
+
+// What the keyboard typed, without the control characters (Enter and Backspace are keys).
+std::u32string visible_text(NSString* s) {
+    std::u32string out;
+    for (const char32_t c : fa::ime_text::utf16_to_utf32(to_u16(s)))
+        if (c >= 32 && c != 127) out.push_back(c);
+    return out;
+}
+
+void sentinel_lost(UITextField* tf) {
+    static bool logged = false;
+    if (!logged) {
+        logged = true;
+        NSLog(@"FactorIA: the keyboard changed the IME's text field (text '%@'): the composition was cancelled", tf.text);
+    }
+    if (g_composing && g_input->composing()) g_input->on_composition_cancel();
+    g_composing = false;
+    reset_field(tf);
 }
 
 void field_changed(UITextField* tf) {
     if (g_suppress || !active()) return;
     NSString* text = tf.text ?: @"";
+    const NSUInteger base = kSentinel.length + g_delivered;  // where what is not delivered yet begins
+    if (![text hasPrefix:kSentinel] || text.length < base) {
+        sentinel_lost(tf);
+        return;
+    }
     if (UITextRange* marked = tf.markedTextRange) {
         const NSInteger loc = std::clamp<NSInteger>([tf offsetFromPosition:tf.beginningOfDocument toPosition:marked.start], 0,
                                                     NSInteger(text.length));
         const NSInteger len =
             std::clamp<NSInteger>([tf offsetFromPosition:marked.start toPosition:marked.end], 0, NSInteger(text.length) - loc);
+        if (NSUInteger(loc) < base) {
+            sentinel_lost(tf);
+            return;
+        }
+        if (NSUInteger(loc) > base) {  // text confirmed before the marked part: it is typed now, the composition goes on after it
+            const std::u32string done = visible_text([text substringWithRange:NSMakeRange(base, NSUInteger(loc) - base)]);
+            if (!done.empty()) g_input->on_composition_commit(done);
+            g_delivered = NSUInteger(loc) - kSentinel.length;
+        }
         const std::u16string pre = to_u16([text substringWithRange:NSMakeRange(loc, len)]);
         NSInteger selLoc = 0, selLen = 0;
         if (UITextRange* sel = tf.selectedTextRange) {
@@ -412,14 +461,14 @@ void field_changed(UITextField* tf) {
         g_input->on_composition_update(std::move(m.text), m.caret, m.selLength);
         return;
     }
-    NSString* body = [text hasPrefix:kSentinel] ? [text substringFromIndex:kSentinel.length] : text;
-    const std::u32string typed = fa::ime_text::utf16_to_utf32(to_u16(body));
+    NSString* body = [text substringFromIndex:base];
+    const std::u32string typed = visible_text(body);
     if (g_composing) {
         g_composing = false;
-        std::u32string visible;
-        for (const char32_t c : typed)
-            if (c >= 32 && c != 127) visible.push_back(c);
-        g_input->on_composition_commit(std::move(visible));
+        if (typed.empty())  // Backspace took back the last marked character: nothing was typed
+            g_input->on_composition_cancel();
+        else
+            g_input->on_composition_commit(typed);
     } else {
         deliver_text(*g_input, typed);
         if ([body isEqualToString:@" "]) {  // sokol_app also sends the Space key
@@ -442,6 +491,15 @@ void install_on_field() {
                                                                     queue:nil
                                                                usingBlock:^(NSNotification*) { field_changed(tf); }];
 }
+
+// The game's Input goes away: the observer (it holds the field) is removed and sokol_app has its delegate back.
+void uninstall_from_field() {
+    if (g_observer) [[NSNotificationCenter defaultCenter] removeObserver:g_observer];
+    g_observer = nil;
+    if (UITextField* tf = (__bridge UITextField*)fa_sapp_ios_textfield())
+        if (g_delegate && tf.delegate == g_delegate) tf.delegate = g_delegate.sokol;
+    g_delegate = nil;
+}
 }  // namespace
 
 @implementation FaImeFieldDelegate
@@ -456,11 +514,11 @@ void install_on_field() {
 namespace fa {
 
 void ime_apple_attach(Input* input) {
-    g_input = input;
-    if (!input && g_composing) {
-        g_composing = false;
-        if (UITextField* tf = (__bridge UITextField*)fa_sapp_ios_textfield()) reset_field(tf);
+    if (!input) {
+        ime_backend_cancel();
+        uninstall_from_field();
     }
+    g_input = input;
     if (input) install_on_field();
 }
 
@@ -471,9 +529,9 @@ void ime_apple_keyboard_shown() {
 // ime_set_enabled shows and hides nothing: the keyboard is mobile_show_keyboard()'s (the UI calls both while a TextField has
 // the focus). Enabled means "the keyboard's marked text is a composition".
 void ime_backend_set_enabled(bool enabled) {
+    if (!enabled) ime_backend_cancel();
     g_enabled = enabled;
     if (enabled) install_on_field();
-    else ime_backend_cancel();
 }
 
 // The field is a hidden view: the system places its candidate bar and a hardware keyboard's popup by the field's frame.
@@ -484,7 +542,9 @@ void ime_backend_set_caret_rect(Rect r) {
     tf.frame = CGRectMake(r.x / s, r.y / s, std::max(r.w / s, 1.0f), std::max(r.h / s, 1.0f));
 }
 
+// Like macOS: Input's composition is ended (a no-op when the UI already did) and the field starts over.
 void ime_backend_cancel() {
+    if (g_input && g_input->composing()) g_input->on_composition_cancel();
     g_composing = false;
     if (UITextField* tf = (__bridge UITextField*)fa_sapp_ios_textfield()) reset_field(tf);
 }

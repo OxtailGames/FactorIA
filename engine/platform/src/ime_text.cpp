@@ -39,8 +39,10 @@ CpRange utf16_range_to_cp(std::u16string_view text, std::size_t loc, std::size_t
         if (i < end) stop = index + 1;        // it starts before the range's end: the range reaches it
         i += n;
     }
-    if (end == loc) stop = start;
-    else if (stop < start) stop = start;
+    if (end == loc)
+        stop = start;
+    else if (stop < start)
+        stop = start;
     return {start, stop - start};
 }
 
