@@ -12,7 +12,7 @@
 #include <filesystem>
 #include <format>
 
-#include "engine_impl.h"
+#include "authoring_internal.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/scene/anim_clip.h"

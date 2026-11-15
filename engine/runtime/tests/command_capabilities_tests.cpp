@@ -71,13 +71,12 @@ TEST_CASE("capabilities: every command of the runtime declares them, and readOnl
 
     auto caps = [&](const char* name) { return e.commands().info(name)->capabilities; };
     // What a game script may call (read + state)...
-    for (const char* n :
-         {"scene.spawn", "scene.set_component", "scene.load", "game.step", "game.input", "ui.set_slider", "mesh.create",
-          "tilemap.set_tile", "vfx.play", "game.screenshot", "anim.filmstrip", "vfx.filmstrip", "script.eval",
-          "game.state", "nav.find_path", "audio.music"})
+    for (const char* n : {"scene.spawn", "scene.set_component", "scene.load", "game.step", "game.input",
+                          "ui.set_slider", "mesh.create", "tilemap.set_tile", "vfx.play", "game.screenshot",
+                          "vfx.filmstrip", "script.eval", "game.state", "nav.find_path", "audio.music"})
         CHECK_MESSAGE(capability_sets::game_player().has_all(caps(n)), n);
     // ...and what it may not.
-    for (const char* n : {"scene.save", "input.record", "mesh.save", "anim.set_keys", "storage.clear"})
+    for (const char* n : {"scene.save", "input.record", "mesh.save", "storage.clear"})
         CHECK_FALSE_MESSAGE(capability_sets::game_player().has_all(caps(n)), n);
     CHECK(caps("storage.clear")
               .has(Capability::WriteProject));  // the game's own save files; an MCP agent resets a game with it
@@ -265,10 +264,6 @@ std::vector<WriterCase> writer_cases(const std::string& mesh) {
          [](const std::string& p) {
              return Json::object({{"file", p}, {"ops", Json::parse(R"([{"op":"put","col":0,"row":0,"glyph":"#"}])")}});
          }},
-        {"anim.create_clip", ".anim.json",
-         [](const std::string& p) { return Json::object({{"path", p}, {"duration", 1.0}}); }},
-        {"anim.restore", ".anim.json",
-         [](const std::string& p) { return Json::object({{"path", p}, {"clip", nullptr}}); }},
         {"mesh.save", ".glb", [mesh](const std::string& p) { return Json::object({{"id", mesh}, {"path", p}}); }},
     };
 }
@@ -386,10 +381,6 @@ TEST_CASE("capabilities: every command that writes a caller's path confines it (
     CHECK(error_code(e.commands().call(
               "scene.save", Json::object({{"path", (outside.dir / "abs.scene.json").generic_string()}}))) == "ok");
     CHECK(stdfs::exists(outside.dir / "abs.scene.json"));
-    CHECK(error_code(e.commands().call(
-              "anim.create_clip",
-              Json::object({{"path", (outside.dir / "abs.anim.json").generic_string()}, {"duration", 1.0}}))) == "ok");
-    CHECK(stdfs::exists(outside.dir / "abs.anim.json"));
     CHECK(error_code(e.commands().call(
               "mesh.save", Json::object({{"id", meshId}, {"path", (outside.dir / "abs.glb").generic_string()}}))) ==
           "ok");

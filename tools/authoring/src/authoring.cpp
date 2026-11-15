@@ -14,6 +14,10 @@ void register_authoring_commands(Engine& engine) {
 
     // scenes, prefabs
     register_scene_file_commands(engine, impl);
+
+    // animation, rigs
+    register_anim_commands(engine, impl);   // anim.create_clip, anim.set_keys, anim.list, anim.check, ...
+    register_bones_commands(engine, impl);  // bones.create, skin.bind, skin.auto_weights, skin.set_weights
 }
 
 }  // namespace
