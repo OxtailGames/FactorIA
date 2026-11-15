@@ -839,7 +839,9 @@ an RGBA16F target, or with 1 and 4 samples, are two entries of one cache, and no
 RGBA16F fall-back above, a float render target). The cache is bounded by use: `begin_frame()` counts frames, and once it holds more
 than 192 pipelines (`Gpu::kPipelineCacheCap`; the engine's own set is about 50) a pipeline no draw asked for during the last 300
 frames (`kPipelineIdleFrames`) is destroyed, checked every 16 frames, and made again if it is ever asked for. A cache under the
-cap keeps everything, the warmed pipelines included; the limits count frames, never time. `pipelines`, `pipelineHits`,
+cap keeps everything, and the pipelines the warm-up makes or asks for (`Renderer::warm_step` runs each group between `Gpu::set_warming(true)` and
+`set_warming(false)`; a fixed set of about 20) are never destroyed at all, so a rarely used one that the warm-up paid for does not hitch (D3D11, Metal) when it comes back;
+the limits count frames, never time. `pipelines`, `pipelineHits`,
 `pipelinesMade` and `pipelinesEvicted` are in the start-up report (`loading.startup.gpu`). Shaders are GLSL annotated for
 `sokol-shdc`; generated headers are committed (`tools/shaders/compile_shaders.sh`). Every mesh program (`mesh`,
 `mesh_skin`, `shadow`, `shadow_skin`) comes from one template, `shaders/mesh_common.glsl`: a top file defines the
@@ -849,22 +851,25 @@ snippet, so the engine and the materials share one source of truth (an empty `su
 `MeshRenderer` without a material). Engine identifiers in the template start with `fa_`; `fa_time` (vertex and
 fragment) is `World::time()`, the engine clock. The template is embedded in `fa_tooling`.
 
-**Passes and targets.** One way to begin a pass and one way to make a target (`render_internal.h`, `gpu_types.h`). Every pass
-of the engine is a `PassDesc` (views, formats, load/store actions, clear values, label) given to `Gpu::begin_pass`, and
-`Gpu::end_pass` ends it: `sg_begin_pass` appears nowhere else in `engine/`. The defaults of a `PassDesc` are DONTCARE, not
-sokol's (a zero `sg_pass` CLEARS to grey), so each site says what it loads and stores. A pass into the window is
-`PassDesc::for_swapchain`, which resolves sokol's 0 (colour format, depth format, sample count) against the environment's
-defaults, so its `TargetFormat` is the one the pipelines are keyed by. In a Debug build `begin_pass` records the pass's format
-and every pipeline fetched while it runs must match it (an assertion names the mismatch); outside a pass, as in the warm-up, any
-format may be asked for. A `Target` is made by `make_target(TargetDesc)`: a colour image, its resolve image when `samples > 1`
-(`resolveAsColor` also gives the resolve a colour-attachment view, for bloom), an optional depth image, and their views
-(`colorAtt`, `resolveAtt`, `depthAtt`, `texView` for sampling), `pass_into(target, label)` is the matching `PassDesc` and
-`destroy_target` frees the lot. The game, CameraView and render-target images, the light buffer, the colour-filter image, the
-readback copy, the shadow map and the bloom levels are all `Target`s (`renderer_targets.cpp`, `transient_targets.cpp`). A game that draws
-its own window pass (the editor: ImGui over the viewport) does it with `Renderer::begin_window_pass` / `end_window_pass`, and
-the player clears its window with `Renderer::present_clear`, so neither `player/main.cpp` nor `editor_app.cpp` calls sokol for
-the game. The ImGui backend (`tools/editor/src/imgui_backend.cpp`) is a separate GPU client with its own pipelines and keeps
-using sokol directly.
+**Passes and targets.** One way to begin a pass and one way to make a target (`render_internal.h`, `gpu_types.h`). Every
+pass of the engine is a `PassDesc` (views, formats, load/store actions, clear values, label) given to `Gpu::begin_pass`,
+and `Gpu::end_pass` ends it: `sg_begin_pass` appears nowhere else in `engine/`. The defaults of a `PassDesc` are
+DONTCARE, not sokol's (a zero `sg_pass` CLEARS to grey), so each site says what it loads and stores. A pass into the
+window is `PassDesc::for_swapchain`, which resolves sokol's 0 (colour format, depth format, sample count) against the
+environment's defaults, so its `TargetFormat` is the one the pipelines are keyed by. In a Debug build `begin_pass`
+records the pass's format and every pipeline fetched while it runs must match it (an assertion names the mismatch);
+outside a pass, as in the warm-up, any format may be asked for. A `Target` is made by `make_target(TargetDesc)`: a
+colour image, its resolve image when `samples > 1` (`resolveAsColor` also gives the resolve a colour-attachment view,
+for bloom), an optional depth image, and their views (`colorAtt`, `resolveAtt`, `depthAtt`, `texView` for sampling),
+`pass_into(target, label)` is the matching `PassDesc` and `destroy_target` frees the lot. The game, CameraView and
+render-target images, the light buffer, the colour-filter image, the readback copy, the shadow map and the bloom levels
+are all `Target`s (`renderer_targets.cpp`, `transient_targets.cpp`). `Target::valid()` also needs the attachment views
+the target made (`colorAtt`, `resolveAtt`, `depthAtt`, `texView`), so a full view pool makes a target invalid, not only
+a full image pool, and the game target then falls back to RGBA8 like any other target the GPU could not make. A game
+that draws its own window pass (the editor: ImGui over the viewport) does it with `Renderer::begin_window_pass` /
+`end_window_pass`, and the player clears its window with `Renderer::present_clear`, so neither `player/main.cpp` nor
+`editor_app.cpp` calls sokol for the game. The ImGui backend (`tools/editor/src/imgui_backend.cpp`) is a separate GPU
+client with its own pipelines and keeps using sokol directly.
 
 **Cameras and viewports.** Every active `Camera` with `primary` draws, in ascending `depth`, into its `Camera.viewport`
 (normalized `[x, y, w, h]` of the target, top-left origin, at most 8 cameras; the loader and `camera_viewport_problem` in
@@ -912,6 +917,20 @@ a prefab, the inspector, an undo), so there is no choke point for a version coun
 entity (`Entity::bits()`, so a reused slot is another key), a copy of the JSON the hashes are of and hashes again only
 when the value differs from the copy (a JSON comparison, no allocation); entries nobody asked for in a frame (dead, hidden or
 without overrides) are dropped at its end.
+
+**Sort keys of the opaque meshes.** `build_batches` used to sort each camera's opaque items with a comparator of 26 fields
+(strings and floats); now every item carries a 64-bit `sortKey` (`SortKeyTable`, `mesh_batch.h`), made once per frame in
+`RenderScene::build` and sorted as an integer (a stable sort of (key, index) pairs, `render.sort_meshes`). Layout, most
+significant bits first: mesh name rank (12 bits), texture name rank (11), normal map name rank (11), "rest" rank (30: the
+other MeshRenderer values, the skinning entity, the material name, the two override hashes, the flash, in the order the
+comparator had). A rank is the position of the value among the DISTINCT values of the frame, in the order of the
+comparator (names as text, floats through `order_float`), never an address or an id of a table that outlives the frame; the
+table is rebuilt from nothing each frame, so it cannot grow, and the order equals the comparator's exactly (equal keys
+exactly where the comparator finds the items equal). A camera that swaps a mesh (lods) or a render-target texture ranks that
+item again from the same table. When a field has more distinct values than its bits (over 4096 meshes, or 2048 textures,
+in one frame) or a camera's value is not in the table, the items are left unkeyed and that list is sorted by the comparator
+as before. Batches are runs of equal keys (unequal keys end a batch without reading the fields; equal ones are still
+checked field by field).
 
 **Cameras inside the UI.** A `CameraView` (a UiBox widget) names a Camera. The UI gather (`draw_camera_view` in `ui2d.cpp`)
 asks the renderer for an image of the widget's size (`Frame::viewImage`; `Impl::viewTargets` caches one per widget, same formats

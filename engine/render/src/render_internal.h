@@ -306,9 +306,10 @@ struct TextLayout {
 // ---------------------------------------------------------------------------
 // Pipelines
 // ---------------------------------------------------------------------------
-// A pipeline is valid only for passes with the colour and depth formats and the sample count it was made for, so those are part
-// of its key (`format`, the TargetFormat of gpu_types.h): the same program drawn into an RGBA8 and an RGBA16F target, or with 1 and
-// 4 samples, is two entries that live side by side in Gpu's cache. Nothing is flushed when a target's format changes.
+// A pipeline is valid only for passes with the colour and depth formats and the sample count it was made for, so those
+// are part of its key (`format`, the TargetFormat of gpu_types.h): the same program drawn into an RGBA8 and an RGBA16F
+// target, or with 1 and 4 samples, is two entries that live side by side in Gpu's cache. Nothing is flushed when a
+// target's format changes.
 struct PipelineKey {
     std::uint32_t bits = 0;    // which pipeline (the getter and its flags)
     std::uint32_t shader = 0;  // sg_shader id of a custom material program (0 = the built-in one)
@@ -463,10 +464,11 @@ public:
     // Adds the quads of the item open in `part` (begun, not ended) to the item open here, after its own: how a job's
     // share of one big item (a band of rows of a Tilemap) joins it.
     void add_quads_of(const QuadList& part);
-    // Appends a copy of items [firstItem, firstItem + itemCount) of `src` (a list with no item open, not this one) after the items of
-    // this list: their vertices are copied, `seq` continues this list's, and `secondary` (when not null) replaces the items'
-    // secondary sort key. Returns the index the first copy has here. How a camera's list takes in what another camera's list
-    // already holds (Scene2D, scene2d.h): the result is what emitting the same items again would have made.
+    // Appends a copy of items [firstItem, firstItem + itemCount) of `src` (a list with no item open, not this one)
+    // after the items of this list: their vertices are copied, `seq` continues this list's, and `secondary` (when not
+    // null) replaces the items' secondary sort key. Returns the index the first copy has here. How a camera's list
+    // takes in what another camera's list already holds (Scene2D, scene2d.h): the result is what emitting the same
+    // items again would have made.
     std::size_t append_items(const QuadList& src, std::size_t firstItem, std::size_t itemCount,
                              const float* secondary = nullptr);
 
@@ -698,10 +700,11 @@ public:
     // `plain` = the lean shader of quad.glsl (quad_plain) for a batch of plain textured quads (QuadBatch::plain).
     // `opaque` = blending off (QuadBatch::opaque).
     //
-    // Every pipeline getter has two forms. The one with a `const TargetFormat&` first makes (or finds) the pipeline for a pass
-    // that writes into that format and sample count: pass the format of the target you really draw into (PassDesc::format).
-    // The one without it is a wrapper for the usual target of that pipeline: the game/scene target (scene_target_format())
-    // for quads, meshes and the sky, the bloom/colour-filter/blit-keep/light/shadow target of that stage for the others.
+    // Every pipeline getter has two forms. The one with a `const TargetFormat&` first makes (or finds) the pipeline for
+    // a pass that writes into that format and sample count: pass the format of the target you really draw into
+    // (PassDesc::format). The one without it is a wrapper for the usual target of that pipeline: the game/scene target
+    // (scene_target_format()) for quads, meshes and the sky, the bloom/colour-filter/blit-keep/light/shadow target of
+    // that stage for the others.
     sg_pipeline quad_pipeline(const TargetFormat& format, bool depthTest, bool lines,
                               BlendMode blend = BlendMode::Alpha, bool plain = false, bool opaque = false);
     sg_pipeline quad_pipeline(bool depthTest, bool lines, BlendMode blend = BlendMode::Alpha, bool plain = false,
@@ -719,26 +722,30 @@ public:
     sg_pipeline sky_pipeline(const TargetFormat& format);
     sg_pipeline sky_pipeline() { return sky_pipeline(scene_target_format()); }
 
-    // The format the game target (and the CameraView and render-target passes drawn with it) writes into: scene_format(), the
-    // depth-stencil format and the game target's sample count. A change of scene_format() (the RGBA16F fallback) or of the
-    // sample count only makes this return another key: the pipelines of the old one stay in the cache until they go idle.
+    // The format the game target (and the CameraView and render-target passes drawn with it) writes into:
+    // scene_format(), the depth-stencil format and the game target's sample count. A change of scene_format() (the
+    // RGBA16F fallback) or of the sample count only makes this return another key: the pipelines of the old one stay in
+    // the cache until they go idle.
     TargetFormat scene_target_format() const { return {sceneFormat_, kSceneDepthFormat, sampleCount_}; }
     // The shadow map pass: an R32F colour attachment and a DEPTH one, never multisampled.
     static TargetFormat shadow_target_format() { return {SG_PIXELFORMAT_R32F, SG_PIXELFORMAT_DEPTH, 1}; }
 
     // The pipeline cache. Entries are keyed by what they draw (PipelineKey: the getter's flags, a custom program, the
     // TargetFormat of the pass). It is bounded: begin_frame() counts a use-tick, and once the cache holds more than
-    // pipeline_cache_cap() entries (kPipelineCacheCap, 192: the engine's own set is about 50) an entry that no draw has asked
-    // for during the last pipeline_idle_frames() frames (kPipelineIdleFrames, 300: five seconds at 60 fps) is destroyed
-    // (checked every 16 frames) and made again if it is ever asked for. Entries in use are never destroyed, so a game never
-    // loses a pipeline it draws with; a cache under the cap keeps everything (the warmed pipelines included). The count is of
-    // frames, never of time, so what is kept does not depend on the CPU speed.
+    // pipeline_cache_cap() entries (kPipelineCacheCap, 192: the engine's own set is about 50) an entry that no draw has
+    // asked for during the last pipeline_idle_frames() frames (kPipelineIdleFrames, 300: five seconds at 60 fps) is
+    // destroyed (checked every 16 frames) and made again if it is ever asked for. Entries in use are never destroyed,
+    // so a game never loses a pipeline it draws with; a cache under the cap keeps everything. The pipelines made while
+    // or asked for while set_warming(true) (the start-up warm-up, a fixed set of about 20) are never destroyed either, so a rarely used one that the warm-up paid for
+    // does not hitch (D3D11, Metal) when it comes back. The count is of frames, never of time, so what is kept does not
+    // depend on the CPU speed.
     std::size_t pipeline_count() const { return pipelines_.size(); }  // pipelines in the cache now (start-up report)
     std::uint64_t pipeline_hits() const { return pipelineHits_; }     // asks answered from the cache, since the start
-    std::uint64_t pipelines_made() const {
-        return pipelinesMade_;
-    }  // pipelines made (sg_make_pipeline), since the start
+    // Pipelines made (sg_make_pipeline), since the start.
+    std::uint64_t pipelines_made() const { return pipelinesMade_; }
     std::uint64_t pipelines_evicted() const { return pipelinesEvicted_; }  // pipelines destroyed for being idle
+    // While on, every pipeline made or asked for is kept out of the eviction (Renderer::warm_step turns it on around a group).
+    void set_warming(bool on) { warming_ = on; }
     static constexpr std::size_t kPipelineCacheCap = 192;
     static constexpr std::uint64_t kPipelineIdleFrames = 300;
     // Tests: lower the two limits above to see an eviction without drawing hundreds of frames.
@@ -770,11 +777,11 @@ public:
     // the GPU can render to it with blending, filtering and the requested multisampling, so a colour above white (MeshRenderer.
     // emissiveStrength) survives to bloom; RGBA8 otherwise (everything clamps at white). FA_SCENE_FORMAT=rgba8 forces RGBA8.
     sg_pixel_format scene_format() const { return sceneFormat_; }
-    // Renderer::Impl::create_targets, when the GPU accepted RGBA16F as a format but could not make the game target's images in it
-    // (GLES3/WebGL2 with multisampling and no EXT_color_buffer_float, a framebuffer the driver finds incomplete): it sets the
-    // format RGBA8. The pipelines made so far stay in the cache under their own (RGBA16F) key; the ones for RGBA8 are made on
-    // first use, and nothing is flushed. Only the game target falls back; the images of a CameraView, the bloom levels
-    // and the colour filter keep the format and their own warnings.
+    // Renderer::Impl::create_targets, when the GPU accepted RGBA16F as a format but could not make the game target's
+    // images in it (GLES3/WebGL2 with multisampling and no EXT_color_buffer_float, a framebuffer the driver finds
+    // incomplete): it sets the format RGBA8. The pipelines made so far stay in the cache under their own (RGBA16F) key;
+    // the ones for RGBA8 are made on first use, and nothing is flushed. Only the game target falls back; the images of
+    // a CameraView, the bloom levels and the colour filter keep the format and their own warnings.
     void set_scene_format(sg_pixel_format format) { sceneFormat_ = format; }
 
     // Bloom post-processing. The shaders are created on first use; returns false (and logs once) when they
@@ -808,13 +815,13 @@ public:
     sg_pipeline light_pipeline() { return light_pipeline(light_target_format()); }
     TargetFormat light_target_format() const { return {lightFormat_, SG_PIXELFORMAT_NONE, 1}; }
 
-    // THE way to begin and end a render pass: every pass of the renderer (game, view, shadow, light buffer, colour filter,
-    // flip copy, readback, present, bloom) goes through these two, never sg_begin_pass / sg_end_pass. begin_pass records
-    // the pass's TargetFormat; in a debug build every pipeline getter then checks that the pipeline it hands out was made
-    // for that format (a mismatch GL and D3D11 validation reject, Metal only draws wrong). Outside a pass (warm-up, a
-    // getter called before the pass begins) nothing is checked.
-    // Static: sokol has one context per process, so there is one pass open at a time, and Renderer::present_clear, which
-    // runs before any Gpu exists, begins its pass the same way.
+    // THE way to begin and end a render pass: every pass of the renderer (game, view, shadow, light buffer, colour
+    // filter, flip copy, readback, present, bloom) goes through these two, never sg_begin_pass / sg_end_pass.
+    // begin_pass records the pass's TargetFormat; in a debug build every pipeline getter then checks that the pipeline
+    // it hands out was made for that format (a mismatch GL and D3D11 validation reject, Metal only draws wrong).
+    // Outside a pass (warm-up, a getter called before the pass begins) nothing is checked.
+    // Static: sokol has one context per process, so there is one pass open at a time, and Renderer::present_clear,
+    // which runs before any Gpu exists, begins its pass the same way.
     static void begin_pass(const PassDesc& pass);
     static void end_pass();
     static bool in_pass() { return inPass_; }
@@ -856,9 +863,9 @@ public:
     sg_shader light_shader_{};
 
 private:
-    // The cache lookup of every getter: `key.format` is set from `format`, and the pass formats of `desc` (colour 0, depth,
-    // sample count) are filled from it, so a getter cannot make a pipeline for a format other than its key's.
-    sg_pipeline find_or_make(PipelineKey key, const TargetFormat& format, sg_pipeline_desc desc);
+    // The cache lookup of every getter: `key.format` is set from `format`, and the pass formats of `desc` (colour 0,
+    // depth, sample count) are filled from it, so a getter cannot make a pipeline for a format other than its key's.
+    sg_pipeline find_or_make(PipelineKey key, const TargetFormat& format, const sg_pipeline_desc& desc);
     void sweep_pipelines();
 
     static inline bool inPass_ = false;
@@ -875,10 +882,12 @@ private:
     struct PipelineEntry {
         sg_pipeline pipeline{};
         std::uint64_t lastUsed = 0;  // pipelineTick_ of the last ask
+        bool warmed = false;         // made or asked for by the warm-up: never evicted
     };
     std::map<PipelineKey, PipelineEntry> pipelines_;
     std::uint64_t pipelineTick_ = 0;  // begin_frame() calls (see "The pipeline cache")
     std::uint64_t pipelineHits_ = 0, pipelinesMade_ = 0, pipelinesEvicted_ = 0;
+    bool warming_ = false;
     std::size_t pipelineCap_ = kPipelineCacheCap;
     std::uint64_t pipelineIdleFrames_ = kPipelineIdleFrames;
     struct Transient {
@@ -896,18 +905,19 @@ private:
 // sg_make_image plus per-backend fixes (see image_gl.cpp). Every 2D image of the renderer is created through it.
 sg_image make_image(const sg_image_desc& desc);
 
-// One render target as the renderer makes them (renderer_targets.cpp): the colour image, the single-sample image an MSAA colour
-// image resolves into, an optional depth image, and the views a pass and a later sampler need. The game target, the CameraView
-// and render-target images, the 2D light buffer, the colour-filter image, the RGBA8 readback image, the shadow map and the
-// bloom levels are all made by make_target and freed by destroy_target, so there is one place that knows how.
+// One render target as the renderer makes them (renderer_targets.cpp): the colour image, the single-sample image an
+// MSAA colour image resolves into, an optional depth image, and the views a pass and a later sampler need. The game
+// target, the CameraView and render-target images, the 2D light buffer, the colour-filter image, the RGBA8 readback
+// image, the shadow map and the bloom levels are all made by make_target and freed by destroy_target, so there is one
+// place that knows how.
 struct TargetDesc {
     const char* label =
         "target";  // the base of the labels of its images and views ("<label>-color", "<label>-depth"...)
     int width = 1, height = 1;
     sg_pixel_format colorFormat = SG_PIXELFORMAT_NONE;  // NONE: no colour image (a depth-only target)
     int samples = 1;  // > 1: the colour and depth images are multisampled and a single-sample resolve image is made too
-    // The resolve image can also be drawn into as a colour attachment (resolveColorAtt): Camera.bloom adds its glow to the
-    // finished, resolved game image.
+    // The resolve image can also be drawn into as a colour attachment (resolveColorAtt): Camera.bloom adds its glow to
+    // the finished, resolved game image.
     bool resolveAsColor = false;
     bool texture = true;  // make `texView`, a texture view of the image that holds the picture (resolve, else colour)
     sg_pixel_format depthFormat = SG_PIXELFORMAT_NONE;  // NONE: no depth image
@@ -932,8 +942,9 @@ struct Target {
 Target make_target(const TargetDesc& desc);
 // Destroys the views, then the images, and resets `t` to empty. Safe on an empty or half-made target.
 void destroy_target(Target& t);
-// A pass that draws into `t` (its colour, the resolve attachment of an MSAA target, its depth) with the target's format. The
-// caller sets what the pass does with the old contents: PassDesc's load and store actions default to DONTCARE.
+// A pass that draws into `t` (its colour, the resolve attachment of an MSAA target, its depth) with the target's
+// format. The caller sets what the pass does with the old contents: PassDesc's load and store actions default to
+// DONTCARE.
 PassDesc pass_into(const Target& t, const char* label);
 
 // GPU time of the drawing of a frame (profiler). One timer query in flight per frame in a small ring; results are read a few

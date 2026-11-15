@@ -318,6 +318,8 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         mi.bmax = sm.bmax;
         mi.paramsHash = sm.paramsHash;
         mi.colorsHash = sm.colorsHash;
+        mi.sortKey = sm.sortKey;
+        mi.keyed = sm.keyed;
         mi.dist = length(sm.model.translation() - fr.cam.position);
         meshBlended.push_back(sm.blended ? 1 : 0);
     }
@@ -334,6 +336,10 @@ void Renderer::Impl::gather_meshes(DrawContext& ctx) {
         mi.mesh = assets->mesh(level);
         mesh_cull_bounds(*mi.mesh, world.get<Animator>(mi.entity), mi.bmin, mi.bmax, mi.anim);
         meshBlended[i] = mesh_is_blended(mr, *mi.mesh, mi.material) ? 1 : 0;
+    }
+    for (const auto& entry : special) {  // what the camera changed is ranked again; a value the table lacks: comparator
+        MeshItem& mi = meshes[entry.first];
+        mi.keyed = mi.keyed && renderScene.sort_table().key_of(fields_of(mi), mi.sortKey);
     }
     const rjobs::Split meshSplit = rjobs::split(meshes.size(), kMeshGrain, kParallelMeshes);
     rjobs::run("render.mesh_frustum", meshSplit, [&](const jobs::Chunk& c) {

@@ -1,5 +1,5 @@
-// The pipeline cache of Gpu: pipelines are keyed by the format of the pass they draw into (TargetFormat), so a change of
-// format or sample count makes new entries and flushes nothing, and the cache is bounded by use.
+// The pipeline cache of Gpu: pipelines are keyed by the format of the pass they draw into (TargetFormat), so a change
+// of format or sample count makes new entries and flushes nothing, and the cache is bounded by use.
 #include "test_util.h"
 
 #include <string>
@@ -35,29 +35,25 @@ CacheNumbers numbers(const Renderer& r) {
             j["pipelinesEvicted"].get<int>()};
 }
 
-// Sets an environment variable for the life of the object.
-struct EnvGuard {
-    std::string name, old;
-    bool had = false;
-    EnvGuard(const char* n, const char* value) : name(n) {
-        if (const char* cur = std::getenv(n)) {
-            had = true;
-            old = cur;
-        }
-        set(value);
-    }
-    ~EnvGuard() { set(had ? old.c_str() : nullptr); }
-    void set(const char* value) const {
-#if defined(_WIN32)
-        _putenv_s(name.c_str(), value ? value : "");  // an empty value removes the variable
-#else
-        if (value)
-            setenv(name.c_str(), value, 1);
-        else
-            unsetenv(name.c_str());
-#endif
-    }
+// Shuts the Gpu down at the end of a case, a failed REQUIRE included (sokol_gfx is a singleton: a leaked Gpu would break
+// the cases after it).
+struct GpuGuard {
+    render::Gpu& gpu;
+    explicit GpuGuard(render::Gpu& g) : gpu(g) {}
+    ~GpuGuard() { gpu.shutdown(); }
+    GpuGuard(const GpuGuard&) = delete;
+    GpuGuard& operator=(const GpuGuard&) = delete;
 };
+
+// The colour formats of the cache cases that can be rendered into: one colour-filter pipeline each, no depth.
+std::vector<render::TargetFormat> color_formats() {
+    const sg_pixel_format colors[] = {SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_BGRA8, SG_PIXELFORMAT_RGB10A2,
+                                      SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_RGBA32F};
+    std::vector<render::TargetFormat> formats;
+    for (sg_pixel_format c : colors)
+        if (sg_query_pixelformat(c).render) formats.push_back({c, SG_PIXELFORMAT_NONE, 1});
+    return formats;
+}
 
 bool can_render(sg_pixel_format f, bool msaa = false) {
     const sg_pixelformat_info i = sg_query_pixelformat(f);
@@ -70,21 +66,27 @@ TEST_CASE("pipeline cache: the number of pipelines is the same from one frame to
     Gfx& g = gfx();
     REQUIRE(g.ok);
     FlatScene s;
-    g.render(s.world);  // makes what the scene needs
+    const CacheNumbers before = numbers(g.renderer);  // the Gfx is shared: the counters hold the cases before this one
+    g.render(s.world);                                // makes what the scene needs
     const CacheNumbers first = numbers(g.renderer);
     CHECK(first.pipelines > 0);
     for (int i = 0; i < 5; ++i) g.render(s.world);
     const CacheNumbers later = numbers(g.renderer);
     CHECK(later.pipelines == first.pipelines);
-    CHECK(later.made == first.made);  // nothing was made again
-    CHECK(later.hits > first.hits);   // every draw found its pipeline
-    CHECK(later.evicted == 0);
+    CHECK(later.made == first.made);             // nothing was made again
+    CHECK(later.hits - first.hits >= 5);         // every frame's draws found their pipeline
+    CHECK(later.evicted - before.evicted == 0);  // nothing of this scene was evicted
 }
 
 TEST_CASE("pipeline cache: an RGBA8 and an RGBA16F target draw in one process with nothing flushed") {
-    gfx();  // the sokol context
-    if (!can_render(SG_PIXELFORMAT_RGBA16F)) return;  // a GPU without float targets has no second format to compare
+    gfx();                                      // the sokol context
+    if (!can_render(SG_PIXELFORMAT_RGBA16F)) {  // a GPU without float targets has no second format to compare
+        MESSAGE("RGBA16F cannot be rendered into with blending on this GPU: the two-format comparison is skipped");
+        CHECK(can_render(SG_PIXELFORMAT_RGBA8));  // at least the first format is there
+        return;
+    }
     render::Gpu gpu;
+    GpuGuard guard(gpu);
     std::string error;
     REQUIRE_MESSAGE(gpu.init(1, &error), error);
     const render::TargetFormat f8{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_DEPTH_STENCIL, 1};
@@ -106,13 +108,17 @@ TEST_CASE("pipeline cache: an RGBA8 and an RGBA16F target draw in one process wi
     CHECK(gpu.quad_pipeline(false, false).id == q8.id);
     CHECK(gpu.pipeline_count() == one + 1);
     CHECK(sg_query_pipeline_state(q16) == SG_RESOURCESTATE_VALID);
-    gpu.shutdown();
 }
 
 TEST_CASE("pipeline cache: sample counts 1 and 4 live in one cache") {
     gfx();
-    if (!can_render(SG_PIXELFORMAT_RGBA8, true)) return;
+    if (!can_render(SG_PIXELFORMAT_RGBA8, true)) {
+        MESSAGE("RGBA8 cannot be multisampled on this GPU: the sample-count comparison is skipped");
+        CHECK(can_render(SG_PIXELFORMAT_RGBA8));
+        return;
+    }
     render::Gpu gpu;
+    GpuGuard guard(gpu);
     std::string error;
     REQUIRE_MESSAGE(gpu.init(1, &error), error);
     const render::TargetFormat one{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_DEPTH_STENCIL, 1};
@@ -131,24 +137,20 @@ TEST_CASE("pipeline cache: sample counts 1 and 4 live in one cache") {
         CHECK(gpu.bloom_pipeline(render::BloomStage::Composite, b1).id !=
               gpu.bloom_pipeline(render::BloomStage::Composite, b4).id);
     }
-    gpu.shutdown();
 }
 
 TEST_CASE("pipeline cache: a pipeline idle for too long is destroyed once the cache is over its cap") {
     gfx();
     render::Gpu gpu;
+    GpuGuard guard(gpu);
     std::string error;
     REQUIRE_MESSAGE(gpu.init(1, &error), error);
     CHECK(gpu.pipeline_cache_cap() == 192);
     CHECK(gpu.pipeline_idle_frames() == 300);
-    gpu.set_pipeline_cache_limits(3, 4);
     // One colour-filter pipeline per colour format that can be rendered into (none of them is drawn with).
-    const sg_pixel_format colors[] = {SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_BGRA8, SG_PIXELFORMAT_RGB10A2,
-                                      SG_PIXELFORMAT_RGBA16F, SG_PIXELFORMAT_RGBA32F};
-    std::vector<render::TargetFormat> formats;
-    for (sg_pixel_format c : colors)
-        if (sg_query_pixelformat(c).render) formats.push_back({c, SG_PIXELFORMAT_NONE, 1});
-    REQUIRE(formats.size() >= 3);
+    const std::vector<render::TargetFormat> formats = color_formats();
+    REQUIRE(formats.size() >= 2);                          // eviction needs one pipeline to keep and one to lose
+    gpu.set_pipeline_cache_limits(formats.size() - 1, 4);  // the cap is under what is made, whatever the GPU supports
     const render::TargetFormat keep = formats[0];
     sg_pipeline kept = gpu.colorfilter_pipeline(keep);
     for (std::size_t i = 1; i < formats.size(); ++i) gpu.colorfilter_pipeline(formats[i]);
@@ -168,7 +170,36 @@ TEST_CASE("pipeline cache: a pipeline idle for too long is destroyed once the ca
     const std::uint64_t madeBefore = gpu.pipelines_made();
     CHECK(sg_query_pipeline_state(gpu.colorfilter_pipeline(formats[1])) == SG_RESOURCESTATE_VALID);
     CHECK(gpu.pipelines_made() == madeBefore + 1);
-    gpu.shutdown();
+}
+
+TEST_CASE("pipeline cache: a pipeline made by the warm-up is never evicted, an idle one made later is") {
+    gfx();
+    render::Gpu gpu;
+    GpuGuard guard(gpu);
+    std::string error;
+    REQUIRE_MESSAGE(gpu.init(1, &error), error);
+    const std::vector<render::TargetFormat> formats = color_formats();
+    if (formats.size() < 3) {  // the one in use, the warmed one and the one that goes
+        MESSAGE("skipped: fewer than 3 renderable colour formats");
+        return;
+    }
+    gpu.set_pipeline_cache_limits(1, 4);
+    const sg_pipeline used = gpu.colorfilter_pipeline(formats[0]);
+    gpu.set_warming(true);
+    const sg_pipeline warmed = gpu.colorfilter_pipeline(formats[1]);
+    gpu.set_warming(false);
+    gpu.colorfilter_pipeline(formats[2]);
+    for (int i = 0; i < 40; ++i) {
+        gpu.begin_frame();
+        gpu.colorfilter_pipeline(formats[0]);
+        gpu.note_commit();
+    }
+    CHECK(gpu.pipeline_count() == 2);  // the one in use and the warmed one
+    CHECK(gpu.pipelines_evicted() == 1);
+    const std::uint64_t madeBefore = gpu.pipelines_made();
+    CHECK(gpu.colorfilter_pipeline(formats[1]).id == warmed.id);  // still there: nothing is made again
+    CHECK(gpu.colorfilter_pipeline(formats[0]).id == used.id);
+    CHECK(gpu.pipelines_made() == madeBefore);
 }
 
 TEST_CASE("pipeline cache: the RGBA8 fall-back renders and keeps its pipelines from frame to frame") {

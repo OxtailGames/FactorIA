@@ -257,6 +257,8 @@ bool World::pending_destroy(Entity e) const { return impl_->pending_destroy(e); 
 
 std::size_t World::entity_count() const { return impl_->aliveCount; }
 
+std::size_t World::index_bound() const { return impl_->slots.size(); }
+
 std::vector<Entity> World::entities() const { return impl_->infoPool->entities(); }
 
 void World::destroy(Entity e) {

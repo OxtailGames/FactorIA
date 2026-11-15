@@ -12,21 +12,14 @@
 #include "frame.h"
 #include "nine_slice.h"
 #include "render_jobs.h"
+#include "render_scene.h"
 #include "scene2d.h"
 
 namespace fa::render {
 
 bool entity_active(const World& w, Entity e) { return w.active_in_hierarchy(e) && !w.pending_destroy(e); }
 
-bool entity_active(const World& w, const Frame& f, Entity e) {
-    if (f.scopeRoot == kNullEntity) return entity_active(w, e);
-    if (!w.alive(e) || w.pending_destroy(e)) return false;
-    for (Entity x = e; x != kNullEntity; x = w.parent(x)) {
-        if (x == f.scopeRoot) return true;  // reached the subject: what is above it does not matter
-        if (!w.info(x).active) return false;
-    }
-    return false;  // not part of the subject
-}
+bool entity_active(const World& w, const Frame& f, Entity e) { return entity_active_in_scope(w, f.scopeRoot, e); }
 
 Color inherited_tint(const World& world, const Frame& f, Entity e) {
     if (!f.anyTint) return Color{1, 1, 1, 1};
@@ -937,7 +930,10 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
 // ---------------------------------------------------------------------------
 // Scene2D: the camera-independent part of the gather, once per frame (scene2d.h)
 // ---------------------------------------------------------------------------
-Scene2D::Slot& Scene2D::slot_of(std::vector<Slot>& table, Entity e) {
+Scene2D::Slot& Scene2D::slot_of(std::vector<Slot>& table, const World& world, Entity e) {
+    if (single_) return scratch_ = Slot{};
+    // Sized once from the world's index range; an entity created during the gather grows it.
+    if (table.empty()) table.resize(world.index_bound());
     if (e.index >= table.size()) table.resize(std::size_t(e.index) + 1);
     return table[e.index];
 }
@@ -970,7 +966,7 @@ void Scene2D::gather_sprites(World& world, Frame& f) {
     std::vector<Step> steps;
     std::size_t copies = 0;
     world.each<Sprite>([&](Entity e, Sprite& s) {
-        Slot& sl = slot_of(sprites_, e);
+        Slot& sl = slot_of(sprites_, world, e);
         if (sl.state == State::Skip) return;
         if (sl.state == State::Todo && (!entity_active(world, f, e) || s.color.a <= 0.0f)) {
             sl.state = State::Skip;
@@ -1080,7 +1076,7 @@ void Scene2D::gather_sprites(World& world, Frame& f) {
         }
         // What the first camera built is kept for the others: where its items are in the list that is this camera's.
         auto keep = [&](std::size_t i, std::size_t firstInWorld) {
-            if (!preps[i].share) return;
+            if (single_ || !preps[i].share) return;
             Slot& sl = sprites_[preps[i].slotIndex];
             sl.state = State::Share;
             sl.donor = &f.world;
@@ -1121,7 +1117,7 @@ void Scene2D::gather_sprites(World& world, Frame& f) {
 void Scene2D::gather_shapes(World& world, Frame& f) {
     using State = Slot::State;
     world.each<Shape2D>([&](Entity e, Shape2D& s) {
-        Slot& sl = slot_of(shapes_, e);
+        Slot& sl = slot_of(shapes_, world, e);
         if (sl.state == State::Skip) return;
         const bool screen = s.space == RenderSpace::Screen;
         if (screen ? !f.wantScreen : !f.wantWorld) return;
@@ -1177,6 +1173,7 @@ void Scene2D::gather(World& world, Frame& f) {
 
 void gather_2d(World& world, Frame& f) {
     Scene2D scene;
+    scene.set_single_destination(true);
     scene.gather(world, f);
 }
 
