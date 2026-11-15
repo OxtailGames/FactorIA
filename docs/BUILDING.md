@@ -527,8 +527,10 @@ Clang.
 **The decoders wrap code in `external/`** (stb_image, stb_truetype, cgltf, the Basis Universal transcoder, dr_libs,
 stb_vorbis, TinySoundFont): it is not ours to edit, so the engine validates before it calls it. The wrappers cap what a
 header can ask for (`kMaxImagePixels` for images, plus a side of at most `kMaxImageSide` for KTX2, 32 audio channels, 8 million
-reserved frames, `kMaxProceduralVertices` for a glTF once its nodes are placed), `gltf_check` runs `cgltf_validate` before
-any glTF accessor is read, and `check_font_bytes` walks the tables stb_truetype would follow (stb_truetype has no length
+reserved frames, `kMaxProceduralVertices` for a glTF once its nodes are placed), `gltf_check_buffer_sizes` refuses a base64
+data URI buffer whose `byteLength` is more than its payload can decode to (cgltf allocates the declared size before it
+decodes, so a small file could ask for any amount of memory; every reader of a glTF calls it between `cgltf_parse` and
+`cgltf_load_buffers`), `gltf_check` runs `cgltf_validate` before any glTF accessor is read, and `check_font_bytes` walks the tables stb_truetype would follow (stb_truetype has no length
 parameter). It refuses the whole font for table offsets, glyph offsets and `cmap` segments outside the file, a `cmap`
 subtable format the engine does not read, a font with no glyphs and a glyph 0 that is itself unsafe. A format 4 `cmap`
 search header is not required to equal the specification (a few system fonts, such as Shree714.ttc, write other values):

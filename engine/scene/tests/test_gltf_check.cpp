@@ -97,6 +97,24 @@ TEST_CASE("gltf: nodes that share one big mesh cannot place more vertices than a
     CHECK(read_gltf_mesh_bytes(make_glb(mesh_doc(each, each, 2), each * 12), "twice.glb").ok());
 }
 
+TEST_CASE("gltf: a base64 buffer that declares more bytes than its data holds is refused before any allocation") {
+    // 12 bytes of data, byteLength 2^63-1: cgltf would ask malloc for the declared size.
+    const std::string gltf = R"({"asset":{"version":"2.0"},"buffers":[{"byteLength":9223372036854775807,)"
+                             R"("uri":"data:application/octet-stream;base64,AAAAAAAAAAAAAAAA"}]})";
+    const std::vector<std::uint8_t> bytes(gltf.begin(), gltf.end());
+    auto mesh = read_gltf_mesh_bytes(bytes, "huge.gltf");
+    REQUIRE_FALSE(mesh.ok());
+    CHECK(mesh.error().message.find("huge.gltf") != std::string::npos);
+    CHECK(mesh.error().message.find("/buffers/0") != std::string::npos);
+    CHECK(mesh.error().message.find("at most 12 bytes") != std::string::npos);
+    CHECK_FALSE(mesh.error().hint.empty());
+
+    auto skeleton = parse_skeleton(bytes, "huge.gltf");
+    REQUIRE_FALSE(skeleton.ok());
+    CHECK(skeleton.error().message.find("/buffers/0") != std::string::npos);
+    CHECK_FALSE(skeleton.error().hint.empty());
+}
+
 TEST_CASE("gltf: bytes that are not a glTF are an error that names the file") {
     const std::vector<std::uint8_t> junk = {1, 2, 3, 4, 5, 6, 7, 8};
     auto mesh = read_gltf_mesh_bytes(junk, "junk.glb");
