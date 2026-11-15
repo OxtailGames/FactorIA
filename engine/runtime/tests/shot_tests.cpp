@@ -7,6 +7,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
+#include "fa/core/profiler.h"
 #include "fa/core/screenshot_files.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/project.h"
@@ -310,7 +311,46 @@ TEST_CASE("render.frame_graph: the graph of the last frame with the time of ever
     auto st = c.call("game.render_stats", Json::object());
     REQUIRE_MESSAGE(st.ok, st.error.dump());
     CHECK(st.result["sortKeyFallbacks"] == 0);
-    // It takes no arguments, and says which one is unknown.
+    // `frame` is the engine's frame counter; profileFrames how many frames the call drew to get GPU times.
+    CHECK(j["frame"] == Json(e.frame_index()));
+    CHECK(j["profileFrames"].is_number_integer());
+    // The call puts the profiler back as it found it; the GPU numbers are -1 or not negative.
+    CHECK_FALSE(Profiler::on());
+    const bool timed = j["gpu"]["supported"].get<bool>();
+    if (!timed) {
+        CHECK(j["profileFrames"] == 0);  // no GPU timer on this backend: no frame is drawn for nothing
+        CHECK(j["gpu"]["reason"].is_string());
+    } else {
+        CHECK(j["profileFrames"].get<int>() <= 8);
+        CHECK(j["gpu"]["measuring"] == true);
+    }
+    for (const Json& pt : times) CHECK((pt["gpuMs"].get<double>() == -1.0 || pt["gpuMs"].get<double>() >= 0.0));
+    // profileFrames 0 reads what is there: nothing drawn, and the profiler is not touched.
+    auto none = c.call("render.frame_graph", Json{{"profileFrames", 0}});
+    REQUIRE_MESSAGE(none.ok, none.error.dump());
+    CHECK(none.result["profileFrames"] == 0);
+    CHECK(none.result["gpu"]["measuring"] == false);
+    for (const Json& pt : none.result["passTimes"]) CHECK(pt["gpuMs"].get<double>() == -1.0);
+    CHECK_FALSE(Profiler::on());
+    // A profiler that is already on stays on and is not fed extra frames.
+    {
+        Profiler::get().set_enabled(true);
+        auto on = c.call("render.frame_graph", Json{{"profileFrames", 5}});
+        const bool stillOn = Profiler::on();
+        Profiler::get().set_enabled(false);
+        REQUIRE_MESSAGE(on.ok, on.error.dump());
+        CHECK(stillOn);
+        CHECK(on.result["profileFrames"] == 0);
+    }
+    // The count is checked: an integer from 0 to 60.
+    for (const char* text : {R"({"profileFrames":61})", R"({"profileFrames":-1})", R"({"profileFrames":2.5})",
+                             R"({"profileFrames":"8"})"}) {
+        INFO(text);
+        auto badFrames = c.call("render.frame_graph", Json::parse(text));
+        REQUIRE_FALSE(badFrames.ok);
+        CHECK(badFrames.error.dump().find("profileFrames") != std::string::npos);
+    }
+    // Unknown arguments say which one.
     auto bad = c.call("render.frame_graph", Json{{"job", "camera:0"}});
     REQUIRE_FALSE(bad.ok);
     CHECK(bad.error.dump().find("job") != std::string::npos);

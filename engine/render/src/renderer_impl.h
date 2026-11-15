@@ -244,6 +244,14 @@ struct Renderer::Impl {
     // with the same `<job>/`), with the GPU time of the newest finished measurement of each pass name (-1 without one, and
     // always while the profiler is off: the GPU timer only runs with it).
     void pass_times(std::vector<RenderStats::PassTime>& passes, std::vector<RenderStats::JobTime>& jobs) const;
+    // `stats.passes` and `jobs` are not built each frame: while this is true the frame graph still holds the passes of the last
+    // render(), and Renderer::stats() builds them from it. Whoever replaces the graph (capture_world) calls settle_pass_times().
+    bool passTimesPending = false;
+    void settle_pass_times() {
+        if (!passTimesPending) return;
+        pass_times(stats.passes, stats.jobs);
+        passTimesPending = false;
+    }
     // GPU frame times the timer resolved while the renderer polled it for pass times, kept for take_gpu_ms().
     std::vector<double> gpuFrames;
     bool passHooksSet = false;      // begin_frame_graph() gave the graph its pass hooks

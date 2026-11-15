@@ -230,3 +230,56 @@ TEST_CASE("pass times: with the profiler on every pass is a profiler zone and th
     for (double ms : frames) CHECK(ms >= 0.0);
     if (!supported) CHECK(frames.empty());
 }
+
+TEST_CASE("pass times: stats(false) leaves them out, and a capture does not change the ones of the last frame") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World world;
+    bloom_scene(world);
+    g.render(world);
+    const RenderStats full = g.renderer.stats();
+    REQUIRE(!full.passes.empty());
+    REQUIRE(!full.jobs.empty());
+    const RenderStats light = g.renderer.stats(false);
+    CHECK(light.passes.empty());
+    CHECK(light.jobs.empty());
+    CHECK(light.drawCalls == full.drawCalls);
+    // Reading them twice gives the same passes.
+    CHECK(g.renderer.stats().passes.size() == full.passes.size());
+
+    // The capture replaces the frame graph; the stats of the frame keep the passes of the frame, the report shows the capture.
+    Renderer::WorldCapture spec;
+    spec.subject = world.find("neon");
+    spec.rect = Rect{-50, -30, 100, 60};
+    spec.scale = 1.0f;
+    Image img;
+    std::string err;
+    REQUIRE_MESSAGE(g.renderer.capture_world(world, spec, img, &err), err);
+    const RenderStats after = g.renderer.stats();
+    REQUIRE(after.passes.size() == full.passes.size());
+    for (std::size_t i = 0; i < full.passes.size(); ++i) CHECK(after.passes[i].name == full.passes[i].name);
+    CHECK(g.renderer.frame_graph_report()["source"] == "capture");
+    g.render(world);
+    CHECK(g.renderer.frame_graph_report()["source"] == "frame");
+    CHECK(g.renderer.stats().passes.size() == full.passes.size());
+}
+
+TEST_CASE("pass times: the GPU times of an earlier run of the profiler are forgotten when it is switched on again") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World world;
+    bloom_scene(world);
+    {
+        ProfilerOn on;
+        for (int i = 0; i < 12; ++i) g.render(world);  // the answers come back a few frames late
+    }
+    // Off: no pass has a GPU time, whatever the timers still held.
+    g.render(world);
+    for (const RenderStats::PassTime& p : g.renderer.stats().passes) CHECK(p.gpuMs == -1.0);
+    // On again: the first frame has no answer of its own yet and the answers of the first run were dropped.
+    ProfilerOn on;
+    g.render(world);
+    const RenderStats st = g.renderer.stats();
+    REQUIRE(!st.passes.empty());
+    for (const RenderStats::PassTime& p : st.passes) CHECK(p.gpuMs == -1.0);
+}

@@ -1036,8 +1036,14 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   the profiler (`Profiler::add_zone`, summed per name, listed in `profile.zones`); both only do something while the profiler is on.
   `Impl::pass_times` turns `graph.stats()` into `RenderStats::passes` and `jobs` (the job is the name up to the last `/`;
   a culled pass has no entry; `gpuMs` is -1 without a measurement), and `Renderer::frame_graph_report()` adds the
-  graph's `to_json()`: that is the `render.frame_graph` command. A `capture_world` leaves its small graph as the last one
-  (`source: "capture"`) until the next `render()`, and does not touch `RenderStats`.
+  graph's `to_json()`: that is the `render.frame_graph` command. `render()` does not build the strings each frame: it sets
+  `passTimesPending` and `Renderer::stats()` builds them from the graph when asked for (`stats(false)` leaves them out:
+  the runners, `game.render_stats` and the state report read the counters only). A `capture_world` leaves its small graph
+  as the last one (`source: "capture"`) until the next `render()`, builds the pending pass times of the frame first
+  (`settle_pass_times`), and does not touch `RenderStats`. `render.frame_graph`'s `profileFrames` switches the profiler on
+  for the call when it is off and the backend can time (`Engine::redraw` draws the current state again until a GPU time
+  arrives) and puts it back; a render with the profiler off calls `GpuTimer::forget()` so that switching it on again never
+  shows the numbers of the earlier run.
 - *GPU timer.* `gpu_timer.cpp` (`GpuTimer`, a ring of 6 slots, results a few frames late, never waited for). The whole
   frame is one query (`GL_TIME_ELAPSED` on GLCORE, a disjoint query with two timestamps on Direct3D 11); each pass has a
   pair of timestamps (`glQueryCounter(GL_TIMESTAMP)` on GLCORE, timestamp queries inside the disjoint one on D3D11),

@@ -1183,6 +1183,12 @@ void Engine::render_now() {
     if (!I.renderer) return;
     if (I.renderStale) I.draw(I.lastRenderDt);
 }
+void Engine::redraw(int frames) {
+    const LoadTrace::ReadingFor reading(impl_->traceOwner);
+    Impl& I = *impl_;
+    if (!I.renderer) return;
+    for (int i = 0; i < frames; ++i) I.draw(I.lastRenderDt);
+}
 bool Engine::render_pending() const { return impl_->renderStale; }
 
 void Engine::reload_scene() {
@@ -1427,7 +1433,7 @@ Json Engine::state(const Json& query) {
     }
     out["recentLogs"] = logs;
     if (I.renderer) {
-        Json rs = I.renderer->stats().to_json();
+        Json rs = I.renderer->stats(false).to_json();
         if (rs.is_object()) rs.erase("cpuMs");
         out["renderStats"] = rs;
     } else {
@@ -1565,7 +1571,7 @@ Json Engine::render_stats_now() {
     Impl& I = *impl_;
     if (!I.renderer) return Json();
     render_now();  // a headless test may not have drawn a frame yet (OnDemand, or before the first step)
-    Json j = I.renderer->stats().to_json();
+    Json j = I.renderer->stats(false).to_json();
     j.erase("cpuMs");  // wall-clock: not for scripts that must stay reproducible
     j["textureMB"] = std::round(double(I.renderer->texture_bytes()) / (1024.0 * 1024.0) * 100.0) / 100.0;
     j["width"] = int(std::lround(I.renderer->target_width() * I.heldScale));  // the size of the picture drawn
