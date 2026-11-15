@@ -11,4 +11,10 @@ namespace fa {
 void register_scene_file_commands(Engine& engine,
                                   Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
 
+void register_vfx_review_commands(Engine& engine,
+                                  Engine::Impl& impl);  // vfx_review_commands.cpp: vfx.check, vfx.budget, vfx.filmstrip
+void register_mesh_commands(
+    Engine& engine,
+    Engine::Impl& impl);  // mesh_commands.cpp: mesh.create, mesh.update, mesh.destroy, mesh.save, mesh.list, mesh.info
+
 }  // namespace fa
