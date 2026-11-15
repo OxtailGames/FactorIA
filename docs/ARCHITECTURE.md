@@ -913,6 +913,20 @@ entity (`Entity::bits()`, so a reused slot is another key), a copy of the JSON t
 when the value differs from the copy (a JSON comparison, no allocation); entries nobody asked for in a frame (dead, hidden or
 without overrides) are dropped at its end.
 
+**Sort keys of the opaque meshes.** `build_batches` used to sort each camera's opaque items with a comparator of 26 fields
+(strings and floats); now every item carries a 64-bit `sortKey` (`SortKeyTable`, `mesh_batch.h`), made once per frame in
+`RenderScene::build` and sorted as an integer (a stable sort of (key, index) pairs, `render.sort_meshes`). Layout, most
+significant bits first: mesh name rank (12 bits), texture name rank (11), normal map name rank (11), "rest" rank (30: the
+other MeshRenderer values, the skinning entity, the material name, the two override hashes, the flash, in the order the
+comparator had). A rank is the position of the value among the DISTINCT values of the frame, in the order of the
+comparator (names as text, floats through `order_float`), never an address or an id of a table that outlives the frame; the
+table is rebuilt from nothing each frame, so it cannot grow, and the order equals the comparator's exactly (equal keys
+exactly where the comparator finds the items equal). A camera that swaps a mesh (lods) or a render-target texture ranks that
+item again from the same table. When a field has more distinct values than its bits (over 4096 meshes, or 2048 textures,
+in one frame) or a camera's value is not in the table, the items are left unkeyed and that list is sorted by the comparator
+as before. Batches are runs of equal keys (unequal keys end a batch without reading the fields; equal ones are still
+checked field by field).
+
 **Cameras inside the UI.** A `CameraView` (a UiBox widget) names a Camera. The UI gather (`draw_camera_view` in `ui2d.cpp`)
 asks the renderer for an image of the widget's size (`Frame::viewImage`; `Impl::viewTargets` caches one per widget, same formats
 and sample count as the game target so the pipelines fit, freed at the end of a frame that did not ask for it) and registers a
