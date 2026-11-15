@@ -624,3 +624,36 @@ TEST_CASE(
     check_regions(own.draw(w), 10);
     CHECK(render::renderer_shadow_rows_stats(own.r).uploads == uploads);
 }
+
+// ---- A shadow map the GPU cannot make ----
+
+TEST_CASE("frame graph: a shadow map that cannot be made leaves the shadows off and the frame is still drawn") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    EnvGuard hook("FA_SHADOW_MAP", "invalid");  // the creation fails on a GPU that never would
+    OwnRenderer own(g, 1);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    World w;
+    Entity cam = make(w, "cam", {0, 2, 6});
+    auto& c = w.add<Camera>(cam);
+    c.projection = Projection::Perspective;
+    c.fov = 60;
+    Entity floor = make(w, "plane", {0, -0.5f, 0});
+    w.get<Transform>(floor)->scale = {12, 1, 12};
+    w.add<MeshRenderer>(floor).mesh = "plane";
+    Entity sun = make(w, "sun", {0, 5, 0});
+    w.get<Transform>(sun)->rotation = {-50, 30, 0};
+    auto& l = w.add<Light>(sun);
+    l.type = LightType::Directional;
+    l.castShadows = true;
+    for (int i = 0; i < 3; ++i) {  // the creation is not tried again, and no frame is refused
+        INFO("frame " << i);
+        const Image img = own.draw(w);
+        CHECK(img.pixel(160, 2).b > 0.5f);  // the sky is drawn
+        CHECK(own.r.stats().shadowCasters == 0);
+        const render::FrameGraph* graph = render::renderer_frame_graph(own.r);
+        REQUIRE(graph != nullptr);
+        CHECK(!graph->stats().empty());  // the graph compiled and ran
+        for (const std::string& name : graph->order_names()) CHECK(name.find("shadow") == std::string::npos);
+    }
+}
