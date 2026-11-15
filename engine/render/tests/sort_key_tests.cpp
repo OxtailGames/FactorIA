@@ -9,6 +9,7 @@
 #include <deque>
 #include <limits>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "fa/core/jobs.h"
@@ -361,10 +362,14 @@ TEST_CASE("sort key: two assets with one name (different pointers) get one rank,
     const std::size_t meshes = pool.meshes.size(), texes = pool.textures.size();
     for (std::size_t i = 0; i < meshes; ++i) pool.meshes.emplace_back().key = pool.meshes[i].key;
     for (std::size_t i = 0; i < texes; ++i) pool.textures.emplace_back().path = pool.textures[i].path;
+    // The twin of each asset by address (a deque is not contiguous: no pointer arithmetic across its elements).
+    std::unordered_map<const void*, std::size_t> meshIndex, texIndex;
+    for (std::size_t i = 0; i < meshes; ++i) meshIndex[&pool.meshes[i]] = i;
+    for (std::size_t i = 0; i < texes; ++i) texIndex[&pool.textures[i]] = i;
     std::vector<MeshItem> twins = items;
     for (MeshItem& m : twins) {
-        m.mesh = &pool.meshes[std::size_t(m.mesh - &pool.meshes[0]) + meshes];
-        if (m.tex) m.tex = &pool.textures[std::size_t(m.tex - &pool.textures[0]) + texes];
+        m.mesh = &pool.meshes[meshIndex.at(m.mesh) + meshes];
+        if (m.tex) m.tex = &pool.textures[texIndex.at(m.tex) + texes];
     }
     SortKeyTable table;
     std::vector<MeshItem> both = items;

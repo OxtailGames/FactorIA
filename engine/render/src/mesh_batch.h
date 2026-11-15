@@ -73,8 +73,8 @@ void release_peak(V& v, std::size_t used) {
 
 // The ranks of one frame's items. Rebuilt from nothing by every build() (so its content never grows across frames; the
 // work buffers keep their capacity from one frame to the next instead of allocating every frame, and let it go when
-// a frame needs less than a quarter of it, release_peak); names are views into
-// the assets and components the items point to, valid while those items are.
+// it is more than four times what a frame used plus 4096 entries: release_peak); names are views into the assets and
+// components the items point to, valid while those items are.
 //
 // Limits (distinct NAMES among the items of ONE frame): meshes 4096 (kSortMeshBits); textures 2048 (kSortTexBits): the
 // normal map ranks come from the same table of texture names, so colour and normal maps share the 2048, and the empty name
