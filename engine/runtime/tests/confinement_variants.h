@@ -10,7 +10,8 @@ namespace fa_test {
 
 struct PathVariant {
     std::string path;
-    const char* code;  // the error code the path rules give; nullptr: they do not refuse it (the command may still fail)
+    // The error code the path rules give; nullptr: they do not refuse it (the command may still fail).
+    const char* code;
 };
 
 // `name` is the file name the command wants (for example "x.scene.json"), `outsideAbs` an absolute path of a folder that
