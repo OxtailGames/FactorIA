@@ -181,7 +181,7 @@ struct Engine::Impl {
     void drop_pending_async_switch();  // forgets the pending scene change of an async load (records it as cancelled)
     std::string currentScene;
     // The current scene is the project's mainScene, loaded at start because no start scene was given (no EngineConfig::scene),
-    // and no scene was loaded since. scene.import_ascii refuses `save` without `path` then: see level_commands.cpp.
+    // and no scene was loaded since. scene.import_ascii refuses `save` without `path` then: see tools/authoring/src/level_commands.cpp.
     bool implicitStartScene = false;
     // tilemap.generate_start jobs (wfc_commands.cpp): the generations the script API advances a little every frame, by id. The
     // pointers are really std::shared_ptr<GenRun>; the type stays private to wfc_commands.cpp. Dropped when the scene changes.
@@ -253,7 +253,7 @@ UiPageAimFn make_ui_page_aim(
 UiSurfaceFn make_ui_surface_pointer(
     Engine::Impl& impl);  // surface_pointer.cpp: the pointer through a render target shown on a mesh
 void register_builtin_commands(Engine& engine, Engine::Impl& impl);
-void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii
+void register_level_commands(Engine& engine, Engine::Impl& impl);  // level_commands.cpp: scene.place_ascii, tilemap.*
 void register_terrain_commands(
     Engine& engine,
     Engine::Impl&

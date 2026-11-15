@@ -14,6 +14,10 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
   list of command extensions that `Engine::init` runs after the built-in and plugin commands, `fa::authoring::install()`
   registers the authoring one (call it once before the first Engine), and `Engine::runtime_command_names()` lists what the
   player has. `Engine::Impl` is now declared in `fa/runtime/internal/engine_impl.h`, for engine tools only.
+  `scene.import_ascii` (the ASCII level import that can also write a scene file) and `scene.ascii_edit` move too, so an
+  exported game no longer has them; `scene.place_ascii` (the running-world import that `tilemap.generate` with `place`
+  uses), `tilemap.set_tile`, `tilemap.cell_at` and `tilemap.cell_to_world` stay in the player. Their arguments and
+  results do not change.
 
 ## 0.28.0
 

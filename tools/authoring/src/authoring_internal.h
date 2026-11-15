@@ -10,5 +10,7 @@ namespace fa {
 
 void register_scene_file_commands(Engine& engine,
                                   Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
+void register_ascii_level_commands(Engine& engine,
+                                   Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii, scene.ascii_edit
 
 }  // namespace fa

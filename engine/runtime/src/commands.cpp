@@ -623,7 +623,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                        return Json::object({{"ok", ok}, {"scene", I.currentScene}, {"messages", I.sceneIssues}});
                    });
 
-    register_level_commands(engine, I);  // scene.import_ascii
+    register_level_commands(engine, I);  // scene.place_ascii, tilemap.set_tile, tilemap.cell_at, tilemap.cell_to_world
     register_wfc_commands(engine, I);    // tilemap.generate
     register_terrain_commands(engine,
                               I);  // tilemap.paint_terrain, tilemap.retile, tilemap.terrains, tilemap.set_terrains
