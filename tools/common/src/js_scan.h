@@ -36,7 +36,7 @@ struct Masked {
 
 Masked mask_source(const std::string& t);
 
-// 1-based line and column of byte `offset` in `text`.
+// 1-based line and column of byte `offset` in `text` (a UTF-8 byte order mark at the start is not counted).
 struct SourcePos {
     int line = 1;
     int column = 1;

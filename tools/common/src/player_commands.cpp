@@ -115,11 +115,16 @@ std::vector<PlayerCommandIssue> player_command_issues(const std::string& file, c
             issue.detail = "fa.call(\"" + call.name +
                            "\"): the exported player has no command with this name, so in the shipped game this call "
                            "fails";
-            issue.hint = did_you_mean(call.name, runtime, 8);
-            if (std::string alt = player_alternative(call.name); !alt.empty()) issue.hint = alt + " " + issue.hint;
-            issue.hint += " (`factoria call docs.commands` lists the commands.)";
+            // A suggestion only when one name is close; else the list of the player's commands is one call away.
+            if (const std::string close = closest_match(call.name, runtime); !close.empty())
+                issue.hint = "Did you mean '" + close + "'?";
+            if (std::string alt = player_alternative(call.name); !alt.empty())
+                issue.hint = issue.hint.empty() ? alt : alt + " " + issue.hint;
+            if (!issue.hint.empty()) issue.hint += " ";
+            issue.hint += "`factoria call docs.commands` lists the commands.";
         }
-        issue.message = file + ":" + std::to_string(call.line) + ":" + std::to_string(call.column) + ": " + issue.detail;
+        issue.message =
+            file + ":" + std::to_string(call.line) + ":" + std::to_string(call.column) + ": " + issue.detail;
         out.push_back(std::move(issue));
     }
     return out;

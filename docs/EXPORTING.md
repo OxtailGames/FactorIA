@@ -100,7 +100,7 @@ The export packages the files on disk: when the scene has unsaved changes the wi
 Everything in the project except: `.factoria/`, every dot-file or dot-folder
 (`.git`, `.mcp.json`, `.gitignore`), `build/` (earlier exports), `tests/`, `tools/`, `types/`,
 `node_modules/`, `ENGINE_FEEDBACK.json` (the file named by `feedbackFile`) and its `.archive.json` next to it,
-`scripts/autoplay.js` (the bot `play.auto` runs, [SCRIPTING](SCRIPTING.md#the-bot-gameautoplay)), `AGENTS.md`, `CLAUDE.md`, `REVIEW.md` (the note the AI reviewers read first), `jsconfig.json`, the project's own top-level `README.md` (documentation for whoever works on the
+`scripts/autoplay.js` (the bot `play.auto` runs, [SCRIPTING](SCRIPTING.md#the-bot-gameautoplay); `tools/`, `tests/` and `scripts/autoplay.js` are matched in any capitalization), `AGENTS.md`, `CLAUDE.md`, `REVIEW.md` (the note the AI reviewers read first), `jsconfig.json`, the project's own top-level `README.md` (documentation for whoever works on the
 game; any capitalization), a top-level `steam_appid.txt` (the development app id of the
 [Steam backend](PLATFORM.md#steam-steamworks): a game started by Steam gets its app id from Steam), the folder of a native
 plugin that lives inside the project (its build is shipped instead, below), and the output folder itself. Your project is never modified; the feedback file stays in the
@@ -121,16 +121,19 @@ plugins; it does not have the commands that only developer tools use (they write
 `prefab.save` and every other command that lives in `tools/authoring`, `anim.*` and `mesh.*` among them once they have moved there; the editor, the
 CLI and MCP have them).
 `fa.call` with such a name fails when the game runs, so the export reads every shipped script (`scripts/` and any other `.js` that
-ships, not `tools/`, `tests/` or `scripts/autoplay.js`) and **stops** on each literal `fa.call("<command>")` of a command that is not the
-player's, before it writes anything (a `dryRun` finds it too). The error lists up to eight calls, each as `file:line:column`, the command,
+ships, not `tools/`, `tests/`, `scripts/autoplay.js` or what `export.exclude` leaves out) and **stops** on each literal
+`fa.call("<command>")` of a command that is not the player's, before it writes anything (a `dryRun` finds it too, and so does the
+web export of `factoria serve`, which plans the export first). The error lists up to eight calls, each as `file:line:column`, the command,
 "this command is for the editor, the CLI and MCP (authoring); the exported player does not have it", and what to do instead: the JS
 way where there is one (`mesh.*` is the `mesh` API of `"factoria"`, `anim.*` clips are assets that the entity's Animator plays,
 `scene.import_ascii` is `scene.place_ascii` at play time), or "do it before you export" for `prefab.save` and `scene.format`. A
-name that matches no command at all gets "did you mean" against the player's commands. The names a native plugin registers
+name that matches no command at all gets "did you mean" when one command is close, and `factoria call docs.commands` lists them. The names a native plugin registers
 (`<plugin>.<verb>`, for each plugin `factoria.json` declares) count as the player's. Only a string literal is checked
 (`fa.call("scene.format")`, in either quote style): a name built at run time (`fa.call(name)`, `fa.call(prefix + ".format")`) or a
 call inside a comment or a string is not, and it still fails in the game if the player lacks it. `factoria validate` reports the same
-calls as warnings, so you see them before you export.
+calls as warnings, in the scripts the export ships, so you see them before you export. The editor's Export window plans every
+platform every two seconds without reading the scripts each time: it reuses the last result until a shipped `.js` file,
+`factoria.json` or the output folder changes (an export and `dryRun` always read them).
 
 **Dot-folders never ship** (`.git`, `.factoria`, `.github`, `.vscode`, a `.cache` of your own): anything whose name starts with a dot is
 left out at every depth, so a game must not keep data it loads in a folder like `.data/`. Rename the folder

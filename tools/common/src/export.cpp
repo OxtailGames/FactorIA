@@ -5,6 +5,7 @@
 #include "fa/tooling/export.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -12,6 +13,7 @@
 #include <filesystem>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <regex>
 #include <set>
 
@@ -385,10 +387,11 @@ static void report_tool_only_calls(const Project& p, const std::vector<std::stri
     if (toolFile.empty()) return;
     for (const std::string& f : files) {
         if (to_lower(fs::extension(f)) != ".js") continue;
+        const stdfs::path file = p.dir / fs::path_from_utf8(f);
         std::error_code sec;
-        const auto size = stdfs::file_size(os_path(p.dir / f), sec);
+        const auto size = stdfs::file_size(os_path(file), sec);
         if (sec || size > kMaxScanScriptBytes) continue;
-        const auto text = read_file(p.dir / f);
+        const auto text = read_file(file);
         if (!text) continue;
         for (const ProjectCall& call : literal_project_calls(*text)) {
             const auto tool = toolFile.find(call.name);
@@ -409,10 +412,11 @@ static Result<void> check_script_commands(const Project& p, const std::vector<st
     std::vector<PlayerCommandIssue> issues;
     for (const std::string& f : files) {
         if (to_lower(fs::extension(f)) != ".js") continue;
+        const stdfs::path file = p.dir / fs::path_from_utf8(f);
         std::error_code sec;
-        const auto size = stdfs::file_size(os_path(p.dir / f), sec);
+        const auto size = stdfs::file_size(os_path(file), sec);
         if (sec || size > kMaxScanScriptBytes) continue;
-        const auto text = read_file(p.dir / f);
+        const auto text = read_file(file);
         if (!text) continue;
         if (text->find("call") == std::string::npos) continue;
         if (!contextRead) {
@@ -433,7 +437,7 @@ static Result<void> check_script_commands(const Project& p, const std::vector<st
     return err(message,
                "The player runs the game's scripts with the runtime commands only; the commands that write project "
                "files or author assets are for the editor, the CLI and MCP. Fix each call above and export again "
-               "(docs/EXPORTING.md, \"What is shipped and what is not\"). Scripts under tools/ and tests/ are not "
+               "(docs/EXPORTING.md, \"What is shipped (and what is not)\"). Scripts under tools/ and tests/ are not "
                "shipped and not checked; a name made at run time, fa.call(name), is not checked either.");
 }
 
@@ -477,7 +481,7 @@ static void report_packed_sizes(const Project& p, const std::vector<std::string>
             "sources of the assets, which the game never loads: if so, add \"" +
             name +
             "\" to \"export.exclude\" in "
-            "factoria.json (docs/EXPORTING.md, \"What is shipped and what is not\")");
+            "factoria.json (docs/EXPORTING.md, \"What is shipped (and what is not)\")");
 }
 
 // ---- game file collection ----------------------------------------------------------------------
@@ -485,23 +489,26 @@ static void report_packed_sizes(const Project& p, const std::vector<std::string>
 bool excluded_top_level(const std::string& name, const std::string& feedbackFile) {
     // steam_appid.txt makes a game run as the app it names, whoever starts it (the Steam plugin reads it in development):
     // a shipped game gets its app id from the Steam client.
-    static const std::set<std::string> names = {"build",
-                                                "tests",
-                                                "tools",
-                                                "types",
-                                                "node_modules",
-                                                "AGENTS.md",
-                                                "CLAUDE.md",
-                                                "jsconfig.json",
-                                                "ENGINE_FEEDBACK.json",
-                                                "ENGINE_FEEDBACK.archive.json",
-                                                "steam_appid.txt",
-                                                "REVIEW.md"};
+    static const std::set<std::string> names = {
+        "build",           "types",         "node_modules",         "AGENTS.md",
+        "CLAUDE.md",       "jsconfig.json", "ENGINE_FEEDBACK.json", "ENGINE_FEEDBACK.archive.json",
+        "steam_appid.txt", "REVIEW.md"};
     // REVIEW.md is the note the art critics and game reviewers read first (docs/AI_PROVIDERS.md, "Reviews").
     // The project's own README is documentation for whoever works on the game, and no game reads it (any capitalization).
-    return names.count(name) > 0 || name == feedbackFile ||
+    return names.count(name) > 0 || tooling_detail::dev_only_path(name) || name == feedbackFile ||
            name == stdfs::path(feedback_archive_path(feedbackFile)).filename().string() ||
            to_lower(name) == "readme.md";
+}
+
+// true for a file or folder (project-relative `rel`, `name` its last part) the export leaves out by its name alone: dot
+// names, export.exclude, the top-level development files, and scripts/autoplay.js (the bot play.auto runs, docs/SCRIPTING.md,
+// "The bot"). Folders that hold the output or a native plugin are another check (collect_game_files).
+static bool left_out_by_name(const Project& p, const stdfs::path& rel, const std::string& name) {
+    if (!name.empty() && name[0] == '.') return true;
+    const std::string relText = generic(rel);
+    if (tooling_detail::export_excluded(p.settings.exclude, relText)) return true;  // export.exclude (a folder too)
+    if (!rel.has_parent_path() && excluded_top_level(name, p.feedbackFile)) return true;
+    return tooling_detail::dev_only_path(relText);
 }
 
 // Project-relative paths (forward slashes, sorted) of every file that ships.
@@ -511,14 +518,7 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
     for (stdfs::recursive_directory_iterator it(p.dir, ec), end; !ec && it != end; it.increment(ec)) {
         const stdfs::path& full = it->path();
         stdfs::path rel = stdfs::relative(full, p.dir, ec);
-        std::string name = full.filename().string();
-        bool skip = !name.empty() && name[0] == '.';
-        if (!skip && tooling_detail::export_excluded(p.settings.exclude, generic(rel)))
-            skip = true;  // export.exclude (a folder too)
-        if (!skip && rel.has_parent_path() == false && excluded_top_level(name, p.feedbackFile)) skip = true;
-        // scripts/autoplay.js is the bot play.auto runs (docs/SCRIPTING.md, "The bot"): a shipped game never carries it. Windows and
-        // macOS find the file under any capitalization, so the match ignores case too.
-        if (!skip && to_lower(generic(rel)) == "scripts/autoplay.js") skip = true;
+        bool skip = left_out_by_name(p, rel, full.filename().string());
         if (!skip && (!outDirAbs.empty() || !p.pluginFolders.empty()) && it->is_directory(ec)) {
             std::error_code ec2;
             const stdfs::path dir = stdfs::weakly_canonical(full, ec2);
@@ -534,6 +534,61 @@ std::vector<std::string> collect_game_files(const Project& p, const stdfs::path&
     }
     std::sort(out.begin(), out.end());
     return out;
+}
+
+std::atomic<std::uint64_t> g_scriptCheckScans{0};
+
+// What decides the result of check_script_commands, read without opening a script: factoria.json (plugins, export.exclude),
+// the output folder, and the name, size and time of every .js file the export may ship. A directory walk, the cost of
+// listing the project; collect_game_files does the same and then reads every script.
+static std::string script_check_key(const Project& p, const stdfs::path& outDirAbs) {
+    auto stamp = [](const stdfs::path& file) {
+        std::error_code ec;
+        const auto size = stdfs::file_size(os_path(file), ec);
+        const auto time = ec ? stdfs::file_time_type{} : stdfs::last_write_time(os_path(file), ec);
+        return std::to_string(ec ? 0 : static_cast<std::uint64_t>(size)) + "@" +
+               std::to_string(ec ? 0 : static_cast<long long>(time.time_since_epoch().count()));
+    };
+    std::string key = generic(outDirAbs) + "|" + stamp(p.dir / "factoria.json");
+    std::error_code ec;
+    for (stdfs::recursive_directory_iterator it(p.dir, ec), end; !ec && it != end; it.increment(ec)) {
+        const stdfs::path& full = it->path();
+        const stdfs::path rel = stdfs::relative(full, p.dir, ec);
+        const bool dir = it->is_directory(ec);
+        if (left_out_by_name(p, rel, fs::path_to_utf8(full.filename()))) {
+            if (dir) it.disable_recursion_pending();
+            continue;
+        }
+        if (dir || to_lower(fs::path_to_utf8(full.extension())) != ".js") continue;
+        key += "\n" + generic(rel) + "|" + stamp(full);
+    }
+    return key;
+}
+
+// check_script_commands on the project's shipped files, or its result from the last time when `reuse` and the key did not
+// change (a script edited, added or removed, factoria.json or the output folder changed). One entry per project folder.
+static Result<void> check_script_commands_of(const Project& p, const stdfs::path& outDirAbs, bool reuse) {
+    struct Entry {
+        std::string key;
+        Result<void> result;
+    };
+    static std::mutex mutex;
+    static std::map<std::string, Entry> entries;
+    std::string key;
+    if (reuse) {
+        key = script_check_key(p, outDirAbs);
+        std::lock_guard<std::mutex> lock(mutex);
+        if (const auto it = entries.find(generic(p.dir)); it != entries.end() && it->second.key == key)
+            return it->second.result;
+    }
+    ++g_scriptCheckScans;
+    Result<void> result = check_script_commands(p, collect_game_files(p, outDirAbs));
+    if (reuse) {
+        std::lock_guard<std::mutex> lock(mutex);
+        if (entries.size() > 16) entries.clear();
+        entries[generic(p.dir)] = Entry{std::move(key), result};
+    }
+    return result;
 }
 
 // Gradle's working folders in an Android export (relative, forward slashes): the Gradle daemon, alive for 15 minutes after
@@ -830,8 +885,10 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         return err("export: output folder '" + generic(plan.outRoot) + "' would contain the project",
                    "choose another --out folder");
     if (auto r = check_replaceable(p, plan.platform, plan.outRoot); !r.ok()) return r.error();
-    if (auto r =
-            check_script_commands(p, collect_game_files(p, plan.outParent == p.dir ? plan.outRoot : plan.outParent));
+    // The same result on every platform: a plan the editor repeats (reuseScriptCheck) does not read the scripts again until
+    // one changes; an export always reads them.
+    if (auto r = check_script_commands_of(p, plan.outParent == p.dir ? plan.outRoot : plan.outParent,
+                                          options.reuseScriptCheck && !forExport);
         !r.ok())
         return r.error();
 
@@ -911,6 +968,8 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
 }  // namespace
 
 namespace export_detail {
+
+std::uint64_t script_check_scans() { return g_scriptCheckScans.load(); }
 
 std::vector<std::string> list_game_files(const stdfs::path& dir, const std::string& feedbackFile) {
     Project p;

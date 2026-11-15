@@ -85,6 +85,9 @@ std::string sh_quote(const std::string& s);
 // (export.cpp) The project-relative files (forward slashes, sorted) an export ships from the project at `dir`: everything but
 // the hidden files and folders, build/, tests/, tools/, types/... project.validate weighs them.
 std::vector<std::string> list_game_files(const stdfs::path& dir, const std::string& feedbackFile);
+// How many times the export's check of the scripts' fa.call names has read the scripts in this process (tests: a plan that
+// reuses the result of an earlier one does not count).
+std::uint64_t script_check_scans();
 
 // (export_textures.cpp) The warning for textures that cannot be GPU-compressed (sides not multiples of 4), shared by the
 // export and `factoria validate`. texture_block_compressed: false when a texture of this size, with the import settings of
