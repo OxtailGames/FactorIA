@@ -848,6 +848,23 @@ snippet, so the engine and the materials share one source of truth (an empty `su
 `MeshRenderer` without a material). Engine identifiers in the template start with `fa_`; `fa_time` (vertex and
 fragment) is `World::time()`, the engine clock. The template is embedded in `fa_tooling`.
 
+**Passes and targets.** One way to begin a pass and one way to make a target (`render_internal.h`, `gpu_types.h`). Every pass
+of the engine is a `PassDesc` (views, formats, load/store actions, clear values, label) given to `Gpu::begin_pass`, and
+`Gpu::end_pass` ends it: `sg_begin_pass` appears nowhere else in `engine/`. The defaults of a `PassDesc` are DONTCARE, not
+sokol's (a zero `sg_pass` CLEARS to grey), so each site says what it loads and stores. A pass into the window is
+`PassDesc::for_swapchain`, which resolves sokol's 0 (colour format, depth format, sample count) against the environment's
+defaults, so its `TargetFormat` is the one the pipelines are keyed by. In a Debug build `begin_pass` records the pass's format
+and every pipeline fetched while it runs must match it (an assertion names the mismatch); outside a pass, as in the warm-up, any
+format may be asked for. A `Target` is made by `make_target(TargetDesc)`: a colour image, its resolve image when `samples > 1`
+(`resolveAsColor` also gives the resolve a colour-attachment view, for bloom), an optional depth image, and their views
+(`colorAtt`, `resolveAtt`, `depthAtt`, `texView` for sampling), `pass_into(target, label)` is the matching `PassDesc` and
+`destroy_target` frees the lot. The game, CameraView and render-target images, the light buffer, the colour-filter image, the
+readback copy, the shadow map and the bloom levels are all `Target`s (`renderer_targets.cpp`, `bloom.cpp`). A game that draws
+its own window pass (the editor: ImGui over the viewport) does it with `Renderer::begin_window_pass` / `end_window_pass`, and
+the player clears its window with `Renderer::present_clear`, so neither `player/main.cpp` nor `editor_app.cpp` calls sokol for
+the game. The ImGui backend (`tools/editor/src/imgui_backend.cpp`) is a separate GPU client with its own pipelines and keeps
+using sokol directly; so do the render tests that include `src/` on purpose.
+
 **Cameras and viewports.** Every active `Camera` with `primary` draws, in ascending `depth`, into its `Camera.viewport`
 (normalized `[x, y, w, h]` of the target, top-left origin, at most 8 cameras; the loader and `camera_viewport_problem` in
 `scene/components.h` reject a bad rectangle). One camera over the whole target is ONE job, world and screen space together, exactly

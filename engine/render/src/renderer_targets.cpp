@@ -2,6 +2,114 @@
 // targets, the colour filter and the RGBA8 readback.
 #include "renderer_impl.h"
 
+namespace fa::render {
+
+bool Target::valid() const {
+    if (!color.id) return false;
+    for (sg_image i : {color, resolve, depth})
+        if (i.id && sg_query_image_state(i) != SG_RESOURCESTATE_VALID) return false;
+    for (sg_view v : {colorAtt, resolveAtt, resolveColorAtt, depthAtt, texView})
+        if (v.id && sg_query_view_state(v) != SG_RESOURCESTATE_VALID) return false;
+    // A view the description asked for that the GPU did not even create (a full pool) is as bad as a failed one.
+    return colorAtt.id && (!expectTexture || texView.id) && (!expectDepth || (depth.id && depthAtt.id)) &&
+           (samples <= 1 || (resolve.id && resolveAtt.id));
+}
+
+Target make_target(const TargetDesc& d) {
+    Target t;
+    t.w = d.width;
+    t.h = d.height;
+    t.samples = std::max(1, d.samples);
+    t.format = TargetFormat{d.colorFormat, d.depthFormat, t.samples};
+    t.expectTexture = d.texture;
+    t.expectDepth = d.depthFormat != SG_PIXELFORMAT_NONE;
+    const std::string base = d.label ? d.label : "target";
+    const std::string colorLabel = base + "-color", colorAttLabel = base + "-color-att",
+                      resolveLabel = base + "-resolve", resolveColorLabel = base + "-resolve-color-att",
+                      textureLabel = base + "-texture", depthLabel = base + "-depth";
+    const bool msaa = t.samples > 1;
+    if (d.colorFormat != SG_PIXELFORMAT_NONE) {
+        sg_image_desc cd{};
+        cd.usage.color_attachment = true;
+        cd.width = d.width;
+        cd.height = d.height;
+        cd.pixel_format = d.colorFormat;
+        cd.sample_count = t.samples;
+        cd.label = colorLabel.c_str();
+        t.color = make_image(cd);
+        sg_view_desc cv{};
+        cv.color_attachment.image = t.color;
+        cv.label = colorAttLabel.c_str();
+        t.colorAtt = sg_make_view(&cv);
+        if (msaa) {
+            sg_image_desc rd{};
+            rd.usage.resolve_attachment = true;
+            rd.usage.color_attachment = d.resolveAsColor;
+            rd.width = d.width;
+            rd.height = d.height;
+            rd.pixel_format = d.colorFormat;
+            rd.sample_count = 1;
+            rd.label = resolveLabel.c_str();
+            t.resolve = make_image(rd);
+            sg_view_desc rv{};
+            rv.resolve_attachment.image = t.resolve;
+            rv.label = resolveLabel.c_str();
+            t.resolveAtt = sg_make_view(&rv);
+            if (d.resolveAsColor) {
+                sg_view_desc rc{};
+                rc.color_attachment.image = t.resolve;
+                rc.label = resolveColorLabel.c_str();
+                t.resolveColorAtt = sg_make_view(&rc);
+            }
+        }
+        if (d.texture) {
+            sg_view_desc tv{};
+            tv.texture.image = t.texture_image();
+            tv.label = textureLabel.c_str();
+            t.texView = sg_make_view(&tv);
+        }
+    }
+    if (d.depthFormat != SG_PIXELFORMAT_NONE) {
+        sg_image_desc dd{};
+        dd.usage.depth_stencil_attachment = true;
+        dd.width = d.width;
+        dd.height = d.height;
+        dd.pixel_format = d.depthFormat;
+        dd.sample_count = t.samples;
+        dd.label = depthLabel.c_str();
+        t.depth = make_image(dd);
+        sg_view_desc dv{};
+        dv.depth_stencil_attachment.image = t.depth;
+        dv.label = depthLabel.c_str();
+        t.depthAtt = sg_make_view(&dv);
+    }
+    return t;
+}
+
+void destroy_target(Target& t) {
+    for (sg_view* v : {&t.colorAtt, &t.resolveAtt, &t.resolveColorAtt, &t.depthAtt, &t.texView}) {
+        if (v->id) sg_destroy_view(*v);
+        *v = {};
+    }
+    for (sg_image* i : {&t.color, &t.resolve, &t.depth}) {
+        if (i->id) sg_destroy_image(*i);
+        *i = {};
+    }
+    t = Target{};
+}
+
+PassDesc pass_into(const Target& t, const char* label) {
+    PassDesc p;
+    p.label = label;
+    p.color = t.colorAtt;
+    if (t.samples > 1) p.resolve = t.resolveAtt;
+    p.depth = t.depthAtt;
+    p.format = t.format;
+    return p;
+}
+
+}  // namespace fa::render
+
 namespace fa {
 
 void Renderer::Impl::create_targets(int w, int h) {
@@ -42,67 +150,21 @@ void Renderer::Impl::create_targets(int w, int h) {
 }
 
 void Renderer::Impl::make_game_targets() {
-    int samples = gpu.sample_count();
-    sg_image_desc cd{};
-    cd.usage.color_attachment = true;
-    cd.width = physW;
-    cd.height = physH;
-    cd.pixel_format = gpu.scene_format();
-    cd.sample_count = samples;
-    cd.label = "game-color";
-    colorImg = make_image(cd);
-    sg_view_desc cv{};
-    cv.color_attachment.image = colorImg;
-    cv.label = "game-color-att";
-    colorAtt = sg_make_view(&cv);
-    if (samples > 1) {
-        sg_image_desc rd{};
-        rd.usage.resolve_attachment = true;
-        rd.usage.color_attachment = true;  // Camera.bloom adds its glow to the resolved image
-        rd.width = physW;
-        rd.height = physH;
-        rd.pixel_format = gpu.scene_format();
-        rd.sample_count = 1;
-        rd.label = "game-resolve";
-        resolveImg = make_image(rd);
-        sg_view_desc rv{};
-        rv.resolve_attachment.image = resolveImg;
-        resolveAtt = sg_make_view(&rv);
-        sg_view_desc rc{};
-        rc.color_attachment.image = resolveImg;
-        rc.label = "game-resolve-color-att";
-        resolveColorAtt = sg_make_view(&rc);
-    }
-    sg_view_desc tv{};
-    tv.texture.image = samples > 1 ? resolveImg : colorImg;
-    tv.label = "game-texture";
-    texView = sg_make_view(&tv);
-    sg_image_desc dd{};
-    dd.usage.depth_stencil_attachment = true;
-    dd.width = physW;
-    dd.height = physH;
-    dd.pixel_format = SG_PIXELFORMAT_DEPTH_STENCIL;
-    dd.sample_count = samples;
-    dd.label = "game-depth";
-    depthImg = make_image(dd);
-    sg_view_desc dv{};
-    dv.depth_stencil_attachment.image = depthImg;
-    depthAtt = sg_make_view(&dv);
+    TargetDesc d;
+    d.label = "game";
+    d.width = physW;
+    d.height = physH;
+    d.colorFormat = gpu.scene_format();
+    d.samples = gpu.sample_count();
+    d.resolveAsColor = true;  // Camera.bloom adds its glow to the resolved image
+    d.depthFormat = kSceneDepthFormat;
+    gameTarget = make_target(d);
 }
 
-bool Renderer::Impl::game_targets_valid() const {
-    for (sg_image i : {colorImg, resolveImg, depthImg})
-        if (i.id && sg_query_image_state(i) != SG_RESOURCESTATE_VALID) return false;
-    for (sg_view v : {colorAtt, resolveAtt, resolveColorAtt, depthAtt, texView})
-        if (v.id && sg_query_view_state(v) != SG_RESOURCESTATE_VALID) return false;
-    return colorImg.id != 0 && texView.id != 0;
-}
+bool Renderer::Impl::game_targets_valid() const { return gameTarget.valid(); }
 
 void Renderer::Impl::free_read_image() {
-    if (readAtt.id) sg_destroy_view(readAtt);
-    readAtt = {};
-    if (readImg.id) sg_destroy_image(readImg);
-    readImg = {};
+    destroy_target(readbackTarget);
     readW = readH = 0;
 }
 
@@ -110,29 +172,12 @@ void Renderer::Impl::destroy_targets() {
     for (auto& [key, t] : viewTargets) release_view(*t);
     viewTargets.clear();
     bloom.release();
-    for (sg_view* v : {&lightAtt, &lightTexView}) {
-        if (v->id) sg_destroy_view(*v);
-        *v = {};
-    }
-    if (lightImg.id) sg_destroy_image(lightImg);
-    lightImg = {};
+    destroy_target(lightTarget);
     lightW = lightH = 0;
     filterActive = false;
-    for (sg_view* v : {&filterAtt, &filterTex}) {
-        if (v->id) sg_destroy_view(*v);
-        *v = {};
-    }
-    if (filterImg.id) sg_destroy_image(filterImg);
-    filterImg = {};
+    destroy_target(filterTarget);
     free_read_image();
-    for (sg_view* v : {&colorAtt, &resolveAtt, &resolveColorAtt, &depthAtt, &texView}) {
-        if (v->id) sg_destroy_view(*v);
-        *v = {};
-    }
-    for (sg_image* i : {&colorImg, &resolveImg, &depthImg}) {
-        if (i->id) sg_destroy_image(*i);
-        *i = {};
-    }
+    destroy_target(gameTarget);
 }
 
 // Makes (or keeps) the image of a CameraView: w x h pixels, drawn into with the game target's formats and sample count.
@@ -142,55 +187,18 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     if (!slot) slot = std::make_unique<ViewTarget>();
     ViewTarget& t = *slot;
     t.used = true;
-    if (t.color.id && t.w == w && t.h == h) return &t.asset;
+    if (t.main.color.id && t.w == w && t.h == h) return &t.asset;
     release_view(t);
     t.flipCopy = renderTarget && gpu.is_gl();
-    const int samples = gpu.sample_count();
-    sg_image_desc cd{};
-    cd.usage.color_attachment = true;
-    cd.width = w;
-    cd.height = h;
-    cd.pixel_format = gpu.scene_format();
-    cd.sample_count = samples;
-    cd.label = "view-color";
-    t.color = make_image(cd);
-    sg_view_desc cv{};
-    cv.color_attachment.image = t.color;
-    cv.label = "view-color-att";
-    t.colorAtt = sg_make_view(&cv);
-    if (samples > 1) {
-        sg_image_desc rd{};
-        rd.usage.resolve_attachment = true;
-        rd.width = w;
-        rd.height = h;
-        rd.pixel_format = gpu.scene_format();
-        rd.sample_count = 1;
-        rd.label = "view-resolve";
-        t.resolve = make_image(rd);
-        sg_view_desc rv{};
-        rv.resolve_attachment.image = t.resolve;
-        t.resolveAtt = sg_make_view(&rv);
-    }
-    sg_view_desc tv{};
-    tv.texture.image = samples > 1 ? t.resolve : t.color;
-    tv.label = "view-texture";
-    t.texView = sg_make_view(&tv);
-    sg_image_desc dd{};
-    dd.usage.depth_stencil_attachment = true;
-    dd.width = w;
-    dd.height = h;
-    dd.pixel_format = SG_PIXELFORMAT_DEPTH_STENCIL;
-    dd.sample_count = samples;
-    dd.label = "view-depth";
-    t.depth = make_image(dd);
-    sg_view_desc dv{};
-    dv.depth_stencil_attachment.image = t.depth;
-    t.depthAtt = sg_make_view(&dv);
-    const bool ok = sg_query_image_state(t.color) == SG_RESOURCESTATE_VALID &&
-                    sg_query_image_state(t.depth) == SG_RESOURCESTATE_VALID &&
-                    sg_query_view_state(t.texView) == SG_RESOURCESTATE_VALID &&
-                    sg_query_view_state(t.colorAtt) == SG_RESOURCESTATE_VALID;
-    if (!ok) {
+    TargetDesc d;
+    d.label = "view";
+    d.width = w;
+    d.height = h;
+    d.colorFormat = gpu.scene_format();
+    d.samples = gpu.sample_count();
+    d.depthFormat = kSceneDepthFormat;
+    t.main = make_target(d);
+    if (!t.main.valid()) {
         if (!viewWarned)
             FA_ERROR("render", "Cannot create the {}x{} image of a CameraView; the widget draws only its background", w,
                      h);
@@ -199,23 +207,13 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
         return nullptr;
     }
     if (t.flipCopy) {
-        sg_image_desc fd{};
-        fd.usage.color_attachment = true;
+        TargetDesc fd;
+        fd.label = "target-flipped";
         fd.width = w;
         fd.height = h;
-        fd.pixel_format = gpu.scene_format();
-        fd.sample_count = 1;
-        fd.label = "target-flipped";
-        t.flip = make_image(fd);
-        sg_view_desc fa{};
-        fa.color_attachment.image = t.flip;
-        t.flipAtt = sg_make_view(&fa);
-        sg_view_desc ft{};
-        ft.texture.image = t.flip;
-        t.flipTex = sg_make_view(&ft);
-        if (sg_query_image_state(t.flip) != SG_RESOURCESTATE_VALID ||
-            sg_query_view_state(t.flipAtt) != SG_RESOURCESTATE_VALID ||
-            sg_query_view_state(t.flipTex) != SG_RESOURCESTATE_VALID) {
+        fd.colorFormat = gpu.scene_format();
+        t.flip = make_target(fd);
+        if (!t.flip.valid()) {
             if (!viewWarned) FA_ERROR("render", "Cannot create the {}x{} image of a render target", w, h);
             viewWarned = true;
             release_view(t);
@@ -226,22 +224,16 @@ TextureAsset* Renderer::Impl::view_image(std::uint64_t key, int w, int h, bool r
     t.h = h;
     t.asset = TextureAsset{};
     t.asset.path = renderTarget ? "target" : "view";
-    t.asset.image = t.flipCopy ? t.flip : (samples > 1 ? t.resolve : t.color);
-    t.asset.view = t.flipCopy ? t.flipTex : t.texView;
+    t.asset.image = t.flipCopy ? t.flip.color : t.main.texture_image();
+    t.asset.view = t.flipCopy ? t.flip.texView : t.main.texView;
     t.asset.width = w;
     t.asset.height = h;
     return &t.asset;
 }
 
 void Renderer::Impl::release_view(ViewTarget& t) {
-    for (sg_view* v : {&t.colorAtt, &t.resolveAtt, &t.depthAtt, &t.texView, &t.flipAtt, &t.flipTex}) {
-        if (v->id) sg_destroy_view(*v);
-        *v = {};
-    }
-    for (sg_image* i : {&t.color, &t.resolve, &t.depth, &t.flip}) {
-        if (i->id) sg_destroy_image(*i);
-        *i = {};
-    }
+    destroy_target(t.main);
+    destroy_target(t.flip);
     t.w = t.h = 0;
     t.asset = TextureAsset{};
 }
@@ -327,18 +319,16 @@ TextureAsset* Renderer::Impl::resolve_target(const std::string& name) {
 
 // GL stores render targets bottom-up: copy the finished picture the right way up into the image the texture asset samples.
 void Renderer::Impl::flip_copy(ViewTarget& t) {
-    if (!t.flipCopy || !t.flip.id || !gpu.colorfilter_ready())
+    if (!t.flipCopy || !t.flip.color.id || !gpu.colorfilter_ready())
         return;  // the copy draws with the colour filter's shader
-    sg_pass p{};
-    p.action.colors[0].load_action = SG_LOADACTION_DONTCARE;
-    p.action.colors[0].store_action = SG_STOREACTION_STORE;
-    p.attachments.colors[0] = t.flipAtt;
-    p.label = "target-flip";
-    sg_begin_pass(&p);
-    sg_apply_pipeline(gpu.colorfilter_pipeline(TargetFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, 1}));
+    PassDesc p = pass_into(t.flip, "target-flip");
+    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
+    p.colorStore = SG_STOREACTION_STORE;
+    gpu.begin_pass(p);
+    sg_apply_pipeline(gpu.colorfilter_pipeline(p.format));
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_colorfilter_tex] = t.texView;
+    b.views[VIEW_colorfilter_tex] = t.main.texView;
     b.samplers[SMP_colorfilter_smp] = gpu.sampler(SamplerKind::Nearest);
     sg_apply_bindings(&b);
     colorfilter_colorfilter_vs_params_t vu{};
@@ -348,7 +338,7 @@ void Renderer::Impl::flip_copy(ViewTarget& t) {
     fu.p[0] = 0.0f;  // mode 0: a plain copy with the alpha
     apply_uniforms(UB_colorfilter_colorfilter_params, fu);
     sg_draw(0, 3, 1);
-    sg_end_pass();
+    gpu.end_pass();
     ++stats.drawCalls;
 }
 
@@ -359,42 +349,20 @@ bool Renderer::Impl::ensure_light_target(float scale) {
     const int w = std::max(1, int(std::lround(double(physW) * double(scale))));
     const int h = std::max(1, int(std::lround(double(physH) * double(scale))));
     const sg_pixel_format fmt = gpu.light_format();
-    if (lightImg.id && lightW == w && lightH == h && lightImgFormat == fmt) return true;
-    for (sg_view* v : {&lightAtt, &lightTexView}) {
-        if (v->id) sg_destroy_view(*v);
-        *v = {};
-    }
-    if (lightImg.id) sg_destroy_image(lightImg);
-    lightImg = {};
-    sg_image_desc d{};
-    d.usage.color_attachment = true;
+    if (lightTarget.color.id && lightW == w && lightH == h && lightImgFormat == fmt) return true;
+    destroy_target(lightTarget);
+    TargetDesc d;
+    d.label = "light-buffer";
     d.width = w;
     d.height = h;
-    d.pixel_format = fmt;
-    d.sample_count = 1;
-    d.label = "light-buffer";
-    lightImg = make_image(d);
-    sg_view_desc av{};
-    av.color_attachment.image = lightImg;
-    av.label = "light-buffer-att";
-    lightAtt = sg_make_view(&av);
-    sg_view_desc tv{};
-    tv.texture.image = lightImg;
-    tv.label = "light-buffer-tex";
-    lightTexView = sg_make_view(&tv);
-    if (sg_query_image_state(lightImg) != SG_RESOURCESTATE_VALID ||
-        sg_query_view_state(lightAtt) != SG_RESOURCESTATE_VALID ||
-        sg_query_view_state(lightTexView) != SG_RESOURCESTATE_VALID) {
+    d.colorFormat = fmt;
+    lightTarget = make_target(d);
+    if (!lightTarget.valid()) {
         FA_ERROR(
             "render",
             "Cannot create the {}x{} 2D light buffer; lit visuals are shaded per pixel by the first {} lights only", w,
             h, kDirectLights2D);
-        for (sg_view* v : {&lightAtt, &lightTexView}) {
-            if (v->id) sg_destroy_view(*v);
-            *v = {};
-        }
-        if (lightImg.id) sg_destroy_image(lightImg);
-        lightImg = {};
+        destroy_target(lightTarget);
         lightTargetFailed = true;
         return false;
     }
@@ -439,52 +407,33 @@ void Renderer::Impl::destroy_light_resources() {
     }
 }
 
-// Draws the finished game target through colorfilter.glsl into filterImg. Returns the draw calls issued (0 when the
+// Draws the finished game target through colorfilter.glsl into filterTarget. Returns the draw calls issued (0 when the
 // filter was skipped: the shader or the image could not be created, which is logged once).
 int Renderer::Impl::apply_color_filter(int mode) {
     if (!gpu.colorfilter_ready()) return 0;
-    if (!filterImg.id) {
-        sg_image_desc d{};
-        d.usage.color_attachment = true;
+    if (!filterTarget.color.id) {
+        TargetDesc d;
+        d.label = "game-filtered";
         d.width = physW;
         d.height = physH;
-        d.pixel_format = gpu.scene_format();
-        d.sample_count = 1;
-        d.label = "game-filtered";
-        filterImg = make_image(d);
-        sg_view_desc av{};
-        av.color_attachment.image = filterImg;
-        av.label = "game-filtered-att";
-        filterAtt = sg_make_view(&av);
-        sg_view_desc tv{};
-        tv.texture.image = filterImg;
-        tv.label = "game-filtered-tex";
-        filterTex = sg_make_view(&tv);
-        if (sg_query_image_state(filterImg) != SG_RESOURCESTATE_VALID ||
-            sg_query_view_state(filterAtt) != SG_RESOURCESTATE_VALID ||
-            sg_query_view_state(filterTex) != SG_RESOURCESTATE_VALID) {
+        d.colorFormat = gpu.scene_format();
+        filterTarget = make_target(d);
+        if (!filterTarget.valid()) {
             FA_ERROR("render",
                      "Camera.colorFilter: cannot create the {}x{} target; the game is drawn without the filter", physW,
                      physH);
-            for (sg_view* v : {&filterAtt, &filterTex}) {
-                if (v->id) sg_destroy_view(*v);
-                *v = {};
-            }
-            sg_destroy_image(filterImg);
-            filterImg = {};
+            destroy_target(filterTarget);
             return 0;
         }
     }
-    sg_pass p{};
-    p.action.colors[0].load_action = SG_LOADACTION_DONTCARE;
-    p.action.colors[0].store_action = SG_STOREACTION_STORE;
-    p.attachments.colors[0] = filterAtt;
-    p.label = "color-filter";
-    sg_begin_pass(&p);
-    sg_apply_pipeline(gpu.colorfilter_pipeline(TargetFormat{gpu.scene_format(), SG_PIXELFORMAT_NONE, 1}));
+    PassDesc p = pass_into(filterTarget, "color-filter");
+    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
+    p.colorStore = SG_STOREACTION_STORE;
+    gpu.begin_pass(p);
+    sg_apply_pipeline(gpu.colorfilter_pipeline(p.format));
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
-    b.views[VIEW_colorfilter_tex] = texView;
+    b.views[VIEW_colorfilter_tex] = gameTarget.texView;
     b.samplers[SMP_colorfilter_smp] = gpu.sampler(SamplerKind::Nearest);
     sg_apply_bindings(&b);
     colorfilter_colorfilter_vs_params_t vu{};
@@ -494,7 +443,7 @@ int Renderer::Impl::apply_color_filter(int mode) {
     fu.p[0] = float(mode);
     apply_uniforms(UB_colorfilter_colorfilter_params, fu);
     sg_draw(0, 3, 1);
-    sg_end_pass();
+    gpu.end_pass();
     filterActive = true;
     return 1;
 }
@@ -502,22 +451,16 @@ int Renderer::Impl::apply_color_filter(int mode) {
 bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out,
                                 std::string* error) {
     if (gpu.scene_format() == SG_PIXELFORMAT_RGBA8) return readback_rgba8(image, w, h, out, error);
-    if (!readImg.id || readW != w || readH != h) {
+    if (!readbackTarget.color.id || readW != w || readH != h) {
         free_read_image();
-        sg_image_desc d{};
-        d.usage.color_attachment = true;
+        TargetDesc d;
+        d.label = "readback-rgba8";
         d.width = w;
         d.height = h;
-        d.pixel_format = SG_PIXELFORMAT_RGBA8;
-        d.sample_count = 1;
-        d.label = "readback-rgba8";
-        readImg = make_image(d);
-        sg_view_desc av{};
-        av.color_attachment.image = readImg;
-        av.label = "readback-rgba8-att";
-        readAtt = sg_make_view(&av);
-        if (sg_query_image_state(readImg) != SG_RESOURCESTATE_VALID ||
-            sg_query_view_state(readAtt) != SG_RESOURCESTATE_VALID) {
+        d.colorFormat = SG_PIXELFORMAT_RGBA8;
+        d.texture = false;  // only drawn into and read back
+        readbackTarget = make_target(d);
+        if (!readbackTarget.valid()) {
             if (error)
                 *error = std::format("the {}x{} image for reading the frame back as 8-bit colour could not be created "
                                      "(out of GPU memory?)",
@@ -528,13 +471,11 @@ bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std:
         readW = w;
         readH = h;
     }
-    sg_pass p{};
-    p.action.colors[0].load_action = SG_LOADACTION_DONTCARE;
-    p.action.colors[0].store_action = SG_STOREACTION_STORE;
-    p.attachments.colors[0] = readAtt;
-    p.label = "readback-rgba8";
-    sg_begin_pass(&p);
-    sg_apply_pipeline(gpu.blit_keep_pipeline(Gpu::blit_keep_target_format()));
+    PassDesc p = pass_into(readbackTarget, "readback-rgba8");
+    p.colorLoad = SG_LOADACTION_DONTCARE;  // every pixel is drawn
+    p.colorStore = SG_STOREACTION_STORE;
+    gpu.begin_pass(p);
+    sg_apply_pipeline(gpu.blit_keep_pipeline(p.format));
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_blit_tex] = view;
@@ -544,36 +485,21 @@ bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std:
     u.flip[0] = gpu.is_gl() ? 1.0f : 0.0f;
     apply_uniforms(UB_blit_blit_vs_params, u);
     sg_draw(0, 3, 1);
-    sg_end_pass();
+    gpu.end_pass();
     // The read-back waits for the GPU and on Metal only an sg_commit() submits the copy (see Renderer::capture()).
     sg_commit();
     gpu.note_commit();
-    return readback_rgba8(readImg, w, h, out, error);
+    return readback_rgba8(readbackTarget.color, w, h, out, error);
 }
 
 void Renderer::Impl::create_shadow_targets() {
-    if (shadowColor.id || !gpu.shadows_supported()) return;
-    sg_image_desc cd{};
-    cd.usage.color_attachment = true;
-    cd.width = cd.height = kShadowSize;
-    cd.pixel_format = SG_PIXELFORMAT_R32F;
-    cd.label = "shadow-color";
-    shadowColor = make_image(cd);
-    sg_image_desc dd{};
-    dd.usage.depth_stencil_attachment = true;
-    dd.width = dd.height = kShadowSize;
-    dd.pixel_format = SG_PIXELFORMAT_DEPTH;
-    dd.label = "shadow-depth";
-    shadowDepth = make_image(dd);
-    sg_view_desc v{};
-    v.color_attachment.image = shadowColor;
-    shadowColorAtt = sg_make_view(&v);
-    v = {};
-    v.depth_stencil_attachment.image = shadowDepth;
-    shadowDepthAtt = sg_make_view(&v);
-    v = {};
-    v.texture.image = shadowColor;
-    shadowTexView = sg_make_view(&v);
+    if (shadowTarget.color.id || !gpu.shadows_supported()) return;
+    TargetDesc d;
+    d.label = "shadow";
+    d.width = d.height = kShadowSize;
+    d.colorFormat = SG_PIXELFORMAT_R32F;
+    d.depthFormat = SG_PIXELFORMAT_DEPTH;
+    shadowTarget = make_target(d);
 }
 
 }  // namespace fa

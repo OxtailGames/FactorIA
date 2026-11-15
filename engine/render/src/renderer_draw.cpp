@@ -143,12 +143,12 @@ bool declares(const MaterialProgram* prog, int ub) { return !prog || prog->has_u
 // No post effects (the frame has one set, the first camera's), no 2D light buffer.
 void Renderer::Impl::draw_view_job(World& world, Frame& fr, ViewTarget& target) {
     const int sTargetW = targetW, sTargetH = targetH, sPhysW = physW, sPhysH = physH;
-    const sg_view sColor = colorAtt, sResolve = resolveAtt, sDepth = depthAtt;
+    const sg_view sColor = gameTarget.colorAtt, sResolve = gameTarget.resolveAtt, sDepth = gameTarget.depthAtt;
     targetW = physW = target.w;
     targetH = physH = target.h;
-    colorAtt = target.colorAtt;
-    resolveAtt = target.resolveAtt;
-    depthAtt = target.depthAtt;
+    gameTarget.colorAtt = target.main.colorAtt;
+    gameTarget.resolveAtt = target.main.resolveAtt;
+    gameTarget.depthAtt = target.main.depthAtt;
     const CameraInfo noPost;  // bloom off, no colour filter
     JobPlan plan;
     plan.first = true;
@@ -160,9 +160,9 @@ void Renderer::Impl::draw_view_job(World& world, Frame& fr, ViewTarget& target) 
     targetH = sTargetH;
     physW = sPhysW;
     physH = sPhysH;
-    colorAtt = sColor;
-    resolveAtt = sResolve;
-    depthAtt = sDepth;
+    gameTarget.colorAtt = sColor;
+    gameTarget.resolveAtt = sResolve;
+    gameTarget.depthAtt = sDepth;
 }
 
 // Draws one job of the frame into the game target: the pass(es) of one camera's world (and, for the single full-screen
@@ -643,7 +643,7 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
     TextureAsset* white = ctx.white;
     const bool doShadows = ctx.doShadows;
     b.views[VIEW_mesh_fa_tex] = d.tex->gpu_view();
-    b.views[VIEW_mesh_fa_shadow_tex] = (doShadows && !shadowPass) ? shadowTexView : white->view;
+    b.views[VIEW_mesh_fa_shadow_tex] = (doShadows && !shadowPass) ? shadowTarget.texView : white->view;
     b.views[VIEW_mesh_fa_normal_tex] = (d.normal ? d.normal : white)->gpu_view();
     b.views[VIEW_mesh_fa_mr_tex] = d.mr->gpu_view();
     b.views[VIEW_mesh_fa_occlusion_tex] = d.occlusion->gpu_view();
@@ -671,7 +671,7 @@ void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartD
 // each light matters), and the screen-space groups too.
 // Reads: fr (lights2d, shadowRows, camera, viewport), ctx.gWorld, ctx.ss.lightScale, ctx.partial, plan.view (no light buffer
 // for a view), gpu light state. Writes: ctx.litMode, ctx.shadowRowsTex (uploads the shadow-rows texture), lightW / lightH and
-// the light target (ensure_light_target), in litMode 1 the light buffer's pass (lightAtt); stats.drawCalls.
+// the light target (ensure_light_target), in litMode 1 the light buffer's pass (lightTarget); stats.drawCalls.
 void Renderer::Impl::light_pass(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     const JobPlan& plan = ctx.plan;
@@ -717,13 +717,11 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
         wd.dst.buffer = lb;
         sg_write_buffer_transient(&wd);
 
-        sg_pass lp{};
-        lp.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-        lp.action.colors[0].clear_value = {0, 0, 0, 0};
-        lp.action.colors[0].store_action = SG_STOREACTION_STORE;
-        lp.attachments.colors[0] = lightAtt;
-        lp.label = "light-buffer";
-        sg_begin_pass(&lp);
+        PassDesc lp = pass_into(lightTarget, "light-buffer");
+        lp.colorLoad = SG_LOADACTION_CLEAR;
+        lp.clearColor = {0, 0, 0, 0};
+        lp.colorStore = SG_STOREACTION_STORE;
+        gpu.begin_pass(lp);
         // The lights of this camera go to its rectangle of the buffer; the lit visuals of the camera read nothing else.
         if (partial) apply_view(px_rect(fr.cam.viewport, lightW, lightH));
         sg_apply_pipeline(gpu.light_pipeline());
@@ -740,7 +738,7 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
         fu.range[0] = 1.0f / gpu.light_range();
         apply_uniforms(UB_light_light_fs_params, fu);
         sg_draw(0, int(lv.size() / 4) * 6, 1);
-        sg_end_pass();
+        gpu.end_pass();
         ++stats.drawCalls;
     }
 }
@@ -750,7 +748,7 @@ void Renderer::Impl::light_pass(DrawContext& ctx) {
 // shadow, alphaMode "clip" cuts holes into it).
 // Reads: ctx.doShadows, ctx.opaque / ctx.blended and their batches, ctx.shadowInst, ctx.vuScene, ctx.lightUniforms,
 // ctx.white and ctx.fuScene (part_draw, bind_textures, fill_fs), the shadow targets.
-// Writes: the shadow map (shadowColorAtt, shadowDepthAtt); stats.drawCalls.
+// Writes: the shadow map (shadowTarget); stats.drawCalls.
 void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     if (!ctx.doShadows) return;
     const std::vector<MeshBatch>& opaqueBatches = ctx.opaqueBatches;
@@ -760,15 +758,13 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
     const sg_buffer shadowInst = ctx.shadowInst;
     const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
     const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
-    sg_pass sp{};
-    sp.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-    sp.action.colors[0].clear_value = {1, 1, 1, 1};
-    sp.action.depth.load_action = SG_LOADACTION_CLEAR;
-    sp.action.depth.clear_value = 1.0f;
-    sp.attachments.colors[0] = shadowColorAtt;
-    sp.attachments.depth_stencil = shadowDepthAtt;
-    sp.label = "shadow";
-    sg_begin_pass(&sp);
+    PassDesc sp = pass_into(shadowTarget, "shadow");
+    sp.colorLoad = SG_LOADACTION_CLEAR;
+    sp.clearColor = {1, 1, 1, 1};
+    sp.colorStore = SG_STOREACTION_STORE;
+    sp.depthLoad = SG_LOADACTION_CLEAR;
+    sp.clearDepth = 1.0f;
+    gpu.begin_pass(sp);
     mesh_fa_mesh_vs_params_t u = vuScene;  // the shadow programs read fa_light_vp (fa_view_proj is unused)
     for (int pass = 0; pass < 2; ++pass) {
         const std::vector<MeshBatch>& batches = pass == 0 ? opaqueBatches : blendedBatches;
@@ -812,11 +808,11 @@ void Renderer::Impl::shadow_pass(DrawContext& ctx) {
             }
         }
     }
-    sg_end_pass();
+    gpu.end_pass();
 }
 
 // Draws the batches of a quad group. Reads: ctx.vbuf, ctx.shadowRowsTex, fr (lights2d, shadowRows, ambient2d), renderScale,
-// physW / physH, gpu.light_range(), lightTexView (`flatMode` 1 reads the light buffer). Writes: stats.drawCalls.
+// physW / physH, gpu.light_range(), lightTarget.texView (`flatMode` 1 reads the light buffer). Writes: stats.drawCalls.
 void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
                                 const Px& base, int flatMode) {
     Frame& fr = ctx.fr;
@@ -868,7 +864,7 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
         litUniforms.light_shadow_v[i][0] =
             row >= 0.0f && fr.shadowRows > 0 ? (row + 0.5f) / float(fr.shadowRows) : -1.0f;
     }
-    const sg_view lightTexBound = flatMode == 1 ? lightTexView : assets->white()->view;
+    const sg_view lightTexBound = flatMode == 1 ? lightTarget.texView : assets->white()->view;
     const sg_view shadowTexBound = shadowRowsTex.id ? shadowRowsTex : assets->white()->view;
     for (const QuadBatch& qb : batches) {
         apply_clip(qb.clip);
@@ -913,8 +909,8 @@ void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& 
 // Reads: plan (first / last / view), fr (camera, wantWorld, wantScreen, debugLines), ctx.z01, msaa, hudAfterBloom,
 // clearByQuad, clearByLoad, partial, camPx, fullPx, ctx.white, ss, fuScene, vuScene, lightUniforms, shadowRowsTex, litMode,
 // opaque / blended with their batches, mainInst, the quad groups (gClear, gWorld, gDebugWorld, gScreen, gDebugScreen), vbuf,
-// lineFirst, screenProj, shadowTexView (doShadows) and lightTexView (litMode 1), the game target images.
-// Writes: the game target (colorAtt / resolveAtt / depthAtt); stats (drawCalls, triangles, meshes, meshBatches, materials,
+// lineFirst, screenProj, shadowTarget.texView (doShadows) and lightTarget.texView (litMode 1), the game target images.
+// Writes: the game target (gameTarget.colorAtt / resolveAtt / depthAtt); stats (drawCalls, triangles, meshes, meshBatches, materials,
 // materialFallbacks).
 void Renderer::Impl::main_pass(DrawContext& ctx) {
     Frame& fr = ctx.fr;
@@ -944,20 +940,15 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
     const bool doMainPass = fr.wantWorld || !hudAfterBloom;
     const bool drawHudInPass = fr.wantScreen && !hudAfterBloom;
     if (doMainPass) {
-        sg_pass mp{};
-        mp.action.colors[0].load_action = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
-        mp.action.colors[0].clear_value = {fr.cam.clearColor.r, fr.cam.clearColor.g, fr.cam.clearColor.b,
-                                           fr.cam.clearColor.a};
-        mp.action.colors[0].store_action =
+        PassDesc mp = pass_into(gameTarget, plan.view ? "view" : fr.wantWorld ? "game" : "game-hud");
+        mp.colorLoad = clearByLoad ? SG_LOADACTION_CLEAR : SG_LOADACTION_LOAD;
+        mp.clearColor = {fr.cam.clearColor.r, fr.cam.clearColor.g, fr.cam.clearColor.b, fr.cam.clearColor.a};
+        mp.colorStore =
             (msaa && (plan.last || plan.view) && !hudAfterBloom) ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
-        mp.action.depth.load_action = SG_LOADACTION_CLEAR;
-        mp.action.depth.clear_value = 1.0f;
-        mp.action.stencil.load_action = SG_LOADACTION_CLEAR;
-        mp.attachments.colors[0] = colorAtt;
-        if (gpu.sample_count() > 1) mp.attachments.resolves[0] = resolveAtt;
-        mp.attachments.depth_stencil = depthAtt;
-        mp.label = plan.view ? "view" : fr.wantWorld ? "game" : "game-hud";
-        sg_begin_pass(&mp);
+        mp.depthLoad = SG_LOADACTION_CLEAR;
+        mp.clearDepth = 1.0f;
+        mp.stencilLoad = SG_LOADACTION_CLEAR;
+        gpu.begin_pass(mp);
         if (partial) apply_view(camPx);
 
         // clear of a camera that shares the target with others
@@ -1072,7 +1063,7 @@ void Renderer::Impl::main_pass(DrawContext& ctx) {
             draw_group(ctx, gDebugScreen.batches, screenProj, false, fullPx, 0);
         }
 
-        sg_end_pass();
+        gpu.end_pass();
     }  // doMainPass
 }
 
@@ -1086,12 +1077,12 @@ void Renderer::Impl::bloom_pass(DrawContext& ctx) {
         if (hudAfterBloom && msaa) {
             // Glow into the multisampled image (resolved again at the end of the composite pass) so the HUD pass below
             // can load it. Reads the already resolved image of the main pass.
-            dst = BloomTarget{colorAtt, resolveAtt, gpu.sample_count()};
+            dst = BloomTarget{gameTarget.colorAtt, gameTarget.resolveAtt, gpu.sample_count()};
         } else {
             // The finished frame: the resolved image when MSAA is on (the main pass already resolved into it).
-            dst = BloomTarget{msaa ? resolveColorAtt : colorAtt, sg_view{}, 1};
+            dst = BloomTarget{msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
         }
-        stats.drawCalls += bloom.apply(gpu, post.bloom, physW, physH, texView, dst);
+        stats.drawCalls += bloom.apply(gpu, post.bloom, physW, physH, gameTarget.texView, dst);
     }
 }
 
@@ -1105,25 +1096,21 @@ void Renderer::Impl::hud_pass(DrawContext& ctx) {
     const DrawContext::Group& gScreen = ctx.gScreen;
     const DrawContext::Group& gDebugScreen = ctx.gDebugScreen;
     if (hudAfterBloom && fr.wantScreen && (!gScreen.batches.empty() || !gDebugScreen.batches.empty())) {
-        sg_pass hp{};
-        hp.action.colors[0].load_action = SG_LOADACTION_LOAD;  // keep the world and its glow
-        hp.action.colors[0].store_action = msaa ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
-        hp.action.depth.load_action = SG_LOADACTION_CLEAR;
-        hp.action.depth.clear_value = 1.0f;
-        hp.action.stencil.load_action = SG_LOADACTION_CLEAR;
-        hp.attachments.colors[0] = colorAtt;
-        if (msaa) hp.attachments.resolves[0] = resolveAtt;
-        hp.attachments.depth_stencil = depthAtt;
-        hp.label = "game-hud";
-        sg_begin_pass(&hp);
+        PassDesc hp = pass_into(gameTarget, "game-hud");
+        hp.colorLoad = SG_LOADACTION_LOAD;  // keep the world and its glow
+        hp.colorStore = msaa ? SG_STOREACTION_DONTCARE : SG_STOREACTION_STORE;
+        hp.depthLoad = SG_LOADACTION_CLEAR;
+        hp.clearDepth = 1.0f;
+        hp.stencilLoad = SG_LOADACTION_CLEAR;
+        gpu.begin_pass(hp);
         draw_group(ctx, gScreen.batches, screenProj, false, fullPx, 0);
         draw_group(ctx, gDebugScreen.batches, screenProj, false, fullPx, 0);
-        sg_end_pass();
+        gpu.end_pass();
     }
 }
 
 // The last job of the frame: bloom, the HUD over it, then Camera.colorFilter (costs nothing with "none").
-// Reads: ctx.post, plus what bloom_pass and hud_pass read. Writes: the game target, filterImg / filterActive; stats.drawCalls.
+// Reads: ctx.post, plus what bloom_pass and hud_pass read. Writes: the game target, filterTarget / filterActive; stats.drawCalls.
 void Renderer::Impl::post_passes(DrawContext& ctx) {
     bloom_pass(ctx);
     hud_pass(ctx);

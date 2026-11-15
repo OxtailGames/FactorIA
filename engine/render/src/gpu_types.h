@@ -2,10 +2,10 @@
 //
 //  * TargetFormat: what a render pass writes into. A pipeline is only valid for passes with the same formats and
 //    sample count, so it is the key of the pipelines made for a pass (a map keyed by TargetFormat, in gpu.cpp).
-//  * PassDesc: one render pass as data: where it draws, what it does with the old contents and how it ends. The
-//    sg_begin_pass call sites of the renderer (the game and view passes, shadow, 2D light buffer, colour filter, flip
-//    copy, RGBA8 readback, present, bloom stages) are to build one and begin it with sg_begin_pass(&desc.to_sg())
-//    instead of each filling an sg_pass. Nothing uses these types yet.
+//  * PassDesc: one render pass as data: where it draws, what it does with the old contents and how it ends. Every pass
+//    of the renderer (the game and view passes, shadow, 2D light buffer, colour filter, flip copy, RGBA8 readback,
+//    present, bloom stages) builds one and begins it with Gpu::begin_pass (render_internal.h), the only caller of
+//    sg_begin_pass in engine/.
 #pragma once
 
 #include <cstddef>
@@ -41,6 +41,11 @@ struct TargetFormat {
 };
 
 // One render pass. A pass draws either into the views below or into a swapchain (present), never both.
+//
+// The defaults of the load/store actions are NOT sokol's: a zero sg_pass means "clear to grey" (SG_LOADACTION_DEFAULT is
+// CLEAR for colour, depth and stencil), while a PassDesc says DONTCARE for what it does not set, so a pass that forgets
+// a field is cheap rather than clearing. Every site that begins a pass sets colorLoad, colorStore and, when it has a
+// depth or stencil attachment (a swapchain has them), depthLoad and stencilLoad explicitly, to what its sg_pass did.
 struct PassDesc {
     const char* label = "";  // the debug label of the pass (GPU captures, validation messages): a string literal
 
@@ -61,6 +66,27 @@ struct PassDesc {
     sg_load_action depthLoad = SG_LOADACTION_DONTCARE;  // CLEAR to `clearDepth`; the depth is never read after the pass
     float clearDepth = 1.0f;
     sg_load_action stencilLoad = SG_LOADACTION_DONTCARE;  // the main passes CLEAR it (to 0)
+
+    // A pass into the window: `swapchain` (not owned: it must outlive the pass) and the formats it really has. sokol
+    // accepts 0 for the colour format, the depth format and the sample count of an sg_swapchain and uses the defaults of
+    // the environment (sg_desc.environment.defaults) then; `defaults` is that environment, so `format` is what a pipeline
+    // drawn in the pass has to match (Gpu::blit_pipeline(format)). The load/store actions are the ones of a pass that
+    // fills the window: the caller sets them.
+    static PassDesc for_swapchain(const sg_swapchain& sc, const sg_environment_defaults& defaults) {
+        PassDesc p;
+        p.swapchain = &sc;
+        p.format.color = sc.color_format != _SG_PIXELFORMAT_DEFAULT ? sc.color_format : defaults.color_format;
+        p.format.depth = sc.depth_format != _SG_PIXELFORMAT_DEFAULT ? sc.depth_format : defaults.depth_format;
+        p.format.samples =
+            sc.sample_count > 0 ? sc.sample_count : (defaults.sample_count > 0 ? defaults.sample_count : 1);
+        return p;
+    }
+    // The same with the defaults of the open sokol context (sg_query_desc); the raw values of `sc` when there is none.
+    static PassDesc for_swapchain(const sg_swapchain& sc) {
+        sg_environment_defaults d{};
+        if (sg_isvalid()) d = sg_query_desc().environment.defaults;
+        return for_swapchain(sc, d);
+    }
 
     // The sokol description of the pass, for sg_begin_pass.
     sg_pass to_sg() const {

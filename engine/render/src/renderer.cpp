@@ -161,15 +161,24 @@ void Renderer::close_context() {
     if (sg_isvalid()) sg_shutdown();
 }
 
-bool Renderer::present_clear(const GfxSwapchain& swapchain) {
+void Renderer::begin_window_pass(const GfxSwapchain& swapchain, Color clear) {
+    const sg_swapchain& sc = swapchain.get();
+    PassDesc pass = PassDesc::for_swapchain(sc);
+    pass.label = "window";
+    pass.colorLoad = SG_LOADACTION_CLEAR;
+    pass.clearColor = {clear.r, clear.g, clear.b, clear.a};
+    pass.colorStore = SG_STOREACTION_STORE;
+    pass.depthLoad = SG_LOADACTION_CLEAR;  // what sokol did for the pass it was given (SG_LOADACTION_DEFAULT is CLEAR)
+    pass.stencilLoad = SG_LOADACTION_CLEAR;
+    Gpu::begin_pass(pass);
+}
+
+void Renderer::end_window_pass() { Gpu::end_pass(); }
+
+bool Renderer::present_clear(const GfxSwapchain& swapchain, Color color) {
     if (!sg_isvalid()) return false;
-    sg_pass pass{};
-    pass.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-    pass.action.colors[0].clear_value = {0, 0, 0, 1};
-    pass.swapchain = swapchain.get();
-    pass.label = "present-clear";
-    sg_begin_pass(&pass);
-    sg_end_pass();
+    begin_window_pass(swapchain, color);
+    end_window_pass();
     sg_commit();
     return true;
 }
@@ -180,12 +189,10 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
     if (!im.warmBuilt) {
         im.warmBuilt = true;
         Gpu* gpu = &im.gpu;
-        const sg_swapchain sc = swapchain.get();
-        const int scSamples = sc.sample_count > 0 ? sc.sample_count : 1;
+        const TargetFormat presentFormat = PassDesc::for_swapchain(swapchain.get()).format;
         // Group order = what the first frames of a game need first. Every pipeline is keyed deterministically in Gpu, so a
         // frame that needs one before its group ran makes it itself, the same pipeline.
-        im.warmGroups.push_back(
-            [gpu, sc, scSamples] { gpu->blit_pipeline(sc.color_format, sc.depth_format, scSamples); });
+        im.warmGroups.push_back([gpu, presentFormat] { gpu->blit_pipeline(presentFormat); });
         im.warmGroups.push_back([gpu] {
             gpu->quad_pipeline(false, false, BlendMode::Alpha);
             gpu->quad_pipeline(false, false, BlendMode::Alpha, true);
@@ -309,10 +316,7 @@ void Renderer::shutdown() {
         im.assets.reset();
         im.destroy_targets();
         im.destroy_light_resources();
-        for (sg_view* v : {&im.shadowColorAtt, &im.shadowDepthAtt, &im.shadowTexView})
-            if (v->id) sg_destroy_view(*v);
-        for (sg_image* i : {&im.shadowColor, &im.shadowDepth})
-            if (i->id) sg_destroy_image(*i);
+        destroy_target(im.shadowTarget);
         im.gpu.shutdown();
         if (!im.adopted)
             sg_shutdown();  // an adopted context stays open for close_context(): the player may still present
@@ -819,7 +823,7 @@ void Renderer::Impl::render(World& world, float dt) {
         for (int i : order) {
             const TargetCam& tc = targetCams[std::size_t(i)];
             auto it = viewTargets.find(tc.key);
-            if (it == viewTargets.end() || !it->second->color.id) continue;
+            if (it == viewTargets.end() || !it->second->main.color.id) continue;
             targetSelf = tc.name;
             draw_view_job(world, targetFrames[std::size_t(i)], *it->second);
             targetSelf.clear();
@@ -831,7 +835,7 @@ void Renderer::Impl::render(World& world, float dt) {
     // The CameraViews next: the frame's own jobs sample their images.
     for (auto& [key, vf] : viewFrames) {
         auto it = viewTargets.find(key);
-        if (it != viewTargets.end() && it->second->color.id) draw_view_job(world, vf, *it->second);
+        if (it != viewTargets.end() && it->second->main.color.id) draw_view_job(world, vf, *it->second);
     }
     stats.views = int(viewFrames.size());
 

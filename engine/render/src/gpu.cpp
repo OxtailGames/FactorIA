@@ -210,7 +210,28 @@ void Gpu::destroy_shader(sg_shader shader) {
     sg_destroy_shader(shader);
 }
 
+void Gpu::begin_pass(const PassDesc& pass) {
+#ifndef NDEBUG
+    FA_ASSERT(!inPass_, "Gpu::begin_pass: a pass is already open (end_pass it first)");
+#endif
+    const sg_pass p = pass.to_sg();
+    sg_begin_pass(&p);
+    inPass_ = true;
+    passFormat_ = pass.format;
+}
+
+void Gpu::end_pass() {
+    sg_end_pass();
+    inPass_ = false;
+}
+
 sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, sg_pipeline_desc desc) {
+#ifndef NDEBUG
+    // A pipeline applied in a pass must have the pass's colour format, depth format and sample count. GL and D3D11
+    // validation reject a mismatch; Metal accepts it and draws wrong, so check here, where every pipeline comes from.
+    FA_ASSERT(!inPass_ || format == passFormat_,
+              "a pipeline was fetched for another target format than the pass being drawn (PassDesc::format)");
+#endif
     key.format = format;
     auto it = pipelines_.find(key);
     if (it != pipelines_.end()) {
