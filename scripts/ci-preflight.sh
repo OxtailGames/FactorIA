@@ -249,7 +249,9 @@ if [ $DO_LINT = 1 ] && [ $PLAN = 0 ]; then
     if [ -n "$PY" ]; then
         run_step lint-cache-keys "$PY" "$ROOT/scripts/check-ci-cache-keys.py"
         run_step lint-test-shards "$PY" "$ROOT/scripts/ctest_shard.py" --self-test
+        run_step lint-player-includes "$PY" "$ROOT/scripts/check-player-includes.py"
     else
+        record SKIP "lint-player-includes" 0 "no python3 on this machine"
         record SKIP "lint-cache-keys" 0 "no python3 on this machine"
         record SKIP "lint-test-shards" 0 "no python3 on this machine"
     fi

@@ -1188,8 +1188,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ runner.os }}-android-${{ github.run_id }}
-          restore-keys: ccache-${{ runner.os }}-android-
+          key: ccache-${{ runner.os }}-android-release-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-android-release-
 
       # The runner image preinstalls several NDKs; the preset reads ANDROID_NDK_HOME.
       - name: Select the preinstalled NDK
@@ -1213,7 +1213,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ runner.os }}-android-${{ github.run_id }}
+          key: ccache-${{ runner.os }}-android-release-${{ github.run_id }}
 
       - name: Delete this ref's older ccaches
         if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
@@ -1221,7 +1221,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
-        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-android-
+        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-android-release-
 
       # The player must export ANativeActivity_onCreate (sokol_app) or NativeActivity cannot start it.
       - name: Check the entry points of libfactoria_player.so
@@ -1787,6 +1787,10 @@ jobs:
       # The test split of the Windows and ASan jobs gives every test to exactly one shard (a made-up list: no build needed).
       - name: Test shards are disjoint and complete (scripts/ctest_shard.py --self-test)
         run: python3 scripts/ctest_shard.py --self-test
+
+      # The player and the templates use the public headers of fa_runtime only.
+      - name: Player and templates do not include fa/runtime/internal (scripts/check-player-includes.py)
+        run: python3 scripts/check-player-includes.py
 
       - name: Pick the base of the diff
         id: base

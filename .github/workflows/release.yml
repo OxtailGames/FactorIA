@@ -700,7 +700,7 @@ jobs:
       - name: Player size verdict
         if: ${{ !cancelled() && steps.size.outcome == 'failure' }}
         run: |
-          echo "::error::the Player size step failed: the Release player is over its budget in tools/size/player_size_budget.json, or there was no player to measure (its log says which)"
+          echo "::error::the Player size step failed: the Release player is over its budget in tools/size/player_size_budget.json, or there was no player to measure (the step's log says which; the report is the artifact player-size-${{ matrix.size-platform }}, and the job summary has its table)"
           exit 1
 
   publish:
