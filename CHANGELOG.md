@@ -10,7 +10,11 @@ Older versions, one file per minor version with its patch releases: [0.26](chang
   graph of the last frame with `cpuMs` and `gpuMs` for each pass and job, the backend and whether GPU times exist; the
   passes are `zones` named `<job>/<pass>` in `perf.profile`'s `profile.zones`. GPU times per pass come from
   timestamp queries on Direct3D 11 and desktop OpenGL while the profiler is on (-1 plus a reason elsewhere; Metal, GLES3 and
-  WebGL2 have no timer). `RenderStats` gained `passes`, `jobs` and `sortKeyFallbacks` (also in `game.render_stats`).
+  WebGL2 have no timer). `RenderStats` gained `passes`, `jobs` and `sortKeyFallbacks` (also in `game.render_stats` and in the typings of
+  `game.renderStats()`). `render.frame_graph` takes `profileFrames` (default 8, 0 to 60): it switches the profiler on for the
+  call, draws the current state until the GPU times arrive and puts the profiler back, so the GPU time of each pass is also
+  there without the editor. The pass times are built when `Renderer::stats()` is asked for them (`stats(false)` leaves
+  them out), not on every frame, and a profiler switched off forgets its old GPU times.
 - Renderer (no change in what is drawn): the 3D world is gathered once per frame and shared by every camera, render target and
   CameraView (a `RenderScene`: matrices, resolved assets, boxes, flashes and blend flags), so a camera only filters by
   `showTags`/`hideTags`, tests its frustum and sorts its blended meshes; the hash of `MeshRenderer.materialParams` and

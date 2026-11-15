@@ -977,6 +977,9 @@ public:
     // The passes of the newest frame that poll() has resolved, in the order they ran; empty until one is. They are some
     // frames older than the frame being drawn.
     const std::vector<PassTime>& last_passes() const;
+    // Forgets the results of the frames already timed (last_passes() is empty again) and drops the ones still in flight when
+    // they arrive: called while the profiler is off, so that switching it on again never shows numbers from before.
+    void forget();
 
 private:
     struct State;

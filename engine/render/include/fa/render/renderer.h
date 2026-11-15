@@ -122,9 +122,10 @@ struct RenderStats {
     int materials = 0;  // distinct custom materials (MeshRenderer.material) drawn with their own shaders
     std::vector<std::string>
         materialFallbacks;  // materials drawn with the unlit magenta error material because they failed to build (see asset_report)
-    // Frames, counted since the renderer was made, in which the sort keys of the opaque meshes did not fit their bits (more
-    // distinct meshes, textures, materials or pipelines than a key holds) and the meshes were sorted by the slower comparator
-    // instead. The picture is the same; 0 is normal. Unlike the other counters this one is NOT per frame: it only grows.
+    // How many times, since the renderer was made, the 3D scene it builds (one per frame, and one per capture_world of an
+    // entity's subtree) had more distinct meshes, textures, materials or pipelines than a sort key holds, so its opaque meshes
+    // were sorted by the slower comparator instead. The picture is the same; 0 is normal. Unlike the other counters this one is
+    // NOT per frame: it only grows.
     int sortKeyFallbacks = 0;
     double cpuMs = 0.0;
     // Where the frame's time went, per pass of the frame graph and per job (see render.frame_graph). Both are empty before the
@@ -368,7 +369,9 @@ public:
     std::optional<RenderTargetView> render_target_view(World& world, const std::string& name) const;
 
     DebugDraw& debug();
-    RenderStats stats() const;  // of the last frame
+    // Of the last frame. `passTimes` false leaves RenderStats::passes and jobs empty: they are built from the frame graph only
+    // when asked for (about 40 strings), so a caller that reads the counters of every frame passes false.
+    RenderStats stats(bool passTimes = true) const;
 
     // Native handle of the game target color image (sg_image id) for the editor viewport.
     std::uint32_t game_target_image_id() const;
