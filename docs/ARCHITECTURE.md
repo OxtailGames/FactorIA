@@ -894,6 +894,10 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   platform's dialects (Windows `hlsl5`, Linux `glsl430`, macOS `metal_macos`, iOS `metal_ios` + `metal_sim`, Android and
   web `glsl300es`), adds the twins, drops the snippets, and fails the export on a compile error. The player has no
   compiler. `factoria validate` compiles every dialect of every material.
+- *Frame graph (in progress).* `engine/render/src/frame_graph.h` and `target_pool.h` are the CPU core the passes are
+  to move onto: passes declare the resources they read and write; `compile()` orders them (declaration order where
+  there is no dependency), culls the ones nobody reads and plans which transients share one physical target;
+  `TargetPool` reuses targets across frames. No renderer pass uses it yet; `FrameGraph::to_json()` is the dump.
 
 ### Start-up order and the shader cache
 A window host (`run_windowed` in `runtime/src/runners.cpp`: the player and a windowed `factoria run`) starts in this order, decided by
