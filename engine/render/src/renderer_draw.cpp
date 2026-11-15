@@ -26,6 +26,7 @@ struct Renderer::Impl::MaterialInputs {
     TextureAsset* textures[kMaxMaterialTextures]{};
 };
 
+// Holds references to the job's frame and plan: it lives inside draw_job and must not outlive it.
 struct Renderer::Impl::DrawContext {
     DrawContext(World& w, Frame& f, const JobPlan& p) : world(w), fr(f), plan(p), post(*p.post) {}
     World& world;
@@ -168,42 +169,44 @@ void Renderer::Impl::draw_view_job(World& world, Frame& fr, ViewTarget& target) 
 // camera, the screen-space items too), or the screen-space pass of a split frame. The last job also runs the post effects.
 // The phases below run in this order, one GPU command stream, nothing reordered.
 void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
-    DrawContext c(world, fr, plan);
-    c.hudAfterBloom = c.post.bloom.enabled && c.post.bloom.intensity > 0.0f && !c.post.bloom.screenSpace;
-    c.fullPx = Px{0, 0, physW, physH};
-    c.camPx = fr.wantWorld ? px_rect(fr.cam.viewport, physW, physH) : c.fullPx;
-    c.partial = fr.wantWorld && !fr.cam.fullViewport();
+    DrawContext ctx(world, fr, plan);
+    ctx.hudAfterBloom = ctx.post.bloom.enabled && ctx.post.bloom.intensity > 0.0f && !ctx.post.bloom.screenSpace;
+    ctx.fullPx = Px{0, 0, physW, physH};
+    ctx.camPx = fr.wantWorld ? px_rect(fr.cam.viewport, physW, physH) : ctx.fullPx;
+    ctx.partial = fr.wantWorld && !fr.cam.fullViewport();
     // A camera that clears and is not the first one (or the only one) cannot use a load action (it clears the whole target,
     // not its rectangle): a colour quad over its viewport does it.
-    c.clearByQuad = fr.wantWorld && fr.cam.clear && c.partial && !plan.first;
-    c.clearByLoad = fr.wantWorld && fr.cam.clear && (plan.first || !c.partial);
-    c.z01 = gpu.depth_zero_to_one();
-    c.msaa = gpu.sample_count() > 1;
+    ctx.clearByQuad = fr.wantWorld && fr.cam.clear && ctx.partial && !plan.first;
+    ctx.clearByLoad = fr.wantWorld && fr.cam.clear && (plan.first || !ctx.partial);
+    ctx.z01 = gpu.depth_zero_to_one();
+    ctx.msaa = gpu.sample_count() > 1;
 
-    gather_meshes(c);
-    collect_lights(c);
-    shadow_bounds(c);
-    cull_and_batch(c);
-    build_quad_stream(c);
-    upload_instances(c);
-    scene_uniforms(c);
-    light_pass(c);
-    shadow_pass(c);
-    main_pass(c);
+    gather_meshes(ctx);
+    collect_lights(ctx);
+    shadow_bounds(ctx);
+    cull_and_batch(ctx);
+    build_quad_stream(ctx);
+    upload_instances(ctx);
+    scene_uniforms(ctx);
+    light_pass(ctx);
+    shadow_pass(ctx);
+    main_pass(ctx);
     if (!plan.last) return;
-    post_passes(c);
+    post_passes(ctx);
 }
 
 // ---- 3D gather ----
-// Reads: world (MeshRenderer, Animator, Feel, drawn matrices), fr (camera, tag mask, active filter), assets (mesh, texture,
-// material lookups, on this thread). Writes: c.opaque, c.blended (blended far to near), fr.anyFlash.
-void Renderer::Impl::gather_meshes(DrawContext& c) {
-    World& world = c.world;
-    Frame& fr = c.fr;
-    const bool z01 = c.z01;
+// Reads: world (MeshRenderer, Animator, Feel, drawn matrices), fr (camera, tag mask, active filter), ctx.z01. Calls
+// assets->mesh / texture / material on this thread, which may load into the asset cache. Writes: ctx.opaque, ctx.blended
+// (blended far to near) with every MeshItem field (model, dist, flash, mesh, tex, material, normalTex, hashes, bounds, anim,
+// visible), fr.anyFlash.
+void Renderer::Impl::gather_meshes(DrawContext& ctx) {
+    World& world = ctx.world;
+    Frame& fr = ctx.fr;
+    const bool z01 = ctx.z01;
 
-    auto& opaque = c.opaque;
-    auto& blended = c.blended;
+    auto& opaque = ctx.opaque;
+    auto& blended = ctx.blended;
     fr.anyFlash = world.feel().any_flash();
     // The MeshRenderers this camera draws, in their order; the matrices, bounds and frustum tests run as jobs around the
     // asset lookups, which stay on this thread (a mesh, texture or material may be loaded).
@@ -281,16 +284,17 @@ void Renderer::Impl::gather_meshes(DrawContext& c) {
 }
 
 // ---- lights and studio rig ----
-// Reads: world (Light), fr.cam (position, studio rig), c.opaque (the no-light warning), plan.view. Writes: c.lights (sorted,
-// capped), c.shadowLight, c.lightDirForShadow, c.haveShadowCaster, stats.lights / lightsDropped, warnedNoLight.
-void Renderer::Impl::collect_lights(DrawContext& c) {
-    World& world = c.world;
-    Frame& fr = c.fr;
-    const JobPlan& plan = c.plan;
-    auto& opaque = c.opaque;
-    auto& lights = c.lights;
-    auto& shadowLight = c.shadowLight;
-    auto& lightDirForShadow = c.lightDirForShadow;
+// Reads: world (Light), fr.cam (position, studio rig), ctx.opaque and plan.view (the no-light
+// warning is not given for a view). Writes: ctx.lights (sorted,
+// capped), ctx.shadowLight, ctx.lightDirForShadow, ctx.haveShadowCaster, stats.lights / lightsDropped, warnedNoLight.
+void Renderer::Impl::collect_lights(DrawContext& ctx) {
+    World& world = ctx.world;
+    Frame& fr = ctx.fr;
+    const JobPlan& plan = ctx.plan;
+    auto& opaque = ctx.opaque;
+    auto& lights = ctx.lights;
+    auto& shadowLight = ctx.shadowLight;
+    auto& lightDirForShadow = ctx.lightDirForShadow;
     if (fr.wantWorld && !fr.cam.studio)
         world.each<Light>([&](Entity e, Light& l) {
             if (!entity_active(world, e)) return;
@@ -343,7 +347,7 @@ void Renderer::Impl::collect_lights(DrawContext& c) {
     // shader's arrays cannot hold is left out.
     stats.lightsDropped += select_lights(lights, size_t(kMaxLights));
     stats.lights += int(lights.size());
-    c.haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0;
+    ctx.haveShadowCaster = shadowLight >= 0 && !lights.empty() && lights[0].rank == 0;
     if (!opaque.empty() && lights.empty() && !warnedNoLight && !plan.view) {
         warnedNoLight = true;
         FA_WARN("render", "the scene has MeshRenderer entities but no Light entity: meshes only receive ambient light "
@@ -353,15 +357,15 @@ void Renderer::Impl::collect_lights(DrawContext& c) {
 }
 
 // ---- shadow bounds ----
-// Reads: c.haveShadowCaster, c.lightDirForShadow, c.opaque / c.blended (castShadows, mesh part boxes, matrices), gpu
-// (shadows_supported, depth range). Writes: c.lightVP, c.doShadows; creates the shadow targets.
-void Renderer::Impl::shadow_bounds(DrawContext& c) {
-    const bool haveShadowCaster = c.haveShadowCaster;
-    auto& opaque = c.opaque;
-    auto& blended = c.blended;
-    auto& lightDirForShadow = c.lightDirForShadow;
-    auto& lightVP = c.lightVP;
-    auto& doShadows = c.doShadows;
+// Reads: ctx.haveShadowCaster, ctx.lightDirForShadow, ctx.opaque / ctx.blended (castShadows, mesh part boxes, matrices), gpu
+// (shadows_supported, depth range). Writes: ctx.lightVP, ctx.doShadows; creates the shadow targets.
+void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
+    const bool haveShadowCaster = ctx.haveShadowCaster;
+    auto& opaque = ctx.opaque;
+    auto& blended = ctx.blended;
+    auto& lightDirForShadow = ctx.lightDirForShadow;
+    auto& lightVP = ctx.lightVP;
+    auto& doShadows = ctx.doShadows;
     if (haveShadowCaster) {
         // The world box of each caster's parts as jobs, joined here in the order of the items.
         Vec3 bmin{1e30f, 1e30f, 1e30f}, bmax{-1e30f, -1e30f, -1e30f};
@@ -411,18 +415,18 @@ void Renderer::Impl::shadow_bounds(DrawContext& c) {
 }
 
 // ---- cull, then group into instanced batches ----
-// Reads: c.doShadows, c.lightVP, c.z01, items' visible flags. Writes: c.opaque / c.blended (culled), item `casts`,
-// c.opaqueBatches / c.blendedBatches, c.mainMats / c.shadowMats (instance matrices), stats.meshesCulled / shadowCasters.
-void Renderer::Impl::cull_and_batch(DrawContext& c) {
-    const bool z01 = c.z01;
-    auto& opaque = c.opaque;
-    auto& blended = c.blended;
-    auto& lightVP = c.lightVP;
-    auto& doShadows = c.doShadows;
-    auto& opaqueBatches = c.opaqueBatches;
-    auto& blendedBatches = c.blendedBatches;
-    auto& mainMats = c.mainMats;
-    auto& shadowMats = c.shadowMats;
+// Reads: ctx.doShadows, ctx.lightVP, ctx.z01, items' visible flags. Writes: ctx.opaque / ctx.blended (culled), item `casts`,
+// ctx.opaqueBatches / ctx.blendedBatches, ctx.mainMats / ctx.shadowMats (instance matrices), stats.meshesCulled / shadowCasters.
+void Renderer::Impl::cull_and_batch(DrawContext& ctx) {
+    const bool z01 = ctx.z01;
+    auto& opaque = ctx.opaque;
+    auto& blended = ctx.blended;
+    auto& lightVP = ctx.lightVP;
+    auto& doShadows = ctx.doShadows;
+    auto& opaqueBatches = ctx.opaqueBatches;
+    auto& blendedBatches = ctx.blendedBatches;
+    auto& mainMats = ctx.mainMats;
+    auto& shadowMats = ctx.shadowMats;
     for (auto* list : {&opaque, &blended}) {
         if (doShadows)
             rjobs::run("render.shadow_cull", rjobs::split(list->size(), kMeshGrain, kParallelMeshes),
@@ -447,24 +451,24 @@ void Renderer::Impl::cull_and_batch(DrawContext& c) {
 }
 
 // ---- flatten quads into one vertex stream ----
-// Reads: fr (world, debugWorld, screen, debugScreen quad lists, debugLines, camera clear colour), c.clearByQuad, targetW/H.
-// Writes: `stream`, c.gClear / gWorld / gDebugWorld / gScreen / gDebugScreen, c.lineFirst, c.vbuf (transient buffer),
-// c.screenProj.
-void Renderer::Impl::build_quad_stream(DrawContext& c) {
-    Frame& fr = c.fr;
-    const bool z01 = c.z01;
-    const bool clearByQuad = c.clearByQuad;
-    auto& gClear = c.gClear;
-    auto& gWorld = c.gWorld;
-    auto& gDebugWorld = c.gDebugWorld;
-    auto& gScreen = c.gScreen;
-    auto& gDebugScreen = c.gDebugScreen;
-    auto& lineFirst = c.lineFirst;
-    auto& vbuf = c.vbuf;
+// Reads: fr (world, debugWorld, screen, debugScreen quad lists, debugLines, camera clear colour), ctx.clearByQuad, targetW/H.
+// Writes: `stream`, ctx.gClear / gWorld / gDebugWorld / gScreen / gDebugScreen, ctx.lineFirst, ctx.vbuf (transient buffer),
+// ctx.screenProj.
+void Renderer::Impl::build_quad_stream(DrawContext& ctx) {
+    Frame& fr = ctx.fr;
+    const bool z01 = ctx.z01;
+    const bool clearByQuad = ctx.clearByQuad;
+    auto& gClear = ctx.gClear;
+    auto& gWorld = ctx.gWorld;
+    auto& gDebugWorld = ctx.gDebugWorld;
+    auto& gScreen = ctx.gScreen;
+    auto& gDebugScreen = ctx.gDebugScreen;
+    auto& lineFirst = ctx.lineFirst;
+    auto& vbuf = ctx.vbuf;
     stream.clear();
     if (clearByQuad) {
         // The camera's clear colour over its viewport: one opaque quad over the unit square, which the viewport maps to the
-        // camera's rectangle (see the draw below).
+        // camera's rectangle (see main_pass).
         QuadList clearList;
         clearList.begin_item(0, 0, assets->white(), SamplerKind::Nearest);
         clearList.set_opaque();
@@ -488,12 +492,12 @@ void Renderer::Impl::build_quad_stream(DrawContext& c) {
         sg_write_buffer_transient(&wd);
     }
 
-    c.screenProj = Mat4::ortho(0, float(targetW), float(targetH), 0, -1000.0f, 1000.0f, z01);
+    ctx.screenProj = Mat4::ortho(0, float(targetW), float(targetH), 0, -1000.0f, 1000.0f, z01);
 }
 
 // ---- instance data: one model matrix per drawn mesh, written before any pass binds the buffers ----
-// Reads: c.mainMats, c.shadowMats. Writes: c.mainInst, c.shadowInst (transient GPU buffers).
-void Renderer::Impl::upload_instances(DrawContext& c) {
+// Reads: ctx.mainMats, ctx.shadowMats. Writes: ctx.mainInst, ctx.shadowInst (transient GPU buffers).
+void Renderer::Impl::upload_instances(DrawContext& ctx) {
     static_assert(sizeof(Mat4) == kMeshInstanceBytes, "an instance is one Mat4");
     auto upload = [&](const std::vector<Mat4>& mats) {
         if (mats.empty()) return sg_buffer{};
@@ -505,22 +509,22 @@ void Renderer::Impl::upload_instances(DrawContext& c) {
         sg_write_buffer_transient(&wd);
         return buf;
     };
-    c.mainInst = upload(c.mainMats);
-    c.shadowInst = upload(c.shadowMats);
+    ctx.mainInst = upload(ctx.mainMats);
+    ctx.shadowInst = upload(ctx.shadowMats);
 }
 
 // ---- the scene's uniforms: shared by the main pass and the shadow pass of alphaMode "clip" materials ----
-// Reads: world (settings, time), fr.cam, c.lights, c.lightVP, gpu. Writes: c.ss, c.white, c.lightUniforms, c.vuScene,
-// c.fuScene.
-void Renderer::Impl::scene_uniforms(DrawContext& c) {
-    World& world = c.world;
-    Frame& fr = c.fr;
-    const std::vector<LightData>& lights = c.lights;
-    const Mat4& lightVP = c.lightVP;
-    SceneSettings& ss = c.ss;
-    mesh_fa_lights_t& lightUniforms = c.lightUniforms;
-    mesh_fa_mesh_vs_params_t& vuScene = c.vuScene;
-    mesh_fa_mesh_fs_params_t& fuScene = c.fuScene;
+// Reads: world (settings, time), fr.cam, ctx.lights, ctx.lightVP, gpu. Writes: ctx.ss, ctx.white, ctx.lightUniforms, ctx.vuScene,
+// ctx.fuScene.
+void Renderer::Impl::scene_uniforms(DrawContext& ctx) {
+    World& world = ctx.world;
+    Frame& fr = ctx.fr;
+    const std::vector<LightData>& lights = ctx.lights;
+    const Mat4& lightVP = ctx.lightVP;
+    SceneSettings& ss = ctx.ss;
+    mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
+    mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
+    mesh_fa_mesh_fs_params_t& fuScene = ctx.fuScene;
     ss = world.settings();
     if (fr.cam.studio) {  // a neutral room: no scene ambient, sky or fog reaches the camera
         const float k = fr.cam.studioIntensity;
@@ -529,7 +533,7 @@ void Renderer::Impl::scene_uniforms(DrawContext& c) {
         ss.horizonColor = Color{0.4f * k, 0.4f * k, 0.42f * k, 1.0f};
         ss.fogDensity = 0.0f;
     }
-    c.white = assets->white();
+    ctx.white = assets->white();
     for (std::size_t i = 0; i < lights.size(); ++i) {
         for (int c = 0; c < 4; ++c) {
             lightUniforms.fa_light_pos[i][c] = lights[i].pos[c];
@@ -563,9 +567,9 @@ void Renderer::Impl::scene_uniforms(DrawContext& c) {
     fuScene.fa_time[0] = float(world.time());
 }
 
-// What one part of an item is drawn with (reads c.white).
-Renderer::Impl::PartDraw Renderer::Impl::part_draw(DrawContext& c, const MeshItem& mi, const SubMesh& part) {
-    TextureAsset* white = c.white;
+// What one part of an item is drawn with (reads ctx.white).
+Renderer::Impl::PartDraw Renderer::Impl::part_draw(DrawContext& ctx, const MeshItem& mi, const SubMesh& part) {
+    TextureAsset* white = ctx.white;
     PartDraw d;
     d.error = mi.material && !mi.material->ok;
     d.mat = mi.material && mi.material->ok ? mi.material : nullptr;
@@ -577,11 +581,11 @@ Renderer::Impl::PartDraw Renderer::Impl::part_draw(DrawContext& c, const MeshIte
     return d;
 }
 
-// The fragment parameters (fa_mesh_fs_params) of one part (reads c.fuScene, c.doShadows).
-mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& c, const MeshItem& mi, const SubMesh& part,
+// The fragment parameters (fa_mesh_fs_params) of one part (reads ctx.fuScene, ctx.doShadows).
+mesh_fa_mesh_fs_params_t Renderer::Impl::fill_fs(DrawContext& ctx, const MeshItem& mi, const SubMesh& part,
                                                  const PartDraw& d) {
-    const mesh_fa_mesh_fs_params_t& fuScene = c.fuScene;
-    const bool doShadows = c.doShadows;
+    const mesh_fa_mesh_fs_params_t& fuScene = ctx.fuScene;
+    const bool doShadows = ctx.doShadows;
     const MeshRenderer& mr = *mi.mr;
     mesh_fa_mesh_fs_params_t fu = fuScene;
     const bool unlit = mr.unlit || d.error || (d.mat && d.mat->lighting == "unlit");
@@ -634,10 +638,10 @@ void Renderer::Impl::material_inputs(const MeshItem& mi, MaterialAsset* mat, Mat
 
 // Bindings of a custom program: the engine's textures and the material's, only the slots the program declares (sokol
 // rejects a binding the shader does not have). `shadowPass`: the shadow map is being drawn, so it is not sampled.
-void Renderer::Impl::bind_textures(DrawContext& c, sg_bindings& b, const PartDraw& d, const MaterialProgram* prog,
+void Renderer::Impl::bind_textures(DrawContext& ctx, sg_bindings& b, const PartDraw& d, const MaterialProgram* prog,
                                    const MaterialInputs& in, bool shadowPass) {
-    TextureAsset* white = c.white;
-    const bool doShadows = c.doShadows;
+    TextureAsset* white = ctx.white;
+    const bool doShadows = ctx.doShadows;
     b.views[VIEW_mesh_fa_tex] = d.tex->gpu_view();
     b.views[VIEW_mesh_fa_shadow_tex] = (doShadows && !shadowPass) ? shadowTexView : white->view;
     b.views[VIEW_mesh_fa_normal_tex] = (d.normal ? d.normal : white)->gpu_view();
@@ -665,16 +669,17 @@ void Renderer::Impl::bind_textures(DrawContext& c, sg_bindings& b, const PartDra
 // 2D plane); else flat visuals use the loop over the first kDirectLights2D lights (litMode 0) or, with no point light,
 // just the ambient and directional lights (litMode 2). Visuals with a normal map always use the loop (the direction of
 // each light matters), and the screen-space groups too.
-// Reads: fr (lights2d, shadowRows, camera), c.gWorld, c.ss.lightScale, c.partial, plan.view, gpu light state.
-// Writes: c.litMode, c.shadowRowsTex; the light target (lightAtt) and, in litMode 1, its pass; stats.drawCalls.
-void Renderer::Impl::light_pass(DrawContext& c) {
-    Frame& fr = c.fr;
-    const JobPlan& plan = c.plan;
-    const bool partial = c.partial;
-    const SceneSettings& ss = c.ss;
-    const DrawContext::Group& gWorld = c.gWorld;
-    int& litMode = c.litMode;
-    sg_view& shadowRowsTex = c.shadowRowsTex;
+// Reads: fr (lights2d, shadowRows, camera, viewport), ctx.gWorld, ctx.ss.lightScale, ctx.partial, plan.view (no light buffer
+// for a view), gpu light state. Writes: ctx.litMode, ctx.shadowRowsTex (uploads the shadow-rows texture), lightW / lightH and
+// the light target (ensure_light_target), in litMode 1 the light buffer's pass (lightAtt); stats.drawCalls.
+void Renderer::Impl::light_pass(DrawContext& ctx) {
+    Frame& fr = ctx.fr;
+    const JobPlan& plan = ctx.plan;
+    const bool partial = ctx.partial;
+    const SceneSettings& ss = ctx.ss;
+    const DrawContext::Group& gWorld = ctx.gWorld;
+    int& litMode = ctx.litMode;
+    sg_view& shadowRowsTex = ctx.shadowRowsTex;
     bool anyFlatLit = false;
     for (const QuadBatch& qb : gWorld.batches) anyFlatLit = anyFlatLit || (qb.lit && !qb.normal);
     int points = 0;
@@ -743,82 +748,80 @@ void Renderer::Impl::light_pass(DrawContext& c) {
 // ---- shadow pass ----
 // Meshes cast with the engine's depth-only programs, except materials with their own shadow programs (vertex() moves the
 // shadow, alphaMode "clip" cuts holes into it).
-// Reads: c.doShadows, c.opaque / c.blended and their batches, c.shadowInst, c.vuScene, c.lights uniforms, the shadow targets.
+// Reads: ctx.doShadows, ctx.opaque / ctx.blended and their batches, ctx.shadowInst, ctx.vuScene, ctx.lightUniforms,
+// ctx.white and ctx.fuScene (part_draw, bind_textures, fill_fs), the shadow targets.
 // Writes: the shadow map (shadowColorAtt, shadowDepthAtt); stats.drawCalls.
-void Renderer::Impl::shadow_pass(DrawContext& c) {
-    if (!c.doShadows) return;
-    const std::vector<MeshBatch>& opaqueBatches = c.opaqueBatches;
-    const std::vector<MeshBatch>& blendedBatches = c.blendedBatches;
-    const std::vector<MeshItem>& opaque = c.opaque;
-    const std::vector<MeshItem>& blended = c.blended;
-    const sg_buffer shadowInst = c.shadowInst;
-    const mesh_fa_mesh_vs_params_t& vuScene = c.vuScene;
-    const mesh_fa_lights_t& lightUniforms = c.lightUniforms;
-    {
-        sg_pass sp{};
-        sp.action.colors[0].load_action = SG_LOADACTION_CLEAR;
-        sp.action.colors[0].clear_value = {1, 1, 1, 1};
-        sp.action.depth.load_action = SG_LOADACTION_CLEAR;
-        sp.action.depth.clear_value = 1.0f;
-        sp.attachments.colors[0] = shadowColorAtt;
-        sp.attachments.depth_stencil = shadowDepthAtt;
-        sp.label = "shadow";
-        sg_begin_pass(&sp);
-        mesh_fa_mesh_vs_params_t u = vuScene;  // the shadow programs read fa_light_vp (fa_view_proj is unused)
-        for (int pass = 0; pass < 2; ++pass) {
-            const std::vector<MeshBatch>& batches = pass == 0 ? opaqueBatches : blendedBatches;
-            const std::vector<MeshItem>& items = pass == 0 ? opaque : blended;
-            for (const MeshBatch& batch : batches) {
-                if (batch.shadowCount == 0) continue;
-                const MeshItem& rep = items[batch.rep];
-                u.fa_uv_scale[0] = rep.mr->uvScale.x;
-                u.fa_uv_scale[1] = rep.mr->uvScale.y;
-                MaterialAsset* mat = rep.material && rep.material->ok ? rep.material : nullptr;
-                MaterialInputs inputs{};
-                if (mat && (mat->programs[kProgShadow].shader.id || mat->programs[kProgShadowSkin].shader.id))
-                    material_inputs(rep, mat, inputs);
-                for (auto& p : rep.mesh->parts) {
-                    const bool skinned = rep.anim && p.skinVb.id;
-                    const MaterialProgram* prog =
-                        mat ? &mat->programs[skinned ? kProgShadowSkin : kProgShadow] : nullptr;
-                    if (prog && !prog->shader.id) prog = nullptr;
-                    sg_apply_pipeline(prog ? gpu.shadow_pipeline(skinned, prog->shader, true)
-                                           : gpu.shadow_pipeline(skinned));
-                    sg_bindings b{};
-                    b.vertex_buffers[0] = p.vb;
-                    b.vertex_buffers[1] = shadowInst;
-                    b.vertex_buffer_offsets[1] = int(batch.shadowFirst * kMeshInstanceBytes);
-                    if (skinned) b.vertex_buffers[2] = p.skinVb;
-                    b.index_buffer = p.ib;
-                    b.index_buffer_offset = p.ibOffset;
-                    const PartDraw pd = part_draw(c, rep, p);
-                    if (prog) bind_textures(c, b, pd, prog, inputs, true);
-                    sg_apply_bindings(&b);
-                    apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
-                    if (skinned && declares(prog, UB_mesh_fa_skin))
-                        apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
-                    if (prog) {
-                        if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
-                            apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(c, rep, p, pd));
-                        if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
-                        apply_material_params(*prog, inputs);
-                    }
-                    sg_draw(0, p.indexCount, int(batch.shadowCount));
-                    ++stats.drawCalls;
+void Renderer::Impl::shadow_pass(DrawContext& ctx) {
+    if (!ctx.doShadows) return;
+    const std::vector<MeshBatch>& opaqueBatches = ctx.opaqueBatches;
+    const std::vector<MeshBatch>& blendedBatches = ctx.blendedBatches;
+    const std::vector<MeshItem>& opaque = ctx.opaque;
+    const std::vector<MeshItem>& blended = ctx.blended;
+    const sg_buffer shadowInst = ctx.shadowInst;
+    const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
+    const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
+    sg_pass sp{};
+    sp.action.colors[0].load_action = SG_LOADACTION_CLEAR;
+    sp.action.colors[0].clear_value = {1, 1, 1, 1};
+    sp.action.depth.load_action = SG_LOADACTION_CLEAR;
+    sp.action.depth.clear_value = 1.0f;
+    sp.attachments.colors[0] = shadowColorAtt;
+    sp.attachments.depth_stencil = shadowDepthAtt;
+    sp.label = "shadow";
+    sg_begin_pass(&sp);
+    mesh_fa_mesh_vs_params_t u = vuScene;  // the shadow programs read fa_light_vp (fa_view_proj is unused)
+    for (int pass = 0; pass < 2; ++pass) {
+        const std::vector<MeshBatch>& batches = pass == 0 ? opaqueBatches : blendedBatches;
+        const std::vector<MeshItem>& items = pass == 0 ? opaque : blended;
+        for (const MeshBatch& batch : batches) {
+            if (batch.shadowCount == 0) continue;
+            const MeshItem& rep = items[batch.rep];
+            u.fa_uv_scale[0] = rep.mr->uvScale.x;
+            u.fa_uv_scale[1] = rep.mr->uvScale.y;
+            MaterialAsset* mat = rep.material && rep.material->ok ? rep.material : nullptr;
+            MaterialInputs inputs{};
+            if (mat && (mat->programs[kProgShadow].shader.id || mat->programs[kProgShadowSkin].shader.id))
+                material_inputs(rep, mat, inputs);
+            for (auto& p : rep.mesh->parts) {
+                const bool skinned = rep.anim && p.skinVb.id;
+                const MaterialProgram* prog = mat ? &mat->programs[skinned ? kProgShadowSkin : kProgShadow] : nullptr;
+                if (prog && !prog->shader.id) prog = nullptr;
+                sg_apply_pipeline(prog ? gpu.shadow_pipeline(skinned, prog->shader, true)
+                                       : gpu.shadow_pipeline(skinned));
+                sg_bindings b{};
+                b.vertex_buffers[0] = p.vb;
+                b.vertex_buffers[1] = shadowInst;
+                b.vertex_buffer_offsets[1] = int(batch.shadowFirst * kMeshInstanceBytes);
+                if (skinned) b.vertex_buffers[2] = p.skinVb;
+                b.index_buffer = p.ib;
+                b.index_buffer_offset = p.ibOffset;
+                const PartDraw pd = part_draw(ctx, rep, p);
+                if (prog) bind_textures(ctx, b, pd, prog, inputs, true);
+                sg_apply_bindings(&b);
+                apply_uniforms(UB_mesh_fa_mesh_vs_params, u);
+                if (skinned && declares(prog, UB_mesh_fa_skin))
+                    apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*rep.anim, p.skin)));
+                if (prog) {
+                    if (prog->has_ub(UB_mesh_fa_mesh_fs_params))
+                        apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, rep, p, pd));
+                    if (prog->has_ub(UB_mesh_fa_lights)) apply_uniforms(UB_mesh_fa_lights, lightUniforms);
+                    apply_material_params(*prog, inputs);
                 }
+                sg_draw(0, p.indexCount, int(batch.shadowCount));
+                ++stats.drawCalls;
             }
         }
-        sg_end_pass();
     }
+    sg_end_pass();
 }
 
-// Draws the batches of a quad group (reads c.vbuf, c.shadowRowsTex, fr.lights2d, lightTexView; `flatMode` 1 reads the
-// light buffer). Writes: stats.drawCalls.
-void Renderer::Impl::draw_group(DrawContext& c, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
+// Draws the batches of a quad group. Reads: ctx.vbuf, ctx.shadowRowsTex, fr (lights2d, shadowRows, ambient2d), renderScale,
+// physW / physH, gpu.light_range(), lightTexView (`flatMode` 1 reads the light buffer). Writes: stats.drawCalls.
+void Renderer::Impl::draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
                                 const Px& base, int flatMode) {
-    Frame& fr = c.fr;
-    const sg_buffer vbuf = c.vbuf;
-    const sg_view shadowRowsTex = c.shadowRowsTex;
+    Frame& fr = ctx.fr;
+    const sg_buffer vbuf = ctx.vbuf;
+    const sg_view shadowRowsTex = ctx.shadowRowsTex;
     if (batches.empty()) return;
     quad_vs_params_t u{};
     copy_mat(u.view_proj, vp);
@@ -907,33 +910,36 @@ void Renderer::Impl::draw_group(DrawContext& c, const std::vector<QuadBatch>& ba
 // With MSAA the multisampled image must survive every pass but the last one (STORE): the next pass loads it, and with
 // the HUD over the bloom the bloom adds its glow to it, the HUD pass loads it again, so the HUD is multisampled too and
 // the final resolve contains everything.
-// Reads: everything the earlier phases wrote (batches, instances, uniforms, quad groups, litMode), the target images.
+// Reads: plan (first / last / view), fr (camera, wantWorld, wantScreen, debugLines), ctx.z01, msaa, hudAfterBloom,
+// clearByQuad, clearByLoad, partial, camPx, fullPx, ctx.white, ss, fuScene, vuScene, lightUniforms, shadowRowsTex, litMode,
+// opaque / blended with their batches, mainInst, the quad groups (gClear, gWorld, gDebugWorld, gScreen, gDebugScreen), vbuf,
+// lineFirst, screenProj, shadowTexView (doShadows) and lightTexView (litMode 1), the game target images.
 // Writes: the game target (colorAtt / resolveAtt / depthAtt); stats (drawCalls, triangles, meshes, meshBatches, materials,
 // materialFallbacks).
-void Renderer::Impl::main_pass(DrawContext& c) {
-    Frame& fr = c.fr;
-    const JobPlan& plan = c.plan;
-    const bool z01 = c.z01, msaa = c.msaa, hudAfterBloom = c.hudAfterBloom;
-    const bool clearByQuad = c.clearByQuad, clearByLoad = c.clearByLoad, partial = c.partial;
-    const Px& camPx = c.camPx;
-    const Px& fullPx = c.fullPx;
-    const SceneSettings& ss = c.ss;
-    const Mat4& screenProj = c.screenProj;
-    const std::size_t lineFirst = c.lineFirst;
-    const sg_buffer vbuf = c.vbuf;
-    const int litMode = c.litMode;
-    const DrawContext::Group& gClear = c.gClear;
-    const DrawContext::Group& gWorld = c.gWorld;
-    const DrawContext::Group& gDebugWorld = c.gDebugWorld;
-    const DrawContext::Group& gScreen = c.gScreen;
-    const DrawContext::Group& gDebugScreen = c.gDebugScreen;
-    const std::vector<MeshBatch>& opaqueBatches = c.opaqueBatches;
-    const std::vector<MeshBatch>& blendedBatches = c.blendedBatches;
-    const std::vector<MeshItem>& opaque = c.opaque;
-    const std::vector<MeshItem>& blended = c.blended;
-    const sg_buffer mainInst = c.mainInst;
-    const mesh_fa_mesh_vs_params_t& vuScene = c.vuScene;
-    const mesh_fa_lights_t& lightUniforms = c.lightUniforms;
+void Renderer::Impl::main_pass(DrawContext& ctx) {
+    Frame& fr = ctx.fr;
+    const JobPlan& plan = ctx.plan;
+    const bool z01 = ctx.z01, msaa = ctx.msaa, hudAfterBloom = ctx.hudAfterBloom;
+    const bool clearByQuad = ctx.clearByQuad, clearByLoad = ctx.clearByLoad, partial = ctx.partial;
+    const Px& camPx = ctx.camPx;
+    const Px& fullPx = ctx.fullPx;
+    const SceneSettings& ss = ctx.ss;
+    const Mat4& screenProj = ctx.screenProj;
+    const std::size_t lineFirst = ctx.lineFirst;
+    const sg_buffer vbuf = ctx.vbuf;
+    const int litMode = ctx.litMode;
+    const DrawContext::Group& gClear = ctx.gClear;
+    const DrawContext::Group& gWorld = ctx.gWorld;
+    const DrawContext::Group& gDebugWorld = ctx.gDebugWorld;
+    const DrawContext::Group& gScreen = ctx.gScreen;
+    const DrawContext::Group& gDebugScreen = ctx.gDebugScreen;
+    const std::vector<MeshBatch>& opaqueBatches = ctx.opaqueBatches;
+    const std::vector<MeshBatch>& blendedBatches = ctx.blendedBatches;
+    const std::vector<MeshItem>& opaque = ctx.opaque;
+    const std::vector<MeshItem>& blended = ctx.blended;
+    const sg_buffer mainInst = ctx.mainInst;
+    const mesh_fa_mesh_vs_params_t& vuScene = ctx.vuScene;
+    const mesh_fa_lights_t& lightUniforms = ctx.lightUniforms;
     // Does this job begin a pass? The screen-space job of a frame whose HUD goes over the bloom draws after it instead.
     const bool doMainPass = fr.wantWorld || !hudAfterBloom;
     const bool drawHudInPass = fr.wantScreen && !hudAfterBloom;
@@ -955,7 +961,7 @@ void Renderer::Impl::main_pass(DrawContext& c) {
         if (partial) apply_view(camPx);
 
         // clear of a camera that shares the target with others
-        if (clearByQuad) draw_group(c, gClear.batches, Mat4::ortho(0, 1, 1, 0, -1.0f, 1.0f, z01), false, camPx);
+        if (clearByQuad) draw_group(ctx, gClear.batches, Mat4::ortho(0, 1, 1, 0, -1.0f, 1.0f, z01), false, camPx);
 
         // sky
         if (fr.wantWorld && fr.cam.perspective && fr.cam.clear && !fr.cam.studio) {
@@ -983,6 +989,7 @@ void Renderer::Impl::main_pass(DrawContext& c) {
             ++stats.drawCalls;
         }
 
+        // meshes: one instanced draw per part of every batch
         std::vector<const MaterialAsset*> materialsDrawn;
         auto draw_meshes = [&](const std::vector<MeshBatch>& batches, const std::vector<MeshItem>& items,
                                bool isBlend) {
@@ -1004,7 +1011,7 @@ void Renderer::Impl::main_pass(DrawContext& c) {
                 }
                 for (auto& part : mi.mesh->parts) {
                     const bool skinned = mi.anim && part.skinVb.id;
-                    const PartDraw pd = part_draw(c, mi, part);
+                    const PartDraw pd = part_draw(ctx, mi, part);
                     const MaterialProgram* prog =
                         pd.mat ? &pd.mat->programs[skinned ? kProgMeshSkin : kProgMesh] : nullptr;
                     sg_apply_pipeline(gpu.mesh_pipeline(isBlend, part.doubleSided || (pd.mat && pd.mat->doubleSided),
@@ -1016,12 +1023,12 @@ void Renderer::Impl::main_pass(DrawContext& c) {
                     if (skinned) b.vertex_buffers[2] = part.skinVb;
                     b.index_buffer = part.ib;
                     b.index_buffer_offset = part.ibOffset;
-                    bind_textures(c, b, pd, prog, inputs, false);
+                    bind_textures(ctx, b, pd, prog, inputs, false);
                     sg_apply_bindings(&b);
                     apply_uniforms(UB_mesh_fa_mesh_vs_params, vu);
                     if (skinned && declares(prog, UB_mesh_fa_skin))
                         apply_uniforms(UB_mesh_fa_skin, pack_palette(palette_of(*mi.anim, part.skin)));
-                    apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(c, mi, part, pd));
+                    apply_uniforms(UB_mesh_fa_mesh_fs_params, fill_fs(ctx, mi, part, pd));
                     apply_uniforms(UB_mesh_fa_lights, lightUniforms);
                     if (prog) apply_material_params(*prog, inputs);
                     sg_draw(0, part.indexCount, int(batch.mainCount));
@@ -1036,8 +1043,9 @@ void Renderer::Impl::main_pass(DrawContext& c) {
         draw_meshes(blendedBatches, blended, true);
         stats.materials += int(materialsDrawn.size());
 
-        draw_group(c, gWorld.batches, fr.cam.viewProj, fr.cam.perspective, camPx, litMode);
-        draw_group(c, gDebugWorld.batches, fr.cam.viewProj, false, camPx);
+        // quad groups
+        draw_group(ctx, gWorld.batches, fr.cam.viewProj, fr.cam.perspective, camPx, litMode);
+        draw_group(ctx, gDebugWorld.batches, fr.cam.viewProj, false, camPx);
         if (!fr.debugLines.empty()) {
             sg_apply_pipeline(gpu.quad_pipeline(false, true));
             quad_vs_params_t u{};
@@ -1060,8 +1068,8 @@ void Renderer::Impl::main_pass(DrawContext& c) {
             ++stats.drawCalls;
         }
         if (drawHudInPass) {
-            draw_group(c, gScreen.batches, screenProj, false, fullPx, 0);
-            draw_group(c, gDebugScreen.batches, screenProj, false, fullPx, 0);
+            draw_group(ctx, gScreen.batches, screenProj, false, fullPx, 0);
+            draw_group(ctx, gDebugScreen.batches, screenProj, false, fullPx, 0);
         }
 
         sg_end_pass();
@@ -1069,10 +1077,10 @@ void Renderer::Impl::main_pass(DrawContext& c) {
 }
 
 // ---- post-process: bloom adds its glow into the game target ----
-// Reads: c.post.bloom, c.hudAfterBloom, c.msaa, the game target images. Writes: the game target (glow); stats.drawCalls.
-void Renderer::Impl::bloom_pass(DrawContext& c) {
-    const CameraInfo& post = c.post;
-    const bool hudAfterBloom = c.hudAfterBloom, msaa = c.msaa;
+// Reads: ctx.post.bloom, ctx.hudAfterBloom, ctx.msaa, the game target images. Writes: the game target (glow); stats.drawCalls.
+void Renderer::Impl::bloom_pass(DrawContext& ctx) {
+    const CameraInfo& post = ctx.post;
+    const bool hudAfterBloom = ctx.hudAfterBloom, msaa = ctx.msaa;
     if (post.bloom.enabled) {
         BloomTarget dst;
         if (hudAfterBloom && msaa) {
@@ -1088,14 +1096,14 @@ void Renderer::Impl::bloom_pass(DrawContext& c) {
 }
 
 // ---- HUD pass (Camera.bloomScreenSpace = false): screen-space groups over the glowing frame ----
-// Reads: c.gScreen, c.gDebugScreen, c.screenProj, c.vbuf, c.msaa, fr.wantScreen. Writes: the game target; stats.drawCalls.
-void Renderer::Impl::hud_pass(DrawContext& c) {
-    Frame& fr = c.fr;
-    const bool hudAfterBloom = c.hudAfterBloom, msaa = c.msaa;
-    const Px& fullPx = c.fullPx;
-    const Mat4& screenProj = c.screenProj;
-    const DrawContext::Group& gScreen = c.gScreen;
-    const DrawContext::Group& gDebugScreen = c.gDebugScreen;
+// Reads: ctx.gScreen, ctx.gDebugScreen, ctx.screenProj, ctx.vbuf, ctx.msaa, fr.wantScreen. Writes: the game target; stats.drawCalls.
+void Renderer::Impl::hud_pass(DrawContext& ctx) {
+    Frame& fr = ctx.fr;
+    const bool hudAfterBloom = ctx.hudAfterBloom, msaa = ctx.msaa;
+    const Px& fullPx = ctx.fullPx;
+    const Mat4& screenProj = ctx.screenProj;
+    const DrawContext::Group& gScreen = ctx.gScreen;
+    const DrawContext::Group& gDebugScreen = ctx.gDebugScreen;
     if (hudAfterBloom && fr.wantScreen && (!gScreen.batches.empty() || !gDebugScreen.batches.empty())) {
         sg_pass hp{};
         hp.action.colors[0].load_action = SG_LOADACTION_LOAD;  // keep the world and its glow
@@ -1108,19 +1116,19 @@ void Renderer::Impl::hud_pass(DrawContext& c) {
         hp.attachments.depth_stencil = depthAtt;
         hp.label = "game-hud";
         sg_begin_pass(&hp);
-        draw_group(c, gScreen.batches, screenProj, false, fullPx, 0);
-        draw_group(c, gDebugScreen.batches, screenProj, false, fullPx, 0);
+        draw_group(ctx, gScreen.batches, screenProj, false, fullPx, 0);
+        draw_group(ctx, gDebugScreen.batches, screenProj, false, fullPx, 0);
         sg_end_pass();
     }
 }
 
 // The last job of the frame: bloom, the HUD over it, then Camera.colorFilter (costs nothing with "none").
-// Reads: c.post, plus what bloom_pass and hud_pass read. Writes: the game target, filterImg / filterActive; stats.drawCalls.
-void Renderer::Impl::post_passes(DrawContext& c) {
-    bloom_pass(c);
-    hud_pass(c);
+// Reads: ctx.post, plus what bloom_pass and hud_pass read. Writes: the game target, filterImg / filterActive; stats.drawCalls.
+void Renderer::Impl::post_passes(DrawContext& ctx) {
+    bloom_pass(ctx);
+    hud_pass(ctx);
     filterActive = false;
-    if (c.post.colorFilter != 0) stats.drawCalls += apply_color_filter(c.post.colorFilter);
+    if (ctx.post.colorFilter != 0) stats.drawCalls += apply_color_filter(ctx.post.colorFilter);
 }
 
 }  // namespace fa
