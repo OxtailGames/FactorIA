@@ -166,6 +166,40 @@ rewrites the tools table of docs/AI_GUIDE.md section 4, the block between `<!-- 
 a purpose; a guide without the markers gives a `warnings` entry in the result and is left alone); plus
 `factoria api --dts --project examples/<name>` for the committed typings).
 
+Deprecations: an API that gets a better replacement is deprecated for two minor versions and then removed, never changed
+silently. The one source of truth is the `"deprecated"` section of `tools/common/api_since.json`, keyed like the sections
+above: `"commands"` (`scene.old`), `"components"` (`Sprite` or `Sprite.oldField`) and `"script"` (`oldExport`,
+`NavAPI.oldMember`, `test:` prefix as in the since marks). To deprecate something, keep it working, add the entry (the
+section ships empty), and write the migration in CHANGELOG.md:
+
+```jsonc
+"deprecated": { "commands": { "scene.old_command": {
+    "since": "0.30.0",              // the version that deprecates it ("unreleased" until the release renames it)
+    "use": "scene.new_command",     // the replacement, a key of the SAME section, exactly; "" when nothing replaces it
+    "note": "Takes the same arguments, plus `parent`." } } }   // one sentence; required when `use` is empty (say why)
+```
+
+What it does (`fa::Deprecations`, core/deprecation.h; `fa::install_deprecations()` loads the section into it before the
+first Engine, in the CLI's `main`, and `register_project_commands` and the generators call it too, so a program that does
+not load the tooling, an exported game, has an empty table and pays one atomic load):
+- A warning in the log (category `deprecated`, level warning) the first time in the process that the thing is used, and
+  never again: a command call (`CommandRegistry::call`, still runs), a scene or prefab with the component or field (the
+  loader adds it to the `LoadReport` as a warning with the JSON pointer, and still applies the value) and a call of the
+  script function, class or member (the `"factoria"` prelude wraps it at start-up; a property defined non-configurable, like
+  `tween.pauseAll`, cannot be wrapped and only has the typings and the reference). The text names what is deprecated,
+  since which version, what to use instead (or that nothing replaces it, and the `note`) and the version that removes it:
+  `Deprecated: command 'scene.old_command' (since 0.30.0) will be removed in 0.32.0. Use 'scene.new_command' instead. <note>`.
+  The editor forgets which ones it warned about whenever it opens a project.
+- The generated output marks it: `@deprecated 0.30.0: use `x`. Removed in 0.32.0. <note>` in the typings, a bold
+  `Deprecated since 0.30.0 - use `x`. Removed in 0.32.0.` line in docs/COMPONENTS.md and docs/reference (under the heading
+  of a component or command, in the description of a field), `_Deprecated._` in the reference index, a `deprecated` object
+  (`since`, `use`, `note`, `removedIn`, `summary`) in `factoria api --json`, `docs.components`, `docs.commands` and the MCP
+  tool's `_meta`, and the summary in the MCP tool description.
+- Removal: two minor versions after `since` (deprecated in 0.30.x, removed in 0.32.0). The test `api_since` fails once
+  the current version is that far, with "remove the API and this entry"; it also fails for an entry that names something
+  that no longer exists (remove the entry), whose `use` does not exist or is deprecated itself, or without a `use` and a
+  `note`. The removal and the deleted entry go in the same commit, with a line in CHANGELOG.md.
+
 ### Commands (the tool system)
 `fa::CommandRegistry` (core/command.h) maps `"area.verb"` names to
 `JSON -> JSON` handlers with a JSON Schema and docs. Commands come from:

@@ -16,6 +16,12 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   kit `project.add_menu_kit` copies. `ARCHITECTURE.md` and `BUILDING.md` moved to `docs/design/` and are not in the
   binary (the engine developers read the repository). README.md and README.es.md are organised by audience and link
   every doc; a test keeps it so.
+- A deprecation policy for commands, component fields and the script API: the `deprecated` section of
+  `tools/common/api_since.json` (empty for now) says since when and what replaces each one. A deprecated command, a scene or
+  prefab with a deprecated component or field, and a call of a deprecated script function log one warning that names the
+  replacement and the version that removes it; the typings (`@deprecated`), `docs/COMPONENTS.md`, `docs/reference/`,
+  `docs.components`, `docs.commands` and the MCP tools mark it. Something deprecated is removed two minor versions later, and
+  a test fails when it is not (docs/ARCHITECTURE.md, "Versions").
 
 ## 0.29.1
 

@@ -11,6 +11,8 @@
 #include "fa/ai/commands.h"
 #include "fa/core/capability.h"
 #include "fa/core/command.h"
+#include "fa/core/deprecation.h"
+#include "fa/core/engine_version.h"
 #include "fa/core/fs.h"
 #include "fa/core/reflect.h"
 #include "fa/runtime/engine.h"
@@ -107,6 +109,70 @@ std::string stale_lines(const Json& file, const char* section, const std::set<st
         if (!live.count(it.key())) out += std::string("    \"") + it.key() + "\"\n";
     return out;
 }
+
+// The problems of a "deprecated" section (docs/ARCHITECTURE.md, "Versions"), one sentence each, for the current version
+// `current` ("0.30.0"): an entry that names nothing that exists, whose replacement does not exist or is deprecated itself, that
+// has neither replacement nor reason, whose `since` is not a version, or that is two or more minor versions old (the API and the
+// entry go away: that is the whole policy). Empty when the section is fine.
+std::vector<std::string> deprecated_problems(const Json& section, const std::string& current,
+                                             const std::map<std::string, std::set<std::string>>& live) {
+    std::vector<std::string> out;
+    const std::regex version(R"((\d+)\.(\d+)\.(\d+))");
+    std::smatch cur;
+    REQUIRE(std::regex_match(current, cur, version));
+    const long curMajor = std::stol(cur[1]), curMinor = std::stol(cur[2]);
+    for (const char* kind : {"components", "commands", "script"}) {
+        if (!section.contains(kind)) continue;
+        const std::set<std::string>& names = live.at(kind);
+        for (auto it = section[kind].begin(); it != section[kind].end(); ++it) {
+            const std::string where = std::string("deprecated / ") + kind + " / \"" + it.key() + "\"";
+            const Json& e = it.value();
+            if (!e.is_object()) {
+                out.push_back(
+                    where +
+                    " must be {\"since\": \"0.30.0\", \"use\": \"<replacement or empty>\", \"note\": \"...\"}.");
+                continue;
+            }
+            const std::string since = e.value("since", ""), use = e.value("use", ""), note = e.value("note", "");
+            if (!names.count(it.key()))
+                out.push_back(where + " names something that no longer exists: remove the entry.");
+            if (!use.empty() && !names.count(use))
+                out.push_back(where + ": \"use\" is \"" + use + "\", which does not exist in \"" + kind +
+                              "\". Name the replacement exactly as its key.");
+            if (!use.empty() && section[kind].contains(use))
+                out.push_back(where + ": \"use\" is \"" + use +
+                              "\", which is deprecated itself. Point at the final replacement.");
+            if (use.empty() && note.empty())
+                out.push_back(where + " has no replacement and no reason: say in \"note\" what to do instead or why "
+                                      "nothing replaces it.");
+            std::smatch m;
+            if (since == "unreleased") continue;
+            if (!std::regex_match(since, m, version)) {
+                out.push_back(where + ": \"since\" must be \"unreleased\" or a version like \"0.30.0\", not " +
+                              Json(since).dump() + ".");
+                continue;
+            }
+            const long minors = (std::stol(m[1]) == curMajor) ? curMinor - std::stol(m[2]) : 1000;
+            if (minors >= 2)
+                out.push_back(where + " was deprecated in " + since + " and this is " + current +
+                              ": two minor versions have passed. Remove the API (the " +
+                              (std::string(kind) == "commands" ? "command"
+                               : std::string(kind) == "script" ? "script export or member"
+                                                               : "component or field") +
+                              ") and this entry, and say so in CHANGELOG.md (docs/ARCHITECTURE.md, \"Versions\").");
+        }
+    }
+    return out;
+}
+
+std::map<std::string, std::set<std::string>> live_names() {
+    return {{"components", component_names()}, {"commands", command_names()}, {"script", script_names()}};
+}
+
+// Puts the file's own deprecated section back when a test that injected entries ends.
+struct RestoreDeprecations {
+    ~RestoreDeprecations() { install_deprecations(true); }
+};
 
 }  // namespace
 
@@ -321,5 +387,137 @@ TEST_CASE("docs.write_reference: out stays inside the project for MCP and agents
         REQUIRE_MESSAGE(r.ok, r.error.dump());
         CHECK(stdfs::exists(elsewhere.path / "docs-cli" / "COMPONENTS.md"));
         CHECK_FALSE(stdfs::exists(project / "docs-cli"));
+    });
+}
+
+// ---- deprecations (docs/ARCHITECTURE.md, "Versions"): the section ships empty until something is deprecated.
+TEST_CASE("api_since: the deprecated section names things that exist, with a replacement that exists, and none is two "
+          "minors old") {
+    const Json file = read_since_file();
+    const bool hasSection = file.contains("deprecated") && file["deprecated"].is_object();
+    REQUIRE_MESSAGE(hasSection,
+                    kFile << " needs a \"deprecated\" object: {\"commands\": {}, \"components\": {}, \"script\": {}}.");
+    for (auto it = file["deprecated"].begin(); it != file["deprecated"].end(); ++it) {
+        const bool known =
+            (it.key() == "commands" || it.key() == "components" || it.key() == "script") && it->is_object();
+        CHECK_MESSAGE(known, kFile << ": \"deprecated\" / \"" << it.key()
+                                   << "\" is not one of the sections commands, components, script.");
+    }
+    std::string all;
+    for (const std::string& p : deprecated_problems(file["deprecated"], FA_ENGINE_VERSION, live_names()))
+        all += "    " + p + "\n";
+    CHECK_MESSAGE(all.empty(), "Fix the \"deprecated\" section of " << kFile << ":\n" << all);
+}
+
+TEST_CASE("api_since: the deprecation check finds a stale entry, a missing replacement and two minors of age") {
+    const std::map<std::string, std::set<std::string>> live = {
+        {"components", {"Sprite", "Sprite.flipX", "Sprite.flipY"}},
+        {"commands", {"a.old", "a.new"}},
+        {"script", {"oldFn", "newFn"}}};
+    auto problems = [&](const char* text, const char* version) {
+        std::string all;
+        for (const std::string& p : deprecated_problems(Json::parse(text), version, live)) all += p + "\n";
+        return all;
+    };
+    CHECK(problems(R"({"commands": {"a.old": {"since": "0.30.0", "use": "a.new", "note": ""}}})", "0.30.0").empty());
+    CHECK(problems(R"({"commands": {"a.old": {"since": "0.30.1", "use": "a.new", "note": ""}}})", "0.31.4")
+              .empty());  // one minor
+    CHECK(problems(R"({"script": {"oldFn": {"since": "unreleased", "use": "", "note": "Nothing replaces it."}}})",
+                   "0.31.0")
+              .empty());
+    const std::string age =
+        problems(R"({"commands": {"a.old": {"since": "0.30.0", "use": "a.new", "note": ""}}})", "0.32.0");
+    CHECK(age.find("two minor versions have passed. Remove the API (the command) and this entry") != std::string::npos);
+    CHECK(problems(R"({"commands": {"a.old": {"since": "0.30.0", "use": "a.new", "note": ""}}})", "1.0.0")
+              .find("two minor") != std::string::npos);
+    CHECK(problems(R"({"commands": {"gone": {"since": "0.30.0", "use": "a.new", "note": ""}}})", "0.30.0")
+              .find("names something that no longer exists: remove the entry") != std::string::npos);
+    CHECK(problems(R"({"components": {"Sprite.flipX": {"since": "0.30.0", "use": "Sprite.nothing", "note": ""}}})",
+                   "0.30.0")
+              .find("\"use\" is \"Sprite.nothing\", which does not exist") != std::string::npos);
+    CHECK(problems(R"({"script": {"oldFn": {"since": "0.30.0", "use": "", "note": ""}}})", "0.30.0")
+              .find("no replacement and no reason") != std::string::npos);
+    CHECK(
+        problems(
+            R"({"commands": {"a.old": {"since": "0.30.0", "use": "a.new", "note": ""}, "a.new": {"since": "0.30.0", "use": "", "note": "x"}}})",
+            "0.30.0")
+            .find("deprecated itself") != std::string::npos);
+    CHECK(problems(R"({"commands": {"a.old": {"since": "soon", "use": "a.new", "note": ""}}})", "0.30.0")
+              .find("must be \"unreleased\" or a version") != std::string::npos);
+}
+
+TEST_CASE("api_since: a deprecated entry reaches the typings, the markdown, docs.components and docs.commands") {
+    RestoreDeprecations restore;
+    Deprecations::global().set(Json::parse(R"({
+        "components": {"Sprite.flipX": {"since": "0.30.0", "use": "Sprite.flipY", "note": "Mirror with scale instead."},
+                       "Collider2D": {"since": "0.30.0", "use": "", "note": "Nothing replaces it."}},
+        "commands": {"game.step": {"since": "0.30.0", "use": "game.pause", "note": ""}},
+        "script": {"didYouMean": {"since": "0.30.0", "use": "closest", "note": ""}}})"));
+    with_command_registry([&](Engine& e) {
+        // The typings: a JSDoc @deprecated tag on the script export and on the component field.
+        const std::string dts = export_typescript(e.scripts());
+        const size_t fn = dts.find("function didYouMean(");
+        REQUIRE(fn != std::string::npos);
+        const size_t tag = dts.rfind("@deprecated ", fn);
+        REQUIRE(tag != std::string::npos);
+        CHECK(dts.substr(tag, dts.find('\n', tag) - tag) == "@deprecated 0.30.0: use `closest`. Removed in 0.32.0.");
+        CHECK(dts.find("@deprecated 0.30.0: use `Sprite.flipY`. Removed in 0.32.0. Mirror with scale instead.") !=
+              std::string::npos);
+        CHECK(dts.find("@deprecated 0.30.0: no replacement. Removed in 0.32.0. Nothing replaces it.") !=
+              std::string::npos);
+        // The JSON of the components and commands.
+        bool foundField = false;
+        for (const Json& t : export_components_json())
+            if (t["name"] == "Sprite")
+                for (const Json& f : t["fields"])
+                    if (f["name"] == "flipX") {
+                        foundField = true;
+                        CHECK(f["deprecated"]["use"] == "Sprite.flipY");
+                        CHECK(f["deprecated"]["removedIn"] == "0.32.0");
+                        CHECK(f["deprecated"]["note"] == "Mirror with scale instead.");
+                    }
+        CHECK(foundField);
+        // The Markdown: components, fields and commands, and the index.
+        const std::string comps = export_components_markdown();
+        CHECK(comps.find("**Deprecated since 0.30.0 - no replacement. Removed in 0.32.0. Nothing replaces it.**") !=
+              std::string::npos);
+        CHECK(comps.find(
+                  "**Deprecated since 0.30.0 - use `Sprite.flipY`. Removed in 0.32.0. Mirror with scale instead.**") !=
+              std::string::npos);
+        CHECK(export_commands_markdown(e.commands())
+                  .find("**Deprecated since 0.30.0 - use `game.pause`. Removed in 0.32.0.**") != std::string::npos);
+        bool indexed = false;
+        for (const ApiReferencePage& p : export_api_reference(e.commands(), e.scripts()))
+            if (p.path == "reference/README.md") indexed = p.text.find("_Deprecated._") != std::string::npos;
+        CHECK(indexed);
+        // What an AI asks for: docs.commands and docs.components, JSON and Markdown.
+        auto r = e.commands().call("docs.commands", {{"name", "game.step"}, {"format", "json"}});
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        CHECK(r.result["commands"][0]["deprecated"]["use"] == "game.pause");
+        CHECK(r.result["commands"][0]["deprecated"]["since"] == "0.30.0");
+        r = e.commands().call("docs.commands", {{"name", "game.step"}});
+        REQUIRE(r.ok);
+        CHECK(r.result["markdown"].get<std::string>().find("Deprecated since 0.30.0 - use `game.pause`") !=
+              std::string::npos);
+        r = e.commands().call("docs.components", {{"name", "Sprite"}, {"format", "json"}});
+        REQUIRE(r.ok);
+        bool inFields = false;
+        for (const Json& f : r.result["components"][0]["fields"])
+            if (f["name"] == "flipX") inFields = f.contains("deprecated");
+        CHECK(inFields);
+        r = e.commands().call("docs.components", {{"name", "Collider2D"}, {"format", "json"}});
+        REQUIRE(r.ok);
+        CHECK(r.result["components"][0]["deprecated"]["note"] == "Nothing replaces it.");
+    });
+}
+
+TEST_CASE("api_since: with no deprecated entries nothing is marked") {
+    RestoreDeprecations restore;
+    install_deprecations(true);
+    CHECK(Deprecations::global().empty());
+    CHECK(deprecation_json("commands", "game.step").is_null());
+    with_command_registry([&](Engine& e) {
+        CHECK(export_typescript(e.scripts()).find("@deprecated") == std::string::npos);
+        CHECK(export_components_markdown().find("**Deprecated since") == std::string::npos);
     });
 }
