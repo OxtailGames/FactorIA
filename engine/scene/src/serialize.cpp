@@ -213,7 +213,7 @@ bool Loader::apply_component(Entity e, const TypeInfo& type, const Json& fieldsI
                   "\": ...}. Use {} for all defaults.");
         return false;
     }
-    // A deprecated component or field still loads; the first load in the process says what replaces it (docs/ARCHITECTURE.md,
+    // A deprecated component or field still loads; the first load in the process says what replaces it (docs/design/ARCHITECTURE.md,
     // "Versions"). The table is empty in an exported game: one atomic load.
     if (!Deprecations::global().empty())
         if (std::string text = Deprecations::global().take_warning(kDeprecatedComponents, type.name); !text.empty())
