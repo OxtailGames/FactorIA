@@ -297,6 +297,7 @@ registry.add(std::move(info), [](const Json& args) -> Json {
 | The command needs | Write it in | Register it from |
 |---|---|---|
 | The running game (scene, input, screenshots) or only the `World` | `engine/runtime/src/` (with a public header in `engine/runtime/include/fa/runtime/` if tests need it) | `register_builtin_commands` in `engine/runtime/src/commands.cpp` (declared in `engine_impl.h`) |
+| A command only a developer tool uses and a game must not have (writes project files, imports assets, edits animations) | `tools/authoring/src/` (`fa_authoring`; tests in `tools/authoring/tests/`) | `register_<area>_commands(Engine&, Engine::Impl&)` called from `register_authoring_commands` in `tools/authoring/src/authoring.cpp` (declared in `authoring_internal.h`); a process gets it by calling `fa::authoring::install()` (docs/ARCHITECTURE.md, "Where a command goes") |
 | Project tooling: validation, docs, files, feedback | `tools/common/src/` | `register_tooling_commands(registry, projectDir)` (`tooling.h`) |
 | The built-in AI agent | `tools/ai/src/` | `register_ai_commands` (`commands.h`) |
 

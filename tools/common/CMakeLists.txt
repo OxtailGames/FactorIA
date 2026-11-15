@@ -14,7 +14,7 @@ endif()
 target_sources(fa_tooling PRIVATE ${tooling_srcs})
 target_include_directories(fa_tooling PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
 # The Basis Universal encoder and stb_rect_pack make the compressed textures and atlases of `factoria export`.
-target_link_libraries(fa_tooling PUBLIC fa_ext_harfbuzz_subset fa_runtime PRIVATE fa_warnings fa_ext_basisu_encoder fa_ext_stb fa_ext_quickjs fa_ext_nanosvg fa_ext_clipper2)
+target_link_libraries(fa_tooling PUBLIC fa_ext_harfbuzz_subset fa_authoring fa_runtime PRIVATE fa_warnings fa_ext_basisu_encoder fa_ext_stb fa_ext_quickjs fa_ext_nanosvg fa_ext_clipper2)
 if(MSVC)
     # nanosvg's implementation has unreachable code (nanosvg.h, the end of nsvg__convertToPixels). The optimizer reports
     # C4702 for it and does not honour #pragma warning around the include, so it is off on the command line for the two

@@ -11,7 +11,7 @@
 #include "fa/runtime/engine.h"
 #include "fa/scene/vfx.h"
 #include "fa/scene/vfx_budget.h"
-#include "../src/engine_impl.h"  // Engine::Impl::vfxHost: the host an effect runs its commands with
+#include "fa/runtime/internal/engine_impl.h"  // Engine::Impl::vfxHost: the host an effect runs its commands with
 
 using namespace fa;
 namespace stdfs = std::filesystem;
