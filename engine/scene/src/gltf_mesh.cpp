@@ -73,6 +73,7 @@ Result<GltfMesh> read_gltf_mesh_bytes(const std::vector<std::uint8_t>& bytes, co
         cgltf_data* d;
         ~Guard() { cgltf_free(d); }
     } guard{data};
+    if (auto sizes = gltf_check_buffer_sizes(data, path); !sizes) return sizes.error();
     if (cgltf_load_buffers(&opts, data, path.c_str()) != cgltf_result_success)
         return make_error(std::format("cannot load the buffers of '{}'", path),
                           "External .bin files must sit next to the .gltf and inside the project.");
