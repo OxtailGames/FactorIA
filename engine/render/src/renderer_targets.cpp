@@ -1,5 +1,5 @@
-// Renderer::Impl, part 2: the game target, the CameraView and Camera.renderTarget images, the 2D light buffer and shadow
-// targets, the colour filter and the RGBA8 readback.
+// Renderer::Impl, part 2: the game target, the CameraView and Camera.renderTarget images, the 2D light buffer and
+// shadow targets, the colour filter and the RGBA8 readback.
 #include "renderer_impl.h"
 
 namespace fa::render {
@@ -120,13 +120,13 @@ void Renderer::Impl::create_targets(int w, int h) {
     physH = std::max(1, int(std::lround(double(targetH) * renderScale)));
     make_game_targets();
     // A GPU can list RGBA16F as renderable and still refuse these images: GLES3/WebGL2 with multisampling but without
-    // EXT_color_buffer_float, a framebuffer the driver calls incomplete (sokol marks the image or the attachment view FAILED).
-    // Then the game is drawn in RGBA8 (everything clamps at white, hdr_scene() says false) rather than not at all. The same
-    // check runs on every backend (GL, GLES, D3D11, Metal). FA_SCENE_FORMAT=rgba16f_invalid is a test hook: it makes the
-    // check fail on a GPU that never would, to run the fall-back there.
-    // Only the FIRST creation may change the format, and only when the same size works in RGBA8: later calls (an Expand-mode
-    // resize, a render scale for a big screenshot) can fail for a moment (out of GPU memory), and that must not downgrade
-    // the game for good in the middle of it. Then the old behaviour stays: the failure is reported by
+    // EXT_color_buffer_float, a framebuffer the driver calls incomplete (sokol marks the image or the attachment view
+    // FAILED). Then the game is drawn in RGBA8 (everything clamps at white, hdr_scene() says false) rather than not at
+    // all. The same check runs on every backend (GL, GLES, D3D11, Metal). FA_SCENE_FORMAT=rgba16f_invalid is a test
+    // hook: it makes the check fail on a GPU that never would, to run the fall-back there.
+    // Only the FIRST creation may change the format, and only when the same size works in RGBA8: later calls (an
+    // Expand-mode resize, a render scale for a big screenshot) can fail for a moment (out of GPU memory), and that must
+    // not downgrade the game for good in the middle of it. Then the old behaviour stays: the failure is reported by
     // the capture or the frame that needs the target.
     if (!initialized && gpu.scene_format() == SG_PIXELFORMAT_RGBA16F) {
         const char* hook = std::getenv("FA_SCENE_FORMAT");
@@ -252,15 +252,16 @@ void Renderer::Impl::release_unused_views() {
     }
 }
 
-// ---- Camera.renderTarget -------------------------------------------------------------------------------------------------
+// ---- Camera.renderTarget
+// -------------------------------------------------------------------------------------------------
 
 void Renderer::Impl::warn_target_once(const std::string& key, const std::string& message, const std::string& hint) {
     if (!targetWarned.insert(key).second) return;
     FA_ERROR("render", "{}. Hint: {}", message, hint);
 }
 
-// The active cameras with a Camera.renderTarget: valid, one per name, each with its image (made here, so the textures exist
-// before any gather asks for them). The images of the cameras that are gone are freed at the end of the frame.
+// The active cameras with a Camera.renderTarget: valid, one per name, each with its image (made here, so the textures
+// exist before any gather asks for them). The images of the cameras that are gone are freed at the end of the frame.
 void Renderer::Impl::collect_targets(World& world) {
     targetCams.clear();
     targetByName.clear();
@@ -309,8 +310,8 @@ void Renderer::Impl::collect_targets(World& world) {
     });
 }
 
-// What texture("target:<name>") answers: the target's live texture; the checker (selfSentinel) for the camera that draws that very
-// target (a pass cannot sample the image it writes); null when no camera renders into the name.
+// What texture("target:<name>") answers: the target's live texture; the checker (selfSentinel) for the camera that
+// draws that very target (a pass cannot sample the image it writes); null when no camera renders into the name.
 TextureAsset* Renderer::Impl::resolve_target(const std::string& name) {
     auto it = targetByName.find(name);
     if (it == targetByName.end()) return nullptr;
@@ -318,7 +319,8 @@ TextureAsset* Renderer::Impl::resolve_target(const std::string& name) {
     return targetCams[std::size_t(it->second)].asset;
 }
 
-// GL stores render targets bottom-up: copy the finished picture the right way up into the image the texture asset samples.
+// GL stores render targets bottom-up: copy the finished picture the right way up into the image the texture asset
+// samples.
 void Renderer::Impl::flip_copy(ViewTarget& t) {
     if (!t.flipCopy || !t.flip.color.id || !gpu.colorfilter_ready())
         return;  // the copy draws with the colour filter's shader
@@ -373,8 +375,8 @@ bool Renderer::Impl::ensure_light_target(float scale) {
     return true;
 }
 
-// The image of the frame's shadow rows (Frame::shadowData); an empty view when no light casts a shadow. Immutable: a new
-// image is made only when the rows changed (a light moved, a tile was edited), so a still scene uploads nothing.
+// The image of the frame's shadow rows (Frame::shadowData); an empty view when no light casts a shadow. Immutable: a
+// new image is made only when the rows changed (a light moved, a tile was edited), so a still scene uploads nothing.
 sg_view Renderer::Impl::upload_shadow_rows(const Frame& fr) {
     if (fr.shadowRows <= 0) return sg_view{};
     for (int i = 0; i < kShadowRowsRing; ++i)
@@ -408,9 +410,9 @@ void Renderer::Impl::destroy_light_resources() {
     }
 }
 
-// Makes (or keeps) the image the colour filter draws into. False (and one logged error) when the GPU cannot make it: the
-// game is then drawn without the filter. It is the frame's output while filterActive: present() and capture() sample it after
-// the frame graph ran, so it is an imported target of the graph and not a transient of the pool.
+// Makes (or keeps) the image the colour filter draws into. False (and one logged error) when the GPU cannot make it:
+// the game is then drawn without the filter. It is the frame's output while filterActive: present() and capture()
+// sample it after the frame graph ran, so it is an imported target of the graph and not a transient of the pool.
 bool Renderer::Impl::ensure_filter_target() {
     if (filterTarget.color.id) return true;
     TargetDesc d;

@@ -155,6 +155,7 @@ bool Gpu::init(int sampleCount, std::string* error) {
 void Gpu::shutdown() {
     if (listening_) sg_remove_commit_listener(sg_commit_listener{&Gpu::count_commit, this});
     listening_ = false;
+    warming_ = false;
     for (auto& [k, p] : pipelines_) sg_destroy_pipeline(p.pipeline);
     pipelines_.clear();
     for (auto& t : transient_) sg_destroy_buffer(t.buf);
@@ -186,9 +187,10 @@ void Gpu::shutdown() {
 
 void Gpu::sweep_pipelines() {
     // Nothing else holds a pipeline (every caller asks Gpu on each draw), so one that no draw asked for during the last
-    // pipelineIdleFrames_ frames can go; it is made again if it is ever asked for. See "The pipeline cache" in render_internal.h.
+    // pipelineIdleFrames_ frames can go; it is made again if it is ever asked for. See "The pipeline cache" in
+    // render_internal.h.
     for (auto it = pipelines_.begin(); it != pipelines_.end();) {
-        if (pipelineTick_ - it->second.lastUsed > pipelineIdleFrames_) {
+        if (!it->second.warmed && pipelineTick_ - it->second.lastUsed > pipelineIdleFrames_) {
             sg_destroy_pipeline(it->second.pipeline);
             it = pipelines_.erase(it);
             ++pipelinesEvicted_;
@@ -225,7 +227,7 @@ void Gpu::end_pass() {
     inPass_ = false;
 }
 
-sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, sg_pipeline_desc desc) {
+sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, const sg_pipeline_desc& request) {
 #ifndef NDEBUG
     // A pipeline applied in a pass must have the pass's colour format, depth format and sample count. GL and D3D11
     // validation reject a mismatch; Metal accepts it and draws wrong, so check here, where every pipeline comes from.
@@ -236,9 +238,11 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, sg_pi
     auto it = pipelines_.find(key);
     if (it != pipelines_.end()) {
         it->second.lastUsed = pipelineTick_;
+        if (warming_) it->second.warmed = true;
         ++pipelineHits_;
         return it->second.pipeline;
     }
+    sg_pipeline_desc desc = request;  // a copy only on a miss (the description is more than 1 KB)
     desc.colors[0].pixel_format = format.color;
     desc.depth.pixel_format = format.depth;
     desc.sample_count = format.samples;
@@ -254,7 +258,7 @@ sg_pipeline Gpu::find_or_make(PipelineKey key, const TargetFormat& format, sg_pi
         FA_ERROR("render", "failed to create pipeline '{}'", desc.label ? desc.label : "?");
     }
     ++pipelinesMade_;
-    pipelines_[key] = {p, pipelineTick_};
+    pipelines_[key] = {p, pipelineTick_, warming_};
     return p;
 }
 
