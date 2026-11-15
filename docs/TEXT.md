@@ -477,10 +477,14 @@ On macOS and iOS:
   all keys while no field has the focus. Command and Control chords are never offered to the input method (shortcuts, Cmd+V).
 - The clause the input method is converting is the composition's selection (`compositionCaret` .. `+ selectionLength`, in code
   points; the platform counts UTF-16 and the engine converts).
-- An input method that ends a composition without committing it (`unmarkText`, a cancel, the focus moving to another field)
-  types nothing; the text it was building is dropped.
+- When the system ends a composition without a commit (the window loses the focus, the input source changes, a click) the
+  text built so far is accepted and typed, as `NSTextInputClient` says. A cancel (the focus moving to another field) and a
+  marked text the input method emptied (Backspace on the last character) type nothing.
 - iOS: `input.showKeyboard` (the UI does it with the focus) is still what shows the keyboard; turning the IME on or off
   shows and hides nothing. The IME starts working at the first time the keyboard is shown.
+- iOS reads the keyboard's text field after each change; its text starts with a fixed first character that the engine puts
+  back after every change. If the keyboard (autocorrect) ever replaces it, the composition is cancelled, the field starts over
+  and one log line says so.
 - Not attached when the game runs inside the editor: the editor's own windows and its Play mode take their text as before.
 
 ## Limits

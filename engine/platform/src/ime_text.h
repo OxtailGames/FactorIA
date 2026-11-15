@@ -45,11 +45,11 @@ Marked marked_from_utf16(std::u16string_view text, std::size_t selLoc, std::size
 // What a key down becomes once the input method has seen it (macOS: the view called interpretKeyEvents and the client methods
 // answered). The flags are what happened during that call.
 struct KeyOutcome {
-    bool wasComposing = false;  // a composition was open before the key
-    bool composing = false;     // and after it
-    bool consumed = false;      // the IME changed the composition: marked text set, committed or ended
-    bool command = false;       // it asked for a command (Enter, an arrow, Backspace: doCommandBySelector)
-    bool plainText = false;     // it inserted text with no composition open (a letter of a plain layout)
+    bool wasComposing = false;          // a composition was open before the key
+    bool composing = false;             // and after it
+    bool consumed = false;              // the IME changed the composition: marked text set, committed or ended
+    bool command = false;               // it asked for a command (Enter, an arrow, Backspace: doCommandBySelector)
+    bool plainText = false;             // it inserted text with no composition open (a letter of a plain layout)
     bool plainTextIsEventText = false;  // ... and that text is what the key event itself carries
 };
 enum class KeyAction {
