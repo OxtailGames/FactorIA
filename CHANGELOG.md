@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+### Fixes
+
+- Fonts: an `.otf` with PostScript outlines (a `CFF ` table) whose INDEXes, Top DICT or Private DICT point outside the
+  table made stb_truetype read outside the file while loading (found by the weekly fuzz run). The `CFF ` table is now
+  walked before stb_truetype sees it: a damaged one is an error that names the part (Name INDEX, Top DICT, FDArray...),
+  its offset in the table and what is wrong. A glyph the CharStrings INDEX or the FDSelect has no entry for is drawn as
+  the `.notdef` box, and a CFF font whose `hmtx` table is shorter than its glyph count is refused like a TrueType one.
+
 ## 0.29.0
 
 FactorIA 0.29.0 (M96) makes the exported player smaller and its scripts safer to ship. The commands only developer tools

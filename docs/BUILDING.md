@@ -536,14 +536,24 @@ the check runs stb_truetype's binary search on it and refuses it only when the e
 subtable. What is wrong with one glyph does not condemn the font: a glyph that includes itself or nests more than 32
 levels, composite glyphs placed by matching points, contours that do not end at rising points, a last contour of a single
 point off the curve, or a composite that draws more than 20000 glyphs is listed as unsafe, `FontFace::stb_glyph` hands
-stb_truetype glyph 0 (the `.notdef` box) in its place, and everything else in the font still loads. Smaller checks of
-the same kind: a picture with no rows is an error, a KTX2
+stb_truetype glyph 0 (the `.notdef` box) in its place, and everything else in the font still loads. The `CFF ` table of an
+`.otf` with PostScript outlines is walked too (`check_cff_table`, `font_check_cff.cpp`), because stb_truetype gives its CFF
+reader a 512 MB window from the start of the table instead of its length: the check repeats what `stbtt_InitFont` reads, in
+the same order, with the table's length (header size, the Name, Top DICT, String and Global Subr INDEXes, the Top DICT's
+CharStrings, Private, FDArray and FDSelect offsets, the Private DICT and local subroutine INDEX, and the same for every font
+dict of a CID font), and refuses a font whose reads leave the table or hit a value stb_truetype asserts on (an offset size
+outside 1..4, a reserved DICT operand) with an error that names the part and the offset in the table; its work is capped
+at 20 million steps, whatever the CPU. A glyph that the CharStrings INDEX does not hold, or whose FDSelect entry names no
+font dict, is unsafe like the glyphs above, and a CFF font's `hmtx` is checked against `maxp` like a TrueType one's. Smaller
+checks of the same kind: a picture with no rows is an error, a KTX2
 level whose stored size differs from its unpacked size is refused before the Basis transcoder asserts on it, the comment
 header of an Ogg Vorbis file is walked before stb_vorbis allocates from its lengths (it reads them as signed; a header over
 16 MB, such as one with a huge cover picture, is refused with an error that says it is a size limit, not damage), and
 `sf2_problem` follows the index chains of a SoundFont (preset, instrument and sample numbers, zone and generator ranges)
-before TinySoundFont, which trusts them, reads it. What stays inside `external/` and is only fuzzed: the CFF outline reader
-of stb_truetype (an `.otf` with PostScript outlines; the file check covers its place in the file, not its contents), the
+before TinySoundFont, which trusts them, reads it. What stays inside `external/` and is only fuzzed: the charstrings of a CFF
+font (stb_truetype's interpreter runs on the INDEX entries the check proved lie inside the table, with an operand stack of
+48 and 10 nested subroutines, so it has no way out of them; a charstring that makes it assert, as a hint mask that runs past its
+entry does in a Debug build, is not looked for), the
 Basis transcoder's own parsing after the header and level checks, dr_wav, dr_mp3, qoa, stb_vorbis beyond the comment header
 (codebooks and setup), TinySoundFont once its tables check out (sample ranges are not checked) and the cgltf parser itself
 (`gltf_check` validates accessors, not the JSON parse). The sanitizer build silences UBSan (not ASan) inside `external/`
