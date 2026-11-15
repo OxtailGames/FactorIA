@@ -744,6 +744,10 @@ int run_docs_read_part(Context& ctx) {
         } else if (code == "not_found" && ctx.args.has("heading")) {
             hint = "Print the page's headings with their line numbers: factoria docs read " + doc +
                    " --contents (or factoria docs search \"...\").";
+        } else if (code == "invalid_argument" && ctx.args.has("heading") &&
+                   message.find(" pages of '") != std::string::npos) {
+            hint = "Read it from the page you mean: factoria docs read <page> --heading \"<title>\" (the pages are "
+                   "listed above).";
         } else if (code == "invalid_argument" && ctx.args.has("heading")) {
             hint = "Repeat with the full title of one of them in --heading, or add --start-line.";
         }
@@ -764,16 +768,20 @@ int run_docs_read_part(Context& ctx) {
         return 0;
     }
     const std::string content = r.result.value("content", std::string());
+    // The section lives on a page of the doc that was split: say so (stderr: stdout stays the text) and continue there.
+    const std::string servedDoc = r.result.contains("page") ? r.result.value("page", ctx.args.pos(0)) : ctx.args.pos(0);
+    if (r.result.contains("page"))
+        ctx.err << "-- this section is on page `" << servedDoc << "` (factoria docs read " << servedDoc << ") --\n";
     ctx.out << content;
     if (content.empty() || content.back() != '\n') ctx.out << "\n";
     if (r.result.value("truncated", false)) {
         ctx.err << "-- cut at line " << r.result.value("endLine", 0) << " of " << r.result.value("totalLines", 0)
                 << " --\n"
-                << "Continue: factoria docs read " << ctx.args.pos(0);
+                << "Continue: factoria docs read " << servedDoc;
         if (r.result.contains("heading"))
             ctx.err << " --heading \"" << r.result.value("heading", std::string()) << "\"";
         ctx.err << " --start-line " << r.result.value("nextStartLine", 0) << "\n"
-                << "One section: factoria docs read " << ctx.args.pos(0)
+                << "One section: factoria docs read " << servedDoc
                 << " --heading \"<a heading below>\"; a range: --start-line N --max-lines M.\n"
                 << r.result.value("contents", std::string()) << "\n";
     }

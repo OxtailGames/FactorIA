@@ -5,6 +5,8 @@
 #include <cmath>
 #include <initializer_list>
 #include <iterator>
+#include <map>
+#include <mutex>
 #include <set>
 #include <sstream>
 #include <string_view>
@@ -85,6 +87,46 @@ std::string contents_text(const std::vector<DocHeading>& heads, size_t budget) {
         }
         if (out.size() <= budget || maxLevel == 1) return cut_utf8(out, budget);
     }
+    return {};
+}
+
+const DocFiles* g_docFiles = nullptr;
+
+std::vector<std::string> doc_files_list() { return g_docFiles ? g_docFiles->list("docs/") : bundled_list("docs/"); }
+
+std::optional<std::string> doc_file_read(std::string_view path) {
+    return g_docFiles ? g_docFiles->read(path) : bundled_read(path);
+}
+
+std::string dir_of(const std::string& path) {
+    const size_t s = path.rfind('/');
+    return s == std::string::npos ? std::string() : path.substr(0, s);
+}
+
+std::string base_of(const std::string& path) {
+    const size_t s = path.rfind('/');
+    return s == std::string::npos ? path : path.substr(s + 1);
+}
+
+std::string upper_of(std::string s) {
+    for (char& c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    return s;
+}
+
+// Only the generated reference and the translations are not part of the doc layout.
+bool is_layout_path(const std::string& path) {
+    return ends_with(path, ".md") && path.rfind("docs/reference/", 0) != 0 && path.rfind("docs/i18n/", 0) != 0;
+}
+
+// The entry page of the folder a doc sits in: docs/scripting/SCRIPTING_INPUT.md -> docs/SCRIPTING.md (the doc in the folder's
+// parent whose name is the folder's). Empty when the doc is not in such a folder.
+std::string entry_path_of(const std::string& path, const std::vector<std::string>& all) {
+    const std::string dir = dir_of(path);
+    if (dir.empty() || dir == "docs") return {};
+    const std::string parent = dir_of(dir);
+    const std::string want = doc_name_from_path(base_of(dir));
+    for (const std::string& e : all)
+        if (dir_of(e) == parent && doc_name_from_path(e) == want) return e;
     return {};
 }
 
@@ -205,17 +247,19 @@ bool is_menu_kit_name(const std::string& q) {
                                  q.compare(0, kMenuKitName.size(), kMenuKitName) == 0 && q[kMenuKitName.size()] == '/');
 }
 
-}  // namespace
-
-const std::vector<DocManifestEntry>& doc_manifest() { return manifest(); }
-
-std::vector<DocInfo> list_docs() {
+std::vector<DocInfo> scan_docs(const std::vector<std::string>& files) {
     std::vector<DocInfo> out;
-    for (const auto& p : bundled_list("docs/")) {
-        if (!ends_with(p, ".md")) continue;
-        auto text = bundled_read(p);
+    std::vector<std::string> mds;
+    for (const auto& p : files)
+        if (ends_with(p, ".md")) mds.push_back(p);
+    for (const auto& p : mds) {
+        auto text = doc_file_read(p);
         if (!text) continue;
-        DocInfo d{doc_name_from_path(p), p, first_heading(*text), text->size(), {}, {}};
+        DocInfo d{doc_name_from_path(p), p, first_heading(*text), text->size(), {}, {}, {}};
+        if (is_layout_path(p)) {
+            const std::string entry = entry_path_of(p, mds);
+            if (!entry.empty()) d.family = doc_name_from_path(entry);
+        }
         if (const DocManifestEntry* e = find_manifest(d.name)) {
             d.summary = e->summary;
             d.audience = e->audience;
@@ -225,11 +269,104 @@ std::vector<DocInfo> list_docs() {
     return out;
 }
 
+struct DocCache {
+    bool valid = false;
+    std::vector<std::string> files;
+    std::vector<DocInfo> docs;
+};
+DocCache g_docCache;
+std::mutex g_docCacheMutex;
+
+}  // namespace
+
+const std::vector<DocManifestEntry>& doc_manifest() { return manifest(); }
+
+void set_doc_files_for_tests(const DocFiles* files) {
+    std::lock_guard<std::mutex> lock(g_docCacheMutex);
+    g_docFiles = files;
+    g_docCache.valid = false;
+}
+
+std::vector<DocInfo> list_docs() {
+    // Reading every embedded doc to get its title and size is done once, while the list of files stays the same (the
+    // embedded files never change; a test's source is replaced through set_doc_files_for_tests).
+    std::vector<std::string> files = doc_files_list();
+    {
+        std::lock_guard<std::mutex> lock(g_docCacheMutex);
+        if (g_docCache.valid && g_docCache.files == files) return g_docCache.docs;
+    }
+    std::vector<DocInfo> out = scan_docs(files);
+    std::lock_guard<std::mutex> lock(g_docCacheMutex);
+    g_docCache = {true, std::move(files), out};
+    return out;
+}
+
+std::vector<DocInfo> doc_family_pages(std::string_view entryName) {
+    std::vector<DocInfo> out;
+    for (DocInfo& d : list_docs())
+        if (d.family == entryName) out.push_back(std::move(d));
+    std::sort(out.begin(), out.end(), [](const DocInfo& a, const DocInfo& b) { return a.path < b.path; });
+    return out;
+}
+
+std::vector<std::string> doc_layout_problems() {
+    // The same rules whether the docs come from the binary or from the repository: docs/design/ is not embedded, so its
+    // names are not checked for uniqueness there, but its families are checked for links in both.
+    std::vector<std::string> problems;
+    const std::vector<DocInfo> docs = list_docs();
+    std::vector<std::string> mds;
+    std::map<std::string, std::string> byName;
+    for (const DocInfo& d : docs) {
+        if (!is_layout_path(d.path)) continue;
+        mds.push_back(d.path);
+        if (d.path.rfind("docs/design/", 0) == 0) continue;
+        auto [it, fresh] = byName.emplace(d.name, d.path);
+        if (!fresh)
+            problems.push_back(
+                "Two docs are named '" + d.name + "': " + it->second + " and " + d.path +
+                ". The name is the file name without the folder, lower case, '_' as '-': prefix a page's "
+                "file name with its doc's name (docs/scripting/SCRIPTING_INPUT.md).");
+    }
+    for (const std::string& p : mds) {
+        const std::string dir = dir_of(p);
+        if (dir.empty() || dir == "docs" || dir == "docs/design") continue;
+        const std::string entry = entry_path_of(p, mds);
+        if (entry.empty()) {
+            problems.push_back(p + " sits in the folder " + dir + " but there is no entry page " + dir_of(dir) + "/" +
+                               upper_of(base_of(dir)) +
+                               ".md for it. A page lives in docs/<name>/ next to its entry page "
+                               "docs/<NAME>.md; move it or add the entry page.");
+            continue;
+        }
+        const std::string entryStem = base_of(entry).substr(0, base_of(entry).size() - 3);
+        if (base_of(p).rfind(entryStem + "_", 0) != 0)
+            problems.push_back(p + " must be named " + entryStem +
+                               "_<PART>.md: the file name starts with its entry "
+                               "page's (" +
+                               entry + "), so the embedded name is unique.");
+        // A real Markdown link: `](folder/FILE.md` followed by `)` or `#`, not the path in some other text.
+        const std::string entryText = doc_file_read(entry).value_or("");
+        const std::string link = base_of(dir) + "/" + base_of(p);
+        bool linked = false;
+        for (size_t pos = entryText.find("](" + link); pos != std::string::npos && !linked;
+             pos = entryText.find("](" + link, pos + 1)) {
+            const size_t after = pos + 2 + link.size();
+            linked = after < entryText.size() && (entryText[after] == ')' || entryText[after] == '#');
+        }
+        if (!linked)
+            problems.push_back(entry + " does not link to its page " + p +
+                               ". Add a line to its index of pages with a Markdown link to the relative path, "
+                               "`[Title](" +
+                               link + ")`, and what the page covers.");
+    }
+    return problems;
+}
+
 Result<std::string> read_doc(std::string_view nameOrPath) {
     std::string q(trim(nameOrPath));
     if (q.rfind("factoria://docs/", 0) == 0) q = q.substr(16);
     if (q.rfind("docs/", 0) == 0 || q.rfind("schemas/", 0) == 0) {
-        if (auto t = bundled_read(q)) return *t;
+        if (auto t = doc_file_read(q)) return *t;
     }
     if (is_menu_kit_name(q)) return read_menu_kit(q);
     std::string want = doc_name_from_path(q);
@@ -248,7 +385,7 @@ Result<std::string> read_doc(std::string_view nameOrPath) {
     std::vector<std::string> names;
     for (const auto& d : list_docs()) {
         if (d.name == want) {
-            if (auto t = bundled_read(d.path)) return *t;
+            if (auto t = doc_file_read(d.path)) return *t;
         }
         names.push_back(d.name);
     }
@@ -271,7 +408,7 @@ std::vector<DocHit> search_docs(std::string_view query, std::size_t maxResults) 
     std::vector<DocHit> hits;
     if (terms.empty()) return hits;
     for (const auto& d : list_docs()) {
-        auto text = bundled_read(d.path);
+        auto text = doc_file_read(d.path);
         if (!text) continue;
         auto lines = lines_of(*text);
         // Sections split at headings.
@@ -312,6 +449,7 @@ std::vector<DocHit> search_docs(std::string_view query, std::size_t maxResults) 
             score *= 1.0 + double(termsMatched) / double(terms.size());  // reward covering all terms
             DocHit h;
             h.doc = d.name;
+            h.family = d.family;
             h.path = d.path;
             h.heading = heading;
             h.line = bestLine + 1;
@@ -356,7 +494,10 @@ void register_docs_commands(CommandRegistry& registry) {
         info.category = "docs";
         info.summary = "List the engine documentation available offline.";
         info.description =
-            "Start here. Returns {docs:[{name, title, summary, audience[], path, bytes}]}: `summary` is one sentence "
+            "Start here. Returns {docs:[{name, title, summary, audience[], path, bytes, family?}]}: `family` is only "
+            "on a "
+            "page of a big doc that is split (the name of its entry page: read the entry page first, it indexes its "
+            "pages); `summary` is one sentence "
             "on what the "
             "page is for, `audience` says who it is for (gameAi: the AI making a game, user: the person using the "
             "engine, "
@@ -389,12 +530,14 @@ void register_docs_commands(CommandRegistry& registry) {
                 if (!wanted(d.audience)) continue;
                 Json aud = Json::array();
                 for (const std::string& a : d.audience) aud.push_back(a);
-                arr.push_back(Json::object({{"name", d.name},
-                                            {"title", d.title},
-                                            {"summary", d.summary},
-                                            {"audience", aud},
-                                            {"path", d.path},
-                                            {"bytes", d.bytes}}));
+                Json entry = Json::object({{"name", d.name},
+                                           {"title", d.title},
+                                           {"summary", d.summary},
+                                           {"audience", aud},
+                                           {"path", d.path},
+                                           {"bytes", d.bytes}});
+                if (!d.family.empty()) entry["family"] = d.family;
+                arr.push_back(std::move(entry));
             }
             if (wanted({"gameAi"}))
                 arr.push_back(Json::object(
@@ -433,7 +576,14 @@ void register_docs_commands(CommandRegistry& registry) {
             "startLine/maxLines. Names: see docs.list (e.g. ai-guide, scripting, licenses). The menu kit's files are "
             "`menu-kit/<file>` (the name \"menu-kit\" lists them). The component and command references are not pages: "
             "use docs.components and docs.commands. "
-            "To find where something is, docs.search returns sections with their line numbers.";
+            "To find where something is, docs.search returns sections with their line numbers. A big doc is split: its "
+            "entry page (the name you know) indexes its pages, and a read of it without `heading` carries `pages` "
+            "([{name,title,bytes,path}]; a cut read lists them in `contents` too). A `heading` that is not in the "
+            "entry "
+            "page but is a heading of one of its pages is served from that page: the result then has `page` (its name; "
+            "`name` is the page too, so `next` continues there), `requestedName` and a `note`. A heading on two pages "
+            "is "
+            "an error that lists both; read the page by name.";
         info.inputSchema = Json::object(
             {{"type", "object"},
              {"properties",
@@ -466,40 +616,116 @@ void register_docs_commands(CommandRegistry& registry) {
             const std::string name = tooling_detail::arg_string(args, "name", true);
             auto text = read_doc(name);
             if (!text.ok()) throw CommandError("not_found", text.error().message, text.error().hint);
-            const auto lines = lines_of(*text);
-            const long total = long(lines.size());
-            const std::vector<DocHeading> heads = headings_of(lines);
+            std::vector<std::string> lines = lines_of(*text);
+            long total = long(lines.size());
+            std::vector<DocHeading> heads = headings_of(lines);
+            const std::string familyName = is_menu_kit_name(name) ? std::string() : doc_name_from_path(name);
+            std::string servedName = name;  // the doc the content comes from: a page when the heading lives on one
+            std::string pageNote;
+            std::vector<std::string> alsoOn;  // pages with the same exact title as the entry page's section
             long start = std::max<long>(1, tooling_detail::arg_int(args, "startLine", 1));
             long end = total;  // last line (1-based) the read may reach
             const std::string wanted = tooling_detail::arg_string(args, "heading", false);
             std::string sectionTitle;
             if (!wanted.empty()) {
                 const std::string w = to_lower(std::string(trim(wanted)));
-                std::vector<const DocHeading*> exact, partial;
-                for (const DocHeading& h : heads) {
-                    const std::string t = to_lower(h.title);
-                    if (t == w)
-                        exact.push_back(&h);
-                    else if (t.find(w) != std::string::npos)
-                        partial.push_back(&h);
+                // The headings of `hs` that match: an exact title wins, else a part of a title.
+                struct Match {
+                    std::vector<const DocHeading*> found;
+                    bool exact = false;
+                };
+                auto match_in = [&](const std::vector<DocHeading>& hs) {
+                    Match m;
+                    std::vector<const DocHeading*> partial;
+                    for (const DocHeading& h : hs) {
+                        const std::string t = to_lower(h.title);
+                        if (t == w)
+                            m.found.push_back(&h);
+                        else if (t.find(w) != std::string::npos)
+                            partial.push_back(&h);
+                    }
+                    m.exact = !m.found.empty();
+                    if (!m.exact) m.found = std::move(partial);
+                    return m;
+                };
+                Match m = match_in(heads);
+                // Not in this doc: a section of a doc that was split into pages lives on one of them, so an old
+                // reference ("docs/SCRIPTING.md, \"Input\"") keeps working.
+                struct PageText {
+                    DocInfo info;
+                    std::vector<std::string> lines;
+                    std::vector<DocHeading> heads;
+                    Match m;
+                };
+                std::vector<PageText> pages;  // the family's pages with a match
+                std::vector<std::string> familyTitles;
+                for (const DocHeading& h : heads) familyTitles.push_back(h.title);
+                if (!familyName.empty()) {
+                    for (DocInfo& info : doc_family_pages(familyName)) {
+                        auto pageText = doc_file_read(info.path);
+                        if (!pageText) continue;
+                        PageText pt{std::move(info), lines_of(*pageText), {}, {}};
+                        pt.heads = headings_of(pt.lines);
+                        pt.m = match_in(pt.heads);
+                        for (const DocHeading& h : pt.heads) familyTitles.push_back(h.title);
+                        if (!pt.m.found.empty()) pages.push_back(std::move(pt));
+                    }
                 }
-                const std::vector<const DocHeading*>& found = !exact.empty() ? exact : partial;
-                if (found.empty()) {
-                    std::vector<std::string> titles;
-                    for (const DocHeading& h : heads) titles.push_back(h.title);
+                std::vector<PageText*> exactPages;
+                for (PageText& p : pages)
+                    if (p.m.exact) exactPages.push_back(&p);
+                // Where the section is: an exact title on the entry page wins (and says which pages have a longer
+                // version); else an exact title on exactly one page; else the only place with a partial match. Two
+                // or more candidates are an error that lists the entry page and the pages.
+                PageText* chosen = nullptr;  // nullptr: the entry page
+                std::vector<PageText*> candidates;
+                if (m.exact) {
+                    for (PageText* p : exactPages) alsoOn.push_back(p->info.name);
+                } else if (!exactPages.empty()) {
+                    candidates = exactPages;
+                    if (exactPages.size() == 1) chosen = exactPages.front();
+                } else {
+                    for (PageText& p : pages) candidates.push_back(&p);
+                    if (candidates.size() == 1 && m.found.empty()) chosen = candidates.front();
+                }
+                if (m.found.empty() && pages.empty())
                     throw CommandError("not_found",
                                        "Doc '" + name + "' has no heading matching '" + wanted + "'. " +
-                                           did_you_mean(wanted, titles),
+                                           did_you_mean(wanted, familyTitles),
                                        "Read the page without `heading` to get its contents (headings with line "
                                        "numbers), or docs.search {\"query\":\"...\"}.");
+                const size_t places = candidates.size() + (!m.exact && !m.found.empty() ? 1 : 0);
+                if (!chosen && !m.exact && places > 1) {
+                    std::string list;
+                    if (!m.found.empty())
+                        list += "\n  - the entry page `" + name + "`: \"" + m.found.front()->title + "\" (line " +
+                                std::to_string(m.found.front()->line) + ")";
+                    for (const PageText* p : candidates)
+                        list += "\n  - page `" + p->info.name + "`: \"" + p->m.found.front()->title + "\" (line " +
+                                std::to_string(p->m.found.front()->line) + ")";
+                    throw CommandError("invalid_argument",
+                                       "'" + wanted + "' matches headings on " + std::to_string(places) +
+                                           " pages of '" + name + "':" + list,
+                                       "Read it from the page you mean: docs.read {\"name\":\"<page>\",\"heading\":"
+                                       "\"<full title>\"}.");
                 }
-                if (found.size() > 1 && exact.empty()) {
+                if (chosen) {
+                    servedName = chosen->info.name;
+                    pageNote = "this section is on page `" + servedName + "`";
+                    lines = std::move(chosen->lines);
+                    heads = std::move(chosen->heads);
+                    total = long(lines.size());
+                    end = total;
+                    m = std::move(chosen->m);
+                }
+                const std::vector<const DocHeading*>& found = m.found;
+                if (found.size() > 1 && !m.exact) {
                     std::string list;
                     for (size_t i = 0; i < found.size() && i < 12; ++i)
                         list += "\n  - \"" + found[i]->title + "\" (line " + std::to_string(found[i]->line) + ")";
                     throw CommandError("invalid_argument",
                                        "'" + wanted + "' matches " + std::to_string(found.size()) + " headings of '" +
-                                           name + "':" + list,
+                                           servedName + "':" + list,
                                        "Repeat the call with the full title of one of them, or with startLine.");
                 }
                 const DocHeading* h = found.front();
@@ -531,23 +757,53 @@ void register_docs_commands(CommandRegistry& registry) {
                 last = i + 1;
             }
             const bool truncated = last < end;
-            Json r = Json::object({{"name", name},
+            Json r = Json::object({{"name", servedName},
                                    {"content", out},
                                    {"startLine", start},
                                    {"endLine", last},
                                    {"totalLines", total},
                                    {"truncated", truncated}});
             if (!sectionTitle.empty()) r["heading"] = sectionTitle;
+            if (!pageNote.empty()) {
+                r["page"] = servedName;  // the section was found on this page of `name`'s family
+                r["requestedName"] = name;
+                r["note"] = pageNote + " (docs.read {\"name\":\"" + servedName + "\"}).";
+            }
+            if (!alsoOn.empty()) {
+                Json also = Json::array();
+                std::string names;
+                for (const std::string& n : alsoOn) {
+                    also.push_back(n);
+                    names += std::string(names.empty() ? "`" : ", `") + n + "`";
+                }
+                r["alsoOnPages"] = also;
+                r["note"] = "a longer version of this section is on page " + names + " (docs.read {\"name\":\"" +
+                            alsoOn.front() + "\",\"heading\":\"" + sectionTitle + "\"}).";
+            }
+            // An entry page lists its pages (read it without `heading`: that is the read that needs a map).
+            Json pagesJson = Json::array();
+            std::string pagesText;
+            if (wanted.empty() && !familyName.empty())
+                for (const DocInfo& p : doc_family_pages(familyName)) {
+                    pagesJson.push_back(
+                        Json::object({{"name", p.name}, {"title", p.title}, {"bytes", p.bytes}, {"path", p.path}}));
+                    pagesText += "- " + p.name + ": " + p.title + " (" + std::to_string(p.bytes) + " bytes)\n";
+                }
+            if (!pagesJson.empty()) r["pages"] = pagesJson;
             if (truncated) {
                 {
                     r["nextStartLine"] = last + 1;
-                    Json call = Json::object({{"name", name}, {"startLine", last + 1}});
+                    Json call = Json::object({{"name", servedName}, {"startLine", last + 1}});
                     if (!sectionTitle.empty()) call["heading"] = sectionTitle;
                     r["next"] = "docs.read " + call.dump() + " continues from line " + std::to_string(last + 1) +
                                 " of " + std::to_string(total) + ".";
                 }
-                r["contents"] = contents_text(heads, 8000);
-                r["readSection"] = "docs.read {\"name\":\"" + name +
+                std::string contents = contents_text(heads, 8000);
+                if (!pagesText.empty())
+                    contents += "Pages of this doc (docs.read {\"name\":\"<page>\"}, or the same heading on `" + name +
+                                "`):\n" + pagesText;
+                r["contents"] = contents;
+                r["readSection"] = "docs.read {\"name\":\"" + servedName +
                                    "\",\"heading\":\"<a heading of `contents`>\"} reads one section; "
                                    "startLine/maxLines read a range of the lines numbered in `contents`.";
             }
@@ -559,9 +815,11 @@ void register_docs_commands(CommandRegistry& registry) {
         info.name = "docs.search";
         info.category = "docs";
         info.summary = "Search the documentation by keywords.";
-        info.description =
-            "Case-insensitive; every word counts, headings weigh more. Returns best sections with a snippet. "
-            "Example: {\"query\":\"input actions\"}";
+        info.description = "Case-insensitive; every word counts, headings weigh more. Returns best sections with a "
+                           "snippet; `doc` names "
+                           "the page that holds it (`family` too when that is a page of a split doc: read it with "
+                           "docs.read {name:doc}). "
+                           "Example: {\"query\":\"input actions\"}";
         info.inputSchema = Json::object(
             {{"type", "object"},
              {"properties", Json::object({{"query", Json::object({{"type", "string"}, {"description", "Keywords."}})},
@@ -575,12 +833,15 @@ void register_docs_commands(CommandRegistry& registry) {
             auto hits = search_docs(tooling_detail::arg_string(args, "query", true),
                                     size_t(tooling_detail::arg_int(args, "limit", 8)));
             Json arr = Json::array();
-            for (const auto& h : hits)
-                arr.push_back(Json::object({{"doc", h.doc},
-                                            {"heading", h.heading},
-                                            {"line", h.line},
-                                            {"score", std::round(h.score * 100) / 100},
-                                            {"snippet", h.snippet}}));
+            for (const auto& h : hits) {
+                Json hit = Json::object({{"doc", h.doc},
+                                         {"heading", h.heading},
+                                         {"line", h.line},
+                                         {"score", std::round(h.score * 100) / 100},
+                                         {"snippet", h.snippet}});
+                if (!h.family.empty()) hit["family"] = h.family;  // `doc` is a page of this entry page's doc
+                arr.push_back(std::move(hit));
+            }
             return Json::object({{"count", arr.size()}, {"results", arr}});
         });
     }

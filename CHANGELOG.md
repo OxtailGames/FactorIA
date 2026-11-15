@@ -19,7 +19,10 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   to 85 KB): `docs.read menu-kit` lists them and `docs.read menu-kit/scripts/settings.js` reads one, straight from the
   kit `project.add_menu_kit` copies. `ARCHITECTURE.md` and `BUILDING.md` moved to `docs/design/` and are not in the
   binary (the engine developers read the repository). README.md and README.es.md are organised by audience and link
-  every doc; a test keeps it so.
+  every doc; a test keeps it so. A doc over the budget becomes an entry page (`docs/<NAME>.md`, with an index) plus pages
+  (`docs/<name>/<NAME>_<PART>.md`): `docs.read` serves a `heading` that moved to a page from it (`page`, `requestedName`,
+  `note`), the entry page lists its pages (`pages`, `contents`), `docs.list` and `docs.search` carry `family`, and a test checks
+  that names are unique and every page is linked from its entry page (docs/design/ARCHITECTURE.md, "Docs").
 - A deprecation policy for commands, component fields and the script API: the `deprecated` section of
   `tools/common/api_since.json` (empty for now) says since when and what replaces each one. A deprecated command, a scene or
   prefab with a deprecated component or field, and a call of a deprecated script function log one warning that names the
