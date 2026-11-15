@@ -1481,7 +1481,10 @@ Renderer* Engine::renderer() {
 }
 UiSystem* Engine::ui() { return &impl_->ui; }
 CommandRegistry& Engine::commands() { return impl_->commands; }
-void Engine::set_design_to_window(std::function<Vec2(Vec2)> mapper) { impl_->designToWindow = std::move(mapper); }
+void Engine::set_design_to_window(std::function<Vec2(Vec2)> mapper) {
+    impl_->ui.set_design_to_window(mapper);  // the IME caret rectangle (fa/platform/ime.h)
+    impl_->designToWindow = std::move(mapper);
+}
 
 Vec2 Engine::design_size() const { return impl_->design_size(); }
 Json Engine::project_settings() const {

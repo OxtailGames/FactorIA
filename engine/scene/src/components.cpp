@@ -3052,8 +3052,11 @@ void register_builtin_components(TypeRegistry& r) {
         auto field = r.add<TextField>(
             "TextField",
             "Single-line text input. While focused it appends the typed characters (Input text), Backspace removes "
-            "the last one (it repeats while held) and Enter submits. There is no caret movement: the caret stays at "
-            "the end. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. "
+            "the last one (it repeats while held) and Enter submits. There is no caret movement yet: the caret stays "
+            "at "
+            "the end (caretIndex, selectionStart, selectionEnd and composition are the contract the editing model "
+            "fills, "
+            "M98.6). Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. "
             "Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).",
             "UI");
         ui_control_fields(field)
@@ -3065,6 +3068,29 @@ void register_builtin_components(TypeRegistry& r) {
                    "Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled "
                    "clock; it "
                    "restarts visible on every edit). Drawn only while focused.")
+            .runtime_only()
+            .read_only()
+            .field(
+                "caretIndex", &TextField::caretIndex,
+                "Where the caret is, in code points from the start of `text` (0 = before the first character). Clamped "
+                "to 0..length of `text` every frame. The editing model that moves it with the arrows, Home / End and "
+                "clicks is M98.6; until then typing still appends at the end.")
+            .range(0, 1000000)
+            .field(
+                "selectionStart", &TextField::selectionStart,
+                "Start of the selected text, in code points. selectionStart == selectionEnd means nothing is selected. "
+                "Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd). "
+                "Clamped to 0..length of `text` every frame.")
+            .range(0, 1000000)
+            .field(
+                "selectionEnd", &TextField::selectionEnd,
+                "End of the selected text, in code points (see selectionStart). Clamped to 0..length of `text` every "
+                "frame.")
+            .range(0, 1000000)
+            .field(
+                "composition", &TextField::composition,
+                "Runtime: the text an input method (IME) is composing in this field, UTF-8, \"\" when none. It is not "
+                "part of `text` until the player commits it. Only the focused field has one.")
             .runtime_only()
             .read_only();
     }
