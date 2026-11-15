@@ -47,7 +47,10 @@ public:
         std::uint64_t seen = 0;  // the frame that last asked for it
     };
     // Starts a frame: the entries it does not ask for are dropped at end_frame().
-    void begin_frame() { ++frame_; touched_ = 0; }
+    void begin_frame() {
+        ++frame_;
+        touched_ = 0;
+    }
     // The entry of `e` (made if missing), marked as used this frame. Pointers stay valid until end_frame().
     Entry* touch(Entity e);
     // Makes the hashes of `entry` right for these values (nullptr = none, hash 0): when they equal the kept copy, nothing is
@@ -74,13 +77,13 @@ private:
 struct SceneMesh {
     const MeshRenderer* mr = nullptr;
     Entity entity;
-    Mat4 model;                      // World::drawn_matrix
-    MeshAsset* mesh = nullptr;       // MeshRenderer.mesh (the nearest level: lods are chosen per camera)
-    TextureAsset* tex = nullptr;     // as MeshItem
+    Mat4 model;                   // World::drawn_matrix
+    MeshAsset* mesh = nullptr;    // MeshRenderer.mesh (the nearest level: lods are chosen per camera)
+    TextureAsset* tex = nullptr;  // as MeshItem
     TextureAsset* normalTex = nullptr;
     MaterialAsset* material = nullptr;
-    Color flash{0, 0, 0, 0};         // feel.h flash, a = 0 when none
-    const Animator* anim = nullptr;  // drawn skinned by this Animator's palette
+    Color flash{0, 0, 0, 0};            // feel.h flash, a = 0 when none
+    const Animator* anim = nullptr;     // drawn skinned by this Animator's palette
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};  // culling box of `mesh` (mesh_cull_bounds)
     std::size_t paramsHash = 0, colorsHash = 0;
     bool blended = false;
