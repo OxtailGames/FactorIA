@@ -87,8 +87,8 @@ struct SceneMesh {
     Vec3 bmin{0, 0, 0}, bmax{0, 0, 0};  // culling box of `mesh` (mesh_cull_bounds)
     std::size_t paramsHash = 0, colorsHash = 0;
     bool blended = false;
-    std::uint64_t sortKey =
-        0;  // SortKeyTable key of the item as the scene sees it (a camera redoes it for `special` ones)
+    // SortKeyTable key of the item as the scene sees it (a camera redoes it for `special` ones).
+    std::uint64_t sortKey = 0;
     bool keyed = false;
     bool hasLods = false;  // MeshRenderer.lods: mesh, box and blending are chosen again per camera
     // texture or normalMap is a render target ("target:<name>"): which image that is depends on the job that draws (a

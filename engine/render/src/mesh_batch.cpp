@@ -207,7 +207,7 @@ bool SortKeyTable::build(const std::vector<SortFields>& items, const std::vector
     rests_.clear();
     const std::size_t n = items.size();
     keys.assign(n, 0);
-    if (n > 0xFFFFFFFFu) return false;
+    if (std::uint64_t(n) > 0xFFFFFFFFull) return false;  // also on 32-bit size_t (wasm)
     meshNames_ = extraMeshNames;
     for (const SortFields& f : items) {
         meshNames_.push_back(name_of(f.mesh));
