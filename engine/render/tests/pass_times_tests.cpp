@@ -209,8 +209,8 @@ TEST_CASE("pass times: with the profiler on every pass is a profiler zone and th
         const ProfFrame& f = prof.last();
         REQUIRE(f.zones.size() == st.passes.size());
         for (const RenderStats::PassTime& p : st.passes) {
-            const auto it = std::find_if(f.zones.begin(), f.zones.end(),
-                                         [&](const ProfZoneSample& z) { return z.name == p.name; });
+            const auto it =
+                std::find_if(f.zones.begin(), f.zones.end(), [&](const ProfZoneSample& z) { return z.name == p.name; });
             INFO("zone " << p.name);
             REQUIRE(it != f.zones.end());
             CHECK(it->calls == 1);
