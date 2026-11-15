@@ -23,7 +23,6 @@
 #include "fa/platform/local_date.h"
 #include "fa/platform/sokol_entry.h"
 #include "sokol_gfx.h"
-#include "sokol_glue.h"
 #include "ui_backend.h"
 #include "fa/tooling/feedback_fixed.h"
 #include "fa/tooling/load_order.h"
