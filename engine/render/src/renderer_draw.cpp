@@ -194,8 +194,8 @@ void Renderer::Impl::plan_view_job(World& world, Frame& fr, ViewTarget& target, 
     image.drawn = graph.import_target(plan.name, target.main.colorAtt.id,
                                       import_desc(target.w, target.h, target.main.format, "view"));
     image.shown = image.drawn;
-    if (target
-            .flipCopy)  // "flipped:" + the job's name: no job name starts that way, so no render target's name can clash
+    // "flipped:" + the job's name: no job name starts that way, so no render target's name can clash.
+    if (target.flipCopy)
         image.shown = graph.import_target("flipped:" + plan.name, target.flip.color.id,
                                           import_desc(target.w, target.h, target.flip.format, "target-flipped"));
     jobImages[key] = image;
