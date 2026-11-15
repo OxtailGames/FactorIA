@@ -17,7 +17,6 @@ typedef struct fa_vblock {
     struct fa_vblock* prev;
     struct fa_vblock* next;
     int linked; /* 1 while the block is in the open list */
-    int pad;
 } fa_vblock;
 #define FA_VHDR ((sizeof(fa_vblock) + 15u) & ~(size_t)15u) /* payload keeps malloc's 16-byte alignment */
 
@@ -28,10 +27,14 @@ typedef struct fa_vblock {
 #endif
 static FA_THREAD_LOCAL fa_vblock* fa_open_list = NULL;
 static FA_THREAD_LOCAL int fa_open_active = 0;
+static FA_THREAD_LOCAL long fa_live = 0; /* blocks allocated and not freed on this thread (audio_vorbis_testing.h) */
+
+long fa_vorbis_live_blocks(void) { return fa_live; }
 
 static void* fa_vorbis_malloc(size_t n) {
     fa_vblock* b = (fa_vblock*)malloc(FA_VHDR + n);
     if (!b) return NULL;
+    ++fa_live;
     b->prev = NULL;
     b->next = NULL;
     b->linked = 0;
@@ -47,6 +50,7 @@ static void* fa_vorbis_malloc(size_t n) {
 static void fa_vorbis_free(void* p) {
     fa_vblock* b;
     if (!p) return;
+    --fa_live;
     b = (fa_vblock*)((char*)p - FA_VHDR);
     if (b->linked) {
         if (b->prev)
@@ -103,6 +107,7 @@ void* fa_vorbis_open(const unsigned char* data, int size, int* channels, int* ra
         while (fa_open_list) {
             fa_vblock* b = fa_open_list;
             fa_open_list = b->next;
+            --fa_live;
             free(b);
         }
         return NULL;
