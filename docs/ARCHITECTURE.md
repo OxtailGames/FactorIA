@@ -916,7 +916,12 @@ the writes of a component field (any code holding a `MeshRenderer*` may assign i
 a prefab, the inspector, an undo), so there is no choke point for a version counter; `MaterialHashCache` keeps instead, per
 entity (`Entity::bits()`, so a reused slot is another key), a copy of the JSON the hashes are of and hashes again only
 when the value differs from the copy (a JSON comparison, no allocation); entries nobody asked for in a frame (dead, hidden or
-without overrides) are dropped at its end.
+without overrides) are dropped at its end. The comparison is `Json::operator==`, which finds `1` and `1.0` (and `0.0` and
+`-0.0`) equal while `dump()` prints them differently, so which of two equal-valued overrides hash alike can depend on the
+edit history: a batch may split or merge by it, the pixels are the same. A build of a subtree (`capture_world`) is not a
+frame of the cache: it does not drop the entries of the rest of the world. The scene resolves the mesh, texture and
+material of EVERY active `MeshRenderer`, also one no camera shows, so a broken asset path warns once even if the mesh is
+hidden from every camera. A mesh's Animator is the one on the MeshRenderer's own entity.
 
 **Sort keys of the opaque meshes.** `build_batches` used to sort each camera's opaque items with a comparator of 26 fields
 (strings and floats); now every item carries a 64-bit `sortKey` (`SortKeyTable`, `mesh_batch.h`), made once per frame in
@@ -927,9 +932,13 @@ comparator had). A rank is the position of the value among the DISTINCT values o
 comparator (names as text, floats through `order_float`), never an address or an id of a table that outlives the frame; the
 table is rebuilt from nothing each frame, so it cannot grow, and the order equals the comparator's exactly (equal keys
 exactly where the comparator finds the items equal). A camera that swaps a mesh (lods) or a render-target texture ranks that
-item again from the same table. When a field has more distinct values than its bits (over 4096 meshes, or 2048 textures,
-in one frame) or a camera's value is not in the table, the items are left unkeyed and that list is sorted by the comparator
-as before. Batches are runs of equal keys (unequal keys end a batch without reading the fields; equal ones are still
+item again from the same table. The limits count distinct NAMES in one frame: 4096 meshes (the lod levels of
+every `MeshRenderer.lods` count as meshes, used or not), 2048 textures (colour and normal maps share the one table of names
+and so the 2048, and the empty name of "no texture" counts as one texture), 2^30 "rest" values. Past a limit, or when a
+camera's value is not in the table, the items are left unkeyed and that list is sorted by the comparator as before (the same
+order, slower); the first frame that overflowed logs a warning that names the limit, and `RenderScene::sort_key_fallbacks()`
+counts the frames. The table dedupes the assets by pointer first and ranks only the distinct names, and keeps its work
+buffers between frames. Batches are runs of equal keys (unequal keys end a batch without reading the fields; equal ones are still
 checked field by field).
 
 **Cameras inside the UI.** A `CameraView` (a UiBox widget) names a Camera. The UI gather (`draw_camera_view` in `ui2d.cpp`)

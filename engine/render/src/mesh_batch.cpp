@@ -199,66 +199,140 @@ bool SortKeyTable::rest_less(const Rest& a, const Rest& b) {
                                                       b.material, b.paramsHash, b.colorsHash, b.flash);
 }
 
-bool SortKeyTable::build(const std::vector<SortFields>& items, const std::vector<std::string_view>& extraMeshNames,
-                         std::vector<std::uint64_t>& keys) {
+void SortKeyTable::clear() {
     valid_ = false;
+    overflow_ = nullptr;
     meshNames_.clear();
     texNames_.clear();
     rests_.clear();
+    meshRank_.clear();
+    texRank_.clear();
+}
+
+namespace {
+// Gives each distinct asset (by pointer) an index in first-seen order; `last` makes a run of items with the same asset (the
+// common case) one comparison.
+struct Interner {
+    std::unordered_map<const void*, std::uint32_t>& index;
+    std::vector<std::pair<const void*, std::string_view>>& list;
+    const void* last = nullptr;
+    std::uint32_t lastIndex = 0;
+    bool haveLast = false;
+    std::uint32_t operator()(const void* p, std::string_view name) {
+        if (haveLast && p == last) return lastIndex;
+        const auto [it, fresh] = index.try_emplace(p, std::uint32_t(list.size()));
+        if (fresh) list.emplace_back(p, name);
+        haveLast = true;
+        last = p;
+        lastIndex = it->second;
+        return lastIndex;
+    }
+};
+
+// Ranks the distinct assets by name, against the sorted distinct `names` (which hold at least their names), and points the
+// pointer map at the ranks from then on.
+void rank_assets(const std::vector<std::string_view>& names,
+                 const std::vector<std::pair<const void*, std::string_view>>& list,
+                 std::unordered_map<const void*, std::uint32_t>& index, std::vector<std::uint32_t>& rankOfAsset) {
+    rankOfAsset.resize(list.size());
+    for (std::size_t d = 0; d < list.size(); ++d) {
+        bool found = false;
+        rankOfAsset[d] = std::uint32_t(name_rank(names, list[d].second, found));
+        index[list[d].first] = rankOfAsset[d];
+    }
+}
+}  // namespace
+
+bool SortKeyTable::build(const std::vector<SortFields>& items, const std::vector<std::string_view>& extraMeshNames,
+                         std::vector<std::uint64_t>& keys) {
+    clear();
     const std::size_t n = items.size();
     keys.assign(n, 0);
-    if (std::uint64_t(n) > 0xFFFFFFFFull) return false;  // also on 32-bit size_t (wasm)
-    meshNames_ = extraMeshNames;
-    for (const SortFields& f : items) {
-        meshNames_.push_back(name_of(f.mesh));
-        texNames_.push_back(name_of(f.tex));
-        texNames_.push_back(name_of(f.normalTex));
+    if (std::uint64_t(n) > 0xFFFFFFFFull) {  // also on 32-bit size_t (wasm)
+        overflow_ = "items";
+        return false;
     }
+    // The distinct assets first (by pointer, a few per scene), then their names: sorting and comparing strings is done once
+    // per distinct asset instead of three times per item.
+    meshAssets_.clear();
+    texAssets_.clear();
+    itemMesh_.resize(n);
+    itemTex_.resize(n);
+    itemNormal_.resize(n);
+    {
+        Interner meshes{meshRank_, meshAssets_}, texes{texRank_, texAssets_};
+        for (std::size_t i = 0; i < n; ++i) {
+            const SortFields& f = items[i];
+            itemMesh_[i] = meshes(f.mesh, name_of(f.mesh));
+            itemTex_[i] = texes(f.tex, name_of(f.tex));
+            itemNormal_[i] = texes(f.normalTex, name_of(f.normalTex));
+        }
+    }
+    meshNames_ = extraMeshNames;
+    for (const auto& a : meshAssets_) meshNames_.push_back(a.second);
+    for (const auto& a : texAssets_) texNames_.push_back(a.second);
     sort_unique(meshNames_);
     sort_unique(texNames_);
-    if (meshNames_.size() > (std::size_t(1) << kSortMeshBits) || texNames_.size() > (std::size_t(1) << kSortTexBits) ||
-        texNames_.size() > (std::size_t(1) << kSortNormalBits))
+    if (meshNames_.size() > (std::size_t(1) << kSortMeshBits)) {
+        overflow_ = "meshes";
         return false;
-    // The distinct Rests: items sorted by hash, equal ones found inside a run of equal hashes.
-    std::vector<Rest> all(n);
-    std::vector<std::pair<std::uint64_t, std::uint32_t>> byHash(n);
-    for (std::size_t i = 0; i < n; ++i) {
-        all[i] = rest_of(items[i]);
-        byHash[i] = {all[i].hash, std::uint32_t(i)};
     }
-    std::sort(byHash.begin(), byHash.end());
-    std::vector<Rest> distinct;
-    std::vector<std::uint32_t> distinctOf(n);
+    if (texNames_.size() > (std::size_t(1) << kSortTexBits)) {  // kSortNormalBits is the same: one table of names
+        overflow_ = "textures";
+        return false;
+    }
+    rank_assets(meshNames_, meshAssets_, meshRank_, meshAssetRank_);
+    rank_assets(texNames_, texAssets_, texRank_, texAssetRank_);
+    // The distinct Rests: items sorted by hash, equal ones found inside a run of equal hashes.
+    all_.resize(n);
+    byHash_.resize(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        all_[i] = rest_of(items[i]);
+        byHash_[i] = {all_[i].hash, std::uint32_t(i)};
+    }
+    std::sort(byHash_.begin(), byHash_.end());
+    distinctRep_.clear();  // the index of the first item of each distinct Rest
+    distinctOf_.resize(n);
     for (std::size_t i = 0; i < n;) {
         std::size_t j = i;
-        while (j < n && byHash[j].first == byHash[i].first) ++j;
-        const std::size_t runFirst = distinct.size();
+        while (j < n && byHash_[j].first == byHash_[i].first) ++j;
+        const std::size_t runFirst = distinctRep_.size();
         for (std::size_t k = i; k < j; ++k) {
-            const Rest& r = all[byHash[k].second];
+            const Rest& r = all_[byHash_[k].second];
             std::size_t d = runFirst;
-            while (d < distinct.size() && (rest_less(r, distinct[d]) || rest_less(distinct[d], r))) ++d;
-            if (d == distinct.size()) distinct.push_back(r);
-            distinctOf[byHash[k].second] = std::uint32_t(d);
+            while (d < distinctRep_.size() &&
+                   (rest_less(r, all_[distinctRep_[d]]) || rest_less(all_[distinctRep_[d]], r)))
+                ++d;
+            if (d == distinctRep_.size()) distinctRep_.push_back(byHash_[k].second);
+            distinctOf_[byHash_[k].second] = std::uint32_t(d);
         }
         i = j;
     }
-    std::vector<std::uint32_t> perm(distinct.size());
-    for (std::size_t d = 0; d < perm.size(); ++d) perm[d] = std::uint32_t(d);
-    std::sort(perm.begin(), perm.end(),
-              [&](std::uint32_t a, std::uint32_t b) { return rest_less(distinct[a], distinct[b]); });
-    std::vector<std::uint32_t> rankOf(distinct.size());
-    rests_.reserve(distinct.size());
-    for (std::size_t k = 0; k < perm.size(); ++k) {
-        rankOf[perm[k]] = std::uint32_t(k);
-        rests_.push_back(distinct[perm[k]]);
+    perm_.resize(distinctRep_.size());
+    for (std::size_t d = 0; d < perm_.size(); ++d) perm_[d] = std::uint32_t(d);
+    std::sort(perm_.begin(), perm_.end(), [&](std::uint32_t a, std::uint32_t b) {
+        return rest_less(all_[distinctRep_[a]], all_[distinctRep_[b]]);
+    });
+    rankOf_.resize(perm_.size());
+    rests_.reserve(perm_.size());
+    for (std::size_t k = 0; k < perm_.size(); ++k) {
+        rankOf_[perm_[k]] = std::uint32_t(k);
+        rests_.push_back(all_[distinctRep_[perm_[k]]]);
     }
-    if (rests_.size() > (std::size_t(1) << kSortRestBits)) return false;
-    for (std::size_t i = 0; i < n; ++i) {
-        bool ok;
-        const std::uint64_t m = name_rank(meshNames_, name_of(items[i].mesh), ok);
-        const std::uint64_t t = name_rank(texNames_, name_of(items[i].tex), ok);
-        const std::uint64_t nm = name_rank(texNames_, name_of(items[i].normalTex), ok);
-        if (!pack_sort_key(m, t, nm, rankOf[distinctOf[i]], keys[i])) return false;
+    if (rests_.size() > (std::size_t(1) << kSortRestBits)) {
+        overflow_ = "values";
+        return false;
+    }
+    for (std::size_t i = 0; i < n; ++i)
+        if (!pack_sort_key(meshAssetRank_[itemMesh_[i]], texAssetRank_[itemTex_[i]], texAssetRank_[itemNormal_[i]],
+                           rankOf_[distinctOf_[i]], keys[i])) {
+            overflow_ = "values";  // not reachable: every rank is below its limit
+            return false;
+        }
+    // A table that stays small between frames keeps its buffers; one that held a huge frame lets them go.
+    if (all_.capacity() > 4 * n + 4096) {
+        all_ = {};
+        byHash_ = {};
     }
     valid_ = true;
     return true;
@@ -266,11 +340,24 @@ bool SortKeyTable::build(const std::vector<SortFields>& items, const std::vector
 
 bool SortKeyTable::key_of(const SortFields& f, std::uint64_t& key) const {
     if (!valid_) return false;
-    bool okMesh, okTex, okNormal;
-    const std::uint64_t m = name_rank(meshNames_, name_of(f.mesh), okMesh);
-    const std::uint64_t t = name_rank(texNames_, name_of(f.tex), okTex);
-    const std::uint64_t nm = name_rank(texNames_, name_of(f.normalTex), okNormal);
-    if (!okMesh || !okTex || !okNormal) return false;
+    // By pointer when the asset is one of the frame's items; by name for one that is not (a lod level, a render target).
+    auto rank = [](const std::unordered_map<const void*, std::uint32_t>& byPtr,
+                   const std::vector<std::string_view>& names, const void* p, std::string_view name,
+                   std::uint64_t& out) {
+        const auto it = byPtr.find(p);
+        if (it != byPtr.end()) {
+            out = it->second;
+            return true;
+        }
+        bool found = false;
+        out = name_rank(names, name, found);
+        return found;
+    };
+    std::uint64_t m = 0, t = 0, nm = 0;
+    if (!rank(meshRank_, meshNames_, f.mesh, name_of(f.mesh), m) ||
+        !rank(texRank_, texNames_, f.tex, name_of(f.tex), t) ||
+        !rank(texRank_, texNames_, f.normalTex, name_of(f.normalTex), nm))
+        return false;
     const Rest r = rest_of(f);
     const auto it = std::lower_bound(rests_.begin(), rests_.end(), r, rest_less);
     if (it == rests_.end() || rest_less(r, *it)) return false;
