@@ -827,7 +827,7 @@ declare module "factoria" {
      */
     readonly text: string;
     /**
-     * True while an input method (IME: Japanese, Chinese, Korean, dead keys) is composing text that is not typed yet: from its first pre-edit string until the player commits it or cancels. The committed text then arrives once in input.text. A focused TextField shows the pre-edit string at its caret and keeps it in TextField.composition. Needs a platform that sends composition events; until then it stays false.
+     * True while an input method (IME: Japanese, Chinese, Korean, dead keys) is composing text that is not typed yet: from its first pre-edit string until the player commits it or cancels. The committed text then arrives once in input.text. A focused TextField keeps the pre-edit string in TextField.composition (drawn at its caret from M98.6b). Needs a platform that sends composition events (from M98.6c / 6d); until then it stays false.
      * @since unreleased
      */
     readonly composing: boolean;
@@ -8944,7 +8944,7 @@ declare module "factoria" {
      */
     readonly caret: boolean;
     /**
-     * Where the caret is, in code points from the start of `text` (0 = before the first character). Clamped to 0..length of `text` every frame. The editing model that moves it with the arrows, Home / End and clicks is M98.6; until then typing still appends at the end.
+     * Where the caret is, in code points from the start of `text` (0 = before the first character). Clamped to 0..length of `text` every frame. The editing model that moves it with the arrows, Home / End and clicks is M98.6b; until then caretIndex does NOT follow the caret (typing still appends at the end) and only holds what a scene or script wrote, clamped.
      * @since unreleased
      */
     caretIndex: number;

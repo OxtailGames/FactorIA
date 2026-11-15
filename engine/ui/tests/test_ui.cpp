@@ -2546,8 +2546,15 @@ TEST_CASE("ui mirror: a CameraView's rectangle flips with the layout but its pic
     CHECK(t.rect(view).x == doctest::Approx(20));
 }
 
+namespace {
+struct ImeStateGuard {  // the IME state is global: every test that touches it starts and ends clean
+    ImeStateGuard() { ime_reset_state(); }
+    ~ImeStateGuard() { ime_reset_state(); }
+};
+}  // namespace
+
 TEST_CASE("ui textfield: the IME is on while a TextField has the focus and gets its caret rectangle") {
-    ime_reset_state();
+    ImeStateGuard guard;
     Ui t;
     t.ui.set_design_to_window([](Vec2 p) { return Vec2{p.x * 2.0f, p.y * 2.0f}; });
     Entity e = t.add<TextField>("f", {10, 20}, {200, 30});
@@ -2566,11 +2573,10 @@ TEST_CASE("ui textfield: the IME is on while a TextField has the focus and gets 
     t.frame();
     CHECK_FALSE(ime_state().enabled);
     CHECK(ime_state().caretRect.w == 0);
-    ime_reset_state();
 }
 
 TEST_CASE("ui textfield: the IME composition is shown on the focused field only, and a lost focus cancels it") {
-    ime_reset_state();
+    ImeStateGuard guard;
     Ui t;
     Entity e = t.add<TextField>("f", {0, 0}, {200, 30});
     Entity b = t.button("b", {0, 100});
@@ -2585,7 +2591,29 @@ TEST_CASE("ui textfield: the IME composition is shown on the focused field only,
     t.frame();
     CHECK_FALSE(t.in.composing());
     CHECK(f.composition.empty());
-    ime_reset_state();
+}
+
+TEST_CASE("ui textfield: the focus moving from one TextField to another cancels the composition of the first") {
+    ImeStateGuard guard;
+    Ui t;
+    Entity a = t.add<TextField>("a", {0, 0}, {200, 30});
+    Entity b = t.add<TextField>("b", {0, 100}, {200, 30});
+    t.w.get<TextField>(a)->autoFocus = true;
+    t.frame();
+    REQUIRE(t.ui.focused() == a);
+    t.in.on_composition_update(U"\u3042", 1, 0);
+    t.frame();
+    CHECK(t.w.get<TextField>(a)->composition == "\xE3\x81\x82");
+    const int cancels = ime_state().cancels;
+    t.ui.set_focus(t.w, b);
+    t.in.on_composition_update(U"\u3044", 1, 0);  // an update that raced the focus change
+    t.frame();
+    CHECK(t.ui.focused() == b);
+    CHECK(ime_state().enabled);  // still on: a TextField has the focus
+    CHECK(ime_state().cancels == cancels + 1);
+    CHECK_FALSE(t.in.composing());
+    CHECK(t.w.get<TextField>(b)->composition.empty());
+    CHECK(t.w.get<TextField>(a)->composition.empty());
 }
 
 TEST_CASE("ui textfield: caretIndex and the selection are clamped to the text") {
