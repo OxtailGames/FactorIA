@@ -744,6 +744,10 @@ int run_docs_read_part(Context& ctx) {
         } else if (code == "not_found" && ctx.args.has("heading")) {
             hint = "Print the page's headings with their line numbers: factoria docs read " + doc +
                    " --contents (or factoria docs search \"...\").";
+        } else if (code == "invalid_argument" && ctx.args.has("heading") &&
+                   message.find(" pages of '") != std::string::npos) {
+            hint = "Read it from the page you mean: factoria docs read <page> --heading \"<title>\" (the pages are "
+                   "listed above).";
         } else if (code == "invalid_argument" && ctx.args.has("heading")) {
             hint = "Repeat with the full title of one of them in --heading, or add --start-line.";
         }
