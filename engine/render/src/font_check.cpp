@@ -6,8 +6,9 @@
 // assert, read past its arrays, include itself) does not condemn the font: the glyph is reported as unsafe and the engine
 // draws the .notdef box in its place.
 // What it checks is what the engine's glyph code uses: the table directory, head, hhea, hmtx, maxp, loca, glyf and the
-// cmap subtables of formats 0, 4, 6, 12 and 13. A 'CFF ' outline table (an .otf with PostScript outlines) is not walked: only its
-// place in the file is checked, and stb_truetype's CFF reader (which bounds itself by 512 MB, not by the file) stays the open risk.
+// cmap subtables of formats 0, 4, 6, 12 and 13. The 'CFF ' outline table of an .otf with PostScript outlines is walked in
+// font_check_cff.cpp (the INDEXes, DICTs, Private DICTs, FDArray and FDSelect that stbtt_InitFont and the glyph code follow, whose
+// reader would otherwise run in a 512 MB window past the table); the content of its charstrings is not.
 #include <algorithm>
 #include <cstdint>
 #include <cstring>
@@ -248,19 +249,39 @@ FontCheck check_font_bytes(const unsigned char* data, std::size_t size, int offs
     if (!cmap.present || !head.present || !hhea.present || !hmtx.present)
         return {};  // stb_truetype refuses it with its own message
     if (head.len < 54 || hhea.len < 36) return refuse("its 'head' or 'hhea' table is too short");
+    // stb_truetype divides the pixel size by unitsPerEm: 0 gives an infinite scale, and its glyph boxes convert that to int
+    if (f.u16(head.at + 18) == 0)
+        return refuse("its 'head' table says the font has 0 units per em (a font has 1000 or 2048, never 0)");
     if (std::string why = check_cmap(f, cmap); !why.empty()) return refuse(std::move(why));
-    if (!glyf.present) return {};  // outlines in a 'CFF ' table (or none): stb_truetype's own checked reader
-
-    if (!loca.present) return {};  // refused by stb_truetype
+    // stb_truetype reads the outlines from 'glyf' when the font has that table (at a nonzero offset), else from 'CFF '
+    const bool trueType = glyf.present && glyf.at != 0;
+    if (!trueType && (!cff.present || cff.at == 0)) return {};  // no outlines: refused by stb_truetype
+    if (trueType && !loca.present) return {};                   // refused by stb_truetype
     const std::uint64_t glyphs = maxp.present && maxp.len >= 6 ? f.u16(maxp.at + 4) : 0xffffull;
     if (glyphs == 0) return refuse("its 'maxp' table says it has no glyphs");
+    CffCheck cffCheck;
+    if (!trueType) {
+        cffCheck = check_cff_table(data + cff.at, cff.len, glyphs);
+        if (!cffCheck.problem.empty()) return refuse(std::move(cffCheck.problem));
+        if (cffCheck.unsafeGlyphs.empty())
+            return {};  // not a font stb_truetype reads (CharString type, no CharStrings)
+    }
     const std::uint64_t entry = f.u16(head.at + 50) == 0 ? 2 : 4;
-    if (loca.len < (glyphs + 1) * entry)
+    if (trueType && loca.len < (glyphs + 1) * entry)
         return refuse("its 'loca' table has fewer entries than the glyph count in 'maxp'");
     const std::uint64_t longMetrics = f.u16(hhea.at + 34);
     if (longMetrics == 0) return refuse("its 'hhea' table says there are no horizontal metrics");
     if (hmtx.len < (glyphs <= longMetrics ? 4 * glyphs : 4 * longMetrics + 2 * (glyphs - longMetrics)))
         return refuse("its 'hmtx' table has fewer metrics than the glyph count in 'maxp'");
+    if (!trueType) {
+        if (cffCheck.unsafeGlyphs[0])
+            return refuse(
+                "its glyph 0 (the .notdef box, drawn in place of every glyph that cannot be drawn) cannot be read");
+        FontCheck c;
+        c.unsafeGlyphs = std::move(cffCheck.unsafeGlyphs);
+        if (std::find(c.unsafeGlyphs.begin(), c.unsafeGlyphs.end(), 1) == c.unsafeGlyphs.end()) c.unsafeGlyphs.clear();
+        return c;
+    }
 
     std::vector<std::uint64_t> start(glyphs + 1);
     for (std::uint64_t g = 0; g <= glyphs; ++g)

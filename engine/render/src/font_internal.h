@@ -70,6 +70,16 @@ std::unique_ptr<FontFace> load_font_face_from_memory(std::vector<unsigned char> 
 // (stbtt_GetFontOffsetForIndex).
 FontCheck check_font_bytes(const unsigned char* data, std::size_t size, int offset);
 
+// What check_cff_table found in a 'CFF ' table (font_check_cff.cpp): `problem` is set when stb_truetype's CFF reader would leave the
+// table or assert on it; else `unsafeGlyphs` (one entry per glyph of 'maxp', like FontCheck::unsafeGlyphs) lists the glyphs it has no
+// charstring or font dict for. Empty `unsafeGlyphs` when the font is not one stb_truetype takes (it refuses those itself).
+struct CffCheck {
+    std::string problem;
+    std::vector<std::uint8_t> unsafeGlyphs;
+};
+// `table` and `length` are the 'CFF ' table inside the file, `glyphs` the glyph count of 'maxp'.
+CffCheck check_cff_table(const unsigned char* table, std::uint64_t length, std::uint64_t glyphs);
+
 // Text as it is laid out: UTF-8 to code points (malformed bytes become U+FFFD); '\n', U+0085, U+2028 and U+2029 are line
 // breaks (all become '\n'), a tab is four spaces, and '\r' and the other control characters are dropped.
 std::u32string decode_text(std::string_view utf8);
