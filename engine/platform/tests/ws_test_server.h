@@ -22,8 +22,10 @@
 #pragma once
 
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <cstring>
 #include <map>
 #include <mutex>
@@ -242,8 +244,8 @@ private:
             return;
         }
         if (route != "/echo" && route != "/greet" && route != "/protocol" && route != "/headers" && route != "/close" &&
-            route != "/drop" && route != "/badaccept" && route != "/silent" && route != "/fragments" && route != "/big" &&
-            route != "/badutf8" && route != "/badrsv" && route != "/ping") {
+            route != "/drop" && route != "/badaccept" && route != "/silent" && route != "/fragments" &&
+            route != "/big" && route != "/badutf8" && route != "/badrsv" && route != "/ping") {
             write_all(c, ws::build_reject_response(404, "Not Found"));
             return;
         }
@@ -303,23 +305,22 @@ private:
             for (ws::Event& e : events) {
                 switch (e.type) {
                     case ws::Event::Type::Text:
-                        if (route == "/echo" || route == "/greet" || route == "/headers" || route == "/fragments" || route == "/big")
+                        if (route == "/echo" || route == "/greet" || route == "/headers" || route == "/fragments" ||
+                            route == "/big")
                             static_cast<void>(session.send_text(e.data));
                         break;
                     case ws::Event::Type::Binary:
-                        if (route == "/echo" || route == "/greet" || route == "/headers" || route == "/fragments" || route == "/big")
+                        if (route == "/echo" || route == "/greet" || route == "/headers" || route == "/fragments" ||
+                            route == "/big")
                             static_cast<void>(session.send_binary(e.data.data(), e.data.size()));
                         break;
-                    case ws::Event::Type::Pong:
-                        ++pongs_;
-                        break;
+                    case ws::Event::Type::Pong: ++pongs_; break;
                     case ws::Event::Type::Close: {
                         std::lock_guard<std::mutex> lock(mutex_);
                         closeCodes_.push_back(e.code);
                         break;
                     }
-                    default:
-                        break;
+                    default: break;
                 }
             }
             events.clear();

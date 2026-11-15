@@ -3,6 +3,8 @@
 #include "fa/platform/websocket.h"
 
 #include <algorithm>
+#include <string>
+#include <utility>
 
 #include "fa/core/strings.h"
 #include "fa/platform/websocket_codec.h"
@@ -19,38 +21,38 @@ const char* websocket_state_name(WebSocketState state) {
     return "closed";
 }
 
-WebSocketEvent WebSocketEvent::open(std::string subprotocol) {
+WebSocketEvent WebSocketEvent::open(std::string chosenSubprotocol) {
     WebSocketEvent e;
     e.type = Type::Open;
-    e.subprotocol = std::move(subprotocol);
+    e.subprotocol = std::move(chosenSubprotocol);
     return e;
 }
-WebSocketEvent WebSocketEvent::text(std::string data) {
+WebSocketEvent WebSocketEvent::text(std::string message) {
     WebSocketEvent e;
     e.type = Type::Text;
-    e.data = std::move(data);
+    e.data = std::move(message);
     return e;
 }
-WebSocketEvent WebSocketEvent::binary(std::string data) {
+WebSocketEvent WebSocketEvent::binary(std::string message) {
     WebSocketEvent e;
     e.type = Type::Binary;
-    e.data = std::move(data);
+    e.data = std::move(message);
     return e;
 }
-WebSocketEvent WebSocketEvent::failure(std::string error, std::string hint, int httpStatus) {
+WebSocketEvent WebSocketEvent::failure(std::string what, std::string advice, int status) {
     WebSocketEvent e;
     e.type = Type::Error;
-    e.error = std::move(error);
-    e.hint = std::move(hint);
-    e.httpStatus = httpStatus;
+    e.error = std::move(what);
+    e.hint = std::move(advice);
+    e.httpStatus = status;
     return e;
 }
-WebSocketEvent WebSocketEvent::close(int code, std::string reason, bool wasClean) {
+WebSocketEvent WebSocketEvent::close(int closeCode, std::string closeReason, bool clean) {
     WebSocketEvent e;
     e.type = Type::Close;
-    e.code = code;
-    e.reason = std::move(reason);
-    e.wasClean = wasClean;
+    e.code = closeCode;
+    e.reason = std::move(closeReason);
+    e.wasClean = clean;
     return e;
 }
 
@@ -65,11 +67,12 @@ bool WebSocketEventQueue::push(WebSocketEvent event) {
         if (size > maxPendingBytes_ || pendingBytes_ > maxPendingBytes_ - size) {
             events_.clear();
             pendingBytes_ = 0;
-            events_.push_back(WebSocketEvent::failure(
-                "the game did not read the messages that arrived (more than " + std::to_string(maxPendingBytes_ / (1024 * 1024)) +
-                    " MB waiting)",
-                "Read messages every frame, and ask the server to send less."));
-            events_.push_back(WebSocketEvent::close(ws::close_code::kPolicyViolation, "too many unread messages", false));
+            events_.push_back(WebSocketEvent::failure("the game did not read the messages that arrived (more than " +
+                                                          std::to_string(maxPendingBytes_ / (1024 * 1024)) +
+                                                          " MB waiting)",
+                                                      "Read messages every frame, and ask the server to send less."));
+            events_.push_back(
+                WebSocketEvent::close(ws::close_code::kPolicyViolation, "too many unread messages", false));
             ended_ = true;
             return false;
         }
@@ -94,17 +97,26 @@ bool WebSocketEventQueue::ended() const {
     return ended_;
 }
 
+void WebSocketEventQueue::abandon() {
+    std::lock_guard<std::mutex> lock(mutex_);
+    ended_ = true;
+    events_.clear();
+    pendingBytes_ = 0;
+}
+
 // ----------------------------------------------------------------------------------------------- not available ---
 namespace {
 
 class UnavailableWebSocketClient final : public WebSocketClient {
 public:
-    UnavailableWebSocketClient(std::string name, std::string reason) : name_(std::move(name)), reason_(std::move(reason)) {}
+    UnavailableWebSocketClient(std::string name, std::string reason)
+        : name_(std::move(name)), reason_(std::move(reason)) {}
     std::string name() const override { return name_; }
     bool available() const override { return false; }
     std::string unavailable_reason() const override { return reason_; }
     Result<std::unique_ptr<WebSocket>> connect(WebSocketRequest) override {
-        return make_error("WebSocket is not available: " + reason_, "Check websocket.supported before connecting, and let the game carry on offline.");
+        return make_error("WebSocket is not available: " + reason_,
+                          "Check websocket.supported before connecting, and let the game carry on offline.");
     }
 
 private:
@@ -119,7 +131,7 @@ std::unique_ptr<WebSocketClient> make_unavailable_websocket_client(std::string n
 
 // -------------------------------------------------------------------------------------------------------- memory ---
 struct MemoryWebSocketClient::Peer::Link {
-    WebSocketEventQueue queue;
+    std::shared_ptr<WebSocketEventQueue> queue = std::make_shared<WebSocketEventQueue>();
     WebSocketState state = WebSocketState::Connecting;
     std::vector<std::string> offered;
 };
@@ -130,6 +142,7 @@ public:
         : peer_(std::move(peer)), max_(maxMessageBytes) {}
     ~MemoryWebSocketConnection() override {
         auto& link = *peer_->link_;
+        link.queue->abandon();  // nothing the peer pushes from now on reaches the (gone) connection
         if (link.state != WebSocketState::Closed) {
             link.state = WebSocketState::Closed;
             peer_->open = false;
@@ -150,36 +163,40 @@ public:
         peer_->received.push_back({true, std::string(static_cast<const char*>(data), size)});
         return {};
     }
-    void close(int code, std::string_view reason) override {
+    Result<void> close(int code, std::string_view reason) override {
+        if (auto r = ws::check_close_request(code, reason); !r.ok()) return r;
         auto& link = *peer_->link_;
-        if (link.state == WebSocketState::Closed || link.state == WebSocketState::Closing) return;
+        if (link.state == WebSocketState::Closed || link.state == WebSocketState::Closing) return {};
         peer_->clientClosed = true;
         peer_->clientCloseCode = code;
         peer_->clientCloseReason = std::string(reason);
         if (link.state == WebSocketState::Connecting) {
-            link.queue.push(WebSocketEvent::failure("the connection was closed before it was open"));
-            link.queue.push(WebSocketEvent::close(ws::close_code::kAbnormal, "", false));
+            link.queue->push(WebSocketEvent::failure("the connection was closed before it was open"));
+            link.queue->push(WebSocketEvent::close(ws::close_code::kAbnormal, "", false));
             link.state = WebSocketState::Closed;
             peer_->closed = true;
-            return;
+            return {};
         }
         if (peer_->autoCloseReply) {
-            link.queue.push(WebSocketEvent::close(code == 0 ? ws::close_code::kNoStatus : code, std::string(reason), true));
+            link.queue->push(
+                WebSocketEvent::close(code == 0 ? ws::close_code::kNoStatus : code, std::string(reason), true));
             link.state = WebSocketState::Closed;
             peer_->open = false;
             peer_->closed = true;
         } else {
             link.state = WebSocketState::Closing;
         }
+        return {};
     }
     std::size_t buffered_amount() const override { return 0; }
-    std::size_t poll(std::vector<WebSocketEvent>& out) override { return peer_->link_->queue.drain(out); }
+    std::size_t poll(std::vector<WebSocketEvent>& out) override { return peer_->link_->queue->drain(out); }
 
 private:
     Result<void> check(std::size_t size) const {
         if (state() == WebSocketState::Connecting)
             return make_error("the connection is not open yet", "Wait for the \"open\" event before sending.");
-        if (state() != WebSocketState::Open) return make_error("the connection is closing or closed", "Connect again to send.");
+        if (state() != WebSocketState::Open)
+            return make_error("the connection is closing or closed", "Connect again to send.");
         if (size > max_)
             return make_error("the message is " + std::to_string(size) + " bytes; the most is " + std::to_string(max_),
                               "Split the data into smaller messages.");
@@ -191,18 +208,19 @@ private:
 
 bool MemoryWebSocketClient::Peer::accept(std::string subprotocol) {
     if (link_->state != WebSocketState::Connecting) return false;
-    if (!subprotocol.empty() && std::find(link_->offered.begin(), link_->offered.end(), subprotocol) == link_->offered.end())
+    if (!subprotocol.empty() &&
+        std::find(link_->offered.begin(), link_->offered.end(), subprotocol) == link_->offered.end())
         return false;
     link_->state = WebSocketState::Open;
     open = true;
-    link_->queue.push(WebSocketEvent::open(std::move(subprotocol)));
+    link_->queue->push(WebSocketEvent::open(std::move(subprotocol)));
     return true;
 }
 
 void MemoryWebSocketClient::Peer::refuse(std::string message, int httpStatus) {
     if (link_->state == WebSocketState::Closed) return;
-    link_->queue.push(WebSocketEvent::failure(std::move(message), "", httpStatus));
-    link_->queue.push(WebSocketEvent::close(ws::close_code::kAbnormal, "", false));
+    link_->queue->push(WebSocketEvent::failure(std::move(message), "", httpStatus));
+    link_->queue->push(WebSocketEvent::close(ws::close_code::kAbnormal, "", false));
     link_->state = WebSocketState::Closed;
     open = false;
     closed = true;
@@ -210,12 +228,12 @@ void MemoryWebSocketClient::Peer::refuse(std::string message, int httpStatus) {
 
 void MemoryWebSocketClient::Peer::send_text(std::string text) {
     if (link_->state == WebSocketState::Open || link_->state == WebSocketState::Closing)
-        link_->queue.push(WebSocketEvent::text(std::move(text)));
+        link_->queue->push(WebSocketEvent::text(std::move(text)));
 }
 
 void MemoryWebSocketClient::Peer::send_binary(std::string data) {
     if (link_->state == WebSocketState::Open || link_->state == WebSocketState::Closing)
-        link_->queue.push(WebSocketEvent::binary(std::move(data)));
+        link_->queue->push(WebSocketEvent::binary(std::move(data)));
 }
 
 void MemoryWebSocketClient::Peer::close(int code, std::string reason) {
@@ -224,7 +242,7 @@ void MemoryWebSocketClient::Peer::close(int code, std::string reason) {
         refuse("the server closed the connection during the handshake");
         return;
     }
-    link_->queue.push(WebSocketEvent::close(code, std::move(reason), true));
+    link_->queue->push(WebSocketEvent::close(code, std::move(reason), true));
     link_->state = WebSocketState::Closed;
     open = false;
     closed = true;
@@ -232,8 +250,8 @@ void MemoryWebSocketClient::Peer::close(int code, std::string reason) {
 
 void MemoryWebSocketClient::Peer::drop(std::string message) {
     if (link_->state == WebSocketState::Closed) return;
-    link_->queue.push(WebSocketEvent::failure(std::move(message), "Check the connection; the game can reconnect."));
-    link_->queue.push(WebSocketEvent::close(ws::close_code::kAbnormal, "", false));
+    link_->queue->push(WebSocketEvent::failure(std::move(message), "Check the connection; the game can reconnect."));
+    link_->queue->push(WebSocketEvent::close(ws::close_code::kAbnormal, "", false));
     link_->state = WebSocketState::Closed;
     open = false;
     closed = true;

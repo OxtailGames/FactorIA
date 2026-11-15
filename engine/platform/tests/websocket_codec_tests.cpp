@@ -200,7 +200,8 @@ TEST_CASE("ws codec: close codes") {
 
 TEST_CASE("ws codec: a close with an invalid code or reason is a protocol failure") {
     Session client = make_client();
-    auto events = feed_all(client, encode_frame(Opcode::Close, bytes({0x03, 0xed}), true, nullptr));  // 1005 on the wire
+    auto events =
+        feed_all(client, encode_frame(Opcode::Close, bytes({0x03, 0xed}), true, nullptr));  // 1005 on the wire
     REQUIRE(events.size() == 1);
     CHECK(events[0].type == Event::Type::Failure);
     CHECK(events[0].code == 1002);
@@ -213,7 +214,8 @@ TEST_CASE("ws codec: a close with an invalid code or reason is a protocol failur
     CHECK(events[0].type == Event::Type::Failure);
 
     Session c3 = make_client();
-    events = feed_all(c3, encode_frame(Opcode::Close, bytes({0x03, 0xe8, 0xff, 0xfe}), true, nullptr));  // reason not UTF-8
+    events =
+        feed_all(c3, encode_frame(Opcode::Close, bytes({0x03, 0xe8, 0xff, 0xfe}), true, nullptr));  // reason not UTF-8
     REQUIRE(events.size() == 1);
     CHECK(events[0].type == Event::Type::Failure);
     CHECK(events[0].code == 1007);
@@ -221,7 +223,8 @@ TEST_CASE("ws codec: a close with an invalid code or reason is a protocol failur
 
 TEST_CASE("ws codec: UTF-8 in text messages") {
     Session client = make_client();
-    auto events = feed_all(client, encode_frame(Opcode::Text, "caf\xc3\xa9 \xe2\x82\xac \xf0\x9f\x98\x80", true, nullptr));
+    auto events =
+        feed_all(client, encode_frame(Opcode::Text, "caf\xc3\xa9 \xe2\x82\xac \xf0\x9f\x98\x80", true, nullptr));
     REQUIRE(events.size() == 1);
     CHECK(events[0].type == Event::Type::Text);
 
@@ -243,7 +246,8 @@ TEST_CASE("ws codec: UTF-8 in text messages") {
     CHECK(e[0].type == Event::Type::Binary);
     // A character split across two fragments is fine: the message is checked when it is complete.
     Session f = make_client();
-    std::string stream = encode_frame(Opcode::Text, "\xc3", false, nullptr) + encode_frame(Opcode::Continuation, "\xa9", true, nullptr);
+    std::string stream =
+        encode_frame(Opcode::Text, "\xc3", false, nullptr) + encode_frame(Opcode::Continuation, "\xa9", true, nullptr);
     e = feed_all(f, stream);
     REQUIRE(e.size() == 1);
     CHECK(e[0].type == Event::Type::Text);
@@ -285,8 +289,8 @@ TEST_CASE("ws codec: protocol violations") {
     // A continuation with nothing to continue.
     expect_failure(encode_frame(Opcode::Continuation, "x", true, nullptr), Role::Client, 1002, "orphan continuation");
     // A new data frame while a fragmented message is open.
-    expect_failure(encode_frame(Opcode::Text, "a", false, nullptr) + encode_frame(Opcode::Text, "b", true, nullptr), Role::Client,
-                   1002, "text inside a message");
+    expect_failure(encode_frame(Opcode::Text, "a", false, nullptr) + encode_frame(Opcode::Text, "b", true, nullptr),
+                   Role::Client, 1002, "text inside a message");
     // A length that is not minimal (126 with a value below 126) and a 64-bit length with the top bit set.
     expect_failure(bytes({0x82, 126, 0x00, 0x05}) + "abcde", Role::Client, 1002, "non minimal 16-bit length");
     expect_failure(bytes({0x82, 127, 0, 0, 0, 0, 0, 0, 0x01, 0x00}) + std::string(256, 'a'), Role::Client, 1002,
@@ -296,9 +300,10 @@ TEST_CASE("ws codec: protocol violations") {
 
 TEST_CASE("ws codec: control frames may come inside a fragmented message") {
     Session s = make_client();
-    std::string stream = encode_frame(Opcode::Text, "ab", false, nullptr) + encode_frame(Opcode::Pong, "", true, nullptr) +
-                         encode_frame(Opcode::Continuation, "c", false, nullptr) + encode_frame(Opcode::Ping, "q", true, nullptr) +
-                         encode_frame(Opcode::Continuation, "d", true, nullptr);
+    std::string stream =
+        encode_frame(Opcode::Text, "ab", false, nullptr) + encode_frame(Opcode::Pong, "", true, nullptr) +
+        encode_frame(Opcode::Continuation, "c", false, nullptr) + encode_frame(Opcode::Ping, "q", true, nullptr) +
+        encode_frame(Opcode::Continuation, "d", true, nullptr);
     auto events = feed_all(s, stream);
     REQUIRE(events.size() == 3);
     CHECK(events[0].type == Event::Type::Pong);
@@ -318,7 +323,8 @@ TEST_CASE("ws codec: the size limit is checked before the data is buffered") {
 
     // The sum of the fragments counts, not each fragment.
     Session f = make_client(10);
-    std::string stream = encode_frame(Opcode::Binary, "123456", false, nullptr) + encode_frame(Opcode::Continuation, "78901", true, nullptr);
+    std::string stream = encode_frame(Opcode::Binary, "123456", false, nullptr) +
+                         encode_frame(Opcode::Continuation, "78901", true, nullptr);
     events = feed_all(f, stream);
     REQUIRE(!events.empty());
     CHECK(events.back().type == Event::Type::Failure);
@@ -352,7 +358,8 @@ TEST_CASE("ws codec: input after a failure or the end of the close handshake is 
 
 TEST_CASE("ws codec: the handshake of RFC 6455 section 1.3") {
     CHECK(accept_key("dGhlIHNhbXBsZSBub25jZQ==") == "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=");
-    const std::uint8_t random[16] = {0x74, 0x68, 0x65, 0x20, 0x73, 0x61, 0x6d, 0x70, 0x6c, 0x65, 0x20, 0x6e, 0x6f, 0x6e, 0x63, 0x65};
+    const std::uint8_t random[16] = {0x74, 0x68, 0x65, 0x20, 0x73, 0x61, 0x6d, 0x70,
+                                     0x6c, 0x65, 0x20, 0x6e, 0x6f, 0x6e, 0x63, 0x65};
     CHECK(make_client_key(random) == "dGhlIHNhbXBsZSBub25jZQ==");
 }
 
@@ -377,7 +384,8 @@ TEST_CASE("ws codec: addresses") {
     CHECK(u.value().host == "::1");
     CHECK(u.value().host_header() == "[::1]");
 
-    for (const char* bad : {"http://example.com/", "ws://", "ws://host:99999/", "ws://host:0/", "example.com", "ws://a b/", ""}) {
+    for (const char* bad :
+         {"http://example.com/", "ws://", "ws://host:99999/", "ws://host:0/", "example.com", "ws://a b/", ""}) {
         INFO(bad);
         auto r = parse_url(bad);
         CHECK_FALSE(r.ok());
@@ -387,7 +395,8 @@ TEST_CASE("ws codec: addresses") {
 
 TEST_CASE("ws codec: the client request and the server's answer") {
     auto url = parse_url("ws://example.com:9000/chat?x=1").value();
-    auto request = build_client_request(url, "dGhlIHNhbXBsZSBub25jZQ==", {"chat", "v2.chat"}, {{"Authorization", "Bearer t"}});
+    auto request =
+        build_client_request(url, "dGhlIHNhbXBsZSBub25jZQ==", {"chat", "v2.chat"}, {{"Authorization", "Bearer t"}});
     REQUIRE(request.ok());
     const std::string& text = request.value();
     CHECK(text.rfind("GET /chat?x=1 HTTP/1.1\r\n", 0) == 0);
@@ -420,7 +429,8 @@ TEST_CASE("ws codec: the client request and the server's answer") {
     CHECK(checked.subprotocol == "v2.chat");
 
     // A subprotocol that was not offered, a wrong accept, a refusal.
-    auto notOffered = check_server_response(build_server_response(parsed.value(), "other"), "dGhlIHNhbXBsZSBub25jZQ==", {"chat"});
+    auto notOffered =
+        check_server_response(build_server_response(parsed.value(), "other"), "dGhlIHNhbXBsZSBub25jZQ==", {"chat"});
     CHECK_FALSE(notOffered.ok);
     CHECK_FALSE(notOffered.error.empty());
     CHECK_FALSE(notOffered.hint.empty());
@@ -445,8 +455,8 @@ TEST_CASE("ws codec: the request refuses headers that would break or hijack the 
     CHECK_FALSE(build_client_request(url, "k", {}, {{"X-A", "line\r\nInjected: 1"}}).ok());
     CHECK_FALSE(build_client_request(url, "k", {}, {{"Bad Name", "v"}}).ok());
     CHECK_FALSE(build_client_request(url, "k", {}, {{"", "v"}}).ok());
-    for (const char* own : {"Host", "upgrade", "Connection", "Sec-WebSocket-Key", "sec-websocket-version", "Sec-WebSocket-Protocol",
-                            "Sec-WebSocket-Extensions"}) {
+    for (const char* own : {"Host", "upgrade", "Connection", "Sec-WebSocket-Key", "sec-websocket-version",
+                            "Sec-WebSocket-Protocol", "Sec-WebSocket-Extensions"}) {
         INFO(own);
         auto r = build_client_request(url, "k", {}, {{own, "x"}});
         CHECK_FALSE(r.ok());

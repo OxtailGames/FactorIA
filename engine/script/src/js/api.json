@@ -4192,7 +4192,7 @@
       },
       {
        "sig": "maxMessageBytes?: number",
-       "doc": "The longest message in either direction, 4194304 (4 MB) by default and at most 67108864. A longer incoming message closes the connection with code 1009; send() throws for a longer outgoing one."
+       "doc": "The longest message in either direction, 4194304 (4 MB) by default and at most 67108864. A longer incoming message fails the connection (an \"error\" event, then \"close\" with code 1006; the server is told 1009); send() throws for a longer outgoing one."
       },
       {
        "sig": "reconnect?: boolean | WebSocketReconnectOptions",
@@ -4256,7 +4256,7 @@
      "members": [
       {
        "sig": "readonly code: number",
-       "doc": "The close code: 1000 normal, 1001 going away, 1006 the connection broke with no closing handshake (also: could not connect), 1009 a message was too big, 3000 to 4999 the server's own."
+       "doc": "The close code: 1000 normal, 1001 going away, 1006 the connection failed or broke with no closing handshake (could not connect, a message too big, a server that breaks the protocol), 1008 the game did not read its messages, 3000 to 4999 the server's own."
       },
       {
        "sig": "readonly reason: string",

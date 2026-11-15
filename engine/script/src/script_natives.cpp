@@ -4593,7 +4593,8 @@ NATIVE(wsClose) {  // (id, code, reason) -> true | {error}
                                "the close reason is " + std::to_string(reason.size()) + " bytes; the most is " +
                                    std::to_string(ws::kMaxCloseReasonBytes),
                                "Shorten the reason.");
-    it->second.ws->close(static_cast<int>(code), reason);
+    if (auto closed = it->second.ws->close(static_cast<int>(code), reason); !closed.ok())
+        return ws_error_object(I, closed.error().message, closed.error().hint);
     return JS_TRUE;
 }
 

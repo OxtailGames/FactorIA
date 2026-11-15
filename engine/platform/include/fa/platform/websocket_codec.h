@@ -58,6 +58,9 @@ inline constexpr std::size_t kDefaultMaxMessageBytes = 4u * 1024 * 1024;
 bool close_code_valid_on_wire(int code);
 // Codes a script may ask for, like the browser's close(): 1000 or 3000-4999.
 bool close_code_app_may_send(int code);
+// What WebSocket::close() accepts: code 0 (none) or close_code_app_may_send, a reason of valid UTF-8 up to
+// kMaxCloseReasonBytes. Otherwise an error with a hint; every client and the script layer use this one check.
+Result<void> check_close_request(int code, std::string_view reason);
 
 // One frame. `payload` is written as is and masked when `maskKey` is not null (4 bytes: clients mask, servers do not). The
 // length uses the shortest form (7, 16 or 64 bits), as the RFC requires.
@@ -69,10 +72,10 @@ std::string close_payload(int code, std::string_view reason);
 // A ws:// or wss:// address taken apart. The address has already passed fa/services/network.h; this parser is only strict
 // enough to build a request from it.
 struct Url {
-    bool secure = false;  // wss
-    std::string host;     // lower case, IPv6 without brackets
-    int port = 0;         // the real port (80 or 443 when the address has none)
-    std::string path;     // path and query, always starts with "/"
+    bool secure = false;              // wss
+    std::string host;                 // lower case, IPv6 without brackets
+    int port = 0;                     // the real port (80 or 443 when the address has none)
+    std::string path;                 // path and query, always starts with "/"
     std::string host_header() const;  // "host" or "host:port" (port only when it is not the default), IPv6 in brackets
 };
 Result<Url> parse_url(std::string_view url);
@@ -84,7 +87,8 @@ std::string accept_key(std::string_view clientKey);
 
 // The "GET / HTTP/1.1 ... Upgrade: websocket" request, ending with the empty line. Fails on a header with a line break or
 // a name that is not a token, on a header the handshake sets itself, or on a subprotocol that is not a token.
-Result<std::string> build_client_request(const Url& url, std::string_view key, const std::vector<std::string>& subprotocols,
+Result<std::string> build_client_request(const Url& url, std::string_view key,
+                                         const std::vector<std::string>& subprotocols,
                                          const std::vector<std::pair<std::string, std::string>>& headers);
 
 // The index just after the empty line that ends an HTTP head ("\r\n\r\n"), or npos while it has not all arrived.
@@ -92,9 +96,9 @@ std::size_t find_head_end(std::string_view data);
 
 struct HandshakeResult {
     bool ok = false;
-    int status = 0;            // the HTTP status line's code (0 when the answer is not HTTP)
-    std::string subprotocol;   // the one the server chose ("" when none)
-    std::string error, hint;   // when !ok: what is wrong and what to try
+    int status = 0;           // the HTTP status line's code (0 when the answer is not HTTP)
+    std::string subprotocol;  // the one the server chose ("" when none)
+    std::string error, hint;  // when !ok: what is wrong and what to try
 };
 // Checks the server's answer to build_client_request: status 101, Upgrade, Connection, the right Sec-WebSocket-Accept, a
 // subprotocol that the client offered, no extension. `head` is the text up to and including the empty line.
@@ -102,11 +106,11 @@ HandshakeResult check_server_response(std::string_view head, std::string_view ke
                                       const std::vector<std::string>& offeredSubprotocols);
 
 struct ClientRequest {
-    std::string path;                                               // "/chat?room=1"
-    std::string key;                                                // Sec-WebSocket-Key
-    std::vector<std::string> subprotocols;                          // offered, in order
-    std::vector<std::pair<std::string, std::string>> headers;       // every header, names in lower case
-    std::string header(const std::string& lowerName) const;         // "" when absent
+    std::string path;                                          // "/chat?room=1"
+    std::string key;                                           // Sec-WebSocket-Key
+    std::vector<std::string> subprotocols;                     // offered, in order
+    std::vector<std::pair<std::string, std::string>> headers;  // every header, names in lower case
+    std::string header(const std::string& lowerName) const;    // "" when absent
 };
 // The server side: the request that a client sent. Fails (with what is wrong) when it is not a WebSocket upgrade.
 Result<ClientRequest> parse_client_request(std::string_view head);
@@ -180,10 +184,10 @@ private:
 
     std::random_device random_;
     SessionOptions options_;
-    std::string in_;        // header bytes not parsed yet
+    std::string in_;  // header bytes not parsed yet
     std::string out_;
-    std::string message_;   // the data message being joined
-    std::string control_;   // the control frame being read
+    std::string message_;  // the data message being joined
+    std::string control_;  // the control frame being read
     Stage stage_ = Stage::Header;
     Opcode opcode_ = Opcode::Text;  // of the frame being read
     bool fin_ = true;

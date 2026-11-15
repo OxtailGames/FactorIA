@@ -3,6 +3,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cstdlib>
+#include <iterator>
+#include <string>
 
 #include "fa/core/hash.h"
 #include "fa/core/strings.h"
@@ -19,7 +22,8 @@ bool is_token_char(unsigned char c) {
 }
 
 bool is_token(std::string_view s) {
-    return !s.empty() && std::all_of(s.begin(), s.end(), [](char c) { return is_token_char(static_cast<unsigned char>(c)); });
+    return !s.empty() &&
+           std::all_of(s.begin(), s.end(), [](char c) { return is_token_char(static_cast<unsigned char>(c)); });
 }
 
 std::string shown(std::string_view s, std::size_t max = 60) {
@@ -92,6 +96,18 @@ bool close_code_valid_on_wire(int code) {
 }
 bool close_code_app_may_send(int code) { return code == 1000 || (code >= 3000 && code <= 4999); }
 
+Result<void> check_close_request(int code, std::string_view reason) {
+    if (code != 0 && !close_code_app_may_send(code))
+        return make_error("the close code " + std::to_string(code) + " cannot be used",
+                          "Use 1000 (normal) or a code from 3000 to 4999 that your server defines.");
+    if (reason.size() > kMaxCloseReasonBytes)
+        return make_error("the close reason is " + std::to_string(reason.size()) + " bytes; the most is " +
+                              std::to_string(kMaxCloseReasonBytes),
+                          "Shorten the reason.");
+    if (!is_valid_utf8(reason)) return make_error("the close reason is not valid UTF-8", "Use a plain text reason.");
+    return {};
+}
+
 std::string encode_frame(Opcode opcode, std::string_view payload, bool fin, const std::uint8_t* maskKey) {
     std::string out;
     const std::uint64_t n = payload.size();
@@ -154,10 +170,12 @@ Result<Url> parse_url(std::string_view url) {
     std::string_view portText;
     if (!authority.empty() && authority[0] == '[') {
         const std::size_t close = authority.find(']');
-        if (close == std::string_view::npos) return make_error("the address has an unclosed [ in its host", "Write [::1]:8080.");
+        if (close == std::string_view::npos)
+            return make_error("the address has an unclosed [ in its host", "Write [::1]:8080.");
         out.host = std::string(authority.substr(1, close - 1));
         if (authority.size() > close + 1) {
-            if (authority[close + 1] != ':') return make_error("the address has text after the IPv6 host", "Write [::1]:8080.");
+            if (authority[close + 1] != ':')
+                return make_error("the address has text after the IPv6 host", "Write [::1]:8080.");
             portText = authority.substr(close + 2);
         }
     } else if (const std::size_t colon = authority.rfind(':'); colon != std::string_view::npos) {
@@ -176,11 +194,14 @@ Result<Url> parse_url(std::string_view url) {
     if (!portText.empty()) {
         int n = 0;
         for (char c : portText) {
-            if (c < '0' || c > '9' || n > 65535) return make_error("the port \"" + std::string(portText) + "\" is not a number from 1 to 65535", "Write it like wss://host:8443/path.");
+            if (c < '0' || c > '9' || n > 65535)
+                return make_error("the port \"" + std::string(portText) + "\" is not a number from 1 to 65535",
+                                  "Write it like wss://host:8443/path.");
             n = n * 10 + (c - '0');
         }
         if (n < 1 || n > 65535)
-            return make_error("the port \"" + std::string(portText) + "\" is not a number from 1 to 65535", "Write it like wss://host:8443/path.");
+            return make_error("the port \"" + std::string(portText) + "\" is not a number from 1 to 65535",
+                              "Write it like wss://host:8443/path.");
         out.port = n;
     }
     return out;
@@ -193,7 +214,8 @@ std::string accept_key(std::string_view clientKey) {
     return base64_encode(raw.data(), raw.size());
 }
 
-Result<std::string> build_client_request(const Url& url, std::string_view key, const std::vector<std::string>& subprotocols,
+Result<std::string> build_client_request(const Url& url, std::string_view key,
+                                         const std::vector<std::string>& subprotocols,
                                          const std::vector<std::pair<std::string, std::string>>& headers) {
     std::string out = "GET " + url.path + " HTTP/1.1\r\nHost: " + url.host_header() +
                       "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: " + std::string(key) +
@@ -202,15 +224,16 @@ Result<std::string> build_client_request(const Url& url, std::string_view key, c
         out += "Sec-WebSocket-Protocol: ";
         for (std::size_t i = 0; i < subprotocols.size(); ++i) {
             if (!is_token(subprotocols[i]))
-                return make_error("the subprotocol \"" + shown(subprotocols[i]) + "\" is not a valid token",
-                                  "A subprotocol is a name such as \"chat\" or \"v1.game.example.com\": letters, digits and "
-                                  "the characters ! # $ % & ' * + - . ^ _ ` | ~ only.");
+                return make_error(
+                    "the subprotocol \"" + shown(subprotocols[i]) + "\" is not a valid token",
+                    "A subprotocol is a name such as \"chat\" or \"v1.game.example.com\": letters, digits and "
+                    "the characters ! # $ % & ' * + - . ^ _ ` | ~ only.");
             out += (i ? ", " : "") + subprotocols[i];
         }
         out += "\r\n";
     }
-    static const char* const kOwn[] = {"host",        "upgrade", "connection", "content-length", "transfer-encoding",
-                                       "te",          "trailer", "keep-alive", "expect"};
+    static const char* const kOwn[] = {"host", "upgrade", "connection", "content-length", "transfer-encoding",
+                                       "te",   "trailer", "keep-alive", "expect"};
     for (const auto& [name, value] : headers) {
         const std::string lower = to_lower(name);
         const bool own = std::any_of(std::begin(kOwn), std::end(kOwn), [&](const char* o) { return lower == o; }) ||
@@ -246,12 +269,15 @@ HandshakeResult check_server_response(std::string_view headText, std::string_vie
     };
     const Head head = parse_head(headText);
     if (!head.ok || !starts_with(head.firstLine, "HTTP/"))
-        return fail("the server did not answer with HTTP (it sent \"" + shown(headText.empty() ? head.firstLine : headText) + "\")",
-                    "Check the address and the port: a WebSocket server answers the upgrade with an HTTP head. A wss:// "
-                    "address needs a server with TLS, a ws:// one needs a server without.");
+        return fail(
+            "the server did not answer with HTTP (it sent \"" + shown(headText.empty() ? head.firstLine : headText) +
+                "\")",
+            "Check the address and the port: a WebSocket server answers the upgrade with an HTTP head. A wss:// "
+            "address needs a server with TLS, a ws:// one needs a server without.");
     // "HTTP/1.1 101 Switching Protocols"
     const std::size_t sp = head.firstLine.find(' ');
-    if (sp == std::string::npos) return fail("the server's status line \"" + shown(head.firstLine) + "\" has no status code", "");
+    if (sp == std::string::npos)
+        return fail("the server's status line \"" + shown(head.firstLine) + "\" has no status code", "");
     r.status = std::atoi(head.firstLine.c_str() + sp + 1);
     if (r.status != 101) {
         std::string reason = head.firstLine.substr(sp + 1);
@@ -259,30 +285,31 @@ HandshakeResult check_server_response(std::string_view headText, std::string_vie
         std::string hint;
         switch (r.status) {
             case 200:
-                hint = "The address answers like a web page, not like a WebSocket endpoint: check the path of the address.";
+                hint = "The address answers like a web page, not like a WebSocket endpoint: check the path of the "
+                       "address.";
                 break;
             case 301:
             case 302:
             case 307:
             case 308:
-                hint = "The server redirects: use the address it redirects to (a WebSocket connection does not follow redirects).";
+                hint = "The server redirects: use the address it redirects to (a WebSocket connection does not follow "
+                       "redirects).";
                 break;
             case 400:
-                hint = "The server did not understand the upgrade: check the path and the subprotocols the server supports.";
+                hint = "The server did not understand the upgrade: check the path and the subprotocols the server "
+                       "supports.";
                 break;
             case 401:
             case 403:
-                hint = "The server wants a login or refuses this game: send a token in the headers option or in the address, "
+                hint = "The server wants a login or refuses this game: send a token in the headers option or in the "
+                       "address, "
                        "and check what the server allows.";
                 break;
-            case 404:
-                hint = "There is no WebSocket endpoint at this path: check the path of the address.";
-                break;
-            case 426:
-                hint = "The server asks for another protocol version or for TLS: try wss://.";
-                break;
+            case 404: hint = "There is no WebSocket endpoint at this path: check the path of the address."; break;
+            case 426: hint = "The server asks for another protocol version or for TLS: try wss://."; break;
             default:
-                hint = r.status >= 500 ? "The server failed: try again later." : "Check the address and what the server expects.";
+                hint = r.status >= 500 ? "The server failed: try again later."
+                                       : "Check the address and what the server expects.";
         }
         return fail("the server refused the WebSocket upgrade with HTTP " + std::to_string(r.status) +
                         (reason.empty() ? "" : " " + shown(reason)),
@@ -327,19 +354,22 @@ Result<ClientRequest> parse_client_request(std::string_view headText) {
     ClientRequest req;
     req.path = parts[1];
     req.headers = head.headers;
-    if (!iequals(trim(head.value("upgrade")), "websocket")) return make_error("the request has no \"Upgrade: websocket\"");
+    if (!iequals(trim(head.value("upgrade")), "websocket"))
+        return make_error("the request has no \"Upgrade: websocket\"");
     if (!list_has(head.value("connection"), "upgrade")) return make_error("the request has no \"Connection: Upgrade\"");
     if (head.value("sec-websocket-version") != "13")
         return make_error("Sec-WebSocket-Version is \"" + shown(head.value("sec-websocket-version")) + "\", not 13");
     req.key = head.value("sec-websocket-key");
     if (base64_decode(req.key).size() != 16) return make_error("Sec-WebSocket-Key is not the base64 of 16 bytes");
-    for (const std::string& p : split(head.value("sec-websocket-protocol"), ',', true)) req.subprotocols.emplace_back(trim(p));
+    for (const std::string& p : split(head.value("sec-websocket-protocol"), ',', true))
+        req.subprotocols.emplace_back(trim(p));
     return req;
 }
 
 std::string build_server_response(const ClientRequest& request, std::string_view subprotocol) {
-    std::string out = "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " +
-                      accept_key(request.key) + "\r\n";
+    std::string out =
+        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: " +
+        accept_key(request.key) + "\r\n";
     if (!subprotocol.empty()) out += "Sec-WebSocket-Protocol: " + std::string(subprotocol) + "\r\n";
     return out + "\r\n";
 }
@@ -352,7 +382,9 @@ std::string build_reject_response(int status, std::string_view reason) {
 // ------------------------------------------------------------------------------------------------------ session ---
 Session::Session(SessionOptions options) : options_(std::move(options)) {}
 
-std::uint32_t Session::next_mask() { return options_.maskKey ? options_.maskKey() : static_cast<std::uint32_t>(random_()); }
+std::uint32_t Session::next_mask() {
+    return options_.maskKey ? options_.maskKey() : static_cast<std::uint32_t>(random_());
+}
 
 void Session::queue(Opcode op, std::string_view payload, bool fin) {
     if (options_.role == Role::Client) {
@@ -372,19 +404,22 @@ std::string Session::take_output() {
 }
 
 Result<void> Session::send_text(std::string_view text) {
-    if (closeSent_ || failed_) return make_error("the connection is closing", "Wait for the \"close\" event, then connect again.");
+    if (closeSent_ || failed_)
+        return make_error("the connection is closing", "Wait for the \"close\" event, then connect again.");
     if (text.size() > options_.maxMessageBytes)
         return make_error("the message is " + std::to_string(text.size()) + " bytes; the most is " +
                               std::to_string(options_.maxMessageBytes),
                           "Split the data into smaller messages.");
     if (!is_valid_utf8(text))
-        return make_error("the text is not valid UTF-8", "Send other data with send_binary, or encode it as UTF-8 first.");
+        return make_error("the text is not valid UTF-8",
+                          "Send other data with send_binary, or encode it as UTF-8 first.");
     queue(Opcode::Text, text);
     return {};
 }
 
 Result<void> Session::send_binary(const void* data, std::size_t size) {
-    if (closeSent_ || failed_) return make_error("the connection is closing", "Wait for the \"close\" event, then connect again.");
+    if (closeSent_ || failed_)
+        return make_error("the connection is closing", "Wait for the \"close\" event, then connect again.");
     if (size > options_.maxMessageBytes)
         return make_error("the message is " + std::to_string(size) + " bytes; the most is " +
                               std::to_string(options_.maxMessageBytes),
@@ -419,7 +454,8 @@ void Session::fail(int code, std::string error, std::string hint, std::vector<Ev
     if (failed_) return;
     failed_ = true;
     if (hint.empty())
-        hint = "The server (or a proxy in front of it) is not following the WebSocket protocol (RFC 6455); check it, then connect again.";
+        hint = "The server (or a proxy in front of it) is not following the WebSocket protocol (RFC 6455); check it, "
+               "then connect again.";
     if (!closeSent_) {
         queue(Opcode::Close, close_payload(code, {}));
         closeSent_ = true;
@@ -470,7 +506,8 @@ void Session::feed(const void* data, std::size_t size, std::vector<Event>& event
             const bool control = (op & 0x8) != 0;
             if (b0 & 0x70) {
                 fail(close_code::kProtocolError, "a frame has a reserved bit (RSV1-3) set",
-                     "No WebSocket extension (such as permessage-deflate) is negotiated, so the server must not use one.",
+                     "No WebSocket extension (such as permessage-deflate) is negotiated, so the server must not use "
+                     "one.",
                      events);
                 break;
             }
@@ -479,31 +516,34 @@ void Session::feed(const void* data, std::size_t size, std::vector<Event>& event
                 break;
             }
             if (options_.role == Role::Server && !masked_) {
-                fail(close_code::kProtocolError, "a client frame is not masked", "A client must mask every frame (RFC 6455 5.1).",
-                     events);
+                fail(close_code::kProtocolError, "a client frame is not masked",
+                     "A client must mask every frame (RFC 6455 5.1).", events);
                 break;
             }
             if (options_.role == Role::Client && masked_) {
-                fail(close_code::kProtocolError, "a server frame is masked", "A server must not mask its frames (RFC 6455 5.1).",
-                     events);
+                fail(close_code::kProtocolError, "a server frame is masked",
+                     "A server must not mask its frames (RFC 6455 5.1).", events);
                 break;
             }
             if ((len7 == 126 && len < 126) || (len7 == 127 && (len < 65536 || (len >> 63) != 0))) {
-                fail(close_code::kProtocolError, "a frame length is not in its shortest form or has the top bit set", "", events);
+                fail(close_code::kProtocolError, "a frame length is not in its shortest form or has the top bit set",
+                     "", events);
                 break;
             }
             opcode_ = static_cast<Opcode>(op);
             if (control) {
                 if (!fin_ || len > kMaxControlPayload) {
                     fail(close_code::kProtocolError,
-                         !fin_ ? "a control frame (ping, pong, close) is fragmented" : "a control frame is longer than 125 bytes", "",
-                         events);
+                         !fin_ ? "a control frame (ping, pong, close) is fragmented"
+                               : "a control frame is longer than 125 bytes",
+                         "", events);
                     break;
                 }
                 control_.clear();
             } else if (opcode_ == Opcode::Continuation) {
                 if (!inMessage_) {
-                    fail(close_code::kProtocolError, "a continuation frame arrived with no message to continue", "", events);
+                    fail(close_code::kProtocolError, "a continuation frame arrived with no message to continue", "",
+                         events);
                     break;
                 }
             } else if (inMessage_) {
@@ -536,11 +576,14 @@ void Session::feed(const void* data, std::size_t size, std::vector<Event>& event
         }
         // Payload.
         const std::size_t take = static_cast<std::size_t>(std::min<std::uint64_t>(remaining_, n));
-        std::string& dst = (opcode_ == Opcode::Continuation || opcode_ == Opcode::Text || opcode_ == Opcode::Binary) ? message_ : control_;
+        std::string& dst = (opcode_ == Opcode::Continuation || opcode_ == Opcode::Text || opcode_ == Opcode::Binary)
+                               ? message_
+                               : control_;
         const std::size_t base = dst.size();
         dst.append(reinterpret_cast<const char*>(p), take);
         if (masked_)
-            for (std::size_t i = 0; i < take; ++i) dst[base + i] = static_cast<char>(static_cast<std::uint8_t>(dst[base + i]) ^ mask_[(index_ + i) & 3]);
+            for (std::size_t i = 0; i < take; ++i)
+                dst[base + i] = static_cast<char>(static_cast<std::uint8_t>(dst[base + i]) ^ mask_[(index_ + i) & 3]);
         index_ += take;
         remaining_ -= take;
         p += take;
@@ -573,14 +616,17 @@ void Session::finish_frame(std::vector<Event>& events) {
             int code = close_code::kNoStatus;
             std::string reason;
             if (control_.size() == 1) {
-                fail(close_code::kProtocolError, "a close frame has a 1-byte payload", "A close payload is empty or a 2-byte code and a reason.", events);
+                fail(close_code::kProtocolError, "a close frame has a 1-byte payload",
+                     "A close payload is empty or a 2-byte code and a reason.", events);
                 return;
             }
             if (control_.size() >= 2) {
                 code = (static_cast<std::uint8_t>(control_[0]) << 8) | static_cast<std::uint8_t>(control_[1]);
                 reason = control_.substr(2);
                 if (!close_code_valid_on_wire(code)) {
-                    fail(close_code::kProtocolError, "a close frame has the code " + std::to_string(code) + ", which is not allowed on the wire", "", events);
+                    fail(close_code::kProtocolError,
+                         "a close frame has the code " + std::to_string(code) + ", which is not allowed on the wire",
+                         "", events);
                     return;
                 }
                 if (!is_valid_utf8(reason)) {
@@ -600,8 +646,7 @@ void Session::finish_frame(std::vector<Event>& events) {
             events.push_back(std::move(e));
             return;
         }
-        default:
-            break;
+        default: break;
     }
     if (!fin_) return;  // more fragments to come
     inMessage_ = false;
