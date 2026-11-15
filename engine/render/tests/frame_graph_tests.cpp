@@ -2,6 +2,7 @@
 // target pool and the JSON dump. No GPU: the pool creates plain counters.
 #include <doctest.h>
 
+#include <new>
 #include <string>
 #include <vector>
 
@@ -727,4 +728,5 @@ TEST_CASE("frame graph: a pass hook that throws in end() does not terminate") {
     g.set_pass_hooks(std::move(hooks));
     FakePool fp;
     CHECK(g.execute(fp.pool).ok());
+    CHECK(g.hook_failures() == 1);  // only "b" has a callback; its lost sample is counted
 }

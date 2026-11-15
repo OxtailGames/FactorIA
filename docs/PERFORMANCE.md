@@ -480,8 +480,10 @@ Reading it:
   switches the profiler on for that command, so `profileFrames` (default 8, 0 to 60) does: when the profiler is off and the
   backend can time, the command turns it on, draws the current state again until the first GPU times arrive (at most that
   many times; the result's `profileFrames` says how many it drew), reads the graph and puts the profiler back. Drawing
-  again does not move the game (time does not advance). With `profileFrames: 0`, or while a profile or the editor's
-  Profiler panel already runs, it only reads what is there. On Metal, GLES3 and WebGL2 no frame is drawn for it and
+  again does not move the game (time does not advance) but it consumes the debug-draw queue: the redrawn pictures have
+  no debug-draw lines, and lines queued since the last draw are lost. With `profileFrames: 0` (the call that only
+  reads: no profiler, no frame drawn again), or while a profile or the editor's Profiler panel already runs, it only
+  reads what is there. On Metal, GLES3 and WebGL2 no frame is drawn for it and
   `gpu.reason` says there is no GPU timer.
 - `memory` samples the process (resident memory now and at its peak), the JavaScript heap, texture memory, decoded audio (`audioDecodedMB`: sounds, streaming buffers and the music cache; `musicMB` is the music part of it: a song costs about 10 MB per minute per stem, docs/MUSIC.md)
   and the entity count, at the start, the end and the peak of the run: a number that only grows over a long session is a leak.

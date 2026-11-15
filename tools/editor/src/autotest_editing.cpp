@@ -229,7 +229,7 @@ void Editor::at_section_K(AtScript& at) {
         grab(&MatShots::base, ms);
         step(2, [this, ms] {
             const Renderer* r = engine_->renderer();
-            ms->skip = !r || !r->stats().materialFallbacks.empty();
+            ms->skip = !r || !r->stats(false).materialFallbacks.empty();
             // CI installs the compiler and sets FA_REQUIRE_SHDC=1 (docs/BUILDING.md): there a material that did not build fails.
             const char* required = std::getenv("FA_REQUIRE_SHDC");
             if (ms->skip && required && std::string(required) == "1")
@@ -267,7 +267,7 @@ void Editor::at_section_K(AtScript& at) {
         step(2, [this, ms, diff_check] {
             if (ms->skip) return;
             diff_check(ms->base, ms->v2, false, "a snippet rewritten on disk changes the viewport without a reload");
-            at_check(engine_->renderer()->stats().materialFallbacks.empty(), "...and the material still builds");
+            at_check(engine_->renderer()->stats(false).materialFallbacks.empty(), "...and the material still builds");
             ms->seq = log_last_seq();
         });
         // (c) a broken snippet: the last good picture stays, one error names file:line, and the AI reads it from game.logs.
@@ -281,7 +281,7 @@ void Editor::at_section_K(AtScript& at) {
             diff_check(ms->v2, ms->broken, true, "a broken snippet keeps the last good picture");
             at_check(errors_naming(ms->seq) == 1,
                      "...and logs exactly one error with file:line (game.logs shows it to the AI)");
-            at_check(engine_->renderer()->stats().materialFallbacks.empty(),
+            at_check(engine_->renderer()->stats(false).materialFallbacks.empty(),
                      "...without falling back to the error material");
             showOverlay_ = false;  // no selection outline in the pictures compared below
             select_id("gem");      // the Inspector shows the build error under MeshRenderer.material

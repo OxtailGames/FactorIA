@@ -918,7 +918,8 @@ void Renderer::Impl::render(World& world, float dt) {
         std::stable_sort(byDepth.begin(), byDepth.end(), [&](int a, int b) {
             return targetCams[std::size_t(a)].depth < targetCams[std::size_t(b)].depth;
         });
-        // Kept between frames (clear() keeps the capacity of its vectors): a frame with render targets allocates no graph.
+        // Kept between frames (clear() keeps the capacity of its vectors): the graph's vectors are not allocated again each frame,
+        // though the pass names and the `after` lists still are.
         FrameGraph& jobs = orderScratch.graph;
         jobs.clear();
         jobs.set_cycle_policy(CyclePolicy::Break);
@@ -940,19 +941,29 @@ void Renderer::Impl::render(World& world, float dt) {
         if (jobs.compile().ok()) {
             for (const std::string& name : jobs.order_names()) targetOrder.push_back(index_of(name));
             for (const CycleBreak& cb : jobs.cycle_breaks()) {
-                std::string waited;
                 auto quote = [&](const std::string& passName) {
                     return "'" + passName.substr(std::string("target:").size()) + "'";
                 };
-                for (const std::string& w : cb.waitedFor) waited += (waited.empty() ? "" : ", ") + quote(w);
+                // "'A'", "'A' and 'B'", "'A', 'B' and 'C'"
+                auto join = [](const std::vector<std::string>& names) {
+                    std::string out;
+                    for (std::size_t k = 0; k < names.size(); ++k)
+                        out += (k == 0 ? "" : k + 1 == names.size() ? " and " : ", ") + names[k];
+                    return out;
+                };
+                std::vector<std::string> others, all;
+                for (const std::string& w : cb.waitedFor) others.push_back(quote(w));
                 const std::string first = quote(cb.pass);
+                all.push_back(first);
+                all.insert(all.end(), others.begin(), others.end());
+                const std::string waited = join(others);
                 if (targetWarned.insert("cycle:" + first + "<-" + waited).second)
                     FA_WARN(
                         "render",
-                        "The render targets {} and {} show each other, so {} is drawn first and shows the picture "
+                        "The render targets {} show each other, so {} is drawn first and shows the picture "
                         "{} had in the previous frame (one frame late). Hint: that is fine for a mirror of a mirror; "
                         "to avoid the lag, break the loop so a target only shows targets drawn before it",
-                        first, waited, first, waited);
+                        join(all), first, waited);
             }
         } else {
             targetOrder = byDepth;  // cannot happen (unique names, every `after` is a target): draw by depth

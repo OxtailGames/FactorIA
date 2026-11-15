@@ -127,6 +127,9 @@ public:
     // Per pass of the last execute(): the executed ones in order, then the culled ones.
     const std::vector<PassStats>& stats() const { return stats_; }
 
+    // How many times an `end` hook threw during the last execute(): the sample of that pass was lost, the frame was not.
+    int hook_failures() const { return hookFailures_; }
+
     // Names of the live passes in execution order, and of the culled ones (empty before compile()).
     std::vector<std::string> order_names() const;
     std::vector<std::string> culled_names() const;
@@ -174,6 +177,7 @@ private:
     bool released_ = false;  // release_callbacks() ran: the passes cannot execute
     std::vector<PassStats> stats_;
     PassHooks hooks_;
+    int hookFailures_ = 0;                 // `end` hooks that threw in the last execute()
     std::vector<std::uint64_t> physical_;  // per resource, valid while execute() runs
 };
 
