@@ -859,7 +859,7 @@ format may be asked for. A `Target` is made by `make_target(TargetDesc)`: a colo
 (`resolveAsColor` also gives the resolve a colour-attachment view, for bloom), an optional depth image, and their views
 (`colorAtt`, `resolveAtt`, `depthAtt`, `texView` for sampling), `pass_into(target, label)` is the matching `PassDesc` and
 `destroy_target` frees the lot. The game, CameraView and render-target images, the light buffer, the colour-filter image, the
-readback copy, the shadow map and the bloom levels are all `Target`s (`renderer_targets.cpp`, `bloom.cpp`). A game that draws
+readback copy, the shadow map and the bloom levels are all `Target`s (`renderer_targets.cpp`, `transient_targets.cpp`). A game that draws
 its own window pass (the editor: ImGui over the viewport) does it with `Renderer::begin_window_pass` / `end_window_pass`, and
 the player clears its window with `Renderer::present_clear`, so neither `player/main.cpp` nor `editor_app.cpp` calls sokol for
 the game. The ImGui backend (`tools/editor/src/imgui_backend.cpp`) is a separate GPU client with its own pipelines and keeps
@@ -920,10 +920,28 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   platform's dialects (Windows `hlsl5`, Linux `glsl430`, macOS `metal_macos`, iOS `metal_ios` + `metal_sim`, Android and
   web `glsl300es`), adds the twins, drops the snippets, and fails the export on a compile error. The player has no
   compiler. `factoria validate` compiles every dialect of every material.
-- *Frame graph (in progress).* `engine/render/src/frame_graph.h` and `target_pool.h` are the CPU core the passes are
-  to move onto: passes declare the resources they read and write; `compile()` orders them (declaration order where
-  there is no dependency), culls the ones nobody reads and plans which transients share one physical target;
-  `TargetPool` reuses targets across frames. No renderer pass uses it yet; `FrameGraph::to_json()` is the dump.
+- *Frame graph (in progress).* `engine/render/src/frame_graph.h` and `target_pool.h` are the CPU core: passes declare the
+  resources they read and write; `compile()` orders them (declaration order where there is no dependency), culls the
+  ones nobody reads and plans which transients share one physical target; `TargetPool` reuses targets across frames
+  (keyed by size and `TargetFormat`); `FrameGraph::to_json()` is the dump. `draw_job` (and so `draw_view_job`, which
+  swaps the game image for a CameraView's or a render target's) builds a graph per job (`Impl::build_graph`),
+  compiles it and executes it, and the graph nodes are: the light buffer (`light-buffer`), the shadow map (`shadow`,
+  only when a light casts), the world (`game`, `view` for a view job, `game-hud` for the job of a split frame that draws
+  only the screen-space groups), the bloom stages of the last job (`bloom-bright`, `bloom-down-<n>`, `bloom-blur-h`, `bloom-blur-v`,
+  `bloom-composite`), the HUD over the glow (`hud-over-bloom`, with `bloomScreenSpace = false`) and the colour filter
+  (`color-filter`). The compiled order is the order the passes were drawn in before the graph, as the declaration order
+  and the data dependencies give it. *Imported* resources are the persistent images: the game (or view) image, the light
+  buffer, the shadow map and the colour-filter image (imported, not transient, because the present and the read-back
+  sample it after the frame). *Transient* resources are the bloom levels and the blur's second image: `bloom.cpp` declares
+  them with the format of the game image (`Gpu::scene_format()`, so RGBA8 when the GPU cannot render RGBA16F) and the
+  `TransientTargets` of `Impl` (`transient_targets.h`, a `TargetPool` over `make_target`) makes them on the first frame
+  and hands the same ones out on the next. A transient's contents are UNDEFINED at its first writer: that pass must CLEAR
+  it or DONTCARE and cover every pixel, never LOAD it. `execute` gives back every transient on every way out (an error or
+  a pass that throws). A bloom whose targets cannot be made warns once and draws no glow until the size or the format
+  changes, so a failed creation is not retried every frame. `FrameGraph::set_import_handle` rebinds an imported resource
+  to another image without a new compile. Not graph passes yet: the read-back and flip copies, and the CameraView and
+  render-target jobs as passes of their own. The render tests reach the last job's graph and the pool's counters through
+  `render::renderer_frame_graph` and `render::renderer_transient_stats`.
 
 ### Start-up order and the shader cache
 A window host (`run_windowed` in `runtime/src/runners.cpp`: the player and a windowed `factoria run`) starts in this order, decided by
