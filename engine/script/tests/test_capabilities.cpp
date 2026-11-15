@@ -481,3 +481,29 @@ test("data modules load", () => { expect(total).toBe(6); });
     CHECK(rep.ok());
     CHECK(rep.passed == 2);
 }
+
+TEST_CASE("fa.call: an unknown mesh, vfx or anim command says which commands are tools and what a game uses instead") {
+    TestHost h("cap_tool_hint");
+    h.file("tests/hint.test.js", R"JS(
+import { test, expect } from "factoria:test";
+import { fa } from "factoria";
+function hintOf(name) { try { fa.call(name, {}); } catch (e) { return e.hint || ""; } return ""; }
+test("vfx names the tool commands, not vfx.*", () => {
+  const h = hintOf("vfx.check");
+  expect(h.includes("vfx.check, vfx.budget and vfx.filmstrip")).toBe(true);
+  expect(h.includes("vfx.*")).toBe(false);
+  expect(h.includes("`vfx` script API")).toBe(true);
+});
+test("anim points at the Animator", () => {
+  expect(hintOf("anim.check").includes("entity.animator")).toBe(true);
+});
+test("mesh points at the mesh script API", () => {
+  expect(hintOf("mesh.save").includes("`mesh` script API")).toBe(true);
+});
+)JS");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/hint.test.js"});
+    for (auto& c : rep.cases) MESSAGE(c.name, ": ", c.passed ? "pass" : c.message);
+    CHECK(rep.ok());
+    CHECK(rep.passed == 3);
+}

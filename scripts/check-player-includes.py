@@ -5,6 +5,7 @@
 
 The player and the game templates are built against the public API of fa_runtime; its internal headers belong to the
 engine and the developer tools (fa_authoring). Runs in the `lint` job and in `scripts/ci-preflight.sh --lint-only`.
+templates/ holds no C++ today (only game scripts and data), so the check is for the day it does.
 No dependency but Python 3.
 """
 
@@ -13,7 +14,8 @@ import re
 import sys
 from pathlib import Path
 
-PATTERN = re.compile(r"""^\s*#\s*include\s*[<"]fa/runtime/internal/""")
+# A line may open with block comments (`/* x */ #include ...`); a line comment before the #include hides it, as in C++.
+PATTERN = re.compile(r"""^\s*(?:/\*.*?\*/\s*)*#\s*include\s*[<"]fa/runtime/internal/""")
 
 
 def main():

@@ -2044,7 +2044,7 @@
     if (h.$place) {
       if (N.sceneGeneration() !== h.$gen) return generateFail(h, { message: "the scene that asked for this level is no longer the current one, so its objects were not placed", hint: "Start the generation again in the new scene." }, false);
       const args = Object.assign({}, h.$place, { rows: result.rows, legend: result.legend });
-      // scene.place_ascii is the running-world half of scene.place_ascii: it never writes a file, so a game script (read + state) may place a level.
+      // scene.place_ascii is the running-world half of scene.import_ascii: it never writes a file, so a game script (read + state) may place a level.
       const r = N.callCommand("scene.place_ascii", plain(args));
       if (!r.ok) {
         const err = r.error || {};
@@ -2675,7 +2675,7 @@
         let hint = err.hint;
         // The mesh, vfx and anim commands of developer tools are not in a shipped game: say which script API a game uses instead.
         const api = err.code === "unknown_command" && /^(mesh|vfx|anim)\./.exec(String(name));
-        if (api) hint = `${hint ? hint + " " : ""}A shipped game does not have the ${api[1]}.* tool commands (CLI, editor, MCP); ` +
+        if (api) hint = `${hint ? hint + " " : ""}A shipped game does not have ${api[1] === "vfx" ? "the vfx.check, vfx.budget and vfx.filmstrip" : api[1] === "mesh" ? "the mesh.* tool" : "the anim.* tool"} commands (CLI, editor, MCP); ` +
           (api[1] === "anim" ? "play clips with the Animator component (entity.animator)." : `use the \`${api[1]}\` script API.`);
         const e = new Error(`${name} failed: ${err.message || "unknown error"}` + (hint ? ` (hint: ${hint})` : ""));
         e.code = err.code; e.hint = hint;
