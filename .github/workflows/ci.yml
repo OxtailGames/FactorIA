@@ -5,7 +5,9 @@ name: CI
 
 # All five platforms on GitHub-hosted runners (standard hosted runners are free
 # for public repositories). Runs once per change: on pull requests (every push to
-# a PR branch), on pushes to main and on `v*` tags. Pushing to a branch without a
+# a PR branch) and on pushes to main. A `v*` tag does not run it: the tag is made on the
+# merge commit of a PR, which the push to main already ran here (check that run is green
+# before tagging), and release.yml builds the packages on the tag. Pushing to a branch without a
 # PR does not trigger a run, so PR branches are not built twice; use "Run
 # workflow" (workflow_dispatch) for those. The same checks can run locally with
 # ./scripts/ci-local.sh (see docs/BUILDING.md).
@@ -14,7 +16,6 @@ name: CI
 on:
   push:
     branches: [main]
-    tags: ['v*']
   pull_request:
   workflow_dispatch:
     inputs:
@@ -63,8 +64,8 @@ jobs:
             { echo "code=false"; echo "mobile=false"; echo "web=false"; } >> "$GITHUB_OUTPUT"
             exit 0
           fi
-          # Tags, "Run workflow" and pushes without a usable base (git diff fails) run everything.
-          if [[ "$GITHUB_REF" == refs/tags/* ]] || ! files="$(git diff --name-only "$BASE" HEAD)"; then
+          # "Run workflow" and pushes without a usable base (git diff fails) run everything.
+          if ! files="$(git diff --name-only "$BASE" HEAD)"; then
             echo "Everything runs ($GITHUB_EVENT_NAME $GITHUB_REF)"
             { echo "code=true"; echo "mobile=true"; echo "web=true"; } >> "$GITHUB_OUTPUT"
             exit 0
@@ -89,6 +90,9 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90  # a cold-ccache build (~50 min on Linux) plus the full suite went past 60 in M91
+    permissions:
+      contents: read
+      actions: write  # "Delete this ref's older ccaches" (gh cache delete)
     steps:
       - uses: actions/checkout@v4
 
@@ -96,34 +100,54 @@ jobs:
       - name: Install build dependencies
         run: ./scripts/bootstrap-linux.sh
 
+      # The key must not be a prefix of another job's (ccache-Linux-linux-asan-, -tsan-, -fuzz-, -coverage-): restore-keys
+      # would hand this GCC job whichever Clang cache is the newest (2% hits, a 55-minute build). The `bench` job reads this
+      # cache on purpose. scripts/check-ci-cache-keys.py (the `lint` job) fails on such a collision.
       - name: Restore ccache
+        id: ccache-restore
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ runner.os }}-linux-${{ github.run_id }}
-          restore-keys: ccache-${{ runner.os }}-linux-
+          key: ccache-${{ runner.os }}-gcc-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-gcc-
 
       - name: Configure and build (linux-release)
+        id: build
         run: |
           ccache --zero-stats
           cmake --preset linux-release -DFA_WARNINGS_AS_ERRORS=ON
-          cmake --build --preset linux-release
+          cmake --build --preset linux-release -- -k 0
           ccache --show-stats --verbose
 
       # The ccache saved after the build keeps only the entries this build used (hit or written in the last two
       # hours). A restored cache otherwise keeps every object it ever held, and the repository's caches get 10 GB.
+      # Only after a build that succeeded: a build that failed after a minute used almost nothing, and trimming then would
+      # save a cache that is smaller than the one restored (Windows once restored 15 MB where main's was 258 MB).
       - name: Trim ccache to what this build used
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ccache --evict-older-than 7200s
 
       # Saved right after the build, not at the end of the job: actions/cache saves only when the whole job passes, so
-      # a run whose tests failed left the next run the old cache and a cold build (Windows: 35-45 min, 11% hits).
+      # a run whose tests failed left the next run the old cache and a cold build (Windows: 35-45 min, 11% hits). Also
+      # saved when the build failed (the objects that did compile) and when a newer push cancelled the job in the middle of
+      # it (the next round starts warm): `always()`, and only when the restore worked and the build step did not end up
+      # skipped, i.e. it started (a step that never ran has the outcome `skipped`; one cancelled while running, `cancelled`).
       - name: Save ccache
-        if: ${{ !cancelled() }}
+        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ runner.os }}-linux-${{ github.run_id }}
+          key: ccache-${{ runner.os }}-gcc-${{ github.run_id }}
+
+      # Every round that saves also deletes this ref's older caches of the same ccache, so the failed and cancelled rounds of
+      # a pull request do not pile up (the repository's 10 GB; the least recently used caches go first, and those are main's).
+      - name: Delete this ref's older ccaches
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-gcc-
 
       # The pinned sokol-shdc that custom materials need, installed the way a contributor does it (SHA-256 checked, into
       # ~/.factoria). FA_REQUIRE_SHDC=1 on the tests turns the ones that need it from skipped into failed.
@@ -169,12 +193,23 @@ jobs:
   # Debug suite on a build whose every target, external/ included, is instrumented (FA_SANITIZE, preset linux-asan;
   # docs/BUILDING.md, "Sanitizers"). A finding fails the test (UBSan stops at the first one). The suppressions are
   # tools/ci/sanitizers/*.supp. Debug: the example games' tests are disabled, as in any Debug build.
+  # Two machines, each builds (a warm ccache makes that quick) and runs half of the tests: scripts/ctest_shard.py gives every
+  # test to exactly one shard, balanced by the times of its linux-asan table. The `tooling` test alone took 19 minutes when
+  # the whole suite ran on one machine (four tests at a time), so it is now five entries (tooling_1 ... tooling_5) that
+  # the shards share.
   linux-asan:
-    name: Linux (Clang, ASan + UBSan)
+    name: Linux (Clang, ASan + UBSan, tests ${{ matrix.shard }}/2)
     needs: changes
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 150  # instrumented code runs 2-3x slower than the Debug build of the linux job; a cold ccache adds the build
+    permissions:
+      contents: read
+      actions: write  # "Delete this ref's older ccaches" (shard 1)
+    strategy:
+      fail-fast: false  # a failure in one half must not hide what the other half finds
+      matrix:
+        shard: [1, 2]
     steps:
       - uses: actions/checkout@v4
 
@@ -184,6 +219,7 @@ jobs:
           sudo apt-get install -y clang llvm  # llvm: llvm-symbolizer, for readable sanitizer stack traces
 
       - name: Restore ccache
+        id: ccache-restore
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
@@ -191,22 +227,32 @@ jobs:
           restore-keys: ccache-${{ runner.os }}-linux-asan-
 
       - name: Configure and build (linux-asan)
+        id: build
         run: |
           ccache --zero-stats
           cmake --preset linux-asan -DFA_WARNINGS_AS_ERRORS=ON
-          cmake --build --preset linux-asan
+          cmake --build --preset linux-asan -- -k 0
           ccache --show-stats --verbose
 
+      # Trim, save and prune: see the linux job. The shards build the same objects, so only shard 1 does it.
       - name: Trim ccache to what this build used
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && matrix.shard == 1 && steps.build.outcome == 'success' }}
         run: ccache --evict-older-than 7200s
 
       - name: Save ccache
-        if: ${{ !cancelled() }}
+        if: ${{ always() && matrix.shard == 1 && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
           key: ccache-${{ runner.os }}-linux-asan-${{ github.run_id }}
+
+      - name: Delete this ref's older ccaches
+        if: ${{ !cancelled() && matrix.shard == 1 && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-linux-asan-
 
       - name: Install the shader compiler (factoria setup shaders)
         shell: bash
@@ -218,16 +264,17 @@ jobs:
       - name: Fewer ASLR bits (the sanitizers' shadow memory fails to map on the runner's newer kernels otherwise)
         run: sudo sysctl vm.mmap_rnd_bits=28
 
-      - name: Test under Xvfb (Mesa llvmpipe), ASan + UBSan + LSan
+      - name: Test under Xvfb (Mesa llvmpipe), ASan + UBSan + LSan (shard ${{ matrix.shard }}/2)
         env:
           FA_REQUIRE_SHDC: '1'
-        run: xvfb-run -a -s "-screen 0 1280x720x24" ctest --preset linux-asan --parallel 4  # the runner's 4 vCPUs
+        # --parallel 4: the runner's 4 vCPUs
+        run: xvfb-run -a -s "-screen 0 1280x720x24" python3 scripts/ctest_shard.py --preset linux-asan --shard ${{ matrix.shard }} --of 2 -- --parallel 4
 
       - name: Upload test output on failure
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: linux-asan-test-output
+          name: linux-asan-test-output-${{ matrix.shard }}
           path: |
             build/**/Testing/**
             build/**/test-output/**/*.png
@@ -243,6 +290,9 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: write  # "Delete this ref's older ccaches"
     steps:
       - uses: actions/checkout@v4
 
@@ -252,6 +302,7 @@ jobs:
           sudo apt-get install -y clang llvm
 
       - name: Restore ccache
+        id: ccache-restore
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
@@ -260,22 +311,32 @@ jobs:
 
       # Only the targets the threaded tests link, not the editor, the player or the other test programs.
       - name: Configure and build (linux-tsan)
+        id: build
         run: |
           ccache --zero-stats
           cmake --preset linux-tsan -DFA_WARNINGS_AS_ERRORS=ON
-          cmake --build --preset linux-tsan --target fa_test_core fa_test_runtime fa_test_audio fa_test_mcp
+          cmake --build --preset linux-tsan --target fa_test_core fa_test_runtime fa_test_audio fa_test_mcp -- -k 0
           ccache --show-stats --verbose
 
+      # Trim, save and prune: see the linux job.
       - name: Trim ccache to what this build used
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ccache --evict-older-than 7200s
 
       - name: Save ccache
-        if: ${{ !cancelled() }}
+        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
           key: ccache-${{ runner.os }}-linux-tsan-${{ github.run_id }}
+
+      - name: Delete this ref's older ccaches
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-linux-tsan-
 
       - name: Fewer ASLR bits (the sanitizers' shadow memory fails to map on the runner's newer kernels otherwise)
         run: sudo sysctl vm.mmap_rnd_bits=28
@@ -304,19 +365,41 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: write  # "Delete this ref's older ccaches"
     steps:
       - uses: actions/checkout@v4
 
       # The script mounts ~/.cache/ccache into the container. release.yml reads this cache (key ccache-Linux-sniper-).
       - name: Restore ccache
-        uses: actions/cache@v4
+        id: ccache-restore
+        uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
           key: ccache-${{ runner.os }}-sniper-${{ github.run_id }}
           restore-keys: ccache-${{ runner.os }}-sniper-
 
       - name: Build in the sniper SDK container (GCC 14, static libstdc++)
+        id: build
         run: ./scripts/build-sniper.sh build -- -DFA_WARNINGS_AS_ERRORS=ON
+
+      # Saved right after the build (see the linux job: also when it failed or a newer push cancelled it). No trim: ccache is
+      # not installed on the host, only in the container, and its own size limit keeps the directory bounded.
+      - name: Save ccache
+        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ~/.cache/ccache
+          key: ccache-${{ runner.os }}-sniper-${{ github.run_id }}
+
+      - name: Delete this ref's older ccaches
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-sniper-
 
       - name: Check the symbol versions the programs need
         run: ./scripts/build-sniper.sh check
@@ -336,6 +419,9 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: windows-2022  # the preset uses the "Visual Studio 17 2022" generator; windows-latest now ships VS 2026
     timeout-minutes: 90  # a build with a cold ccache takes 35-60 min
+    permissions:
+      contents: read
+      actions: write  # "Delete this ref's older ccaches" (shard 1)
     strategy:
       fail-fast: false
       matrix:
@@ -355,6 +441,7 @@ jobs:
           { echo "CLToolPath=$RUNNER_TEMP\ccache-cl"; echo "UseMultiToolTask=true"; } >> "$GITHUB_ENV"
 
       - name: Restore ccache
+        id: ccache-restore
         uses: actions/cache/restore@v4
         with:
           path: ~\AppData\Local\ccache  # ccache's default directory on Windows
@@ -369,6 +456,7 @@ jobs:
         run: cmake --preset windows-release -DFA_WARNINGS_AS_ERRORS=ON
 
       - name: Build (windows-release)
+        id: build
         run: cmake --build --preset windows-release --parallel
 
       - name: ccache statistics
@@ -376,18 +464,27 @@ jobs:
         shell: bash
         run: '"$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --show-stats --verbose'
 
-      - name: Trim ccache to what this build used (see the linux job)
-        if: ${{ !cancelled() && matrix.shard == 1 }}
+      # Trim, save and prune: see the linux job. The shards build the same objects, so only shard 1 does it.
+      - name: Trim ccache to what this build used
+        if: ${{ !cancelled() && matrix.shard == 1 && steps.build.outcome == 'success' }}
         shell: bash
         run: '"$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --evict-older-than 7200s'
 
-      # Saved even when the tests fail (see the linux job). The shards build the same objects, so one of them saves.
       - name: Save ccache
-        if: ${{ !cancelled() && matrix.shard == 1 }}
+        if: ${{ always() && matrix.shard == 1 && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         uses: actions/cache/save@v4
         with:
           path: ~\AppData\Local\ccache  # ccache's default directory on Windows
           key: ccache-${{ runner.os }}-windows-${{ github.run_id }}
+
+      - name: Delete this ref's older ccaches
+        if: ${{ !cancelled() && matrix.shard == 1 && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-windows-
 
       # The pinned sokol-shdc that custom materials need, installed the way a contributor does it (SHA-256 checked, into
       # ~/.factoria). FA_REQUIRE_SHDC=1 on the tests turns the ones that need it from skipped into failed.
@@ -408,8 +505,9 @@ jobs:
       - name: Test (windows-release, shard ${{ matrix.shard }}/3)
         env:
           FA_REQUIRE_SHDC: '1'
-        # One test at a time: the software D3D11 (WARP) of the editor autotests and the tooling suite already fill the 4
-        # vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the timing-sensitive tests failed.
+        # One test at a time: the software D3D11 (WARP) of the editor autotests and the tooling suite (tooling_1 ...
+        # tooling_5) already fill the 4 vCPUs. With --parallel 4 the step took longer (17.5 min against 15) and the
+        # timing-sensitive tests failed.
         run: python scripts/ctest_shard.py --preset windows-release --shard ${{ matrix.shard }} --of 3
 
       # Each shard's own LastTest.log: the `_perf` tests that passed inside the warning band (see the linux job).
@@ -446,6 +544,9 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: macos-latest
     timeout-minutes: 90  # a cold-ccache build (~50 min on Linux) plus the full suite went past 60 in M91
+    permissions:
+      contents: read
+      actions: write  # "Delete this ref's older ccaches"
     steps:
       - uses: actions/checkout@v4
 
@@ -453,6 +554,7 @@ jobs:
         run: brew install ninja ccache
 
       - name: Restore ccache
+        id: ccache-restore
         uses: actions/cache/restore@v4
         with:
           path: ~/Library/Caches/ccache
@@ -460,23 +562,32 @@ jobs:
           restore-keys: ccache-${{ runner.os }}-macos-
 
       - name: Configure and build (macos-release)
+        id: build
         run: |
           ccache --zero-stats
           cmake --preset macos-release -DFA_WARNINGS_AS_ERRORS=ON
-          cmake --build --preset macos-release
+          cmake --build --preset macos-release -- -k 0
           ccache --show-stats --verbose
 
-      - name: Trim ccache to what this build used (see the linux job)
-        if: ${{ !cancelled() }}
+      # Trim, save and prune: see the linux job.
+      - name: Trim ccache to what this build used
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ccache --evict-older-than 7200s
 
-      # Saved even when the tests fail (see the linux job).
       - name: Save ccache
-        if: ${{ !cancelled() }}
+        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         uses: actions/cache/save@v4
         with:
           path: ~/Library/Caches/ccache
           key: ccache-${{ runner.os }}-macos-${{ github.run_id }}
+
+      - name: Delete this ref's older ccaches
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-macos-
 
       # The pinned sokol-shdc that custom materials need, installed the way a contributor does it (SHA-256 checked, into
       # ~/.factoria). FA_REQUIRE_SHDC=1 on the tests turns the ones that need it from skipped into failed.
@@ -538,13 +649,13 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
-          key: ccache-${{ runner.os }}-linux-${{ github.run_id }}
-          restore-keys: ccache-${{ runner.os }}-linux-
+          key: ccache-${{ runner.os }}-gcc-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-gcc-
 
       - name: Configure and build fa_bench (linux-release)
         run: |
           cmake --preset linux-release -DFA_WARNINGS_AS_ERRORS=ON
-          cmake --build --preset linux-release --target fa_bench --parallel
+          cmake --build --preset linux-release --target fa_bench --parallel -- -k 0
 
       - name: Run the microbenchmarks
         run: |
@@ -574,9 +685,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: linux, runner: ubuntu-24.04, preset: linux-release }
-          - { os: windows, runner: windows-2022, preset: windows-release }
-          - { os: macos, runner: macos-latest, preset: macos-release }
+          # ccache: the middle part of the cache key the `linux`, `windows` and `macos` jobs save (the Linux one is "gcc", not "linux").
+          - { os: linux, ccache: gcc, runner: ubuntu-24.04, preset: linux-release }
+          - { os: windows, ccache: windows, runner: windows-2022, preset: windows-release }
+          - { os: macos, ccache: macos, runner: macos-latest, preset: macos-release }
     steps:
       - uses: actions/checkout@v4
 
@@ -593,8 +705,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ matrix.os == 'linux' && '~/.cache/ccache' || '~/Library/Caches/ccache' }}
-          key: ccache-${{ runner.os }}-${{ matrix.os }}-${{ github.run_id }}
-          restore-keys: ccache-${{ runner.os }}-${{ matrix.os }}-
+          key: ccache-${{ runner.os }}-${{ matrix.ccache }}-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-${{ matrix.ccache }}-
 
       - name: Install ccache (windows)
         if: matrix.os == 'windows'
@@ -618,7 +730,8 @@ jobs:
         shell: bash
         run: |
           cmake --preset ${{ matrix.preset }} -DFA_WARNINGS_AS_ERRORS=ON
-          cmake --build --preset ${{ matrix.preset }} --target fa_bench --parallel
+          # -k 0 is Ninja's; the Windows preset is Visual Studio (MSBuild), which takes other arguments after `--`.
+          cmake --build --preset ${{ matrix.preset }} --target fa_bench --parallel ${{ matrix.os != 'windows' && '-- -k 0' || '' }}
 
       - name: Measure the baseline
         shell: bash
@@ -656,9 +769,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { os: linux, runner: ubuntu-24.04, preset: linux-release }
-          - { os: windows, runner: windows-2022, preset: windows-release }
-          - { os: macos, runner: macos-latest, preset: macos-release }
+          # ccache: the middle part of the cache key the `linux`, `windows` and `macos` jobs save (the Linux one is "gcc", not "linux").
+          - { os: linux, ccache: gcc, runner: ubuntu-24.04, preset: linux-release }
+          - { os: windows, ccache: windows, runner: windows-2022, preset: windows-release }
+          - { os: macos, ccache: macos, runner: macos-latest, preset: macos-release }
     steps:
       - uses: actions/checkout@v4
 
@@ -676,8 +790,8 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ matrix.os == 'linux' && '~/.cache/ccache' || '~/Library/Caches/ccache' }}
-          key: ccache-${{ runner.os }}-${{ matrix.os }}-${{ github.run_id }}
-          restore-keys: ccache-${{ runner.os }}-${{ matrix.os }}-
+          key: ccache-${{ runner.os }}-${{ matrix.ccache }}-${{ github.run_id }}
+          restore-keys: ccache-${{ runner.os }}-${{ matrix.ccache }}-
 
       - name: Install ccache (windows)
         if: matrix.os == 'windows'
@@ -701,7 +815,8 @@ jobs:
         shell: bash
         run: |
           cmake --preset ${{ matrix.preset }} -DFA_WARNINGS_AS_ERRORS=ON
-          cmake --build --preset ${{ matrix.preset }} --target factoria --parallel
+          # -k 0 is Ninja's; the Windows preset is Visual Studio (MSBuild), which takes other arguments after `--`.
+          cmake --build --preset ${{ matrix.preset }} --target factoria --parallel ${{ matrix.os != 'windows' && '-- -k 0' || '' }}
 
       - name: Measure the baselines
         shell: bash
@@ -893,6 +1008,9 @@ jobs:
     if: needs.changes.outputs.web == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: write  # "Delete this ref's older ccaches"
     env:
       EMSDK_VERSION: 6.0.10
     steps:
@@ -903,6 +1021,7 @@ jobs:
 
       # The player is built by the Emscripten toolchain, the CLI by the runner's GCC: both through ccache.
       - name: Restore ccache
+        id: ccache-restore
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
@@ -925,29 +1044,40 @@ jobs:
 
       # emsdk_env.sh exports EMSDK, which the presets read.
       - name: Build the web player (web-release)
+        id: build-player
         run: |
           EMSDK_QUIET=1 source ~/emsdk/emsdk_env.sh
           emcc --version | head -n 1
           cmake --preset web-release -DFA_WARNINGS_AS_ERRORS=ON
-          cmake --build --preset web-release
+          cmake --build --preset web-release -- -k 0
           ls -l build/web-release/player
 
       - name: Build the factoria CLI (no editor, no tests)
+        id: build-cli
         run: |
           cmake -S . -B build/tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_WARNINGS_AS_ERRORS=ON -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
-          cmake --build build/tools --target factoria
+          cmake --build build/tools --target factoria -- -k 0
 
-      - name: Trim ccache to what this build used (see the linux job)
-        if: ${{ !cancelled() }}
+      # Trim, save and prune: see the linux job. Two build steps: the trim needs both to have succeeded; the first one has
+      # started whenever the second has, so it decides whether there is anything to save.
+      - name: Trim ccache to what this build used
+        if: ${{ !cancelled() && steps.build-player.outcome == 'success' && steps.build-cli.outcome == 'success' }}
         run: ccache --evict-older-than 7200s
 
-      # Saved even when the tests fail (see the linux job).
       - name: Save ccache
-        if: ${{ !cancelled() }}
+        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build-player.outcome != 'skipped' }}
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
           key: ccache-${{ runner.os }}-web-${{ github.run_id }}
+
+      - name: Delete this ref's older ccaches
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build-player.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-web-
 
       - uses: actions/setup-node@v4
         with:
@@ -977,6 +1107,9 @@ jobs:
     if: needs.changes.outputs.mobile == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions:
+      contents: read
+      actions: write  # "Delete this ref's older ccaches"
     steps:
       - uses: actions/checkout@v4
 
@@ -986,6 +1119,7 @@ jobs:
           sudo apt-get install -y ninja-build ccache
 
       - name: Restore ccache
+        id: ccache-restore
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
@@ -999,21 +1133,30 @@ jobs:
           echo "ANDROID_NDK_HOME=$ANDROID_NDK_LATEST_HOME" >> "$GITHUB_ENV"
 
       - name: Configure and build factoria_player (android-arm64)
+        id: build
         run: |
           cmake --preset android-arm64 -DFA_WARNINGS_AS_ERRORS=ON
-          cmake --build --preset android-arm64 --target factoria_player
+          cmake --build --preset android-arm64 --target factoria_player -- -k 0
 
-      - name: Trim ccache to what this build used (see the linux job)
-        if: ${{ !cancelled() }}
+      # Trim, save and prune: see the linux job.
+      - name: Trim ccache to what this build used
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ccache --evict-older-than 7200s
 
-      # Saved even when the tests fail (see the linux job).
       - name: Save ccache
-        if: ${{ !cancelled() }}
+        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
           key: ccache-${{ runner.os }}-android-${{ github.run_id }}
+
+      - name: Delete this ref's older ccaches
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-android-
 
       # The player must export ANativeActivity_onCreate (sokol_app) or NativeActivity cannot start it.
       - name: Check the entry points of libfactoria_player.so
@@ -1031,6 +1174,9 @@ jobs:
     if: needs.changes.outputs.mobile == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90
+    permissions:
+      contents: read
+      actions: write  # "Delete this ref's older ccaches"
     env:
       CCACHE_COMPILERCHECK: content  # sdkmanager unpacks the NDK anew each run, so its compilers' mtime changes
       FA_CI_PLUGINS: /tmp/ci-plugins  # where the game's native plugin lives: "${FA_CI_PLUGINS}/example" in its factoria.json
@@ -1050,6 +1196,7 @@ jobs:
       # Also caches the engine's NDK build inside Gradle: CMakeLists.txt uses ccache whenever it finds it. The key must
       # not start with another job's (ccache-Linux-android-), or restore-keys would pick that job's cache.
       - name: Restore ccache
+        id: ccache-restore
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
@@ -1057,9 +1204,10 @@ jobs:
           restore-keys: ccache-${{ runner.os }}-apk-
 
       - name: Build the factoria CLI (no editor, no tests)
+        id: build-cli
         run: |
           cmake -S . -B build/tools -G Ninja -DCMAKE_BUILD_TYPE=Release -DFA_WARNINGS_AS_ERRORS=ON -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
-          cmake --build build/tools --target factoria
+          cmake --build build/tools --target factoria -- -k 0
 
       - name: Install SDK packages (CMake 3.31, NDK, platform 36, build-tools 35)
         run: |
@@ -1174,21 +1322,31 @@ jobs:
       # checkout for both ABIs); the APK lands next to the project as <slug>-debug.apk. FA_CI_PLUGINS (job env) is still
       # set: the export copies the plugin's android/ module into the project (plugins/example).
       - name: Export the game and build the debug APK
+        id: build-apk
         run: |
           build/tools/tools/cli/factoria export /tmp/ci-game --platform android --out /tmp/ci-out
           ls -la /tmp/ci-out/ci-game-android
 
-      - name: Trim ccache to what this build used (see the linux job)
-        if: ${{ !cancelled() }}
+      # Trim, save and prune: see the linux job. Two builds use the ccache (the CLI and the export): the trim needs both to
+      # have succeeded; the CLI build has started whenever the export has, so it decides whether there is anything to save.
+      - name: Trim ccache to what this build used
+        if: ${{ !cancelled() && steps.build-cli.outcome == 'success' && steps.build-apk.outcome == 'success' }}
         run: ccache --evict-older-than 7200s
 
-      # Saved even when the tests fail (see the linux job).
       - name: Save ccache
-        if: ${{ !cancelled() }}
+        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build-cli.outcome != 'skipped' }}
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
           key: ccache-${{ runner.os }}-apk-${{ github.run_id }}
+
+      - name: Delete this ref's older ccaches
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build-cli.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-apk-
 
       # The emulator job below runs on x86_64, so the APK must carry that ABI next to arm64-v8a (docs/MOBILE.md). The
       # plugin's libraries are in the APK for both, and its Java class is in the dex (the manifest has hasCode="true").
@@ -1323,6 +1481,9 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 90  # a cold-ccache build of the engine and the tools with sanitizers, then about a minute per target
+    permissions:
+      contents: read
+      actions: write  # "Delete this ref's older ccaches"
     env:
       FA_FUZZ_SECONDS: '60'
     steps:
@@ -1339,6 +1500,7 @@ jobs:
           sudo apt-get install -y "libclang-rt-${ver}-dev"
 
       - name: Restore ccache
+        id: ccache-restore
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
@@ -1346,24 +1508,34 @@ jobs:
           restore-keys: ccache-${{ runner.os }}-linux-fuzz-
 
       - name: Configure and build the fuzz targets
+        id: build
         run: |
           ccache --zero-stats
           cmake -S . -B build/fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo \
               -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ \
               -DFA_FUZZ=ON -DFA_WARNINGS_AS_ERRORS=ON -DFA_BUILD_EDITOR=OFF -DFA_BUILD_TESTS=OFF
-          cmake --build build/fuzz --target fa_fuzz_all
+          cmake --build build/fuzz --target fa_fuzz_all -- -k 0
           ccache --show-stats --verbose
 
+      # Trim, save and prune: see the linux job.
       - name: Trim ccache to what this build used
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ccache --evict-older-than 7200s
 
       - name: Save ccache
-        if: ${{ !cancelled() }}
+        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
           key: ccache-${{ runner.os }}-linux-fuzz-${{ github.run_id }}
+
+      - name: Delete this ref's older ccaches
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-linux-fuzz-
 
       # A random run of a minute per target finds a different input each time, so a finding there is usually not caused by this
       # change: it must not block unrelated pull requests. A finding does not fail the step and the next one makes the result
@@ -1418,6 +1590,9 @@ jobs:
     if: needs.changes.outputs.code == 'true'
     runs-on: ubuntu-24.04
     timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: write  # "Delete this ref's older ccaches"
     steps:
       - uses: actions/checkout@v4
 
@@ -1433,6 +1608,7 @@ jobs:
           echo "LLVM_PROFDATA=llvm-profdata-${ver}" >> "$GITHUB_ENV"
 
       - name: Restore ccache
+        id: ccache-restore
         uses: actions/cache/restore@v4
         with:
           path: ~/.cache/ccache
@@ -1440,6 +1616,7 @@ jobs:
           restore-keys: ccache-${{ runner.os }}-linux-coverage-
 
       - name: Configure and build (Clang, Debug, FA_COVERAGE)
+        id: build
         run: |
           ccache --zero-stats
           # Instrumented test executables take gigabytes each to link: four links at once ran the runner out of memory and
@@ -1447,19 +1624,28 @@ jobs:
           cmake -S . -B build/coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug \
               -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DFA_COVERAGE=ON \
               -DCMAKE_JOB_POOLS=link=2 -DCMAKE_JOB_POOL_LINK=link
-          cmake --build build/coverage
+          cmake --build build/coverage -- -k 0
           ccache --show-stats --verbose
 
+      # Trim, save and prune: see the linux job.
       - name: Trim ccache to what this build used
-        if: ${{ !cancelled() }}
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
         run: ccache --evict-older-than 7200s
 
       - name: Save ccache
-        if: ${{ !cancelled() }}
+        if: ${{ always() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
         uses: actions/cache/save@v4
         with:
           path: ~/.cache/ccache
           key: ccache-${{ runner.os }}-linux-coverage-${{ github.run_id }}
+
+      - name: Delete this ref's older ccaches
+        if: ${{ !cancelled() && steps.ccache-restore.outcome == 'success' && steps.build.outcome != 'skipped' }}
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: ./scripts/ci-prune-caches.sh ccache-${{ runner.os }}-linux-coverage-
 
       - name: Install the shader compiler (factoria setup shaders)
         run: |
@@ -1512,12 +1698,21 @@ jobs:
         with:
           fetch-depth: 0  # the merge base of the diff
 
+      # No restore prefix of a ccache may be the start of another job's cache key (restore-keys hands out the newest match:
+      # the GCC job once restored a Clang cache). Seconds, and the first red of a round that renames a cache badly.
+      - name: Cache keys do not collide (scripts/check-ci-cache-keys.py)
+        run: python3 scripts/check-ci-cache-keys.py
+
+      # The test split of the Windows and ASan jobs gives every test to exactly one shard (a made-up list: no build needed).
+      - name: Test shards are disjoint and complete (scripts/ctest_shard.py --self-test)
+        run: python3 scripts/ctest_shard.py --self-test
+
       - name: Pick the base of the diff
         id: base
         env:
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
         run: |
-          # A tag, "Run workflow" or a push without a usable base (new branch: all zeros) compares with the first parent.
+          # "Run workflow" or a push without a usable base (new branch: all zeros) compares with the first parent.
           if [[ -z "$BASE" || "$BASE" =~ ^0+$ ]] || ! git cat-file -e "$BASE^{commit}" 2>/dev/null; then BASE=HEAD~1; fi
           echo "base=$BASE" >> "$GITHUB_OUTPUT"
           echo "Diff base: $BASE"
@@ -1553,7 +1748,9 @@ jobs:
 
       # Every run saves one ccache per job (the key ends in the run id). Keep only the newest of each on this branch or
       # pull request, so the repository's 10 GB do not push out main's, which every pull request starts from. A pull
-      # request from a fork cannot delete caches: then nothing is deleted.
+      # request from a fork cannot delete caches: then nothing is deleted. Each job already does the same for its own ccache
+      # right after its Save step (scripts/ci-prune-caches.sh), also in a failed or cancelled round; this step is the net under
+      # that one (a round whose jobs could not delete, or a ccache whose job did not run).
       - name: Delete the older ccaches of this branch
         if: always()
         continue-on-error: true

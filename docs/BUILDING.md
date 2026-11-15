@@ -184,6 +184,9 @@ all 64 tests passing either way:
 | `-O1 -g1` | 449 s | 188 s | 92 s | 2.6 GB |
 | `-O2 -g1` | 530 s | 176 s | 86 s | 2.6 GB |
 
+The `tooling` column is from when that test was one process; it is now the entries `tooling_1` ... `tooling_5`, which
+`ctest -j` runs at the same time (docs/ARCHITECTURE.md, "Testing").
+
 An agent seldom builds everything from an empty cache and runs tests after every change, so the tests are what counts.
 A debugger does not show local variables in such a tree: for a debugging session use a plain Debug tree (the presets,
 `scripts/test-all.sh`) or a new directory with `FA_AGENT_DEBUG_FLAGS=-g`. A directory keeps the flags it was
@@ -198,10 +201,26 @@ waits for it for at most `--wait-s` seconds (default 100). The last line tells w
 |---|---|---|
 | `agent-build: DONE ok` | 0 | Everything asked for passed. |
 | `agent-build: DONE FAILED` | 1 | The lines above say what failed. |
+| `agent-build: DONE INCOMPLETE` | 77 | Nothing failed, but what is listed as `SKIPPED` did not run (see below). |
 | `agent-build: RUNNING (<step>: <last line of its log>)` | 3 | Still working: run `scripts/agent-build.sh <build dir> --wait` again until it says `DONE`. |
 
 `--status` reports without waiting and `--stop` ends the job with everything it started. One job runs per build
 directory: the same command again waits for the job that is running, a different one is refused until it ends.
+
+**A Mac with its displays asleep.** When the lid is closed, or the Mac has been idle for longer than its display sleep
+time, no window gets a frame, and every test that opens one (ctest label `window`: `editor_autotest_*`,
+`cli_player_frames`, `cli_plugin`) waits until its time limit: five minutes each, at least twelve minutes of a full run,
+for failures that say nothing about the code. The script checks before it runs the tests (`system_profiler
+SPDisplaysDataType`: every display reports `Display Asleep: Yes`), leaves those tests out, lists them as `SKIPPED` (not
+passed) and ends as `DONE INCOMPLETE` when nothing else failed. It also sets `FA_TEST_NO_WINDOW=1` for the tests that
+do run: a test case that starts a windowed program (the sandboxed app of `sign.macos`, in a `tooling` entry) skips that
+step with a `MESSAGE`, and the script lists it by file and line in the same `SKIPPED` note, so a run of `--tests
+tooling` alone ends as `DONE INCOMPLETE` too. Wake the display and run the listed tests (the note gives the `--tests`
+regex), or say in the report that only CI ran them; a push still needs them green somewhere.
+`FA_AGENT_WINDOW_TESTS=run` runs them whatever the display says. Nothing wakes the display or changes a power setting.
+A Mac with no display connected lists none, asleep or awake, so the check does not apply to it: the tests that open a
+window run there as before.
+
 `FA_AGENT_JOBS`, `FA_AGENT_CTEST_JOBS` and `FA_AGENT_WAIT_S` set the defaults of `--jobs`, `--ctest-jobs` and
 `--wait-s`.
 
@@ -442,7 +461,8 @@ every race of the run and fails the test with its exit code.
   the script limits (60 s per `factoria test` test, 5 s of `script.eval`, 2 s of a callback) count CPU time of the script
   thread, which the sanitizers slow down too, and a few tests assert wall-clock bounds (for example the 1.4 s of
   `http_tests.cpp` for a 0.3 s request timeout). If such a test fails only in the sanitizer job, check its time first.
-- **CI:** `Linux (Clang, ASan + UBSan)` (`linux-asan`) runs the whole Debug suite under Xvfb like the `linux` job does, with
+- **CI:** `Linux (Clang, ASan + UBSan, tests 1/2)` and `2/2` (job `linux-asan`: two machines, each runs half of the tests,
+  split by `scripts/ctest_shard.py`, below) run the whole Debug suite under Xvfb like the `linux` job does, with
   the example games' tests off as in any Debug build, and the `_perf` budgets (`example_*_perf`, `fixture_skinned_sprites_perf`)
   off too: a sanitizer build has no baseline and its times and memory are not an optimized build's. `Linux (Clang, TSan, threaded tests)` (`linux-tsan`) builds only the
   four test programs with threads and runs the tests of the CTest label `tsan`: the job system and the background reads of
@@ -794,7 +814,8 @@ checks what a change touches). The configure also builds the one generated heade
 (`fa_build_fingerprint.h`).
 
 CI has a `lint` job (Ubuntu, cheap, part of `CI result`): `scripts/format.sh --check --changed <base>` and
-`scripts/tidy-changed.sh <base>`, where the base is the pull request's base commit (the commit before, on a push). When
+`scripts/tidy-changed.sh <base>`, where the base is the pull request's base commit (the commit before, on a push);
+`scripts/ci-preflight.sh --lint-only` runs the same steps on your machine ("Before a push"). When
 every file is formatted, set `FORMAT_SCOPE: all` in that job's `env` in `.github/workflows/ci.yml` and the check covers
 the whole repository. A repository-wide reformat is one commit with no other change; add its hash to a `.git-blame-ignore-revs` file
 (`git config blame.ignoreRevsFile .git-blame-ignore-revs`) so `git blame` skips it.
@@ -812,14 +833,19 @@ compilers other than yours, other platforms):
    the include, `long`/`%ld` formats, text parsing that may see CRLF, case-only path clashes and workflow changes. It prints
    file:line, why it matters and what to check. The table is the `RULES` block of the script: add a line to add a pattern.
    The scan reads commits only, and never fails the run unless `--strict`.
-2. **`scripts/test-all.sh`**, with the same environment variables.
-3. **Stress.** The editor autotests (`editor_autotest_*`, in the Debug dir) and the example tests (`example_<name>_*`, in the
+2. **Lint.** What the `lint` job of CI runs, against the same base: `scripts/format.sh --check --changed <base>`,
+   `scripts/check-ci-cache-keys.py`, `scripts/ctest_shard.py --self-test` and `scripts/tidy-changed.sh <base>` (clang-tidy,
+   the slow one: `FA_TIDY_JOBS`, half the CPUs by default). Each has its own line in the summary, and one that fails
+   does not stop the others. `--lint-only` runs the risk scan and this step and nothing else: it builds nothing and takes
+   minutes, so run it before every push, also the push of a fix (a file left unformatted costs a whole CI round).
+3. **`scripts/test-all.sh`**, with the same environment variables.
+4. **Stress.** The editor autotests (`editor_autotest_*`, in the Debug dir) and the example tests (`example_<name>_*`, in the
    Release dir) the diff touches run with `ctest --repeat until-fail:N` while one CPU burner per core keeps the machine busy.
    `tools/editor/**` selects the editor autotests, `examples/<name>/**` that example's tests, `engine/**`, `tools/cli/**`,
    `tools/common/**`, `external/**` and the CMake files all of both; docs and scripts select nothing. The example tests get twice their
    ctest limit (`FA_EXAMPLE_TEST_TIMEOUT`) in this pass, since the burners halve their CPU; it is put back afterwards. The
    burners are killed when the script ends, fails or is interrupted. `--plan` prints the selection only.
-4. **Other platforms.** The `scripts/ci-local.sh` jobs this host supports (Mac: `macos ios web android`; Linux: `linux windows
+5. **Other platforms.** The `scripts/ci-local.sh` jobs this host supports (Mac: `macos ios web android`; Linux: `linux windows
    android web`; a job without its tooling skips itself), then on a Mac `scripts/ci-docker.sh linux` (the Linux job in
    Docker; its MinGW + Wine Windows job is not a reference on a Mac, see below) and `scripts/ci-remote-windows.sh`, the
    native Windows check on a PC (exit 0 pass, 1 fail, 77 not set up, PC off or nobody logged in: reported as SKIP).
@@ -829,14 +855,15 @@ It ends with a PASS/FAIL/SKIP table with the time of each step and exits 1 if an
 
 ```bash
 scripts/ci-preflight.sh                      # everything
-scripts/ci-preflight.sh --quick              # risk scan + test-all only
+scripts/ci-preflight.sh --lint-only          # risk scan + lint (minutes, no build): before every push
+scripts/ci-preflight.sh --quick              # risk scan + lint + test-all only
 scripts/ci-preflight.sh --no-stress --no-platforms
 scripts/ci-preflight.sh --repeat 5 --base origin/main --strict
 scripts/ci-preflight.sh --scan-only          # the risk scan alone (seconds)
 scripts/ci-preflight.sh --no-test --no-platforms  # stress only, on the build dirs of an earlier run
 ```
 
-On a Windows host the script (Git Bash) runs the risk scan and then points to `scripts\agent-build.ps1 build\agent-<name>
+On a Windows host the script (Git Bash) runs the risk scan and the lint step without clang-tidy, and then points to `scripts\agent-build.ps1 build\agent-<name>
 -Test -Examples`, the Windows build and test path.
 
 ## Continuous integration (local, no GitHub minutes)
@@ -910,9 +937,12 @@ are free for public repositories. It runs once per change:
 
 - **Pull requests**: every push to a branch with an open pull request.
 - **`main`**: every push (including merged pull requests).
-- **`v*` tags**: every job, whatever changed.
 - **Other branches**: no automatic run, so a PR branch is not built twice. Start
   one by hand from the Actions tab ("Run workflow"; every job) or open a pull request.
+- **`v*` tags**: no run of this workflow. The tag goes on the merge commit of a pull request: the push to `main` already
+  ran this workflow on that very commit, so a run on the tag would repeat it. Check that run is green before tagging
+  (`gh run list --commit <sha> --workflow CI`; a later push to `main` cancels it, then run it again from the Actions tab);
+  `release.yml` builds and tests the packages on the tag.
 
 A run only builds what the change can break (the `changes` job compares it with its
 base): a change to docs only (`docs/`, `feedback/`, top-level `*.md`) builds nothing,
@@ -934,9 +964,18 @@ one test at a time: its editor autotests draw with the software D3D11 renderer (
 matrix of three machines (`Windows (... tests 1/3)` to `3/3`): each builds (with a warm ccache that takes about a
 minute) and runs a third of the tests, chosen by `scripts/ctest_shard.py`. Every machine lists the same tests and
 splits them the same way, balancing the expected time of each third with the times measured on the runner (the table
-in the script; a test not listed counts 2 s), so a new test runs in exactly one shard. Only shard 1 saves the ccache
-and prints the physics replay hash. `python scripts/ctest_shard.py --preset <preset> --shard 1 --of 3` runs one third
-on your machine too. The performance
+in the script, one per preset, taken from a green CI run named in its comment; a test not listed counts 2 s and a disabled one 0),
+so a new test runs in exactly one shard (the script checks that before it runs anything, and `python scripts/ctest_shard.py
+--self-test`, run by the `lint` job, checks the split on a made-up list). Only shard 1 saves the ccache and prints the
+physics replay hash. `python scripts/ctest_shard.py --preset <preset> --shard 1 --of 3` runs one third on your machine too.
+The `linux-asan` job is split the same way into two (`--preset linux-asan --of 2`, each shard with `ctest --parallel 4`, only
+shard 1 trims, saves and prunes the ccache, the failure artifacts are `linux-asan-test-output-1` and `-2`); its table holds the
+times of the run with all tests on one machine, measured four tests at a time. The `tooling` test, then one process, took
+19 of that run's 21 minutes of testing and so set the length of the round; it is now the five entries `tooling_1` ...
+`tooling_5` (`ctest -L tooling` runs them; `tools/common/CMakeLists.txt`, docs/ARCHITECTURE.md "Testing"), which the table
+lists with estimates (a fifth of the old time each) until a green run of the split gives real ones. With them the two
+shards are expected to take about 6.6 and 6.7 minutes of testing, and a third machine would only bring that to 5.3 (the
+longest test, `runtime`, is the floor), so two stay. The performance
 budgets have the `RUN_SERIAL` property, so `ctest` runs each of them alone and the other tests cannot skew their times.
 A newer push to the same pull request or branch cancels the older run (not a manual "Perf baselines" run
 of that ref: the event and the `perfBaselines` and `benchBaselines` ticks are part of the concurrency group). The `bench`
@@ -944,10 +983,39 @@ job builds only `fa_bench` and compares the engine's microbenchmarks with `tools
 (docs/PERFORMANCE.md, "Microbenchmarks"). A `_perf` test that passes inside
 the warning band is invisible to ctest; the step "Performance warnings" of the Linux, Windows and macOS jobs lists those
 in the job summary (`scripts/ci-perf-warnings.sh`, docs/PERFORMANCE.md "The band").
-Each job that compiles restores a ccache and saves it again with only the entries its build used, right after the build,
-so a run whose tests fail still leaves the next run a warm cache; `CI result` then
-deletes the older ccaches of the same branch or pull request. That keeps the repository's 10 GB of caches holding
-`main`'s, which every pull request starts from.
+Each job that compiles restores a ccache and saves it again right after the build, so a run whose tests fail still
+leaves the next run a warm cache. Three rules keep that cache from shrinking or piling up:
+
+- The trim (`ccache --evict-older-than 7200s`, which keeps only the entries this build used) runs only after a build
+  that succeeded. A build that fails after a minute used almost nothing: trimming then would save a cache smaller than the
+  one restored, and as the newest cache of the pull request it would hide `main`'s (Windows once restored 15 MB where
+  `main`'s was 258 MB). Without the trim the saved cache is the restored one plus the new objects.
+- The save runs whenever the build step started: after a green build, after a build that failed (the objects that did
+  compile) and when a newer push cancelled the job in the middle of the build (`if: always() && ...`; the next round of
+  the pull request starts warm instead of from the older cache: a cold Windows build takes 75-80 minutes, a warm one 8-14).
+  It does not run when the restore failed or the build step was skipped (an earlier step failed), and Windows saves from
+  shard 1 only.
+- Every job that saved then deletes the older caches of the same ccache on the same branch or pull request
+  (`scripts/ci-prune-caches.sh <key prefix>`, step "Delete this ref's older ccaches", which needs `actions: write` on the
+  job's token). It lists only the caches of `GITHUB_REF`, only keys of exactly the form `<prefix><run id>` (so
+  `ccache-Linux-gcc-` never touches another job's `ccache-Linux-linux-asan-<id>`), and deletes nothing unless the cache
+  this run just saved is in the list. A failure is a warning, never a red job (a pull request from a fork has a read-only
+  token). Failed and cancelled rounds save too, so without this the repository's 10 GB would fill with them and GitHub's
+  eviction of the least recently used caches would remove `main`'s first, which every pull request starts from. A
+  cancelled job saves but deletes nothing (`if: !cancelled() && ...`): the newer round that cancelled it may be
+  downloading the very cache it would delete; that round deletes them all once it has saved its own. `CI result` still
+  deletes the older ccaches of the ref at the end of a round, as a net under that.
+Every Ninja build of `ci.yml` (and `scripts/build-sniper.sh`, which `release.yml` uses too) runs `cmake --build ... -- -k 0`: after a compile error
+Ninja keeps building everything that does not depend on the broken file, so one round lists every error and warning
+(`FA_WARNINGS_AS_ERRORS`) instead of the first, and ccache stores every object that did compile for the next round. The
+Windows builds (Visual Studio/MSBuild) and the iOS one (Xcode) take no `-k`; the baseline jobs pass it to Linux and macOS only.
+A ccache is found by the START of its key (`restore-keys` gives a job the newest cache whose key begins with its prefix), so
+no job's prefix may begin another job's key: the GCC job's `ccache-Linux-gcc-` (it was `ccache-Linux-linux-`, which the
+Clang jobs' `ccache-Linux-linux-asan-`, `-tsan-`, `-fuzz-` and `-coverage-` also begin with, so the GCC job restored a Clang
+cache and compiled everything again). `scripts/check-ci-cache-keys.py` reads every workflow in `.github/workflows`, expands
+`runner.os` and the matrices, and fails the `lint` job with the file, line and both jobs when a restore prefix is a proper
+prefix of another cache's key; two jobs that share a cache on purpose (`bench` reads the `linux` job's) have equal prefixes
+and pass. Run it by hand after editing a key.
 `./scripts/ci-local.sh` runs the same kind of checks on your own machine before
 you push.
 

@@ -195,7 +195,12 @@ std::string add_holder(OpenFiles& o, const std::string& key, bool sharesDelete) 
     return key + '\n' + std::to_string(h.generation);
 }
 
-void retry_pause(int attempt) { std::this_thread::sleep_for(std::chrono::milliseconds(attempt < 10 ? 1 : 10)); }
+std::atomic<std::uint64_t> gSharingRetries{0};
+
+void retry_pause(int attempt) {
+    gSharingRetries.fetch_add(1, std::memory_order_relaxed);
+    std::this_thread::sleep_for(std::chrono::milliseconds(attempt < 10 ? 1 : 10));
+}
 
 bool use_assets(const std::string& normalized) {
 #ifdef __ANDROID__
@@ -676,6 +681,8 @@ stdfs::path find_file_in_use(const stdfs::path& dir, const std::function<bool(co
 }
 
 // ---- Windows file rules: public part -----------------------------------------------------------------------------
+std::uint64_t sharing_retries() { return gSharingRetries.load(std::memory_order_relaxed); }
+
 bool windows_rules() {
 #ifdef _WIN32
     return true;

@@ -66,12 +66,12 @@ class Server:
         self.p.stdin.flush()
 
     def wait(self, pred, timeout=30):
-        deadline = time.time() + timeout
+        deadline = time.monotonic() + timeout
         for m in self.seen:
             if pred(m):
                 self.seen.remove(m)
                 return m
-        while time.time() < deadline:
+        while time.monotonic() < deadline:
             try:
                 m = self.q.get(timeout=0.2)
             except queue.Empty:
@@ -115,6 +115,23 @@ class Server:
             self.p.kill()
 
 
+def retry_io(what, fn, seconds=30):
+    """Runs a file operation that Windows refuses while another program has the file open ("being used by another
+    process": an antivirus scanning the copy this test just wrote, the indexer, the server reading its own folder). Such a
+    program lets go within moments; an installer waits for it the same way. Any other error is raised as it is; this one
+    after `seconds` (a safety net far above a scan) is raised with `what`, so the log says which step failed."""
+    deadline = time.monotonic() + seconds
+    while True:
+        try:
+            return fn()
+        except PermissionError as e:
+            if not IS_WINDOWS:
+                raise
+            if time.monotonic() > deadline:
+                raise OSError("%s: %r" % (what, e)) from e
+            time.sleep(0.05)
+
+
 def another_build(src, dst):
     """A copy of `src` that says it is another build: its fingerprint is changed everywhere it is written in the bytes."""
     data = bytearray(open(src, "rb").read())
@@ -156,8 +173,9 @@ def main():
         before = json.loads(text.split("\n[FactorIA notice]")[0]) if r else {}
         running_before = before.get("running", {}).get("fingerprint", "")
         if IS_WINDOWS:  # a running program cannot be written over, only renamed: an installer moves it aside first
-            os.replace(exe, exe + ".old")
-        os.replace(newexe, exe)  # a rename over the running file, as an installer does
+            retry_io("moving the running program aside", lambda: os.replace(exe, exe + ".old"))
+        # a rename over the running file, as an installer does
+        retry_io("renaming the other build over the program", lambda: os.replace(newexe, exe))
         # A request written while the server notices the change must not be lost.
         pid = s.request("ping")
         pong = s.wait(lambda m: m.get("id") == pid, 30)
@@ -183,21 +201,31 @@ def main():
 
         print("-- a project .mcp.json without a timeout")
         mcp_json = os.path.join(project, ".mcp.json")
-        cfg = json.load(open(mcp_json))
+        def read_json():
+            with open(mcp_json) as f:
+                return f.read()
+
+        cfg = json.loads(retry_io("reading .mcp.json", read_json))
         for entry in cfg.get("mcpServers", {}).values():
             entry.pop("timeout", None)
-        json.dump(cfg, open(mcp_json, "w"), indent=2)
+
+        def write_json():
+            with open(mcp_json, "w") as f:
+                json.dump(cfg, f, indent=2)
+
+        retry_io("writing .mcp.json", write_json)
         time.sleep(0.05)
         s = Server(exe, project, home, client="claude-code")
         check(s.ok, "initialize (claude-code)")
-        for _ in range(40):  # the server looks as soon as the client initialized, between two messages
-            if "timeout" in open(mcp_json).read():
+        end = time.monotonic() + 60  # a safety net far above a loaded VM: the server looks as soon as the client initialized
+        while time.monotonic() < end:
+            if "timeout" in retry_io("reading .mcp.json", read_json):
                 break
             time.sleep(0.25)
         r, text = s.tool("engine_update_status")
         check(r is not None and "/mcp" in text and "timeout" in text,
               "the first tool result tells the AI to ask for a restart or /mcp, and what was added", text)
-        fixed = json.load(open(mcp_json))
+        fixed = json.loads(retry_io("reading .mcp.json", read_json))
         timeouts = [e.get("timeout") for e in fixed.get("mcpServers", {}).values()]
         check(timeouts and all(isinstance(t, int) and t >= 3600000 for t in timeouts), "the missing timeout was added to .mcp.json", fixed)
         r, text = s.tool("engine_update_status")

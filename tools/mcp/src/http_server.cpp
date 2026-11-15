@@ -417,6 +417,13 @@ std::size_t McpHttpServer::connection_threads() const {
     return impl_->threads.size();
 }
 
+std::size_t McpHttpServer::idle_connections() const {
+    std::lock_guard<std::mutex> lock(impl_->mu);
+    std::size_t n = 0;
+    for (const auto& [id, conn] : impl_->connections) n += conn.idle ? 1 : 0;
+    return n;
+}
+
 Result<std::string> McpHttpServer::start(Handler handler, std::chrono::milliseconds streamAfter) {
     return start(StreamHandler([h = std::move(handler)](std::string_view m, const Notify&) { return h(m); }),
                  streamAfter);
