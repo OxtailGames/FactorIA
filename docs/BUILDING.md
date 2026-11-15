@@ -811,6 +811,9 @@ that adds it. [EXPORTING.md](EXPORTING.md#size-of-the-player) says what the link
   option), and for iOS the measured archives themselves. A map the script cannot read (an unknown format, a binary file)
   never fails the step: the report's `note` says why, the numbers fall back to the archive list or to none, and only the
   comparison with `maxBytes` can fail. The report says which source it used.
+  Input sections that belong to no file (lld's `<internal>` and `lto.tmp` with LTO) are counted under `(lto)`, so the table
+  still adds up to the map's total. The artifact is uploaded when the size step ran, also when it failed; when the build
+  failed the step is skipped and there is no report (the build's log says why).
 - **When a budget fails.** The step prints the platform, the file, the size and the budget, the libraries that grew most
   against `baselineLibraries`, and what to do. If the player should not have grown, find what the change pulled in. If the
   growth is intended, take `player-size-<platform>.json` from the run's artifacts and run
@@ -823,7 +826,7 @@ that adds it. [EXPORTING.md](EXPORTING.md#size-of-the-player) says what the link
   --build-dir build/rel` (the platform key names the budget entry; a Windows build adds `--config Release`).
   `ctest -L size` runs `player_size_script`, the test of the script (schema of the budget file, the four map readers on
   sample maps (a demangled symbol line is not an input section), `measure` on a fake binary over, under and with no budget,
-  with an unreadable map, and on archives, `update`). The script is Python 3 (standard library
+  with an unreadable map, and on archives, `update`). `cmake_check_not_linked` (same label) configures a small project where a target reaches `fa_authoring` directly, through a chain and inside generator expressions: every way must fail the configure. The script is Python 3 (standard library
   only); the `.sh` only finds the interpreter, also in Git Bash on Windows.
 
 ## Formatting and lint
