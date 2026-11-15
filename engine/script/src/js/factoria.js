@@ -1356,6 +1356,10 @@
     // ---- settings an options menu needs (M10): text, rebinding, last input, button names, cursor, on-screen keyboard
     // Characters typed this frame (UTF-8), from the keyboard or the on-screen keyboard.
     get text() { return N.inText(); },
+    // An input method (IME) is composing text: true from the first pre-edit string until it is committed (the committed text then
+    // arrives in `text`) or cancelled. compositionText is the pre-edit string ("" when none). Read-only.
+    get composing() { return N.inComposition(0); },
+    get compositionText() { return N.inComposition(1); },
     showKeyboard(on = true) { N.inCursor(2, !!on); },
     get keyboardShown() { return N.inCursor(2); },
     // True while the platform shows its own keyboard for the focused TextField (the Steam Deck's, through a native plugin):

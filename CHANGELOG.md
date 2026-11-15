@@ -6,6 +6,10 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- `TextField` has `caretIndex`, `selectionStart`, `selectionEnd` and a runtime `composition`, and scripts read
+  `input.composing` / `input.compositionText`: the shared interface for text editing and IME composition (M98.6). Nothing
+  moves the caret yet.
+
 ## 0.29.1
 
 FactorIA 0.29.1 fixes the two crashes the weekly fuzz run found in 0.29.0: a damaged PostScript (`CFF `)

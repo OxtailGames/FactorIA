@@ -1,4 +1,5 @@
 #include "fa/ui/ui.h"
+#include "fa/platform/ime.h"
 #include "fa/scene/chart.h"
 
 #include <algorithm>
@@ -341,6 +342,12 @@ void UiSystem::reset() {
     release_platform_keyboard(nullptr);
     askedField_ = kNullEntity;
     focus_ = hover_ = press_ = prevHover_ = hoverFocused_ = kNullEntity;
+    if (imeOn_) {
+        ime_cancel();
+        ime_set_enabled(false);
+    }
+    imeOn_ = false;
+    imeField_ = kNullEntity;
     warnedKnobs_.clear();
     focusCleared_ = false;
     pointerOn_ = pointerDown_ = pointerPrevDown_ = pointerOverUi_ = wheelConsumed_ = false;
@@ -785,6 +792,17 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     lastPointer_ = mouse;
     update_tooltip(w, in, design, dt, measure, mouse, ptrDown);
 
+    // ---- an IME composition belongs to the TextField that had the focus when it began: when the focus moves to another field
+    // or leaves, it is cancelled (here, before the flags below hand it to the new field), and the backend is told to drop it.
+    {
+        const Entity field = focus_ && w.get<TextField>(focus_) ? focus_ : kNullEntity;
+        if (field != imeField_) {
+            if (in.composing()) in.on_composition_cancel();
+            if (imeField_) ime_cancel();
+            imeField_ = field;
+        }
+    }
+
     // ---- runtime flags the renderer and scripts read
     for (const Item& it : items) {
         if (it.custom) {
@@ -798,8 +816,13 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         c->focused = it.e == focus_;
         c->hovered = it.e == hover_;
         c->pressed = it.e == press_;
-        if (TextField* tf = w.get<TextField>(it.e))
+        if (TextField* tf = w.get<TextField>(it.e)) {
             tf->caret = it.e == focus_ && std::fmod(clock_ - caretStart_, 1.0f) < 0.5f;
+            tf->clamp_indices();
+            tf->composition.clear();  // the IME's pre-edit string belongs to the focused field only
+            if (it.e == focus_ && in.composing())
+                for (const char32_t c : in.composition_text()) utf8_append(tf->composition, c);
+        }
     }
     // An Interactable that is not among the items this frame (inactive, or hidden from the camera at the pointer by
     // Camera.showTags / hideTags) is not hovered, pressed or focused any more: its flags would stay as the last frame left them.
@@ -836,6 +859,22 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     in.set_platform_keyboard(platformField_ != kNullEntity);
     // Text input mode: a focused TextField takes the typed keys, so game actions bound to letters read as up meanwhile.
     in.set_ui_text_input(focus_ && w.get<TextField>(focus_));
+
+    // ---- the IME (candidate window, composition): on while a TextField has the focus, and told where the caret is. The field's
+    // right part stands in for the caret until the editing model (M98.6b) knows its exact place.
+    const bool imeWanted = focus_ && w.get<TextField>(focus_);
+    if (imeWanted != imeOn_) {
+        imeOn_ = imeWanted;
+        ime_set_enabled(imeWanted);
+    }
+    if (imeWanted)
+        if (const std::optional<Rect> fr = ui_rect(w, focus_, design)) {
+            const Vec2 a =
+                designToWindow_ ? designToWindow_({fr->x + fr->w - 2.0f, fr->y}) : Vec2{fr->x + fr->w - 2.0f, fr->y};
+            const Vec2 b =
+                designToWindow_ ? designToWindow_({fr->x + fr->w, fr->y + fr->h}) : Vec2{fr->x + fr->w, fr->y + fr->h};
+            ime_set_caret_rect({a.x, a.y, b.x - a.x, b.y - a.y});
+        }
 
     // ---- the phone's keyboard follows a TextField's focus: up when one gets it, down when it goes. Only the changes
     // count, so a script's input.showKeyboard() in between still works. A pad player gets the game's on-screen keyboard
