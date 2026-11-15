@@ -1511,7 +1511,9 @@ m.update({ positions: newPositions });            // the rest is kept
 - **In the editor.** A procedural mesh in a running (play) scene is picked and outlined by its real bounds and triangles, and the inspector
   shows its vertex and triangle counts next to `MeshRenderer.mesh`.
 
-The same operations are commands (CLI, MCP and the editor's AI): `mesh.create` (the options above as JSON;
+The same operations are commands for the tools that work on a project (the `factoria` CLI, MCP and the editor's AI; the editor's Play
+has them too, the exported player does not, and a game script uses the `mesh` API above, which acts on the same meshes):
+`mesh.create` (the options above as JSON;
 a flat list or lists of triples), `mesh.update {id, ...}`, `mesh.destroy {id}`, `mesh.save {id, path}`, `mesh.list` and
 `mesh.info {id}`. They act on the scene that is loaded in the process that runs them (a mesh lives only as long as that process and scene), and you set the field with
 `scene.set_component {"id": "...", "component": "MeshRenderer", "fields": {"mesh": "mesh:1"}}`.

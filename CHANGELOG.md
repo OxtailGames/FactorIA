@@ -13,7 +13,10 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
   names, arguments and results do not change. For engine developers: `fa/runtime/command_extension.h` is a process-wide
   list of command extensions that `Engine::init` runs after the built-in and plugin commands, `fa::authoring::install()`
   registers the authoring one (call it once before the first Engine), and `Engine::runtime_command_names()` lists what the
-  player has. `Engine::Impl` is now declared in `fa/runtime/internal/engine_impl.h`, for engine tools only.
+  player has. `Engine::Impl` is now declared in `fa/runtime/internal/engine_impl.h`, for engine tools only. The effect and
+  mesh tools move too: `vfx.check`, `vfx.budget`, `vfx.filmstrip` and `mesh.create`, `mesh.update`, `mesh.destroy`,
+  `mesh.save`, `mesh.list`, `mesh.info` are no longer in the player (the `vfx` and `mesh` APIs of scripts are unchanged,
+  and so are `vfx.play`, `vfx.stop` and `vfx.list`).
 
 ### Fixes
 

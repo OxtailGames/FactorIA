@@ -353,6 +353,8 @@ only markers on the timeline.
 ### Reviewing an effect: `vfx.budget`, `vfx.filmstrip` and `vfx.review`
 
 Three commands check an effect before it ships. All three read the file on disk (`path` or `effect`, like `vfx.check`).
+`vfx.check`, `vfx.budget` and `vfx.filmstrip` are tools for whoever makes the effect (the `factoria` CLI, MCP and the editor, Play
+included); the exported player does not have them. What a game calls is `vfx.play`, `vfx.stop` and `vfx.list` (the `vfx` API of scripts).
 
 - `vfx.budget {"path", "preset"?, "seed"?, "view"?}` plays the document in a scratch world, headless, with the same emitter simulation a game runs
   (no renderer needed), and reports the peak of particles alive, the peak of overdraw (the area of every particle's quad divided by the
