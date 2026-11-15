@@ -34,6 +34,8 @@ void Profiler::set_enabled(bool on) {
     last_ = ProfFrame{};
     index_.clear();
     slots_.clear();
+    zoneIndex_.clear();
+    zoneSlots_.clear();
     childMs_ = 0;
     frames_ = 0;
     t0_ = 0;
@@ -71,6 +73,12 @@ void Profiler::end_frame() {
     std::sort(cur_.classes.begin(), cur_.classes.end(), [](const ProfClassSample& a, const ProfClassSample& b) {
         return a.ms != b.ms ? a.ms > b.ms : a.className < b.className;
     });
+    cur_.zones = std::move(zoneSlots_);
+    zoneSlots_.clear();
+    zoneIndex_.clear();
+    std::sort(cur_.zones.begin(), cur_.zones.end(), [](const ProfZoneSample& a, const ProfZoneSample& b) {
+        return a.ms != b.ms ? a.ms > b.ms : a.name < b.name;
+    });
     last_ = std::move(cur_);
     cur_ = ProfFrame{};
     ++frames_;
@@ -92,6 +100,20 @@ void Profiler::add_behaviour(const std::string& className, const std::string& pa
     ProfClassSample& s = slots_[it->second];
     s.ms += std::max(0.0, ms);
     ++s.calls;
+}
+
+void Profiler::add_zone(std::string_view name, double ms) {
+    const std::string key(name);
+    auto it = zoneIndex_.find(key);
+    if (it == zoneIndex_.end()) {
+        it = zoneIndex_.emplace(key, zoneSlots_.size()).first;
+        ProfZoneSample z;
+        z.name = key;
+        zoneSlots_.push_back(std::move(z));
+    }
+    ProfZoneSample& z = zoneSlots_[it->second];
+    z.ms += std::max(0.0, ms);
+    ++z.calls;
 }
 
 void Profiler::add_job(int lane, std::string_view name, double ms, int count) {
@@ -144,6 +166,12 @@ void ProfileSummary::add_frame(const ProfFrame& f) {
         a.sumMs += c.ms;
         a.maxMs = std::max(a.maxMs, c.ms);
         a.calls += std::uint64_t(c.calls);
+    }
+    for (const ProfZoneSample& z : f.zones) {
+        ZoneAcc& a = zones_[z.name];
+        a.sumMs += z.ms;
+        a.maxMs = std::max(a.maxMs, z.ms);
+        a.calls += std::uint64_t(z.calls);
     }
     for (const ProfLane& l : f.lanes) {
         auto it = std::find_if(lanes_.begin(), lanes_.end(), [&](const LaneAcc& a) { return a.name == l.name; });
@@ -229,6 +257,18 @@ Json ProfileSummary::to_json() const {
                                     {"callsPerFrame", r3(double(c.calls) / n)}}));
     }
     out["behaviours"] = cls;
+    std::vector<std::pair<const std::string*, const ZoneAcc*>> zoneList;
+    for (const auto& kv : zones_) zoneList.emplace_back(&kv.first, &kv.second);
+    std::sort(zoneList.begin(), zoneList.end(), [](const auto& a, const auto& b) {
+        return a.second->sumMs != b.second->sumMs ? a.second->sumMs > b.second->sumMs : *a.first < *b.first;
+    });
+    Json zones = Json::array();
+    for (std::size_t i = 0; i < zoneList.size() && i < kMaxZones; ++i)
+        zones.push_back(Json::object({{"name", *zoneList[i].first},
+                                      {"avgMs", r3(zoneList[i].second->sumMs / n)},
+                                      {"maxMs", r3(zoneList[i].second->maxMs)},
+                                      {"callsPerFrame", r3(double(zoneList[i].second->calls) / n)}}));
+    out["zones"] = zones;
     Json threads = Json::array();
     for (const LaneAcc& l : lanes_) {
         std::vector<std::pair<const std::string*, const JobAcc*>> names;

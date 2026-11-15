@@ -79,6 +79,14 @@ struct PassStats {
     bool culled = false;
 };
 
+// Called around the callback of every pass execute() runs (not for a pass without callback, nor a culled one): `begin` right
+// before it, `end` right after it with its CPU time in milliseconds, also when the callback throws. The renderer uses them to
+// place GPU timestamps and to feed the profiler; they must not touch the graph. Empty functions are skipped.
+struct PassHooks {
+    std::function<void(const std::string& pass)> begin;
+    std::function<void(const std::string& pass, double cpuMs)> end;
+};
+
 class FrameGraph {
 public:
     // A resource the renderer owns (the game target, the swapchain, an image of a render-target asset). `handle` is
@@ -105,6 +113,9 @@ public:
     // their last one; whatever the way out, a failure or a pass that throws, none stays acquired). Fails when
     // compile() has not succeeded.
     Result<void> execute(TargetPool& pool);
+
+    // The functions execute() calls around each pass callback; kept by clear() and release_callbacks().
+    void set_pass_hooks(PassHooks hooks) { hooks_ = std::move(hooks); }
 
     // The cycles the last compile() broke (CyclePolicy::Break), in the order they were broken.
     const std::vector<CycleBreak>& cycle_breaks() const { return breaks_; }
@@ -158,6 +169,7 @@ private:
     std::vector<CycleBreak> breaks_;
     bool released_ = false;  // release_callbacks() ran: the passes cannot execute
     std::vector<PassStats> stats_;
+    PassHooks hooks_;
     std::vector<std::uint64_t> physical_;  // per resource, valid while execute() runs
 };
 

@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.26](chang
 
 ## Unreleased
 
+- Renderer (no change in what is drawn): every pass of the frame graph is timed. New command `render.frame_graph` returns the
+  graph of the last frame with `cpuMs` and `gpuMs` for each pass and job, the backend and whether GPU times exist; the
+  passes are `zones` named `<job>/<pass>` in `perf.profile`'s `profile.zones`. GPU times per pass come from
+  timestamp queries on Direct3D 11 and desktop OpenGL while the profiler is on (-1 plus a reason elsewhere; Metal, GLES3 and
+  WebGL2 have no timer). `RenderStats` gained `passes`, `jobs` and `sortKeyFallbacks` (also in `game.render_stats`).
 - Renderer (no change in what is drawn): the 3D world is gathered once per frame and shared by every camera, render target and
   CameraView (a `RenderScene`: matrices, resolved assets, boxes, flashes and blend flags), so a camera only filters by
   `showTags`/`hideTags`, tests its frustum and sorts its blended meshes; the hash of `MeshRenderer.materialParams` and

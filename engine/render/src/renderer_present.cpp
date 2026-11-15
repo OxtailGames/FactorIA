@@ -157,6 +157,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     plan.name = "capture";
     im.plan_view_job(world, fr, *im.viewTargets[kKey], kKey, plan);
     im.run_frame_graph();
+    im.graphFromCapture = true;  // the graph the frame-graph report shows is this one until the next render()
     im.renderScene.reset();
     // Read-back waits for the GPU, and on Metal the work is only submitted by sg_commit (see capture()).
     sg_commit();

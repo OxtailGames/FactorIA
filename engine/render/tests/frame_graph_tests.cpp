@@ -502,3 +502,47 @@ TEST_CASE("frame graph: a pass that throws gives every transient back to the poo
     CHECK(fp.pool.stats().inUse == 0);  // back in the pool, not leaked
     CHECK(fp.pool.stats().live == 2);
 }
+
+TEST_CASE("frame graph: pass hooks wrap every pass that runs, in order, with its CPU time, and skip culled passes") {
+    FrameGraph g;
+    ResourceId screen = g.import_target("screen", 1);
+    ResourceId a = g.create_transient(desc(8, 8, "a"));
+    ResourceId dead = g.create_transient(desc(8, 8, "dead"));
+    std::vector<std::string> log;
+    g.add_pass(pass("p0", {}, {a}, &log));
+    g.add_pass(pass("orphan", {}, {dead}, &log));  // nobody reads it: culled
+    g.add_pass(pass("p1", {a}, {screen}, &log));
+    REQUIRE(g.compile().ok());
+    std::vector<std::string> events;
+    PassHooks hooks;
+    hooks.begin = [&](const std::string& n) { events.push_back("begin " + n); };
+    hooks.end = [&](const std::string& n, double ms) {
+        CHECK(ms >= 0.0);
+        events.push_back("end " + n);
+    };
+    g.set_pass_hooks(hooks);
+    FakePool fp;
+    REQUIRE(g.execute(fp.pool).ok());
+    CHECK(events == std::vector<std::string>{"begin p0", "end p0", "begin p1", "end p1"});
+    REQUIRE(g.stats().size() == 3);
+    CHECK(g.stats()[0].cpuMs >= 0.0);
+    CHECK(g.stats()[2].culled);
+}
+
+TEST_CASE("frame graph: the end hook also runs when a pass throws") {
+    FrameGraph g;
+    ResourceId screen = g.import_target("screen", 1);
+    GraphPass thrower = pass("boom", {}, {screen});
+    thrower.execute = [](const PassContext&) { throw 42; };
+    g.add_pass(std::move(thrower));
+    REQUIRE(g.compile().ok());
+    int begins = 0, ends = 0;
+    PassHooks hooks;
+    hooks.begin = [&](const std::string&) { ++begins; };
+    hooks.end = [&](const std::string&, double) { ++ends; };
+    g.set_pass_hooks(std::move(hooks));
+    FakePool fp;
+    CHECK_THROWS(static_cast<void>(g.execute(fp.pool)));
+    CHECK(begins == 1);
+    CHECK(ends == 1);
+}
