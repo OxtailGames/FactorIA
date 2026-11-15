@@ -201,6 +201,55 @@ bool fa_sapp_set_dock_icon(const unsigned char* rgba, int w, int h) {
 #endif
 }
 
+// ---- IME (ime_apple.mm) -------------------------------------------------------------------------------------------------
+void* fa_sapp_macos_view(void) {
+#if !TARGET_OS_IPHONE
+    return (__bridge void*)_sapp.macos.view;
+#else
+    return NULL;
+#endif
+}
+
+void* fa_sapp_ios_textfield(void) {
+#if TARGET_OS_IPHONE
+    return (__bridge void*)_sapp.ios.textfield;
+#else
+    return NULL;
+#endif
+}
+
+// A copy of sokol_app's -[_sapp_macos_view keyDown:] with the CHAR events optional (the text may have been delivered already).
+void fa_sapp_macos_key_down(const void* nsevent, bool chars) {
+#if !TARGET_OS_IPHONE
+    NSEvent* event = (__bridge NSEvent*)nsevent;
+    if (!_sapp_events_enabled()) return;
+    _sapp_gl_make_current();
+    const uint32_t mods = _sapp_macos_mods(event);
+    const sapp_keycode key_code = _sapp_translate_key(event.keyCode);
+    _sapp_macos_key_event(SAPP_EVENTTYPE_KEY_DOWN, key_code, event.isARepeat, mods);
+    const NSString* text = event.characters;
+    const NSUInteger len = text.length;
+    if (chars && len > 0) {
+        _sapp_init_event(SAPP_EVENTTYPE_CHAR);
+        _sapp.event.modifiers = mods;
+        for (NSUInteger i = 0; i < len; i++) {
+            const unichar codepoint = [text characterAtIndex:i];
+            if ((codepoint & 0xFF00) == 0xF700) continue;
+            _sapp.event.char_code = codepoint;
+            _sapp.event.key_repeat = event.isARepeat;
+            _sapp_call_event(&_sapp.event);
+        }
+    }
+    if (_sapp.clipboard.enabled && (mods == SAPP_MODIFIER_SUPER) && (key_code == SAPP_KEYCODE_V)) {
+        _sapp_init_event(SAPP_EVENTTYPE_CLIPBOARD_PASTED);
+        _sapp_call_event(&_sapp.event);
+    }
+#else
+    (void)nsevent;
+    (void)chars;
+#endif
+}
+
 bool fa_sapp_set_class_name(const char* name) {
     (void)name;  // Linux only: the name of a macOS app comes from its bundle
     return false;
