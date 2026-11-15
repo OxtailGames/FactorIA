@@ -348,7 +348,8 @@ TEST_CASE("render jobs: a big 3D frame (meshes, blending, culling, shadows, skin
     Gfx& g = gfx();
     REQUIRE(g.ok);
     check_same_frames(build_3d, 3, true,
-                      {"render.mesh_matrices", "render.mesh_cull", "render.shadow_bounds", "render.shadow_cull"});
+                      {"render.mesh_matrices", "render.mesh_cull", "render.mesh_frustum", "render.shadow_bounds",
+                       "render.shadow_cull"});
     World w;
     build_3d(w);
     update_animators(w, 1.0f / 30.0f);

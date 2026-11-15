@@ -735,7 +735,8 @@ does not depend on the machine:
 | `scene.particles` | steps its emitters (each `ParticleSim` owns its particles and its Rng) | 2048 particles | emitters of ~1024 particles |
 | `render.gather_particles` | the quads of its emitters (particles, trails) | 2048 particles | emitters of ~1024 particles |
 | `render.sort_quads`, `render.flatten_quads` | stable sort of the 2D items; copy of their vertices into the stream | 4096 items; 16384 vertices | 1024 items; 8192 vertices |
-| `render.mesh_matrices`, `render.mesh_cull` | a mesh's matrix, flash and distance; its bounds (skinned too), frustum test and blend flag | 256 meshes | 64 meshes |
+| `render.mesh_matrices`, `render.mesh_cull` | the render scene, once per frame: a mesh's matrix and flash; its bounds (skinned too), material hashes and blend flag | 256 meshes | 64 meshes |
+| `render.mesh_frustum` | a camera's frustum test over the render scene (once per camera job) | 256 meshes | 64 meshes |
 | `render.sort_blended`, `render.sort_meshes` | stable sorts of the blended meshes (back to front) and of the batches (by material) | 1024 items | 256 items |
 | `render.shadow_bounds`, `render.shadow_cull` | the shadow casters' bounds; the test against the light's volume | 256 casters | 64 casters |
 | `scene.animation_poses` | every clip channel sampled, the fade blended, the skinning palettes of its animators | 512 skeleton nodes | 2 animators |
@@ -861,6 +862,27 @@ audio listener without an `AudioListener` is the first camera drawn. Known limit
 by the scene's ambient light only when the frame has several cameras (the screen job gathers no `Light2D`). The editor viewport
 shows the whole frame: its picking uses the camera under the pointer, but its outlines and gizmos project through the first
 camera drawn, so in a split frame they line up with the first view only.
+
+**The render scene.** The 3D world is gathered ONCE per frame, not once per camera job (`RenderScene`, `render_scene.h/.cpp`):
+`Renderer::Impl::render` builds it after the render targets exist and before any job, and the cameras, the render-target
+cameras and the CameraViews all read it. Per active `MeshRenderer` it holds the drawn matrix, the resolved mesh, texture,
+normal map and material, the Animator that skins it, the flash colour, the culling box (skinned too), the blend flag and
+the two hashes of `materialParams` / `materialColors`; the matrices, boxes and hashes are the jobs `render.mesh_matrices` and
+`render.mesh_cull`, the asset lookups stay on the main thread, and the list keeps the world's order whatever the job threads
+(a chunk writes only its own items). What stays per camera, in `gather_meshes`: the `showTags` / `hideTags` filter
+(`CameraMask`), the distance, the frustum test (`render.mesh_frustum`) and the far-to-near sort of the blended meshes; so
+`RenderStats.meshes` and `meshesCulled` still count per camera job and add up. Two things depend on the job and are looked up
+again for the few items that need it: `MeshRenderer.lods` (the level follows the camera's distance, with its own box and
+blend flag) and a `"target:<name>"` texture (a camera's own target is the checker in its own frame). `Renderer::capture_world`
+builds a scene of its subject instead (`RenderScene::build` with a `scopeRoot`, the same rule as `Frame.scopeRoot`). The same
+scene lists, when a camera renders into a target, which targets each mesh shows, so the dependency order of the targets reads
+it too. The scene points into the world and is dropped when the frame ends. The hashes of the material overrides (items with
+different overrides never share a draw) were `dump()` + `std::hash` per mesh, per camera, per frame. Nothing in `fa_scene` counts
+the writes of a component field (any code holding a `MeshRenderer*` may assign it: reflection, a script view, a command,
+a prefab, the inspector, an undo), so there is no choke point for a version counter; `MaterialHashCache` keeps instead, per
+entity (`Entity::bits()`, so a reused slot is another key), a copy of the JSON the hashes are of and hashes again only
+when the value differs from the copy (a JSON comparison, no allocation); entries nobody asked for in a frame (dead, hidden or
+without overrides) are dropped at its end.
 
 **Cameras inside the UI.** A `CameraView` (a UiBox widget) names a Camera. The UI gather (`draw_camera_view` in `ui2d.cpp`)
 asks the renderer for an image of the widget's size (`Frame::viewImage`; `Impl::viewTargets` caches one per widget, same formats
