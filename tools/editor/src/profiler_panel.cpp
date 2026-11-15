@@ -143,6 +143,15 @@ void Editor::draw_profiler_panel() {
                          ImVec2(-1, 56));
         ImGui::SetItemTooltip("Milliseconds of the last %zu frames", ProfilerView::kHistory);
     }
+    if (v.framesOverScriptBudget > 0) {
+        ImGui::TextColored(
+            ImVec4(1.0f, 0.75f, 0.3f, 1), "Scripts over budget in %llu frame(s), worst %.2f ms (limit %.2f ms)",
+            static_cast<unsigned long long>(v.framesOverScriptBudget), v.worstOverScriptBudgetMs, v.scriptBudgetMs);
+        ImGui::SetItemTooltip(
+            "The script time of a frame went over runtime.scriptFrameBudgetMs in factoria.json (per platform, 0 turns "
+            "it off). "
+            "The Console has the warning that names the slowest callbacks. Frames that load a scene are not counted.");
+    }
     if (v.haveGpu)
         ImGui::Text("GPU %.2f ms", v.gpuMs);
     else

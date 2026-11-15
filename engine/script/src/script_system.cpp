@@ -174,7 +174,8 @@ void rejection_cb(JSContext* ctx, JSValueConst promise, JSValueConst reason, boo
 // ---------------------------------------------------------------------------------------------------------------------
 size_t ScriptSystem::Impl::push_guard(const std::string& label, double seconds) {
     const size_t depth = guards.size();
-    guards.push_back({label, seconds, thread_cpu_seconds() + seconds,
+    const double cpu = thread_cpu_seconds();
+    guards.push_back({label, seconds, cpu, cpu + seconds,
                       std::chrono::steady_clock::now() +
                           std::chrono::microseconds(static_cast<long long>(seconds * kWallCapFactor * 1e6))});
     return depth;
@@ -214,12 +215,20 @@ double ScriptSystem::Impl::budget_clock() {
 // frame and a warning is logged, the first time and then at most once every kBudgetWarnSeconds of game time.
 void ScriptSystem::Impl::end_frame(std::uint64_t frame, double dt) {
     constexpr double kBudgetWarnSeconds = 5.0;
-    constexpr double kMinLabelSeconds = 0.00005;
     budgetClock += std::max(0.0, dt);
     const double seconds = frameSeconds;
+    const double smallSeconds = frameSmallSeconds;
+    const std::uint64_t smallCalls = frameSmallCalls;
     std::unordered_map<std::string, double> labels;
     labels.swap(frameLabels);
-    frameSeconds = 0;
+    frameSeconds = frameSmallSeconds = 0;
+    frameSmallCalls = 0;
+    // A frame that loads a scene (its onStart calls, the files, the first spawns) is a cost the player sees as a loading
+    // screen, not as a slow frame: it is left out of the budget.
+    if (loadFramesLeft > 0) {
+        --loadFramesLeft;
+        return;
+    }
     if (!budget_active()) return;
     const double ms = seconds * 1000.0;
     if (!(ms > frameBudgetMs)) return;
@@ -229,6 +238,12 @@ void ScriptSystem::Impl::end_frame(std::uint64_t frame, double dt) {
     std::vector<std::pair<std::string, double>> top(labels.begin(), labels.end());
     double attributed = 0;
     for (const auto& kv : top) attributed += kv.second;
+    if (smallCalls > 0) {
+        top.emplace_back(
+            std::format("{} callbacks (each under {:.0f} us, all together)", smallCalls, kMinLabelSeconds * 1e6),
+            smallSeconds);
+        attributed += smallSeconds;
+    }
     if (seconds - attributed > kMinLabelSeconds)
         top.emplace_back("(timers, promises and other script work outside the behaviours' callbacks)",
                          seconds - attributed);
@@ -250,7 +265,7 @@ void ScriptSystem::Impl::end_frame(std::uint64_t frame, double dt) {
         "the "
         "check off); the watchdog stops a callback only after {:g} s (docs/PERFORMANCE.md, \"Script budgets\")",
         kBudgetWarnSeconds, callbackLimit);
-    log(LogLevel::Warn, "script", std::move(text));
+    log(LogLevel::Warn, kScriptBudgetLogCategory, std::move(text));
     budgetWarned = true;
     framesOverSinceWarn = 0;
     nextBudgetWarn = budgetClock + kBudgetWarnSeconds;
@@ -620,11 +635,20 @@ JSValue ScriptSystem::Impl::call(const std::string& label, const std::string& en
     lastCallTimedOut = false;
     // The frame budget names its slowest callbacks: the callbacks a frame's entry point calls directly, not the ones they call.
     const bool timed = frameDepth > 0 && depth == 0 && budget_active();
+#if defined(_WIN32) || defined(__EMSCRIPTEN__)
     const double t0 = timed ? budget_clock() : 0.0;
+#else
+    const double t0 = guards[depth].cpuStart;  // budget_clock() is the thread's CPU time: push_guard just read it
+#endif
     JSValue r = JS_Call(ctx, fn, thisVal, static_cast<int>(av.size()), av.data());
     if (timed) {
         const double took = budget_clock() - t0;
-        if (took >= 0.00005) frameLabels[label] += took;
+        if (took >= kMinLabelSeconds) {
+            frameLabels[label] += took;
+        } else {
+            frameSmallSeconds += std::max(0.0, took);
+            ++frameSmallCalls;
+        }
     }
     pop_guard(depth);
     if (JS_IsException(r)) {
@@ -1184,13 +1208,16 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
         const Json& memory = setting("scriptMemoryMB");
         memoryLimitMB = std::clamp(resolve_per_platform_number(memory, platform, kDefaultScriptMemoryMB),
                                    kMinScriptMemoryMB, kMaxScriptMemoryMB);
-        memoryLimitDefault = memory.is_null();
+        // The engine default is in use when the project sets nothing for this platform (no setting, or an object that names
+        // neither this platform nor "default").
+        memoryLimitDefault = resolve_per_platform_number(memory, platform, -1.0) < 0.0;
         frameBudgetMs = std::clamp(
             resolve_per_platform_number(setting("scriptFrameBudgetMs"), platform, kDefaultScriptFrameBudgetMs), 0.0,
             kMaxScriptFrameBudgetMs);
         frameDepth = 0;
         frameSeconds = 0;
         frameLabels.clear();
+        loadFramesLeft = 0;
         budgetClock = nextBudgetWarn = 0;
         framesOverSinceWarn = 0;
         budgetWarned = false;
@@ -1383,6 +1410,8 @@ void ScriptSystem::shutdown() { impl_->shutdown(); }
 void ScriptSystem::on_scene_loaded() {
     if (impl_->host) impl_->host->world().bump_scene_generation();  // every load, also a reload of the same scene
     if (!impl_->initialized) return;
+    // The frame this load happens in, and the one after it (the first onStart calls), are left out of the frame budget.
+    impl_->loadFramesLeft = impl_->frameDepth > 0 ? 2 : 1;
     impl_->drop_all_behaviours();
     impl_->call_method("scene reset", "", impl_->hooks.get(), "resetScene", {});
     impl_->run_jobs();

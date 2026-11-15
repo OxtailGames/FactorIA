@@ -478,7 +478,12 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         "onUpdate). `warmup` frames (default 30) run first and are not counted, because the first frames "
         "load assets. Use `input` (an input replay) to reach the heavy part of the game. The profiler only "
         "measures: game.state, replays and saves are identical with it on. The editor's play sessions record "
-        "the same section in play.report, and View > Profiler shows it live.";
+        "the same section in play.report, and View > Profiler shows it live. profile also has overBudget: "
+        "[{name:\"scripts\", limitMs, frames, maxMs}], the frames of the run whose script time went over "
+        "runtime.scriptFrameBudgetMs (default 8 ms, set per platform in factoria.json; frames that load a scene are "
+        "not counted; [] when none). With the profiler off the same frames only log one warning in the category "
+        "`script.budget` (at most every 5 s of game time), which game.logs and play.report list but game.state "
+        "leaves out.";
     pr.inputSchema = Json::parse(R"({"type":"object","properties":{
         "frames":{"type":"integer","default":300,"minimum":1,"description":"How many frames to profile (fixed step), after the warm-up."},
         "warmup":{"type":"integer","default":30,"minimum":0,"description":"Frames to run first and leave out of the numbers (assets load, caches fill)."},

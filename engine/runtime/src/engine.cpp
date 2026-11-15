@@ -20,6 +20,7 @@
 #include "fa/scene/camera_mask.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/feel.h"
+#include "fa/script/script_budget.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/bones2d.h"
 #include "fa/scene/ik3d.h"
@@ -1427,6 +1428,9 @@ Json Engine::state(const Json& query) {
     Json logs = Json::array();
     for (const LogEntry& l : recent_logs(50, LogLevel::Warn, I.logSeqAtInit)) {
         // Only this engine's logs, and no wall-clock time / global seq: state dumps must be reproducible.
+        // The script budget's warning carries measured milliseconds (a loaded machine logs it, a fast one does not): it
+        // stays out of the dump (game.logs, play.report and the console show it).
+        if (l.category == kScriptBudgetLogCategory) continue;
         logs.push_back(Json::object({{"frame", l.frame},
                                      {"level", log_level_name(l.level)},
                                      {"category", l.category},

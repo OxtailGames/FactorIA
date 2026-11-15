@@ -174,6 +174,7 @@ struct ScriptSystem::Impl {
     struct GuardFrame {
         std::string label;
         double seconds = 0;
+        double cpuStart = 0;     // thread_cpu_seconds() when the guard was pushed (the frame budget times from it)
         double cpuDeadline = 0;  // thread_cpu_seconds() value at which the CPU limit runs out
         std::chrono::steady_clock::time_point wallDeadline;
     };
@@ -196,7 +197,13 @@ struct ScriptSystem::Impl {
     int frameDepth = 0;       // > 0 inside an entry point of a frame
     double frameSeconds = 0;  // script time of the frame so far
     std::unordered_map<std::string, double>
-        frameLabels;            // callback label -> time, for the callbacks that took >= 50 us
+        frameLabels;               // callback label -> time, for the callbacks that took >= 50 us
+    double frameSmallSeconds = 0;  // the time of the callbacks that took less, and how many they were
+    std::uint64_t frameSmallCalls = 0;
+    // Frames still to end that load a scene: on_scene_loaded sets it (2 when it runs inside a frame, whose rest and the next
+    // frame's onStart calls are both loading work, else 1), end_frame counts it down and leaves those frames out of the budget.
+    int loadFramesLeft = 0;
+    static constexpr double kMinLabelSeconds = 0.00005;  // a callback shorter than this is only counted, not named
     double budgetClock = 0;     // game time (the sum of the frames' dt): the rate limit of the warning counts it
     double nextBudgetWarn = 0;  // game time before which no further warning is logged
     std::uint64_t framesOverSinceWarn = 0;

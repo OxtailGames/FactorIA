@@ -29,7 +29,7 @@ import { Behaviour } from "factoria";
 export default class Worker extends Behaviour {
   onUpdate() {
     let s = 0;
-    for (let i = 0; i < 200000; i++) s += i;
+    for (let i = 0; i < 20000; i++) s += i;
     if (s < 0) throw new Error("never");
   }
 }
@@ -41,7 +41,8 @@ Json runtime_settings(const Json& runtime) { return Json::object({{"runtime", ru
 std::vector<std::string> budget_warnings() {
     std::vector<std::string> out;
     for (const LogEntry& e : recent_logs(4096, LogLevel::Warn))
-        if (e.category == "script" && e.message.find("scripts took") != std::string::npos) out.push_back(e.message);
+        if (e.category == kScriptBudgetLogCategory && e.message.find("scripts took") != std::string::npos)
+            out.push_back(e.message);
     return out;
 }
 
@@ -136,7 +137,7 @@ TEST_CASE("script budgets: a frame over the budget warns once, names the slowest
     CHECK(warnings[0].find("scripts/worker.js#onUpdate") != std::string::npos);
     CHECK(warnings[0].find("runtime.scriptFrameBudgetMs") != std::string::npos);
     CHECK(warnings[0].find("0.001 ms") != std::string::npos);
-    CHECK(warnings[0].find("frame 0") != std::string::npos);
+    CHECK(warnings[0].find("frame 1") != std::string::npos);
 
     h.step_frames(320);  // past the 5 s of game time after the first warning
     warnings = budget_warnings();
@@ -159,10 +160,66 @@ TEST_CASE("script budgets: no warning under the budget, with the budget off, or 
     }
 }
 
+TEST_CASE("script budgets: the frames that load a scene are not counted") {
+    clear_recent_logs();
+    TestHost h("budget_loading", runtime_settings(Json::object({{"scriptFrameBudgetMs", 0.001}})));
+    start_busy(h);
+    Profiler& p = Profiler::get();
+    p.set_enabled(true);
+    p.begin_frame();
+    h.step_frames(1);  // the frame after the load: onStart runs in it
+    p.end_frame();
+    CHECK(p.last().overBudget.empty());
+    CHECK(budget_warnings().empty());
+    p.begin_frame();
+    h.step_frames(1);
+    p.end_frame();
+    CHECK(p.last().overBudget.size() == 1);
+    CHECK(budget_warnings().size() == 1);
+    // A scene loaded again is a loading frame again.
+    h.load_scene_now("scenes/main.scene.json");
+    p.begin_frame();
+    h.step_frames(1);
+    p.end_frame();
+    CHECK(p.last().overBudget.empty());
+    p.set_enabled(false);
+}
+
+TEST_CASE("script budgets: the callbacks too short to name are added up in one entry of the warning") {
+    clear_recent_logs();
+    TestHost h("budget_small", runtime_settings(Json::object({{"scriptFrameBudgetMs", 0.001}})));
+    h.file("scripts/small.js", R"(
+import { Behaviour } from "factoria";
+export default class Small extends Behaviour {
+  onUpdate() {
+    let s = 0;
+    for (let i = 0; i < 20; i++) s += i;
+    if (s < 0) throw new Error("never");
+  }
+}
+)");
+    Json entities = Json::array();
+    for (int i = 0; i < 6; ++i)
+        entities.push_back(
+            Json::object({{"id", "small" + std::to_string(i)},
+                          {"components", Json::object({{"Script", Json::object({{"path", "scripts/small.js"}})}})}}));
+    h.file("scenes/main.scene.json", Json::object({{"format", "factoria.scene/1"}, {"entities", entities}}).dump());
+    REQUIRE(h.start());
+    h.load_scene_now("scenes/main.scene.json");
+    h.step_frames(3);
+    const auto warnings = budget_warnings();
+    REQUIRE(warnings.size() == 1);
+    MESSAGE(warnings[0]);
+    // The six onUpdate calls (and the engine's own timer and service calls) are one entry, not six names.
+    CHECK(warnings[0].find(" callbacks (each under 50 us, all together)") != std::string::npos);
+    CHECK(warnings[0].find("scripts/small.js#onUpdate") == std::string::npos);  // none of them is named alone
+}
+
 TEST_CASE("script budgets: the profiler marks the frames over the budget") {
     clear_recent_logs();
     TestHost h("budget_profiler", runtime_settings(Json::object({{"scriptFrameBudgetMs", 0.001}})));
     start_busy(h);
+    h.step_frames(1);  // the frame that loads the scene is not counted
     Profiler& p = Profiler::get();
     p.set_enabled(true);
     p.begin_frame();

@@ -174,7 +174,7 @@ TEST_CASE("profiler: the frames over runtime.scriptFrameBudgetMs are counted in 
     CHECK(tiny[0]["limitMs"].get<double>() == doctest::Approx(0.001));
     CHECK(tiny[0]["maxMs"].get<double>() > 0.001);
     for (const LogEntry& e : recent_logs(4096, LogLevel::Warn))
-        if (e.category == "script" && e.message.find("runtime.scriptFrameBudgetMs") != std::string::npos) {
+        if (e.category == "script.budget" && e.message.find("runtime.scriptFrameBudgetMs") != std::string::npos) {
             ++warnings;
             CHECK(e.message.find("scripts/busy.js#onUpdate") != std::string::npos);
         }
@@ -184,6 +184,26 @@ TEST_CASE("profiler: the frames over runtime.scriptFrameBudgetMs are counted in 
     CHECK(off.empty());
     for (const LogEntry& e : recent_logs(4096, LogLevel::Warn))
         CHECK(e.message.find("runtime.scriptFrameBudgetMs") == std::string::npos);
+}
+
+TEST_CASE("profiler: the script budget warning is in the logs but never in a state dump") {
+    Project p;
+    std::string file = kProject;
+    file.insert(file.rfind('}'), R"(, "runtime": { "scriptFrameBudgetMs": 0.001 })");
+    p.write("factoria.json", file);
+    clear_recent_logs();
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless(p), nullptr, &err), err);
+    e.step(10);
+    int logged = 0;
+    for (const LogEntry& l : recent_logs(4096, LogLevel::Warn))
+        if (l.category == "script.budget") ++logged;  // what game.logs, the console and play.report read
+    CHECK(logged == 1);
+    const Json st = e.state();
+    REQUIRE(st.contains("recentLogs"));
+    for (const Json& l : st["recentLogs"]) CHECK(l["category"] != "script.budget");  // measured ms: not reproducible
+    e.shutdown();
 }
 
 TEST_CASE("profiler: a run without it has no profile section, and it costs nothing to leave off") {

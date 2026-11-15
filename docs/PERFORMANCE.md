@@ -382,18 +382,23 @@ value of the platform the game runs on is the one used, and a platform that noth
   take: every callback the engine runs for scripts in the frame (updates, fixed updates, events, timers, platform and back
   callbacks), added up. The watchdog stops a callback after 2 s, which is far too late for a game that wants 60 frames a
   second; the budget warns long before. The time is the CPU time of the thread, so a loaded machine does not trip it (on
-  Windows and in the web build, where the engine has no per-thread clock, it is wall-clock time).
+  Windows and in the web build, where the engine has no per-thread clock, it is wall-clock time). The frame that loads a
+  scene (its `onStart` calls, the first spawns) and the one after it when the load happens inside a callback are not
+  counted: they are what a loading screen is for (spread a big load with background loading, below).
 
-A frame over the budget does two things, and neither changes what the game does (no callback is cut, `game.state` and
-replays are the same):
+A frame over the budget does two things, and neither changes what the game computes (no callback is cut, and `game.state`
+and replays are the same: the warning is left out of the `recentLogs` of `game.state`, because it carries measured
+milliseconds):
 
 - With the profiler on (`perf.profile`, `play.report`'s `profile`, the editor's Profiler panel) the frame is recorded in
   `profile.overBudget`: `[{name: "scripts", limitMs, frames, maxMs}]`, the number of frames of the run that went over and
   the worst one. An empty list means no frame went over.
-- A `warn` log in the category `script`: the frame number, the time, the budget, the three callbacks that took longest
-  (`scripts/boss.js#onUpdate 5.2 ms`) and the setting to change. It is written the first time, and then at most once every
-  5 seconds of GAME time (the sum of the frame steps, not the wall clock, so it does not depend on how fast the machine
-  is), and says how many frames went over since the last one.
+- A `warn` log in the category `script.budget`, with the profiler on or off: the frame number, the time, the budget, the
+  three callbacks that took longest (`scripts/boss.js#onUpdate 5.2 ms`; the callbacks under 50 microseconds are added up in
+  one entry, "N callbacks (each under 50 us, all together)") and the setting to change. It is written the first time, and
+  then at most once every 5 seconds of GAME time (the sum of the frame steps, not the wall clock, so it does not depend on
+  how fast the machine is), and says how many frames went over since the last one. `game.logs`, the console and
+  `play.report`'s `logs` list it.
 
 The callbacks named are the ones the engine calls (`onUpdate` of a behaviour, a timer, a `world.on` listener), not the
 functions they call: find those with `script.trace` or the profile's `behaviours`. A game that is over budget only on a
