@@ -1067,6 +1067,14 @@
        "doc": "The characters typed this frame, as UTF-8 text (\"\" when none): from the keyboard or the on-screen keyboard, control characters left out. Append it to a text field's string; handle Backspace and Enter with input.keyPressed(). Desktop and iOS deliver composed text (shift, dead keys, IME). Android delivers what a key types in its layout (letters, digits, punctuation, accents through dead keys): a keyboard app that composes words or emoji (CJK input, emoji) cannot be received by a NativeActivity. docs/MOBILE.md lists the limits."
       },
       {
+       "sig": "readonly composing: boolean",
+       "doc": "True while an input method (IME: Japanese, Chinese, Korean, dead keys) is composing text that is not typed yet: from its first pre-edit string until the player commits it or cancels. The committed text then arrives once in input.text. A focused TextField keeps the pre-edit string in TextField.composition (drawn at its caret from M98.6b). Needs a platform that sends composition events (from M98.6c / 6d); until then it stays false."
+      },
+      {
+       "sig": "readonly compositionText: string",
+       "doc": "The pre-edit string of the IME composition in progress, as UTF-8 (\"\" when input.composing is false). It is not part of any text yet: do not append it to a string, wait for input.text."
+      },
+      {
        "sig": "showKeyboard(on?: boolean): void",
        "doc": "Shows (default) or hides the on-screen keyboard of phones and tablets while a text field has focus; its characters arrive in input.text. Desktop ignores it, a headless run only records it (input.keyboardShown). A text field does this by itself when it gets and loses focus."
       },

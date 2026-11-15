@@ -591,7 +591,7 @@ answered, treat the `modified` of a Cloud file and the exact `formFactor` and `r
 
 **Steam Deck.** The Deck is a Linux machine with the controller as a gamepad (the engine names its buttons like an Xbox pad).
 The release `factoria_player` for Linux is built in the Steam Linux Runtime "sniper" container (glibc 2.31, libstdc++
-linked in; `scripts/build-sniper.sh`, docs/BUILDING.md), and CI runs it there, so a Linux export runs in the runtime Steam
+linked in; `scripts/build-sniper.sh`, docs/design/BUILDING.md), and CI runs it there, so a Linux export runs in the runtime Steam
 gives Linux games, on the Deck included (pick "Steam Linux Runtime 3.0 (sniper)" in the Steamworks partner site); the
 Windows build through Proton is the alternative.
 

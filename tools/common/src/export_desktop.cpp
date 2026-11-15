@@ -35,7 +35,7 @@ Result<stdfs::path> find_player(const ExportOptions& o, const std::string& platf
                        " machine without a player binary built for " + platform,
                    "run `factoria setup players` (the editor: Set up in the Export window) to download the " +
                        platform + " player of this FactorIA version, or build factoria_player on " + platform +
-                       " (see docs/BUILDING.md) and pass it with --player <path>");
+                       " (see docs/design/BUILDING.md) and pass it with --player <path>");
     }
     stdfs::path dir = executable_dir();
     for (const stdfs::path& c :
@@ -94,14 +94,15 @@ Result<void> check_player_build(const ExportOptions& o, const stdfs::path& playe
         "To bundle this player anyway: factoria export --allow-player-mismatch (export command: "
         "\"allowPlayerMismatch\": true).";
     if (platform == "web")
-        return err(message,
-                   std::string(theirs.empty() ? "This player predates build fingerprints. " : "") +
-                       "Build the web player from this checkout (`cmake --preset web-release; cmake --build --preset "
-                       "web-release`, "
-                       "docs/BUILDING.md: the export prefers build/web-release/player), run `factoria setup players "
-                       "--platforms web` "
-                       "for the player of this FactorIA version, or pass the matching folder with --player <folder>. " +
-                       passAnyway);
+        return err(
+            message,
+            std::string(theirs.empty() ? "This player predates build fingerprints. " : "") +
+                "Build the web player from this checkout (`cmake --preset web-release; cmake --build --preset "
+                "web-release`, "
+                "docs/design/BUILDING.md: the export prefers build/web-release/player), run `factoria setup players "
+                "--platforms web` "
+                "for the player of this FactorIA version, or pass the matching folder with --player <folder>. " +
+                passAnyway);
     if (platform == "android" || platform == "ios")
         return err(message, std::string(theirs.empty() ? "This player predates build fingerprints. " : "") +
                                 "Run `factoria setup players` for the mobile players of this FactorIA version, use the "

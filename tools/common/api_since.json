@@ -676,7 +676,9 @@
     "TextField.anchor": "0.1.6",
     "TextField.autoFocus": "0.1.6",
     "TextField.caret": "0.1.6",
+    "TextField.caretIndex": "unreleased",
     "TextField.color": "0.1.6",
+    "TextField.composition": "unreleased",
     "TextField.draggable": "0.3.0",
     "TextField.focused": "0.1.6",
     "TextField.font": "0.1.6",
@@ -693,6 +695,8 @@
     "TextField.placeholder": "0.1.6",
     "TextField.pressed": "0.1.6",
     "TextField.safeArea": "0.2.0",
+    "TextField.selectionEnd": "unreleased",
+    "TextField.selectionStart": "unreleased",
     "TextField.size": "0.1.6",
     "TextField.slice": "0.1.6",
     "TextField.text": "0.1.6",
@@ -1642,6 +1646,8 @@
     "InputAPI.axis": "0.1.0",
     "InputAPI.bindings": "0.1.6",
     "InputAPI.buttonName": "0.1.6",
+    "InputAPI.composing": "unreleased",
+    "InputAPI.compositionText": "unreleased",
     "InputAPI.consume": "0.3.0",
     "InputAPI.deadzone": "0.1.0",
     "InputAPI.down": "0.1.0",
@@ -2675,5 +2681,10 @@
     "VfxAPI.playing": "0.17.0",
     "VfxAPI.stop": "0.17.0",
     "vfx": "0.17.0"
+  },
+  "deprecated": {
+    "commands": {},
+    "components": {},
+    "script": {}
   }
 }

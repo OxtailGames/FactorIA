@@ -132,7 +132,7 @@ the compiler identification on a machine that had it enabled, so a short path is
 
 `factoria_player.exe` carries a placeholder icon (`player/windows/factoria_player.rc` and `.ico`, compiled in by MSVC's
 `rc` or MinGW's `windres`, both found by CMake with no setup). A game export overwrites its images with the game's icon
-([EXPORTING.md](EXPORTING.md#icon-and-settings-per-platform)), so the file must keep its seven BMP images (16, 24, 32, 48,
+([EXPORTING.md](../EXPORTING.md#icon-and-settings-per-platform)), so the file must keep its seven BMP images (16, 24, 32, 48,
 64, 128 and 256 px). To change the drawing, edit `draw_placeholder_icon` in `tools/common/tests/placeholder_icon_test.cpp`
 and regenerate the committed file on any OS:
 `FA_REGEN_PLACEHOLDER_ICON=1 build/<preset>/tools/common/fa_test_tooling -tc="placeholder icon*"`.
@@ -185,7 +185,7 @@ all 64 tests passing either way:
 | `-O2 -g1` | 530 s | 176 s | 86 s | 2.6 GB |
 
 The `tooling` column is from when that test was one process; it is now the entries `tooling_1` ... `tooling_5`, which
-`ctest -j` runs at the same time (docs/ARCHITECTURE.md, "Testing").
+`ctest -j` runs at the same time (docs/design/ARCHITECTURE.md, "Testing").
 
 An agent seldom builds everything from an empty cache and runs tests after every change, so the tests are what counts.
 A debugger does not show local variables in such a tree: for a debugging session use a plain Debug tree (the presets,
@@ -798,7 +798,7 @@ the editor are not quarantined and never show the prompt.
 - Gatekeeper: `README.md` and `docs/GETTING_STARTED.md` keep the quarantine workaround only for 0.1.3 and earlier,
   which stay on the Releases page unsigned. SmartScreen: when the first Windows release is signed, drop its warning
   from `README.md` and `docs/GETTING_STARTED.md` (and the translation of the latter).
-- Games exported from the download copy the signed `factoria_player` (see [EXPORTING.md](EXPORTING.md)).
+- Games exported from the download copy the signed `factoria_player` (see [EXPORTING.md](../EXPORTING.md)).
 
 Pull requests from forks never receive the secrets. A pull request from a branch of this repository does, and the
 workflow runs on the ones that change `release.yml`: review those like any change that can read the secrets (a GitHub
@@ -808,7 +808,7 @@ Environment with required reviewers is the stricter option).
 
 Every game ships the same `factoria_player`, so its size is part of every game's size. CI measures it on each platform and
 fails when it goes over a budget, so a module that moves into `fa_runtime` or a new dependency shows up in the pull request
-that adds it. [EXPORTING.md](EXPORTING.md#size-of-the-player) says what the linker already drops.
+that adds it. [EXPORTING.md](../EXPORTING.md#size-of-the-player) says what the linker already drops.
 
 - **What is measured.** The file a package ships, from a Release build (a Debug player's size means nothing): a stripped
   copy of `factoria_player` (Linux `strip --strip-all`, macOS `strip -x`, Android `llvm-strip --strip-unneeded`; the build's
@@ -1052,7 +1052,7 @@ The `linux-asan` job is split the same way into two (`--preset linux-asan --of 2
 shard 1 trims, saves and prunes the ccache, the failure artifacts are `linux-asan-test-output-1` and `-2`); its table holds the
 times of the run with all tests on one machine, measured four tests at a time. The `tooling` test, then one process, took
 19 of that run's 21 minutes of testing and so set the length of the round; it is now the five entries `tooling_1` ...
-`tooling_5` (`ctest -L tooling` runs them; `tools/common/CMakeLists.txt`, docs/ARCHITECTURE.md "Testing"), which the table
+`tooling_5` (`ctest -L tooling` runs them; `tools/common/CMakeLists.txt`, docs/design/ARCHITECTURE.md "Testing"), which the table
 lists with estimates (a fifth of the old time each) until a green run of the split gives real ones. With them the two
 shards are expected to take about 6.6 and 6.7 minutes of testing, and a third machine would only bring that to 5.3 (the
 longest test, `runtime`, is the floor), so two stay. The performance
@@ -1116,7 +1116,7 @@ changes the font size), and upload their logs, the screenshot and crash reports 
 waits for the app, so a build that ended without one (failed, or cancelled because GitHub found no macOS runner) fails
 the step at once with that message instead of timing out. The Android game also carries a native plugin (built by
 `android-apk` with the NDK, outside the game's folder through `FA_CI_PLUGINS`), and the emulator job checks that its
-script got the plugin's answers. What they cover and what not is in [MOBILE.md](MOBILE.md).
+script got the plugin's answers. What they cover and what not is in [MOBILE.md](../MOBILE.md).
 
 ### Checking Windows from the Mac
 

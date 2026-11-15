@@ -32,6 +32,8 @@ file(GLOB_RECURSE FA_EMBED_DOCS CONFIGURE_DEPENDS ${FA_ROOT}/docs/*.md)
 list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/i18n/")
 # The browsable reference (docs/reference/) is generated from the data AIs get via docs.components/docs.commands.
 list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/reference/")
+# docs/COMPONENTS.md (1.8 MB, generated for GitHub readers) is served per component by docs.components, never embedded.
+list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/COMPONENTS\\.md$")
 # Design documents (docs/design/) are for engine developers, not game makers.
 list(FILTER FA_EMBED_DOCS EXCLUDE REGEX "/docs/design/")
 file(GLOB_RECURSE FA_EMBED_TEMPLATES CONFIGURE_DEPENDS ${FA_ROOT}/templates/*)
@@ -95,7 +97,7 @@ if(FA_BUILD_TESTS)
         target_include_directories(fa_test_tooling PRIVATE ${FA_GENERATED_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/src)  # fa_test_paths.h: FA_REPO_ROOT; src: export_script_commands_test.cpp tests the private player_commands.h
         # One process ran all the test cases one after another and took 100 s (more than any other test of the suite; 20 minutes
         # under ASan), so the files are split over five ctest entries that `ctest -j` runs at the same time, each in its own
-        # process (temp folders are named after the process id; nothing else is shared, see docs/ARCHITECTURE.md, "Testing"):
+        # process (temp folders are named after the process id; nothing else is shared, see docs/design/ARCHITECTURE.md, "Testing"):
         # tooling_1..tooling_4 run the files named below, tooling_5 runs every other file, so a new test file needs no edit here
         # (cmake/doctest_main.cpp: --fa-files, --fa-files-exclude). tooling_split_check fails unless the five together list
         # exactly the test cases of the whole executable. ctest -L tooling runs all of them.

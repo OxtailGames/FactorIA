@@ -157,9 +157,9 @@ TEST_CASE(
     CHECK(gameDocs.size() < allDocs.size());
     for (const fa::Json& d : gameDocs)
         CHECK(std::find(d["audience"].begin(), d["audience"].end(), "gameAi") != d["audience"].end());
-    bool architecture = false;
-    for (const fa::Json& d : devDocs) architecture = architecture || d["name"] == "architecture";
-    CHECK(architecture);
+    bool editor = false;
+    for (const fa::Json& d : devDocs) editor = editor || d["name"] == "editor";
+    CHECK(editor);
     auto text = run({"docs", "list", "--audience", "gameAi"});
     CHECK(text.code == 0);
     CHECK(text.out.find("ai-guide  -  ") != std::string::npos);
@@ -193,7 +193,7 @@ TEST_CASE("docs read takes --heading, --start-line and --max-bytes like docs.rea
     CHECK(cut.err.find("--start-line") != std::string::npos);  // the exact next call
     CHECK(cut.err.find("--heading") != std::string::npos);
 
-    auto range = run({"docs", "read", "architecture", "--start-line", "3", "--max-lines", "2"});
+    auto range = run({"docs", "read", "editor", "--start-line", "3", "--max-lines", "2"});
     REQUIRE(range.code == 0);
     CHECK(std::count(range.out.begin(), range.out.end(), '\n') == 2);
 
@@ -246,11 +246,11 @@ TEST_CASE("docs read refuses a range docs.read would clamp, and --json prints th
 // The docs are embedded with LF whatever the checkout's line endings, so redirecting them on Windows adds no CRs
 // (stdout is binary there: tests/integration.py checks the real binary's output).
 TEST_CASE("docs read and docs.read carry no carriage returns") {
-    auto r = run({"docs", "read", "architecture"});
+    auto r = run({"docs", "read", "editor"});
     REQUIRE(r.code == 0);
     CHECK(r.out.size() > 100);
     CHECK(r.out.find(0x0d) == std::string::npos);
-    auto j = run({"call", "docs.read", "{\"name\":\"architecture\"}"});
+    auto j = run({"call", "docs.read", "{\"name\":\"editor\"}"});
     REQUIRE(j.code == 0);
     CHECK(j.out.size() > 100);
     CHECK(j.out.find("\\r") == std::string::npos);  // an escaped CR in the JSON text
@@ -575,12 +575,12 @@ TEST_CASE("play.auto: runs on a project made from each template and writes a ses
     fa::fs::set_project_root(oldRoot);
 }
 
-// docs/MENUS.md gives every file of the menu kit (templates/menus/), and tools/cli/tests/fixtures/menus holds the kit's files
-// (menu_kit_test.cpp keeps them identical) and the demo's own, run by ctest (fixture_menus_validate, fixture_menus_test). A
-// code block whose info string names a file ("```js scripts/settings.js") must be the kit's file, or the fixture's when the kit
-// has no such file: the same text for scripts, the same JSON for scenes and prefabs (the fixture keeps the
-// canonical layout, the doc a shorter one).
-TEST_CASE("docs/MENUS.md: every file it gives is the tested fixture's") {
+// docs/MENUS.md keeps the recipes; the kit's files (templates/menus/) are served from the embedded kit (`docs.read menu-kit`),
+// not printed in it. tools/cli/tests/fixtures/menus holds the kit's files (menu_kit_test.cpp keeps them identical) and the
+// demo's own, run by ctest (fixture_menus_validate, fixture_menus_test). A code block whose info string names a file
+// ("```json scenes/name.scene.json") must be the fixture's file, and must not be a file of the kit: the same text for scripts,
+// the same JSON for scenes and prefabs (the fixture keeps the canonical layout, the doc a shorter one).
+TEST_CASE("docs/MENUS.md: the files it prints are the tested fixture's, and none is a kit file") {
     const stdfs::path repo = FA_REPO_ROOT;
     const auto read = [](const stdfs::path& p) {
         std::ifstream f(p, std::ios::binary);
@@ -592,7 +592,6 @@ TEST_CASE("docs/MENUS.md: every file it gives is the tested fixture's") {
     std::string line, lang, path, body;
     bool inBlock = false;
     int files = 0;
-    std::map<std::string, fa::Json> docTables;  // locales/<language>.json blocks, to compare their keys below
     while (std::getline(doc, line)) {
         if (line.rfind("```", 0) != 0) {
             if (inBlock) body += line + "\n";
@@ -605,44 +604,20 @@ TEST_CASE("docs/MENUS.md: every file it gives is the tested fixture's") {
             body.clear();
         } else if (!path.empty()) {
             CAPTURE(path);
-            const bool inKit = stdfs::exists(repo / "templates/menus" / path) && path.rfind("locales/", 0) != 0;
-            const std::string file = read(repo / (inKit ? "templates/menus" : "tools/cli/tests/fixtures/menus") / path);
-            REQUIRE_MESSAGE(!file.empty(), "neither the kit nor the fixture has " << path);
+            CHECK_MESSAGE(!stdfs::exists(repo / "templates/menus" / path),
+                          path << " is a file of the kit: docs/MENUS.md does not copy it, `docs.read menu-kit/" << path
+                               << "` serves it");
+            const std::string file = read(repo / "tools/cli/tests/fixtures/menus" / path);
+            REQUIRE_MESSAGE(!file.empty(), "the fixture has no " << path);
             if (lang == "json")
                 CHECK(fa::Json::parse(body, nullptr, false) == fa::Json::parse(file, nullptr, false));
             else
                 CHECK(body == file);
-            if (path.rfind("locales/", 0) == 0) docTables[path] = fa::Json::parse(body, nullptr, false);
             ++files;
         }
         inBlock = !inBlock;
     }
     CHECK(files > 0);  // the blocks were found
-
-    // Both tables are printed (a game with two languages from the start copies them) and have the same keys as the fixture's.
-    const auto flat_keys = [](const fa::Json& table) {
-        std::set<std::string> keys;
-        const auto walk = [&](const auto& self, const fa::Json& node, const std::string& prefix) -> void {
-            for (auto it = node.begin(); it != node.end(); ++it) {
-                if (prefix.empty() && it.key()[0] == '$') continue;
-                const std::string key = prefix.empty() ? it.key() : prefix + "." + it.key();
-                if (it->is_object())
-                    self(self, *it, key);
-                else
-                    keys.insert(key);
-            }
-        };
-        walk(walk, table, "");
-        return keys;
-    };
-    for (const char* language : {"en", "es"}) {
-        const std::string tablePath = std::string("locales/") + language + ".json";
-        REQUIRE_MESSAGE(docTables.count(tablePath) == 1, "docs/MENUS.md prints no " << tablePath);
-        const fa::Json fixture =
-            fa::Json::parse(read(repo / "tools/cli/tests/fixtures/menus" / tablePath), nullptr, false);
-        CHECK(flat_keys(docTables[tablePath]) == flat_keys(fixture));
-        CHECK(flat_keys(docTables[tablePath]) == flat_keys(docTables["locales/en.json"]));
-    }
 }
 
 // docs/MAKE_BY_HAND.md gives every file of its game, and tools/cli/tests/fixtures/gem-grab is that game, run by ctest

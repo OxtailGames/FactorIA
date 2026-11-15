@@ -1,5 +1,5 @@
 // The 3D world gathered once per frame (RenderScene) and shared by every camera, render target and CameraView; the hash of
-// the material overrides kept while they do not change (MaterialHashCache). docs/ARCHITECTURE.md, "Rendering".
+// the material overrides kept while they do not change (MaterialHashCache). docs/design/ARCHITECTURE.md, "Rendering".
 #include "test_util.h"
 
 #include <algorithm>

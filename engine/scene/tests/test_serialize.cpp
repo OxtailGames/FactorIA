@@ -3,6 +3,7 @@
 #include <chrono>
 #include <filesystem>
 
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/json_schema.h"
 #include "fa/scene/serialize.h"
@@ -797,4 +798,49 @@ TEST_CASE("serialize: nothing is created under a parent that is being destroyed"
     Entity ok = entity_from_json(w, Json::parse(R"({"id":"child"})"), live, r4, "spawn");
     CHECK(r4.ok());
     CHECK(w.parent(ok) == live);
+}
+
+// A deprecated component or field (core/deprecation.h) still loads; the first load in the process says what replaces it, as a
+// warning of the report, with the JSON pointer. The entries here are test-only: the real deprecated section ships empty.
+TEST_CASE("scene: a deprecated field warns once with its replacement and still loads") {
+    struct TableGuard {
+        TableGuard() {
+            Deprecations::global().set(Json::parse(R"({"components": {
+                "Sprite.flipX": {"since": "0.30.0", "use": "Sprite.flipY", "note": "Mirror with scale.x instead."},
+                "Collider2D": {"since": "0.30.0", "use": "", "note": "Use a Body2D shape."}}})"));
+        }
+        ~TableGuard() { Deprecations::global().clear(); }
+    } guard;
+    const char* scene = R"({"format":"factoria.scene/1","entities":[
+        {"id":"a","components":{"Sprite":{"flipX":true},"Collider2D":{"shape":"circle","radius":8}}},
+        {"id":"b","components":{"Sprite":{"flipX":true}}}]})";
+    World w;
+    LoadReport r = load_scene(w, Json::parse(scene), "t.scene.json");
+    INFO(r.summary());
+    CHECK(r.ok());  // deprecated is not an error
+    REQUIRE(!w.find_by_id("a").is_null());
+    CHECK(w.get<Sprite>(w.find_by_id("a"))->flipX);  // the value was applied
+    CHECK(w.get<Sprite>(w.find_by_id("b"))->flipX);
+    int fieldWarnings = 0, componentWarnings = 0;
+    for (const auto& m : r.messages) {
+        if (m.severity != kWarn) continue;
+        if (m.message.find("component field 'Sprite.flipX'") != std::string::npos) {
+            ++fieldWarnings;
+            CHECK(m.message.find("Use 'Sprite.flipY' instead") != std::string::npos);
+            CHECK(m.message.find("removed in 0.32.0") != std::string::npos);
+            CHECK(m.pointer == "/entities/0/components/Sprite/flipX");
+        }
+        if (m.message.find("component 'Collider2D'") != std::string::npos) {
+            ++componentWarnings;
+            CHECK(m.message.find("no replacement") != std::string::npos);
+        }
+    }
+    CHECK(fieldWarnings == 1);  // two entities use it, the process is told once
+    CHECK(componentWarnings == 1);
+    World again;
+    LoadReport r2 = load_scene(again, Json::parse(scene), "t.scene.json");
+    CHECK(r2.messages.empty());  // nothing more until the warnings are reset (the editor does at a project load)
+    Deprecations::global().reset_warned();
+    World third;
+    CHECK(has_message(load_scene(third, Json::parse(scene), "t.scene.json"), kWarn, "Sprite.flipX"));
 }

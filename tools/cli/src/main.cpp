@@ -7,6 +7,7 @@
 
 #include "fa/authoring/authoring.h"
 #include "fa/cli/cli.h"
+#include "fa/tooling/api_export.h"
 
 #ifdef _WIN32
 #include <fcntl.h>
@@ -36,7 +37,8 @@ static void put_self_on_path(const char* argv0) {
 }
 
 int main(int argc, char** argv) {
-    fa::authoring::install();  // the commands of the developer tools, in every Engine this process creates
+    fa::authoring::install();    // the commands of the developer tools, in every Engine this process creates
+    fa::install_deprecations();  // before any Engine: the script prelude wraps the deprecated API when it starts
     if (argc > 0) put_self_on_path(argv[0]);
     std::vector<std::string> args(argv + 1, argv + argc);
 #ifdef _WIN32

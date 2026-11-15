@@ -18,6 +18,22 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   `"error"` and a `"close"` event (docs/NETWORKING.md, "WebSocket").
 - `factoria validate` warns about a script that calls `websocket.connect` in a game with no `network` hosts, as it does for
   `http.fetch`.
+- `TextField` has `caretIndex`, `selectionStart`, `selectionEnd` and a runtime `composition`, and scripts read
+  `input.composing` / `input.compositionText`: the shared interface for text editing and IME composition (M98.6). Nothing
+  moves the caret yet.
+- **Docs (M97.3a):** the docs are laid out for reading cheaply. `docs/COMPONENTS.md` (1.8 MB) is no longer inside the
+  binary: `docs.read components` answers with a pointer to `docs.components`, which serves one component at a time (the
+  file stays in the repository for GitHub readers). `docs/MENUS.md` no longer prints the files of the menu kit (257 KB
+  to 85 KB): `docs.read menu-kit` lists them and `docs.read menu-kit/scripts/settings.js` reads one, straight from the
+  kit `project.add_menu_kit` copies. `ARCHITECTURE.md` and `BUILDING.md` moved to `docs/design/` and are not in the
+  binary (the engine developers read the repository). README.md and README.es.md are organised by audience and link
+  every doc; a test keeps it so.
+- A deprecation policy for commands, component fields and the script API: the `deprecated` section of
+  `tools/common/api_since.json` (empty for now) says since when and what replaces each one. A deprecated command, a scene or
+  prefab with a deprecated component or field, and a call of a deprecated script function log one warning that names the
+  replacement and the version that removes it; the typings (`@deprecated`), `docs/COMPONENTS.md`, `docs/reference/`,
+  `docs.components`, `docs.commands` and the MCP tools mark it. Something deprecated is removed two minor versions later, and
+  a test fails when it is not (docs/ARCHITECTURE.md, "Versions").
 
 ## 0.29.1
 
@@ -80,7 +96,7 @@ report.
   player over its budget does not skip the tests), and a link map the script cannot read only adds a `note` to the
   report. The Android job of `ci.yml` now builds Release with `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON` (the flag
   release.yml uses), so no PR job builds an Android Debug anymore. Every platform's budget is its size in the M96 CI run
-  plus 10 %. See docs/BUILDING.md, "Player size budgets".
+  plus 10 %. See docs/design/BUILDING.md, "Player size budgets".
 - Script budgets. `runtime.scriptMemoryMB` (the JavaScript heap cap, default 768 MB as before) is a project setting, a
   number or `{"default": n, "android": n, "web": n, ...}` per platform, range 16 to 2048 with a teaching error; an
   out-of-memory error names the setting and its value. `runtime.scriptFrameBudgetMs` (default 8 ms, 0 turns it off, also

@@ -19,6 +19,7 @@
 
 #include "fa_script_js.h"
 #include "fa/audio/audio.h"
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -1284,6 +1285,17 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
     hooks = JsVal(ctx, hv);
     factoria = JsVal(ctx, JS_GetPropertyStr(ctx, hooks.get(), "factoria"));
     testApi = JsVal(ctx, JS_GetPropertyStr(ctx, hooks.get(), "test"));
+
+    // Deprecated script API: the prelude wraps what the table lists (nothing in a run without the tooling's table).
+    if (!Deprecations::global().keys(kDeprecatedScript).empty()) {
+        Json targets = deprecation_targets();
+        if (!targets.empty()) {
+            JSValue arg = from_json(targets);
+            JSValue r = call_method("deprecated script API", "", hooks.get(), "applyDeprecations", {arg});
+            JS_FreeValue(ctx, r);
+            JS_FreeValue(ctx, arg);
+        }
+    }
 
     // Global conveniences.
     JSValue global = JS_GetGlobalObject(ctx);

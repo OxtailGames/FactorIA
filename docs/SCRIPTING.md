@@ -299,7 +299,7 @@ const minX = r.x, maxX = r.x + r.w, minY = r.y, maxY = r.y + r.h;
 - Children are not included. `active` and colour alpha are ignored: a hidden entity still has bounds.
 
 Component views expose exactly the reflected fields listed by `factoria api
-components` (also `docs/COMPONENTS.md`). Vector/color fields are live views
+components` (also the `docs.components` command). Vector/color fields are live views
 (`v.x = 1` writes into the engine); enums are lowercase strings
 (`body.type = "kinematic"`); asset fields are path strings; JSON fields
 (`Tilemap.tiles`, `Script.props`) are plain objects — assign a new value to
@@ -647,7 +647,7 @@ if (window.available) {
   got, 0 when it did not start; music started by the engine has none) or `"setVoiceVolume"` (a `setVoiceVolume` of a voice that
   plays: `voice`, `path`, `volume` is the target, `fade` the seconds, `bus`), so a test can assert that a bed followed the
   camera. `toContainPlayed` counts plays only.
-- `AudioListener.zoom` scales how far positional sounds are heard (docs/COMPONENTS.md, "AudioListener"); a script moves it
+- `AudioListener.zoom` scales how far positional sounds are heard (docs.components, "AudioListener"); a script moves it
   with `listenerEntity.get("AudioListener").zoom = v` each frame (or the `scene.set_component` command).
 - `bus(name)` gives a handle with `lowpass`, `reverb`, `duck`, `unduck`, `volume` and `state`; `snapshot(name, { fade })` and
   `snapshots()` move every bus to a named snapshot of factoria.json. Effects and ducking are in "Audio buses" below.
@@ -902,7 +902,7 @@ A file, `world.spawn` or a whole-component `set(...)` may still give `tiles` as 
 flat and the rows set `width` and `height`. The `tiles` field setter (`comp.tiles = ...`) takes flat numbers only and refuses rows
 with an error: flatten them (`rows.flat()`) and set `width` and `height` yourself.
 
-**Autotile (terrains).** A `Tilemap` with `terrains` rules ([COMPONENTS.md](COMPONENTS.md), `Tilemap.terrains`; the rules file
+**Autotile (terrains).** A `Tilemap` with `terrains` rules (`docs.components`, `Tilemap.terrains`; the rules file
 of a tileset made by `image.tileset.build`, [IMAGES.md](IMAGES.md), "Tiles") draws the edge, corner or inside tile that fits the
 cells around a cell, so you paint a terrain and the shore draws itself:
 - `paintTerrain(terrain, cells)` sets the cells (`[col, row]` pairs or `{col, row}` objects) to the terrain and re-tiles them and
@@ -998,7 +998,7 @@ The widgets are components: `Panel` (a background that can lay out its children)
 SPACE only (design pixels, origin top-left, +Y down; there is no `space` field). `Transform.position` is the offset from
 `anchor` (a fraction of the design size: `[0, 0]` top-left, `[1, 1]` bottom-right) and `pivot` says which point of the
 widget sits there (`[0.5, 0.5]` centres it, `[0, 1]` puts its top-left corner on the position). Rotation and scale of UI
-entities are ignored. Every field is documented in `docs/COMPONENTS.md`; the ones that matter:
+entities are ignored. Every field is documented in `docs.components`; the ones that matter:
 
 - Style, on every widget: `size`, `pivot`, `anchor`, `layer` (draw order, default 200: above `Text`'s 100; a widget's
   label is drawn at `layer + 1` and its focus ring at `layer + 2`), `color` (background tint), `texture` + `slice`.
@@ -1378,7 +1378,7 @@ game.on("quit", (event) => {
 ### Render: a picture of the running game as a texture (`render.captureTexture`, `render.textureFromPNG`)
 
 For a save slot's thumbnail, a photo mode or a minimap snapshot. A texture's `id` is accepted by `Sprite.texture`, `Panel.texture`
-and `Button.icon` (docs/COMPONENTS.md).
+and `Button.icon` (docs.components).
 
 - `render.captureTexture({ width, height, fit })` returns a `Texture`: the picture the player sees (HUD and every camera) at
   `width` x `height` pixels, each from 1 to 2048. To photograph one entity or an area of the world instead, at a scale you pick,
@@ -1495,7 +1495,7 @@ m.update({ positions: newPositions });            // the rest is kept
   shadows and picking stay right. The GPU buffers are reused while the new data fits (they are made 50% larger when a
   mesh outgrows them), so a per-frame update of a mesh that keeps its size creates no buffer; two changes of one mesh inside
   one frame make new buffers for the second.
-- **Colliders.** `Collider3D` with `shape: "convex"` or `"mesh"` accepts the id in `Collider3D.mesh` (docs/COMPONENTS.md). Every
+- **Colliders.** `Collider3D` with `shape: "convex"` or `"mesh"` accepts the id in `Collider3D.mesh` (docs.components). Every
   update rebuilds the collider's shape, so a mesh collider on a mesh you deform each frame is expensive: update it less often
   or use a primitive collider. A box or sphere collider needs no mesh at all.
 - **Limits.** 256 live meshes, 1 048 576 vertices and 6 291 456 indices per mesh. A mesh that is not shown any more should
@@ -1696,7 +1696,7 @@ carries `e.code`, `e.hint` and, when the command reported structured details, `e
 on the data instead of parsing the message.
 
 #### What `fa.call` can do from a game
-Every `fa.call` runs the command with a **capability set** (`docs/ARCHITECTURE.md`, "Capabilities"); a command that needs
+Every `fa.call` runs the command with a **capability set** (`docs/design/ARCHITECTURE.md`, "Capabilities"); a command that needs
 more fails with code `capability_denied`, before its arguments are looked at, and the error says who may do it.
 
 | Who calls | Set |

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Everything to run before a push, in one command, so the PR passes GitHub CI the first time (docs/BUILDING.md,
+# Everything to run before a push, in one command, so the PR passes GitHub CI the first time (docs/design/BUILDING.md,
 # "Before a push"). It looks for what CI exercises and a developer machine does not: Windows file semantics, timing waits
 # and budgets on loaded 4-vCPU VMs, MSVC/GCC-only compile errors, other platforms.
 #

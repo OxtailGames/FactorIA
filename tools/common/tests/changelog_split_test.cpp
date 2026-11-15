@@ -57,7 +57,7 @@ std::string check_shape(const ChangelogShape& shape) {
             << "move the sections of the older minor version(s), the oldest being " << oldest << ".x, to changelog/"
             << oldest
             << ".md (one file per minor version) and add the link to the index line at the top of CHANGELOG.md "
-            << "(docs/ARCHITECTURE.md, \"Versions\").";
+            << "(docs/design/ARCHITECTURE.md, \"Versions\").";
     return msg.str();
 }
 

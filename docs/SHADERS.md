@@ -14,7 +14,7 @@ The loop for an AI (or a person):
    `factoria run --headless --frames 60 --screenshot-at 59` (MCP `game_screenshot`).
 4. `factoria validate` checks and compiles every material for every platform.
 
-`MeshRenderer.material` and `MeshRenderer.materialParams` are in [COMPONENTS.md](COMPONENTS.md); the file format is
+`MeshRenderer.material` and `MeshRenderer.materialParams` are in `docs.components`; the file format is
 `schemas/material.schema.json`.
 
 ## The material file
