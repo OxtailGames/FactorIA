@@ -272,7 +272,7 @@ reconnect, so a game written today runs everywhere and simply stays offline. Che
 | `protocols` | An array of subprotocol names to offer (`["chat.v1"]`); the server's choice is `ws.protocol` and `e.protocol` of `"open"`. |
 | `headers` | Extra handshake headers, an object of strings, no line breaks. `Host`, `Upgrade`, `Connection` and `Sec-*` are set by the system and refused. **The browser's `WebSocket` cannot send headers**: a game for the web puts what the server needs in the URL or in the first message. |
 | `timeout` | Seconds for connecting and the handshake together, above 0, at most 120, default 15. |
-| `maxMessageBytes` | The longest message in either direction, default 4 MB, at most 64 MB. A longer incoming message closes the connection with code 1009. |
+| `maxMessageBytes` | The longest message in either direction, default 4 MB, at most 64 MB. A longer incoming message fails the connection: `error`, then `close` with code 1006 (the server is told 1009). |
 | `reconnect` | `true` or `{ maxAttempts: 10, minDelay: 1, maxDelay: 30, factor: 2, jitter: 0.25 }` (what is left out takes these). Default: never. |
 
 ### Events

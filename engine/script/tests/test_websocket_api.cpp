@@ -416,7 +416,8 @@ test("a connection made in the new scene works", () => {
 
 TEST_CASE("websocket api: a platform without a client fails the connection at the next frame, once") {
     TestHost h("ws_unavailable", settings());
-    auto unavailable = make_unavailable_websocket_client("unavailable", "WebSocket client for testing lands in M98.2b/c/d");
+    auto unavailable =
+        make_unavailable_websocket_client("unavailable", "WebSocket client for testing lands in M98.2b/c/d");
     h.websocketOverride = unavailable.get();
     h.file("tests/unavailable.test.js", R"(
 import { test, expect, game } from "factoria:test";

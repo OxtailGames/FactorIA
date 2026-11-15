@@ -14,6 +14,17 @@
 // thread) and the game thread DRAINS with poll() once per frame. No callback of an OS thread ever reaches a script or the
 // World. WebSocketEventQueue is the thread-safe queue every implementation uses.
 //
+// The pattern every client follows (the four native clients of M98.2b/c/d and the tcp client do):
+//   1. The connection owns its queue through a std::shared_ptr (std::make_shared<WebSocketEventQueue>()); every OS callback,
+//      completion handler, JNI call and reader thread captures THAT shared_ptr (and whatever else it touches) by value, never
+//      `this` or a reference to a member of the connection: a callback may run after the connection is gone.
+//   2. When push() answers false the queue ended (overflow, or the connection was abandoned): the callback closes the
+//      transport and stops. It pushes nothing more and never retries.
+//   3. The connection's destructor calls queue->abandon() FIRST (what the callbacks push from then on is dropped), then
+//      asks the transport to stop (cancel the task, close with 1001 when that takes no waiting) and returns.
+// Destroying a WebSocket runs on the game thread (the script layer's wsRelease, a scene change), so it takes a few
+// milliseconds at most: it never joins a thread that may sit in a blocking call, never waits for the network or a DNS lookup.
+//
 // Like fa/platform/http.h, a client only sends: it does not check WHICH address a game may open. That is fa/services/
 // network.h (the hosts the game declares in factoria.json, the same list as http.fetch) and the script layer, which check
 // the address before they call connect().
@@ -41,14 +52,19 @@ const char* websocket_state_name(WebSocketState state);  // "connecting", "open"
 
 // One thing that happened on a connection. A connection's events come in this order and never after its Close:
 // Open (once, unless the connection never opens), any number of Text and Binary, then Close (once). A connection that
-// fails reports Error (what went wrong) and then Close with code 1006, as the browser does.
+// fails reports Error (what went wrong) and then Close with code 1006 and wasClean false, whatever the failure was (could not
+// connect, a frame that breaks the protocol, a message above maxMessageBytes, the line dropped): that is the browser's
+// rule, and every client follows it. The close frame a client sends to the server in those cases (1002, 1007, 1009) is its
+// own business and never reaches the game. The one other code a failure can carry is 1008, from the event queue below.
+// If the queue overflows before the game drained its first events, those are dropped with the rest: the connection then
+// reports only [Error, Close 1008], without the Open (or the messages) that came before.
 struct WebSocketEvent {
     enum class Type {
         Open,    // the handshake is done; `subprotocol` is the one the server chose ("" = none)
         Text,    // a whole text message in `data` (valid UTF-8)
         Binary,  // a whole binary message in `data`
-        Error,   // `error` says what went wrong and `hint` what to try; `httpStatus` is the answer of a refused handshake (0 = none)
-        Close,   // the end: `code`, `reason`, `wasClean` (the closing handshake completed)
+        Error,  // `error` says what went wrong and `hint` what to try; `httpStatus` is the answer of a refused handshake (0 = none)
+        Close,  // the end: `code`, `reason`, `wasClean` (the closing handshake completed)
     };
     Type type = Type::Close;
     std::string data;
@@ -59,26 +75,33 @@ struct WebSocketEvent {
     std::string error, hint;
     int httpStatus = 0;
 
-    static WebSocketEvent open(std::string subprotocol = {});
-    static WebSocketEvent text(std::string data);
-    static WebSocketEvent binary(std::string data);
-    static WebSocketEvent failure(std::string error, std::string hint = {}, int httpStatus = 0);
-    static WebSocketEvent close(int code, std::string reason, bool wasClean);
+    static WebSocketEvent open(std::string chosenSubprotocol = {});
+    static WebSocketEvent text(std::string message);
+    static WebSocketEvent binary(std::string message);
+    static WebSocketEvent failure(std::string what, std::string advice = {}, int status = 0);
+    static WebSocketEvent close(int closeCode, std::string closeReason, bool clean);
 };
 
 // A thread-safe queue of events: any thread push()es, the game thread drain()s. After a Close event is pushed the queue
 // takes nothing more (what an OS thread reports late is dropped). It holds at most `maxPendingBytes` of messages: a game
 // that stops draining while the server keeps sending does not grow without bound; when the limit is reached the pending
-// messages are dropped and the queue holds [Error, Close 1008] instead, and push() answers false so that the
-// implementation closes the transport.
+// events (an Open the game did not read yet included) are dropped and the queue holds [Error, Close 1008] instead, and
+// push() answers false so that the implementation closes the transport.
+//
+// Lifetime: allocate it with std::make_shared and let every callback capture the shared_ptr (see the pattern above); the
+// connection's destructor calls abandon(). The queue is not copyable and never lives as a plain member of a connection.
 class WebSocketEventQueue {
 public:
     explicit WebSocketEventQueue(std::size_t maxPendingBytes = 32u * 1024 * 1024) : maxPendingBytes_(maxPendingBytes) {}
-    // false: the queue overflowed or already ended; the caller should tear the connection down.
+    WebSocketEventQueue(const WebSocketEventQueue&) = delete;
+    WebSocketEventQueue& operator=(const WebSocketEventQueue&) = delete;
+    // false: the queue overflowed, ended or was abandoned; the caller closes the transport, stops and pushes nothing more.
     bool push(WebSocketEvent event);
     // Moves the pending events to the end of `out` (in order) and returns how many.
     std::size_t drain(std::vector<WebSocketEvent>& out);
-    bool ended() const;  // a Close event was pushed
+    bool ended() const;  // a Close event was pushed, the queue overflowed, or it was abandoned
+    // The connection is gone: drops what is pending and ends the queue WITHOUT an event; every later push() answers false.
+    void abandon();
 
 private:
     mutable std::mutex mutex_;
@@ -88,21 +111,30 @@ private:
     bool ended_ = false;
 };
 
+// How long a closing handshake waits for the server's close frame before the connection is dropped (Close 1006, wasClean
+// false). One value for every client that does its own waiting (the tcp client, the Android one); a system stack keeps its own.
+inline constexpr double kWebSocketCloseWaitSec = 5.0;
+
 // What connect() needs. The address is absolute ws:// or wss://, already checked against the game's declared hosts.
 struct WebSocketRequest {
     std::string url;
-    std::vector<std::string> subprotocols;                      // offered to the server, in order
-    std::vector<std::pair<std::string, std::string>> headers;   // extra handshake headers (the web cannot send any: it fails)
-    double connectTimeoutSec = 15.0;                            // connecting and the handshake together
-    // A message longer than this fails the connection (close code 1009); also the longest message send accepts.
+    std::vector<std::string> subprotocols;  // offered to the server, in order
+    std::vector<std::pair<std::string, std::string>>
+        headers;                      // extra handshake headers (the web cannot send any: it fails)
+    double connectTimeoutSec = 15.0;  // connecting and the handshake together
+    // A message longer than this fails the connection (Error, then Close 1006; the server is sent 1009); also the longest
+    // message send accepts. A client that reads frame by frame checks it as the bytes arrive; where the platform buffers a
+    // whole message before it hands it over (the browser, NSURLSession) it is checked on arrival, and the platform's own
+    // limit (set to this value where it has one) may be what stops it.
     std::size_t maxMessageBytes = 4u * 1024 * 1024;
+    // There is no keep-alive field: pings and the answers to the server's pings are the platform's own (the system stacks do
+    // them; the tcp client only answers the server's).
 };
 
-// One connection. Game thread only, except that destruction may be on any thread that does not hold the game's locks.
-// Destroying a connection that is open sends a close frame (1001) when it can without waiting, then drops the transport;
-// it never delivers an event and should not wait for the network: an implementation whose thread sits in a blocking call
-// lets that thread end by itself instead of joining it (the tcp client of the tests does join, so it may wait for a DNS
-// lookup in progress).
+// One connection. Game thread only, including destruction (the script layer drops it in wsRelease and on a scene change).
+// Destroying a connection takes a few milliseconds at most and never delivers an event: it follows the pattern above (abandon
+// the queue first, ask the transport to stop, return), sends a close frame (1001) only when that takes no waiting, and does
+// not join a thread that may be in a blocking call (a DNS lookup, a read): such a thread ends by itself.
 class WebSocket {
 public:
     virtual ~WebSocket() = default;
@@ -111,10 +143,11 @@ public:
     // unsent data. The text must be valid UTF-8.
     virtual Result<void> send_text(std::string_view text) = 0;
     virtual Result<void> send_binary(const void* data, std::size_t size) = 0;
-    // Starts the closing handshake: code 1000 or 3000-4999 (0: none), reason up to 123 bytes. While connecting it abandons
-    // the attempt (Error and Close 1006). The Close event follows when the peer answers, or when the implementation gives up
-    // waiting (a few seconds). Closing twice does nothing.
-    virtual void close(int code, std::string_view reason) = 0;
+    // Starts the closing handshake: `code` is 1000 or 3000-4999 (0: none), `reason` valid UTF-8 up to 123 bytes
+    // (ws::check_close_request). Anything else is an error that says so, and nothing happens. While connecting it abandons
+    // the attempt (Error and Close 1006). The Close event follows when the peer answers, or after kWebSocketCloseWaitSec
+    // without an answer (Error, then Close 1006, wasClean false). Closing twice, or a closed connection, is not an error.
+    virtual Result<void> close(int code, std::string_view reason) = 0;
     // Bytes accepted by send_* and not yet handed to the network.
     virtual std::size_t buffered_amount() const = 0;
     // Appends the events queued since the last call to `out`, in order; returns how many.
@@ -174,8 +207,8 @@ public:
         std::vector<std::pair<std::string, std::string>> headers;
         // What the game sent so far, in order.
         std::vector<Received> received;
-        bool open = false;     // accepted and not closed
-        bool closed = false;   // the connection is over (either side)
+        bool open = false;    // accepted and not closed
+        bool closed = false;  // the connection is over (either side)
         int clientCloseCode = 0;
         std::string clientCloseReason;
         bool clientClosed = false;  // the game called close()
