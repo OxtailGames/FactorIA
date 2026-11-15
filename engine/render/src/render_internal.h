@@ -802,6 +802,20 @@ public:
     sg_pipeline light_pipeline() { return light_pipeline(light_target_format()); }
     TargetFormat light_target_format() const { return {lightFormat_, SG_PIXELFORMAT_NONE, 1}; }
 
+    // THE way to begin and end a render pass: every pass of the renderer (game, view, shadow, light buffer, colour filter,
+    // flip copy, readback, present, bloom) goes through these two, never sg_begin_pass / sg_end_pass. begin_pass records
+    // the pass's TargetFormat; in a debug build every pipeline getter then checks that the pipeline it hands out was made
+    // for that format (a mismatch GL and D3D11 validation reject, Metal only draws wrong). Outside a pass (warm-up, a
+    // getter called before the pass begins) nothing is checked.
+    // Static: sokol has one context per process, so there is one pass open at a time, and Renderer::present_clear, which
+    // runs before any Gpu exists, begins its pass the same way.
+    static void begin_pass(const PassDesc& pass);
+    static void end_pass();
+    static bool in_pass() { return inPass_; }
+    static const TargetFormat& pass_format() {
+        return passFormat_;
+    }  // of the pass begun last; meaningful while in_pass()
+
     sg_buffer quad_index_buffer() const { return quadIndices_; }
     sg_buffer fullscreen_triangle() const { return fsTriangle_; }
     // A write-transient vertex buffer of at least `bytes`, valid for this frame.
@@ -841,6 +855,8 @@ private:
     sg_pipeline find_or_make(PipelineKey key, const TargetFormat& format, sg_pipeline_desc desc);
     void sweep_pipelines();
 
+    static inline bool inPass_ = false;
+    static inline TargetFormat passFormat_{};
     int sampleCount_ = 1;
     bool zeroToOne_ = false, isGl_ = true, shadowsSupported_ = false;
     int bloomState_ = 0;        // 0 = shaders not created yet, 1 = ready, -1 = creation failed
@@ -873,6 +889,46 @@ private:
 
 // sg_make_image plus per-backend fixes (see image_gl.cpp). Every 2D image of the renderer is created through it.
 sg_image make_image(const sg_image_desc& desc);
+
+// One render target as the renderer makes them (renderer_targets.cpp): the colour image, the single-sample image an MSAA colour
+// image resolves into, an optional depth image, and the views a pass and a later sampler need. The game target, the CameraView
+// and render-target images, the 2D light buffer, the colour-filter image, the RGBA8 readback image, the shadow map and the
+// bloom levels are all made by make_target and freed by destroy_target, so there is one place that knows how.
+struct TargetDesc {
+    const char* label =
+        "target";  // the base of the labels of its images and views ("<label>-color", "<label>-depth"...)
+    int width = 1, height = 1;
+    sg_pixel_format colorFormat = SG_PIXELFORMAT_NONE;  // NONE: no colour image (a depth-only target)
+    int samples = 1;  // > 1: the colour and depth images are multisampled and a single-sample resolve image is made too
+    // The resolve image can also be drawn into as a colour attachment (resolveColorAtt): Camera.bloom adds its glow to the
+    // finished, resolved game image.
+    bool resolveAsColor = false;
+    bool texture = true;  // make `texView`, a texture view of the image that holds the picture (resolve, else colour)
+    sg_pixel_format depthFormat = SG_PIXELFORMAT_NONE;  // NONE: no depth image
+};
+struct Target {
+    sg_image color{}, resolve{}, depth{};
+    sg_view colorAtt{};         // colour attachment of `color` (the multisampled image when samples > 1)
+    sg_view resolveAtt{};       // MSAA: the resolve attachment of `resolve`
+    sg_view resolveColorAtt{};  // MSAA and resolveAsColor: `resolve` as a colour attachment
+    sg_view depthAtt{};
+    sg_view texView{};  // a texture view of texture_image()
+    int w = 0, h = 0, samples = 1;
+    TargetFormat format{};  // what a pass drawing into the whole target writes (PassDesc::format)
+    bool expectTexture = false, expectDepth = false;  // what make_target was asked for (valid() checks it was made)
+
+    // The image that holds the finished picture: the resolve image of an MSAA target, else the colour image.
+    sg_image texture_image() const { return resolve.id ? resolve : color; }
+    // True when it was made (a colour image exists) and the GPU accepted every image and view that was made.
+    bool valid() const;
+};
+// Makes the target (nothing is checked: a GPU that cannot make an image leaves it FAILED, see Target::valid()).
+Target make_target(const TargetDesc& desc);
+// Destroys the views, then the images, and resets `t` to empty. Safe on an empty or half-made target.
+void destroy_target(Target& t);
+// A pass that draws into `t` (its colour, the resolve attachment of an MSAA target, its depth) with the target's format. The
+// caller sets what the pass does with the old contents: PassDesc's load and store actions default to DONTCARE.
+PassDesc pass_into(const Target& t, const char* label);
 
 // GPU time of the drawing of a frame (profiler). One timer query in flight per frame in a small ring; results are read a few
 // frames later and never waited for. D3D11 (timestamp queries) and GLCORE (GL_TIME_ELAPSED) measure; the other backends

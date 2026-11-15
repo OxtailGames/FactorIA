@@ -164,9 +164,15 @@ public:
     // sg_shutdown() when a context is open and no renderer owns it (a start that failed before the renderer existed). A
     // renderer that adopted the context closes it in shutdown().
     static void close_context();
-    // One frame that clears the swapchain to black (the letterbox colour) and commits it. No renderer needed; also fine
-    // while one exists (the commit is noted). False when no context is open (nothing is drawn).
-    static bool present_clear(const GfxSwapchain& swapchain);
+    // One frame that clears the swapchain to `color` (default black, the letterbox colour) and commits it. No renderer needed;
+    // also fine while one exists (the commit is noted). False when no context is open (nothing is drawn). The player's error
+    // screen uses it with red.
+    static bool present_clear(const GfxSwapchain& swapchain, Color color = Color{0, 0, 0, 1});
+    // A pass into the window for a client that draws into it itself (the editor's ImGui): clears the swapchain to `clear`,
+    // and the caller draws and calls end_window_pass(). Needs an open context (sg_isvalid); no renderer. present_clear is
+    // these two and a commit. Not for the game's picture: present() draws that.
+    static void begin_window_pass(const GfxSwapchain& swapchain, Color clear);
+    static void end_window_pass();
     // Makes, a few at a time, the pipelines the first game frame would otherwise compile in the middle of drawing: the
     // present blit and the sprite pipelines, plus the mesh, sky and shadow ones when `world` has a MeshRenderer. One call
     // makes one group (about a frame's worth of driver work on Metal and D3D11). Returns how many groups are left (0 = done,

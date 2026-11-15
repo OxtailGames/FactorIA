@@ -46,9 +46,7 @@ private:
     static constexpr int kLevels = 5;  // 1/2, 1/4, 1/8, 1/16, 1/32 of the game target
     struct Level {
         int w = 0, h = 0;
-        sg_image img[2]{};
-        sg_view att[2]{};
-        sg_view tex[2]{};
+        Target t[2];  // t[i].colorAtt is drawn into, t[i].texView sampled
     };
     bool ensure(int level, int targetW, int targetH, bool needSecond, sg_pixel_format fmt);
 
