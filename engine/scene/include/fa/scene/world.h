@@ -88,6 +88,7 @@ public:
     bool alive(Entity e) const;
     bool pending_destroy(Entity e) const;
     std::size_t entity_count() const;
+    std::size_t index_bound() const;  // one past the largest Entity::index in use (tables indexed by Entity::index)
     std::vector<Entity> entities() const;  // alive entities, creation order
     void clear();                          // destroy everything immediately, reset settings
 
