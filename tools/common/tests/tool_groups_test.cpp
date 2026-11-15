@@ -8,6 +8,8 @@
 #include "fa/core/command.h"
 #include "fa/tooling/bundle.h"
 #include "fa/tooling/tool_groups.h"
+#include "fa_test_paths.h"
+#include "test_helpers.h"
 
 using namespace fa;
 
@@ -60,9 +62,12 @@ TEST_CASE("tool groups: the hint for a group that matches nothing suggests the c
 TEST_CASE("tool groups: a count of core commands written in the docs or in the header is the real one") {
     const std::string real = std::to_string(core_command_names().size());
     const std::regex counted(R"((\d+) core (?:commands|tools))");
-    for (const char* doc : {"docs/MCP.md", "docs/AI_PROVIDERS.md", "docs/ARCHITECTURE.md"}) {
-        const auto text = bundled_read(doc);
-        REQUIRE_MESSAGE(text.has_value(), doc);
+    // docs/design/ is not embedded in the binary: read it from the checkout.
+    for (const char* doc : {"docs/MCP.md", "docs/AI_PROVIDERS.md", "docs/design/ARCHITECTURE.md"}) {
+        auto text = bundled_read(doc);
+        if (!text && std::string(doc).rfind("docs/design/", 0) == 0)
+            text = testing::read_text(std::filesystem::path(FA_REPO_ROOT) / doc);
+        REQUIRE_MESSAGE((text.has_value() && !text->empty()), doc);
         for (std::sregex_iterator it(text->begin(), text->end(), counted), end; it != end; ++it)
             CHECK_MESSAGE((*it)[1].str() == real,
                           doc << " says \"" << (*it)[0].str() << "\" but the core set has " << real << " commands");

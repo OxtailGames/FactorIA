@@ -230,7 +230,7 @@ void Editor::at_section_K(AtScript& at) {
         step(2, [this, ms] {
             const Renderer* r = engine_->renderer();
             ms->skip = !r || !r->stats(false).materialFallbacks.empty();
-            // CI installs the compiler and sets FA_REQUIRE_SHDC=1 (docs/BUILDING.md): there a material that did not build fails.
+            // CI installs the compiler and sets FA_REQUIRE_SHDC=1 (docs/design/BUILDING.md): there a material that did not build fails.
             const char* required = std::getenv("FA_REQUIRE_SHDC");
             if (ms->skip && required && std::string(required) == "1")
                 at_check(false, "the custom material builds (FA_REQUIRE_SHDC=1)");

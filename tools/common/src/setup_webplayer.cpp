@@ -158,7 +158,8 @@ std::optional<Fail> run_step(const SetupContext& ctx, const std::vector<std::str
 }
 
 const char* const kBuildHint =
-    "Needs CMake 3.24+, Ninja, Python 3.10+ and a C++ toolchain on PATH next to the Emscripten SDK (docs/BUILDING.md, "
+    "Needs CMake 3.24+, Ninja, Python 3.10+ and a C++ toolchain on PATH next to the Emscripten SDK "
+    "(docs/design/BUILDING.md, "
     "\"Web\"). "
     "On a Mac with an older system Python, point EMSDK_PYTHON at a newer one (`brew install python@3.13`).";
 
@@ -216,7 +217,7 @@ SetupResult webplayer_install(const SetupContext& ctx, const SetupInstallOptions
                     (root.empty() ? std::string("no source folder is recorded") : root.string()) +
                     " has no CMakePresets.json and engine/), so it cannot build a web player.",
                 "Use the web player of a release: `factoria setup players --platforms web` (a download of FactorIA "
-                "carries it in web/), or build in a checkout of the engine (docs/BUILDING.md, \"Web\")."));
+                "carries it in web/), or build in a checkout of the engine (docs/design/BUILDING.md, \"Web\")."));
     const stdfs::path dir = player_dir(root);
     if (!opt.force && player_complete(dir) && player_matches(dir)) {
         SetupStep s;
@@ -262,16 +263,15 @@ SetupResult webplayer_install(const SetupContext& ctx, const SetupInstallOptions
                     ctx, {(target / script).string(), verb, kSetupEmscriptenVersion}, target, {},
                     std::string("`emsdk ") + verb + " " + kSetupEmscriptenVersion + "`",
                     "emsdk needs Python 3.10+ and network access; set EMSDK_PYTHON to a Python 3.10+ if the system one "
-                    "is older, or install the SDK yourself (docs/BUILDING.md, \"Web\") and set EMSDK."))
+                    "is older, or install the SDK yourself (docs/design/BUILDING.md, \"Web\") and set EMSDK."))
                 return in.fail(*f);
         if (!emsdk_usable(target))
-            return in.fail(
-                "failed",
-                make_error(
-                    "`emsdk install " + std::string(kSetupEmscriptenVersion) + "` finished but " +
-                        toolchain_file(target).string() + " is not there.",
-                    "Delete " + target.string() +
-                        " and run this again, or install the SDK yourself (docs/BUILDING.md, \"Web\") and set EMSDK."));
+            return in.fail("failed",
+                           make_error("`emsdk install " + std::string(kSetupEmscriptenVersion) + "` finished but " +
+                                          toolchain_file(target).string() + " is not there.",
+                                      "Delete " + target.string() +
+                                          " and run this again, or install the SDK yourself (docs/design/BUILDING.md, "
+                                          "\"Web\") and set EMSDK."));
         emsdk = target;
         in.report.changed = true;
         SetupStep s;

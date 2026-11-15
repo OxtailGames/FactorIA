@@ -4876,7 +4876,40 @@
     tooltipFns.clear(); worldTooltipFn = null; dropFns.clear(); worldDropFn = null;
   }
 
+  // Deprecated script API (docs/design/ARCHITECTURE.md, "Versions"): `targets` is [{ key, test, path }] from the engine (the "script" part of the
+  // deprecated section of api_since.json, mapped to where each export or member lives); empty in nearly every run, so nothing is wrapped.
+  // A function or class is wrapped in a Proxy that asks the engine for the warning on its first call (the engine logs it once per key
+  // per process); a plain value gets an accessor that warns on its first read or write. Nothing here runs in a hot loop: a call to a
+  // deprecated function costs one flag test after the first.
+  function applyDeprecations(targets) {
+    for (const t of targets) {
+      let owner = t.test ? testApi : factoria;
+      const last = t.path[t.path.length - 1];
+      try {
+        for (let i = 0; i < t.path.length - 1 && owner !== undefined && owner !== null; i++) owner = owner[t.path[i]];
+        if (owner === undefined || owner === null) continue;
+        let holder = owner, desc;
+        while (holder && !(desc = Object.getOwnPropertyDescriptor(holder, last))) holder = Object.getPrototypeOf(holder);
+        if (!desc) continue;
+        let warned = false;
+        const warn = () => { if (!warned) { warned = true; N.deprecated(t.key); } };
+        if (typeof desc.value === "function") {
+          const orig = desc.value;
+          Object.defineProperty(owner, last, { ...desc, value: new Proxy(orig, {
+            apply(fn, self, args) { warn(); return Reflect.apply(fn, self, args); },
+            construct(fn, args, nt) { warn(); return Reflect.construct(fn, args, nt); },
+          }) });
+        } else if ("value" in desc) {
+          let v = desc.value;
+          Object.defineProperty(owner, last, { configurable: true, enumerable: desc.enumerable,
+            get() { warn(); return v; }, set(x) { warn(); v = x; } });
+        }
+      } catch (e) { /* frozen or exotic object: the typings and the reference still say it is deprecated */ }
+    }
+  }
+
   return {
+    applyDeprecations,
     tooltipFor, worldTooltip, dropAccepts, worldDropAccepts,
     factoria, test: testApi,
     isBehaviourClass, instantiate, checkProps, checkHooks, resetSession, makeInfo, serialize, platformDeliver, preloadDeliver, generateTick, storageDeliver, back: deliverBack,

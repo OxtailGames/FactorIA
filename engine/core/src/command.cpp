@@ -9,6 +9,7 @@
 #include <string_view>
 #include <vector>
 
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/jobs.h"
 #include "fa/core/json_schema.h"
@@ -381,6 +382,9 @@ CommandResult CommandRegistry::call_inner(std::string_view name, const Json& arg
 
     if (const CapabilitySet missing = entry.info.capabilities.missing_from(caller_capabilities()); !missing.empty())
         return capability_denied(entry.info, missing);
+
+    // A deprecated command still runs; the first call in the process says what replaces it (docs/design/ARCHITECTURE.md, "Versions").
+    if (!Deprecations::global().empty()) warn_deprecated(kDeprecatedCommands, entry.info.name);
 
     // The arguments are copied only when the call changes them: MCP and other transports may add their own bookkeeping key
     // (`_meta`, which is not an argument), and the schema may have defaults to fill in. Otherwise the handler gets the

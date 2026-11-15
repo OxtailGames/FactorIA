@@ -294,7 +294,7 @@ Lists commands by category (`*` = modifies state). With an exact name it prints 
 With an exact name the text also has a `Capabilities:` line (for example `Capabilities: read, state`): the capabilities the
 command needs, in camelCase, `none` for a command that needs nothing, or `not declared yet` when the command has not declared
 them (its set is then derived from `readOnly`). The generated reference prints the same line on every command page, and
-`--json` has `capabilities` and `capabilitiesDeclared` on every command (docs/ARCHITECTURE.md, "Capabilities").
+`--json` has `capabilities` and `capabilitiesDeclared` on every command (docs/design/ARCHITECTURE.md, "Capabilities").
 
 ### `factoria api [--md|--json|--dts|--schema scene|prefab|project] [--out FILE] [--project DIR]`
 Prints the API reference: components, commands, scripting. `--dts` writes the TypeScript declarations; with
@@ -306,10 +306,15 @@ component, field and command, and `--dts` has `@since` in the JSDoc. `Not releas
 what is only on the main branch, so a factoria download does not have it. Nothing is printed for what 0.1.0 had; if
 your `factoria --version` is older than a mark, that item is missing in your install.
 
+A deprecated component, field, command or script export (it still works and has a replacement, or a reason for none) is
+marked the same way: a `Deprecated since 0.30.0 - use `x`. Removed in 0.32.0.` line, `@deprecated` in the typings and a
+`deprecated` object in `--json`; using it logs one warning that names the replacement. It is removed two minor versions
+after the one that deprecated it (docs/design/ARCHITECTURE.md, "Versions").
+
 The repository keeps the same reference as browsable Markdown: `docs/reference/` (an index plus one page per component
-and per command category) and `docs/COMPONENTS.md` (the whole `factoria api --md` text). The command
+and per command category) and `docs/COMPONENTS.md` (the whole `factoria api --md` text, 1.8 MB; for GitHub readers). The command
 `factoria call docs.write_reference '{"out":"docs"}'` regenerates both from the repository root, outside any game project;
-the test `api_reference` fails when the committed files differ. The pages are not embedded in the binary: AIs get the
+the test `api_reference` fails when the committed files differ. Neither is embedded in the binary: AIs get the
 same data through `docs.components`, `docs.commands` and `factoria api`.
 
 ## MCP
@@ -367,7 +372,7 @@ factoria feedback list --status open
 factoria feedback update games/my-game FB-001 --status fixed-in-engine --engine-issue abc123 [--note TEXT] [--json]
 factoria feedback check --title "No fluid simulation" --missing "There is no liquid solver"   # the check `add` runs; exit 1 = the engine has it
 factoria feedback check --entries [--reject]    # the open entries that claim something the engine has (--reject closes them as rejected)
-factoria feedback update FB-001 --status rejected --reason "Collider2D.oneWay exists (docs/COMPONENTS.md)"   # rejected needs --reason
+factoria feedback update FB-001 --status rejected --reason "Collider2D.oneWay exists (docs.components)"   # rejected needs --reason
 factoria feedback discard FB-004                # delete a closed entry (file or archive); ids are never reused
 factoria feedback validate
 factoria feedback collect games/ examples/ --out roadmap.md      # .json => JSON; --include-closed
