@@ -15,6 +15,14 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
   registers the authoring one (call it once before the first Engine), and `Engine::runtime_command_names()` lists what the
   player has. `Engine::Impl` is now declared in `fa/runtime/internal/engine_impl.h`, for engine tools only.
 
+- **The export checks that a game's scripts call only commands its player has.** A shipped script with a literal
+  `fa.call("scene.format")` (a command of the editor, the CLI and MCP that the exported player lacks) now stops
+  `factoria export` before it writes anything, with `file:line:column`, the command, why, and the JS way where there is
+  one (`mesh.*` is the `mesh` API, `anim.*` clips are played by the Animator, `scene.import_ascii` is `scene.place_ascii`
+  at play time). A misspelled name gets "did you mean" against the player's commands; the commands of the game's native
+  plugins count as the player's. `factoria validate` reports the same calls as warnings. Scripts under `tools/` and
+  `tests/` and names built at run time (`fa.call(name)`) are not checked.
+
 ### Fixes
 
 - Audio: two memory leaks the weekly fuzz run found. A SoundFont whose `pdta` list repeats a table is refused with an

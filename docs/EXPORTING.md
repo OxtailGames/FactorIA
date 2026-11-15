@@ -115,6 +115,23 @@ of them. An export warns when a shipped script calls one with a literal name (`f
 fail in the game. Move what the game needs into a module under `scripts/` and import it from both the tool and the script. A name
 built at run time is not found by the warning.
 
+**A shipped script calls only commands the player has.** The exported player has the engine's runtime commands (the ones
+`scene.spawn`, `game.state`, `vfx.play`, `tilemap.generate`, `scene.place_ascii`... belong to) and the commands of the game's native
+plugins; it does not have the commands that only developer tools use (they write project files or author assets: `scene.format`,
+`prefab.save` and every other command that lives in `tools/authoring`, `anim.*` and `mesh.*` among them once they have moved there; the editor, the
+CLI and MCP have them).
+`fa.call` with such a name fails when the game runs, so the export reads every shipped script (`scripts/` and any other `.js` that
+ships, not `tools/`, `tests/` or `scripts/autoplay.js`) and **stops** on each literal `fa.call("<command>")` of a command that is not the
+player's, before it writes anything (a `dryRun` finds it too). The error lists up to eight calls, each as `file:line:column`, the command,
+"this command is for the editor, the CLI and MCP (authoring); the exported player does not have it", and what to do instead: the JS
+way where there is one (`mesh.*` is the `mesh` API of `"factoria"`, `anim.*` clips are assets that the entity's Animator plays,
+`scene.import_ascii` is `scene.place_ascii` at play time), or "do it before you export" for `prefab.save` and `scene.format`. A
+name that matches no command at all gets "did you mean" against the player's commands. The names a native plugin registers
+(`<plugin>.<verb>`, for each plugin `factoria.json` declares) count as the player's. Only a string literal is checked
+(`fa.call("scene.format")`, in either quote style): a name built at run time (`fa.call(name)`, `fa.call(prefix + ".format")`) or a
+call inside a comment or a string is not, and it still fails in the game if the player lacks it. `factoria validate` reports the same
+calls as warnings, so you see them before you export.
+
 **Dot-folders never ship** (`.git`, `.factoria`, `.github`, `.vscode`, a `.cache` of your own): anything whose name starts with a dot is
 left out at every depth, so a game must not keep data it loads in a folder like `.data/`. Rename the folder
 instead. To leave out more, list project-relative globs in `export.exclude` of `factoria.json`:

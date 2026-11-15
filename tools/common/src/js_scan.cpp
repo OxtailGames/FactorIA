@@ -150,8 +150,8 @@ std::string tool_module_name(const std::string& text) {
     return {};
 }
 
-std::vector<ProjectCall> literal_project_calls(const std::string& text) {
-    std::vector<ProjectCall> out;
+std::vector<LiteralCall> literal_calls(const std::string& text) {
+    std::vector<LiteralCall> out;
     // `fa.call` inside a comment or a string is not a call: find it in the masked text (strings blanked) and read the
     // argument from the text with only the comments blanked.
     const Masked m = mask_source(text);
@@ -168,14 +168,23 @@ std::vector<ProjectCall> literal_project_calls(const std::string& text) {
         sc.blanks();
         const std::size_t quoteAt = sc.i;
         std::string target;
-        if (!sc.quoted(target) || target.rfind("project.", 0) != 0) continue;
-        std::string name = target.substr(8);
+        if (!sc.quoted(target) || target.empty()) continue;
+        sc.blanks();
+        if (sc.i >= m.code.size() || (m.code[sc.i] != ',' && m.code[sc.i] != ')'))
+            continue;  // "a." + b: the name is made at run time
         bool seen = false;
-        for (const ProjectCall& c : out) seen = seen || c.name == name;
+        for (const LiteralCall& c : out) seen = seen || c.name == target;
         if (seen) continue;
         const SourcePos pos = source_pos(text, quoteAt);
-        out.push_back({std::move(name), pos.line, pos.column});
+        out.push_back({std::move(target), pos.line, pos.column});
     }
+    return out;
+}
+
+std::vector<ProjectCall> literal_project_calls(const std::string& text) {
+    std::vector<ProjectCall> out;
+    for (LiteralCall& c : literal_calls(text))
+        if (c.name.rfind("project.", 0) == 0) out.push_back({c.name.substr(8), c.line, c.column});
     return out;
 }
 

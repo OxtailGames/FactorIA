@@ -32,6 +32,7 @@
 #include "fa/tooling/project_fs.h"
 #include "fa/tooling/setup.h"
 #include "js_scan.h"
+#include "player_commands.h"
 #include "util.h"
 
 #if defined(_WIN32)
@@ -395,6 +396,45 @@ static void report_tool_only_calls(const Project& p, const std::vector<std::stri
             report.warnings.push_back(tool_only_call_message(f, call, tool->second));
         }
     }
+}
+
+// A shipped game runs on the player, which has the engine's runtime commands and none of the developer-tool ones (anim.set_keys,
+// scene.format, ...: Engine::runtime_command_names). A script that calls one by name fails when it runs there, so the
+// export stops, with file, line and column. Only `fa.call("<literal>")` is checked (a name built at run time is not), in the
+// files that ship (tools/ and tests/ do not). Commands of the project's native plugins count as the player's.
+static Result<void> check_script_commands(const Project& p, const std::vector<std::string>& files) {
+    using namespace tooling_detail;
+    PlayerCommandContext context;
+    bool contextRead = false;
+    std::vector<PlayerCommandIssue> issues;
+    for (const std::string& f : files) {
+        if (to_lower(fs::extension(f)) != ".js") continue;
+        std::error_code sec;
+        const auto size = stdfs::file_size(os_path(p.dir / f), sec);
+        if (sec || size > kMaxScanScriptBytes) continue;
+        const auto text = read_file(p.dir / f);
+        if (!text) continue;
+        if (text->find("call") == std::string::npos) continue;
+        if (!contextRead) {
+            context.plugins = declared_plugin_names(generic(p.dir));
+            context.toolCommands = tool_commands(p.dir);
+            contextRead = true;
+        }
+        for (PlayerCommandIssue& issue : player_command_issues(f, *text, context)) issues.push_back(std::move(issue));
+    }
+    if (issues.empty()) return {};
+    constexpr std::size_t kShown = 8;
+    std::string message = "export: " + std::to_string(issues.size()) +
+                          (issues.size() == 1 ? " script call names" : " script calls name") +
+                          " a command the exported player does not have:";
+    for (std::size_t i = 0; i < issues.size() && i < kShown; ++i)
+        message += "\n  " + issues[i].message + "\n    -> " + issues[i].hint;
+    if (issues.size() > kShown) message += "\n  ... and " + std::to_string(issues.size() - kShown) + " more";
+    return err(message,
+               "The player runs the game's scripts with the runtime commands only; the commands that write project "
+               "files or author assets are for the editor, the CLI and MCP. Fix each call above and export again "
+               "(docs/EXPORTING.md, \"What is shipped and what is not\"). Scripts under tools/ and tests/ are not "
+               "shipped and not checked; a name made at run time, fa.call(name), is not checked either.");
 }
 
 // What the pack (or the game folder) holds, folder by folder: fills report.largestFolders and warns about the folders that
@@ -790,6 +830,10 @@ Result<Plan> make_plan(const ExportOptions& options, bool forExport = false) {
         return err("export: output folder '" + generic(plan.outRoot) + "' would contain the project",
                    "choose another --out folder");
     if (auto r = check_replaceable(p, plan.platform, plan.outRoot); !r.ok()) return r.error();
+    if (auto r =
+            check_script_commands(p, collect_game_files(p, plan.outParent == p.dir ? plan.outRoot : plan.outParent));
+        !r.ok())
+        return r.error();
 
     // Checked before the player: on a computer that cannot build an AppImage, a missing player is beside the point.
     const bool appimage = plan.platform == "linux" && to_lower(options.format) == "appimage";
