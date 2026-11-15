@@ -14,6 +14,9 @@ void register_authoring_commands(Engine& engine) {
 
     // scenes, prefabs
     register_scene_file_commands(engine, impl);
+
+    // levels
+    register_ascii_level_commands(engine, impl);
 }
 
 }  // namespace

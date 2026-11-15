@@ -1,4 +1,5 @@
-// scene.import_ascii: ASCII rows + legend -> Tilemap + spawned objects (see engine/runtime/src/level_commands.cpp).
+// scene.import_ascii: ASCII rows + legend -> Tilemap + spawned objects (tools/authoring/src/level_commands.cpp; the running-world
+// half, scene.place_ascii, is tested in engine/runtime/tests/tilemap_place_tests.cpp).
 #include <doctest.h>
 
 #include <filesystem>
@@ -19,11 +20,6 @@ namespace {
 
 std::vector<std::int32_t> tiles_of(const Tilemap& tm) {
     return std::vector<std::int32_t>(tm.tiles.cdata(), tm.tiles.cdata() + tm.tiles.size());
-}
-Json tiles_json(const Tilemap& tm) {
-    Json a = Json::array();
-    for (std::int32_t t : tiles_of(tm)) a.push_back(t);
-    return a;
 }
 
 const char* kProject = R"({
@@ -660,48 +656,6 @@ TEST_CASE("import_ascii: unknown glyphs are reported together and warnings point
     CHECK(contains(w, "`legendFrom` file"));  // teaches the shared legend instead of copying glyphs into every map
     CHECK(contains(w, "tileset is empty"));
     CHECK(contains(w, "solidTiles is empty"));
-}
-
-// A game script is granted {read, state} (docs/SCRIPTING.md, "What fa.call can do from a game"): the in-memory twin
-// scene.place_ascii is what it calls; scene.import_ascii can write a file and is refused to it.
-TEST_CASE("place_ascii: callable from a script during a frame (fa.call), re-placing there keeps ids stable") {
-    Session s("script");
-    s.project.write("scripts/importer.js", R"(
-import { Behaviour, fa } from "factoria";
-export default class Importer extends Behaviour {
-  frames = 0;
-  onUpdate(dt) {
-    this.frames++;
-    if (this.frames === 2 || this.frames === 4) {
-      const r = fa.call("scene.place_ascii", {
-        rows: ["o.o", "###"],
-        legend: { "#": 0, "o": { prefab: "prefabs/coin.prefab.json", offset: [0, 2] } },
-      });
-      this.ids = r.spawned.map((o) => o.id);
-      this.removed = r.removed;
-    }
-  }
-}
-)");
-    REQUIRE(s.call("scene.spawn",
-                   Json::parse(R"({"id":"importer","components":{"Script":{"path":"scripts/importer.js"}}})"))
-                .ok);
-    s.engine.step(6);
-    Json state = s.engine.state();
-    CHECK_MESSAGE(state["scriptErrors"].empty(), state["scriptErrors"].dump());
-    CHECK(s.call("scene.list_entities", Json{{"tag", "coin"}}).result["total"] == 2);
-    CHECK(ids_with_tag(s, "tilemap:tilemap") == std::vector<std::string>{"coin_1", "coin_2"});
-    Json coin = s.entity("coin_2");
-    REQUIRE(coin.is_object());
-    CHECK(position_of(coin).x == doctest::Approx(40.0f));         // col 2 of 16 px tiles
-    CHECK(position_of(coin).y == doctest::Approx(-8.0f + 2.0f));  // row 0 centre + offset
-    // The second call (frame 4) replaced the objects of the first one (frame 2) and got the same ids.
-    Json seen =
-        s.call("script.eval",
-               Json{{"code", "[world.find('importer').behaviour.removed, world.find('importer').behaviour.ids]"}})
-            .result["value"];
-    CHECK(seen[0] == Json::parse(R"(["coin_1","coin_2"])"));
-    CHECK(seen[1] == Json::parse(R"(["coin_1","coin_2"])"));
 }
 
 TEST_CASE("import_ascii: unicode glyphs and an all-empty map") {
@@ -1515,97 +1469,4 @@ TEST_CASE("ascii_edit reads the ground from the scene's Tilemap when the file ha
     REQUIRE_MESSAGE(r.ok, error_text(r));
     auto written = load_json_file((s.project.dir / "levels/m.json").generic_string());
     CHECK(written.value()["rows"][2] == ".....o....");
-}
-
-TEST_CASE("tilemap.set_tile changes one tile of the running map in place and refuses bad cells") {
-    Session s("set_tile");
-    REQUIRE(s.import(level()).ok);
-    const Tilemap* tm = s.engine.world().get<Tilemap>(s.engine.world().find("tilemap"));
-    REQUIRE(tm);
-    const TilemapSize size = tilemap_size(*tm);
-    REQUIRE(size.width > 2);
-    const int was = tilemap_tile_at(*tm, size, 1, 0);
-    auto r = s.call("tilemap.set_tile", Json{{"id", "tilemap"}, {"col", 1}, {"row", 0}, {"tile", 3}});
-    REQUIRE_MESSAGE(r.ok, error_text(r));
-    CHECK(r.result["tile"] == 3);
-    CHECK(r.result["previous"] == was);
-    CHECK(tilemap_tile_at(*tm, size, 1, 0) == 3);
-    auto bad = s.call("tilemap.set_tile", Json{{"id", "tilemap"}, {"col", size.width}, {"row", 0}, {"tile", 1}});
-    CHECK_FALSE(bad.ok);
-    CHECK(contains(error_text(bad), "col is 0.."));
-    auto none = s.call("tilemap.set_tile", Json{{"id", "cam"}, {"col", 0}, {"row", 0}, {"tile", 1}});
-    CHECK_FALSE(none.ok);
-    CHECK(contains(error_text(none), "no Tilemap"));
-}
-
-TEST_CASE("tilemap_version: scene.set_component and set_tilemap_tile both move the counter, an equal write does not") {
-    Session s("tilemap_version");
-    REQUIRE(s.import(level()).ok);
-    Entity map = s.engine.world().find_by_id("tilemap");
-    REQUIRE_FALSE(map.is_null());
-    Tilemap* tm = s.engine.world().get<Tilemap>(map);
-    REQUIRE(tm != nullptr);
-    const std::uint32_t v0 = tilemap_version(*tm);
-    CHECK(tilemap_version(*tm) == v0);
-    Json same = Json::object(
-        {{"id", "tilemap"}, {"component", "Tilemap"}, {"fields", Json::object({{"tiles", tiles_json(*tm)}})}});
-    REQUIRE(s.call("scene.set_component", same).ok);
-    tm = s.engine.world().get<Tilemap>(map);
-    CHECK(tilemap_version(*tm) == v0);
-    Json tiles = tiles_json(*tm);
-    tiles[0] = tiles[0].get<int>() == 0 ? 1 : 0;
-    Json changed =
-        Json::object({{"id", "tilemap"}, {"component", "Tilemap"}, {"fields", Json::object({{"tiles", tiles}})}});
-    REQUIRE(s.call("scene.set_component", changed).ok);
-    tm = s.engine.world().get<Tilemap>(map);
-    const std::uint32_t v1 = tilemap_version(*tm);
-    CHECK(v1 > v0);
-    REQUIRE(set_tilemap_tile(*tm, 1, 1, 2));
-    CHECK(tilemap_version(*tm) > v1);
-}
-
-TEST_CASE("import_ascii on an isometric map: objects stand at the diamond centres, anchors use the drawn box, cell_at "
-          "inverts cell_to_world") {
-    Session s("iso");
-    Json a = Json::parse(R"({
-      "rows": ["#.#", "...", "#o#"],
-      "legend": { "#": 0, ".": 1, "o": { "prefab": "prefabs/coin.prefab.json", "id": "coin" } },
-      "tilemap": { "tileset": "assets/tiles.png", "tileSize": [32, 32], "projection": "isometric", "groundHeight": 16,
-                   "solidTiles": [0] },
-      "position": [500, 200]
-    })");
-    auto r = s.import(a);
-    REQUIRE_MESSAGE(r.ok, error_text(r));
-    Json map = s.entity("tilemap");
-    CHECK(map["components"]["Tilemap"]["projection"] == "isometric");
-    // The top-left anchor is the corner of the box around all the images: its left edge is 3 rows * 16 = 48 left of the top
-    // vertex (the image of cell (0, 2) reaches half a tile past its centre) and its top is groundOffset (0) above it, so the
-    // entity (the top vertex) sits at (548, 200).
-    CHECK(position_of(map).x == doctest::Approx(500.0f + 48.0f));
-    CHECK(position_of(map).y == doctest::Approx(200.0f));
-    // The coin was written at '(col 1, row 2)': centre ((1 - 2) * 16, -(1 + 2 + 1) * 8) = (-16, -32) from the top vertex.
-    Json coin = s.entity("coin");
-    REQUIRE(coin.is_object());
-    CHECK(position_of(coin).x == doctest::Approx(548.0f - 16.0f));
-    CHECK(position_of(coin).y == doctest::Approx(200.0f - 32.0f));
-
-    auto c = s.call("tilemap.cell_at", Json{{"id", "tilemap"}, {"x", position_of(coin).x}, {"y", position_of(coin).y}});
-    REQUIRE_MESSAGE(c.ok, error_text(c));
-    CHECK(c.result["col"] == 1);
-    CHECK(c.result["row"] == 2);
-    CHECK(c.result["inside"] == true);
-    CHECK(c.result["tile"] == -1);  // an object glyph leaves its cell empty
-    auto w = s.call("tilemap.cell_to_world", Json{{"id", "tilemap"}, {"col", 2}, {"row", 0}});
-    REQUIRE_MESSAGE(w.ok, error_text(w));
-    CHECK(w.result["x"].get<float>() == doctest::Approx(548.0f + 32.0f));
-    CHECK(w.result["y"].get<float>() == doctest::Approx(200.0f - 24.0f));
-    // A point left of the map is outside, with the cell numbers it would have.
-    auto out = s.call("tilemap.cell_at", Json{{"id", "tilemap"}, {"x", 400}, {"y", 100}});
-    REQUIRE_MESSAGE(out.ok, error_text(out));
-    CHECK(out.result["inside"] == false);
-    CHECK(out.result["tile"] == -1);
-    // An entity without a Tilemap teaches.
-    auto bad = s.call("tilemap.cell_at", Json{{"id", "cam"}, {"x", 0}, {"y", 0}});
-    REQUIRE_FALSE(bad.ok);
-    CHECK(contains(error_text(bad), "Tilemap"));
 }
