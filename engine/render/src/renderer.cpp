@@ -249,6 +249,10 @@ Json Renderer::startup_report() const {
     j["cache"] = shader_cache_mode();
     if (impl_) {
         j["pipelinesWarmed"] = int(impl_->warmPipelines);
+        j["pipelines"] = int(impl_->gpu.pipeline_count());
+        j["pipelineHits"] = std::int64_t(impl_->gpu.pipeline_hits());
+        j["pipelinesMade"] = std::int64_t(impl_->gpu.pipelines_made());
+        j["pipelinesEvicted"] = std::int64_t(impl_->gpu.pipelines_evicted());
         j["warmMs"] = std::round(impl_->warmMs * 10.0) / 10.0;
         j["groupsLeft"] = int(impl_->warmGroups.size() - std::min(impl_->warmNext, impl_->warmGroups.size()));
     }
