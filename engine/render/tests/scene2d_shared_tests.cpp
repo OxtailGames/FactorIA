@@ -242,7 +242,8 @@ SceneCounts build_scene(World& w) {
         ++n.sprites;
     }
     {
-        Entity e = sprite(w, checker, {40, -20, 0}, {30, 10}, 2);  // a screen-space Sprite: the frame that wants the screen
+        Entity e =
+            sprite(w, checker, {40, -20, 0}, {30, 10}, 2);  // a screen-space Sprite: the frame that wants the screen
         w.get<Sprite>(e)->space = RenderSpace::Screen;
     }
     for (int i = 0; i < 6; ++i) {
@@ -324,7 +325,8 @@ TEST_CASE("Scene2D: one camera gives the lists of the old path and builds each e
     CHECK(run.work.emittersBuilt == n.emitters + 1);
 }
 
-TEST_CASE("Scene2D: split screen, render target and view cameras share what they draw, and each builds only what is its own") {
+TEST_CASE("Scene2D: split screen, render target and view cameras share what they draw, and each builds only what is "
+          "its own") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
@@ -349,7 +351,8 @@ TEST_CASE("Scene2D: split screen, render target and view cameras share what they
     CHECK(run.work.emittersCopied == 2 * n.emitters);
 }
 
-TEST_CASE("Scene2D: showTags and hideTags are per camera, an entity another camera hid is built when the next one draws it") {
+TEST_CASE(
+    "Scene2D: showTags and hideTags are per camera, an entity another camera hid is built when the next one draws it") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
@@ -361,7 +364,8 @@ TEST_CASE("Scene2D: showTags and hideTags are per camera, an entity another came
     for (int i = 0; i < 5; ++i) {
         sprite(w, checker, Vec3{float(i * 30 - 60), 40, 0}, {16, 16}, 1, "hud");
         shape(w, Vec3{float(i * 30 - 60), -40, 0}, {16, 16}, Color::hex(0x2040e0), 1, "hud");
-        sprite(w, checker, Vec3{float(i * 30 - 50), 0, 0}, {16, 16}, 1);  // between the hud ones, in the order of the Sprites
+        sprite(w, checker, Vec3{float(i * 30 - 50), 0, 0}, {16, 16},
+               1);  // between the hud ones, in the order of the Sprites
     }
     Rig rig(g);
     std::vector<Cam> cams;
@@ -398,7 +402,8 @@ TEST_CASE("Scene2D: a perspective camera sorts by distance, its copies carry its
     CHECK(run.work.shapesCopied == 8);
 }
 
-TEST_CASE("Scene2D: what depends on the camera (Parallax, render target textures, billboards, screen space) is built for each") {
+TEST_CASE("Scene2D: what depends on the camera (Parallax, render target textures, billboards, screen space) is built "
+          "for each") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
@@ -445,7 +450,8 @@ TEST_CASE("Scene2D: what depends on the camera (Parallax, render target textures
     CHECK(moved);
 }
 
-TEST_CASE("Scene2D: more Sprites and particles than the jobs split join in order, with copies between them, on any thread count") {
+TEST_CASE("Scene2D: more Sprites and particles than the jobs split join in order, with copies between them, on any "
+          "thread count") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;

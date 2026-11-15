@@ -72,12 +72,12 @@ private:
             Share,   // built once: `donor` holds the items
         };
         State state = State::Todo;
-        bool counted = false;             // it counts in the frame's stats (sprites, shapes, particles) when drawn
-        bool ySort = false;               // the orthographic sort key is pos.y (a Sprite) instead of 0
+        bool counted = false;                // it counts in the frame's stats (sprites, shapes, particles) when drawn
+        bool ySort = false;                  // the orthographic sort key is pos.y (a Sprite) instead of 0
         std::uint32_t first = 0, count = 0;  // items [first, first + count) of `donor`
         const QuadList* donor = nullptr;
-        Vec3 pos{};                       // where the entity is drawn: the perspective sort key is the distance from the camera
-        int particles = 0;                // an emitter's live particles, for the stats
+        Vec3 pos{};         // where the entity is drawn: the perspective sort key is the distance from the camera
+        int particles = 0;  // an emitter's live particles, for the stats
     };
     static Slot& slot_of(std::vector<Slot>& table, Entity e);
     float sort_key(const Slot& s, const Frame& f) const;
