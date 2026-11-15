@@ -1,6 +1,6 @@
 // Private: the state of one Renderer (Renderer::Impl) and the small helpers its translation units share.
 // renderer.cpp (setup, cameras, the public API, render()), renderer_targets.cpp (images, views, readback, post filter),
-// renderer_draw.cpp (draw_view_job, draw_job) and renderer_present.cpp (present, capture) each implement part of Impl.
+// renderer_draw.cpp (plan_view_job, plan_job, the frame graph) and renderer_present.cpp (present, capture) each implement part of Impl.
 #pragma once
 
 #include "fa/render/renderer.h"
@@ -139,7 +139,6 @@ struct Renderer::Impl {
     TextureAsset* view_image(std::uint64_t key, int w, int h, bool renderTarget = false);
     void release_view(ViewTarget& t);
     void release_unused_views();
-    void draw_view_job(World& world, Frame& fr, ViewTarget& target);
 
     // ---- Camera.renderTarget (docs/RENDERING.md, "Render targets") ----
     struct TargetCam {
@@ -191,6 +190,15 @@ struct Renderer::Impl {
     // gather_meshes of every camera, render target and CameraView.
     RenderScene renderScene;
     struct JobPlan {
+        // The job's name in the frame graph: its passes are "<name>/<pass>" ("camera:0", "screen" for the screen-space job of a
+        // split frame, "target:<name>", "view:<n>", "capture").
+        std::string name;
+        // The keys (view_image) of the images of other jobs this job's visuals sample (a Sprite, a mesh or a UI that shows
+        // "target:<name>", a CameraView): the job reads them in the graph, after the jobs that drew them.
+        std::vector<std::uint64_t> shows;
+        ResourceId image;  // a view job: the imported image it draws into (set by plan_view_job)
+        ViewTarget* flipTarget =
+            nullptr;         // a render target the backend stores bottom-up: its picture is copied after the draw
         bool first = false;  // the first pass of the frame: it clears the whole target when its camera clears
         bool last =
             false;  // the last job of the frame: it runs the post effects (bloom, the HUD over it, the colour filter)
@@ -201,7 +209,34 @@ struct Renderer::Impl {
     };
     void render(World& world, float dt);
     void setup_frame(Frame& fr, World& world, float dt);
-    void draw_job(World& world, Frame& fr, const JobPlan& plan);
+    // Declares the passes of one job in the frame graph (the CPU phases below run now; the GPU work runs in
+    // run_frame_graph()). The job keeps its state in a DrawContext that lives until then.
+    void plan_job(World& world, Frame& fr, const JobPlan& plan);
+    // Declares the passes of a CameraView's, a render target's (or capture_world's) camera in the frame graph, drawing into the
+    // view's image: plan_job with the image in the place of the game target. `key` is the view's key (view_image). Call
+    // between begin_frame_graph() and run_frame_graph().
+    void plan_view_job(World& world, Frame& fr, ViewTarget& target, std::uint64_t key, JobPlan plan);
+
+    // ---- The frame graph: one per render() (and per capture_world) ----
+    // begin_frame_graph() empties it, every job adds its passes (plan_job, plan_view_job) in the order the jobs must
+    // run, run_frame_graph() compiles and executes them and drops what the pass callbacks captured. The images that jobs
+    // draw into and others sample are imported resources (`jobImages`), so a job that shows one reads it.
+    struct JobImage {
+        ResourceId drawn, shown;  // `shown` is the flipped copy when the backend needs one, else the same as `drawn`
+    };
+    void begin_frame_graph();
+    void run_frame_graph();
+    std::unordered_map<std::uint64_t, JobImage> jobImages;
+    // The targets the jobs of the frame share, one resource each (imported when the first job that uses it is declared).
+    ResourceId sharedGame, sharedLight, sharedShadow;
+    std::vector<std::shared_ptr<void>> jobContexts;  // the DrawContext of every job, alive until run_frame_graph() ends
+    // What a job's passes read from the renderer when they run: the swapped-in image of a view job (plan_view_job).
+    struct JobEnv {
+        int targetW = 0, targetH = 0, physW = 0, physH = 0;
+        sg_view colorAtt{}, resolveAtt{}, depthAtt{};
+    };
+    JobEnv job_env() const;
+    void set_job_env(const JobEnv& env);
 
     // The phases of draw_job (renderer_draw.cpp), each reading and writing the DrawContext of the job; the comment of each
     // names its reads and writes.
@@ -228,10 +263,10 @@ struct Renderer::Impl {
                     const Px& base, int flatMode = 0);
     void main_pass(DrawContext& ctx);
     void hud_pass(DrawContext& ctx);
-    // Declares the job's passes in `graph` (draw_job compiles and runs it).
+    // Declares the job's passes in `graph` (plan_job).
     void build_graph(DrawContext& ctx);
 
-    // The frame graph of the last draw_job (a job of the frame, a CameraView or a render target) and the pool of the
+    // The frame graph of the last frame (every job of it: the cameras, the CameraViews and the render targets) and the pool of the
     // targets its transients are made of (the bloom levels). Both are made on first use.
     FrameGraph graph;
     std::unique_ptr<TransientTargets> transients;
