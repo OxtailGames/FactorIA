@@ -4,6 +4,7 @@
 #include <mutex>
 #include <string>
 #include <utility>
+#include <vector>
 
 #include "fa/core/command.h"
 #include "fa/core/log.h"
@@ -55,14 +56,13 @@ void run_command_extensions(Engine& engine) {
     }
     for (const Extension& ext : fns) {
         // CommandRegistry::add replaces a name silently; an extension that does it hides a command, so say so.
-        const std::size_t replacedBefore = engine.commands().replaced_commands().size();
+        (void)engine.commands().take_replaced_commands();  // what the built-ins and plugins replaced is not ours
         ext.fn(engine);
-        const std::vector<std::string>& replaced = engine.commands().replaced_commands();
-        for (std::size_t i = replacedBefore; i < replaced.size(); ++i)
+        for (const std::string& name : engine.commands().take_replaced_commands())
             FA_WARN("command",
                     "command extension '{}' replaced the command '{}' (names must be unique; the extension's "
                     "version wins)",
-                    ext.name, replaced[i]);
+                    ext.name, name);
     }
 }
 
