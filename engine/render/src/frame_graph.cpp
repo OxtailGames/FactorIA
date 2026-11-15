@@ -88,6 +88,7 @@ void FrameGraph::clear() {
     physical_.clear();
     breaks_.clear();
     slotCount_ = 0;
+    hookFailures_ = 0;
     compiled_ = false;
     released_ = false;
 }

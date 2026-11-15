@@ -127,7 +127,8 @@ public:
     // Per pass of the last execute(): the executed ones in order, then the culled ones.
     const std::vector<PassStats>& stats() const { return stats_; }
 
-    // How many times an `end` hook threw during the last execute(): the sample of that pass was lost, the frame was not.
+    // How many times an `end` hook threw during the last execute() (0 after clear()): the sample of that pass was lost,
+    // the frame was not. Like the rest of the graph, read on the render thread only.
     int hook_failures() const { return hookFailures_; }
 
     // Names of the live passes in execution order, and of the culled ones (empty before compile()).

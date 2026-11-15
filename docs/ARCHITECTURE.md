@@ -818,7 +818,8 @@ finds the game target's images or views not VALID, as GLES3/WebGL2 with MSAA and
 same size works in RGBA8, the format becomes RGBA8 (the pipelines made for RGBA16F stay in the cache under their own key; no flush) and the game is drawn
 in RGBA8, on every backend. A later resize or render scale that fails never changes the format. Only the game target falls
 back: a CameraView, a bloom level or the colour filter image that cannot be made keeps the format and its own warning, so
-`hdr_scene()` can stay true with one of them invalid. `FA_SCENE_FORMAT=rgba16f_invalid` forces the fall-back in tests): a float target keeps a colour above white (`MeshRenderer.emissive` times
+`hdr_scene()` can stay true with one of them invalid. `FA_SCENE_FORMAT=rgba16f_invalid` forces the fall-back in tests; likewise a shadow map the GPU cannot make turns the
+shadows off with one warning until the next resize, and `FA_SHADOW_MAP=invalid` forces that): a float target keeps a colour above white (`MeshRenderer.emissive` times
 `emissiveStrength`), and the bright pass hands bloom that excess, so it glows more. The screen, screenshots and video stay
 8-bit: `Impl::read_rgba8` copies a float target into an RGBA8 image (the `blit_keep` program, which keeps alpha) before
 reading it, and the colour filter clamps its input for every mode but `none`. With `Camera.bloomScreenSpace = false`

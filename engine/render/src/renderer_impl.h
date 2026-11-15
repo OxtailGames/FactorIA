@@ -84,7 +84,7 @@ struct Renderer::Impl {
     // while `filterActive` (the last frame was filtered).
     Target filterTarget;
     bool filterActive = false;
-    bool shadowTargetFailed = false;  // the shadow map could not be made: no shadows, not tried again
+    bool shadowTargetFailed = false;  // the shadow map could not be made: no shadows until a resize
     Target shadowTarget;  // the shadow map: R32F colour + depth (shadowTarget.texView is what the mesh programs sample)
     static constexpr int kShadowSize = 2048;
 

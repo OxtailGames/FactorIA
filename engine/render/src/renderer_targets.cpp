@@ -542,8 +542,9 @@ bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std:
 }
 
 // Makes (or keeps) the shadow map. False when the GPU cannot make it (or cannot do shadows): the frame is then drawn without
-// shadows, with one logged warning, and the creation is not tried again (a missing shadow map would otherwise make the
-// frame graph refuse every frame). FA_SHADOW_MAP=invalid is a test hook: it makes the creation fail on a GPU that never would.
+// shadows, with one logged warning, and the creation is not tried again until the game target is resized or rescaled
+// (a missing shadow map would otherwise make the frame graph refuse every frame). FA_SHADOW_MAP=invalid is a test hook: it
+// makes the creation fail on a GPU that never would.
 bool Renderer::Impl::create_shadow_targets() {
     if (shadowTargetFailed || !gpu.shadows_supported()) return false;
     if (shadowTarget.color.id) return true;

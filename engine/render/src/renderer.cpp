@@ -334,6 +334,7 @@ void Renderer::shutdown() {
 void Renderer::set_target_size(int width, int height) {
     if (!initialized()) return;
     if (width == impl_->targetW && height == impl_->targetH) return;
+    impl_->shadowTargetFailed = false;  // a shadow map that could not be made is tried again after a resize
     impl_->create_targets(width, height);
 }
 void Renderer::set_render_scale(float scale) {
@@ -342,6 +343,7 @@ void Renderer::set_render_scale(float scale) {
     scale = std::min(scale, kMaxRenderScale);
     if (scale == impl_->renderScale) return;
     impl_->renderScale = scale;
+    impl_->shadowTargetFailed = false;
     impl_->create_targets(impl_->targetW, impl_->targetH);
 }
 const char* Renderer::backend_name() {
