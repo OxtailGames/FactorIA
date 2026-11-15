@@ -220,13 +220,38 @@ TEST_CASE("frame graph: the transients of the bloom come from the pool and do no
     for (int i = 0; i < 3; ++i) {
         g.render(s.world);
         const render::TransientPoolStats now = render::renderer_transient_stats(g.renderer);
+        // The pool is the shared renderer's: what earlier test cases left idle may be destroyed meanwhile, so `live` and
+        // `destroyed` depend on their order; what the bloom makes does not.
         CHECK(now.created == first.created);  // nothing new was made
-        CHECK(now.live == first.live);
+        CHECK(now.live <= first.live);
         CHECK(now.inUse == 0);
-        CHECK(now.destroyed == first.destroyed);
     }
     const render::TransientPoolStats later = render::renderer_transient_stats(g.renderer);
     CHECK(later.reused > first.reused);
+}
+
+TEST_CASE("frame graph: a resized game target frees the bloom levels of the old size at once") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    OwnRenderer own(g, 1);
+    REQUIRE_MESSAGE(own.ok, own.error);
+    BloomHudScene s;
+    own.draw(s.world);
+    const int levels = render::renderer_transient_stats(own.r).live;
+    REQUIRE(levels > 0);
+    // An editor viewport being dragged: a new size every frame. The levels of the old size must not wait for the pool's
+    // idle limit (4 frames), or about five sets would be alive at once.
+    int destroyedBefore = render::renderer_transient_stats(own.r).destroyed;
+    for (int step = 1; step <= 6; ++step) {
+        own.r.set_target_size(320 + 8 * step, 180 + 4 * step);
+        own.draw(s.world);
+        const render::TransientPoolStats now = render::renderer_transient_stats(own.r);
+        INFO("step " << step);
+        CHECK(now.live == levels);
+        CHECK(now.destroyed >= destroyedBefore + levels);
+        CHECK(now.inUse == 0);
+        destroyedBefore = now.destroyed;
+    }
 }
 
 TEST_CASE("frame graph: the transients follow the RGBA8 fall-back of the scene format") {
@@ -362,7 +387,7 @@ TEST_CASE("frame graph: a CameraView's job comes before the camera that shows th
     CHECK(graph->order_names() == std::vector<std::string>{"view:0/view", "camera:0/game"});
 }
 
-TEST_CASE("frame graph: two targets that show each other get a fixed order, one frame late, and the frame survives") {
+TEST_CASE("frame graph: two targets that show each other get a fixed order every frame and the frame survives") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
     World w;
@@ -377,7 +402,8 @@ TEST_CASE("frame graph: two targets that show each other get a fixed order, one 
         CHECK(g.renderer.stats().renderTargets == 2);
         const render::FrameGraph* graph = render::renderer_frame_graph(g.renderer);
         REQUIRE(graph != nullptr);
-        // The target created first (same depth) is drawn first and shows the other's picture of the last frame.
+        // The target created first (same depth) is drawn first (what it shows of the other is the last frame's picture;
+        // this test checks the order, not the pixels).
         CHECK(graph->order_names() == with_flips(g, {"target:A/view", "target:B/view", "camera:0/game"}));
     }
 }
@@ -431,9 +457,8 @@ TEST_CASE("frame graph: the transients of a frame with 3 views of the same size 
         g.render(w);
         const render::TransientPoolStats now = render::renderer_transient_stats(g.renderer);
         CHECK(now.created == first.created);  // the views share the pool: no job makes its own copy of a level
-        CHECK(now.live == first.live);
+        CHECK(now.live <= first.live);        // (idle leftovers of earlier test cases may go: not an exact count)
         CHECK(now.inUse == 0);
-        CHECK(now.destroyed == first.destroyed);
     }
     const render::FrameGraph* graph = render::renderer_frame_graph(g.renderer);
     REQUIRE(graph != nullptr);
@@ -511,22 +536,62 @@ void prepare_shadow_world(World& w) {
     w.settings().ambientLight = Color{0, 0, 0, 1};
 }
 
+// A lit floor and a lamp in front of the main camera, below the grid of region_slot(): the main camera's own job has a
+// 2D light buffer where the GPU can make one (the jobs of the render targets light each pixel with a loop instead). Without
+// it these tests would pass with the per-pixel mode alone.
+void add_main_lamp(World& w) {
+    Entity floor = make(w, "main-floor", {0, -75, 0});
+    auto& fs = w.add<Sprite>(floor);
+    fs.texture = "assets/white16.png";
+    fs.size = {64, 16};
+    fs.lit = true;
+    Entity lamp = make(w, "main-lamp", {0, -75, 0});
+    auto& l = w.add<Light2D>(lamp);
+    l.radius = 80;
+    l.falloff = 1;
+    l.intensity = 1;
+}
+
+// The light buffer is drawn by the main camera's job when the GPU has a format for it (FA_LIGHT_FORMAT=none has none: the
+// tests then run in the per-pixel mode alone, which is the other mode they must hold in).
+void check_light_buffer(OwnRenderer& own, const Image& img) {
+    render::Gpu* gpu = render::renderer_gpu(own.r);
+    REQUIRE(gpu != nullptr);
+    const render::FrameGraph* graph = render::renderer_frame_graph(own.r);
+    REQUIRE(graph != nullptr);
+    const bool buffer = gpu->light_format() != SG_PIXELFORMAT_NONE && gpu->light_ready();
+    const bool drawn = index_of(graph->order_names(), "camera:0/light-buffer") >= 0;
+    CHECK(drawn == buffer);
+    CHECK(img.pixel(160, 165).r > 0.3f);  // the lamp lights the floor in both modes
+}
+
 }  // namespace
 
 TEST_CASE("frame graph: more jobs with shadows than the ring has images all draw their own shadows") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
+    OwnRenderer own(g, 1);  // its own ring: the shared renderer's holds what earlier test cases left in it
+    REQUIRE_MESSAGE(own.ok, own.error);
     World w;
     prepare_shadow_world(w);
+    add_main_lamp(w);
     for (int i = 0; i < kShadowRegions; ++i) {
         shadow_region(w, i);
         show_region(w, i);
     }
-    for (int frame = 0; frame < 2; ++frame) {  // the second frame finds the rows of the ring again, trimmed
-        const Image img = g.render(w);
-        CHECK(g.renderer.stats().renderTargets == kShadowRegions);
-        CHECK(g.renderer.stats().lights2dShadowed >= kShadowRegions);
+    int uploadsAfterSecond = 0;
+    for (int frame = 0; frame < 4; ++frame) {
+        const Image img = own.draw(w);
+        INFO("frame " << frame);
+        CHECK(own.r.stats().renderTargets == kShadowRegions);
+        CHECK(own.r.stats().lights2dShadowed >= kShadowRegions);
         check_regions(img, kShadowRegions);
+        check_light_buffer(own, img);
+        const render::ShadowRowsStats rows = render::renderer_shadow_rows_stats(own.r);
+        CHECK(rows.slots == kShadowRegions);  // the ring grew for the frame and stays that big: the keys are stable
+        if (frame == 1) uploadsAfterSecond = rows.uploads;
+        if (frame > 1)
+            CHECK(rows.uploads == uploadsAfterSecond);  // a still scene uploads nothing, not 3 images a frame
     }
 }
 
@@ -534,16 +599,28 @@ TEST_CASE(
     "frame graph: a job that finds its rows in the oldest image of the ring keeps them when a later job uploads") {
     Gfx& g = gfx();
     REQUIRE(g.ok);
+    OwnRenderer own(g, 1);  // a ring of its own, empty: this case does not depend on the one before it
+    REQUIRE_MESSAGE(own.ok, own.error);
     World w;
     prepare_shadow_world(w);
+    add_main_lamp(w);
     for (int i = 0; i < 9; ++i) {  // the ring is full after this frame
         shadow_region(w, i);
         show_region(w, i);
     }
-    check_regions(g.render(w), 9);
+    {
+        const Image img = own.draw(w);
+        check_regions(img, 9);
+        check_light_buffer(own, img);
+    }
+    CHECK(render::renderer_shadow_rows_stats(own.r).slots == 9);
     // The first job hits its rows (the oldest image); the new, last job needs an image of its own.
     shadow_region(w, 9);
     show_region(w, 9);
-    check_regions(g.render(w), 10);
-    check_regions(g.render(w), 10);  // and a still scene uploads nothing more
+    check_regions(own.draw(w), 10);
+    CHECK(render::renderer_shadow_rows_stats(own.r).slots == 10);
+    check_regions(own.draw(w), 10);  // and a still scene uploads nothing more
+    const int uploads = render::renderer_shadow_rows_stats(own.r).uploads;
+    check_regions(own.draw(w), 10);
+    CHECK(render::renderer_shadow_rows_stats(own.r).uploads == uploads);
 }

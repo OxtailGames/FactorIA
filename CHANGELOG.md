@@ -6,6 +6,12 @@ Older versions, one file per minor version with its patch releases: [0.26](chang
 
 ## Unreleased
 
+- Renderer (no change in what is drawn): the warning for render targets that show each other names the target that is drawn
+  first and the ones it waited for ("'A' and 'B' show each other, so 'A' is drawn first and shows the picture 'B' had in the
+  previous frame"); a frame graph that cannot be built or run is logged with its frame number and its jobs. Bloom remembers
+  an intermediate target it could not make per size and format (two views of different sizes no longer retry each other's
+  failure every frame), and the shadow-rows ring keeps the images of a scene with more than 9 shadowed render targets
+  instead of uploading three again every frame.
 - Renderer (no change in what is drawn): every pass of the frame graph is timed. New command `render.frame_graph` returns the
   graph of the last frame with `cpuMs` and `gpuMs` for each pass and job, the backend and whether GPU times exist; the
   passes are `zones` named `<job>/<pass>` in `perf.profile`'s `profile.zones`. GPU times per pass come from

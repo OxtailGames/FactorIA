@@ -85,7 +85,7 @@ BloomSettings sanitize_bloom(bool enabled, float threshold, float intensity, flo
     return b;
 }
 
-void Bloom::release() { failedW_ = failedH_ = 0; }
+void Bloom::release() { failed_.clear(); }
 
 int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const BloomSettings& s, int targetW,
                       int targetH, ResourceId game, sg_view srcTex, const BloomTarget& dst, int* drawCalls,
@@ -93,14 +93,16 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     if (!s.enabled || s.intensity <= 0.0f || targetW < 1 || targetH < 1) return 0;
     if (!gpu.bloom_ready()) return 0;
     const sg_pixel_format fmt = gpu.scene_format();  // the game target's format, and the one of every level
-    if (failedW_ == targetW && failedH_ == targetH && failedFmt_ == fmt) return 0;  // not tried again every frame
+    const Shape shape{targetW, targetH, fmt};
+    if (std::find(failed_.begin(), failed_.end(), shape) != failed_.end()) return 0;  // not tried again every frame
     const Plan plan = plan_for(s.radius);
 
     // The transients: `a` of every level from the first to the working one, and `b` of the working level (the blur's
     // second image). Sizes as the level divides the game target.
     ResourceId a[kLevels], b;
     int lw[kLevels]{}, lh[kLevels]{};
-    std::vector<TransientDesc> descs;
+    std::vector<TransientDesc>& descs = descs_;
+    descs.clear();
     auto level_desc = [&](int l, const char* suffix) {
         const int div = 2 << l;
         TransientDesc d;
@@ -115,7 +117,8 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     // Make sure the GPU can have them all at once (the worst case: aliasing only needs fewer), so that a failure is one
     // warning here and not a pass that cannot run halfway through the frame. The pool keeps what it made.
     {
-        std::vector<std::uint64_t> held;
+        std::vector<std::uint64_t>& held = held_;
+        held.clear();
         bool ok = true;
         for (const TransientDesc& d : descs) {
             const std::uint64_t h = targets.pool.acquire(d);
@@ -127,9 +130,8 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
         }
         for (std::uint64_t h : held) targets.pool.release(h);
         if (!ok) {
-            failedW_ = targetW;
-            failedH_ = targetH;
-            failedFmt_ = fmt;
+            if (failed_.size() >= kMaxFailed) failed_.erase(failed_.begin());
+            failed_.push_back(shape);
             if (!warned_) {
                 warned_ = true;
                 FA_ERROR("render",
@@ -140,7 +142,7 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
             return 0;
         }
     }
-    failedW_ = failedH_ = 0;
+    failed_.erase(std::remove(failed_.begin(), failed_.end(), shape), failed_.end());
     for (int l = plan.first; l <= plan.level; ++l) a[l] = graph.create_transient(descs[std::size_t(l - plan.first)]);
     b = graph.create_transient(descs.back());
 
@@ -156,13 +158,12 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
         const Target* t = tt->get(c.handle(r));
         return t ? t->texView : sg_view{};
     };
-    auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes,
-                   std::function<void(const PassContext&)> fn) {
+    auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes, auto&& fn) {
         GraphPass p;
         p.name = job.empty() ? name : job + "/" + name;
         p.reads = std::move(reads);
         p.writes = std::move(writes);
-        p.execute = std::move(fn);
+        p.execute = std::forward<decltype(fn)>(fn);
         graph.add_pass(std::move(p));
         ++declared;
     };
