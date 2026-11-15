@@ -39,11 +39,6 @@ bool mesh_is_blended(const MeshRenderer& mr, const MeshAsset& mesh, const Materi
 // only when the value differs from the copy (a JSON comparison, no allocation). Nothing in the scene module counts the
 // writes of a component (any code holding the MeshRenderer may assign its fields), so comparing is the one place that
 // sees every write: through the reflection, a script, a command, a prefab, the inspector or an undo.
-//
-// "The same value" is Json::operator==, which finds 1 and 1.0 equal (and 0.0 and -0.0) while dump() prints them differently
-// ("1" and "1.0"). So after an edit from 1 to 1.0 the kept hash stays the one of "1", and two entities with the same
-// overrides written differently can hash differently, or alike, depending on the history of their edits: the batches
-// then split (or merge) by edit history. The pixels are the same either way, as the shader reads the numbers, not the text.
 class MaterialHashCache {
 public:
     struct Entry {
@@ -61,7 +56,11 @@ public:
     // The entry of `e` (made if missing), marked as used this frame. Pointers stay valid until end_frame().
     Entry* touch(Entity e);
     // Makes the hashes of `entry` right for these values (nullptr = none, hash 0): when they equal the kept copy, nothing is
-    // computed. Entries of different entities may be refreshed from different threads at once.
+    // computed. "Equal" is Json::operator==, which finds 1 and 1.0 equal (and 0.0 and -0.0) while dump() prints them
+    // differently ("1" and "1.0"). So after an edit from 1 to 1.0 the kept hash stays the one of "1", and two entities with
+    // the same overrides written differently can hash differently, or alike, depending on the history of their edits: the
+    // batches then split (or merge) by edit history. The pixels are the same either way, as the shader reads the numbers,
+    // not the text. Entries of different entities may be refreshed from different threads at once.
     void refresh(Entry& entry, const Json* params, const Json* colors);
     // Drops the entries nobody asked for this frame (entities that died, were hidden or lost their overrides), so a slot
     // that is reused starts from nothing.

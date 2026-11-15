@@ -330,10 +330,15 @@ bool SortKeyTable::build(const std::vector<SortFields>& items, const std::vector
             return false;
         }
     // A table that stays small between frames keeps its buffers; one that held a huge frame lets them go.
-    if (all_.capacity() > 4 * n + 4096) {
-        all_ = {};
-        byHash_ = {};
-    }
+    release_peak(all_, n);
+    release_peak(byHash_, n);
+    release_peak(distinctRep_, n);
+    release_peak(distinctOf_, n);
+    release_peak(perm_, n);
+    release_peak(rankOf_, n);
+    release_peak(itemMesh_, n);
+    release_peak(itemTex_, n);
+    release_peak(itemNormal_, n);
     valid_ = true;
     return true;
 }
