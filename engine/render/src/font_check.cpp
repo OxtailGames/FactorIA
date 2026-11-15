@@ -249,6 +249,9 @@ FontCheck check_font_bytes(const unsigned char* data, std::size_t size, int offs
     if (!cmap.present || !head.present || !hhea.present || !hmtx.present)
         return {};  // stb_truetype refuses it with its own message
     if (head.len < 54 || hhea.len < 36) return refuse("its 'head' or 'hhea' table is too short");
+    // stb_truetype divides the pixel size by unitsPerEm: 0 gives an infinite scale, and its glyph boxes convert that to int
+    if (f.u16(head.at + 18) == 0)
+        return refuse("its 'head' table says the font has 0 units per em (a font has 1000 or 2048, never 0)");
     if (std::string why = check_cmap(f, cmap); !why.empty()) return refuse(std::move(why));
     // stb_truetype reads the outlines from 'glyf' when the font has that table (at a nonzero offset), else from 'CFF '
     const bool trueType = glyf.present && glyf.at != 0;

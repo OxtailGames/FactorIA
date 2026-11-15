@@ -140,7 +140,60 @@ Result<void> gltf_check_buffer_sizes(const cgltf_data* data, std::string_view pa
     return {};
 }
 
+namespace {
+
+cgltf_size component_bytes(cgltf_component_type t) {
+    switch (t) {
+        case cgltf_component_type_r_16:
+        case cgltf_component_type_r_16u: return 2;
+        case cgltf_component_type_r_32u:
+        case cgltf_component_type_r_32f: return 4;
+        default: return 1;
+    }
+}
+
+// cgltf (cgltf_validate included: it reads every index of an index accessor) loads floats and indices through typed pointers,
+// so a start or stride that is not a multiple of the component size is a misaligned load. The glTF 2.0 specification forbids
+// it. Offsets and strides are numbers cgltf_parse has already resolved: nothing is read from a buffer here.
+Result<void> gltf_check_alignment(const cgltf_data* data, std::string_view path) {
+    auto refuse = [&](std::string where, cgltf_size start, cgltf_size stride, cgltf_size comp) -> Result<void> {
+        return make_error(
+            std::format(
+                "'{}' is not a consistent glTF file: {} starts at byte {} of its buffer with a stride of {}, and its "
+                "components are {} bytes wide (they must be aligned)",
+                path, where, std::size_t(start), std::size_t(stride), std::size_t(comp)),
+            std::format(
+                "Make the byteOffset of {0} plus the byteOffset of its buffer view, and the buffer view's byteStride, "
+                "multiples of {1}, or export the model again from the tool that made it.",
+                where, std::size_t(comp)));
+    };
+    for (cgltf_size i = 0; i < data->accessors_count; ++i) {
+        const cgltf_accessor& a = data->accessors[i];
+        if (a.buffer_view) {
+            const cgltf_size comp = component_bytes(a.component_type);
+            const cgltf_size start = a.buffer_view->offset + a.offset;
+            if (start % comp || a.stride % comp) return refuse(std::format("/accessors/{}", i), start, a.stride, comp);
+        }
+        if (!a.is_sparse) continue;
+        const cgltf_accessor_sparse& sp = a.sparse;
+        if (sp.indices_buffer_view) {
+            const cgltf_size comp = component_bytes(sp.indices_component_type);
+            const cgltf_size start = sp.indices_buffer_view->offset + sp.indices_byte_offset;
+            if (start % comp) return refuse(std::format("/accessors/{}/sparse/indices", i), start, 0, comp);
+        }
+        if (sp.values_buffer_view) {
+            const cgltf_size comp = component_bytes(a.component_type);
+            const cgltf_size start = sp.values_buffer_view->offset + sp.values_byte_offset;
+            if (start % comp) return refuse(std::format("/accessors/{}/sparse/values", i), start, 0, comp);
+        }
+    }
+    return {};
+}
+
+}  // namespace
+
 Result<void> gltf_check(cgltf_data* data, std::string_view path) {
+    if (auto aligned = gltf_check_alignment(data, path); !aligned) return aligned;
     const cgltf_result r = cgltf_validate(data);
     if (r == cgltf_result_success) return {};
     const char* what = "a value is out of range";

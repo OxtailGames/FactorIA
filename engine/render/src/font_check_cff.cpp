@@ -300,11 +300,8 @@ CffCheck check_cff_table(const unsigned char* table, std::uint64_t length, std::
                     const unsigned v = w.get8(s);
                     const std::uint32_t end = w.get(s, 2);
                     if (!w.ok()) break;
-                    if (end < start) {
-                        w.fail("has ranges of glyphs that do not rise (a range ends before it starts)",
-                               w.offset_of(fdselect, s.cursor - 2));
-                        break;
-                    }
+                    // A range that ends before it starts holds no glyph (stb_truetype's loop skips it and goes on from its
+                    // end): the glyphs only such ranges name stay uncovered and are unsafe, the font stays usable.
                     for (std::uint64_t g = start; g < std::min<std::uint64_t>(end, glyphs) && w.count_work(); ++g) {
                         covered[g] = 1;
                         if (v >= dicts) out.unsafeGlyphs[g] = 1;

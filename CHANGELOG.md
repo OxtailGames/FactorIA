@@ -12,11 +12,17 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   weekly fuzz run found 2^63-1 bytes). Every glTF reader now refuses it, before cgltf allocates, with an error that names
   the file, `/buffers/N`, the declared size and the most the data can hold. The input is in the fuzz corpus and in
   `fa_test_scene`.
+- glTF: an accessor whose start in its buffer, or whose stride, is not a multiple of its component size (a float read
+  from an odd address; the specification forbids it) is refused with an error that names `/accessors/N`, instead of
+  being read through a misaligned pointer.
 - Fonts: an `.otf` with PostScript outlines (a `CFF ` table) whose INDEXes, Top DICT or Private DICT point outside the
   table made stb_truetype read outside the file while loading (found by the weekly fuzz run). The `CFF ` table is now
   walked before stb_truetype sees it: a damaged one is an error that names the part (Name INDEX, Top DICT, FDArray...),
   its offset in the table and what is wrong. A glyph the CharStrings INDEX or the FDSelect has no entry for is drawn as
   the `.notdef` box, and a CFF font whose `hmtx` table is shorter than its glyph count is refused like a TrueType one.
+- Fonts: a font whose `head` table says 0 units per em (stb_truetype's scale would be infinite) is an error that says so,
+  for TrueType and CFF fonts. An FDSelect (format 3) range that ends before it starts no longer condemns a CFF font: the
+  glyphs no range holds are drawn as `.notdef`.
 
 ## 0.29.0
 
