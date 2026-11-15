@@ -26,14 +26,17 @@ struct Renderer::Impl::MaterialInputs {
     TextureAsset* textures[kMaxMaterialTextures]{};
 };
 
-// Holds references to the job's frame and plan: it lives inside draw_job and must not outlive it.
+// Holds references to the job's world and frame and a copy of its plan. It lives (Impl::jobContexts) from plan_job until the
+// frame graph has run, because the callbacks of the job's passes use it; the world, the frame and the camera `plan.post`
+// points to belong to the caller of plan_job, which keeps them until run_frame_graph().
 struct Renderer::Impl::DrawContext {
     DrawContext(World& w, Frame& f, const JobPlan& p) : world(w), fr(f), plan(p), post(*p.post) {}
     World& world;
     Frame& fr;
-    const JobPlan& plan;
+    const JobPlan plan;
     const CameraInfo& post;
-    // draw_job: the viewports and clears of this job
+    JobEnv env;  // the sizes and images the job's passes draw with (a view job's are not the game target's)
+    // plan_job: the viewports and clears of this job
     bool hudAfterBloom = false, msaa = false, z01 = false;
     // Does this job begin the main pass? The screen-space job of a frame whose HUD goes over the bloom draws it after instead.
     bool doMainPass = false;
@@ -89,6 +92,26 @@ mesh_fa_skin_t pack_palette(const std::vector<Mat4>& palette) {
 using MaterialInputs = Renderer::Impl::MaterialInputs;
 using Px = Renderer::Impl::Px;
 
+// How an imported target shows in the graph's dumps.
+TransientDesc import_desc(int w, int h, const TargetFormat& format, const char* label) {
+    TransientDesc d;
+    d.width = w;
+    d.height = h;
+    d.format = format;
+    d.label = label;
+    return d;
+}
+
+// Puts a job's JobEnv in place while one of its passes runs, and the previous one back after (also when the pass throws).
+struct EnvScope {
+    Renderer::Impl& im;
+    Renderer::Impl::JobEnv saved;
+    EnvScope(Renderer::Impl& i, const Renderer::Impl::JobEnv& env) : im(i), saved(i.job_env()) { im.set_job_env(env); }
+    ~EnvScope() { im.set_job_env(saved); }
+    EnvScope(const EnvScope&) = delete;
+    EnvScope& operator=(const EnvScope&) = delete;
+};
+
 // The rectangle of a fraction of the target (see Px).
 Px px_rect(const Rect& v, int W, int H) {
     const int x0 = std::clamp(int(std::lround(double(v.x) * W)), 0, W),
@@ -131,38 +154,105 @@ bool declares(const MaterialProgram* prog, int ub) { return !prog || prog->has_u
 
 }  // namespace
 
-// Draws a CameraView's camera into the view's image: the pass(es) of draw_job with the image in the place of the game target.
-// No post effects (the frame has one set, the first camera's), no 2D light buffer.
-void Renderer::Impl::draw_view_job(World& world, Frame& fr, ViewTarget& target) {
-    const int sTargetW = targetW, sTargetH = targetH, sPhysW = physW, sPhysH = physH;
-    const sg_view sColor = gameTarget.colorAtt, sResolve = gameTarget.resolveAtt, sDepth = gameTarget.depthAtt;
-    targetW = physW = target.w;
-    targetH = physH = target.h;
-    gameTarget.colorAtt = target.main.colorAtt;
-    gameTarget.resolveAtt = target.main.resolveAtt;
-    gameTarget.depthAtt = target.main.depthAtt;
-    const CameraInfo noPost;  // bloom off, no colour filter
-    JobPlan plan;
+Renderer::Impl::JobEnv Renderer::Impl::job_env() const {
+    JobEnv e;
+    e.targetW = targetW;
+    e.targetH = targetH;
+    e.physW = physW;
+    e.physH = physH;
+    e.colorAtt = gameTarget.colorAtt;
+    e.resolveAtt = gameTarget.resolveAtt;
+    e.depthAtt = gameTarget.depthAtt;
+    return e;
+}
+
+void Renderer::Impl::set_job_env(const JobEnv& e) {
+    targetW = e.targetW;
+    targetH = e.targetH;
+    physW = e.physW;
+    physH = e.physH;
+    gameTarget.colorAtt = e.colorAtt;
+    gameTarget.resolveAtt = e.resolveAtt;
+    gameTarget.depthAtt = e.depthAtt;
+}
+
+// Declares a CameraView's (or a render target's) camera in the frame graph, drawing into the view's image: the pass(es) of
+// plan_job with the image in the place of the game target. The image is an imported resource that later jobs read
+// (jobImages). No post effects (the frame has one set, the first camera's), no 2D light buffer. While the job is planned and
+// while its passes run, the renderer's sizes and game images are the view's (the job's JobEnv).
+void Renderer::Impl::plan_view_job(World& world, Frame& fr, ViewTarget& target, std::uint64_t key, JobPlan plan) {
+    static const CameraInfo noPost;  // bloom off, no colour filter
+    const JobEnv saved = job_env();
+    JobEnv env = saved;
+    env.targetW = env.physW = target.w;
+    env.targetH = env.physH = target.h;
+    env.colorAtt = target.main.colorAtt;
+    env.resolveAtt = target.main.resolveAtt;
+    env.depthAtt = target.main.depthAtt;
+    set_job_env(env);
+    JobImage image;
+    image.drawn = graph.import_target(plan.name, target.main.colorAtt.id,
+                                      import_desc(target.w, target.h, target.main.format, "view"));
+    image.shown = image.drawn;
+    if (target.flipCopy)
+        image.shown = graph.import_target(plan.name + "/flipped", target.flip.color.id,
+                                          import_desc(target.w, target.h, target.flip.format, "target-flipped"));
+    jobImages[key] = image;
     plan.first = true;
     plan.last = false;
     plan.view = true;
     plan.post = &noPost;
-    draw_job(world, fr, plan);
-    targetW = sTargetW;
-    targetH = sTargetH;
-    physW = sPhysW;
-    physH = sPhysH;
-    gameTarget.colorAtt = sColor;
-    gameTarget.resolveAtt = sResolve;
-    gameTarget.depthAtt = sDepth;
+    plan.image = image.drawn;
+    plan_job(world, fr, plan);
+    set_job_env(saved);
+    if (target.flipCopy) {
+        // GL stores a render target bottom-up: the picture is copied the right way up into the image the texture samples.
+        GraphPass p;
+        p.name = plan.name + "/flip";
+        p.reads = {image.drawn};
+        p.writes = {image.shown};
+        ViewTarget* t = &target;
+        p.execute = [this, t](const PassContext&) { flip_copy(*t); };
+        graph.add_pass(std::move(p));
+    }
 }
 
-// Draws one job of the frame into the game target: the pass(es) of one camera's world (and, for the single full-screen
-// camera, the screen-space items too), or the screen-space pass of a split frame. The last job also runs the post effects.
-// The phases below describe the job as a frame graph (build_graph), which compiles to the order they were drawn in before the
-// graph and executes them in one GPU command stream.
-void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
-    DrawContext ctx(world, fr, plan);
+// Starts the frame graph of a frame: nothing declared, no job yet.
+void Renderer::Impl::begin_frame_graph() {
+    graph.clear();
+    jobContexts.clear();
+    jobImages.clear();
+    ++frameSerial;
+    trim_shadow_rows();
+    sharedGame = sharedLight = sharedShadow = ResourceId{};
+}
+
+// Orders, culls and runs every pass of the frame (frame_graph.h), then drops what the pass callbacks captured: the job contexts
+// and the references they hold are gone with the frame. A graph that cannot be compiled or run is logged once and draws
+// nothing.
+void Renderer::Impl::run_frame_graph() {
+    if (Result<void> r = graph.compile(); !r) {
+        if (!warnedGraph) {
+            warnedGraph = true;
+            FA_ERROR("render", "{} {}", r.error().message, r.error().hint);
+        }
+    } else if (Result<void> e = graph.execute(transient_targets().pool); !e && !warnedGraph) {
+        warnedGraph = true;
+        FA_ERROR("render", "{} {}", e.error().message, e.error().hint);
+    }
+    graph.release_callbacks();
+    jobContexts.clear();
+}
+
+// Declares one job of the frame in the frame graph: the pass(es) of one camera's world (and, for the single full-screen
+// camera, the screen-space items too), or the screen-space pass of a split frame. The last job also gets the post effects.
+// The CPU phases below (gather, cull, batch, upload, uniforms) run now, in the order the jobs are declared; what they decided
+// stays in the job's DrawContext, which the pass callbacks use when run_frame_graph() runs the graph.
+void Renderer::Impl::plan_job(World& world, Frame& fr, const JobPlan& plan) {
+    std::shared_ptr<DrawContext> owner = std::make_shared<DrawContext>(world, fr, plan);
+    jobContexts.push_back(owner);  // a shared_ptr<void> keeps the type incomplete outside this file
+    DrawContext& ctx = *owner;
+    ctx.env = job_env();
     ctx.hudAfterBloom = ctx.post.bloom.enabled && ctx.post.bloom.intensity > 0.0f && !ctx.post.bloom.screenSpace;
     ctx.fullPx = Px{0, 0, physW, physH};
     ctx.camPx = fr.wantWorld ? px_rect(fr.cam.viewport, physW, physH) : ctx.fullPx;
@@ -183,20 +273,8 @@ void Renderer::Impl::draw_job(World& world, Frame& fr, const JobPlan& plan) {
     upload_instances(ctx);
     scene_uniforms(ctx);
     light_plan(ctx);
-    // The passes of the job are a graph (frame_graph.h): declared from what the phases above decided, ordered by what each
-    // reads and writes (which is the order they always had) and run.
+    // The passes of the job join the frame graph (frame_graph.h), declared from what the phases above decided.
     build_graph(ctx);
-    if (Result<void> r = graph.compile(); !r) {
-        if (!warnedGraph) {
-            warnedGraph = true;
-            FA_ERROR("render", "{} {}", r.error().message, r.error().hint);
-        }
-        return;
-    }
-    if (Result<void> r = graph.execute(transient_targets().pool); !r && !warnedGraph) {
-        warnedGraph = true;
-        FA_ERROR("render", "{} {}", r.error().message, r.error().hint);
-    }
 }
 
 // ---- 3D gather ----
@@ -1089,53 +1167,60 @@ void Renderer::Impl::hud_pass(DrawContext& ctx) {
     gpu.end_pass();
 }
 
-namespace {
-
-// How an imported target shows in the graph's dumps.
-TransientDesc import_desc(int w, int h, const TargetFormat& format, const char* label) {
-    TransientDesc d;
-    d.width = w;
-    d.height = h;
-    d.format = format;
-    d.label = label;
-    return d;
-}
-
-}  // namespace
-
-// Declares the passes of the job in `graph` (cleared first), in the order they always ran: the light buffer, the shadow map,
-// the main pass, and in the last job of the frame the post effects: bloom (its stages), the HUD over the bloom, then
-// Camera.colorFilter (costs nothing with "none"). The targets that outlive the frame (the game target or the view's image,
-// the light buffer, the shadow map, the colour-filter image: present() and capture() sample them after the graph ran) are
-// imported; the bloom levels are transients of the pool. Declaration order is execution order, because each pass reads or
-// writes what the one before wrote.
+// Declares the passes of the job in `graph` (the frame's), named "<job>/<pass>", in the order they always ran: the light buffer,
+// the shadow map, the main pass, and in the last job of the frame the post effects: bloom (its stages), the HUD over the
+// bloom, then Camera.colorFilter (costs nothing with "none"). The targets that outlive the frame (the game target or the
+// view's image, the light buffer, the shadow map, the colour-filter image: present() and capture() sample them after the
+// graph ran) are imported; the bloom levels are transients of the pool. The game target, the light buffer and the shadow map
+// are one resource each for the whole frame (the jobs that use them are declared in the order they run, so each one sees what
+// the one before wrote); a view job's image is its own resource, which the jobs that show it read (`plan.shows`).
+// Every callback puts the job's JobEnv in place while it runs (a view job draws with the view's size and images).
 // Reads: what the phases decided (litMode, doShadows, doMainPass, clearByLoad, hudAfterBloom, the screen groups), plan,
-// post, the game, light, shadow and filter targets. Writes: graph, filterActive (false for the frame; the filter pass sets it).
+// post, the game, light, shadow and filter targets, jobImages. Writes: graph, filterActive (false for the frame; the filter
+// pass sets it), the shared resources.
 void Renderer::Impl::build_graph(DrawContext& ctx) {
     Frame& fr = ctx.fr;
     const JobPlan& plan = ctx.plan;
     const CameraInfo& post = ctx.post;
-    graph.clear();
-    auto add = [&](std::string name, std::vector<ResourceId> reads, std::vector<ResourceId> writes,
+    const std::string prefix = plan.name + "/";
+    auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes,
                    std::function<void(const PassContext&)> fn) {
         GraphPass p;
-        p.name = std::move(name);
+        p.name = prefix + name;
         p.reads = std::move(reads);
         p.writes = std::move(writes);
-        p.execute = std::move(fn);
+        p.execute = [this, &ctx, body = std::move(fn)](const PassContext& c) {
+            EnvScope env(*this, ctx.env);
+            body(c);
+        };
         graph.add_pass(std::move(p));
     };
-    const ResourceId game = graph.import_target(plan.view ? "view" : "game", gameTarget.colorAtt.id,
-                                                import_desc(physW, physH, gameTarget.format, "game"));
+    // One imported resource per frame for a target the jobs share; its handle and size follow the latest job.
+    auto shared = [&](ResourceId& slot, const char* name, std::uint64_t handle, const TransientDesc& imageDesc) {
+        if (slot.valid())
+            graph.set_import_handle(slot, handle, &imageDesc);
+        else
+            slot = graph.import_target(name, handle, imageDesc);
+        return slot;
+    };
+    const ResourceId game = plan.view ? plan.image
+                                      : shared(sharedGame, "game", gameTarget.colorAtt.id,
+                                               import_desc(physW, physH, gameTarget.format, "game"));
+    std::vector<ResourceId> shown;  // the images of other jobs this job samples (the ones drawn before it)
+    for (std::uint64_t key : plan.shows) {
+        auto it = jobImages.find(key);
+        if (it != jobImages.end() && std::find(shown.begin(), shown.end(), it->second.shown) == shown.end())
+            shown.push_back(it->second.shown);
+    }
     ResourceId lightRes, shadowRes;
     if (ctx.litMode == 1) {
-        lightRes = graph.import_target("light-buffer", lightTarget.color.id,
-                                       import_desc(lightW, lightH, lightTarget.format, "light-buffer"));
+        lightRes = shared(sharedLight, "light-buffer", lightTarget.color.id,
+                          import_desc(lightW, lightH, lightTarget.format, "light-buffer"));
         add("light-buffer", {}, {lightRes}, [this, &ctx](const PassContext&) { light_pass(ctx); });
     }
     if (ctx.doShadows) {  // no shadow caster, no pass
-        shadowRes = graph.import_target("shadow-map", shadowTarget.color.id,
-                                        import_desc(shadowTarget.w, shadowTarget.h, shadowTarget.format, "shadow-map"));
+        shadowRes = shared(sharedShadow, "shadow-map", shadowTarget.color.id,
+                           import_desc(shadowTarget.w, shadowTarget.h, shadowTarget.format, "shadow-map"));
         add("shadow", {}, {shadowRes}, [this, &ctx](const PassContext&) { shadow_pass(ctx); });
     }
     if (ctx.doMainPass) {
@@ -1143,6 +1228,7 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
         if (ctx.litMode == 1) reads.push_back(lightRes);
         if (ctx.doShadows) reads.push_back(shadowRes);
         if (!ctx.clearByLoad) reads.push_back(game);  // LOAD: a second camera or the HUD job continues the picture
+        reads.insert(reads.end(), shown.begin(), shown.end());
         add(plan.view      ? "view"
             : fr.wantWorld ? "game"
                            : "game-hud",
@@ -1162,10 +1248,13 @@ void Renderer::Impl::build_graph(DrawContext& ctx) {
             dst = BloomTarget{ctx.msaa ? gameTarget.resolveColorAtt : gameTarget.colorAtt, sg_view{}, 1};
         }
         bloom.add_passes(graph, transient_targets(), gpu, post.bloom, physW, physH, game, gameTarget.texView, dst,
-                         &stats.drawCalls);
+                         &stats.drawCalls, plan.name);
     }
-    if (ctx.hudAfterBloom && fr.wantScreen && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty()))
-        add("hud-over-bloom", {game}, {game}, [this, &ctx](const PassContext&) { hud_pass(ctx); });
+    if (ctx.hudAfterBloom && fr.wantScreen && (!ctx.gScreen.batches.empty() || !ctx.gDebugScreen.batches.empty())) {
+        std::vector<ResourceId> reads{game};
+        reads.insert(reads.end(), shown.begin(), shown.end());
+        add("hud-over-bloom", std::move(reads), {game}, [this, &ctx](const PassContext&) { hud_pass(ctx); });
+    }
     if (post.colorFilter != 0 && gpu.colorfilter_ready() && ensure_filter_target()) {
         const ResourceId filtered = graph.import_target(
             "game-filtered", filterTarget.color.id, import_desc(physW, physH, filterTarget.format, "game-filtered"));

@@ -48,8 +48,8 @@ class Gpu;
 class FrameGraph;
 Gpu* renderer_gpu(
     Renderer& r);  // the renderer's GPU objects, for the render tests (engine/render/src/render_internal.h)
-// The frame graph of the last job the renderer drew (engine/render/src/frame_graph.h), for the render tests; null
-// before init.
+// The frame graph of the last frame the renderer drew (engine/render/src/frame_graph.h; every job of the frame is in
+// it, its passes named "<job>/<pass>"), for the render tests; null before init.
 const FrameGraph* renderer_frame_graph(Renderer& r);
 // The targets the frame graph's transients are made of (target_pool.h's TargetPoolStats), for the render tests.
 struct TransientPoolStats {

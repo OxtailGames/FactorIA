@@ -377,37 +377,63 @@ bool Renderer::Impl::ensure_light_target(float scale) {
 
 // The image of the frame's shadow rows (Frame::shadowData); an empty view when no light casts a shadow. Immutable: a
 // new image is made only when the rows changed (a light moved, a tile was edited), so a still scene uploads nothing.
+// The jobs of a frame are planned before any draws, so the image returned stays valid until the frame graph ran: a slot
+// used in this frame (frameSerial) is never replaced in it. The result does not depend on timing: a hit is by key, a
+// miss replaces the slot with the lowest usedFrame (the first of them), or adds one when all were used this frame.
 sg_view Renderer::Impl::upload_shadow_rows(const Frame& fr) {
     if (fr.shadowRows <= 0) return sg_view{};
-    for (int i = 0; i < kShadowRowsRing; ++i)
-        if (shadowRowsView[i].id && shadowRowsKey[i] == fr.shadowKey) return shadowRowsView[i];
-    const int slot = (shadowRowsCurrent + 1) % kShadowRowsRing;
-    if (shadowRowsView[slot].id) sg_destroy_view(shadowRowsView[slot]);
-    if (shadowRowsImg[slot].id) sg_destroy_image(shadowRowsImg[slot]);
+    for (ShadowRowsSlot& s : shadowRowsRing)
+        if (s.view.id && s.key == fr.shadowKey) {
+            s.usedFrame = frameSerial;
+            return s.view;
+        }
+    ShadowRowsSlot* victim = nullptr;
+    if (shadowRowsRing.size() >= kShadowRowsRing) {
+        for (ShadowRowsSlot& s : shadowRowsRing)
+            if (s.usedFrame != frameSerial && (!victim || s.usedFrame < victim->usedFrame)) victim = &s;
+    }
+    if (!victim) {  // room left, or every slot is in use by a job of this frame: one more slot
+        shadowRowsRing.emplace_back();
+        victim = &shadowRowsRing.back();
+    }
+    ShadowRowsSlot& slot = *victim;
+    if (slot.view.id) sg_destroy_view(slot.view);
+    if (slot.img.id) sg_destroy_image(slot.img);
     sg_image_desc d{};
     d.width = kShadowAngles;
     d.height = fr.shadowRows;
     d.pixel_format = SG_PIXELFORMAT_RGBA8;
     d.data.mip_levels[0] = {fr.shadowData.data(), fr.shadowData.size()};
     d.label = "light-shadow-rows";
-    shadowRowsImg[slot] = make_image(d);
+    slot.img = make_image(d);
     sg_view_desc tv{};
-    tv.texture.image = shadowRowsImg[slot];
+    tv.texture.image = slot.img;
     tv.label = "light-shadow-rows-tex";
-    shadowRowsView[slot] = sg_make_view(&tv);
-    shadowRowsKey[slot] = fr.shadowKey;
-    shadowRowsCurrent = slot;
-    return shadowRowsView[slot];
+    slot.view = sg_make_view(&tv);
+    slot.key = fr.shadowKey;
+    slot.usedFrame = frameSerial;
+    return slot.view;
+}
+
+// Called when a frame starts (nothing planned yet uses a slot): drops the slots a frame with many jobs added beyond the
+// ring, the least recently used first, so the memory is bounded again.
+void Renderer::Impl::trim_shadow_rows() {
+    while (shadowRowsRing.size() > kShadowRowsRing) {
+        auto oldest = shadowRowsRing.begin();
+        for (auto it = shadowRowsRing.begin(); it != shadowRowsRing.end(); ++it)
+            if (it->usedFrame < oldest->usedFrame) oldest = it;
+        if (oldest->view.id) sg_destroy_view(oldest->view);
+        if (oldest->img.id) sg_destroy_image(oldest->img);
+        shadowRowsRing.erase(oldest);
+    }
 }
 
 void Renderer::Impl::destroy_light_resources() {
-    for (int i = 0; i < kShadowRowsRing; ++i) {
-        if (shadowRowsView[i].id) sg_destroy_view(shadowRowsView[i]);
-        if (shadowRowsImg[i].id) sg_destroy_image(shadowRowsImg[i]);
-        shadowRowsView[i] = {};
-        shadowRowsImg[i] = {};
-        shadowRowsKey[i] = 0;
+    for (ShadowRowsSlot& s : shadowRowsRing) {
+        if (s.view.id) sg_destroy_view(s.view);
+        if (s.img.id) sg_destroy_image(s.img);
     }
+    shadowRowsRing.clear();
 }
 
 // Makes (or keeps) the image the colour filter draws into. False (and one logged error) when the GPU cannot make it:

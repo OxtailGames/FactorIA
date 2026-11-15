@@ -982,27 +982,51 @@ decides, and the game event `ui.viewPointer` goes out like the other ui.* events
   platform's dialects (Windows `hlsl5`, Linux `glsl430`, macOS `metal_macos`, iOS `metal_ios` + `metal_sim`, Android and
   web `glsl300es`), adds the twins, drops the snippets, and fails the export on a compile error. The player has no
   compiler. `factoria validate` compiles every dialect of every material.
-- *Frame graph (in progress).* `engine/render/src/frame_graph.h` and `target_pool.h` are the CPU core: passes declare the
+- *Frame graph.* `engine/render/src/frame_graph.h` and `target_pool.h` are the CPU core: passes declare the
   resources they read and write; `compile()` orders them (declaration order where there is no dependency), culls the
   ones nobody reads and plans which transients share one physical target; `TargetPool` reuses targets across frames
-  (keyed by size and `TargetFormat`); `FrameGraph::to_json()` is the dump. `draw_job` (and so `draw_view_job`, which
-  swaps the game image for a CameraView's or a render target's) builds a graph per job (`Impl::build_graph`),
-  compiles it and executes it, and the graph nodes are: the light buffer (`light-buffer`), the shadow map (`shadow`,
-  only when a light casts), the world (`game`, `view` for a view job, `game-hud` for the job of a split frame that draws
-  only the screen-space groups), the bloom stages of the last job (`bloom-bright`, `bloom-down-<n>`, `bloom-blur-h`, `bloom-blur-v`,
-  `bloom-composite`), the HUD over the glow (`hud-over-bloom`, with `bloomScreenSpace = false`) and the colour filter
-  (`color-filter`). The compiled order is the order the passes were drawn in before the graph, as the declaration order
-  and the data dependencies give it. *Imported* resources are the persistent images: the game (or view) image, the light
-  buffer, the shadow map and the colour-filter image (imported, not transient, because the present and the read-back
-  sample it after the frame). *Transient* resources are the bloom levels and the blur's second image: `bloom.cpp` declares
-  them with the format of the game image (`Gpu::scene_format()`, so RGBA8 when the GPU cannot render RGBA16F) and the
-  `TransientTargets` of `Impl` (`transient_targets.h`, a `TargetPool` over `make_target`) makes them on the first frame
-  and hands the same ones out on the next. A transient's contents are UNDEFINED at its first writer: that pass must CLEAR
-  it or DONTCARE and cover every pixel, never LOAD it. `execute` gives back every transient on every way out (an error or
-  a pass that throws). A bloom whose targets cannot be made warns once and draws no glow until the size or the format
-  changes, so a failed creation is not retried every frame. `FrameGraph::set_import_handle` rebinds an imported resource
-  to another image without a new compile. Not graph passes yet: the read-back and flip copies, and the CameraView and
-  render-target jobs as passes of their own. The render tests reach the last job's graph and the pool's counters through
+  (keyed by size and `TargetFormat`); `FrameGraph::to_json()` is the dump. There is ONE graph per `render()` (and a small
+  one of its own per `capture_world`): `begin_frame_graph` empties it, every job of the frame declares its passes
+  (`plan_job`; `plan_view_job` for the jobs that draw into an image of their own), and `run_frame_graph` compiles,
+  executes and then calls `release_callbacks()` (the callbacks hold references to the frame's state, so they are dropped
+  while the declaration, the compiled plan and the stats stay for `to_json`; `graph.clear()` would lose them for the
+  tests). The jobs are named `target:<name>` (a `Camera.renderTarget`), `view:<n>` (a CameraView), `camera:<i>` (a
+  camera of the frame; `screen` for the screen-space job of a split frame) and `capture`, and a pass is `<job>/<pass>`:
+  the light buffer (`light-buffer`), the shadow map (`shadow`, only when a light casts), the world (`game`, `view` for a
+  view or target job, `game-hud` for the job of a split frame that draws only the screen-space groups), the bloom stages
+  of the last job (`bloom-bright`, `bloom-down-<n>`, `bloom-blur-h`, `bloom-blur-v`, `bloom-composite`), the HUD over the
+  glow (`hud-over-bloom`, with `bloomScreenSpace = false`), the colour filter (`color-filter`) and, where the backend
+  stores a target bottom-up (GL), `<job>/flip`, the copy of a target's picture into the image its texture samples; it
+  exists only for render targets and only in GL, and it is declared right after the target's `view` pass (so in GL the
+  order reads `target:B/view`, `target:B/flip`, `target:A/view`, `target:A/flip`, `camera:0/game`; Metal and D3D11 have
+  no flip pass). The CPU phases of a job (gather, cull, batch, upload) run while it is declared, and that includes the
+  upload of its 2D shadow rows: `upload_shadow_rows` keeps a ring of nine images that grows (and is trimmed at the next
+  frame) when more jobs than that need distinct rows, because an image a planned job will bind is never replaced within
+  its frame. The GPU work runs in `execute`, and each
+  callback puts the job's `JobEnv` (target size, game image and views) back first, because the jobs of a frame draw
+  into images of different sizes. *Order of the jobs:* the render targets first, then the CameraViews, then the cameras,
+  as they were drawn before the graph. Among the targets, a small graph of its own (`CyclePolicy::Break`) orders one
+  node per target by `Camera.depth`, then creation order, each after the targets it shows (a Sprite, Text, UI quad or
+  mesh in its view whose texture is `target:<other>`); the result is the declaration order of the target jobs in the
+  frame graph, so A showing B gives `target:B`, `target:A`, `camera:0`. A job that shows an image of another job (a
+  target or a CameraView) READS that job's image resource, an imported resource of its own, so the
+  graph keeps the order. *Cycles:* A shows B and B shows A cannot both be drawn first. `compile()` does not fail: the
+  node declared first goes first and shows the other's picture of the previous frame (one frame late, the same way
+  every frame, and one warning is logged), exactly what the frame did before the graph. A cycle in a frame graph that
+  does not set the policy is still a compile error. *Imported* resources are the persistent images: the game (or view or
+  target) image, the light buffer, the shadow map and the colour-filter image (imported, not transient, because the
+  present and the read-back sample it after the frame); the game image, the light buffer and the shadow map are one
+  resource for the whole frame, shared by the jobs that use them. *Transient* resources are the bloom levels and the
+  blur's second image: `bloom.cpp` declares them with the format of the game image (`Gpu::scene_format()`, so RGBA8 when
+  the GPU cannot render RGBA16F) and the `TransientTargets` of `Impl` (`transient_targets.h`, a `TargetPool` over
+  `make_target`) makes them on the first frame and hands the same ones out on the next. Only the last job has post
+  effects, so N views of the same size need no more transients than one, and two jobs never share a transient alive at
+  the same time (the planner aliases only resources whose uses do not overlap). A transient's contents are UNDEFINED at
+  its first writer: that pass must CLEAR it or DONTCARE and cover every pixel, never LOAD it. `execute` gives back every
+  transient on every way out (an error or a pass that throws). A bloom whose targets cannot be made warns once and
+  draws no glow until the size or the format changes, so a failed creation is not retried every frame.
+  `FrameGraph::set_import_handle` rebinds an imported resource to another image without a new compile. Not graph passes
+  yet: the read-back copies. The render tests reach the graph of the last frame and the pool's counters through
   `render::renderer_frame_graph` and `render::renderer_transient_stats`.
 
 ### Start-up order and the shader cache
