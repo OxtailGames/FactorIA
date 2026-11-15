@@ -353,7 +353,7 @@ After you edit scene or prefab files by hand, run `scene_format` (CLI: `factoria
 
 ## 7. Component cheat-sheet
 
-This is a summary. `factoria api --md` (also `docs_components`, and `docs/COMPONENTS.md`) has every field, its default and its range, generated from the engine, so it is always current.
+This is a summary. `factoria api --md` (and the `docs_components` tool, which pages: `{"name":"Sprite"}` gives one component) has every field, its default and its range, generated from the engine, so it is always current.
 
 **Core (every entity has these)**
 

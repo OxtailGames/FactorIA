@@ -1,10 +1,10 @@
-# The long fuzz run (M93.2, docs/BUILDING.md "Fuzzing"). Every Sunday, and by hand (Actions > Fuzz (weekly) > Run workflow), each
+# The long fuzz run (M93.2, docs/design/BUILDING.md "Fuzzing"). Every Sunday, and by hand (Actions > Fuzz (weekly) > Run workflow), each
 # fuzz target of tools/fuzz runs for about half an hour under libFuzzer + ASan + UBSan, on its own runner, starting from the
 # corpus the previous weeks found. The 60-second run of CI (job `linux-fuzz`) only guards against the obvious.
 #
 # This workflow never commits and never opens an issue. What it leaves:
 #   - the artifact `fuzz-crashes-<target>`: every input that crashed, hung or ran out of memory (crash-*, timeout-*, oom-*,
-#     leak-*). The job then fails, which is the notification. Take one into the corpus as docs/BUILDING.md says.
+#     leak-*). The job then fails, which is the notification. Take one into the corpus as docs/design/BUILDING.md says.
 #   - the artifact `fuzz-corpus-<target>`: the corpus after the run, minimized with `-merge=1` (only inputs that add coverage).
 #     It is also kept in the Actions cache so next week starts from it. To adopt new seeds, download it and copy a few small
 #     files into tools/fuzz/corpus/<target>/ in a pull request.
@@ -134,5 +134,5 @@ jobs:
       - name: Fail when the run found something
         if: steps.fuzz.outcome == 'failure'
         run: |
-          echo "::error title=The fuzz run of ${{ matrix.target }} failed::If the artifact fuzz-crashes-${{ matrix.target }} holds files, each is a crash: fix the bug and add the input to tools/fuzz/corpus/${{ matrix.target }}/ (docs/BUILDING.md, Fuzzing). If it holds none, the run itself failed: read the log of the Fuzz step."
+          echo "::error title=The fuzz run of ${{ matrix.target }} failed::If the artifact fuzz-crashes-${{ matrix.target }} holds files, each is a crash: fix the bug and add the input to tools/fuzz/corpus/${{ matrix.target }}/ (docs/design/BUILDING.md, Fuzzing). If it holds none, the run itself failed: read the log of the Fuzz step."
           exit 1

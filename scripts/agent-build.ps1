@@ -1,7 +1,7 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    Build (and test) a Ninja + MSVC Debug tree from any shell, printing only what matters. See docs/BUILDING.md.
+    Build (and test) a Ninja + MSVC Debug tree from any shell, printing only what matters. See docs/design/BUILDING.md.
 
         powershell -NoProfile -ExecutionPolicy Bypass -File scripts\agent-build.ps1 build\agent-<name> [-Target fa_test_core[,fa_test_scene]] [-Test] [-Tests <ctest -R regex>] [-Examples] [-Jobs 8]
 
@@ -67,7 +67,7 @@ if (-not (Get-Command cl -ErrorAction SilentlyContinue)) {
             -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | Select-Object -First 1
     }
     if (-not $vs) {
-        Stop-Build "Visual Studio 2022 with the C++ tools was not found (docs/BUILDING.md, Windows)."
+        Stop-Build "Visual Studio 2022 with the C++ tools was not found (docs/design/BUILDING.md, Windows)."
     }
     $env:PATH = "$installer;$env:PATH"
     cmd /c "`"$vs\VC\Auxiliary\Build\vcvars64.bat`" >nul && set" | ForEach-Object {
@@ -84,7 +84,7 @@ if ($ExamplesOnly) { $Examples = $true }
 if ($WindowTestsOnly) { $Test = $true; $Examples = $false }
 
 # Release build of the CLI and `ctest -L example`: the example games run the whole engine for minutes, so they are tests of
-# an optimized build (FA_EXAMPLE_TESTS, docs/BUILDING.md).
+# an optimized build (FA_EXAMPLE_TESTS, docs/design/BUILDING.md).
 function Invoke-ExampleTests {
     $relDir = "$BuildDir-release"
     New-Item -ItemType Directory -Force -Path $relDir | Out-Null

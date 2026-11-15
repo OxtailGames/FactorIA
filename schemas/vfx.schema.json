@@ -77,7 +77,7 @@
           },
           "emitter": {
             "type": "object",
-            "description": "emitter parts, required: the fields of a ParticleEmitter component (docs/PARTICLES.md and docs/COMPONENTS.md list them), checked against the component with the same errors as a scene. `emitting` and `autoDestroy` are set by the effect. A part needs a `burst`, or a `rate` with the part's `duration`, or it emits nothing and is an error."
+            "description": "emitter parts, required: the fields of a ParticleEmitter component (docs/PARTICLES.md and `docs.components` list them), checked against the component with the same errors as a scene. `emitting` and `autoDestroy` are set by the effect. A part needs a `burst`, or a `rate` with the part's `duration`, or it emits nothing and is an error."
           },
           "light": {
             "type": "object",

@@ -10,8 +10,8 @@ is text; you never need a GUI. The guide (`ai-guide`) is long: read its index fi
 1. **Read** what exists: the index of `ai-guide` first (`factoria docs read ai-guide --heading Index`), then only
    the sections your task needs with `--heading "..."`, never the bare command (it prints the whole 280 KB page).
    `factoria docs list` gives every other doc a one-line summary. Components and commands one at a time:
-   `factoria call docs.components '{"name":"Sprite"}'` (or `{"filter":"physics"}`); never the `components` page whole
-   (1.8 MB). (With MCP: tools `docs_list`, `docs_read`, `docs_search`: `docs_read {"name":"ai-guide","heading":"Index"}`,
+   `factoria call docs.components '{"name":"Sprite"}'` (or `{"filter":"physics"}`); there is no `components` page to read whole
+   (it is 1.8 MB: `docs read components` only points here). (With MCP: tools `docs_list`, `docs_read`, `docs_search`: `docs_read {"name":"ai-guide","heading":"Index"}`,
    then `docs_read {"name":"ai-guide","heading":"..."}`; `docs_components {"name":"Sprite"}` gives one component in
    full, never `docs_components` with `full`.) Read before guessing component or API names.
 2. **Edit** scenes (`scenes/*.scene.json`), prefabs, `scripts/*.js`, `tools/*.js`, `factoria.json`.

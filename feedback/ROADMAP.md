@@ -1238,6 +1238,18 @@ entry of `examples/*` opens each milestone.
   kit (82 % of it) served from the kit instead of embedded; COMPONENTS.md served per component instead of embedded
   whole; the docs for engine developers (releasing, extending, architecture) under `docs/design/`; the 15 docs the
   README does not link reached from its index; the README restructured (what it is, try it, docs by audience).
+  **Decision (user, 2026-11-15):** every doc over the budget (about 60 KB) is split into smaller pages, with no list of
+  exceptions; only the generated references (docs/COMPONENTS.md, docs/reference/) are outside the budget.
+  - M97.3a — DONE (structure; the big docs are not split yet): docs/COMPONENTS.md is no longer embedded
+    (`docs.read components` answers with a pointer to `docs.components`); MENUS.md prints no file of the kit
+    (`docs.read menu-kit`, `menu-kit/<file>`; 257 KB to 85 KB); ARCHITECTURE.md and BUILDING.md moved to `docs/design/`
+    (out of the binary; ENGINE_FEEDBACK.md and EXTENDING.md stay: a game's AI needs them, and EXTENDING's sections B-F
+    for engine developers are to be split out into `docs/design/` by M97.3b-d); README.md and README.es.md restructured
+    and link every doc (a test checks it).
+  - M97.3b-d still split the 17 docs over 60 KB (bytes, 2026-11-15): AI_GUIDE 274829, EXPORTING 190347, SCRIPTING
+    186034, EDITOR 152447, design/ARCHITECTURE 145870, AI_PROVIDERS 128804, ASSETS 127746, PLATFORM 120622,
+    design/BUILDING 112341, MODELING 88078, MENUS 85377, IMAGES 84581, MOBILE 77524, ANIMATION 71991, PERFORMANCE
+    70945, MUSIC 68372, EXTENDING 65008. M97.3d adds the budget test.
 - M97.4 (M) Doc tests: every JS block parses and uses only existing script API (checked against the typings); every
   command, component and field a doc names exists; counts and sizes come from their source; every doc is reachable
   from the README; a translation records the English commit it follows and is flagged when the original moves on.

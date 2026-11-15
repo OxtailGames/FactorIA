@@ -1,5 +1,5 @@
 // fa::fs::resolve_for_write: the one function through which a path that a caller gives to a command that writes is
-// confined to the project, the save folder or the export folder (docs/ARCHITECTURE.md, "Files: fa::fs").
+// confined to the project, the save folder or the export folder (docs/design/ARCHITECTURE.md, "Files: fa::fs").
 #include <doctest.h>
 
 #include <algorithm>

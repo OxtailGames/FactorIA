@@ -1,7 +1,7 @@
 // The 3D world of one frame, gathered once and shared by every camera job (the cameras, the render targets, the
 // CameraViews): each MeshRenderer with its drawn matrix, its resolved assets, its bounds and the hashes of its
 // overrides. A camera then only tests its frustum and tag mask over the list and sorts its own blended meshes
-// (Renderer::Impl::gather_meshes). docs/ARCHITECTURE.md, "Rendering".
+// (Renderer::Impl::gather_meshes). docs/design/ARCHITECTURE.md, "Rendering".
 #pragma once
 
 #include <atomic>

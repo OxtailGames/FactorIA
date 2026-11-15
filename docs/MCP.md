@@ -56,7 +56,7 @@ that.)
   an ignored typo cannot look like a success. An object that takes open-ended keys says `additionalProperties: true` in its
   schema. `_meta` is the protocol's own key: it normally sits in `params`, and a client that puts it in `arguments` is not
   refused (the server drops it before checking).
-- **Resources**: `factoria://docs/<file>` (embedded docs, `factoria://docs/components` generated),
+- **Resources**: `factoria://docs/<file>` (embedded docs; the component reference is the `docs.components` command),
   `factoria://project/factoria.json`, `.../ENGINE_FEEDBACK.json`, `.../AGENTS.md`.
 - **Prompts**: `make-game` (idea), `add-feature` (feature), `fix-bug` (description), `report-engine-gap`. They tell the AI to read by section, not whole: the guide's index first
   (`docs_read {"name":"ai-guide","heading":"Index"}`), then only the sections the task needs, `docs_list` (a summary and

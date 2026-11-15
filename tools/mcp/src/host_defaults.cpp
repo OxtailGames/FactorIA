@@ -178,8 +178,6 @@ std::vector<McpResource> default_mcp_resources(const std::string& projectDir) {
     for (const auto& d : list_docs())
         out.push_back(
             {"factoria://docs/" + d.path.substr(5), d.name, d.title.empty() ? d.name : d.title, "text/markdown"});
-    out.push_back({"factoria://docs/components", "components", "Components reference (generated from reflection)",
-                   "text/markdown"});
     std::error_code ec;
     auto exists = [&](const char* f) { return stdfs::exists(stdfs::path(projectDir) / f, ec); };
     if (exists("factoria.json"))
