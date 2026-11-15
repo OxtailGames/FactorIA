@@ -15,7 +15,8 @@ namespace fa {
 // this setting and its value. 768 on every platform unless the project says otherwise.
 inline constexpr double kDefaultScriptMemoryMB = 768.0;
 inline constexpr double kMinScriptMemoryMB = 16.0;
-inline constexpr double kMaxScriptMemoryMB = 2048.0;  // below 4 GB: the number of bytes fits a 32-bit size_t (the web build)
+inline constexpr double kMaxScriptMemoryMB =
+    2048.0;  // below 4 GB: the number of bytes fits a 32-bit size_t (the web build)
 
 // What the scripts of one frame (every callback, timer, event handler and promise job) may spend before the engine warns:
 // milliseconds. 0 turns the warning off.

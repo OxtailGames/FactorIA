@@ -55,14 +55,17 @@ void start_busy(TestHost& h) {
 
 }  // namespace
 
-TEST_CASE("script budgets: a per-platform number resolves to the entry of this platform, else default, else the fallback") {
+TEST_CASE(
+    "script budgets: a per-platform number resolves to the entry of this platform, else default, else the fallback") {
     const std::string here = script_platform_name();
     CHECK(resolve_per_platform_number(Json(64), here, 768) == 64);
     CHECK(resolve_per_platform_number(Json::object({{"default", 100}, {here, 32}}), here, 768) == 32);
     CHECK(resolve_per_platform_number(Json::object({{"default", 100}}), here, 768) == 100);
-    CHECK(resolve_per_platform_number(Json::object({{"android", 5}, {"ios", 6}, {"web", 7}, {"windows", 8}, {"macos", 9},
-                                                    {"linux", 10}, {"default", 11}}),
-                                      "nowhere", 768) == 11);
+    CHECK(
+        resolve_per_platform_number(
+            Json::object(
+                {{"android", 5}, {"ios", 6}, {"web", 7}, {"windows", 8}, {"macos", 9}, {"linux", 10}, {"default", 11}}),
+            "nowhere", 768) == 11);
     CHECK(resolve_per_platform_number(Json::object({{"nowhere", 5}}), here, 768) == 768);
     CHECK(resolve_per_platform_number(Json(), here, 768) == 768);
     CHECK(resolve_per_platform_number(Json("big"), here, 768) == 768);
@@ -86,7 +89,8 @@ TEST_CASE("script budgets: the defaults are 768 MB and 8 ms, a project can chang
     {
         const Json own = Json::object({{"default", 400}, {script_platform_name(), 200}});
         const Json other = Json::object({{"default", 6}, {"nowhere", 7}});
-        TestHost h("budget_platform", runtime_settings(Json::object({{"scriptMemoryMB", own}, {"scriptFrameBudgetMs", other}})));
+        TestHost h("budget_platform",
+                   runtime_settings(Json::object({{"scriptMemoryMB", own}, {"scriptFrameBudgetMs", other}})));
         REQUIRE(h.start());
         CHECK(h.scripts.memory_limit_mb() == 200.0);
         CHECK(h.scripts.frame_budget_ms() == 6.0);
