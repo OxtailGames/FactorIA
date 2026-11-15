@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+### Fixes
+
+- glTF: a small `.gltf` whose base64 buffer declared a huge `byteLength` made the engine ask for that much memory (the
+  weekly fuzz run found 2^63-1 bytes). Every glTF reader now refuses it, before cgltf allocates, with an error that names
+  the file, `/buffers/N`, the declared size and the most the data can hold. The input is in the fuzz corpus and in
+  `fa_test_scene`.
+
 ## 0.29.0
 
 FactorIA 0.29.0 (M96) makes the exported player smaller and its scripts safer to ship. The commands only developer tools

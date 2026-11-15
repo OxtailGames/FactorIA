@@ -119,6 +119,27 @@ void gltf_use_fs(cgltf_options& opts) {
     opts.file.release = &file_release;
 }
 
+Result<void> gltf_check_buffer_sizes(const cgltf_data* data, std::string_view path) {
+    for (cgltf_size i = 0; i < data->buffers_count; ++i) {
+        const cgltf_buffer& b = data->buffers[i];
+        if (b.data || !b.uri || std::strncmp(b.uri, "data:", 5) != 0) continue;
+        const char* comma = std::strchr(b.uri, ',');
+        if (!comma || comma - b.uri < 7 || std::strncmp(comma - 7, ";base64", 7) != 0) continue;
+        const std::size_t payload = std::strlen(comma + 1);
+        const std::size_t available = payload / 4 * 3 + (payload % 4 ? payload % 4 - 1 : 0);
+        if (std::size_t(b.size) <= available) continue;
+        return make_error(
+            std::format(
+                "'{}' is not a consistent glTF file: /buffers/{} declares byteLength {} but its base64 data URI "
+                "holds at most {} bytes",
+                path, i, std::size_t(b.size), available),
+            std::format("Set /buffers/{}/byteLength to the real size of the data (at most {}), or export the model "
+                        "again from the tool that made it.",
+                        i, available));
+    }
+    return {};
+}
+
 Result<void> gltf_check(cgltf_data* data, std::string_view path) {
     const cgltf_result r = cgltf_validate(data);
     if (r == cgltf_result_success) return {};
@@ -169,6 +190,7 @@ Result<SkeletonAsset> parse_skeleton(const std::vector<std::uint8_t>& bytes, std
         cgltf_data* d;
         ~Guard() { cgltf_free(d); }
     } guard{data};
+    if (auto sizes = gltf_check_buffer_sizes(data, path); !sizes) return sizes.error();
     r = cgltf_load_buffers(&opts, data, path.c_str());
     if (r != cgltf_result_success)
         return make_error(std::format("cannot load the buffers referenced by '{}' (cgltf error {})", path, int(r)),
