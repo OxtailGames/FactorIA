@@ -4,13 +4,17 @@
 #include "test_util.h"
 
 #include <algorithm>
+#include <array>
+#include <chrono>
 #include <deque>
+#include <limits>
 #include <string>
 #include <vector>
 
 #include "fa/core/jobs.h"
 
 #include "mesh_batch.h"
+#include "render_scene.h"
 
 using namespace fa;
 using namespace fa::render;
@@ -220,4 +224,132 @@ TEST_CASE("sort key: the order does not depend on the job threads") {
         jobs::stop();
         CHECK(ok);
     }
+}
+
+TEST_CASE("sort key: NaN and signed zero in a value order and batch as the comparator does") {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    for (int variant = 0; variant < 3; ++variant) {  // which field carries the odd values
+        INFO("variant " << variant);
+        Pool pool;
+        std::vector<MeshItem> plain = random_items(pool, 21 + std::uint32_t(variant), 60, 3);
+        const float odd[] = {nan, 0.0f, -0.0f, 1.0f};
+        for (std::size_t i = 0; i < plain.size(); ++i) {
+            MeshRenderer& r = *const_cast<MeshRenderer*>(plain[i].mr);
+            const float v = odd[i % 4];
+            if (variant == 0) r.color.r = v;
+            if (variant == 1) r.roughness = v;
+            if (variant == 2) r.uvScale.x = v;
+        }
+        std::vector<MeshItem> keyed = plain;
+        SortKeyTable table;
+        REQUIRE(key_all(keyed, table));
+        CHECK(same(run(keyed), run(plain)));
+        // -0 and +0 are one value: the same key where everything else is equal (as the comparator's ==).
+        MeshItem a = keyed[0], b = keyed[0];
+        MeshRenderer ra = *a.mr, rb = *b.mr;
+        ra.metallic = 0.0f;
+        rb.metallic = -0.0f;
+        a.mr = &ra;
+        b.mr = &rb;
+        std::vector<MeshItem> zeros{a, b};
+        zeros[1].entity = Entity::from_bits(999);
+        SortKeyTable tz;
+        REQUIRE(key_all(zeros, tz));
+        CHECK(zeros[0].sortKey == zeros[1].sortKey);
+        // Two NaNs (any payload) order alike: one rank.
+        ra.metallic = nan;
+        rb.metallic = -nan;
+        std::vector<MeshItem> nans{a, b};
+        nans[1].entity = Entity::from_bits(999);
+        SortKeyTable tn;
+        REQUIRE(key_all(nans, tn));
+        CHECK(nans[0].sortKey == nans[1].sortKey);
+        std::uint64_t ka = 0;
+        CHECK(tn.key_of(fields_of(nans[0]), ka));
+        CHECK(ka == nans[0].sortKey);
+    }
+}
+
+TEST_CASE("sort key: a skinned item (a real Animator) is ranked by its entity and never shares a batch") {
+    Pool pool;
+    MeshAsset& skinned = pool.meshes.emplace_back();
+    skinned.key = "rig";
+    skinned.bmin = {-1, -1, -1};
+    skinned.bmax = {1, 1, 1};
+    skinned.parts.emplace_back().skinVb.id = 7;  // a part with a skin buffer: drawn deformed
+    std::array<Animator, 3> anims;               // an Animator belongs to one entity
+    for (Animator& a : anims) a.palette = {Mat4::identity()};
+    std::vector<MeshItem> items(4);
+    MeshRenderer& r = pool.renderers.emplace_back();
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        MeshItem& it = items[i];
+        it.mr = &r;
+        it.mesh = &skinned;
+        it.entity = Entity::from_bits(10 + i);
+        const Animator* animator = i < 3 ? &anims[i] : nullptr;  // item 3: the same mesh, unskinned
+        mesh_cull_bounds(skinned, animator, it.bmin, it.bmax, it.anim);
+        CHECK((it.anim != nullptr) == (animator != nullptr));
+    }
+    std::vector<MeshItem> keyed = items;
+    SortKeyTable table;
+    REQUIRE(key_all(keyed, table));
+    CHECK(keyed[0].sortKey != keyed[1].sortKey);  // two skinned entities: two ranks, so two batches
+    CHECK(keyed[0].sortKey != keyed[3].sortKey);  // skinned and not
+    CHECK(same(run(keyed), run(items)));
+    CHECK(run(keyed).batches.size() == 4);
+    std::uint64_t key = 0;  // the camera's own look-up of the same item
+    REQUIRE(table.key_of(fields_of(keyed[1]), key));
+    CHECK(key == keyed[1].sortKey);
+}
+
+TEST_CASE("sort key: the cost of one build over 2000 items (reported, never asserted)") {
+    Pool pool;
+    std::vector<MeshItem> items = random_items(pool, 3, 2000, 6);
+    std::vector<SortFields> fields;
+    for (const MeshItem& m : items) fields.push_back(fields_of(m));
+    SortKeyTable table;
+    std::vector<std::uint64_t> keys;
+    std::vector<double> us;
+    for (int i = 0; i < 41; ++i) {
+        const auto t0 = std::chrono::steady_clock::now();
+        const bool ok = table.build(fields, {}, keys);
+        const auto t1 = std::chrono::steady_clock::now();
+        CHECK(ok);
+        us.push_back(std::chrono::duration<double, std::micro>(t1 - t0).count());
+    }
+    std::sort(us.begin(), us.end());
+    MESSAGE("SortKeyTable::build over 2000 items: median " << us[us.size() / 2] << " us (min " << us.front() << ")");
+}
+
+TEST_CASE(
+    "sort key: the limits are named; the empty texture name counts; colour and normal maps share the texture bits") {
+    Pool pool;
+    std::vector<MeshItem> items(1100);
+    for (int i = 0; i < 2048; ++i) pool.textures.emplace_back().path = "t" + std::to_string(i);
+    pool.renderers.emplace_back();
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        items[i].mr = &pool.renderers.back();
+        items[i].entity = Entity::from_bits(i + 1);
+        items[i].tex = &pool.textures[i];
+        items[i].normalTex = &pool.textures[(i + 500) % 1100];  // the same 1100 names: they fit
+    }
+    SortKeyTable table;
+    CHECK(key_all(items, table));
+    CHECK(table.overflow() == nullptr);
+    items.resize(2048);  // 2048 colour names, and the empty one (a null normal map): 2049 > 2048
+    for (std::size_t i = 1100; i < items.size(); ++i) {
+        items[i].mr = &pool.renderers.back();
+        items[i].entity = Entity::from_bits(i + 1);
+        items[i].tex = &pool.textures[i];
+        items[i].normalTex = nullptr;
+    }
+    CHECK_FALSE(key_all(items, table));
+    REQUIRE(table.overflow() != nullptr);
+    CHECK(std::string(table.overflow()) == "textures");
+    items.back().tex = &pool.textures[0];  // 2047 names and the empty one: 2048 fit
+    CHECK(key_all(items, table));
+    // A normal map name counts against the same 2048 as the colour names.
+    items.back().normalTex = &pool.textures[2047];
+    items.back().tex = &pool.textures[2046];
+    CHECK_FALSE(key_all(items, table));
 }
