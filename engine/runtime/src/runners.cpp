@@ -668,7 +668,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         }
         Renderer* r = engine.renderer();
         if (!r) return;
-        const RenderStats rs = r->stats();  // OnDemand: the last drawn frame
+        const RenderStats rs = r->stats(false);  // OnDemand: the last drawn frame
         maxDrawCalls = std::max(maxDrawCalls, rs.drawCalls);
         maxTriangles = std::max(maxTriangles, rs.triangles);
         maxLights = std::max(maxLights, rs.lights + rs.lights2d);  // 3D and Light2D lights of one frame

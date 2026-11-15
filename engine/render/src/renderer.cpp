@@ -373,7 +373,12 @@ DebugDraw& Renderer::debug() {
     static DebugDraw dummy;
     return impl_ ? impl_->debug : dummy;
 }
-RenderStats Renderer::stats() const { return impl_ ? impl_->stats : RenderStats{}; }
+RenderStats Renderer::stats(bool passTimes) const {
+    if (!impl_) return RenderStats{};
+    RenderStats s = impl_->stats;
+    if (passTimes && impl_->passTimesPending) impl_->pass_times(s.passes, s.jobs);
+    return s;
+}
 std::uint32_t Renderer::game_target_image_id() const {
     if (!impl_) return 0;
     return impl_->final_image().id;
@@ -451,10 +456,11 @@ Json Renderer::frame_graph_report() const {
     else if (!measuring)
         why =
             "the profiler is off and the GPU timers only run while it is on (perf.profile, play.report's profile, the "
-            "editor's Profiler panel)";
+            "editor's Profiler panel; render.frame_graph switches it on for its own call when profileFrames is above "
+            "0)";
     else if (!anyGpu)
         why = "no GPU time has come back yet: timer queries are read a few frames late, so draw a few more frames with "
-              "the profiler on";
+              "the profiler on (render.frame_graph's profileFrames: up to 60)";
     gpu["supported"] = supported;
     gpu["measuring"] = measuring;
     gpu["reason"] = why.empty() ? Json(nullptr) : Json(why);
@@ -656,6 +662,11 @@ void Renderer::Impl::render(World& world, float dt) {
         if (gpuFrames.size() > kKeepGpuFrames)
             gpuFrames.erase(gpuFrames.begin(), gpuFrames.end() - std::ptrdiff_t(kKeepGpuFrames));
         gpuTimer.begin();
+    } else {
+        // Nothing is measured now: what an earlier run of the profiler left would show as the GPU time of this frame's
+        // passes, and in take_gpu_ms(), the next time it is switched on.
+        gpuTimer.forget();
+        gpuFrames.clear();
     }
     stats = RenderStats{};
     anyFrameRendered = true;
@@ -992,7 +1003,7 @@ void Renderer::Impl::render(World& world, float dt) {
     }
     run_frame_graph();
     graphFromCapture = false;
-    pass_times(stats.passes, stats.jobs);
+    passTimesPending = true;  // stats() and the frame graph report build them from the graph when asked for
     stats.sortKeyFallbacks = int(std::min<std::uint64_t>(renderScene.sort_key_fallbacks(), 0x7fffffffu));
 
     renderScene.reset();  // it points into the world, which the game may change before the next frame

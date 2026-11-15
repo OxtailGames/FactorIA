@@ -112,6 +112,7 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
     ci.clear = true;
     ci.clearColor = Color{0, 0, 0, 0};
 
+    im.settle_pass_times();  // the capture replaces the frame graph that the last frame's pass times are read from
     const RenderStats savedStats = im.stats;
     im.targetSelf.clear();
     im.ramps.begin_frame();

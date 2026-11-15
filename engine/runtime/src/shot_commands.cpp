@@ -9,6 +9,7 @@
 #include "engine_impl.h"
 #include "fa/core/fs.h"
 #include "fa/core/image_tools.h"
+#include "fa/core/profiler.h"
 #include "fa/core/strings.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/camera_mask.h"
@@ -518,12 +519,19 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
         {"render.frame_graph",
          "Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass.",
          "Returns the frame graph of the last frame the renderer drew and what each of its passes cost, so you can see "
-         "which job and which pass makes a frame slow. Result: {source, backend, graph, passTimes, jobTimes, gpu}. "
+         "which job and which pass makes a frame slow. Result: {source, backend, frame, profileFrames, graph, "
+         "passTimes, jobTimes, gpu}. "
          "`passTimes` has one {name, job, cpuMs, gpuMs} per pass that ran, in order (cpuMs: time to record the pass on "
          "the CPU; gpuMs: GPU time, or -1 when not measured: D3D11 and desktop OpenGL only, while the profiler is "
          "on); `jobTimes` adds them per job; `gpu` says whether GPU times exist and why not. Compare passes with "
-         "each other, not the decimals. Draws a frame first when none is current. Example: render.frame_graph "
-         "{}" FA_COMMAND_DETAILS
+         "each other, not the decimals. Draws a frame first when none is current. The GPU times need the profiler: "
+         "with `profileFrames` (default 8, 0 to 60) this command switches it on for the call when it is off and the "
+         "backend can time the GPU, draws the current state up to that many times until the GPU times arrive, and "
+         "puts the profiler back. Example: render.frame_graph {\"profileFrames\":8}" FA_COMMAND_DETAILS
+         "`frame` is the engine's frame counter (the same number as game.state's `frame`) when the graph was read: "
+         "the graph itself is the one of the last frame drawn. `profileFrames` is how many frames this call drew "
+         "with the profiler switched on to get the GPU times (0 when it did not need to: the profiler was already "
+         "on, or profileFrames was 0, or the backend has no GPU timer; `gpu.reason` says which). "
          "`source` is \"frame\" (a normal frame) or \"capture\" (the last graph was the picture of one entity's "
          "subtree, "
          "not a frame of the game: the next frame shows the game's own). `backend` is the graphics backend (metal, "
@@ -561,27 +569,66 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
          "when no "
          "pass of the job has one). `gpu` says whether GPU times exist: {supported, measuring, reason, "
          "maxTimedPasses}: "
-         "they exist on Direct3D 11 (Windows) and desktop OpenGL (Linux), only while the profiler is on (perf.profile, "
-         "play.report's profile, the editor's Profiler panel), and at most maxTimedPasses passes per frame are timed; "
+         "they exist on Direct3D 11 (Windows) and desktop OpenGL (Linux), only while the profiler is on (this "
+         "command's profileFrames, perf.profile, play.report's profile, the editor's Profiler panel), and at most "
+         "maxTimedPasses passes per frame are timed; "
          "`reason` "
          "says why there are none (Metal, GLES3 and WebGL2 have no timer queries here). The same pass times are in "
          "the profiler's `zones`. Like game.render_stats it draws a frame first when none was drawn since the last "
          "change (a headless run draws on demand). Errors: `unavailable` without graphics, or when no frame could be "
-         "drawn. Example: render.frame_graph {}",
-         parse_schema(R"({"type":"object","properties":{}})"), true, "game"},
+         "drawn, and `invalid_argument` for a profileFrames that is not an integer from 0 to 60. Example: "
+         "render.frame_graph {\"profileFrames\":8}",
+         parse_schema(R"({"type":"object","properties":{
+               "profileFrames":{"type":"integer","default":8,"minimum":0,"maximum":60,"description":"GPU times need the profiler: when it is off and the backend can time the GPU, switch it on for this call and draw the current state up to this many times, stopping as soon as GPU times arrive; then put it back. 0 = read what is there (gpuMs -1 unless the profiler is already on)."}}})"),
+         true, "game"},
         [&engine, &I](const Json& a) {
-            check_args_known(a, {}, "render.frame_graph");
+            check_args_known(a, {"profileFrames"}, "render.frame_graph");
+            constexpr long long kMaxProfileFrames = 60;
+            long long profileFrames = 8;
+            if (a.is_object() && a.contains("profileFrames")) {
+                const Json& v = a["profileFrames"];
+                if (!v.is_number_integer() || v.get<long long>() < 0 || v.get<long long>() > kMaxProfileFrames)
+                    throw CommandError("invalid_argument",
+                                       "profileFrames: " + describe_json_value(v) + " is not an integer from 0 to 60.",
+                                       "Use 0 to read what is there, or 8 (the default) to 60 frames to wait for the "
+                                       "GPU times; the answers of the timer queries come a few frames late.");
+                profileFrames = v.get<long long>();
+            }
             if (!I.renderer || !I.renderer->initialized())
                 throw CommandError("unavailable",
                                    "No renderer: the engine runs with graphics=false, so no frame graph exists.",
                                    "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
             engine.render_now();  // an on-demand run may not have drawn the current state yet
-            Json j = I.renderer->frame_graph_report();
+            // The GPU timers only run while the profiler is on and answer a few frames late: switch it on for this call
+            // (an already running profiler is left alone and not fed extra frames) and put it back when the call ends.
+            struct ProfilerRestore {
+                bool on = false;
+                ~ProfilerRestore() {
+                    if (on) Profiler::get().set_enabled(false);
+                }
+            } restore;
+            int drawn = 0;
+            if (profileFrames > 0 && !Profiler::on() && I.renderer->gpu_timing_supported()) {
+                Profiler::get().set_enabled(true);
+                restore.on = true;
+                auto has_gpu = [&] {
+                    for (const RenderStats::PassTime& p : I.renderer->stats().passes)
+                        if (p.gpuMs >= 0.0) return true;
+                    return false;
+                };
+                while (drawn < profileFrames) {
+                    engine.redraw(1);
+                    ++drawn;
+                    if (has_gpu()) break;
+                }
+            }
+            Json j = I.renderer->frame_graph_report();  // before the profiler goes back: it says "measuring" while on
             if (j.is_null())
                 throw CommandError("unavailable", "No frame has been drawn yet, so there is no frame graph to show.",
                                    "Load a scene and step at least one frame (game.step), or take a game.screenshot, "
                                    "then call render.frame_graph again.");
             j["frame"] = I.frame;
+            j["profileFrames"] = drawn;
             return j;
         });
 
