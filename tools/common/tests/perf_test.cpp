@@ -488,6 +488,23 @@ TEST_CASE("perf.profile: where the time goes, on a small project with two behavi
     CHECK(p["systems"].contains("scriptsUpdate"));
     CHECK(p["systems"].contains("render"));
     CHECK(p["gpu"].contains("reason"));
+    // zones: the passes of the renderer's frame graph, `<job>/<pass>`, slowest first (none without a GPU renderer).
+    REQUIRE(p.contains("zones"));
+    REQUIRE(p["zones"].is_array());
+    if (r.result["graphics"] != "none") {
+        REQUIRE(!p["zones"].empty());
+        double last = 1e30;
+        for (const Json& z : p["zones"]) {
+            const std::string name = z["name"].get<std::string>();
+            INFO(name);
+            CHECK(name.find('/') != std::string::npos);
+            CHECK(z["avgMs"].get<double>() >= 0.0);
+            CHECK(z["maxMs"].get<double>() >= z["avgMs"].get<double>() - 0.001);
+            CHECK(z["callsPerFrame"].get<double>() > 0.0);
+            CHECK(z["avgMs"].get<double>() <= last + 1e-9);  // slowest first
+            last = z["avgMs"].get<double>();
+        }
+    }
 }
 
 TEST_CASE("perf.profile and perf.measure from an engine that owns the GPU: a teaching error, not an abort") {

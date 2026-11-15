@@ -470,6 +470,9 @@ void register_perf_commands(CommandRegistry& registry, const std::string& projec
         "where the graphics backend has no timer queries: Metal, GLES3, WebGL2, or no GPU), memory: {start, "
         "end, peak: {processMB, jsHeapMB, textureMB, audioDecodedMB, musicMB, entities}}}. Example: "
         "{\"frames\":300,\"input\":\"replays/play.json\"}." FA_COMMAND_DETAILS
+        "profile also has zones: [{name, avgMs, maxMs, callsPerFrame}], the 30 slowest named stretches inside a "
+        "system: each pass of the renderer's frame graph, named `<job>/<pass>` like `camera:0/bloom-bright` (its "
+        "CPU time; render.frame_graph shows every pass with its GPU time too). "
         "Times are wall-clock milliseconds and vary a little from run to run: compare the ORDER and the big "
         "gaps, not the decimals. A system's time includes the behaviours it runs (scriptsUpdate holds every "
         "onUpdate). `warmup` frames (default 30) run first and are not counted, because the first frames "

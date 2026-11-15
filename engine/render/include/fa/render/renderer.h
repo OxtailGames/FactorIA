@@ -45,8 +45,27 @@ namespace fa {
 class Renderer;
 namespace render {
 class Gpu;
+class FrameGraph;
+// Test accessors. A test that has to look inside the renderer (its GPU objects, the frame graph of the last frame, the
+// counts of its pools) does it through a free function declared here and made a friend of Renderer, not by opening
+// Impl up: the tests of a game's code see nothing of the renderer's private headers, and the accessors are not part of
+// the API reference. A new one is for a test only; engine code never calls one.
 Gpu* renderer_gpu(
     Renderer& r);  // the renderer's GPU objects, for the render tests (engine/render/src/render_internal.h)
+// The frame graph of the last frame the renderer drew (engine/render/src/frame_graph.h; every job of the frame is in
+// it, its passes named "<job>/<pass>"), for the render tests; null before init.
+const FrameGraph* renderer_frame_graph(Renderer& r);
+// The targets the frame graph's transients are made of (target_pool.h's TargetPoolStats), for the render tests.
+struct TransientPoolStats {
+    int live = 0, inUse = 0, created = 0, reused = 0, destroyed = 0;
+};
+TransientPoolStats renderer_transient_stats(Renderer& r);
+// The ring of images that hold the shadow rows of the 2D lights: how many it holds now and how many images were made
+// since the renderer was, for the render tests.
+struct ShadowRowsStats {
+    int slots = 0, uploads = 0;
+};
+ShadowRowsStats renderer_shadow_rows_stats(Renderer& r);
 }  // namespace render
 
 enum class ScaleMode : std::int32_t {
@@ -113,7 +132,34 @@ struct RenderStats {
     int materials = 0;  // distinct custom materials (MeshRenderer.material) drawn with their own shaders
     std::vector<std::string>
         materialFallbacks;  // materials drawn with the unlit magenta error material because they failed to build (see asset_report)
+    // How many times, since the renderer was made, the 3D scene it builds (one per frame, and one per capture_world of an
+    // entity's subtree) had more distinct meshes, textures, materials or pipelines than a sort key holds, so its opaque meshes
+    // were sorted by the slower comparator instead. The picture is the same; 0 is normal. Unlike the other counters this one is
+    // NOT per frame: it only grows.
+    int sortKeyFallbacks = 0;
     double cpuMs = 0.0;
+    // Where the frame's time went, per pass of the frame graph and per job (see render.frame_graph). Both are empty before the
+    // first frame. A job is `target:<name>`, `view:<n>`, `camera:<i>`, `screen` or `capture`, and a pass is named
+    // `<job>/<pass>`. Wall-clock and GPU numbers: measurements only, never part of the simulation, and not in to_json().
+    struct PassTime {
+        std::string name;  // "<job>/<pass>", as in the frame graph's `order`
+        std::string job;   // the part of `name` before the last '/'
+        // CPU milliseconds the pass's callback took to record its GPU commands (wall clock).
+        double cpuMs = 0.0;
+        // GPU milliseconds of that pass in a recent frame (a frame or a few before this one: the timer queries arrive late and
+        // are never waited for), taken from the newest finished measurement of a pass with this name; -1 when there is none
+        // (the backend has no timer queries, the profiler is off, the answer has not arrived, or the frame had more passes than
+        // the timer measures).
+        double gpuMs = -1.0;
+    };
+    struct JobTime {
+        std::string job;
+        int passes = 0;       // passes of the job that ran (culled ones are not counted)
+        double cpuMs = 0.0;   // sum of the cpuMs of its passes
+        double gpuMs = -1.0;  // sum of the gpuMs of its passes; -1 when none of them has one
+    };
+    std::vector<PassTime> passes;  // the passes that ran, in execution order (culled passes are not listed)
+    std::vector<JobTime> jobs;     // one per job, in the order the first pass of each ran
     Json to_json() const;
 };
 
@@ -164,17 +210,24 @@ public:
     // sg_shutdown() when a context is open and no renderer owns it (a start that failed before the renderer existed). A
     // renderer that adopted the context closes it in shutdown().
     static void close_context();
-    // One frame that clears the swapchain to black (the letterbox colour) and commits it. No renderer needed; also fine
-    // while one exists (the commit is noted). False when no context is open (nothing is drawn).
-    static bool present_clear(const GfxSwapchain& swapchain);
+    // One frame that clears the swapchain to `color` (default black, the letterbox colour) and commits it. No renderer
+    // needed; also fine while one exists (the commit is noted). False when no context is open (nothing is drawn). The
+    // player's error screen uses it with red.
+    static bool present_clear(const GfxSwapchain& swapchain, Color color = Color{0, 0, 0, 1});
+    // A pass into the window for a client that draws into it itself (the editor's ImGui): clears the swapchain to
+    // `clear`, and the caller draws and calls end_window_pass(). Needs an open context (sg_isvalid); no renderer.
+    // present_clear is these two and a commit. Not for the game's picture: present() draws that.
+    static void begin_window_pass(const GfxSwapchain& swapchain, Color clear);
+    static void end_window_pass();
     // Makes, a few at a time, the pipelines the first game frame would otherwise compile in the middle of drawing: the
     // present blit and the sprite pipelines, plus the mesh, sky and shadow ones when `world` has a MeshRenderer. One call
     // makes one group (about a frame's worth of driver work on Metal and D3D11). Returns how many groups are left (0 = done,
     // and every later call returns 0 at once). A frame drawn before the groups are done makes any missing pipeline on the spot,
     // exactly as before: pictures never depend on this. Not for a headless renderer (returns 0).
     int warm_step(const GfxSwapchain& swapchain, World& world);
-    // {backend, cache, programs, createMs, cache counters (D3D11), pipelinesWarmed, warmMs, groupsLeft}: what the start-up
-    // spent on shader programs and pipelines (the `loading.startup.gpu` object of play.report).
+    // {backend, cache, programs, createMs, cache counters (D3D11), pipelinesWarmed, pipelines, pipelineHits,
+    // pipelinesMade, pipelinesEvicted, warmMs, groupsLeft}: what the start-up spent on shader programs and pipelines
+    // (the `loading.startup.gpu` object of play.report).
     Json startup_report() const;
 
     // Resize the game target (e.g. Expand scale mode, editor viewport).
@@ -326,7 +379,9 @@ public:
     std::optional<RenderTargetView> render_target_view(World& world, const std::string& name) const;
 
     DebugDraw& debug();
-    RenderStats stats() const;  // of the last frame
+    // Of the last frame. `passTimes` false leaves RenderStats::passes and jobs empty: they are built from the frame graph only
+    // when asked for (about 40 strings), so a caller that reads the counters of every frame passes false.
+    RenderStats stats(bool passTimes = true) const;
 
     // Native handle of the game target color image (sg_image id) for the editor viewport.
     std::uint32_t game_target_image_id() const;
@@ -379,10 +434,21 @@ public:
     bool gpu_timing_supported(std::string* reason = nullptr) const;
     void take_gpu_ms(std::vector<double>& out);
 
+    // The frame graph of the last frame this renderer drew and what each pass cost (the `render.frame_graph` command's
+    // result; the fields are described there): {source, backend, graph: FrameGraph::to_json(), passTimes: [{name, job, cpuMs,
+    // gpuMs}], jobTimes: [{job, passes, cpuMs, gpuMs}], gpu: {supported, measuring, reason, maxTimedPasses}}. `source` is "frame"
+    // for a frame of render() and "capture" when the last graph was the one of a Renderer::capture_world. Null Json before
+    // the first frame.
+    // gpuMs is -1 where there is no measurement (gpu_timing_supported(), and the profiler must be on). Measurement only.
+    Json frame_graph_report() const;
+
     struct Impl;
 
 private:
     friend render::Gpu* render::renderer_gpu(Renderer& r);
+    friend const render::FrameGraph* render::renderer_frame_graph(Renderer& r);
+    friend render::TransientPoolStats render::renderer_transient_stats(Renderer& r);
+    friend render::ShadowRowsStats render::renderer_shadow_rows_stats(Renderer& r);
     std::unique_ptr<Impl> impl_;
     std::vector<std::string> fallbackFonts_;
     RichTextStyle richStyle_;

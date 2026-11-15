@@ -111,9 +111,9 @@ file: then put this status and the milestones section back).
 
 # Next engine milestones
 
-**What comes next (2026-11-12):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0)
-and M92 (0.25.0) and M93 (0.26.0) are done. Next M94, M95, M96 and M98 (M97.3-M97.5 alongside), and only then M71-M89
-in their own order: M71 needs M95's frame graph and M75 needs M94.4. M99 waits for the user's hardware and accounts.
+**What comes next (2026-11-15):** M90 (0.20.0), M91 (0.21.0), M100 (0.22.0), M101 (0.23.0), M97.1 and M97.2 (0.24.0),
+M92 (0.25.0), M93 (0.26.0), M94 (0.27.0) and M95 (0.28.0) are done. Next M96 and M98 (M97.3-M97.5 alongside), and only
+then M71-M89 in their own order: M71 builds on M95's frame graph and M75 on M94.4. M99 waits for the user's hardware and accounts.
 The reasons are in "M90-M99" and "M100-M101", at the end of this file. Every milestone opens with a triage of the open
 entries of `examples/*`. Update this paragraph when a milestone lands.
 
@@ -1180,7 +1180,7 @@ entry of `examples/*` opens each milestone.
   dispatch, the script bridge, the audio mix) in a Release job, compared with a stored baseline; a big regression
   fails.
 
-## M94. Fast core data and 3D physics at scale (L; 5 packages) — outside review, 2026-11-09
+## M94. Fast core data and 3D physics at scale (L; 5 packages) — outside review, 2026-11-09 — DONE in 0.27.0
 
 - M94.1 (L) ECS queries without copies: `each` walks the smallest pool in place, `count<T>()` and `any<T>()` replace
   `entities_with(...).empty()` (the UI code), and the hierarchy caches world matrices, active-in-hierarchy and
@@ -1198,7 +1198,7 @@ entry of `examples/*` opens each milestone.
 - M94.5 (M) Jobs and paths: per-worker job queues with stealing instead of one global mutex; `NavGrid::search` answers
   "unreachable" from its region labels before searching (still returning the closest reachable node when asked).
 
-## M95. A render core for HDR and what follows (L; 3 packages) — outside review, 2026-11-09
+## M95. A render core for HDR and what follows (L; 3 packages) — outside review, 2026-11-09 — DONE in 0.28.0
 
 - M95.1 (L) The engine's GPU layer over sokol_gfx: pipeline keys carry the colour format, sample count and depth format
   (`kColorFormat` is fixed today, which blocks M71's float targets), a pipeline and state cache, and no backend types in

@@ -141,7 +141,7 @@ play; documented, with the advice to use periodic functions.
 - `mesh_common.glsl`: uniform blocks, varyings, `shade_vertex`, shadow lookup, environment, light loop. Every engine
   identifier is renamed to the `fa_` prefix (`fa_shadow_factor`, `fa_environment`, `FA_PI`, uniform members
   `fa_camera_pos`...), so the one rule "names starting with `fa_` are the engine's" replaces a list of reserved names.
-  The renaming is mechanical (the generated C structs change field names in `renderer.cpp`).
+  The renaming is mechanical (the generated C structs change field names in `renderer_*.cpp`).
 - Hook points in `shade_vertex` (`vertex(v)` when `FA_HAS_VERTEX` is defined) and in the fragment `main`
   (`surface(i, s)` after the standard surface is computed, before lighting).
 - `mesh_default.glsl`: the default `surface()` (does nothing) and the engine's programs. The built-in `mesh` and

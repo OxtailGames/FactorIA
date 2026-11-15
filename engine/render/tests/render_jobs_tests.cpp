@@ -20,6 +20,7 @@
 #include "fa/scene/bones2d.h"
 #include "fa/scene/particles.h"
 
+#include "gpu_types.h"
 #include "render_internal.h"
 #include "render_jobs.h"
 
@@ -347,7 +348,8 @@ TEST_CASE("render jobs: a big 3D frame (meshes, blending, culling, shadows, skin
     Gfx& g = gfx();
     REQUIRE(g.ok);
     check_same_frames(build_3d, 3, true,
-                      {"render.mesh_matrices", "render.mesh_cull", "render.shadow_bounds", "render.shadow_cull"});
+                      {"render.mesh_matrices", "render.mesh_cull", "render.mesh_frustum", "render.shadow_bounds",
+                       "render.shadow_cull"});
     World w;
     build_3d(w);
     update_animators(w, 1.0f / 30.0f);
@@ -523,4 +525,24 @@ TEST_CASE("render jobs: parts of a QuadList appended in order give the stream of
                    batches[i].blend == refBatches[i].blend;
         CHECK(same);
     }
+}
+
+TEST_CASE("TargetFormat compares and hashes by its three fields") {
+    using fa::render::TargetFormat;
+    const TargetFormat a{SG_PIXELFORMAT_RGBA8, SG_PIXELFORMAT_DEPTH_STENCIL, 4};
+    TargetFormat b = a;
+    CHECK(a == b);
+    CHECK(a.hash() == b.hash());
+    CHECK(std::hash<TargetFormat>{}(a) == a.hash());
+    b.samples = 1;
+    CHECK(a != b);
+    CHECK(a.hash() != b.hash());
+    b = a;
+    b.color = SG_PIXELFORMAT_RGBA16F;
+    CHECK(a != b);
+    CHECK(a.hash() != b.hash());
+    b = a;
+    b.depth = SG_PIXELFORMAT_NONE;
+    CHECK(a != b);
+    CHECK(a.hash() != b.hash());
 }
