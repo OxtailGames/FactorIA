@@ -308,7 +308,8 @@ TEST_CASE("target pool: reuse across frames, eviction after N idle frames, count
     CHECK(pool.stats().created == 4);
     pool.release(h1);
 
-    // h1 is free since frame 1; frames 2 and 3 pass without it: it goes at the start of frame 4 (idle for 2 whole frames).
+    // h1 is free since frame 1; frames 2 and 3 pass without it: it goes at the start of frame 4 (idle for 2 whole
+    // frames).
     pool.begin_frame();  // frame 2
     pool.begin_frame();  // frame 3
     CHECK(fp.alive == 4);
