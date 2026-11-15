@@ -27,7 +27,7 @@ struct BloomHudScene {
         c.bloom = true;
         c.bloomThreshold = 0.5f;
         c.bloomIntensity = 1.0f;
-        c.bloomRadius = 40.0f;  // a wide glow: the pyramid has downsample passes
+        c.bloomRadius = 40.0f;       // a wide glow: the pyramid has downsample passes
         c.bloomScreenSpace = false;  // the HUD is drawn after the bloom: the "hud-over-bloom" pass
         Entity neon = make(world, "neon");
         auto& s = world.add<Shape2D>(neon);
@@ -168,8 +168,10 @@ TEST_CASE("frame graph: bloom with MSAA and the HUD after the bloom keeps the sa
     // The glow goes into the multisampled game image: the transients are single-sampled, the game image is not.
     const Json j = graph->to_json();
     for (const Json& r : j["resources"]) {
-        if (r["kind"].get<std::string>() == "transient") CHECK(r["format"]["samples"].get<int>() == 1);
-        else CHECK(r["format"]["samples"].get<int>() == 4);
+        if (r["kind"].get<std::string>() == "transient")
+            CHECK(r["format"]["samples"].get<int>() == 1);
+        else
+            CHECK(r["format"]["samples"].get<int>() == 4);
     }
 }
 

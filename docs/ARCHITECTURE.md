@@ -825,7 +825,7 @@ reading it, and the colour filter clamps its input for every mode but `none`. Wi
 the frame is split: world pass, bloom, then a second pass that draws the screen-space
 groups (HUD) on top; with MSAA the glow is added to the multisampled image and the
 HUD pass loads it again, so the HUD is multisampled too. `Camera.colorFilter` is the last post-process
-(`Renderer::Impl::apply_color_filter`, `shaders/colorfilter.glsl`): a pass cannot read what it writes, so the filter
+(`Renderer::Impl::ensure_filter_target` and `color_filter_pass`, `shaders/colorfilter.glsl`): a pass cannot read what it writes, so the filter
 draws the finished target into a second image of the same size, and `present()`, `capture()` (screenshots, video) and
 the editor viewport read that image while a filter is on; `none` skips the pass and the image. The colour-blind
 CHECK (`simulate` of `game.screenshot`) is separate: `simulate_color_vision()` in `fa/core/image.h` on the captured
