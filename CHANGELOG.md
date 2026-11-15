@@ -18,7 +18,10 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
   `bones.create`, `skin.*`) moved there too, with their tests; same names, arguments and results. The effect and mesh
   tools move too: `vfx.check`, `vfx.budget`, `vfx.filmstrip` and `mesh.create`, `mesh.update`, `mesh.destroy`,
   `mesh.save`, `mesh.list`, `mesh.info` are no longer in the player (the `vfx` and `mesh` APIs of scripts are unchanged,
-  and so are `vfx.play`, `vfx.stop` and `vfx.list`).
+  and so are `vfx.play`, `vfx.stop` and `vfx.list`). `scene.import_ascii` (the ASCII level import that can also write a
+  scene file) and `scene.ascii_edit` move too, so an exported game no longer has them; `scene.place_ascii` (the
+  running-world import that `tilemap.generate` with `place` uses), `tilemap.set_tile`, `tilemap.cell_at` and
+  `tilemap.cell_to_world` stay in the player. Their arguments and results do not change.
 - Player size budgets: CI measures `factoria_player` on every platform (Linux, macOS, Windows, Android, web in `ci.yml`; also
   iOS and the macOS universal binary in `release.yml`), fails above the `maxBytes` of `tools/size/player_size_budget.json`,
   and writes a report with what each library adds (artifact `player-size-<platform>`, job summary). The new CMake option

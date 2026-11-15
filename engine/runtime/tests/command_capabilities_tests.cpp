@@ -87,7 +87,7 @@ TEST_CASE("capabilities: every command of the runtime declares them, and readOnl
 namespace {
 
 // A game script that tries commands of every kind from onStart, and tilemap.generate with `place` (the library helper that
-// used to call scene.import_ascii, a command that can write a file).
+// used to call scene.import_ascii, a command that can write a file and is not in the player any more).
 const char* kProbeScript = R"JS(
 import { Behaviour, fa, tilemap } from "factoria";
 export default class Probe extends Behaviour {
@@ -97,7 +97,6 @@ export default class Probe extends Behaviour {
       "scene.spawn": { id: "spawned", components: { Transform: { position: [1, 2] } } },
       "game.state": {},
       "scene.save": { path: "scenes/never.scene.json" },
-      "scene.import_ascii": { rows: ["#"], legend: { "#": 0 }, path: "scenes/never.scene.json", save: true },
       "scene.place_ascii": { rows: ["#"], legend: { "#": 0 }, entity: "viaPlace", tilemap: { tileSize: [16, 16] } },
     };
     for (const name of Object.keys(tries)) {
@@ -141,7 +140,7 @@ void check_game_script_set(bool editorMode) {
         CAPTURE(ok);
         CHECK(r[ok] == "ok");
     }
-    for (const char* denied : {"scene.save", "scene.import_ascii"}) {
+    for (const char* denied : {"scene.save"}) {
         CAPTURE(denied);
         REQUIRE(r[denied].is_object());
         CHECK(r[denied]["code"] == "capability_denied");
@@ -254,16 +253,9 @@ struct WriterCase {
 
 std::vector<WriterCase> writer_cases() {
     return {
+        // The authoring writers (scene.import_ascii, scene.ascii_edit, anim.*, mesh.save, vfx.filmstrip) are tested in
+        // tools/authoring/tests/authoring_capabilities_tests.cpp.
         {"scene.save", ".scene.json", [](const std::string& p) { return Json::object({{"path", p}}); }},
-        {"scene.import_ascii", ".scene.json",
-         [](const std::string& p) {
-             return Json::object(
-                 {{"rows", Json::parse(R"(["#."])")}, {"legend", Json::parse(R"({"#":0})")}, {"path", p}});
-         }},
-        {"scene.ascii_edit", ".json",
-         [](const std::string& p) {
-             return Json::object({{"file", p}, {"ops", Json::parse(R"([{"op":"put","col":0,"row":0,"glyph":"#"}])")}});
-         }},
     };
 }
 

@@ -751,7 +751,7 @@ To check that a sound really fires, read the play log: in a test, `expect(game.a
 
 ### 9.8 Tilemap levels, objects and tile collision
 
-Author a tile level as ASCII art with the command `scene.import_ascii` (MCP `scene_import_ascii`). It writes the `Tilemap` and spawns the coins, enemies and spawn points that stand on it, at the right place. Do not compute tile positions by hand and do not write a level generator script: to make MORE levels that look like one you drew, use `tilemap.generate` (below).
+Author a tile level as ASCII art with the command `scene.import_ascii` (MCP `scene_import_ascii`; an authoring command of the editor, `factoria call` and MCP: an exported game does not have it, a game builds levels at play time with `tilemap.generate` and `place`, which uses `scene.place_ascii`). It writes the `Tilemap` and spawns the coins, enemies and spawn points that stand on it, at the right place. Do not compute tile positions by hand and do not write a level generator script: to make MORE levels that look like one you drew, use `tilemap.generate` (below).
 
 ```
 factoria call scene.import_ascii @level1.json          # args in a file; or MCP scene_import_ascii {...}
