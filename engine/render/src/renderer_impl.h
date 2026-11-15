@@ -198,6 +198,33 @@ struct Renderer::Impl {
     void render(World& world, float dt);
     void setup_frame(Frame& fr, World& world, float dt);
     void draw_job(World& world, Frame& fr, const JobPlan& plan);
+
+    // The phases of draw_job (renderer_draw.cpp), each reading and writing the DrawContext of the job; the comment of each
+    // names its reads and writes.
+    struct Px;
+    struct PartDraw;
+    struct MaterialInputs;
+    struct DrawContext;
+    void gather_meshes(DrawContext& c);
+    void collect_lights(DrawContext& c);
+    void shadow_bounds(DrawContext& c);
+    void cull_and_batch(DrawContext& c);
+    void build_quad_stream(DrawContext& c);
+    void upload_instances(DrawContext& c);
+    void scene_uniforms(DrawContext& c);
+    PartDraw part_draw(DrawContext& c, const MeshItem& mi, const SubMesh& part);
+    mesh_fa_mesh_fs_params_t fill_fs(DrawContext& c, const MeshItem& mi, const SubMesh& part, const PartDraw& d);
+    void material_inputs(const MeshItem& mi, MaterialAsset* mat, MaterialInputs& in);
+    void bind_textures(DrawContext& c, sg_bindings& b, const PartDraw& d, const MaterialProgram* prog,
+                       const MaterialInputs& in, bool shadowPass);
+    void light_pass(DrawContext& c);
+    void shadow_pass(DrawContext& c);
+    void draw_group(DrawContext& c, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
+                    const Px& base, int flatMode = 0);
+    void main_pass(DrawContext& c);
+    void bloom_pass(DrawContext& c);
+    void hud_pass(DrawContext& c);
+    void post_passes(DrawContext& c);
 };
 
 struct Viewport {
