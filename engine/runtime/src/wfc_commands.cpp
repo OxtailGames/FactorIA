@@ -1,5 +1,5 @@
 // tilemap.generate: a level made from an example (Wave Function Collapse). The algorithm and its determinism rules live in
-// fa/scene/wfc.h; this file reads the sample (a Tilemap entity or ASCII rows in the format of scene.import_ascii), checks the
+// fa/scene/wfc.h; this file reads the sample (a Tilemap entity or ASCII rows in the format of scene.place_ascii), checks the
 // arguments with errors that teach, runs the generator and writes the result into a Tilemap and/or returns it as ASCII rows.
 #include <algorithm>
 #include <chrono>
@@ -184,7 +184,7 @@ SampleData read_sample(Engine::Impl& I, const Json& a) {
     out.present = true;
     const std::string hint = "`sample` is the id of an entity with a Tilemap, ASCII rows (an array of strings, or one "
                              "string with line breaks) with a `legend`, an object "
-                             "{rows, legend?, legendFrom?} (the arguments of scene.import_ascii), or the path of a "
+                             "{rows, legend?, legendFrom?} (the arguments of scene.place_ascii), or the path of a "
                              "JSON file with such an object.";
 
     Json asciiArgs;
@@ -202,13 +202,13 @@ SampleData read_sample(Engine::Impl& I, const Json& a) {
                 throw CommandError(
                     "not_found",
                     "The sample file '" + norm.value() + "' does not exist. " + did_you_mean(norm.value(), jsons),
-                    "It is a JSON file with scene.import_ascii arguments: {\"rows\": [...], \"legend\": {...}}.");
+                    "It is a JSON file with scene.place_ascii arguments: {\"rows\": [...], \"legend\": {...}}.");
             }
             auto doc = load_json_file(norm.value());
             if (!doc.ok()) bad_arg("The sample file '" + norm.value() + "': " + doc.error().message, doc.error().hint);
             if (!doc->is_object() || !doc->contains("rows"))
                 bad_arg("The sample file '" + norm.value() +
-                            "' has no \"rows\": it is not a scene.import_ascii arguments file",
+                            "' has no \"rows\": it is not a scene.place_ascii arguments file",
                         "Write {\"rows\": [\"#..#\", ...], \"legend\": {\"#\": 0}} in it.");
             asciiArgs = ascii_args_from(a, *doc);
             out.source = "the ASCII rows of '" + norm.value() + "'";
@@ -257,7 +257,7 @@ SampleData read_sample(Engine::Impl& I, const Json& a) {
 }
 
 // ------------------------------------------------------------------------------------------------------------ glyphs
-// The ASCII form of a generated level: which character stands for which tile, with a legend scene.import_ascii accepts.
+// The ASCII form of a generated level: which character stands for which tile, with a legend scene.place_ascii accepts.
 class GlyphBook {
 public:
     explicit GlyphBook(const SampleData& sample) {
@@ -2165,9 +2165,9 @@ int job_id_arg(const Json& a) {
 
 void register_wfc_commands(Engine&, Engine::Impl& I) {
     const Json generateSchema = parse_schema(R"json({"type":"object","required":["size"],"properties":{
-               "sample":{"type":["string","array","object"],"description":"The example to learn from: the id of an entity with a Tilemap; ASCII rows (array of strings, or one string with line breaks) with `legend`; an object {rows, legend?, legendFrom?} (scene.import_ascii arguments); or a project-relative .json file with such an object. Required for model overlapping; for tiled it only sets the tile frequencies.","items":{"type":"string"}},
-               "legend":{"type":"object","description":"Glyph -> tile index or {tile?, rotate?, flipX?, flipY?, prefab?...}, as in scene.import_ascii; for ASCII rows given as an array or text. '.' and ' ' are empty unless defined here."},
-               "legendFrom":{"type":"string","description":"Project-relative JSON file with a shared legend (see scene.import_ascii), merged under `legend`."},
+               "sample":{"type":["string","array","object"],"description":"The example to learn from: the id of an entity with a Tilemap; ASCII rows (array of strings, or one string with line breaks) with `legend`; an object {rows, legend?, legendFrom?} (scene.place_ascii arguments); or a project-relative .json file with such an object. Required for model overlapping; for tiled it only sets the tile frequencies.","items":{"type":"string"}},
+               "legend":{"type":"object","description":"Glyph -> tile index or {tile?, rotate?, flipX?, flipY?, prefab?...}, as in scene.place_ascii; for ASCII rows given as an array or text. '.' and ' ' are empty unless defined here."},
+               "legendFrom":{"type":"string","description":"Project-relative JSON file with a shared legend (see scene.place_ascii), merged under `legend`."},
                "size":{"type":["array","object","integer"],"description":"Output size in cells: [width, height], {width, height} or one number for a square. Each side 1..2048 (and at least n for overlapping).","items":{"type":"integer"}},
                "seed":{"type":"integer","default":0,"description":"Picks the level. The same sample, seed and arguments always give the same level. Each restart after a dead end uses the next derived seed."},
                "model":{"type":"string","enum":["overlapping","tiled"],"default":"overlapping","description":"overlapping: learn the n x n patterns of the sample. tiled: tile adjacency from the autotile rules (Tilemap.terrains)."},
@@ -2190,7 +2190,7 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
          "Learns from a small example level and makes a new, bigger one that looks like it, the same on "
          "every machine for the same arguments. `sample` is the example: the id of an entity with a Tilemap, "
          "ASCII rows (an array of strings, or a string with line breaks) with a `legend` in the format of "
-         "scene.import_ascii (glyph -> tile index or {tile?, prefab?...}; '.' and ' ' are empty), an object "
+         "scene.place_ascii (glyph -> tile index or {tile?, prefab?...}; '.' and ' ' are empty), an object "
          "{rows, legend?, legendFrom?}, or the path of a JSON file holding one. `size` is the output in "
          "cells ([width, height], {width, height} or one number). MODELS: `overlapping` (default) learns "
          "every n x n window of the sample (n 2..5, default 3) and fills the output cell by cell, always the "
@@ -2214,10 +2214,10 @@ void register_wfc_commands(Engine&, Engine::Impl& I) {
          "or `reachability`); when all fail the error says where, and what to try (a bigger or more varied "
          "sample, a smaller n, symmetry, periodic). Output: with `into` (the id of an entity with a Tilemap) "
          "the grid is written there (tileset, tileSize and solidTiles stay) in the RUNNING world; without it "
-         "the grid comes back as `rows` + `legend`, ready for scene.import_ascii, and with `rows` true it "
+         "the grid comes back as `rows` + `legend`, ready for scene.place_ascii, and with `rows` true it "
          "comes back as well when `into` is given. Glyphs of an ASCII sample that spawn prefabs come back as "
          "the same glyph in `rows`; `into` writes only their tiles, so build objects with "
-         "scene.import_ascii. A Tilemap sample is printed with generated glyphs ('.' = empty). CONSTRAINTS "
+         "scene.place_ascii. A Tilemap sample is printed with generated glyphs ('.' = empty). CONSTRAINTS "
          "(`constraints`, checked before generating; each problem names its JSON pointer): `fixed` "
          "[{at:[x,y] | rect:[x,y,w,h], tile}] pins cells (an entrance, an exit), `border` {tile, thickness?} "
          "walls in the edge, `forbidden` [tile] never appear, `required` [tile] appear at least once, "

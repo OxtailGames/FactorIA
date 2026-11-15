@@ -77,6 +77,7 @@ TEST_CASE("validate: ASCII strings or ragged rows in tiles are errors that point
     REQUIRE(i != nullptr);
     CHECK(i->message.find("string") != std::string::npos);
     CHECK(i->hint.find("scene.place_ascii") != std::string::npos);
+    CHECK(i->hint.find("scene.import_ascii") != std::string::npos);
 
     testing::TempDir tmp2;
     auto r2 = validate_with_tilemap(tmp2, R"({"width":3,"height":2,"tiles":[[0,0,0],[1,1]]})");

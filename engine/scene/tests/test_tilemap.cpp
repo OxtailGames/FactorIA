@@ -45,6 +45,7 @@ TEST_CASE("tilemap: a flat array must have width*height entries") {
     CHECK(issues[0].message.find("3 x 3 = 9") != std::string::npos);
     CHECK(issues[0].hint.find("row 0 at the TOP") != std::string::npos);
     CHECK(issues[0].hint.find("scene.place_ascii") != std::string::npos);
+    CHECK(issues[0].hint.find("scene.import_ascii") != std::string::npos);
 }
 
 TEST_CASE("tilemap: a rows form must be equal rows that match width and height (flatten_tilemap_rows)") {

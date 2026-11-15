@@ -3,7 +3,6 @@
 #include <functional>
 #include <mutex>
 #include <string>
-#include <unordered_map>
 #include <utility>
 
 #include "fa/core/command.h"
@@ -55,20 +54,15 @@ void run_command_extensions(Engine& engine) {
         fns = extensions();
     }
     for (const Extension& ext : fns) {
-        // CommandRegistry::add replaces a name silently; an extension that does it hides a command, so say so. A command
-        // whose description changed after the extension ran was replaced (one replaced by an identical description is not seen).
-        std::unordered_map<std::string, std::size_t> before;
-        for (const CommandInfo* c : engine.commands().list())
-            before[c->name] = std::hash<std::string>{}(c->description);
+        // CommandRegistry::add replaces a name silently; an extension that does it hides a command, so say so.
+        const std::size_t replacedBefore = engine.commands().replaced_commands().size();
         ext.fn(engine);
-        for (const CommandInfo* c : engine.commands().list()) {
-            auto it = before.find(c->name);
-            if (it != before.end() && it->second != std::hash<std::string>{}(c->description))
-                FA_WARN("command",
-                        "command extension '{}' replaced the command '{}' (names must be unique; the extension's "
-                        "version wins)",
-                        ext.name, c->name);
-        }
+        const std::vector<std::string>& replaced = engine.commands().replaced_commands();
+        for (std::size_t i = replacedBefore; i < replaced.size(); ++i)
+            FA_WARN("command",
+                    "command extension '{}' replaced the command '{}' (names must be unique; the extension's "
+                    "version wins)",
+                    ext.name, replaced[i]);
     }
 }
 
