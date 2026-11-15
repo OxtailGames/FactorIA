@@ -9,6 +9,7 @@
 #include <deque>
 #include <limits>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include "fa/core/jobs.h"
@@ -352,4 +353,35 @@ TEST_CASE(
     items.back().normalTex = &pool.textures[2047];
     items.back().tex = &pool.textures[2046];
     CHECK_FALSE(key_all(items, table));
+}
+
+TEST_CASE("sort key: two assets with one name (different pointers) get one rank, one key and the comparator's order") {
+    Pool pool;
+    std::vector<MeshItem> items = random_items(pool, 9, 40, 4);
+    // Twin assets: another object for each mesh and texture, with the same name.
+    const std::size_t meshes = pool.meshes.size(), texes = pool.textures.size();
+    for (std::size_t i = 0; i < meshes; ++i) pool.meshes.emplace_back().key = pool.meshes[i].key;
+    for (std::size_t i = 0; i < texes; ++i) pool.textures.emplace_back().path = pool.textures[i].path;
+    // The twin of each asset by address (a deque is not contiguous: no pointer arithmetic across its elements).
+    std::unordered_map<const void*, std::size_t> meshIndex, texIndex;
+    for (std::size_t i = 0; i < meshes; ++i) meshIndex[&pool.meshes[i]] = i;
+    for (std::size_t i = 0; i < texes; ++i) texIndex[&pool.textures[i]] = i;
+    std::vector<MeshItem> twins = items;
+    for (MeshItem& m : twins) {
+        m.mesh = &pool.meshes[meshIndex.at(m.mesh) + meshes];
+        if (m.tex) m.tex = &pool.textures[texIndex.at(m.tex) + texes];
+    }
+    SortKeyTable table;
+    std::vector<MeshItem> both = items;
+    both.insert(both.end(), twins.begin(), twins.end());
+    REQUIRE(key_all(both, table));
+    for (std::size_t i = 0; i < items.size(); ++i) {
+        CHECK(both[i].sortKey == both[i + items.size()].sortKey);
+        std::uint64_t key = 0;
+        REQUIRE(table.key_of(fields_of(both[i + items.size()]), key));
+        CHECK(key == both[i].sortKey);
+    }
+    std::vector<MeshItem> viaKeys = both, viaComparator = both;
+    for (MeshItem& m : viaComparator) m.keyed = false;
+    CHECK(same(run(viaKeys), run(viaComparator)));
 }
