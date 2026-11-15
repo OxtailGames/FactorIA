@@ -423,8 +423,6 @@ M93 (0.26.0):
 M96 (0.29.0):
 - The dev/test commands (`game.screenshot`, play sessions, `script.eval` and similar) still ship in the player; moving them
   behind a dev flag or into `fa_authoring` is future work.
-- Player size budgets exist only for macos-arm64; the other platforms get their maxBytes from the first CI round
-  (`scripts/player-size.sh update`).
 - The `ctest_shard.py` weights of the new `authoring` test are estimates (20 s Windows, 100 s ASan) until a CI run measures
   them.
 
