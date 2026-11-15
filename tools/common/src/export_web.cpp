@@ -276,12 +276,12 @@ Result<WebPlayer> find_web_player(const ExportOptions& o, const std::string& sou
         for (const WebPlayer& w : found)
             if (const auto data = read_file(w.wasm); data && find_build_fingerprint(*data) == mine) return w;
     if (!found.empty()) return found.front();
-    return err("export: no web player found: factoria_player.js and factoria_player.wasm are not in " +
-                   join(searched, ", "),
-               "run `factoria setup players --platforms web` (the editor: Set up in the Export window) to install the "
-               "web player of this FactorIA "
-               "version, or build it with Emscripten (docs/BUILDING.md, preset web-release) and pass its player/ "
-               "folder with --player <folder>");
+    return err(
+        "export: no web player found: factoria_player.js and factoria_player.wasm are not in " + join(searched, ", "),
+        "run `factoria setup players --platforms web` (the editor: Set up in the Export window) to install the "
+        "web player of this FactorIA "
+        "version, or build it with Emscripten (docs/design/BUILDING.md, preset web-release) and pass its player/ "
+        "folder with --player <folder>");
 }
 
 namespace {

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Signs the given executables with a Developer ID Application certificate (hardened runtime, timestamped) and has Apple
-# notarize them. Used by .github/workflows/release.yml (macOS runner); setup in docs/BUILDING.md, "Releasing".
+# notarize them. Used by .github/workflows/release.yml (macOS runner); setup in docs/design/BUILDING.md, "Releasing".
 #
 #   scripts/sign-macos.sh build/macos-release/tools/cli/factoria build/macos-release/player/factoria_player
 #
@@ -19,7 +19,7 @@
 set -euo pipefail
 
 if [[ -z "${APPLE_CERT_P12_BASE64:-}" ]]; then
-    echo "::notice title=macOS signing skipped::APPLE_CERT_P12_BASE64 is not set, so $* stay unsigned and not notarized (docs/BUILDING.md, Releasing)"
+    echo "::notice title=macOS signing skipped::APPLE_CERT_P12_BASE64 is not set, so $* stay unsigned and not notarized (docs/design/BUILDING.md, Releasing)"
     exit 0
 fi
 if [[ -z "${APPLE_CERT_PASSWORD:-}" ]]; then

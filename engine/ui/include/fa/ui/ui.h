@@ -204,6 +204,12 @@ public:
     // is true until the field loses the focus, and the menu kit's on-screen keyboard stays closed. Without a handler nothing
     // changes. The handler runs inside update() and reset() on the game thread.
     void set_text_input_handler(TextInputHandler handler) { textInput_ = std::move(handler); }
+    // How the IME is told where the caret is (fa/platform/ime.h): the UI turns the IME on while a TextField has the focus and
+    // sends the field's caret rectangle every frame (fa/platform/ime.h). `mapper` takes a design pixel to a FRAMEBUFFER pixel (the
+    // Engine sets it from its window, the same mapping as the platform keyboard's rectangle: not divided by the DPI scale);
+    // without one, design pixels are framebuffer pixels. Until M98.6b the rectangle is the right part of the field, not yet
+    // the exact caret.
+    void set_design_to_window(std::function<Vec2(Vec2)> mapper) { designToWindow_ = std::move(mapper); }
     // Text the platform keyboard returned: replaces the text of the field that took the keyboard if it still has the focus
     // (cut to its maxLength, control characters dropped) and sends ui.change when the text changed. False when no field is
     // waiting for it: the text is dropped.
@@ -356,6 +362,9 @@ private:
          wheelConsumed_ = false;
     Vec2 pointerPos_{};
     TextInputHandler textInput_;
+    std::function<Vec2(Vec2)> designToWindow_;
+    bool imeOn_ = false;  // this UI turned the IME on (a TextField has the focus)
+    Entity imeField_;     // the TextField the IME is working for (the focused one; kNullEntity = none)
     Clipboard* clipboard_ = nullptr;
     Entity platformField_;  // the TextField the platform keyboard was taken for (kNullEntity = none)
     Entity askedField_;     // the TextField the handler was asked about since it got the focus

@@ -89,7 +89,7 @@ CMAKE_VERSION="$(cmake --version | sed -n '1s/[^0-9]*\([0-9][0-9.]*\).*/\1/p')"
 [[ -n "$CMAKE_VERSION" ]] || die "could not read the version from 'cmake --version'"
 MIN_CMAKE="3.24"
 if [[ "$(printf '%s\n' "$MIN_CMAKE" "$CMAKE_VERSION" | sort -V | head -n1)" != "$MIN_CMAKE" ]]; then
-    die "CMake $CMAKE_VERSION is too old. FactorIA needs CMake $MIN_CMAKE or newer (see the hints in docs/BUILDING.md)."
+    die "CMake $CMAKE_VERSION is too old. FactorIA needs CMake $MIN_CMAKE or newer (see the hints in docs/design/BUILDING.md)."
 fi
 
 require_tool ninja "the desktop presets use the Ninja generator"

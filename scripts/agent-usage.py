@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""What a Claude Code session and its subagents really cost. See docs/BUILDING.md, "What the agents cost".
+"""What a Claude Code session and its subagents really cost. See docs/design/BUILDING.md, "What the agents cost".
 
     python3 scripts/agent-usage.py                 # the 5 sessions of this checkout that changed last
     python3 scripts/agent-usage.py -n 20           # the last 20

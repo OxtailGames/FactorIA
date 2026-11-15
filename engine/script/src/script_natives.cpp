@@ -14,6 +14,7 @@
 
 #include "fa/audio/audio.h"
 #include "fa/audio/sfx.h"
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
@@ -676,6 +677,15 @@ NATIVE(watchdogCuts) {
     for (size_t i = first; i < first + shown; ++i) text += (text.empty() ? "" : "; ") + I->cuts[i].to_string();
     if (const size_t more = I->cuts.size() - first - shown; more > 0) text += std::format(" ... and {} more", more);
     return JS_NewString(ctx, text.c_str());
+}
+
+// deprecated(key): the warning for a deprecated script export or member (the "script" part of the deprecated section of
+// api_since.json); the prelude calls it on the first use of each one, the table gives it once per key per process.
+NATIVE(deprecated) {
+    (void)thisv;
+    CStr key(ctx, argc > 0 ? argv[0] : JS_UNDEFINED);
+    fa::warn_deprecated(fa::kDeprecatedScript, key.view());
+    return JS_UNDEFINED;
 }
 
 NATIVE(logSeq) {
@@ -2821,6 +2831,15 @@ NATIVE(inWheel) {
 NATIVE(inText) {
     SETUP;
     return JS_NewString(ctx, I->host->input().text_utf8().c_str());
+}
+
+NATIVE(inComposition) {  // (kind 0 composing: boolean | 1 composition text: string)
+    SETUP;
+    const Input& in = I->host->input();
+    if (arg_num(ctx, argc, argv, 0) == 0) return JS_NewBool(ctx, in.composing());
+    std::string utf8;
+    for (char32_t c : in.composition_text()) utf8_append(utf8, c);
+    return JS_NewString(ctx, utf8.c_str());
 }
 
 NATIVE(inActions) {
@@ -5087,6 +5106,7 @@ const Reg kRegs[] = {
     R(nowMs, 0),
     R(sourceCaret, 3),
     R(logSeq, 0),
+    R(deprecated, 1),
     R(logErrors, 1),
     R(forgetLoggedErrors, 0),
     R(watchdogCuts, 1),
@@ -5164,6 +5184,7 @@ const Reg kRegs[] = {
     R(inDeadzone, 1),
     R(testPad, 5),
     R(inText, 0),
+    R(inComposition, 1),
     R(inActions, 0),
     R(inBindings, 1),
     R(inRebind, 2),

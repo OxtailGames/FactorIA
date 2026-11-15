@@ -61,7 +61,7 @@ inline constexpr const char* kSetupAndroidCmdlineTools = "cmdline-tools;22.0";
 // What is installed instead when Google's listing no longer offers the pinned package (missing or obsolete): the Android CLI front.
 inline constexpr const char* kSetupAndroidCmdlineToolsFallback = "cmdline-tools;latest";
 // The Emscripten SDK the web player is built with (`setup webplayer` fetches it when none is found): the version of CI and the
-// releases (docs/BUILDING.md, "Web"; a test keeps them equal).
+// releases (docs/design/BUILDING.md, "Web"; a test keeps them equal).
 inline constexpr const char* kSetupEmscriptenVersion = "6.0.10";
 inline constexpr const char* kSetupCmakeVersion = "3.31.6";
 inline constexpr const char* kSetupCmakeMinimum = "3.24";  // what the engine and build_ios.sh need

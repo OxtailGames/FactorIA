@@ -9,6 +9,7 @@
 // Angles are degrees. Colors are linear 0..1 RGBA.
 #pragma once
 
+#include <algorithm>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -18,6 +19,7 @@
 #include "fa/core/math.h"
 #include "fa/core/typed_array.h"
 #include "fa/core/types.h"
+#include "fa/core/utf8.h"
 #include "fa/scene/skeleton.h"
 
 namespace fa {
@@ -733,7 +735,19 @@ struct TextField : UiControl {
     std::string placeholder;
     std::int32_t maxLength = 64;  // code points; 0 = unlimited
     bool caret = false;           // runtime: the caret is in the visible half of its blink
+    // The editing contract (M98.6): code-point indices into `text`. selectionStart == selectionEnd means no selection.
+    std::int32_t caretIndex = 0;
+    std::int32_t selectionStart = 0, selectionEnd = 0;
+    std::string composition;  // runtime: the IME's pre-edit string while the player is composing in this field, UTF-8
     TextField() { size = {320, 48}; }
+    // Puts caretIndex, selectionStart and selectionEnd inside 0..(code points of `text`). Called by the UI every frame, so a
+    // scene that was loaded with a wrong index, or a script that shortened `text`, never leaves one outside.
+    void clamp_indices() {
+        const std::int32_t n = std::int32_t(std::min<std::size_t>(utf8_length(text), 1000000));
+        caretIndex = std::clamp(caretIndex, 0, n);
+        selectionStart = std::clamp(selectionStart, 0, n);
+        selectionEnd = std::clamp(selectionEnd, 0, n);
+    }
 };
 
 // Container whose children are stacked in a column, scrolled and clipped to its rectangle.

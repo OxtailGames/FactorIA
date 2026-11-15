@@ -45,7 +45,7 @@ export default {
 
 - **Schema keywords** the validator checks: `type`, `properties`, `required`, `additionalProperties`, `default`, `enum`, `const`, `minimum`, `maximum`, `minLength`, `pattern`, `items`, `anyOf`, `oneOf`. Invalid arguments are refused before `run` is called. The error names the field and gives a hint, such as the allowed values.
 - **Closed by default.** A key that `input` (or a nested object with `properties`) does not declare is an error, not an ignored extra: `invalid_arguments`, `/crates: unknown property 'crates'`, with a "did you mean" and the accepted keys in the hint. So declare every key `run` reads, with a `description`. A tool without `input`, or with `properties: {}`, takes no arguments. If the keys really are open-ended (a free-form map), say so: `additionalProperties: true` on that object accepts any key, and `additionalProperties: { type: "number" }` accepts any key whose value matches the schema. A project from before 0.13.0 whose tools or scripts pass extra keys now gets this error: add the missing properties to `input` (or drop the key from the call).
-- **Capabilities.** `capabilities` is an optional array of names saying what the tool can do outside the engine's memory: `read`, `state` (changes the running game in memory), `writeProject`, `writeAnywhere`, `network`, `process`, `spend`, `publish` (docs/ARCHITECTURE.md, "Commands", "Capabilities"). A caller that was not granted all of them (a game script gets `read` and `state`) is refused with `capability_denied`. Without the key the set follows `readOnly`: `["read"]` when it is true, `["read", "state", "writeProject"]` otherwise, so a tool that only changes the world in memory should declare `["read", "state"]` and one that talks to a server `["read", "network"]`. A tool with `capabilities` also gets `readOnly: true` only when the set is exactly `["read"]`. A name that does not exist (`"writeProjct"`) is a script error with the file, the position in the array and a "did you mean"; the tool is not registered until it is fixed.
+- **Capabilities.** `capabilities` is an optional array of names saying what the tool can do outside the engine's memory: `read`, `state` (changes the running game in memory), `writeProject`, `writeAnywhere`, `network`, `process`, `spend`, `publish` (docs/design/ARCHITECTURE.md, "Commands", "Capabilities"). A caller that was not granted all of them (a game script gets `read` and `state`) is refused with `capability_denied`. Without the key the set follows `readOnly`: `["read"]` when it is true, `["read", "state", "writeProject"]` otherwise, so a tool that only changes the world in memory should declare `["read", "state"]` and one that talks to a server `["read", "network"]`. A tool with `capabilities` also gets `readOnly: true` only when the set is exactly `["read"]`. A name that does not exist (`"writeProjct"`) is a script error with the file, the position in the array and a "did you mean"; the tool is not registered until it is fixed.
 - **Hot reload.** Saving the file reloads the tool. MCP clients receive `notifications/tools/list_changed`.
 - **Errors.** Two kinds, and the caller sees them differently.
   - An *expected* failure, such as a check that found bad level data, is `throw new ToolError(message, hint, data?)` (import it from `"factoria"`). The caller gets code `tool_error`, the message, and your `hint`, which says how to fix the data or the call. `data` is an optional object with details. It appears in the JSON error of `factoria session` and `factoria call --batch`, and as `e.data` on the Error that `fa.call` throws in a script or test; MCP shows only the code, message and hint, so put what a fixer needs into the hint.
@@ -297,7 +297,7 @@ registry.add(std::move(info), [](const Json& args) -> Json {
 | The command needs | Write it in | Register it from |
 |---|---|---|
 | The running game (scene, input, screenshots) or only the `World` | `engine/runtime/src/` (with a public header in `engine/runtime/include/fa/runtime/` if tests need it) | `register_builtin_commands` in `engine/runtime/src/commands.cpp` (declared in `engine_impl.h`) |
-| A command only a developer tool uses and a game must not have (writes project files, imports assets, edits animations) | `tools/authoring/src/` (`fa_authoring`; tests in `tools/authoring/tests/`) | `register_<area>_commands(Engine&, Engine::Impl&)` called from `register_authoring_commands` in `tools/authoring/src/authoring.cpp` (declared in `authoring_internal.h`); a process gets it by calling `fa::authoring::install()` (docs/ARCHITECTURE.md, "Where a command goes") |
+| A command only a developer tool uses and a game must not have (writes project files, imports assets, edits animations) | `tools/authoring/src/` (`fa_authoring`; tests in `tools/authoring/tests/`) | `register_<area>_commands(Engine&, Engine::Impl&)` called from `register_authoring_commands` in `tools/authoring/src/authoring.cpp` (declared in `authoring_internal.h`); a process gets it by calling `fa::authoring::install()` (docs/design/ARCHITECTURE.md, "Where a command goes") |
 | Project tooling: validation, docs, files, feedback | `tools/common/src/` | `register_tooling_commands(registry, projectDir)` (`tooling.h`) |
 | The built-in AI agent | `tools/ai/src/` | `register_ai_commands` (`commands.h`) |
 
@@ -560,7 +560,7 @@ Once a component is registered, the engine derives these from the reflection dat
 - **JSON Schema.** `scene_json_schema()` and `prefab_json_schema()`, plus `type_json_schema()` for a single type.
 - **Scripts.** `entity.get("Wobble")` returns a live view of exactly the reflected fields (`docs/SCRIPTING.md`). Writing `entity.get("Wobble").amplitude = 2` writes into the engine.
 - **TypeScript typings.** `types/factoria.d.ts`, written by `factoria api --dts` (a project gets its own copy from `factoria validate --fix-types`).
-- **Docs.** `docs_components`, `docs.components` and `factoria://docs/components`.
+- **Docs.** `docs_components` and `docs.components`.
 - **MCP and CLI.** `scene_set_component` and `scene.set_component` can patch the field.
 - **Editor.** Desktop builds include the visual editor (`FA_BUILD_EDITOR`, on by default there). Start it with `factoria editor`.
 
@@ -653,9 +653,9 @@ Add `#include "fa/scene/wobble_system.h"` to that file. The system test in secti
 - **Skip inactive entities.** Check `world.active_in_hierarchy(e)`.
 - **Be safe with deferred work.** `world.destroy(e)` is deferred to the end of the frame, so it is safe inside `world.each`. Do not call `load_scene` in the middle of a frame. Use `ScriptHost::request_scene_change`, which defers the change.
 - **Know the order of `each`.** `world.each<A, B>` walks the pool with the fewest owners, in that pool's insertion order, so the order of a multi-type walk follows the counts. A system whose order is visible (events it queues, ids it hands out) drives by the type that must set the order: `world.each<A>(...)` and `world.get<B>(e)` inside.
-- **Do not keep a `Transform&` or an `EntityInfo&` across a hierarchy read.** `world.world_matrix(e)` and `active_in_hierarchy(e)` come from a cache that a write through a mutable `get` drops; a reference stored before the read and written after it is not seen. Get it again after the read (docs/ARCHITECTURE.md, "The hierarchy cache").
+- **Do not keep a `Transform&` or an `EntityInfo&` across a hierarchy read.** `world.world_matrix(e)` and `active_in_hierarchy(e)` come from a cache that a write through a mutable `get` drops; a reference stored before the read and written after it is not seen. Get it again after the read (docs/design/ARCHITECTURE.md, "The hierarchy cache").
 - **Do not depend on graphics.** Headless runs without graphics have no renderer.
-- **Keep the order documented.** Update the frame comment in `engine.h` and the module table in `docs/ARCHITECTURE.md` when you add a system.
+- **Keep the order documented.** Update the frame comment in `engine.h` and the module table in `docs/design/ARCHITECTURE.md` when you add a system.
 - **Test it twice.** A C++ test calls the system directly (as in section C). A headless test checks the system inside a real frame when it changes the outcome of a game.
 
 ## E. Checklists
@@ -695,7 +695,7 @@ throw CommandError("not_found", "Entity 'enemy_9' not found.", "Use scene.list_e
 - C++ tests are doctest cases in `engine/<module>/tests/test_*.cpp`. `fa_add_tests(<module>)` builds them into `fa_test_<module>`. Run one module with `cmake --build --preset linux-debug --target fa_test_<module>` and `ctest --preset linux-debug -R <module> --output-on-failure`.
 - Tests that need a GPU carry the `gpu` label (`fa_add_tests(... LABELS gpu)`). Hosts without a GPU skip them with `ctest --preset linux-debug -LE gpu`.
 - Game-level behaviour goes in `tests/*.test.js` and runs with `factoria test`.
-- Rendering tests compare headless golden images in `engine/render/tests/golden/*.png` (`expect_golden(img, "name")`) against limits on the mean error, the share of differing pixels and the largest error. A missing golden fails the test; `FA_UPDATE_GOLDENS=1` writes it (docs/BUILDING.md, "Golden images").
+- Rendering tests compare headless golden images in `engine/render/tests/golden/*.png` (`expect_golden(img, "name")`) against limits on the mean error, the share of differing pixels and the largest error. A missing golden fails the test; `FA_UPDATE_GOLDENS=1` writes it (docs/design/BUILDING.md, "Golden images").
 - Determinism: fixed seed, fixed steps, no timing assertions.
 - A bug fix starts with a failing test.
 
@@ -707,7 +707,7 @@ throw CommandError("not_found", "Entity 'enemy_9' not found.", "Use scene.list_e
 
 ### Rules from `CLAUDE.md`
 
-- Module order is in `docs/ARCHITECTURE.md`: core, scene, platform, then render, physics, audio and ui, then script, runtime, tooling, mcp and ai, then editor and cli. A module includes only modules before it.
+- Module order is in `docs/design/ARCHITECTURE.md`: core, scene, platform, then render, physics, audio and ui, then script, runtime, tooling, mcp and ai, then editor and cli. A module includes only modules before it.
 - No exceptions cross module boundaries, except `CommandError` inside command handlers. Return `fa::Result<T>` with a message and a hint.
 - No `rand()`. No wall clock in simulation.
 - Do not edit `external/`. Wrap third-party code from engine code.
@@ -986,6 +986,6 @@ FA_PLUGIN_INIT(example) {
   writeProject}` otherwise. A command that does more (talks to a server, starts a program, writes outside the project) or
   less (changes only memory: `{read, state}`) says so with `set_command_capabilities(api, "<plugin>.<verb>", "[\"read\",
   \"network\"]")` after its `add_command`, inside the entry point. Names: `read`, `state`, `writeProject`, `writeAnywhere`,
-  `network`, `process`, `spend`, `publish` (docs/ARCHITECTURE.md, "Commands", "Capabilities"). A caller that was not granted
+  `network`, `process`, `spend`, `publish` (docs/design/ARCHITECTURE.md, "Commands", "Capabilities"). A caller that was not granted
   all of them (a game script gets `read` and `state`) gets `capability_denied`; `read_only` follows the declaration (1 only
   for `["read"]`). A plugin built for version 5 checks `api->version >= 5` first.

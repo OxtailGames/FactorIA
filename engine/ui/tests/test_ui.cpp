@@ -5,6 +5,7 @@
 
 #include "fa/core/log.h"
 #include "fa/core/i18n.h"
+#include "fa/platform/ime.h"
 #include "fa/scene/localize.h"
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
@@ -2543,4 +2544,104 @@ TEST_CASE("ui mirror: a CameraView's rectangle flips with the layout but its pic
     t.w.get<CameraView>(view)->mirror = false;  // mirror false keeps even the rectangle where it is written
     t.ui.layout(t.w, t.design, {});
     CHECK(t.rect(view).x == doctest::Approx(20));
+}
+
+namespace {
+struct ImeStateGuard {  // the IME state is global: every test that touches it starts and ends clean
+    ImeStateGuard() { ime_reset_state(); }
+    ~ImeStateGuard() { ime_reset_state(); }
+};
+}  // namespace
+
+TEST_CASE("ui textfield: the IME is on while a TextField has the focus and gets its caret rectangle") {
+    ImeStateGuard guard;
+    Ui t;
+    t.ui.set_design_to_window([](Vec2 p) { return Vec2{p.x * 2.0f, p.y * 2.0f}; });
+    Entity e = t.add<TextField>("f", {10, 20}, {200, 30});
+    Entity b = t.button("b", {0, 100});
+    t.frame();
+    CHECK_FALSE(ime_state().enabled);  // nothing focused
+    t.w.get<TextField>(e)->autoFocus = true;
+    t.frame();
+    CHECK(t.ui.focused() == e);
+    CHECK(ime_state().enabled);
+    const Rect r = ime_state().caretRect;
+    CHECK(r.w > 0);
+    CHECK(r.h == doctest::Approx(60.0f));  // the field's height, in window pixels (design x 2)
+    CHECK(r.y == doctest::Approx(40.0f));
+    t.ui.set_focus(t.w, b);
+    t.frame();
+    CHECK_FALSE(ime_state().enabled);
+    CHECK(ime_state().caretRect.w == 0);
+}
+
+TEST_CASE("ui textfield: the IME composition is shown on the focused field only, and a lost focus cancels it") {
+    ImeStateGuard guard;
+    Ui t;
+    Entity e = t.add<TextField>("f", {0, 0}, {200, 30});
+    Entity b = t.button("b", {0, 100});
+    TextField& f = *t.w.get<TextField>(e);
+    f.autoFocus = true;
+    t.frame();
+    t.in.on_composition_update(U"\u3042\u3044", 1, 1);
+    t.frame();
+    CHECK(f.composition == "\xE3\x81\x82\xE3\x81\x84");
+    CHECK(f.text.empty());  // not typed yet
+    t.ui.set_focus(t.w, b);
+    t.frame();
+    CHECK_FALSE(t.in.composing());
+    CHECK(f.composition.empty());
+}
+
+TEST_CASE("ui textfield: the focus moving from one TextField to another cancels the composition of the first") {
+    ImeStateGuard guard;
+    Ui t;
+    Entity a = t.add<TextField>("a", {0, 0}, {200, 30});
+    Entity b = t.add<TextField>("b", {0, 100}, {200, 30});
+    t.w.get<TextField>(a)->autoFocus = true;
+    t.frame();
+    REQUIRE(t.ui.focused() == a);
+    t.in.on_composition_update(U"\u3042", 1, 0);
+    t.frame();
+    CHECK(t.w.get<TextField>(a)->composition == "\xE3\x81\x82");
+    const int cancels = ime_state().cancels;
+    t.ui.set_focus(t.w, b);
+    t.in.on_composition_update(U"\u3044", 1, 0);  // an update that raced the focus change
+    t.frame();
+    CHECK(t.ui.focused() == b);
+    CHECK(ime_state().enabled);  // still on: a TextField has the focus
+    CHECK(ime_state().cancels == cancels + 1);
+    CHECK_FALSE(t.in.composing());
+    CHECK(t.w.get<TextField>(b)->composition.empty());
+    CHECK(t.w.get<TextField>(a)->composition.empty());
+}
+
+TEST_CASE("ui textfield: caretIndex and the selection are clamped to the text") {
+    Ui t;
+    Entity e = t.add<TextField>("f", {0, 0}, {200, 30});
+    TextField& f = *t.w.get<TextField>(e);
+    f.text = "h\xC3\xA9llo";  // 5 code points, 6 bytes
+    f.caretIndex = 99;
+    f.selectionStart = 7;
+    f.selectionEnd = 2;
+    t.frame();
+    CHECK(f.caretIndex == 5);
+    CHECK(f.selectionStart == 5);
+    CHECK(f.selectionEnd == 2);
+    f.text = "ab";  // a script shortened the text
+    t.frame();
+    CHECK(f.caretIndex == 2);
+    CHECK(f.selectionStart == 2);
+    CHECK(f.selectionEnd == 2);
+    // The new fields are reflected: a negative index is refused by the loader (range 0..1000000).
+    const TypeInfo* info = TypeRegistry::global().find("TextField");
+    REQUIRE(info);
+    bool seen[4] = {};
+    for (const FieldInfo& fi : info->fields) {
+        seen[0] |= fi.name == "caretIndex" && fi.serialized;
+        seen[1] |= fi.name == "selectionStart" && fi.serialized;
+        seen[2] |= fi.name == "selectionEnd" && fi.serialized;
+        seen[3] |= fi.name == "composition" && !fi.serialized && fi.readOnly;
+    }
+    for (bool b : seen) CHECK(b);
 }

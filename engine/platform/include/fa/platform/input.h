@@ -282,6 +282,7 @@ public:
     void end_fixed_step();
     // The most typed characters one view keeps (the rest of a burst is dropped): a view nobody advances cannot grow.
     static constexpr size_t kMaxTextPerView = 4096;
+    static constexpr size_t kMaxCompositionLength = 1024;  // code points of a pre-edit string; the rest is cut
     // While alive, every read (key_pressed, action_pressed, mouse_delta, touches...) answers for the fixed-step view.
     // Nests: a step run from inside another step (game.step in onFixedUpdate) shares the outer step's view, so it sees the
     // same presses, and only the outermost scope's end_fixed_step closes the step.
@@ -328,6 +329,24 @@ public:
     void on_touch_move(std::uint64_t id, Vec2 designPos);
     void on_touch_end(std::uint64_t id);
     void on_text(std::uint32_t codepoint);
+    // IME composition (a text the player is still building with an input method: Japanese, Chinese, Korean, dead keys...).
+    // A composition is a STATE that lasts across frames, unlike text_input(): it begins with the first update, keeps being
+    // replaced by the next ones, and ends with a commit or a cancel. `text` is the pre-edit string; `caretCp` the caret inside
+    // it and `selLen` the length of the segment the IME is converting, both in CODE POINTS (not UTF-16 units: Windows, Android
+    // and the web count UTF-16, and their backend converts before calling). A clause [start, end) of the IME maps to
+    // caretCp = start and selLen = end - start; both are clamped to the text. An update with an empty text ends the
+    // composition like a cancel. The text is cut at kMaxCompositionLength code points. An update never writes into
+    // text_input(): only a commit does. While the IME is on, telling a commit from ordinary typing is the BACKEND's job: the
+    // text that arrives with a commit (for example Windows' WM_CHAR after GCS_RESULTSTR) is delivered through
+    // on_composition_commit and not again through on_text. The platform backends (M98.6c, 6d) and tests call these; from
+    // M98.6b a TextField draws the composition at its caret (it is never stored in `text`).
+    void on_composition_update(std::u32string text, int caretCp, int selLen);
+    // The IME finished: the composition ends and `text` is delivered as NORMAL text input, exactly once, as if on_text() had
+    // been called for each of its code points. A backend calls this INSTEAD of on_text() for the committed text, never
+    // both. An empty text just ends the composition.
+    void on_composition_commit(std::u32string text);
+    // The IME gave up (Escape, focus lost, the field lost the focus): the composition ends and nothing is typed.
+    void on_composition_cancel();
     // The player asked to paste (an edge until the next begin_frame() of the view being read). A key press of V while Ctrl
     // (or Cmd) is held asks by itself; a platform where the browser decides when a paste happens (the web) turns that off with
     // set_paste_from_events(true) and calls on_paste() from its paste event instead.
@@ -405,10 +424,22 @@ public:
     std::vector<Touch> touches_in_view() const;
     // Whether `t` landed this frame (a frame read) or since the last fixed step (inside a FixedScope).
     bool touch_pressed(const Touch& t) const { return active_ == kFixedLayer ? t.pressedThisStep : t.pressedThisFrame; }
+    // The IME composition now (a state, the same in every view): composing() is true between the first update and the
+    // commit or cancel; composition_text() is the pre-edit string, composition_caret() the caret in it (code points,
+    // 0..size) and composition_selection_length() the code points from the caret that the IME is converting (0 = none).
+    bool composing() const { return composing_; }
+    const std::u32string& composition_text() const { return compositionText_; }
+    int composition_caret() const { return compositionCaret_; }
+    int composition_selection_length() const { return compositionSel_; }
     const std::u32string& text_input() const { return L().text; }  // typed characters this frame
     std::string text_utf8() const;                                 // the same, as UTF-8
     bool paste_pressed() const;       // Ctrl+V / Cmd+V (or a paste event) went down this frame (of the view being read)
     bool copy_pressed() const;        // Ctrl+C / Cmd+C went down this frame
+    bool cut_pressed() const;         // Ctrl+X / Cmd+X went down this frame
+    bool select_all_pressed() const;  // Ctrl+A / Cmd+A went down this frame
+    // The modifier that makes the arrows and Backspace / Delete work by word: Alt on macOS, Ctrl elsewhere (either side).
+    // Shift (extend the selection) is modifier_down(modifier::Shift); Home / End and the arrows are plain key_pressed().
+    bool word_modifier_down() const;
     bool command_chord_down() const;  // Ctrl or Cmd (either side) is held
     bool back_pressed() const {
         return L().back;
@@ -768,6 +799,10 @@ private:
     int fixedDepth_ =
         0;  // live FixedScopes; a nested step (a script stepping the game in a step) leaves the outer one open
     bool textCapWarned_ = false;
+    bool composing_ = false;  // an IME composition is open (on_composition_update ... commit / cancel)
+    std::u32string compositionText_;
+    int compositionCaret_ = 0, compositionSel_ = 0;
+    void end_composition();
     std::vector<Touch> endedTouches_;  // fingers that landed and lifted before every view saw them (not in touches_)
     const Layer& L() const { return layers_[active_]; }
     Layer& L() { return layers_[active_]; }

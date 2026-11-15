@@ -17,6 +17,7 @@
 #include "fa/core/build_info.h"
 #include "fa/core/command.h"
 #include "fa/core/crash.h"
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "imgui_internal.h"
 #include "sokol_app.h"
@@ -652,7 +653,7 @@ bool Editor::boot(const std::string& dirIn) {
     imageSizes_.clear();
     undo_.clear();
     redo_.clear();
-    selectedId_.clear();
+    selection_.clear();
     play_ = PlayState::Edit;
     dirty_ = false;
     feedbackMtime_ = INT64_MIN;
@@ -750,6 +751,7 @@ bool Editor::boot(const std::string& dirIn) {
         }
         scenePath_ = world().scene_path();
         if (scenePath_.empty()) scenePath_ = engine_->project().mainScene;
+        Deprecations::global().reset_warned();  // a deprecation is warned about once per project load
         register_project_commands(*engine_, projectDir_);
         engine_->set_paused(true);
         install_command_overrides();
@@ -1210,7 +1212,7 @@ bool Editor::open_scene(const std::string& path) {
     world().set_scene_path(path);
     undo_.clear();
     redo_.clear();
-    selectedId_.clear();
+    selection_.clear();
     dirty_ = false;
     notify("Opened " + path);
     return true;
@@ -1331,161 +1333,112 @@ void Editor::stop() {
 // ------------------------------------------------------------------------------------------
 // Selection and edits
 Entity Editor::selected() {
-    if (!engine_ || selectedId_.empty()) return kNullEntity;
-    Entity e = world().find_by_id(selectedId_);
+    if (!engine_ || selection_.primary().empty()) return kNullEntity;
+    Entity e = world().find_by_id(selection_.primary());
     if (e.is_null() || !world().alive(e)) return kNullEntity;
     return e;
 }
 
-void Editor::select(Entity e) { selectedId_ = (e.is_null() || !engine_) ? std::string() : world().id_of(e); }
+void Editor::select(Entity e) { selection_.replace((e.is_null() || !engine_) ? std::string() : world().id_of(e)); }
+
+const Selection& Editor::selection() {
+    if (engine_) {
+        World& w = world();
+        selection_.prune([&w](const std::string& id) {
+            const Entity e = w.find_by_id(id);
+            return !e.is_null() && w.alive(e);
+        });
+    }
+    return selection_;
+}
 
 void Editor::begin_edit(const std::string& key) {
     if (play_ != PlayState::Edit || !engine_) return;
-    const bool coalesce = key == lastEditKey_ && (time_ - lastEditTime_) < 0.8;
+    const bool coalesce = edit_coalesces(key, lastEditKey_, time_, lastEditTime_);
     lastEditTime_ = time_;
     lastEditKey_ = key;
     dirty_ = true;
     if (coalesce) return;
-    undo_.push_back(snapshot_scene(world()));
-    if (undo_.size() > 100) undo_.erase(undo_.begin());
+    undo_.push_back(UndoEntry::snapshot(snapshot_scene(world())));  // the stack drops the oldest beyond its caps
     redo_.clear();
 }
 
-void Editor::undo() {
-    if (play_ != PlayState::Edit || undo_.empty() || !engine_) return;
+bool Editor::push_command_entry(const std::string& key, std::vector<UndoCommand> forward,
+                                std::vector<UndoCommand> inverse, CoalesceMode mode) {
+    if (play_ != PlayState::Edit || !engine_) return false;
+    const bool coalesce = edit_coalesces(key, lastEditKey_, time_, lastEditTime_);
+    lastEditTime_ = time_;
+    lastEditKey_ = key;
+    dirty_ = true;
+    if (undo_.push_command(std::move(forward), std::move(inverse), coalesce, mode)) redo_.clear();
+    return true;
+}
+
+// Runs the commands of a Command entry in order; stops at the first one that fails.
+bool Editor::run_undo_commands(const std::vector<UndoCommand>& cmds, bool forward) {
+    for (const UndoCommand& c : cmds) {
+        const CommandResult r = engine_->commands().call(c.cmd, c.args);
+        after_command(c.cmd, c.args, r);
+        if (!r.ok) {
+            notify("Could not " + std::string(forward ? "redo" : "undo") + " the edit: " + c.cmd + ": " +
+                       command_error_text(r.error),
+                   2);
+            return false;
+        }
+    }
+    return true;
+}
+
+// Undo (forward false) or redo (forward true) of the newest entry of `from`; the entry moves to the other stack.
+void Editor::step_history(bool forward) {
+    UndoStack& from = forward ? redo_ : undo_;
+    UndoStack& to = forward ? undo_ : redo_;
+    if (play_ != PlayState::Edit || from.empty() || !engine_) return;
     levelGenSampleStale_ = true;  // the Level generator window reads its sample again
-    if (undo_.back().is_object() && undo_.back().contains("$clip")) {  // a step of a clip file (anim_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
+    // A step of a document panel (clip file, image, drawing, sound, effect, song, model): the panel undoes it and pushes
+    // the entry on the other stack itself.
+    using Apply = void (Editor::*)(const Json&, bool);
+    struct Special {
+        const char* key;
+        Apply apply;
+    };
+    static const Special kSpecials[] = {
+        {"$clip", &Editor::anim_apply_clip_undo},     // anim_panel.cpp
+        {"$clip3d", &Editor::anim3d_apply_undo},      // anim3d_panel.cpp
+        {"$image", &Editor::image_apply_undo},        // image_panel.cpp
+        {"$vector", &Editor::vector_apply_undo},      // vector_panel.cpp
+        {"$sound", &Editor::sound_apply_undo},        // sound_panel.cpp
+        {"$particle", &Editor::particle_apply_undo},  // particle_panel.cpp
+        {"$music", &Editor::music_apply_undo},        // music_panel.cpp
+        {"$modeler", &Editor::modeler_apply_undo},    // modeler_panel.cpp
+    };
+    if (from.back().kind == UndoEntry::Kind::Special) {
+        for (const Special& sp : kSpecials) {
+            if (!from.back().is_special(sp.key)) continue;
+            const UndoEntry entry = from.take_back();
+            lastEditKey_.clear();
+            (this->*sp.apply)(entry.data, forward);
+            return;
+        }
+    }
+    if (from.back().kind == UndoEntry::Kind::Command) {  // forward and inverse command lists (M98.7e)
+        UndoEntry entry = from.take_back();
         lastEditKey_.clear();
-        anim_apply_clip_undo(entry, false);
+        const bool ok = run_undo_commands(forward ? entry.forward : entry.inverse, forward);
+        if (ok) to.push_back(std::move(entry));
+        dirty_ = true;
         return;
     }
-    if (undo_.back().is_object() && undo_.back().contains("$clip3d")) {  // a step of a 3D clip file (anim3d_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        anim3d_apply_undo(entry, false);
-        return;
-    }
-    if (undo_.back().is_object() && undo_.back().contains("$image")) {  // a step of an image document (image_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        image_apply_undo(entry, false);
-        return;
-    }
-    if (undo_.back().is_object() && undo_.back().contains("$vector")) {  // a step of a drawing (vector_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        vector_apply_undo(entry, false);
-        return;
-    }
-    if (undo_.back().is_object() && undo_.back().contains("$sound")) {  // a step of a sound (sound_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        sound_apply_undo(entry, false);
-        return;
-    }
-    if (undo_.back().is_object() &&
-        undo_.back().contains("$particle")) {  // a step of an effect document (particle_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        particle_apply_undo(entry, false);
-        return;
-    }
-    if (undo_.back().is_object() && undo_.back().contains("$music")) {  // a step of a song (music_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        music_apply_undo(entry, false);
-        return;
-    }
-    if (undo_.back().is_object() && undo_.back().contains("$modeler")) {  // a step of a model (modeler_panel.cpp)
-        Json entry = std::move(undo_.back());
-        undo_.pop_back();
-        lastEditKey_.clear();
-        modeler_apply_undo(entry, false);
-        return;
-    }
-    redo_.push_back(snapshot_scene(world()));
-    Json s = std::move(undo_.back());
-    undo_.pop_back();
-    restore_scene(s);
+    to.push_back(UndoEntry::snapshot(snapshot_scene(world())));
+    UndoEntry s = from.take_back();
+    restore_scene(s.data);
     dirty_ = true;
     lastEditKey_.clear();
 }
 
-void Editor::redo() {
-    if (play_ != PlayState::Edit || redo_.empty() || !engine_) return;
-    levelGenSampleStale_ = true;  // the Level generator window reads its sample again
-    if (redo_.back().is_object() && redo_.back().contains("$clip")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        anim_apply_clip_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() && redo_.back().contains("$clip3d")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        anim3d_apply_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() && redo_.back().contains("$image")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        image_apply_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() && redo_.back().contains("$vector")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        vector_apply_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() && redo_.back().contains("$sound")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        sound_apply_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() &&
-        redo_.back().contains("$particle")) {  // a step of an effect document (particle_panel.cpp)
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        particle_apply_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() && redo_.back().contains("$music")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        music_apply_undo(entry, true);
-        return;
-    }
-    if (redo_.back().is_object() && redo_.back().contains("$modeler")) {
-        Json entry = std::move(redo_.back());
-        redo_.pop_back();
-        lastEditKey_.clear();
-        modeler_apply_undo(entry, true);
-        return;
-    }
-    undo_.push_back(snapshot_scene(world()));
-    Json s = std::move(redo_.back());
-    redo_.pop_back();
-    restore_scene(s);
-    dirty_ = true;
-    lastEditKey_.clear();
-}
+void Editor::undo() { step_history(false); }
+
+void Editor::redo() { step_history(true); }
 
 void Editor::set_window_title(const std::string& title) {
     windowTitle_ = title;
