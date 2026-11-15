@@ -863,7 +863,7 @@ readback copy, the shadow map and the bloom levels are all `Target`s (`renderer_
 its own window pass (the editor: ImGui over the viewport) does it with `Renderer::begin_window_pass` / `end_window_pass`, and
 the player clears its window with `Renderer::present_clear`, so neither `player/main.cpp` nor `editor_app.cpp` calls sokol for
 the game. The ImGui backend (`tools/editor/src/imgui_backend.cpp`) is a separate GPU client with its own pipelines and keeps
-using sokol directly; so do the render tests that include `src/` on purpose.
+using sokol directly.
 
 **Cameras and viewports.** Every active `Camera` with `primary` draws, in ascending `depth`, into its `Camera.viewport`
 (normalized `[x, y, w, h]` of the target, top-left origin, at most 8 cameras; the loader and `camera_viewport_problem` in
