@@ -151,7 +151,12 @@ bool Renderer::capture_world(World& world, const WorldCapture& spec, Image& out,
                     " image could not be created (out of GPU memory?)");
     im.gpu.begin_frame();
     im.transient_targets().pool.begin_frame();
-    im.draw_view_job(world, fr, *im.viewTargets[kKey]);  // gather_meshes builds the scene of fr.scopeRoot (the subject)
+    // One job in a frame graph of its own; gather_meshes builds the scene of fr.scopeRoot (the subject).
+    im.begin_frame_graph();
+    Impl::JobPlan plan;
+    plan.name = "capture";
+    im.plan_view_job(world, fr, *im.viewTargets[kKey], kKey, plan);
+    im.run_frame_graph();
     im.renderScene.reset();
     // Read-back waits for the GPU, and on Metal the work is only submitted by sg_commit (see capture()).
     sg_commit();

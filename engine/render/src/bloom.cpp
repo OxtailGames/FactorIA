@@ -88,7 +88,8 @@ BloomSettings sanitize_bloom(bool enabled, float threshold, float intensity, flo
 void Bloom::release() { failedW_ = failedH_ = 0; }
 
 int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const BloomSettings& s, int targetW,
-                      int targetH, ResourceId game, sg_view srcTex, const BloomTarget& dst, int* drawCalls) {
+                      int targetH, ResourceId game, sg_view srcTex, const BloomTarget& dst, int* drawCalls,
+                      const std::string& job) {
     if (!s.enabled || s.intensity <= 0.0f || targetW < 1 || targetH < 1) return 0;
     if (!gpu.bloom_ready()) return 0;
     const sg_pixel_format fmt = gpu.scene_format();  // the game target's format, and the one of every level
@@ -158,7 +159,7 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     auto add = [&](const std::string& name, std::vector<ResourceId> reads, std::vector<ResourceId> writes,
                    std::function<void(const PassContext&)> fn) {
         GraphPass p;
-        p.name = name;
+        p.name = job.empty() ? name : job + "/" + name;
         p.reads = std::move(reads);
         p.writes = std::move(writes);
         p.execute = std::move(fn);

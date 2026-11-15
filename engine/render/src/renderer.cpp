@@ -1,6 +1,8 @@
 #include "renderer_impl.h"
 #include "scene2d.h"
 
+#include <map>
+
 namespace fa {
 
 // ---------------------------------------------------------------------------
@@ -758,26 +760,32 @@ void Renderer::Impl::render(World& world, float dt) {
             if (!ref.targets.empty()) meshRefs.push_back(std::move(ref));
         }
     }
-    // The render targets first, each after the targets it shows: the frame's own jobs (and the CameraViews) sample their textures.
-    if (!targetFrames.empty()) {
+    // The jobs of the frame are the passes of one frame graph (frame_graph.h), declared in the order they run: the render targets,
+    // each after the targets it shows (the frame's own jobs and the CameraViews sample their textures), then the CameraViews, then
+    // the cameras. The jobs that show an image of another job read it in the graph (JobPlan::shows).
+    // Who shows what: the Sprites, Texts and UI quads of a frame and the meshes in its view whose texture is "target:<name>".
+    std::vector<std::set<int>> mainShows(frames.size()), viewShows(viewFrames.size());
+    if (!targetCams.empty()) {
         const bool z01 = gpu.depth_zero_to_one();
         const int n = int(targetFrames.size());
         targetDeps.assign(std::size_t(n), {});
-        auto scan_quads = [&](const Frame& fr, const QuadList& list, std::set<int>& into, bool& self) {
+        // `cull`: a Sprite or Text that is not in the camera's view draws nothing, so it does not count as shown (gather_2d keeps
+        // every quad: the GPU clips them). The quads of the screen-space lists are not in the camera's space: all count.
+        auto scan_quads = [&](const Frame& fr, const QuadList& list, bool cull, std::set<int>& into, bool& self) {
             for (const QuadItem& it : list.items) {
                 bool relevant = false;
                 for (const TextureAsset* t : {it.tex, it.normal})
                     relevant = relevant || (t && (t == &selfSentinel || targetByAsset.count(t)));
                 if (!relevant) continue;
-                // A Sprite or Text that is not in the camera's view draws nothing, so it does not count as shown (gather_2d keeps
-                // every quad: the GPU clips them).
-                Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
-                for (std::uint32_t v = it.firstVert; v < it.firstVert + it.quadCount * 4; ++v) {
-                    const Vertex2D& q = list.raw[v];
-                    lo = Vec3{std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z)};
-                    hi = Vec3{std::max(hi.x, q.x), std::max(hi.y, q.y), std::max(hi.z, q.z)};
+                if (cull) {
+                    Vec3 lo{1e30f, 1e30f, 1e30f}, hi{-1e30f, -1e30f, -1e30f};
+                    for (std::uint32_t v = it.firstVert; v < it.firstVert + it.quadCount * 4; ++v) {
+                        const Vertex2D& q = list.raw[v];
+                        lo = Vec3{std::min(lo.x, q.x), std::min(lo.y, q.y), std::min(lo.z, q.z)};
+                        hi = Vec3{std::max(hi.x, q.x), std::max(hi.y, q.y), std::max(hi.z, q.z)};
+                    }
+                    if (!box_in_frustum(fr.cam.viewProj, z01, lo, hi, Mat4::identity())) continue;
                 }
-                if (!box_in_frustum(fr.cam.viewProj, z01, lo, hi, Mat4::identity())) continue;
                 for (const TextureAsset* t : {it.tex, it.normal}) {
                     if (!t) continue;
                     if (t == &selfSentinel)
@@ -787,22 +795,28 @@ void Renderer::Impl::render(World& world, float dt) {
                 }
             }
         };
-        for (int i = 0; i < n; ++i) {
-            Frame& fr = targetFrames[std::size_t(i)];
-            const TargetCam& tc = targetCams[std::size_t(i)];
+        // The targets `fr` shows, in `into` (its own target, `own`, only sets `self`: it draws the checker).
+        auto scan_frame = [&](const Frame& fr, int own, std::set<int>& into) {
             bool self = false;
-            scan_quads(fr, fr.world, targetDeps[std::size_t(i)], self);
-            for (const MeshRef& ref : meshRefs) {
-                if (!fr.mask.draws(world, ref.e)) continue;  // a mesh this camera does not draw shows nothing to it
-                if (!box_in_frustum(fr.cam.viewProj, z01, ref.mesh->bmin, ref.mesh->bmax, ref.model)) continue;
-                for (int t : ref.targets) {
-                    if (t == i)
-                        self = true;
-                    else
-                        targetDeps[std::size_t(i)].insert(t);
+            if (fr.wantWorld) {
+                scan_quads(fr, fr.world, true, into, self);
+                for (const MeshRef& ref : meshRefs) {
+                    if (!fr.mask.draws(world, ref.e)) continue;  // a mesh this camera does not draw shows nothing to it
+                    if (!box_in_frustum(fr.cam.viewProj, z01, ref.mesh->bmin, ref.mesh->bmax, ref.model)) continue;
+                    for (int t : ref.targets) {
+                        if (t == own)
+                            self = true;
+                        else
+                            into.insert(t);
+                    }
                 }
             }
-            if (self)
+            if (fr.wantScreen) scan_quads(fr, fr.screen, false, into, self);
+            return self;
+        };
+        for (int i = 0; i < n; ++i) {
+            const TargetCam& tc = targetCams[std::size_t(i)];
+            if (scan_frame(targetFrames[std::size_t(i)], i, targetDeps[std::size_t(i)]))
                 warn_target_once(
                     "self:" + tc.name,
                     "Camera '" + world.id_of(tc.entity) + "' renders into target '" + tc.name +
@@ -814,25 +828,41 @@ void Renderer::Impl::render(World& world, float dt) {
                     "its frustum), "
                     "or give the picture to another camera: two targets can show each other, each one frame late.");
         }
-        std::vector<char> done(std::size_t(n), 0);
-        std::vector<int> order;
-        for (int k = 0; k < n; ++k) {
-            int pick = -1;
-            for (int i = 0; i < n; ++i) {
-                if (done[std::size_t(i)]) continue;
-                bool ready = true;
-                for (int d : targetDeps[std::size_t(i)]) ready = ready && done[std::size_t(d)];
-                if (ready && (pick < 0 || targetCams[std::size_t(i)].depth < targetCams[std::size_t(pick)].depth))
-                    pick = i;
-            }
-            if (pick <
-                0) {  // a loop (A shows B, B shows A): the one that draws first shows the other's picture of the last frame
+        for (std::size_t i = 0; i < frames.size(); ++i) scan_frame(frames[i], -1, mainShows[i]);
+        for (std::size_t i = 0; i < viewFrames.size(); ++i) scan_frame(viewFrames[i].second, -1, viewShows[i]);
+    }
+    // The order of the render targets: one node per target in a small frame graph, after the targets it shows, declared by depth
+    // (Camera.depth, then creation order); compile() runs the declared-first node among those that are ready. A loop (A shows B,
+    // B shows A) does not fail: the node declared first goes first and shows the other's picture of the previous frame (one
+    // frame late), the same way every frame (CyclePolicy::Break).
+    std::vector<int> targetOrder;
+    if (!targetFrames.empty()) {
+        const int n = int(targetFrames.size());
+        std::vector<int> byDepth;
+        for (int i = 0; i < n; ++i) byDepth.push_back(i);
+        std::stable_sort(byDepth.begin(), byDepth.end(), [&](int a, int b) {
+            return targetCams[std::size_t(a)].depth < targetCams[std::size_t(b)].depth;
+        });
+        FrameGraph jobs;
+        jobs.set_cycle_policy(CyclePolicy::Break);
+        std::map<std::string, int> byName;
+        for (int i : byDepth) {
+            GraphPass p;
+            p.name = "target:" + targetCams[std::size_t(i)].name;
+            for (int d : targetDeps[std::size_t(i)]) p.after.push_back("target:" + targetCams[std::size_t(d)].name);
+            p.sideEffect = true;  // never culled: it has no outputs
+            byName[p.name] = i;
+            jobs.add_pass(std::move(p));
+        }
+        if (jobs.compile().ok()) {
+            for (const std::string& name : jobs.order_names()) targetOrder.push_back(byName[name]);
+            for (const CycleBreak& cb : jobs.cycle_breaks()) {
                 std::string names;
-                for (int i = 0; i < n; ++i) {
-                    if (done[std::size_t(i)]) continue;
-                    names += (names.empty() ? "'" : ", '") + targetCams[std::size_t(i)].name + "'";
-                    if (pick < 0 || targetCams[std::size_t(i)].depth < targetCams[std::size_t(pick)].depth) pick = i;
-                }
+                auto add_name = [&](const std::string& passName) {
+                    names += (names.empty() ? "'" : ", '") + passName.substr(std::string("target:").size()) + "'";
+                };
+                add_name(cb.pass);
+                for (const std::string& w : cb.waitedFor) add_name(w);
                 if (targetWarned.insert("cycle:" + names).second)
                     FA_WARN("render",
                             "The render targets {} show each other, so one of them shows the other's picture of the "
@@ -842,36 +872,54 @@ void Renderer::Impl::render(World& world, float dt) {
                             "shows targets drawn before it",
                             names);
             }
-            done[std::size_t(pick)] = 1;
-            order.push_back(pick);
-        }
-        for (int i : order) {
-            const TargetCam& tc = targetCams[std::size_t(i)];
-            auto it = viewTargets.find(tc.key);
-            if (it == viewTargets.end() || !it->second->main.color.id) continue;
-            targetSelf = tc.name;
-            draw_view_job(world, targetFrames[std::size_t(i)], *it->second);
-            targetSelf.clear();
-            flip_copy(*it->second);
-            ++stats.renderTargets;
+        } else {
+            targetOrder = byDepth;  // cannot happen (unique names, every `after` is a target): draw by depth
         }
     }
 
+    begin_frame_graph();
+    auto keys_of = [&](const std::set<int>& targets) {
+        std::vector<std::uint64_t> keys;
+        for (int t : targets) keys.push_back(targetCams[std::size_t(t)].key);
+        return keys;
+    };
+    for (int i : targetOrder) {
+        const TargetCam& tc = targetCams[std::size_t(i)];
+        auto it = viewTargets.find(tc.key);
+        if (it == viewTargets.end() || !it->second->main.color.id) continue;
+        JobPlan plan;
+        plan.name = "target:" + tc.name;
+        plan.shows = keys_of(targetDeps[std::size_t(i)]);
+        targetSelf = tc.name;
+        plan_view_job(world, targetFrames[std::size_t(i)], *it->second, tc.key, plan);
+        targetSelf.clear();
+        ++stats.renderTargets;
+    }
+
     // The CameraViews next: the frame's own jobs sample their images.
-    for (auto& [key, vf] : viewFrames) {
+    for (std::size_t i = 0; i < viewFrames.size(); ++i) {
+        auto& [key, vf] = viewFrames[i];
         auto it = viewTargets.find(key);
-        if (it != viewTargets.end() && it->second->main.color.id) draw_view_job(world, vf, *it->second);
+        if (it == viewTargets.end() || !it->second->main.color.id) continue;
+        JobPlan plan;
+        plan.name = "view:" + std::to_string(i);
+        plan.shows = keys_of(viewShows[i]);
+        plan_view_job(world, vf, *it->second, key, plan);
     }
     stats.views = int(viewFrames.size());
 
     const CameraInfo post = specs.front().cam;
     for (std::size_t i = 0; i < frames.size(); ++i) {
         JobPlan plan;
+        plan.name = frames[i].wantWorld ? "camera:" + std::to_string(i) : "screen";
         plan.first = i == 0;
         plan.last = i + 1 == frames.size();
         plan.post = &post;
-        draw_job(world, frames[i], plan);
+        plan.shows = keys_of(mainShows[i]);
+        for (const ViewRequest& rq : frames[i].views) plan.shows.push_back(rq.key);
+        plan_job(world, frames[i], plan);
     }
+    run_frame_graph();
 
     renderScene.reset();  // it points into the world, which the game may change before the next frame
     release_unused_views();

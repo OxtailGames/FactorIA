@@ -43,9 +43,11 @@ public:
     // transients of the graph (the pool of `targets`, in the game target's format) and each pass adds one to
     // *drawCalls when it runs. Returns the number of passes declared, 0 when bloom is skipped (disabled, unsupported
     // shaders, degenerate size, an intermediate target the GPU cannot make: logged once, and not tried again until the
-    // size or the format changes). Call before graph.compile(), after the passes that draw the scene.
+    // size or the format changes). Call before graph.compile(), after the passes that draw the scene. The passes are
+    // named "<job>/bloom-bright" and so on when `job` is not empty (the frame graph holds the passes of every job).
     int add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const BloomSettings& s, int targetW,
-                   int targetH, ResourceId game, sg_view srcTex, const BloomTarget& dst, int* drawCalls);
+                   int targetH, ResourceId game, sg_view srcTex, const BloomTarget& dst, int* drawCalls,
+                   const std::string& job = {});
 
     // Forgets that creating the intermediate targets failed (the game target was resized or recreated).
     void release();
