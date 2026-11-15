@@ -23,7 +23,8 @@ namespace fa {
 class Engine;
 
 // What an extension does to an Engine: add commands to `engine.commands()` (the registry also holds the built-in ones, so
-// a name that exists already is an error as for any command). Runs on the thread that calls Engine::init, after the
+// a name that exists already is REPLACED, as for any command: the extension's version wins and Engine::init logs a warning
+// naming the command and the extension, so use unique names). Runs on the thread that calls Engine::init, after the
 // built-in and plugin commands and before the scripts start. Must not call anything that needs the engine to be
 // running (no frames, no scene load); `engine.runtime_impl()` (fa/runtime/internal/engine_impl.h, engine tools only)
 // is the way to the engine's state.

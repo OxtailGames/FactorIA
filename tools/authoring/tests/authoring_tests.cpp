@@ -6,6 +6,8 @@
 #include <atomic>
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <string>
 
 #include "fa/authoring/authoring.h"
 #include "fa/core/fs.h"
@@ -95,26 +97,32 @@ TEST_CASE("authoring: the runtime command set (the player's) lacks the authoring
 }
 
 namespace {
-std::atomic<bool> g_pingArmed{false};
+std::atomic<int> g_pingRuns{
+    0};  // an extension stays registered for the whole process: every run of the test makes its own
 }
 
 TEST_CASE("authoring: a command extension runs after the built-in commands, in Engine::init, for each engine") {
-    // An extension that is armed only by this test, so no other test of this process sees its command.
-    REQUIRE(register_command_extension("authoring-test-ping", [](Engine& engine) {
-        if (!g_pingArmed) return;
-        // The built-ins are registered already when an extension runs.
-        CHECK(engine.commands().has("scene.save"));
-        engine.commands().add({"authoring_test.ping", "Test command.",
-                               "Answers {pong: true}. Example: authoring_test.ping {}",
-                               Json::parse(R"({"type":"object","properties":{}})"), true, "test"},
-                              [](const Json&) { return Json::object({{"pong", true}}); });
-    }));
+    // An extension that is armed only by this run of the test (its own name and flag, so --count and reruns work, and no other
+    // test of this process sees its command). It runs on the thread of Engine::init; the checks stay out of it.
+    auto armedFlag = std::make_shared<std::atomic<bool>>(false);
+    auto sawBuiltIn = std::make_shared<std::atomic<bool>>(false);
+    REQUIRE(register_command_extension(
+        "authoring-test-ping-" + std::to_string(++g_pingRuns), [armedFlag, sawBuiltIn](Engine& engine) {
+            if (!*armedFlag) return;
+            // The built-ins are registered already when an extension runs.
+            *sawBuiltIn = engine.commands().has("scene.save");
+            engine.commands().add({"authoring_test.ping", "Test command.",
+                                   "Answers {pong: true}. Example: authoring_test.ping {}",
+                                   Json::parse(R"({"type":"object","properties":{}})"), true, "test"},
+                                  [](const Json&) { return Json::object({{"pong", true}}); });
+        }));
     TempProject p;
-    g_pingArmed = true;
+    *armedFlag = true;
     Engine armed;
     std::string err;
     REQUIRE_MESSAGE(armed.init(p.config(), nullptr, &err), err);
-    g_pingArmed = false;
+    *armedFlag = false;
+    CHECK(*sawBuiltIn);
     CHECK(armed.commands().call("authoring_test.ping").result["pong"] == true);
     // It is an extension's command, not a runtime one.
     CHECK_FALSE(contains(armed.runtime_command_names(), "authoring_test.ping"));

@@ -115,11 +115,11 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`anim.add_track`](commands/anim.md#animadd_track-modifies-state): Add a track to a clip, with keys or the part's current value as its first key. _Since 0.7.0._
 - [`anim.check`](commands/anim.md#animcheck-modifies-state): Find what is wrong with a clip, and with how it fits its character. _Since 0.7.0._
 - [`anim.create_clip`](commands/anim.md#animcreate_clip-modifies-state): Write a new keyframed 2D clip file (*.anim.json). _Since 0.7.0._
-- [`anim.filmstrip`](commands/anim.md#animfilmstrip-modifies-state): One picture with a grid of a clip's poses, to see the whole motion at once. _Since 0.7.0._
-- [`anim.list`](commands/anim.md#animlist): List the 2D clips of an entity's Animator (or of a clip file): tracks, events, layers and the current state. _Since 0.7.0._
+- [`anim.filmstrip`](commands/anim.md#animfilmstrip-modifies-state): One picture with a grid of a clip's poses, to see the whole motion at once. CLI, editor, MCP only (not in the exported player). _Since 0.7.0._
+- [`anim.list`](commands/anim.md#animlist): List the 2D clips of an entity's Animator (or of a clip file): tracks, events, layers and the current state. CLI, editor, MCP only (not in the exported player). _Since 0.7.0._
 - [`anim.move_event`](commands/anim.md#animmove_event-modifies-state): Move an event of a clip to another time. _Since 0.7.0._
 - [`anim.move_keys`](commands/anim.md#animmove_keys-modifies-state): Move and scale a selection of keys in time. _Since 0.7.0._
-- [`anim.pose`](commands/anim.md#animpose-modifies-state): Pose an entity as one of its clips is at a time, and leave it there. _Since 0.7.0._
+- [`anim.pose`](commands/anim.md#animpose-modifies-state): Pose an entity as one of its clips is at a time, and leave it there. CLI, editor, MCP only (not in the exported player). _Since 0.7.0._
 - [`anim.remove_event`](commands/anim.md#animremove_event-modifies-state): Remove an event from a clip. _Since 0.7.0._
 - [`anim.remove_keys`](commands/anim.md#animremove_keys-modifies-state): Remove keys of one track of a clip, by time or all of them. _Since 0.7.0._
 - [`anim.remove_track`](commands/anim.md#animremove_track-modifies-state): Remove a whole track (all its keys) from a clip. _Since 0.7.0._

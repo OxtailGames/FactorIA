@@ -449,7 +449,8 @@ void grow_rect(std::optional<Rect>& acc, const Rect& r) {
 void register_anim_view_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add(
         {"anim.list",
-         "List the 2D clips of an entity's Animator (or of a clip file): tracks, events, layers and the current state.",
+         "List the 2D clips of an entity's Animator (or of a clip file): tracks, events, layers and the current state. "
+         "CLI, editor, MCP only (not in the exported player).",
          "With `entity`: its Animator's state (`clip`, `time`, `playing`, `state`, `speed`, `loop`), its `layers` and "
          "every clip of "
          "Animator.clips as {name, file, duration, loop, tracks: [{index, path, component, field, keys, first, last, "
@@ -516,7 +517,9 @@ void register_anim_view_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
-        {"anim.pose", "Pose an entity as one of its clips is at a time, and leave it there.",
+        {"anim.pose",
+         "Pose an entity as one of its clips is at a time, and leave it there. CLI, editor, MCP only (not in the "
+         "exported player).",
          "`clip` is a name of Animator.clips (or the file one of them names), `t` seconds into it (clamped to the "
          "clip). The "
          "entity's parts, bones, skins and IK take that pose and the Animator pauses there until play() or a new "
@@ -565,7 +568,9 @@ void register_anim_view_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
-        {"anim.filmstrip", "One picture with a grid of a clip's poses, to see the whole motion at once.",
+        {"anim.filmstrip",
+         "One picture with a grid of a clip's poses, to see the whole motion at once. CLI, editor, MCP only (not in "
+         "the exported player).",
          "Poses the entity as `clip` at `frames` evenly spaced times (a looping clip: 0, d/n, ... never the duplicate "
          "end pose; "
          "otherwise 0 .. duration) and captures each, into one labelled grid PNG (label \"f3 +250\" = pose 3, 250 ms "

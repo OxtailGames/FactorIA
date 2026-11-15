@@ -1,7 +1,7 @@
 // The files of fa_authoring that register commands. Each defines one function with this shape, in namespace fa, and
 // src/authoring.cpp calls it from the extension. A command file moved here from engine/runtime/src keeps its code and its
-// register_<area>_commands name; it includes "fa/runtime/internal/engine_impl.h" (Engine::Impl, need_entity, set_component,
-// read_ascii_sample: engine tools only) instead of "engine_impl.h".
+// register_<area>_commands name; it includes "authoring_internal.h" (which pulls in "fa/runtime/internal/engine_impl.h": Engine::Impl, need_entity,
+// set_component, read_ascii_sample; engine tools only) instead of "engine_impl.h".
 #pragma once
 
 #include "fa/runtime/internal/engine_impl.h"
