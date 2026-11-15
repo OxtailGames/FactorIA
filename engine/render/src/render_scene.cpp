@@ -180,18 +180,27 @@ void RenderScene::build(World& world, Assets& assets, Entity scopeRoot, bool wan
     const bool keyed = sortTable_.build(fields_, lodNames_, keys_);
     if (!keyed) {
         // Not an error (the comparator gives the same order, only slower), but a scene that big is worth knowing about.
-        if (sortKeyFallbacks_++ == 0)
+        if (sortKeyFallbacks_++ == 0) {
+            const char* overflow = sortTable_.overflow() ? sortTable_.overflow() : "values";
+            const std::string what =
+                std::string_view(overflow) == "items" ? "mesh renderers" : std::string("distinct ") + overflow;
             FA_WARN(
                 "render",
-                "the 3D scene has more distinct {} than the sort key holds (4096 meshes, 2048 textures, 2^30 material "
-                "value sets per frame): its opaque meshes are sorted by the slower comparator (same result). Counted "
+                "the 3D scene has more {} than the sort key holds (limits per frame: {} meshes, {} textures, {} "
+                "material value sets): its opaque meshes are sorted by the slower comparator. The draw order is the "
+                "same, only slower; use fewer distinct meshes or textures (share assets between entities). Counted "
                 "in RenderScene::sort_key_fallbacks()",
-                sortTable_.overflow() ? sortTable_.overflow() : "values");
+                what, 1u << kSortMeshBits, 1u << kSortTexBits, 1u << kSortRestBits);
+        }
     }
     for (std::size_t i = 0; i < meshes_.size(); ++i) {
         meshes_[i].keyed = keyed;
         meshes_[i].sortKey = keyed ? keys_[i] : 0;
     }
+    // The work buffers keep their capacity between frames, unless a huge frame left far more than this one needs.
+    release_peak(fields_, meshes_.size());
+    release_peak(keys_, meshes_.size());
+    release_peak(entries_, meshes_.size());
 }
 
 }  // namespace fa::render
