@@ -736,7 +736,7 @@ public:
     // asked for during the last pipeline_idle_frames() frames (kPipelineIdleFrames, 300: five seconds at 60 fps) is
     // destroyed (checked every 16 frames) and made again if it is ever asked for. Entries in use are never destroyed,
     // so a game never loses a pipeline it draws with; a cache under the cap keeps everything. The pipelines made while
-    // set_warming(true) (the start-up warm-up) are never destroyed either, so a rarely used one that the warm-up paid for
+    // or asked for while set_warming(true) (the start-up warm-up, a fixed set of about 20) are never destroyed either, so a rarely used one that the warm-up paid for
     // does not hitch (D3D11, Metal) when it comes back. The count is of frames, never of time, so what is kept does not
     // depend on the CPU speed.
     std::size_t pipeline_count() const { return pipelines_.size(); }  // pipelines in the cache now (start-up report)
