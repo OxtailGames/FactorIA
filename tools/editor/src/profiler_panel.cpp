@@ -150,7 +150,8 @@ void Editor::draw_profiler_panel() {
         ImGui::SetItemTooltip(
             "The script time of a frame went over runtime.scriptFrameBudgetMs in factoria.json (per platform, 0 turns "
             "it off). "
-            "The Console has the warning that names the slowest callbacks. Frames that load a scene are not counted.");
+            "The Console has the warning (category script.budget, not script) that names the slowest callbacks. Frames "
+            "that load a scene are not counted.");
     }
     if (v.haveGpu)
         ImGui::Text("GPU %.2f ms", v.gpuMs);

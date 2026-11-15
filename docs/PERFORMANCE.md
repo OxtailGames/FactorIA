@@ -398,7 +398,7 @@ milliseconds):
   one entry, "N callbacks (each under 50 us, all together)") and the setting to change. It is written the first time, and
   then at most once every 5 seconds of GAME time (the sum of the frame steps, not the wall clock, so it does not depend on
   how fast the machine is), and says how many frames went over since the last one. `game.logs`, the console and
-  `play.report`'s `logs` list it.
+  `play.report`'s `logs` list it, under the category `script.budget` (a filter on `script`, the category of `console.log`, does not show it).
 
 The callbacks named are the ones the engine calls (`onUpdate` of a behaviour, a timer, a `world.on` listener), not the
 functions they call: find those with `script.trace` or the profile's `behaviours`. A game that is over budget only on a

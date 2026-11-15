@@ -2162,7 +2162,7 @@ For your game: do not assert an exact frame count or an exact position after a l
 |---|---|---|
 | `factoria validate`, `project.validate` | `project_validate` | Structure and references, before anything runs. |
 | `script.errors` | `script_errors` | Exceptions thrown by scripts, with file, line and stack. |
-| `game.logs` | `game_logs` | Log lines, each with `wallTime` (local ISO 8601). `console.log/warn/error` in scripts appear with category `script`. |
+| `game.logs` | `game_logs` | Log lines, each with `wallTime` (local ISO 8601). `console.log/warn/error` in scripts appear with category `script`; the engine's own warning that a frame spent too long in scripts has the category `script.budget` (docs/PERFORMANCE.md, "Script budgets"). |
 | `audio.log` | `audio_log` | Which sounds played, on which frame and bus, and whether the clip loaded. |
 | `audio.bus`, `audio.snapshot` | `audio_bus`, `audio_snapshot` | The mixer's effects and snapshots: what a bus is set to, and which snapshot is applied. |
 | `game.state` | `game_state` | Entities, components, physics, logs and errors of the running game. |
