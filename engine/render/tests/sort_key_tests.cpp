@@ -251,7 +251,6 @@ TEST_CASE("sort key: NaN and signed zero in a value order and batch as the compa
         rb.metallic = -0.0f;
         a.mr = &ra;
         b.mr = &rb;
-        std::uint64_t ka = 0, kb = 0;
         std::vector<MeshItem> zeros{a, b};
         zeros[1].entity = Entity::from_bits(999);
         SortKeyTable tz;
@@ -265,7 +264,7 @@ TEST_CASE("sort key: NaN and signed zero in a value order and batch as the compa
         SortKeyTable tn;
         REQUIRE(key_all(nans, tn));
         CHECK(nans[0].sortKey == nans[1].sortKey);
-        ka = kb = 0;
+        std::uint64_t ka = 0;
         CHECK(tn.key_of(fields_of(nans[0]), ka));
         CHECK(ka == nans[0].sortKey);
     }
