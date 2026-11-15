@@ -15,6 +15,7 @@
 #include "fa/core/screenshot_files.h"
 #include "fa/core/strings.h"
 #include "fa/platform/app.h"
+#include "fa/runtime/command_extension.h"
 #include "fa/runtime/platform_backend.h"
 #include "fa/runtime/plugins.h"
 #include "fa/scene/camera_mask.h"
@@ -928,11 +929,14 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
     device_overridden(
         device_info());  // MusicPlayer.mode "auto" chooses between live synthesis and stems for this device (docs/MUSIC.md)
     register_builtin_commands(*this, I);  // before scripts.init: JS tools (tools/*.js) are added on top
+    I.runtimeCommandNames.clear();        // what an exported player has: before plugins and the tools' extensions
+    for (const CommandInfo* info : I.commands.list()) I.runtimeCommandNames.push_back(info->name);
     // Native plugins: their commands, and their functions for the scripts (plugins.<name>), before scripts.init.
     PluginInstall installed = install_plugins(I.project, dir, config.pluginDir, I.commands, I.scripts);
     for (std::string& problem : installed.problems) I.startupProblems.push_back(std::move(problem));
     I.pluginSteamDeck = installed.steamDeck;
-    plugin_take_submitted_text();  // text meant for an earlier engine of this process
+    run_command_extensions(*this);  // the commands of developer tools (tools/authoring): none in a player
+    plugin_take_submitted_text();   // text meant for an earlier engine of this process
     if (!installed.textInputs.empty()) {
         // The platform's own keyboard: the first plugin that answers 1 takes the field and is told when it loses the focus.
         auto taker = std::make_shared<int>(-1);
@@ -1083,6 +1087,8 @@ void Engine::begin_load_trace() {
 }
 
 LoadTrace::Owner Engine::load_trace_owner() const { return impl_->traceOwner; }
+
+std::vector<std::string> Engine::runtime_command_names() const { return impl_->runtimeCommandNames; }
 
 Json Engine::loading_report() const {
     if (!impl_->loadTrace) return Json();

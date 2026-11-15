@@ -6,6 +6,15 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
 
 ## Unreleased
 
+- **A new library, `fa_authoring`, for the commands only developer tools need.** The first step of splitting `fa_runtime`
+  so that an exported game's player carries no authoring code: `tools/authoring` links on top of the runtime, and the
+  `factoria` CLI, the editor, the MCP/DAP/AI servers and their tests get its commands, the player does not (the CMake
+  configure fails when `factoria_player` reaches it). `prefab.save` and `scene.format` are the first to move; their
+  names, arguments and results do not change. For engine developers: `fa/runtime/command_extension.h` is a process-wide
+  list of command extensions that `Engine::init` runs after the built-in and plugin commands, `fa::authoring::install()`
+  registers the authoring one (call it once before the first Engine), and `Engine::runtime_command_names()` lists what the
+  player has. `Engine::Impl` is now declared in `fa/runtime/internal/engine_impl.h`, for engine tools only.
+
 ## 0.28.0
 
 FactorIA 0.28.0 (M95) gives the renderer the core that HDR and what follows will stand on, and draws the same pictures
