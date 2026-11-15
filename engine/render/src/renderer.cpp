@@ -1,4 +1,5 @@
 #include "renderer_impl.h"
+#include "scene2d.h"
 
 namespace fa {
 
@@ -645,6 +646,11 @@ void Renderer::Impl::render(World& world, float dt) {
     for (int attempt = 0; attempt < 2; ++attempt) {
         const unsigned atlasEpoch = fonts->atlas_epoch();
         auto setup = [&](Frame& fr) { setup_frame(fr, world, dt); };
+        // The camera-independent part of the 2D gather is done by the first camera that draws an entity and copied by the others
+        // (scene2d.h). It keeps pointers to the quad lists of the Frames it gathered, so those vectors must not reallocate.
+        Scene2D scene2d;
+        targetFrames.clear();
+        targetFrames.reserve(targetCams.size());
         for (std::size_t i = 0; i < specs.size(); ++i) {
             frames[i] = Frame{};
             Frame& fr = frames[i];
@@ -652,15 +658,15 @@ void Renderer::Impl::render(World& world, float dt) {
             fr.wantWorld = specs[i].world;
             fr.wantScreen = specs[i].screen;
             setup(fr);
-            apply_sprite_frames(world, fr);
-            gather_2d(world, fr);
+            // Once per rendered frame: it writes what each animator's `frame` says into Sprite.region, the same for every camera.
+            if (attempt == 0 && i == 0) apply_sprite_frames(world, fr);
+            scene2d.gather(world, fr);
             if (fr.wantScreen) gather_ui(world, fr);
-            gather_particles(world, fr);
+            scene2d.gather_particles(world, fr);
             gather_debug(*debug.impl(), fr);
         }
         // One job per CameraView the UI met: a world gather of its camera at the size of its rectangle.
         // One job per render target: a world gather of its camera at the size of its texture. Its own texture is the checker meanwhile.
-        targetFrames.clear();
         for (const TargetCam& tc : targetCams) {
             Frame& fr = targetFrames.emplace_back();
             targetSelf = tc.name;
@@ -672,8 +678,7 @@ void Renderer::Impl::render(World& world, float dt) {
             fr.targetW = tc.w;
             fr.targetH = tc.h;
             fr.renderScale = 1.0f;
-            apply_sprite_frames(world, fr);
-            gather_2d(world, fr);
+            scene2d.gather(world, fr);
             if (fr.cam.studio) {
                 fr.lights2d.clear();
                 fr.ambient2d = Color{1, 1, 1, 1};
@@ -681,10 +686,13 @@ void Renderer::Impl::render(World& world, float dt) {
                 fr.shadowRows = 0;
                 fr.shadowKey = 0;
             }
-            gather_particles(world, fr);
+            scene2d.gather_particles(world, fr);
             targetSelf.clear();
         }
         viewFrames.clear();
+        std::size_t viewCount = 0;
+        for (const Frame& main : frames) viewCount += main.views.size();
+        viewFrames.reserve(viewCount);
         for (const Frame& main : frames)
             for (const ViewRequest& rq : main.views) {
                 bool seen = false;
@@ -698,8 +706,7 @@ void Renderer::Impl::render(World& world, float dt) {
                 fr.targetW = rq.pxW;
                 fr.targetH = rq.pxH;
                 fr.renderScale = rq.size.x > 0.0f ? float(rq.pxW) / rq.size.x : 1.0f;
-                apply_sprite_frames(world, fr);
-                gather_2d(world, fr);
+                scene2d.gather(world, fr);
                 if (fr.cam
                         .studio) {  // the scene's 2D lights do not reach a studio camera: lit sprites show at full brightness
                     fr.lights2d.clear();
@@ -708,7 +715,7 @@ void Renderer::Impl::render(World& world, float dt) {
                     fr.shadowRows = 0;
                     fr.shadowKey = 0;
                 }
-                gather_particles(world, fr);
+                scene2d.gather_particles(world, fr);
             }
         if (fonts->atlas_epoch() == atlasEpoch) break;
     }

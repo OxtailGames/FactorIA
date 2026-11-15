@@ -862,6 +862,18 @@ by the scene's ambient light only when the frame has several cameras (the screen
 shows the whole frame: its picking uses the camera under the pointer, but its outlines and gizmos project through the first
 camera drawn, so in a split frame they line up with the first view only.
 
+**One 2D gather for every camera.** `Renderer::render` makes one `Scene2D` (`scene2d.h`) per gather round and every camera, render
+target and CameraView of the frame gathers through it. The first camera that draws a Sprite, a Shape2D or a world-space
+ParticleEmitter builds its quads into its own `Frame` as before and `Scene2D` remembers where they are; the next cameras that draw it
+append a copy of those items (`QuadList::append_items`) with their own sort key, instead of reading the components, walking the
+parents for `Tint` and the flash and building the vertices again. What depends on the camera is still done for every camera: the
+`showTags` / `hideTags` mask, the Parallax shift (an entity with a `Parallax` component is built for each camera), the 2D lights, a
+Tilemap's visible cells, Text (raster size, pixel snap), an item that shows a render target's texture, billboard particles (`is3D`)
+and screen space (built by the one frame that wants it). The lists are the ones the cameras made before, item for item, vertex for
+vertex (`scene2d_shared_tests.cpp` compares them with a fresh `Scene2D` per camera); `apply_sprite_frames` is idempotent and runs once
+per frame, before the first gather. The `render.gather_sprites` and `render.gather_particles` thresholds count what a camera builds,
+not what it copies. A `Scene2D` keeps pointers to the lists of the Frames of its round, so the renderer reserves those vectors.
+
 **Cameras inside the UI.** A `CameraView` (a UiBox widget) names a Camera. The UI gather (`draw_camera_view` in `ui2d.cpp`)
 asks the renderer for an image of the widget's size (`Frame::viewImage`; `Impl::viewTargets` caches one per widget, same formats
 and sample count as the game target so the pipelines fit, freed at the end of a frame that did not ask for it) and registers a
