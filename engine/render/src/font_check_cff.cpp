@@ -280,8 +280,10 @@ CffCheck check_cff_table(const unsigned char* table, std::uint64_t length, std::
         w.where = "the FDSelect";
         // glyph -> font dict, as stbtt__cid_get_glyph_subrs reads it; a glyph with no font dict (or one the FDArray lacks)
         // would make stb_truetype assert, and is drawn as .notdef
+        // stb_truetype sizes the FDSelect to the end of its window, so even one that starts at the end of the table is read
+        // (its first byte lies past the table): no guard for an empty one, get8 refuses the read
         const std::int64_t room = fdselect.size;
-        if (room > 0) {
+        {
             Buf s = fdselect;
             const unsigned fmt = w.get8(s);
             if (fmt == 0) {
