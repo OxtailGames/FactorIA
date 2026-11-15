@@ -65,6 +65,9 @@ option(FA_BUILD_TESTS  "Build unit tests"                                   ON)
 option(FA_BUILD_TOOLS  "Build the factoria CLI, MCP server, AI hub, editor" ${FA_DESKTOP})
 option(FA_BUILD_EDITOR "Build the visual editor (requires FA_BUILD_TOOLS)"   ${FA_DESKTOP})
 option(FA_WARNINGS_AS_ERRORS "Treat engine warnings as errors"              OFF)
+# The CI jobs that measure the player (scripts/player-size.sh, docs/BUILDING.md "Player size budgets") turn it on: the player's
+# link writes a map next to it and the list of the archives it links, so the report says what each library adds.
+option(FA_PLAYER_LINK_MAP "Write the player's link map and the list of archives it links (player size report)" OFF)
 # ctest runs every test with the "Windows file rules" emulation of fa::fs (docs/BUILDING.md, "Windows file rules in tests"):
 # macOS and Linux then find the file bugs that only Windows had (a replace of a file another thread has open, a file time
 # that moves in 15.6 ms steps). OFF registers the tests without it; one run: `FA_FS_WINDOWS_RULES=0 ctest ...`.

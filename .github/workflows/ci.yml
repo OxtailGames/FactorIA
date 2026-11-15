@@ -382,7 +382,22 @@ jobs:
 
       - name: Build in the sniper SDK container (GCC 14, static libstdc++)
         id: build
-        run: ./scripts/build-sniper.sh build -- -DFA_WARNINGS_AS_ERRORS=ON
+        run: ./scripts/build-sniper.sh build -- -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
+
+      # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
+      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets".
+      - name: Player size (linux-x64)
+        id: size
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ./scripts/player-size.sh measure --platform linux-x64 --build-dir build/linux-sniper --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-linux-x64
+          path: player-size/
+          if-no-files-found: ignore
 
       # Saved right after the build (see the linux job: also when it failed or a newer push cancelled it). No trim: ccache is
       # not installed on the host, only in the container, and its own size limit keeps the directory bounded.
@@ -453,11 +468,27 @@ jobs:
         run: '"$RUNNER_TEMP/ccache-4.14.1-windows-x86_64/ccache.exe" --zero-stats'
 
       - name: Configure (windows-release)
-        run: cmake --preset windows-release -DFA_WARNINGS_AS_ERRORS=ON
+        run: cmake --preset windows-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
 
       - name: Build (windows-release)
         id: build
         run: cmake --build --preset windows-release --parallel
+
+      # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
+      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets".
+      - name: Player size (windows-x64)
+        id: size
+        if: ${{ !cancelled() && steps.build.outcome == 'success' && matrix.shard == 1 }}
+        shell: bash
+        run: ./scripts/player-size.sh measure --platform windows-x64 --build-dir build/windows-release --config Release --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-windows-x64
+          path: player-size/
+          if-no-files-found: ignore
 
       - name: ccache statistics
         if: ${{ !cancelled() }}
@@ -565,9 +596,24 @@ jobs:
         id: build
         run: |
           ccache --zero-stats
-          cmake --preset macos-release -DFA_WARNINGS_AS_ERRORS=ON
+          cmake --preset macos-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
           cmake --build --preset macos-release -- -k 0
           ccache --show-stats --verbose
+
+      # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
+      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets".
+      - name: Player size (macos-arm64)
+        id: size
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ./scripts/player-size.sh measure --platform macos-arm64 --build-dir build/macos-release --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-macos-arm64
+          path: player-size/
+          if-no-files-found: ignore
 
       # Trim, save and prune: see the linux job.
       - name: Trim ccache to what this build used
@@ -1048,9 +1094,24 @@ jobs:
         run: |
           EMSDK_QUIET=1 source ~/emsdk/emsdk_env.sh
           emcc --version | head -n 1
-          cmake --preset web-release -DFA_WARNINGS_AS_ERRORS=ON
+          cmake --preset web-release -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
           cmake --build --preset web-release -- -k 0
           ls -l build/web-release/player
+
+      # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
+      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets".
+      - name: Player size (web-wasm)
+        id: size
+        if: ${{ !cancelled() && steps.build-player.outcome == 'success' }}
+        run: ./scripts/player-size.sh measure --platform web-wasm --build-dir build/web-release --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-web-wasm
+          path: player-size/
+          if-no-files-found: ignore
 
       - name: Build the factoria CLI (no editor, no tests)
         id: build-cli
@@ -1135,8 +1196,23 @@ jobs:
       - name: Configure and build factoria_player (android-arm64)
         id: build
         run: |
-          cmake --preset android-arm64 -DFA_WARNINGS_AS_ERRORS=ON
+          cmake --preset android-arm64 -DCMAKE_BUILD_TYPE=Release -DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON -DFA_WARNINGS_AS_ERRORS=ON -DFA_PLAYER_LINK_MAP=ON
           cmake --build --preset android-arm64 --target factoria_player -- -k 0
+
+      # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
+      # (the library table is in the job summary). scripts/player-size.sh, docs/BUILDING.md "Player size budgets".
+      - name: Player size (android-arm64-v8a)
+        id: size
+        if: ${{ !cancelled() && steps.build.outcome == 'success' }}
+        run: ./scripts/player-size.sh measure --platform android-arm64-v8a --build-dir build/android-arm64 --out-dir player-size
+
+      - name: Upload the player size report
+        if: ${{ !cancelled() && steps.size.outcome != 'skipped' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: player-size-android-arm64-v8a
+          path: player-size/
+          if-no-files-found: ignore
 
       # Trim, save and prune: see the linux job.
       - name: Trim ccache to what this build used
