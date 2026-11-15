@@ -87,6 +87,12 @@ BloomSettings sanitize_bloom(bool enabled, float threshold, float intensity, flo
 
 void Bloom::release() { failed_.clear(); }
 
+// The pass callbacks capture the shader's uniform blocks by value, which are alignas(16): MSVC warns (C4324, an error
+// under /WX) that each closure is padded, which is what alignas asks for.
+#if defined(_MSC_VER)
+#pragma warning(push)
+#pragma warning(disable : 4324)
+#endif
 int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const BloomSettings& s, int targetW,
                       int targetH, ResourceId game, sg_view srcTex, const BloomTarget& dst, int* drawCalls,
                       const std::string& job) {
@@ -228,5 +234,8 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     }
     return declared;
 }
+#if defined(_MSC_VER)
+#pragma warning(pop)
+#endif
 
 }  // namespace fa::render
