@@ -552,6 +552,14 @@ void ScriptSystem::Impl::explain_missing_api(ScriptError& e) {
     JS_FreeValue(ctx, api);
 }
 
+bool ScriptSystem::Impl::heap_near_cap() const {
+    if (!rt) return false;
+    JSMemoryUsage mu;
+    JS_ComputeMemoryUsage(rt, &mu);
+    const double cap = memoryLimitMB * 1024.0 * 1024.0;
+    return cap > 0 && static_cast<double>(mu.malloc_size) >= cap * 0.9;
+}
+
 ScriptError ScriptSystem::Impl::error_from_exception(JSValueConst exc, const std::string& entityId,
                                                      const std::string& where) {
     ScriptError e;
@@ -580,6 +588,10 @@ ScriptError ScriptSystem::Impl::error_from_exception(JSValueConst exc, const std
                 debugger->impl().map_location(raw, e.line, e.column);
             }
         }
+    } else if (JS_IsNull(exc) && heap_near_cap()) {
+        // QuickJS throws null when the heap is so full that it cannot allocate even its "out of memory" error (it
+        // depends on the allocator and the build: GCC Release on Linux does it, Clang on macOS does not).
+        e.message = "InternalError: out of memory";
     } else {
         const char* s = JS_ToCString(ctx, exc);
         e.message = s ? std::string("uncaught ") + s : "uncaught exception";

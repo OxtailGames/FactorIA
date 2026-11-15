@@ -374,6 +374,8 @@ struct ScriptSystem::Impl {
 
     // ================= errors
     ScriptError error_from_exception(JSValueConst exc, const std::string& entityId, const std::string& where);
+    // The heap holds 90% of runtime.scriptMemoryMB or more (an uncaught null then means QuickJS ran out of memory).
+    bool heap_near_cap() const;
     void record_error(ScriptError e, const std::string& where);
     void report_pending_exception(const std::string& entityId, const std::string& where);
 

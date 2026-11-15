@@ -38,8 +38,8 @@ report.
   map. `scripts/player-size.sh update` takes a measurement as the new baseline. The size step is the last of its job (a
   player over its budget does not skip the tests), and a link map the script cannot read only adds a `note` to the
   report. The Android job of `ci.yml` now builds Release with `ANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON` (the flag
-  release.yml uses), so no PR job builds an Android Debug anymore. Only macOS (arm64) has a budget for now; the others
-  report until their first CI run sets one. See docs/BUILDING.md, "Player size budgets".
+  release.yml uses), so no PR job builds an Android Debug anymore. Every platform's budget is its size in the M96 CI run
+  plus 10 %. See docs/BUILDING.md, "Player size budgets".
 - Script budgets. `runtime.scriptMemoryMB` (the JavaScript heap cap, default 768 MB as before) is a project setting, a
   number or `{"default": n, "android": n, "web": n, ...}` per platform, range 16 to 2048 with a teaching error; an
   out-of-memory error names the setting and its value. `runtime.scriptFrameBudgetMs` (default 8 ms, 0 turns it off, also
