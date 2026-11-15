@@ -51,7 +51,7 @@ Read recent log lines (engine, scripts, assets...).
 
 Capabilities: read
 
-Each line has `wallTime`, the computer's local time when it was logged (ISO 8601 with offset). Use `after` (a seq from a previous call) to fetch only new lines. Example: game.logs {"minLevel":"warn","max":50}
+Each line has `wallTime`, the computer's local time when it was logged (ISO 8601 with offset). Use `after` (a seq from a previous call) to fetch only new lines. Script `console.*` lines have category `script`; the warning of a frame over runtime.scriptFrameBudgetMs has category `script.budget`. Example: game.logs {"minLevel":"warn","max":50}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

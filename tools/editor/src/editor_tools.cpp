@@ -72,6 +72,12 @@ void ProfilerView::add_frame(const ProfFrame& f) {
     frameMs.push_back(float(f.totalMs));
     if (frameMs.size() > kHistory) frameMs.erase(frameMs.begin());
     smoothFrameMs += (f.totalMs - smoothFrameMs) * a;
+    for (const ProfBudgetSample& b : f.overBudget)
+        if (b.name == "scripts") {
+            ++framesOverScriptBudget;
+            worstOverScriptBudgetMs = std::max(worstOverScriptBudgetMs, b.ms);
+            scriptBudgetMs = b.limitMs;
+        }
     for (std::size_t i = 0; i < systemMs.size(); ++i) systemMs[i] += (f.systemMs[i] - systemMs[i]) * a;
     // A class that did not run this frame decays towards 0 and disappears when it is negligible.
     for (Row& r : rows) {

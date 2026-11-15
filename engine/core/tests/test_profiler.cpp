@@ -134,6 +134,38 @@ TEST_CASE("ProfileSummary: p95 follows the last window, the maximum and average 
     CHECK(j["frameMs"]["avg"].get<double>() == doctest::Approx((100 * 500.0 + (n - 100) * 1.0) / n).epsilon(0.001));
 }
 
+TEST_CASE("profiler: a frame over a budget is marked once per name, and the summary counts those frames") {
+    Profiler& p = Profiler::get();
+    p.set_enabled(true);
+    p.begin_frame();
+    p.add_over_budget("scripts", 9.0, 8.0);
+    p.add_over_budget("scripts", 12.0, 8.0);  // the larger time wins
+    p.add_over_budget("assets", 3.0, 2.0);
+    p.end_frame();
+    const ProfFrame f = p.last();
+    p.begin_frame();
+    p.end_frame();
+    CHECK(p.last().overBudget.empty());  // the marks of one frame do not leak into the next
+    p.set_enabled(false);
+    REQUIRE(f.overBudget.size() == 2);
+    CHECK(f.overBudget[0].name == "assets");  // sorted by name
+    CHECK(f.overBudget[1].name == "scripts");
+    CHECK(f.overBudget[1].ms == doctest::Approx(12.0));
+    CHECK(f.overBudget[1].limitMs == doctest::Approx(8.0));
+
+    ProfileSummary s;
+    s.add_frame(f);
+    s.add_frame(ProfFrame{});
+    s.add_frame(f);
+    const Json j = s.to_json();
+    REQUIRE(j["overBudget"].size() == 2);
+    CHECK(j["overBudget"][1]["name"] == "scripts");
+    CHECK(j["overBudget"][1]["frames"] == 2);
+    CHECK(j["overBudget"][1]["limitMs"].get<double>() == doctest::Approx(8.0));
+    CHECK(j["overBudget"][1]["maxMs"].get<double>() == doctest::Approx(12.0));
+    CHECK(ProfileSummary{}.to_json()["overBudget"].empty());
+}
+
 TEST_CASE("current_memory_bytes: the process uses memory, and it is not above the peak") {
     const std::uint64_t now = current_memory_bytes();
     CHECK(now > 1024 * 1024);
