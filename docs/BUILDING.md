@@ -826,8 +826,10 @@ that adds it. [EXPORTING.md](EXPORTING.md#size-of-the-player) says what the link
   --build-dir build/rel` (the platform key names the budget entry; a Windows build adds `--config Release`).
   `ctest -L size` runs `player_size_script`, the test of the script (schema of the budget file, the four map readers on
   sample maps (a demangled symbol line is not an input section), `measure` on a fake binary over, under and with no budget,
-  with an unreadable map, and on archives, `update`). `cmake_check_not_linked` (same label) configures a small project where a target reaches `fa_authoring` directly, through a chain and inside generator expressions: every way must fail the configure. The script is Python 3 (standard library
-  only); the `.sh` only finds the interpreter, also in Git Bash on Windows.
+  with an unreadable map, and on archives, `update`). `cmake_check_not_linked` (same label) configures a small project
+  where a target reaches `fa_authoring` directly, through a chain and inside generator expressions: every way must fail
+  the configure. The script is Python 3 (standard library only); the `.sh` only finds the interpreter, also in Git Bash
+  on Windows.
 
 ## Formatting and lint
 
@@ -885,7 +887,8 @@ compilers other than yours, other platforms):
    file:line, why it matters and what to check. The table is the `RULES` block of the script: add a line to add a pattern.
    The scan reads commits only, and never fails the run unless `--strict`.
 2. **Lint.** What the `lint` job of CI runs, against the same base: `scripts/format.sh --check --changed <base>`,
-   `scripts/check-ci-cache-keys.py`, `scripts/ctest_shard.py --self-test` and `scripts/tidy-changed.sh <base>` (clang-tidy,
+   `scripts/check-ci-cache-keys.py`, `scripts/check-player-includes.py` (player/ and templates/ never include
+   `fa/runtime/internal/`), `scripts/ctest_shard.py --self-test` and `scripts/tidy-changed.sh <base>` (clang-tidy,
    the slow one: `FA_TIDY_JOBS`, half the CPUs by default). Each has its own line in the summary, and one that fails
    does not stop the others. `--lint-only` runs the risk scan and this step and nothing else: it builds nothing and takes
    minutes, so run it before every push, also the push of a fix (a file left unformatted costs a whole CI round).
