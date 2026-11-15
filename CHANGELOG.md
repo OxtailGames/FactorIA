@@ -14,6 +14,8 @@ Older versions, one file per minor version with its patch releases: [0.27](chang
   list of command extensions that `Engine::init` runs after the built-in and plugin commands, `fa::authoring::install()`
   registers the authoring one (call it once before the first Engine), and `Engine::runtime_command_names()` lists what the
   player has. `Engine::Impl` is now declared in `fa/runtime/internal/engine_impl.h`, for engine tools only.
+  The clip, bones and skin commands (`anim.*`, `bones.create`, `skin.*`) moved there too, with their tests; same names,
+  arguments and results.
 
 ### Fixes
 

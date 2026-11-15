@@ -317,6 +317,10 @@ with the loader's own rules before it writes, so nothing invalid reaches the dis
 `{command: "anim.restore", args: {path, clip}}`. Calling `anim.restore` puts the whole previous document back (or deletes the file
 when `clip` is null, the undo of `anim.create_clip`) and returns the `undo` that goes forward again.
 
+These commands, `anim.*` (the table below) and `bones.create` / `skin.*` (the rigging commands further down), are authoring
+commands: the editor, the `factoria` CLI, MCP and the AI sessions have them, the exported player does not, and a game script
+cannot call them (a game plays clips with the `Animator` component and `entity.animator`, not with these).
+
 | Command | What it does |
 |---|---|
 | `anim.create_clip {path, duration, loop?, doc?, tracks?, events?, overwrite?}` | Writes a new clip file; refuses to replace one unless `overwrite`. |
