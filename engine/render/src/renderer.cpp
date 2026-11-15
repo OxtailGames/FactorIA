@@ -244,7 +244,9 @@ int Renderer::warm_step(const GfxSwapchain& swapchain, World& world) {
     const auto t0 = std::chrono::steady_clock::now();
     const std::size_t before = im.gpu.pipeline_count();
     do {
+        im.gpu.set_warming(true);  // the warm-up's pipelines are never evicted (Gpu::set_warming)
         im.warmGroups[im.warmNext++]();
+        im.gpu.set_warming(false);
     } while (im.warmNext < im.warmGroups.size() &&
              std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count() < kFrameBudgetMs);
     im.warmPipelines += im.gpu.pipeline_count() - before;
