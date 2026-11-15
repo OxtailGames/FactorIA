@@ -58,10 +58,16 @@ static void fa_vorbis_free(void* p) {
     free(b);
 }
 
-/* realloc is only used by stb_vorbis_decode_memory/_filename, which the engine never calls: refuse rather than guess. */
+/* realloc is only used by stb_vorbis_decode_memory/_filename, which the engine never calls: refuse rather than guess.
+ * A function, not a constant macro, so MSVC does not flag the code after stb's NULL check as unreachable (C4702). */
+static void* fa_vorbis_realloc(void* p, size_t n) {
+    (void)p;
+    (void)n;
+    return NULL;
+}
 #define malloc(n) fa_vorbis_malloc(n)
 #define free(p) fa_vorbis_free(p)
-#define realloc(p, n) ((void)(p), (void)(n), (void*)0)
+#define realloc(p, n) fa_vorbis_realloc(p, n)
 /* GCC 13 cannot see that getn() fills the page header it reads next (stb_vorbis.c:1366, a false positive). This
  * silences that one warning for the vendored code only: external/ is not edited, and the rest of this file is checked. */
 #if defined(__GNUC__) && !defined(__clang__)
