@@ -4876,7 +4876,7 @@
     tooltipFns.clear(); worldTooltipFn = null; dropFns.clear(); worldDropFn = null;
   }
 
-  // Deprecated script API (docs/ARCHITECTURE.md, "Versions"): `targets` is [{ key, test, path }] from the engine (the "script" part of the
+  // Deprecated script API (docs/design/ARCHITECTURE.md, "Versions"): `targets` is [{ key, test, path }] from the engine (the "script" part of the
   // deprecated section of api_since.json, mapped to where each export or member lives); empty in nearly every run, so nothing is wrapped.
   // A function or class is wrapped in a Proxy that asks the engine for the warning on its first call (the engine logs it once per key
   // per process); a plain value gets an accessor that warns on its first read or write. Nothing here runs in a hot loop: a call to a

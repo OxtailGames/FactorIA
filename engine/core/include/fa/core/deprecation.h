@@ -1,5 +1,5 @@
 // Deprecations: API that still works but has a replacement (or none), and will be removed two minor versions after the one that
-// deprecated it. The data lives in the "deprecated" section of tools/common/api_since.json (docs/ARCHITECTURE.md, "Versions");
+// deprecated it. The data lives in the "deprecated" section of tools/common/api_since.json (docs/design/ARCHITECTURE.md, "Versions");
 // the tooling loads it into this table at start-up (fa::install_deprecations), the generated reference and typings print it, and
 // the runtime warns through it: a command call (CommandRegistry), a scene or prefab field (the loader) and a script call (the
 // "factoria" prelude). A process that never loads the table (an exported game) has an empty one and pays one atomic load.
