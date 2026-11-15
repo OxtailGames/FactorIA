@@ -281,6 +281,53 @@ TEST_CASE("render.inspect: a luminance profile along a line lists the hard steps
     CHECK_FALSE(c.call("render.inspect", Json::parse(R"({"from":[0,0]})")).ok);
 }
 
+TEST_CASE("render.frame_graph: the graph of the last frame with the time of every pass") {
+    TempProject p("frame-graph");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(headless_cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    e.step(1);
+    auto r = c.call("render.frame_graph", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    const Json& j = r.result;
+    CHECK(j["source"] == "frame");
+    CHECK(j["backend"].is_string());
+    const Json& order = j["graph"]["order"];
+    const Json& times = j["passTimes"];
+    REQUIRE(times.size() == order.size());
+    REQUIRE(times.size() > 0);
+    for (std::size_t i = 0; i < times.size(); ++i) {
+        CHECK(times[i]["name"] == order[i]);
+        CHECK(times[i]["cpuMs"].get<double>() >= 0.0);
+    }
+    int passes = 0;
+    for (const Json& job : j["jobTimes"]) passes += job["passes"].get<int>();
+    CHECK(passes == int(times.size()));
+    CHECK(j["gpu"]["supported"].is_boolean());
+    CHECK(j["gpu"]["maxTimedPasses"].get<int>() > 0);
+    // The stats of the frame carry the sort-key fallback count too.
+    auto st = c.call("game.render_stats", Json::object());
+    REQUIRE_MESSAGE(st.ok, st.error.dump());
+    CHECK(st.result["sortKeyFallbacks"] == 0);
+    // It takes no arguments, and says which one is unknown.
+    auto bad = c.call("render.frame_graph", Json{{"job", "camera:0"}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error.dump().find("job") != std::string::npos);
+}
+
+TEST_CASE("render.frame_graph: an engine without a renderer says so") {
+    TempProject p("frame-graph-none");
+    Engine e;
+    std::string err;
+    EngineConfig cfg = headless_cfg(p);
+    cfg.graphics = false;
+    REQUIRE_MESSAGE(e.init(cfg, nullptr, &err), err);
+    auto r = e.commands().call("render.frame_graph", Json::object());
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error.dump().find("renderer") != std::string::npos);
+}
+
 TEST_CASE("render.pick: lists what draws a pixel, topmost first") {
     const char* scene = R"({
       "format": "factoria.scene/1",

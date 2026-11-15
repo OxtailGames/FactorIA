@@ -442,6 +442,7 @@ profile: {
   systems: {platform, physics, scriptsFixedUpdate, animation, scriptsEvents, ui, scriptsUpdate, audio,
             scriptsLateUpdate, localization, render, endOfFrame: {avgMs, p95Ms, maxMs}},
   behaviours: [{class, path, avgMs, maxMs, callsPerFrame}],   // slowest first
+  zones: [{name, avgMs, maxMs, callsPerFrame}],              // the 30 slowest named stretches: the renderer's passes
   threads: [{name, jobMsAvg, jobMsMax, busyPct, jobsPerFrame,  // "main", "worker 1".., "other"
              jobs: [{name, avgMs, maxMs, callsPerFrame}]}],    // that thread's 10 slowest job names
   gpu: {avgMs, p95Ms, maxMs, samples, reason},                // numbers, or null + reason
@@ -466,6 +467,16 @@ Reading it:
   Direct3D 11 (Windows) and desktop OpenGL (Linux). Everywhere else the numbers are `null` and `reason` says why: Metal
   (macOS, iOS) exposes no GPU times through the graphics layer the engine uses, and OpenGL ES 3 and WebGL2 (Android, web)
   would need the `EXT_disjoint_timer_query` extension, which is not used. A run with no GPU at all also gives `null`.
+- `zones` are stretches of a frame that have a name made at run time. The renderer reports every pass of its frame graph as
+  one, named `<job>/<pass>` (`camera:0/game`, `camera:0/bloom-bright`, `target:minimap/view`; docs/RENDERING.md). `avgMs` is
+  per frame like a behaviour's, and the time is the CPU time the pass took to record its draws (the part of `render`
+  that is not in a pass is the gathering of the scene). A zone that is big here with a small `gpu` time is a pass that
+  records too many draws; compare the passes with each other, not with `frameMs`.
+- The GPU time of each pass is not in `profile`: call `render.frame_graph` (also while `perf.profile` or the editor's
+  Profiler panel runs) for the frame graph of the last frame with `cpuMs` and `gpuMs` for every pass and job. `gpuMs` is
+  measured with a timestamp before and after the pass on Direct3D 11 and desktop OpenGL, only while the profiler is on,
+  for at most 64 passes of a frame, and reads the answer of a recent frame like `gpu`; it is `-1` where there is no number
+  (and `gpu.reason` in the result says why).
 - `memory` samples the process (resident memory now and at its peak), the JavaScript heap, texture memory, decoded audio (`audioDecodedMB`: sounds, streaming buffers and the music cache; `musicMB` is the music part of it: a song costs about 10 MB per minute per stem, docs/MUSIC.md)
   and the entity count, at the start, the end and the peak of the run: a number that only grows over a long session is a leak.
 - `threads` has one entry per thread of the job pool (main first, then every worker, idle ones too; `other` when a

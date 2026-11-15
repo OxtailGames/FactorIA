@@ -122,7 +122,33 @@ struct RenderStats {
     int materials = 0;  // distinct custom materials (MeshRenderer.material) drawn with their own shaders
     std::vector<std::string>
         materialFallbacks;  // materials drawn with the unlit magenta error material because they failed to build (see asset_report)
+    // Frames, counted since the renderer was made, in which the sort keys of the opaque meshes did not fit their bits (more
+    // distinct meshes, textures, materials or pipelines than a key holds) and the meshes were sorted by the slower comparator
+    // instead. The picture is the same; 0 is normal. Unlike the other counters this one is NOT per frame: it only grows.
+    int sortKeyFallbacks = 0;
     double cpuMs = 0.0;
+    // Where the frame's time went, per pass of the frame graph and per job (see render.frame_graph). Both are empty before the
+    // first frame. A job is `target:<name>`, `view:<n>`, `camera:<i>`, `screen` or `capture`, and a pass is named
+    // `<job>/<pass>`. Wall-clock and GPU numbers: measurements only, never part of the simulation, and not in to_json().
+    struct PassTime {
+        std::string name;  // "<job>/<pass>", as in the frame graph's `order`
+        std::string job;   // the part of `name` before the last '/'
+        // CPU milliseconds the pass's callback took to record its GPU commands (wall clock).
+        double cpuMs = 0.0;
+        // GPU milliseconds of that pass in a recent frame (a frame or a few before this one: the timer queries arrive late and
+        // are never waited for), taken from the newest finished measurement of a pass with this name; -1 when there is none
+        // (the backend has no timer queries, the profiler is off, the answer has not arrived, or the frame had more passes than
+        // the timer measures).
+        double gpuMs = -1.0;
+    };
+    struct JobTime {
+        std::string job;
+        int passes = 0;       // passes of the job that ran (culled ones are not counted)
+        double cpuMs = 0.0;   // sum of the cpuMs of its passes
+        double gpuMs = -1.0;  // sum of the gpuMs of its passes; -1 when none of them has one
+    };
+    std::vector<PassTime> passes;  // the passes that ran, in execution order (culled passes are not listed)
+    std::vector<JobTime> jobs;     // one per job, in the order the first pass of each ran
     Json to_json() const;
 };
 
@@ -394,6 +420,14 @@ public:
     // Measurement only: not part of the simulation.
     bool gpu_timing_supported(std::string* reason = nullptr) const;
     void take_gpu_ms(std::vector<double>& out);
+
+    // The frame graph of the last frame this renderer drew and what each pass cost (the `render.frame_graph` command's
+    // result; the fields are described there): {source, backend, graph: FrameGraph::to_json(), passTimes: [{name, job, cpuMs,
+    // gpuMs}], jobTimes: [{job, passes, cpuMs, gpuMs}], gpu: {supported, measuring, reason, maxTimedPasses}}. `source` is "frame"
+    // for a frame of render() and "capture" when the last graph was the one of a Renderer::capture_world. Null Json before
+    // the first frame.
+    // gpuMs is -1 where there is no measurement (gpu_timing_supported(), and the profiler must be on). Measurement only.
+    Json frame_graph_report() const;
 
     struct Impl;
 

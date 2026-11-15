@@ -219,6 +219,20 @@ void Renderer::Impl::plan_view_job(World& world, Frame& fr, ViewTarget& target, 
 
 // Starts the frame graph of a frame: nothing declared, no job yet.
 void Renderer::Impl::begin_frame_graph() {
+    if (!passHooksSet) {
+        passHooksSet = true;
+        // Every pass is a GPU timestamp pair while the GPU timer measures the frame (the profiler is on) and a zone of the
+        // profiler named `<job>/<pass>`. begin_pass and end_pass do nothing outside a measured frame.
+        PassHooks hooks;
+        hooks.begin = [this](const std::string& pass) {
+            if (Profiler::on()) gpuTimer.begin_pass(pass);
+        };
+        hooks.end = [this](const std::string& pass, double cpuMs) {
+            gpuTimer.end_pass();
+            if (Profiler::on()) Profiler::get().add_zone(pass, cpuMs);
+        };
+        graph.set_pass_hooks(std::move(hooks));
+    }
     graph.clear();
     jobContexts.clear();
     jobImages.clear();
@@ -242,6 +256,47 @@ void Renderer::Impl::run_frame_graph() {
     }
     graph.release_callbacks();
     jobContexts.clear();
+}
+
+void Renderer::Impl::pass_times(std::vector<RenderStats::PassTime>& passes,
+                                std::vector<RenderStats::JobTime>& jobs) const {
+    passes.clear();
+    jobs.clear();
+    const bool gpuOn = Profiler::on();
+    const std::vector<GpuTimer::PassTime>& gpuPasses = gpuTimer.last_passes();
+    for (const PassStats& st : graph.stats()) {
+        if (st.culled) continue;
+        RenderStats::PassTime pt;
+        pt.name = st.name;
+        // A pass is `<job>/<pass>` and the pass part never has a '/', while a render target's name may.
+        const std::size_t slash = st.name.rfind('/');
+        pt.job = slash == std::string::npos ? std::string() : st.name.substr(0, slash);
+        pt.cpuMs = st.cpuMs;
+        if (gpuOn) {
+            for (const GpuTimer::PassTime& g : gpuPasses) {
+                if (g.name == st.name) {
+                    pt.gpuMs = g.ms;
+                    break;
+                }
+            }
+        }
+        RenderStats::JobTime* job = nullptr;
+        for (RenderStats::JobTime& j : jobs) {
+            if (j.job == pt.job) {
+                job = &j;
+                break;
+            }
+        }
+        if (!job) {
+            jobs.emplace_back();
+            job = &jobs.back();
+            job->job = pt.job;
+        }
+        ++job->passes;
+        job->cpuMs += pt.cpuMs;
+        if (pt.gpuMs >= 0.0) job->gpuMs = std::max(job->gpuMs, 0.0) + pt.gpuMs;
+        passes.push_back(std::move(pt));
+    }
 }
 
 // Declares one job of the frame in the frame graph: the pass(es) of one camera's world (and, for the single full-screen
