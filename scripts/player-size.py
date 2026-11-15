@@ -738,6 +738,8 @@ def self_test():
             got, name = parse_link_map(text)
             check(name == fmt, f"{fmt}: detected as {name}")
             check(got == want, f"{fmt}: expected {want}, got {got}")
+            crlf, _ = parse_link_map(text.replace("\n", "\r\n"))  # a map written on Windows
+            check(crlf == want, f"{fmt}: the same map with CRLF line ends gives {crlf}")
         except SizeError as e:
             failures.append(f"{fmt}: {e}")
     check(normalize_lib("/x/libfa_runtime.a") == "fa_runtime" and normalize_lib("fa_core.lib") == "fa_core"
