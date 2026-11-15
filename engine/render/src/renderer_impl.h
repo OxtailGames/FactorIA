@@ -110,13 +110,21 @@ struct Renderer::Impl {
     // The shadow rows of the lights with castShadows (light2d.cpp) as an image: an image is reused while its rows stay the
     // same, a new one replaces the oldest of the ring.
     ShadowCache shadowCache;
-    // A ring: every camera of a frame may need its own rows, and an image a recorded draw reads is not destroyed within the
-    // frame (kMaxCameras + 1 images).
-    static constexpr int kShadowRowsRing = 9;
-    sg_image shadowRowsImg[kShadowRowsRing]{};
-    sg_view shadowRowsView[kShadowRowsRing]{};
-    std::uint64_t shadowRowsKey[kShadowRowsRing]{};
-    int shadowRowsCurrent = 0;
+    // The jobs of a frame are all planned (their rows uploaded) before the first one draws, so an image a job planned with
+    // must live to the end of the frame: a slot returned (a hit or a new image) in the frame number `usedFrame` is never
+    // the one a later upload replaces in that frame. Otherwise the oldest slot is replaced; when every slot was used in
+    // this frame the ring grows by one, and begin_frame_graph() trims it back to kShadowRowsRing (the oldest go first).
+    static constexpr std::size_t kShadowRowsRing = 9;
+    struct ShadowRowsSlot {
+        sg_image img{};
+        sg_view view{};
+        std::uint64_t key = 0;
+        std::uint64_t usedFrame = 0;
+    };
+    std::vector<ShadowRowsSlot> shadowRowsRing;
+    std::uint64_t frameSerial =
+        0;  // counts the frame graphs begun (begin_frame_graph); never 0 while a frame is planned
+    void trim_shadow_rows();
     bool updated = false;  // update() ran since the last draw
     ScaleMode scaleMode = ScaleMode::Fit;
     std::vector<Vertex2D> stream;
@@ -196,9 +204,7 @@ struct Renderer::Impl {
         // The keys (view_image) of the images of other jobs this job's visuals sample (a Sprite, a mesh or a UI that shows
         // "target:<name>", a CameraView): the job reads them in the graph, after the jobs that drew them.
         std::vector<std::uint64_t> shows;
-        ResourceId image;  // a view job: the imported image it draws into (set by plan_view_job)
-        ViewTarget* flipTarget =
-            nullptr;         // a render target the backend stores bottom-up: its picture is copied after the draw
+        ResourceId image;    // a view job: the imported image it draws into (set by plan_view_job)
         bool first = false;  // the first pass of the frame: it clears the whole target when its camera clears
         bool last =
             false;  // the last job of the frame: it runs the post effects (bloom, the HUD over it, the colour filter)

@@ -222,6 +222,8 @@ void Renderer::Impl::begin_frame_graph() {
     graph.clear();
     jobContexts.clear();
     jobImages.clear();
+    ++frameSerial;
+    trim_shadow_rows();
     sharedGame = sharedLight = sharedShadow = ResourceId{};
 }
 
