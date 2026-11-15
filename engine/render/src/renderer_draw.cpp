@@ -194,8 +194,9 @@ void Renderer::Impl::plan_view_job(World& world, Frame& fr, ViewTarget& target, 
     image.drawn = graph.import_target(plan.name, target.main.colorAtt.id,
                                       import_desc(target.w, target.h, target.main.format, "view"));
     image.shown = image.drawn;
-    if (target.flipCopy)
-        image.shown = graph.import_target(plan.name + "/flipped", target.flip.color.id,
+    if (target
+            .flipCopy)  // "flipped:" + the job's name: no job name starts that way, so no render target's name can clash
+        image.shown = graph.import_target("flipped:" + plan.name, target.flip.color.id,
                                           import_desc(target.w, target.h, target.flip.format, "target-flipped"));
     jobImages[key] = image;
     plan.first = true;
@@ -248,18 +249,19 @@ void Renderer::Impl::begin_frame_graph() {
 void Renderer::Impl::run_frame_graph() {
     // The first error of a graph is logged (the rest of the run, nothing), and it names the frame and its jobs: the message
     // of the graph names the pass (`<job>/<pass>`), and the jobs say what else was in the frame.
-    auto report = [&](const Error& e) {
+    auto report = [&](const Error& e, bool running) {
         if (warnedGraph) return;
         warnedGraph = true;
         std::string jobs;
         for (const std::string& j : frameJobs) jobs += (jobs.empty() ? "" : ", ") + j;
-        FA_ERROR("render", "Frame {} (jobs: {}) draws nothing: {} {}", frameSerial, jobs.empty() ? "none" : jobs,
-                 e.message, e.hint);
+        // A graph that does not compile draws nothing; one that fails while it runs has drawn the passes before the failure.
+        FA_ERROR("render", "Frame {} (jobs: {}) {}: {} {}", frameSerial, jobs.empty() ? "none" : jobs,
+                 running ? "cannot be drawn completely" : "draws nothing", e.message, e.hint);
     };
     if (Result<void> r = graph.compile(); !r)
-        report(r.error());
+        report(r.error(), false);
     else if (Result<void> e = graph.execute(transient_targets().pool); !e)
-        report(e.error());
+        report(e.error(), true);
     graph.release_callbacks();
     jobContexts.clear();
 }
@@ -538,8 +540,7 @@ void Renderer::Impl::shadow_bounds(DrawContext& ctx) {
                 any = true;
             }
         }
-        if (any && gpu.shadows_supported()) {
-            create_shadow_targets();
+        if (any && create_shadow_targets()) {
             Vec3 center = (bmin + bmax) * 0.5f;
             float radius = std::max(0.5f, length(bmax - bmin) * 0.5f);
             Vec3 up = std::fabs(lightDirForShadow.y) > 0.99f ? Vec3{0, 0, 1} : Vec3{0, 1, 0};

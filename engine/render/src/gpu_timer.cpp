@@ -144,6 +144,10 @@ struct GpuTimer::State {
         Slot& s = slots[std::size_t(current)];
         context()->End(s.end);
         context()->End(s.disjoint);
+        // The results are read with D3D11_ASYNC_GETDATA_DONOTFLUSH: without a flush the queries sit in the command buffer until
+        // something else submits it (a Present, which render.frame_graph's redraws and a capture never reach). Only a measured
+        // frame gets here (the profiler is on), so a frame without the profiler pays nothing.
+        context()->Flush();
         pending.push_back(current);
         current = -1;
     }

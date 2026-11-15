@@ -448,6 +448,9 @@ void Renderer::Impl::destroy_light_resources() {
         if (s.img.id) sg_destroy_image(s.img);
     }
     shadowRowsRing.clear();
+    shadowRowsKeep = kShadowRowsRing;
+    shadowRowsPeak = 0;
+    shadowRowsWindow = 0;
 }
 
 // Makes (or keeps) the image the colour filter draws into. False (and one logged error) when the GPU cannot make it:
@@ -538,14 +541,27 @@ bool Renderer::Impl::read_rgba8(sg_image image, sg_view view, int w, int h, std:
     return readback_rgba8(readbackTarget.color, w, h, out, error);
 }
 
-void Renderer::Impl::create_shadow_targets() {
-    if (shadowTarget.color.id || !gpu.shadows_supported()) return;
+// Makes (or keeps) the shadow map. False when the GPU cannot make it (or cannot do shadows): the frame is then drawn without
+// shadows, with one logged warning, and the creation is not tried again (a missing shadow map would otherwise make the
+// frame graph refuse every frame). FA_SHADOW_MAP=invalid is a test hook: it makes the creation fail on a GPU that never would.
+bool Renderer::Impl::create_shadow_targets() {
+    if (shadowTargetFailed || !gpu.shadows_supported()) return false;
+    if (shadowTarget.color.id) return true;
     TargetDesc d;
     d.label = "shadow";
     d.width = d.height = kShadowSize;
     d.colorFormat = SG_PIXELFORMAT_R32F;
     d.depthFormat = SG_PIXELFORMAT_DEPTH;
     shadowTarget = make_target(d);
+    const char* hook = std::getenv("FA_SHADOW_MAP");
+    if (shadowTarget.valid() && !(hook && std::string(hook) == "invalid")) return true;
+    destroy_target(shadowTarget);
+    shadowTargetFailed = true;
+    FA_WARN("render",
+            "Cannot create the {}x{} shadow map (R32F colour + depth): the game is drawn without shadows "
+            "(Light.castShadows has no effect on this GPU)",
+            kShadowSize, kShadowSize);
+    return false;
 }
 
 }  // namespace fa
