@@ -125,6 +125,19 @@ entity, instead of walking the parent chain on every call (`engine/scene/src/wor
   `set_active`. No setter of `Transform` is involved, so any way of writing (C++, scripts, reflection, commands, the
   inspector, animation) is seen. The cost of a write is one flag when the entry was already dropped. `create()` resets the
   entry of a reused entity index.
+- **The UI layout offset**: the one thing besides Transform that goes into the local matrix. The UI layout (Panel,
+  ScrollList) places a child by `World::set_ui_layout_offset(e, offset)`, a per-entity x/y kept in `World::Impl` (not a
+  component: not saved, not in a snapshot, erased with the entity) and added to `Transform.position` when the local matrix is
+  built (`world_matrix`, `drawn_matrix`). `set_ui_layout_offset` drops the entity's entry like a Transform write does, and the
+  layout runs on the main thread before the render gather, so jobs never see it change. `Transform.position` of a laid-out
+  child is the author's offset from the slot. Code that adds raw positions up the parents (`ui_layout_translation`,
+  `ui_rect.h`) uses `position + offset`; `set_world_position` subtracts the offset.
+  `set_parent` to the same parent (a reorder) touches neither the offset nor the Transform. To another parent it drops the
+  offset (the placement belonged to the old parent; the next layout pass gives a new Panel parent's child a new one). With
+  `keepWorld` the whole placed spot moves into `Transform.position`, so the child keeps its world place, except under a parent
+  that lays its children out (`ui_layout_places`: a Panel with a layout or fallbackLayout, a ScrollList; the child a widget or
+  a screen-space Text, Sprite or Shape2D): there x and y become 0 so the child lands in its slot, as it always did (rotation,
+  scale and z are kept).
 - **Rules for code**: read through a `const World&` (or `std::as_const(world).get<Transform>(e)`): a read through a mutable
   `World` counts as a write and throws the cache away for nothing (`resolve_obj` in the script bridge, the UI and render
   passes already read through const). A `Transform&` or `EntityInfo&` KEPT from an earlier `get` and written after a

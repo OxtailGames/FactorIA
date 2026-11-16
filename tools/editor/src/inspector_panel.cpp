@@ -345,6 +345,14 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
         return;
     }
     if (open) {
+        if (type.name == "Transform") {
+            const Vec2 slot = w.ui_layout_offset(e);
+            if (slot.x != 0.0f || slot.y != 0.0f) {  // a Panel or ScrollList places this entity (ui_rect.h)
+                ImGui::TextDisabled("Placed by its parent's layout");
+                tooltip("The layout puts this widget in its slot every frame. position is your offset from that slot "
+                        "(0 = exactly in it); the viewport shows the placed result and dragging it edits the offset.");
+            }
+        }
         // A long array (a 512 x 512 tile map) is only counted: its JSON would be rebuilt every frame.
         const Json cur = component_to_json(w, e, type, true, false, kInspectorArrayEditMax);
         if (ImGui::BeginTable("##fields", 2, ImGuiTableFlags_SizingStretchProp)) {

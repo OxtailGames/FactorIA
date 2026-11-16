@@ -296,3 +296,44 @@ TEST_CASE("hierarchy cache: several threads reading an empty cache get the refer
         CHECK(bad.load() == 0);
     }
 }
+
+TEST_CASE(
+    "hierarchy cache: the UI layout offset moves the world matrix and the subtree, and the world setters subtract it") {
+    ensure_builtin_components();
+    World w;
+    const Entity root = w.create("root", "root");
+    const Entity kid = w.create("kid", "kid");
+    const Entity leaf = w.create("leaf", "leaf");
+    w.set_parent(kid, root);
+    w.set_parent(leaf, kid);
+    w.get<Transform>(root)->position = {100, 50, 0};
+    w.get<Transform>(kid)->position = {3, 4, 0};
+    w.get<Transform>(leaf)->position = {1, 1, 0};
+    const Vec3 before = w.world_position(leaf);  // (104, 55)
+    CHECK(before.x == doctest::Approx(104));
+
+    w.set_ui_layout_offset(kid, {10, 20});  // the cache of the kid and everything below it is dropped
+    CHECK(w.world_position(kid).x == doctest::Approx(113));
+    CHECK(w.world_position(kid).y == doctest::Approx(74));
+    CHECK(w.world_position(leaf).x == doctest::Approx(114));
+    CHECK(w.world_position(leaf).y == doctest::Approx(75));
+    CHECK(w.get<Transform>(kid)->position.x == 3.0f);  // Transform is the author's, untouched
+    CHECK(w.ui_layout_offset(kid).x == 10.0f);
+    CHECK(w.ui_layout_offset_entities().size() == 1);
+
+    w.set_world_position(kid, {120, 80, 0});  // the author's part is what is written: 120 - 100 - 10
+    CHECK(w.get<Transform>(kid)->position.x == doctest::Approx(10));
+    CHECK(w.get<Transform>(kid)->position.y == doctest::Approx(10));
+    CHECK(w.world_position(kid).x == doctest::Approx(120));
+
+    w.set_ui_layout_offset(kid, {0, 0});  // zero removes the entry
+    CHECK(w.ui_layout_offset_entities().empty());
+    CHECK(w.world_position(kid).x == doctest::Approx(110));
+
+    w.set_ui_layout_offset(leaf, {5, 5});
+    w.destroy(leaf);
+    w.flush();
+    CHECK(w.ui_layout_offset_entities().empty());  // gone with the entity
+    w.set_ui_layout_offset(leaf, {5, 5});          // a dead entity gets nothing
+    CHECK(w.ui_layout_offset_entities().empty());
+}

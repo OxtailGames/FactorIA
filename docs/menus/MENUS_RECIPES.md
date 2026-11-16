@@ -89,6 +89,24 @@ the turned widget does not cover hits nothing, and hovering, clicking, the wheel
 bounding box of the turned rectangle. Gamepad and keyboard navigation pick the neighbour by the centres of those boxes (the
 "in the beam" test is on the boxes, so a widget turned by 45 degrees counts a little wider than it is).
 
+Where a laid-out child is (since 0.30.0): a child of a Panel `layout` or a ScrollList is put in its slot every frame, and the
+layout does **not** write the child's `Transform.position` any more; it keeps the place apart (not saved, not in an undo
+snapshot, gone with the entity). So `position` of a laid-out child is your own **offset from its slot**: `[0, 0]` is exactly in
+the slot, a script or the inspector can nudge it (the layout keeps the nudge, it does not fight it, and it takes no room from
+the neighbours), and a scene file holds only that offset. Everything that looks at where the child is (drawing, `ui.rectOf`,
+hit tests, hover, `entity.bounds()`, `entity.worldPosition`, the viewport) sees the placed result; `entity.position` is only the
+offset. Under `ui.mirrorRtl` the offset is mirrored with the rest of the screen (a positive x nudges to the left). Dragging a
+laid-out child in the editor viewport changes that offset. Moving a widget into a Panel or ScrollList that lays out (`scene.set_parent`,
+the hierarchy drag, `setParent(parent, true)` in a script) puts it in its slot: its position becomes 0, rotation and scale stay;
+reordering inside the same parent changes only the order. The offset is added in layout space, before the turn and scale of
+the sections below, so a nudge of 10 to the right under a Panel turned a quarter lands 10 below it.
+
+A scene saved by an older version has the layout's placement baked into those positions (the layout used to add its delta to
+`position` every frame). Loaded now it would be placed twice (the slot plus the old delta), so the engine logs a warning once per
+widget when a laid-out child's position equals the place the layout gives it ("... is laid out by its parent and its
+Transform.position is ..."); the command `ui.reset_layout_positions` sets those positions to 0 and returns `{ count, ids }`; save
+the scene afterwards. A position that is not the layout's place (one the author chose) is not touched.
+
 How a parent's layout (`Panel.layout`, a ScrollList) sees a turned or scaled child:
 
 - **Scale makes room.** A child at `scale 2` takes twice the width and height in its slot, around its pivot, so a row or column
@@ -367,7 +385,7 @@ ui.on("dragCancel", (e) => hideChip());                             // e.reason:
   silently. After a `drop` or `dragCancel` the mouse button is still down for a while: nothing else reacts to it.
 - **The image.** `ui.setDragImage(widget)` (call it from `dragStart`) keeps that widget's centre under the pointer; it
   is ignored by hover and by `widgetAt`. The engine only moves it: show it in `dragStart`, hide it in `drop` and
-  `dragCancel`. It moves the widget's own `position`, so keep it free of a layout parent.
+  `dragCancel`. It moves the widget's own `position` by the step that brings its centre under the pointer, so keep it out of a layout parent (it would take a slot there).
 - **Reading it.** `ui.dragging` is `null`, or `{ source, payload, from: {x, y}, x, y, target, accepts }`. A script that
   reads the mouse for the map skips while `ui.dragging` is set, and a press that began on the UI is already ignored by
   `ui.pointerOverUi`.

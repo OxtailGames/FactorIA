@@ -32,6 +32,17 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   OS's device notifications, and XInput's empty slots are asked every 2 s and right after a notification instead of on a
   fixed timer only. HID pads answer `canRumble: false` with a reason saying their rumble is coming (M98.5b2). Not yet tried
   with a physical pad.
+- **A UI layout that does not write `Transform.position` (M98.6f), a behaviour change:** a Panel or ScrollList used to move
+  its children by adding the layout's delta into `Transform.position` every frame (so a saved scene held the layout's
+  result). It now keeps the placement apart (`World::ui_layout_offset`, not saved, not in an undo snapshot) and the child's
+  `position` is its own offset from the slot, 0 = exactly in it. A game whose script reads `entity.position` of a laid-out
+  widget now gets that offset (read `entity.worldPosition`, or `ui.rectOf`, for where it is) and a script that sets `position`
+  on one nudges it from the slot instead of being overwritten. Drawing, hit tests, drag, bounds and the editor viewport see
+  the placed result; the Inspector shows the offset and a viewport drag edits it. A scene saved before has the placement baked
+  into those positions: the engine warns once per widget and the new command `ui.reset_layout_positions` sets them to 0 (no
+  example scene needed it). A widget moved into a laid-out Panel or ScrollList with `scene.set_parent` (keepWorld) goes to its
+  slot, position 0, as before; reordering under the same parent changes only the order. 6e's turned-parent drawing now applies only under a turned or scaled widget, so a plain scaled
+  group of HUD visuals keeps its old placement (docs/menus/MENUS_RECIPES.md, "Where a laid-out child is").
 - **Several entities selected (M98.7b):** in the editor, Ctrl/Cmd+click toggles and Shift+click selects a range in the
   Hierarchy, and Ctrl/Cmd+click, Shift+click and a marquee on empty space select in the Viewport. Every selected entity is
   outlined; the gizmo moves, rotates and scales all of them about the primary as one Undo step; Delete, Duplicate and

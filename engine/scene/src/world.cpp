@@ -12,6 +12,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/scene/particle_store.h"
+#include "fa/scene/ui_rect.h"
 
 namespace fa {
 
@@ -93,6 +94,8 @@ struct World::Impl {
     mutable SpinLock hlock;
     mutable std::vector<Entity> hchain;  // scratch of the fill, under hlock
     std::atomic<std::uint64_t> hversion{0};
+    // World::ui_layout_offset: entity bits -> where the UI layout put the entity. Written on the main thread only.
+    std::unordered_map<std::uint64_t, Vec2> layoutOffsets;
 
     std::vector<Slot> slots;
     std::vector<std::uint32_t> freeIndices;
@@ -152,9 +155,19 @@ struct World::Impl {
     void dirty_world(Entity e) { invalidate(e.index, kWorldValid); }
     void dirty_active(Entity e) { invalidate(e.index, kActiveValid); }
 
+    // The position a local matrix is built with: Transform.position plus the UI layout offset (World::ui_layout_offset).
+    Vec3 effective_position(Entity e, Vec3 position) const {
+        if (!layoutOffsets.empty())
+            if (const auto it = layoutOffsets.find(e.bits()); it != layoutOffsets.end()) {
+                position.x += it->second.x;
+                position.y += it->second.y;
+            }
+        return position;
+    }
+
     Mat4 local_matrix(Entity e) const {
         const auto* t = static_cast<const Transform*>(transformPool->get(e));
-        return Mat4::trs(t->position, t->rotation, t->scale);
+        return Mat4::trs(effective_position(e, t->position), t->rotation, t->scale);
     }
 
     // parent's world matrix * local TRS, down from the root (the one definition of world_matrix).
@@ -309,6 +322,7 @@ void World::destroy_immediate(Entity e) {
         d.unregister_id(x);
         for (auto& p : d.pools)
             if (p) p->remove(x);
+        d.layoutOffsets.erase(x.bits());
         s.alive = false;
         s.pending = false;
         s.pendingTree = false;
@@ -568,12 +582,24 @@ void World::set_parent(Entity child, Entity parent, bool keepWorldTransform, int
     }
     d.dirty_world(child);
     d.dirty_active(child);
+    // Only a move to ANOTHER parent changes where the child is. Re-inserting under the same parent (reordering the
+    // children of a Panel, scene.set_parent with an index) leaves the layout offset and the Transform alone: the world
+    // does not change.
+    if (oldParent == parent) return;
+    // The layout's placement belongs to the old parent: drop it now, so world_position is not stale until the next
+    // layout pass (a new Panel parent gives the child a new offset on that pass). With keepWorldTransform the world
+    // matrix computed above held the placement too, so the whole of it goes into the local position below.
+    set_ui_layout_offset(child, {0.0f, 0.0f});
 
     if (keepWorldTransform) {
         Mat4 parentWorld = parent.is_null() ? Mat4::identity() : world_matrix(parent);
         Mat4 local = parentWorld.inverse() * oldWorld;
         auto* t = static_cast<Transform*>(d.transformPool->get(child));
         decompose(local, t->position, t->rotation, t->scale);
+        // A new parent that lays its children out puts the child in its slot, as it always did (the position it had
+        // relative to the old parent means nothing here): x and y go to 0 (the author's offset from the slot), rotation,
+        // scale and z stay.
+        if (ui_layout_places(*this, parent, child)) t->position.x = t->position.y = 0.0f;
     }
 }
 
@@ -650,10 +676,10 @@ Mat4 World::drawn_matrix(Entity e, bool blended) const {
         if (const Transform* bp = ip ? ip->pose_of(chain[k]) : nullptr)
             t = bp;  // the blend between the last two fixed steps
         if (const FeelPose* p = feel_.pose_of(chain[k]))
-            local = Mat4::trs(t->position + p->position, t->rotation + p->rotation,
+            local = Mat4::trs(impl_->effective_position(chain[k], t->position + p->position), t->rotation + p->rotation,
                               {t->scale.x * p->scale.x, t->scale.y * p->scale.y, t->scale.z * p->scale.z});
         else
-            local = Mat4::trs(t->position, t->rotation, t->scale);
+            local = Mat4::trs(impl_->effective_position(chain[k], t->position), t->rotation, t->scale);
         m = first ? local : m * local;
         first = false;
     }
@@ -687,7 +713,38 @@ void World::set_world_position(Entity e, Vec3 p) {
     Entity par = impl_->slots[e.index].parent;
     Vec3 local = par.is_null() ? p : world_matrix(par).inverse().transform_point(p);
     impl_->dirty_world(e);
-    static_cast<Transform*>(impl_->transformPool->get(e))->position = local;
+    const Vec2 off = ui_layout_offset(e);  // the layout's placement is not part of the author's position
+    static_cast<Transform*>(impl_->transformPool->get(e))->position = {local.x - off.x, local.y - off.y, local.z};
+}
+
+Vec2 World::ui_layout_offset(Entity e) const {
+    if (impl_->layoutOffsets.empty()) return {0, 0};
+    const auto it = impl_->layoutOffsets.find(e.bits());
+    return it == impl_->layoutOffsets.end() ? Vec2{0, 0} : it->second;
+}
+
+void World::set_ui_layout_offset(Entity e, Vec2 offset) {
+    if (!alive(e)) return;
+    Impl& d = *impl_;
+    const bool zero = offset.x == 0.0f && offset.y == 0.0f;
+    const auto it = d.layoutOffsets.find(e.bits());
+    if (it == d.layoutOffsets.end()) {
+        if (zero) return;
+        d.layoutOffsets.emplace(e.bits(), offset);
+    } else if (zero) {
+        d.layoutOffsets.erase(it);
+    } else {
+        if (it->second.x == offset.x && it->second.y == offset.y) return;
+        it->second = offset;
+    }
+    d.dirty_world(e);
+}
+
+std::vector<Entity> World::ui_layout_offset_entities() const {
+    std::vector<Entity> out;
+    out.reserve(impl_->layoutOffsets.size());
+    for (const auto& [bits, off] : impl_->layoutOffsets) out.push_back(Entity::from_bits(bits));
+    return out;
 }
 
 // ------------------------------------------------------------- observers --
