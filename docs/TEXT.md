@@ -437,8 +437,14 @@ them (`color`, `padding`). Text uses `font`, `fontSize`, `textColor` and, before
 
 ## Typing text
 
-A `TextField` takes the characters in `input.text`, Backspace (it repeats while held) and Enter (`ui.submit`). Where those
-come from depends on the device, and the game does not change for any of them:
+A `TextField` takes the characters in `input.text` at its caret and Enter (`ui.submit`), and edits like any text box
+(docs/MENUS.md, "Editing a TextField"). On Windows and Linux: Left / Right move the caret, with Ctrl a word, with Shift they
+extend the selection; Home / End; Backspace and Delete (they repeat while held; with Ctrl by word); Ctrl+A, Ctrl+C, Ctrl+X,
+Ctrl+V. On macOS the same with Cmd for A, C, X, V and Alt for the word. A click places the caret, a drag selects, a double
+click selects a word. Text an input method composes shows at the caret, underlined, and is typed when committed; a click in the field, or the
+focus moving to another field, commits it at once (the backend then forgets it and delivers nothing more). A password field
+keeps the input method off. Where the
+characters come from depends on the device, and the game does not change for any of them:
 
 - **Desktop.** The operating system's text input: composed text (shift, dead keys, IME) arrives as typed. On **macOS** and
   **Windows** a focused `TextField` also composes natively (below).

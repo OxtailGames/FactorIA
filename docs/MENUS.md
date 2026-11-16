@@ -14,7 +14,7 @@ a game wants and merges their texts into its string tables. The widgets and `ui`
 
 The reference is split by topic (every heading keeps its name, so `docs.read menus --heading <name>` finds it on its page):
 
-- [How it works, and what to change](menus/MENUS_HOW.md): What each part of the kit does and what to change in it.
+- [How it works, and what to change](menus/MENUS_HOW.md): What each part of the kit does and what to change in it, including editing a TextField (caret, selection, clipboard, IME).
 - [Recipes: slots, anchors, widgets, tooltips, charts and more](menus/MENUS_RECIPES.md): Save slots, text speed, anchors, gamepad cursor, choice cards, widgets from entities, tooltips, drag and drop, charts, a camera in the UI, a studio intro.
 
 ## Add the kit with a command
