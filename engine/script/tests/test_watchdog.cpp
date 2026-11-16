@@ -11,6 +11,9 @@ using namespace fa::test;
 
 namespace {
 
+// No clock cap in practice: the test then depends on the CPU time alone, which a loaded machine does not change.
+constexpr double kNoWallCap = 1000.0;
+
 Json watchdog_scene(const Json& entities) {
     return Json::object({{"format", "factoria.scene/1"}, {"entities", entities}});
 }
@@ -54,6 +57,9 @@ export default class Busy extends Behaviour {
                                          .dump());
     REQUIRE(h.start());
     h.scripts.set_callback_limit(0.2);
+    // Only the CPU limit is under test: a loaded machine that gives the spinner less than 1/8 of a core would reach the
+    // clock cap first and get another message (so a second error), whatever the limit.
+    h.scripts.set_wall_cap_factor(kNoWallCap);
     h.load_scene_now("scenes/main.scene.json");
     h.step_frames(10);
     for (const ScriptError& e : h.scripts.errors()) MESSAGE(e.to_string());
@@ -105,6 +111,9 @@ export default class Finder extends Behaviour {
     h.file("scenes/main.scene.json", watchdog_scene(entities).dump());
     REQUIRE(h.start());
     h.scripts.set_callback_limit(0.02);
+    // Only the CPU limit is under test: a loaded machine that gives the spinner less than 1/8 of a core would reach the
+    // clock cap first and get another message (so a second error), whatever the limit.
+    h.scripts.set_wall_cap_factor(kNoWallCap);
     h.load_scene_now("scenes/main.scene.json");
     h.step_frames(2);
     CHECK(count_errors(h.scripts, "took too long") == 1);  // one error per script file; every behaviour was stopped
@@ -153,7 +162,7 @@ ScriptPlugin napping_plugin() {
     return p;
 }
 
-void run_nap_case(TestHost& h, const std::string& body, double limitSeconds = 0.2) {
+void run_nap_case(TestHost& h, const std::string& body, double limitSeconds = 0.2, double wallCapFactor = kNoWallCap) {
     h.file("scripts/nap.js", "import { Behaviour, plugins } from \"factoria\";\nglobalThis.frames = 0;\n"
                              "export default class Nap extends Behaviour {\n  onUpdate() {\n" +
                                  body + "\n  }\n}\n");
@@ -161,6 +170,7 @@ void run_nap_case(TestHost& h, const std::string& body, double limitSeconds = 0.
     h.scripts.set_plugins({napping_plugin()});
     REQUIRE(h.start());
     h.scripts.set_callback_limit(limitSeconds);
+    h.scripts.set_wall_cap_factor(wallCapFactor);
     h.load_scene_now("scenes/main.scene.json");
     h.step_frames(1);
 }
@@ -175,8 +185,8 @@ TEST_CASE("watchdog: a busy loop is stopped by CPU time and the message names th
 
 TEST_CASE("watchdog: time spent waiting in a native is not charged to the script") {
     TestHost h("watchdog_wait");
-    // 1.5 s on the clock is 1.5 times the CPU limit (1 s), so a limit charged in wall time would cut the script, but it is
-    // 6.5 s under the wall cap (8 s) that a loaded machine's stall would have to eat; the script uses almost no CPU.
+    // 1.5 s on the clock is 1.5 times the CPU limit (1 s), so a limit charged in wall time would cut the script; the script
+    // uses almost no CPU, and the clock cap is off so that a loaded machine's stall cannot reach it.
     run_nap_case(h, "    plugins.nap.ms(1500); globalThis.frames++;", 1.0);
     CHECK(count_errors(h.scripts, "took too long") == 0);
     auto frames = h.scripts.eval("frames");
@@ -186,7 +196,8 @@ TEST_CASE("watchdog: time spent waiting in a native is not charged to the script
 
 TEST_CASE("watchdog: a script blocked past the wall-clock cap is stopped") {
     TestHost h("watchdog_wall");
-    run_nap_case(h, "    plugins.nap.ms(1900); while (true) {}");  // cap = 8 x 0.2 s = 1.6 s
+    // cap = 8 x 0.2 s = 1.6 s; the nap alone is past it (a loaded machine only sleeps longer), and the CPU limit (0.2 s) is not
+    run_nap_case(h, "    plugins.nap.ms(1900); while (true) {}", 0.2, 8.0);
     REQUIRE(count_errors(h.scripts, "took too long") == 1);
     CHECK(count_errors(h.scripts, "1.6 s on the clock") == 1);
 }
@@ -204,6 +215,7 @@ export default class Spin extends Behaviour {
     h.file("scenes/main.scene.json", watchdog_scene(Json::array({script_entity("spin", "scripts/spin.js")})).dump());
     REQUIRE(h.start());
     h.scripts.set_callback_limit(0.2);
+    h.scripts.set_wall_cap_factor(kNoWallCap);  // the message names the CPU limit, whatever the machine's load
     CHECK(h.scripts.watchdog_cut_count() == 0);
     h.load_scene_now("scenes/main.scene.json");
     h.step_frames(1);

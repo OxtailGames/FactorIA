@@ -8,7 +8,7 @@
 #include <stdexcept>
 #include <thread>
 
-#include "fa/platform/end_handshake.h"
+#include "../src/end_handshake.h"
 
 using namespace fa;
 using namespace std::chrono_literals;

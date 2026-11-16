@@ -122,17 +122,25 @@ project's `scaleMode`.
 - A Back that no `input.onBack` handler consumes, and `game.quit()`, finish the activity: Android destroys it, the
   process ends and the game is not started again. (sokol_app ignores a quit request on Android; the engine calls
   `ANativeActivity_finish` instead.)
+  A game cannot ask for Back to send it to the background (`moveTaskToBack`) instead: there is no setting for it.
 - Before the process ends, the game ends (`engine/platform/src/activity_end_android.cpp`): on the game's own thread,
   while Android's main thread waits for it, `game.on("quit")` handlers run once (not after `game.quit()`, as on the
   desktop; `event.cancel()` changes nothing, the activity is already going away), the analytics request for the events
   that wait is started (nothing waits for it, so it may not reach the server), the `storage.setAsync` writes still waiting are written, the pads stop rumbling
-  and the audio device closes. This happens on every destroy above: Back, `game.quit()`, the system closing the app
-  and the relaunch, which counts as a quit followed by a cold start. The surface is already gone, so the renderer is
-  not torn down and nothing may draw; the process then ends at once (`_exit`, see `engine/platform/src/sokol_impl.c`),
-  without the rest of the engine's shutdown.
-- The end has about 1.5 s: Android's main thread cannot wait longer. A handler that runs past it (or a frame that is
-  still running) is not waited for: the log says `player: the game did not end within 1500 ms` and the process ends
-  anyway, so keep `quit` handlers short.
+  and the audio device closes (the device only: the music and the clips are not released). This happens on every
+  destroy above: Back, `game.quit()`, the system closing the app and the relaunch, which counts as a quit followed by a
+  cold start. The surface is already gone, so the renderer is not torn down and nothing may draw or use the GPU: a
+  `quit` handler must not load a scene or an asset (a texture, a model, a font) nor spawn what needs one, only save.
+  The process then ends at once (`_exit`, see `engine/platform/src/sokol_impl.c`), without the rest of the engine's
+  shutdown.
+- The code of a `quit` handler that comes after `await storage.setAsync(...)` runs too: the end writes, tells the game
+  that the write is done and runs what that wakes, and does it again for the writes that code starts, up to 16 times in
+  a row (a count, not a time). Any other `await` that waits for a frame, a timer, a download or a scene load never resolves in the end: the code
+  after it does not run.
+- The end has about 1.5 s, counted from the destroy: Android's main thread cannot wait longer. The count includes the
+  wait for the frame the game's thread is running when the destroy arrives (the end work starts after it) and then the
+  end work itself; whatever has not finished by then is not waited for: the log says `player: the game did not end
+  within 1500 ms` and the process ends anyway, so keep `quit` handlers short and frames short.
 - A force-stop (Settings, `adb shell am force-stop`) and a kill by the system for memory while the app is in the
   background deliver no callback at all, and nothing runs then. Save progress while the game runs: `storage.set`
   writes the key's file in the app's internal folder immediately, and the `storage.setAsync` writes still waiting are

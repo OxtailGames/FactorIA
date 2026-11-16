@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Android end and build, polish (M98):** in a `game.on("quit")` handler on Android the code after `await storage.setAsync(...)`
+  now runs (the end delivers each finished write, runs what it wakes, up to 16 writes in a row); before, only the write itself
+  was waited for. The end closes only the audio device (it no longer waits for the music's decodes or releases the clips).
+  The docs say what a handler cannot do there (load a scene or an asset, draw, cancel, wait for a timer or a download) and that
+  the `cancel()` and `game.quit()` of the documented example do nothing on the web and Android. The Android NDK r27 build with
+  `-Werror` stops no more in `engine/core/src/json.cpp` (a deprecated nlohmann comparison). The script watchdog tests no longer
+  fail on a loaded machine: a busy loop that gets less than 1/8 of a core was cut by the clock cap (another message, so a
+  second error); the tests turn that cap off (`ScriptSystem::set_wall_cap_factor`) and one test still checks the cap.
 - **Editor polish (M98):** pasting a copied entity whose `$prefab` path has a segment of only dots and spaces (`.. `, `...`) is
   refused, as `..` is (Windows ignores trailing dots and spaces); the Inspector's "Undo put the scene back" note no longer appears
   after a scene load or when the undo list was trimmed; in a number that differs between selected entities, leaving the box after

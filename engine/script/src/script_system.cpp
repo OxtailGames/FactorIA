@@ -178,7 +178,7 @@ size_t ScriptSystem::Impl::push_guard(const std::string& label, double seconds) 
     const double cpu = thread_cpu_seconds();
     guards.push_back({label, seconds, cpu, cpu + seconds,
                       std::chrono::steady_clock::now() +
-                          std::chrono::microseconds(static_cast<long long>(seconds * kWallCapFactor * 1e6))});
+                          std::chrono::microseconds(static_cast<long long>(seconds * wallCapFactor * 1e6))});
     return depth;
 }
 
@@ -274,7 +274,7 @@ void ScriptSystem::Impl::end_frame(std::uint64_t frame, double dt) {
 }
 
 std::string ScriptSystem::Impl::limit_text(double seconds) const {
-    return timedOutWall ? std::format("> {:g} s on the clock", seconds * kWallCapFactor)
+    return timedOutWall ? std::format("> {:g} s on the clock", seconds * wallCapFactor)
                         : std::format("> {:g} s of CPU time", seconds);
 }
 
@@ -1427,6 +1427,7 @@ void ScriptSystem::set_exported_player(bool exported) { impl_->exportedPlayer = 
 void ScriptSystem::set_game_role(GameRole role) { impl_->set_game_role(role); }
 CapabilitySet ScriptSystem::game_capabilities() const { return impl_->gameCaps; }
 void ScriptSystem::set_callback_limit(double seconds) { impl_->callbackLimit = seconds; }
+void ScriptSystem::set_wall_cap_factor(double factor) { impl_->wallCapFactor = std::max(1.0, factor); }
 double ScriptSystem::memory_limit_mb() const { return impl_->memoryLimitMB; }
 double ScriptSystem::frame_budget_ms() const { return impl_->frameBudgetMs; }
 void ScriptSystem::begin_frame() { impl_->frameOpen = true; }
@@ -1553,6 +1554,38 @@ void ScriptSystem::Impl::deliver_websockets() {
     run_jobs();
 }
 
+// The storage.setAsync writes that finished: tells the scripts (their promises settle) and runs what that wakes. True when
+// there was something to deliver.
+bool ScriptSystem::Impl::deliver_storage_done() {
+    Impl& I = *this;
+    const FrameScope frameScope(I);
+    std::vector<storage_files::Job> done = I.storageWriter.take_done();
+    if (done.empty()) return false;
+    Json list = Json::array();
+    for (const storage_files::Job& j : done) {
+        auto m = I.storageMeta.find(j.key);
+        if (m != I.storageMeta.end() && m->second.compressed == j.compress && m->second.encrypted == j.encrypt &&
+            m->second.bytes < 0)
+            m->second.bytes = static_cast<std::int64_t>(j.bytes);
+        if (j.persist) {
+            if (j.ok)
+                fs::user_dir_changed();
+            else
+                log(LogLevel::Warn, "script",
+                    "storage.setAsync could not write " + j.file.string() + " for key '" + j.key + "': " + j.error);
+        }
+        list.push_back(Json::object({{"id", j.id}, {"ok", j.ok}, {"error", j.error}, {"bytes", j.bytes}}));
+    }
+    JSValue lv = I.from_json(list);
+    JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "storageDeliver");
+    JSValue r = I.call("storage.setAsync", "", fn, I.hooks.get(), {lv});
+    JS_FreeValue(I.ctx, r);
+    JS_FreeValue(I.ctx, fn);
+    JS_FreeValue(I.ctx, lv);
+    I.run_jobs();
+    return true;
+}
+
 void ScriptSystem::dispatch_platform() {
     Impl& I = *impl_;
     if (!I.initialized || !I.host) return;
@@ -1560,30 +1593,7 @@ void ScriptSystem::dispatch_platform() {
     I.storageWriter
         .pump();  // storage.setAsync without a worker thread (the web, memory storage): its writes run here, between frames
     const Impl::FrameScope frameScope(I);  // the answers and loads below are script time of this frame
-    if (std::vector<storage_files::Job> done = I.storageWriter.take_done(); !done.empty()) {
-        Json list = Json::array();
-        for (const storage_files::Job& j : done) {
-            auto m = I.storageMeta.find(j.key);
-            if (m != I.storageMeta.end() && m->second.compressed == j.compress && m->second.encrypted == j.encrypt &&
-                m->second.bytes < 0)
-                m->second.bytes = static_cast<std::int64_t>(j.bytes);
-            if (j.persist) {
-                if (j.ok)
-                    fs::user_dir_changed();
-                else
-                    log(LogLevel::Warn, "script",
-                        "storage.setAsync could not write " + j.file.string() + " for key '" + j.key + "': " + j.error);
-            }
-            list.push_back(Json::object({{"id", j.id}, {"ok", j.ok}, {"error", j.error}, {"bytes", j.bytes}}));
-        }
-        JSValue lv = I.from_json(list);
-        JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "storageDeliver");
-        JSValue r = I.call("storage.setAsync", "", fn, I.hooks.get(), {lv});
-        JS_FreeValue(I.ctx, r);
-        JS_FreeValue(I.ctx, fn);
-        JS_FreeValue(I.ctx, lv);
-        I.run_jobs();
-    }
+    I.deliver_storage_done();
     if (I.generateJobs > 0) {  // tilemap.generate: this frame's share of the work
         JSValue budget = JS_NewFloat64(I.ctx, I.host->preload_time_budget_ms());
         JSValue fn = JS_GetPropertyStr(I.ctx, I.hooks.get(), "generateTick");
@@ -1896,6 +1906,9 @@ bool ScriptSystem::close_requested() {
     return true;
 }
 
+// Rounds of write, deliver and run that the app's end gives to chained awaited storage.setAsync calls (see app_ending).
+constexpr int kEndStorageRounds = 16;
+
 void ScriptSystem::app_ending() {
     Impl& I = *impl_;
     if (!I.initialized || I.appEnded) return;
@@ -1909,7 +1922,14 @@ void ScriptSystem::app_ending() {
     // The analytics request for the events that wait starts now; nothing waits for it (the process ends within the system's
     // budget, so it may not reach the server).
     I.service_call("serviceQuit", {});
-    I.run_jobs();  // the promise jobs the handlers left (an awaited storage.setAsync, a .then) run before the drain
+    I.run_jobs();  // the promise jobs the handlers left (a .then) run before the drain
+    // An awaited storage.setAsync settles only when its write is delivered (dispatch_platform, one frame later in a game), so
+    // the code after the await runs here: write, deliver, run what that woke, and again for the writes it started. A fixed
+    // count of rounds, so a handler that writes forever cannot hold the end; the last drain leaves nothing unwritten.
+    for (int round = 0; round < kEndStorageRounds; ++round) {
+        I.storage_drain();
+        if (!I.deliver_storage_done()) break;
+    }
     I.storage_drain();  // every storage.setAsync write is on disk before the process ends
 }
 
