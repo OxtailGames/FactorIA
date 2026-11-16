@@ -95,6 +95,7 @@ void Editor::draw_inspector_panel() {
     }
     ImGui::Text("%s", tree_label(w.info(e).name, id).c_str());
     if (Entity p = w.parent(e)) ImGui::TextDisabled("child of %s", w.id_of(p).c_str());
+    inspector_prefab_header(e);
     ImGui::Separator();
 
     if (!e.is_null()) {
@@ -134,6 +135,139 @@ void Editor::draw_inspector_panel() {
     }
     ImGui::EndChild();
     ImGui::End();
+}
+
+// ---- prefab instances: what the selected entity overrides, and the commands that revert or apply it.
+
+// `prefab.overrides` of the selected entity: asked again when the entity changed, after every edit the Inspector makes, when
+// the undo stack moved, and every second (an AI or a script may edit too). Not part of an instance: nothing is asked.
+void Editor::inspector_prefab_refresh(Entity e) {
+    World& w = world();
+    const std::string id = w.id_of(e);
+    const Entity root = prefab_instance_root(w, e);
+    if (root.is_null() || !engine_) {
+        inspOv_ = Json();
+        inspOvRoot_.clear();
+        inspOvPrefab_.clear();
+        inspOvWhy_.clear();
+        inspOvId_ = id;
+        inspOvStale_ = true;
+        return;
+    }
+    const std::uint64_t stamp = std::uint64_t(undo_depth()) * 1000003u + std::uint64_t(redo_depth());
+    if (!inspOvStale_ && inspOvId_ == id && inspOvStamp_ == stamp && time_ - inspOvAt_ < 1.0) return;
+    inspOvStale_ = false;
+    inspOvId_ = id;
+    inspOvStamp_ = stamp;
+    inspOvAt_ = time_;
+    const CommandResult r = engine_->commands().call("prefab.overrides", Json::object({{"id", id}}));
+    inspOv_ = Json::array();
+    inspOvWhy_.clear();
+    inspOvRoot_ = w.id_of(root);
+    inspOvPrefab_ = w.info(root).prefab;
+    if (!r.ok) {
+        inspOvWhy_ = r.error.value("message", std::string("prefab.overrides failed"));
+        return;
+    }
+    if (r.result.value("expressible", true)) {
+        if (r.result.contains("overrides")) inspOv_ = r.result["overrides"];
+    } else {
+        inspOvWhy_ = r.result.value("reason", std::string("the differences cannot be listed"));
+    }
+}
+
+void Editor::inspector_prefab_edit(const std::string& command, const std::string& id, const std::string& component,
+                                   const std::string& field) {
+    std::string err;
+    const CommandResult r = edit_command("insp:" + command + ":" + std::to_string(uiFrame_), command,
+                                         prefab_edit_args(id, component, field), &err);
+    inspOvStale_ = true;
+    if (!r.ok) {
+        notify("Could not " + command.substr(7) + ": " + err, 2);
+        return;
+    }
+    if (command == "prefab.apply") {
+        const Json& files = r.result.contains("files") ? r.result["files"] : Json::array();
+        const std::size_t others =
+            r.result.contains("updated") && r.result["updated"].is_array() ? r.result["updated"].size() : 0;
+        std::string msg =
+            "Applied to " +
+            (files.is_array() && !files.empty() && files[0].is_string() ? files[0].get<std::string>() : inspOvPrefab_);
+        if (others) msg += "; " + std::to_string(others) + " other instance" + (others == 1 ? "" : "s") + " updated";
+        notify(msg, 0);
+    }
+}
+
+void Editor::inspector_prefab_header(Entity e) {
+    inspector_prefab_refresh(e);
+    if (inspOvRoot_.empty()) return;
+    const std::string id = world().id_of(e);
+    const bool isRoot = inspOvRoot_ == id;
+    const int count = prefab_override_count(inspOv_);
+    const bool usable = inspOvWhy_.empty();
+    ImGui::PushStyleColor(ImGuiCol_Text, kProjectBlue);
+    if (isRoot)
+        ImGui::TextWrapped("Prefab %s", inspOvPrefab_.c_str());
+    else
+        ImGui::TextWrapped("Part of prefab %s (%s)", inspOvPrefab_.c_str(), inspOvRoot_.c_str());
+    ImGui::PopStyleColor();
+    at_track("insp:prefab");
+    tooltip(
+        "This entity was made by that prefab file. Fields that differ from the prefab are drawn in blue; right-click a "
+        "field or a component header to revert it to the prefab or apply it to the prefab file.");
+    if (!usable) {
+        ImGui::PushStyleColor(ImGuiCol_Text, kStatusWarn);
+        ImGui::TextWrapped("Cannot list the overrides: %s", inspOvWhy_.c_str());
+        ImGui::PopStyleColor();
+        at_track("insp:prefab:why");
+        return;
+    }
+    if (count == 0)
+        ImGui::TextDisabled("No overrides");
+    else
+        ImGui::Text("%d override%s", count, count == 1 ? "" : "s");
+    at_track("insp:prefab:count");
+    ImGui::BeginDisabled(count == 0);
+    if (ImGui::SmallButton("Revert all")) inspector_prefab_edit("prefab.revert", id, "", "");
+    ImGui::EndDisabled();
+    at_track("insp:prefab:revert", count != 0);
+    tooltip(isRoot ? "Put every value of this instance back to the prefab's: overridden fields, added components and "
+                     "added children (prefab.revert). Ctrl+Z undoes it."
+                   : "Put every overridden value of this part back to the prefab's (prefab.revert). Ctrl+Z undoes it.");
+    ImGui::SameLine();
+    ImGui::BeginDisabled(count == 0);
+    if (ImGui::SmallButton("Apply all")) {
+        inspApplyAsk_ = true;
+        inspApplyId_ = id;
+    }
+    ImGui::EndDisabled();
+    at_track("insp:prefab:apply", count != 0);
+    tooltip(
+        "Write these values into the prefab file (prefab.apply). The other instances of the prefab in this scene get "
+        "them too, except where they override the same thing.");
+    if (inspApplyAsk_) {
+        ImGui::OpenPopup("Apply to prefab?##insp");
+        inspApplyAsk_ = false;
+    }
+    ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
+    if (ImGui::BeginPopupModal("Apply to prefab?##insp", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
+        ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+        ImGui::Text("Write %d override%s of '%s' into %s?", count, count == 1 ? "" : "s", inspApplyId_.c_str(),
+                    inspOvPrefab_.c_str());
+        ImGui::TextWrapped("Every other instance of the prefab in this scene gets the same change, except where it "
+                           "overrides that value itself. This writes the prefab file: Ctrl+Z puts the scene back, not "
+                           "the file.");
+        ImGui::PopTextWrapPos();
+        if (ImGui::Button("Apply")) {
+            inspector_prefab_edit("prefab.apply", inspApplyId_, "", "");
+            ImGui::CloseCurrentPopup();
+        }
+        at_track("insp:prefab:apply-yes");
+        ImGui::SameLine();
+        if (ImGui::Button("Cancel")) ImGui::CloseCurrentPopup();
+        at_track("insp:prefab:apply-no");
+        ImGui::EndPopup();
+    }
 }
 
 // Several entities selected. The header says how many; Add Component adds the chosen component to every selected entity that does
@@ -324,8 +458,20 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
     bool keep = true;
     ImGui::PushID(type.name.c_str());
     ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+    // A component of a prefab instance says what it overrides; the ### part keeps the header's identity.
+    const bool inInstance = !inspOvRoot_.empty() && inspOvId_ == id && inspOvWhy_.empty();
+    const bool added = inInstance && prefab_component_added(inspOv_, id, type.name);
+    const int overridden = inInstance ? prefab_component_override_count(inspOv_, id, type.name) : 0;
+    std::string headerLabel = type.name;
+    if (added)
+        headerLabel += "  (added to the instance)";
+    else if (overridden > 0)
+        headerLabel += "  (" + std::to_string(overridden) + " overridden)";
+    headerLabel += "###" + type.name;
+    if (inInstance && (added || overridden > 0)) ImGui::PushStyleColor(ImGuiCol_Text, kProjectBlue);
     const bool open =
-        ImGui::CollapsingHeader(type.name.c_str(), removable ? &keep : nullptr, ImGuiTreeNodeFlags_AllowOverlap);
+        ImGui::CollapsingHeader(headerLabel.c_str(), removable ? &keep : nullptr, ImGuiTreeNodeFlags_AllowOverlap);
+    if (inInstance && (added || overridden > 0)) ImGui::PopStyleColor();
     at_track("insp:hdr:" + type.name);
     if (inspScrollTo_ == type.name) {  // the autotest asks for a header low in a long list
         ImGui::SetScrollHereY(0.0f);
@@ -336,6 +482,26 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
                     Vec2{ImGui::GetItemRectMax().x - ImGui::GetStyle().FramePadding.x - ImGui::GetFontSize() * 0.5f,
                          (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f});
     tooltip(type.doc);
+    bool left = false;  // a revert may remove the component: do not draw its fields
+    if (inInstance && ImGui::BeginPopupContextItem("##hdrctx")) {
+        const bool any = added || overridden > 0;
+        if (ImGui::MenuItem(added ? "Remove (the prefab does not have it)" : "Revert component to prefab", nullptr,
+                            false, any)) {
+            inspector_prefab_edit("prefab.revert", id, type.name, "");
+            left = true;
+        }
+        at_track("insp:hdrctx:revert", any);
+        if (ImGui::MenuItem(added ? "Add to prefab" : "Apply component to prefab", nullptr, false, any)) {
+            inspector_prefab_edit("prefab.apply", id, type.name, "");
+            left = true;
+        }
+        at_track("insp:hdrctx:apply", any);
+        ImGui::EndPopup();
+    }
+    if (left) {
+        ImGui::PopID();
+        return;
+    }
     if (!keep) {  // the x of the header
         std::string err;
         CommandResult r = edit_command("insp:remove:" + std::to_string(uiFrame_), "scene.remove_component",
@@ -358,12 +524,34 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
                 ImGui::TableNextRow();
                 ImGui::TableSetColumnIndex(0);
                 ImGui::AlignTextToFramePadding();
+                ImGui::PushID(f.name.c_str());  // each row has its own right-click menu
+                const Json* overriddenField =
+                    inInstance ? prefab_field_override(inspOv_, id, type.name, f.name) : nullptr;
+                if (overriddenField) ImGui::PushStyleColor(ImGuiCol_Text, kProjectBlue);
                 ImGui::TextUnformatted(f.name.c_str());
+                if (overriddenField) ImGui::PopStyleColor();
+                at_track("insp:label:" + key);
+                {  // the tooltip right after its label, before the menu opens windows of its own
+                    std::string tip = field_tip(f, disabled);
+                    if (overriddenField)
+                        tip += "\nOverridden: the prefab has " + (*overriddenField)["prefabValue"].dump() +
+                               ". Right-click to revert it or apply it to the prefab.";
+                    tooltip(tip);
+                }
+                if (inInstance && ImGui::BeginPopupContextItem("##fieldctx")) {
+                    if (ImGui::MenuItem("Revert to prefab", nullptr, false, overriddenField != nullptr))
+                        inspector_prefab_edit("prefab.revert", id, type.name, f.name);
+                    at_track("insp:ctx:revert", overriddenField != nullptr);
+                    if (ImGui::MenuItem("Apply to prefab", nullptr, false, overriddenField != nullptr))
+                        inspector_prefab_edit("prefab.apply", id, type.name, f.name);
+                    at_track("insp:ctx:apply", overriddenField != nullptr);
+                    ImGui::EndPopup();
+                }
+                ImGui::PopID();
                 if (inspScrollTo_ == key) {  // the autotest asks for a field low in a long component
                     ImGui::SetScrollHereY(0.0f);
                     inspScrollTo_.clear();
                 }
-                tooltip(field_tip(f, disabled));
                 ImGui::TableSetColumnIndex(1);
                 if (type.name == "MeshRenderer" && f.name == "materialParams") {
                     draw_material_params(e, cur);
@@ -373,6 +561,7 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
                         std::string err;
                         CommandResult r = edit_command("insp:" + id + ":" + key, "scene.set_component",
                                                        field_edit_args(id, type.name, f.name, out), &err);
+                        inspOvStale_ = true;
                         if (r.ok)
                             inspErrors_.erase(key);
                         else

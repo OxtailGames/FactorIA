@@ -6477,6 +6477,58 @@ The replay is applied by frame number to the window's frames at their real durat
 
 ## scene
 
+### `prefab.apply` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+Write an instance's values into its prefab file: one field, one component, or everything; the other instances follow.
+
+Capabilities: read, state, writeProject
+
+`id` is the instance's root or a part of it; `component` and `field` narrow it as in prefab.revert (without them: everything the entity and what is below it overrides, added components and children included). The prefab file keeps its own layout (its nested prefabs and the parts you did not touch stay), and every other instance of the prefab in the open scene gets the same change, except where it overrides that thing itself. Example: prefab.apply {"id":"enemy_1","component":"Sprite","field":"/color"}
+
+Returns {id, root, prefab, applied: [the entries prefab.overrides lists], files: [the prefab file written], updated: [ids of the other instances that were updated], skipped: [{id, reason}] (instances whose differences cannot be listed: left as they are), notes?}. Where the instance stands (the root's Transform.position) is not written unless named, like prefab.save. Refuses, changing nothing, a read-only file (code read_only), a prefab that does not exist, an instance whose differences cannot be listed (not_expressible) and changes the file has no place for (cannot_apply; each entry of prefab.overrides says so in `applyBlocked`). The file is written for good (the editor's Ctrl+Z puts the open scene back, not the file: use version control to go back), and instances of this prefab inside other prefabs are only updated after a scene.reload.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the instance's root or of a part of it. |
+| `component` | string | no | Only this component of the entity (e.g. Sprite, Transform, EntityInfo). Without it: everything of the entity and below. |
+| `field` | string | no | With `component`: only this field, as a JSON pointer inside the component, e.g. "/color" ("color" works too). |
+
+### `prefab.overrides`
+
+Not released yet (on main after 0.29.1).
+
+List what a prefab instance of the open scene overrides: what differs from its prefab.
+
+Capabilities: read
+
+`id` is an entity of a prefab instance, its root or a part of it; the list covers that entity and what is below it (the whole instance for the root). Returns {id, root, prefab, expressible, count, overrides: [{kind, entity, component, field, value, prefabValue}]}: kind "field" (a field of a component, as a JSON pointer: "/position"; name, tags and active are fields of EntityInfo), "component" (one the prefab lacks, with its whole value) or "child" (added under the instance's root). Example: prefab.overrides {"id":"enemy_1"}
+
+`prefabValue` is what prefab.revert puts back; an Entity field gives the id of the instance's own entity. The root's Transform.position is listed with placement: true and not counted: where an instance stands is not an override of the prefab. An entry with `applyBlocked` cannot be written to the prefab file by prefab.apply (it points at an entity outside the prefab, or at a part that a prefab inside the prefab made): the text says why. When the differences cannot be listed (a part of the prefab was removed, a child was added under a part of it) `expressible` is false, `reason` says what to fix and the list is empty. It reads the prefab file and changes nothing.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the instance's root or of a part of it. |
+
+### `prefab.revert` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+Put the prefab's values back into an instance: one field, one component, or everything.
+
+Capabilities: read, state
+
+`id` is the instance's root or a part of it. Without `component` everything the entity and what is below it overrides goes back to the prefab (for the root: the whole instance, added components and children included); with `component`, that component of the entity; with `component` and `field`, that one field (a JSON pointer such as "/position"; name, tags and active are fields of EntityInfo). Changes the open scene only: the prefab file stays as it is. Example: prefab.revert {"id":"enemy_1","component":"Sprite","field":"/color"}
+
+Where the instance stands (the root's Transform.position) is not reverted unless named: {"component": "Transform", "field": "/position"}. A component the prefab lacks is removed, a child added under the instance is destroyed. Returns {id, root, prefab, reverted: [the entries prefab.overrides lists], notes?}. Refuses (code not_expressible) an instance whose differences cannot be listed; prefab.overrides says why. The editor calls it through its command undo, so Ctrl+Z puts the values back.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `id` | string | yes | Id (or name) of the instance's root or of a part of it. |
+| `component` | string | no | Only this component of the entity (e.g. Sprite, Transform, EntityInfo). Without it: everything of the entity and below. |
+| `field` | string | no | With `component`: only this field, as a JSON pointer inside the component, e.g. "/color" ("color" works too). |
+
 ### `prefab.save` (modifies state)
 
 Save an entity of the running world, with its children, as a prefab file.

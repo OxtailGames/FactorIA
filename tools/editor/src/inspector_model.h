@@ -129,4 +129,20 @@ std::string tree_label(std::string_view name, std::string_view id);
 // the engine gives the copies new ones, and the name followed by " copy".
 Json duplicate_spec(Json entityJson);
 
+// ---------------------------------------------------------------------------------------------- prefab overrides
+// Questions about the `overrides` array of a `prefab.overrides` result (what the Inspector marks). The where-it-stands entry
+// of the instance root (`placement`) is not an override: it is never marked.
+// The entry of a field of `component` on `entity` that differs from the prefab (a pointer "/name" or deeper, e.g.
+// "/position/0", counts for the field "position"), or null.
+const Json* prefab_field_override(const Json& overrides, std::string_view entity, std::string_view component,
+                                  std::string_view field);
+// True when `component` of `entity` is one the prefab does not have.
+bool prefab_component_added(const Json& overrides, std::string_view entity, std::string_view component);
+// How many entries concern `component` of `entity` (the added component itself or its fields).
+int prefab_component_override_count(const Json& overrides, std::string_view entity, std::string_view component);
+// How many entries are real overrides: the placement entry is left out.
+int prefab_override_count(const Json& overrides);
+// The arguments of prefab.revert / prefab.apply; `component` and `field` ("name" or "/name") may be empty.
+Json prefab_edit_args(const std::string& entityId, const std::string& component, const std::string& field);
+
 }  // namespace fa::editor

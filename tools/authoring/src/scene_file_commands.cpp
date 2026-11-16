@@ -152,7 +152,8 @@ Json prefab_child_json(const World& w, Entity child, std::vector<std::string>& n
     for (Entity x : tree) treeIds.insert(w.id_of(x));
     for (Entity x : tree) {
         const std::string& id = w.id_of(x);
-        const bool automatic = id.size() > 1 && id[0] == 'e' && id.find_first_not_of("0123456789", 1) == std::string::npos;
+        const bool automatic =
+            id.size() > 1 && id[0] == 'e' && id.find_first_not_of("0123456789", 1) == std::string::npos;
         if (!automatic) keepIds.insert(id);
     }
     for (Entity x : tree)
