@@ -328,7 +328,8 @@ TEST_CASE("undo inverse: 100 plans cost far less than one snapshot of a big scen
 // ---------------------------------------------------------------------------------------------------- structure ----
 
 TEST_CASE("undo inverse: structural commands have builders, the large ones stay snapshots") {
-    for (const char* name : {"scene.spawn", "scene.destroy", "scene.set_parent", "scene.paste_entities", "bones.create"})
+    for (const char* name :
+         {"scene.spawn", "scene.destroy", "scene.set_parent", "scene.paste_entities", "bones.create"})
         CHECK(has_undo_builder(name));
     for (const char* name : {"scene.import_ascii", "scene.ascii_edit", "skin.set_weights"})
         CHECK_FALSE(has_undo_builder(name));
@@ -395,10 +396,34 @@ TEST_CASE("undo inverse: a destroyed prefab instance comes back linked to its pr
     CHECK(s.world().info(s.world().children(back)[0]).fromPrefab);
     CHECK(s.world().info(s.world().children(back)[0]).name == "Left");
     CHECK(s.world().get<Transform>(back)->position == Vec3{7, 8, 0});
-    // an override on the instance (a changed child) survives the round trip too
-    REQUIRE(s.engine.commands()
-                .call("scene.set_component", set_args("left", "Transform", Json::object({{"position", Json::array({9, 9, 0})}})))
-                .ok);
+    // overrides on the instance (a changed field of the root and of a part, a component the prefab has not, a child it has
+    // not) are the same overrides after Undo and after Redo, as prefab.overrides lists them
+    auto call = [&](const char* cmd, Json a) {
+        const CommandResult r = s.engine.commands().call(cmd, a);
+        REQUIRE_MESSAGE(r.ok, r.error.dump());
+        return r.result;
+    };
+    call("scene.set_component", set_args("left", "Transform", Json::object({{"position", Json::array({9, 9, 0})}})));
+    call("scene.set_component", set_args("inst", "Shape2D", Json::object({{"size", Json::array({5, 6})}})));
+    call("scene.spawn", Json::object({{"name", "Extra"}, {"parent", "inst"}}));
+    const Json overrides = call("prefab.overrides", Json::object({{"id", "inst"}}));
+    REQUIRE(overrides["count"].get<int>() >= 3);
+    const Json before = s.scene();
+    plan = plan_undo(s.world(), "scene.destroy", Json::object({{"id", "inst"}}));
+    REQUIRE(plan.has_value());
+    REQUIRE(s.run(plan->forward));
+    CHECK(s.world().find_by_id("inst").is_null());
+    REQUIRE(s.run(plan->inverse));
+    CHECK(call("prefab.overrides", Json::object({{"id", "inst"}})) == overrides);
+    CHECK(s.sorted_scene()["entities"] == [&] {
+        Json b = before;
+        std::vector<Json> ents(b["entities"].begin(), b["entities"].end());
+        std::sort(ents.begin(), ents.end(), [](const Json& x, const Json& y) { return x["id"] < y["id"]; });
+        return Json(ents);
+    }());
+    REQUIRE(s.run(plan->forward));
+    REQUIRE(s.run(plan->inverse));
+    CHECK(call("prefab.overrides", Json::object({{"id", "inst"}})) == overrides);
     s.edit_round_trip("scene.destroy", Json::object({{"id", "inst"}}), true);
 }
 
@@ -406,7 +431,8 @@ TEST_CASE("undo inverse: a spawn is undone by destroying it and redone with the 
     Session s(kStructScene);
     UndoPlan plan = s.edit_round_trip(
         "scene.spawn",
-        Json::object({{"name", "Coin"}, {"components", Json::object({{"Shape2D", Json::object({{"size", Json::array({4, 4})}})}})}}),
+        Json::object({{"name", "Coin"},
+                      {"components", Json::object({{"Shape2D", Json::object({{"size", Json::array({4, 4})}})}})}}),
         true);
     CHECK(plan.inverse.size() == 1);
     CHECK(plan.inverse[0].cmd == "scene.destroy");
@@ -416,10 +442,9 @@ TEST_CASE("undo inverse: a spawn is undone by destroying it and redone with the 
     CHECK_FALSE(s.world().find_by_id(id).is_null());
     REQUIRE(s.run(plan.inverse));
     // under a parent, at an index; and a prefab with children
+    s.edit_round_trip("scene.spawn", Json::object({{"name", "Mid"}, {"parent", "holder"}, {"index", 1}}));
     s.edit_round_trip("scene.spawn",
-                      Json::object({{"name", "Mid"}, {"parent", "holder"}, {"index", 1}}));
-    s.edit_round_trip("scene.spawn", Json::object({{"prefab", "prefabs/pair.prefab.json"}, {"position", Json::array({3, 4})}}),
-                      true);
+                      Json::object({{"prefab", "prefabs/pair.prefab.json"}, {"position", Json::array({3, 4})}}), true);
     CHECK_FALSE(plan_undo(s.world(), "scene.spawn", Json::object()).has_value());
 }
 
@@ -432,9 +457,8 @@ TEST_CASE("undo inverse: a paste is undone by destroying its roots and redone wi
     UndoPlan plan = s.edit_round_trip("scene.paste_entities", Json::object({{"text", text}, {"parent", "holder"}}));
     CHECK(plan.inverse.size() == 2);
     // a duplicate: each copy next to its original, named "copy"; the copy of link names the copy of gunner
-    s.edit_round_trip(
-        "scene.paste_entities",
-        Json::object({{"text", text}, {"keepParents", true}, {"nameSuffix", " copy"}}));
+    s.edit_round_trip("scene.paste_entities",
+                      Json::object({{"text", text}, {"keepParents", true}, {"nameSuffix", " copy"}}));
     // a paste under the top level
     s.edit_round_trip("scene.paste_entities", Json::object({{"text", text}, {"parent", nullptr}}));
 }
@@ -466,7 +490,8 @@ TEST_CASE("undo inverse: set_parent gives the parent, the index and the exact lo
     CHECK(named->forward[0].args["parent"] == "holder");
     // a call that cannot succeed gives no plan or one that is never pushed
     CHECK_FALSE(plan_undo(s.world(), "scene.set_parent", Json::object({{"id", "nobody"}})).has_value());
-    CHECK_FALSE(plan_undo(s.world(), "scene.set_parent", Json::object({{"id", "free"}, {"parent", "nobody"}})).has_value());
+    CHECK_FALSE(
+        plan_undo(s.world(), "scene.set_parent", Json::object({{"id", "free"}, {"parent", "nobody"}})).has_value());
 }
 
 TEST_CASE("undo inverse: a widget moved out of a laid-out Panel and undone is where it was, nudge and slot") {
@@ -480,7 +505,7 @@ TEST_CASE("undo inverse: a widget moved out of a laid-out Panel and undone is wh
     const Vec3 nudge = s.world().get<Transform>(ok)->position;  // the author's nudge from the slot
     CHECK(nudge == Vec3{3, 4, 0});
     const Vec2 slot = s.world().ui_layout_offset(ok);
-    CHECK(slot.x != 0.0f);
+    CHECK(slot != Vec2{0, 0});  // the column puts it below the top of the Panel
     const Vec3 worldBefore = s.world().world_matrix(ok).translation();
     const Json before = s.scene();
 
@@ -489,7 +514,8 @@ TEST_CASE("undo inverse: a widget moved out of a laid-out Panel and undone is wh
     REQUIRE(plan.has_value());
     REQUIRE(s.engine.commands().call("scene.set_parent", args).ok);
     CHECK(s.world().ui_layout_offset(ok) == Vec2{0, 0});
-    CHECK(s.world().get<Transform>(ok)->position.x == doctest::Approx(worldBefore.x));  // the whole placement went into it
+    CHECK(s.world().get<Transform>(ok)->position.x ==
+          doctest::Approx(worldBefore.x));  // the whole placement went into it
     REQUIRE(s.run(plan->inverse));
     for (int i = 0; i < 3; ++i) ui->layout(s.world(), design, {});
     CHECK(s.scene() == before);
@@ -547,7 +573,8 @@ TEST_CASE("undo inverse: bones.create is undone by destroying the chain and redo
     Session s(kStructScene);
     UndoPlan plan = s.edit_round_trip(
         "bones.create",
-        Json::object({{"parent", "free"}, {"points", Json::array({Json::array({0, 20}), Json::array({0, 10}), Json::array({0, 0})})}}),
+        Json::object({{"parent", "free"},
+                      {"points", Json::array({Json::array({0, 20}), Json::array({0, 10}), Json::array({0, 0})})}}),
         true);
     CHECK(plan.inverse.size() == 1);
     CHECK(plan.inverse[0].cmd == "scene.destroy");

@@ -180,8 +180,8 @@ std::vector<UndoCommand> restore_commands(const World& w, const std::vector<Enti
     std::vector<UndoCommand> cmds;
     UndoCommand paste;
     paste.cmd = "scene.paste_entities";
-    paste.args = Json::object(
-        {{"text", payload.dump(-1, ' ', false, Json::error_handler_t::replace)}, {"keepParents", true}});
+    paste.args =
+        Json::object({{"text", payload.dump(-1, ' ', false, Json::error_handler_t::replace)}, {"keepParents", true}});
     cmds.push_back(std::move(paste));
     for (Entity e : roots) {
         const Entity p = w.parent(e);
@@ -191,10 +191,8 @@ std::vector<UndoCommand> restore_commands(const World& w, const std::vector<Enti
         if (at + 1 >= sib.size()) continue;  // last: where a paste puts it
         UndoCommand c;
         c.cmd = "scene.set_parent";
-        c.args = Json::object({{"id", w.id_of(e)},
-                               {"parent", w.id_of(p)},
-                               {"index", int64_t(at)},
-                               {"keepWorldTransform", false}});
+        c.args = Json::object(
+            {{"id", w.id_of(e)}, {"parent", w.id_of(p)}, {"index", int64_t(at)}, {"keepWorldTransform", false}});
         cmds.push_back(std::move(c));
     }
     return cmds;
@@ -334,7 +332,8 @@ std::optional<UndoPlan> plan_set_parent(const World& w, const Json& a) {
     UndoPlan plan;
     UndoCommand fwd;
     fwd.cmd = "scene.set_parent";
-    fwd.args = Json::object({{"id", w.id_of(e)}, {"parent", newParent.is_null() ? Json(nullptr) : Json(w.id_of(newParent))}});
+    fwd.args =
+        Json::object({{"id", w.id_of(e)}, {"parent", newParent.is_null() ? Json(nullptr) : Json(w.id_of(newParent))}});
     if (a.contains("keepWorldTransform")) fwd.args["keepWorldTransform"] = a["keepWorldTransform"];
     if (a.contains("index") && !a["index"].is_null()) fwd.args["index"] = a["index"];
     plan.forward.push_back(std::move(fwd));
