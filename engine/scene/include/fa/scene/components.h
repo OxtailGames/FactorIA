@@ -749,14 +749,15 @@ struct TextField : UiControl {
     std::int32_t selectionStart = 0, selectionEnd = 0;
     std::string composition;  // runtime: the IME's pre-edit string while the player is composing in this field, UTF-8
     std::int32_t compositionCaret = 0;  // runtime: the IME's caret inside `composition`, in code points
-    std::int32_t compositionSelection =
-        0;                  // runtime: code points from compositionCaret the IME is converting (0 = none)
+    // runtime: code points from compositionCaret the IME is converting (0 = none)
+    std::int32_t compositionSelection = 0;
     bool password = false;  // draws every character as '*', and Copy / Cut do nothing
     float scrollX = 0.0f;   // runtime: how many UI units the text is scrolled to the left (keeps the caret in view)
     TextField() { size = {320, 48}; }
     // Puts caretIndex, selectionStart and selectionEnd inside 0..(code points of `text`). Called by the UI every frame, so a
     // scene that was loaded with a wrong index, or a script that shortened `text`, never leaves one outside. The usual state
-    // of a field nobody edits (all three at 0) costs three comparisons, not a walk over the text.
+    // of a field nobody edits (all three at 0) costs three comparisons, not a walk over the text; one that was edited costs a
+    // count of the code points of its text (no allocation).
     void clamp_indices() {
         if (caretIndex == 0 && selectionStart == 0 && selectionEnd == 0) return;
         const std::int32_t n = std::int32_t(std::min<std::size_t>(utf8_length(text), 1000000));

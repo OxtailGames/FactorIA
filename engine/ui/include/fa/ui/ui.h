@@ -65,8 +65,8 @@ struct TextInputRequest {
     std::string text;
     std::int32_t maxLength = 0;
     bool multiline = false;  // no TextField is multi-line yet
-    bool password =
-        false;  // the field's `password`: the platform's keyboard must not suggest or remember what is typed
+    // The field's `password`: the platform's keyboard must not suggest or remember what is typed.
+    bool password = false;
 };
 // Returns true when the platform shows its own keyboard for the field. For a request with `focused` false it is ignored.
 using TextInputHandler = std::function<bool(const TextInputRequest&)>;
@@ -226,9 +226,13 @@ public:
     // `mapper` takes a design pixel to a FRAMEBUFFER pixel (the Engine sets it from its window, the same mapping as the platform
     // keyboard's rectangle: not divided by the DPI scale); without one, design pixels are framebuffer pixels. The editor's
     // embedded game view sets none, so a candidate window there sits at the design pixel, not under the viewport's caret.
+    // A turned TextField gives the IME the axis-aligned bounding box of its caret bar as drawn: the candidate window of a
+    // rotated field sits at that box, not on the tilted bar.
     // The IME is one per process, so only ONE UiSystem has it at a time: the first whose focused field wants it keeps it until that
-    // field loses the focus, the UiSystem is reset or destroyed; another UiSystem's TextField is typed into as a plain field
-    // (no composition, no candidate window) meanwhile and takes the IME the frame after it is free.
+    // field loses the focus, the UiSystem is reset or destroyed, or it stops updating (more than 30 update() calls of other
+    // UiSystems go by without one of its own: the editor's panels while a game runs, left with a focused field; the other UI then
+    // drops what was composing and takes over). Another UiSystem's TextField is typed into as a plain field (no composition, no
+    // candidate window) meanwhile and takes the IME on the update after it is free. Neither UiSystem is thread-safe: the game thread.
     void set_design_to_window(std::function<Vec2(Vec2)> mapper) { designToWindow_ = std::move(mapper); }
     // Text the platform keyboard returned: replaces the text of the field that took the keyboard if it still has the focus
     // (cut to its maxLength, control characters dropped) and sends ui.change when the text changed. False when no field is
@@ -388,8 +392,11 @@ private:
     Vec2 pointerPos_{};
     TextInputHandler textInput_;
     std::function<Vec2(Vec2)> designToWindow_;
-    bool imeOn_ = false;  // this UI holds the IME (a TextField has the focus and no other UiSystem had it first)
-    Entity imeField_;     // the TextField the IME is working for (the focused one; kNullEntity = none)
+    // This UI holds the IME (a TextField has the focus and no other UiSystem had it first).
+    bool holds_ime() const;
+    std::uint64_t imeUpdate_ =
+        0;             // the process-wide count of update() calls at this UI's last one (a holder that stopped)
+    Entity imeField_;  // the TextField the IME is working for (the focused one; kNullEntity = none)
     // Gives the IME back if this UI holds it: (cancels the composition,) turns it off.
     void release_ime(bool cancel = true);
     Clipboard* clipboard_ = nullptr;
@@ -397,8 +404,8 @@ private:
     Entity askedField_;     // the TextField the handler was asked about since it got the focus
     void release_platform_keyboard(const World* world);
     void drop_focus(World& world);  // lets go of the focus: the flag goes down, an Interactable sends ui.blur
-    bool keyboardRaised_ =
-        false;                    // the UI asked for the phone's keyboard (a TextField has focus, last input not a pad)
+    // The UI asked for the phone's keyboard (a TextField has focus, last input not a pad).
+    bool keyboardRaised_ = false;
     bool scrollToFocus_ = false;  // the focus changed: the next layout scrolls the focused widget into view
     float clock_ = 0.0f;          // the UI's own unscaled clock (caret blink)
     float caretStart_ = 0.0f;     // clock_ at the last edit or focus change: the caret is visible then

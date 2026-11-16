@@ -162,6 +162,10 @@ TEST_CASE("commands that only write files do not count as scene edits") {
                                  Json::parse(R"({"rows":["#"],"legend":{"#":0}})")));  // the running world
     CHECK(ed.command_edits_scene("scene.spawn", Json::object()));
     CHECK(ed.command_edits_scene("scene.set_component", Json::object()));
+    // a dry run only lists what it would reset: no undo step, no scene save
+    CHECK_FALSE(ed.command_edits_scene("ui.reset_layout_positions", Json::parse(R"({"dryRun":true})")));
+    CHECK(ed.command_edits_scene("ui.reset_layout_positions", Json::parse(R"({"dryRun":false})")));
+    CHECK(ed.command_edits_scene("ui.reset_layout_positions", Json::object()));
 }
 
 // The AI reads these registrations (api.components) and writes through the same patch_component call as scene.set_component.

@@ -229,7 +229,8 @@ Vec2 red_centre_of(const Image& img) {
 }
 
 // A Panel (not drawn: the card is its quad) with a red screen-space Shape2D child.
-Entity red_card(World& w, Vec2 panelAnchor, Vec2 panelPivot, Vec3 panelPos, Vec2 childAnchor, Vec3 childPos) {
+Entity red_card(World& w, Vec2 panelAnchor, Vec2 panelPivot, Vec3 panelPos, Vec2 childAnchor, Vec3 childPos,
+                Vec2 childSize = {8, 8}, float childDegrees = 0.0f) {
     Entity e = make(w, "card", panelPos);
     Panel& p = w.add<Panel>(e);
     p.size = {100, 20};
@@ -237,10 +238,11 @@ Entity red_card(World& w, Vec2 panelAnchor, Vec2 panelPivot, Vec3 panelPos, Vec2
     p.anchor = panelAnchor;
     p.color = Color{0, 0, 0, 0};
     Entity c = make(w, "red", childPos);
+    w.get<Transform>(c)->rotation = {0, 0, childDegrees};
     w.set_parent(c, e);
     Shape2D& s = w.add<Shape2D>(c);
     s.shape = ShapeType::Rectangle;
-    s.size = {8, 8};
+    s.size = childSize;
     s.color = Color{1, 0, 0, 1};
     s.anchor = childAnchor;
     s.layer = 50;
@@ -299,6 +301,39 @@ TEST_CASE("ui transform: under ui.mirrorRtl the turned card is its own mirror im
     CHECK(c.x == doctest::Approx(design.x - (design.x * 0.25f + 20.0f)).epsilon(0.02));
     CHECK(c.y == doctest::Approx(design.y * 0.5f + 10.0f + 30.0f).epsilon(0.02));
     CHECK(point_in_quad(c, *ui_quad(w, card, design)));
+}
+
+TEST_CASE("ui transform: under ui.mirrorRtl a visual with a rotation of its own is the mirror image of the "
+          "left-to-right one") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    w.add<Camera>(make(w, "cam")).clearColor = Color::black();
+    // A card turned 90 degrees whose red bar is turned 30 degrees on its own: the mirror image has the bar at minus 30, which
+    // a bar that only had its centre mirrored (the old path of the visual's own rotation) does not.
+    const Entity card =
+        red_card(w, {0.25f, 0.5f}, {0.5f, 0.5f}, {20, 10, 0}, {0.25f, 0.5f}, {30, 0, 0}, {24, 6}, 30.0f);
+    w.get<Transform>(card)->rotation = {0, 0, 90};
+    w.set_rtl(false);
+    const Image ltr = g.render(w);
+    w.set_rtl(true);  // ui_mirror_rtl is on by default
+    REQUIRE(ui_mirrored(w, card));
+    const Image rtl = g.render(w);
+    REQUIRE(ltr.width == rtl.width);
+    REQUIRE(ltr.height == rtl.height);
+    const auto red = [](const Image& img, int x, int y) {
+        const Color c = img.pixel(x, y);
+        return c.r > 0.5f && c.b < 0.3f;
+    };
+    int ink = 0, differ = 0;
+    for (int y = 0; y < ltr.height; ++y)
+        for (int x = 0; x < ltr.width; ++x) {
+            const bool a = red(ltr, ltr.width - 1 - x, y), b = red(rtl, x, y);
+            ink += a ? 1 : 0;
+            differ += a != b ? 1 : 0;
+        }
+    REQUIRE(ink > 50);
+    CHECK(differ * 20 <= ink);  // the same pixels, mirrored (an edge pixel or two aside)
 }
 
 TEST_CASE("ui transform: a plain group (no widget) that scales still scales its child's offset and keeps its anchor") {
