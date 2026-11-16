@@ -51,9 +51,10 @@ enum class Cls { Space, Word, Punct };
 Cls cls(char32_t c) {
     if (c == U' ' || c == U'\t' || c == U'\n' || c == U'\r' || c == 0xA0 || c == 0x3000 || (c >= 0x2000 && c <= 0x200A))
         return Cls::Space;
-    if (c < 0x80) return (c >= U'0' && c <= U'9') || (c >= U'a' && c <= U'z') || (c >= U'A' && c <= U'Z') || c == U'_'
-                             ? Cls::Word
-                             : Cls::Punct;
+    if (c < 0x80)
+        return (c >= U'0' && c <= U'9') || (c >= U'a' && c <= U'z') || (c >= U'A' && c <= U'Z') || c == U'_'
+                   ? Cls::Word
+                   : Cls::Punct;
     if ((c >= 0x2010 && c <= 0x2027) || (c >= 0x3001 && c <= 0x3003) || (c >= 0xFF01 && c <= 0xFF0F)) return Cls::Punct;
     return Cls::Word;
 }
@@ -75,7 +76,9 @@ std::size_t word_right(const U& u, std::size_t i) {
     return i;
 }
 
-std::size_t clampi(std::int32_t v, std::size_t n) { return std::size_t(std::clamp<std::int64_t>(v, 0, std::int64_t(n))); }
+std::size_t clampi(std::int32_t v, std::size_t n) {
+    return std::size_t(std::clamp<std::int64_t>(v, 0, std::int64_t(n)));
+}
 
 // Runs `f(u, caret, anchor)` on the decoded text and writes everything back; true when the text changed.
 template <class F>
@@ -147,6 +150,7 @@ bool insert(State& s, std::string_view text, const Options& o) {
         if (o.maxLength > 0) {
             const std::size_t kept = u.size() - (b - a);
             room = kept >= std::size_t(o.maxLength) ? 0 : std::min(room, std::size_t(o.maxLength) - kept);
+            while (room > 0 && room < add.size() && !is_boundary(add, room)) --room;  // never inside an emoji sequence
         }
         if (room == 0) return;
         u.replace(a, b - a, add.substr(0, room));
@@ -163,7 +167,7 @@ bool backspace(State& s, bool word) {
             return;
         }
         if (caret == 0) return;
-        const std::size_t from = word ? word_left(u, caret) : prev_boundary(u, caret);
+        const std::size_t from = word ? (s.oneWord ? 0 : word_left(u, caret)) : prev_boundary(u, caret);
         u.erase(from, caret - from);
         caret = anchor = from;
     });
@@ -178,7 +182,7 @@ bool del(State& s, bool word) {
             return;
         }
         if (caret >= u.size()) return;
-        const std::size_t to = word ? word_right(u, caret) : next_boundary(u, caret);
+        const std::size_t to = word ? (s.oneWord ? u.size() : word_right(u, caret)) : next_boundary(u, caret);
         u.erase(caret, to - caret);
         anchor = caret;
     });
@@ -196,7 +200,7 @@ void move_left(State& s, bool word, bool extend) {
             caret = anchor = std::min(caret, anchor);
             return;
         }
-        caret = word ? word_left(u, caret) : prev_boundary(u, caret);
+        caret = word ? (s.oneWord ? 0 : word_left(u, caret)) : prev_boundary(u, caret);
         if (!extend) anchor = caret;
     });
 }
@@ -207,7 +211,7 @@ void move_right(State& s, bool word, bool extend) {
             caret = anchor = std::max(caret, anchor);
             return;
         }
-        caret = word ? word_right(u, caret) : next_boundary(u, caret);
+        caret = word ? (s.oneWord ? u.size() : word_right(u, caret)) : next_boundary(u, caret);
         if (!extend) anchor = caret;
     });
 }
@@ -231,6 +235,11 @@ void select_word_at(State& s, std::int32_t index) {
     edit(s, [&](U& u, std::size_t& caret, std::size_t& anchor) {
         if (u.empty()) {
             caret = anchor = 0;
+            return;
+        }
+        if (s.oneWord) {
+            anchor = 0;
+            caret = u.size();
             return;
         }
         std::size_t i = clampi(index, u.size());

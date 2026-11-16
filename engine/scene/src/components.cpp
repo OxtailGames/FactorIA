@@ -3060,7 +3060,9 @@ void register_builtin_components(TypeRegistry& r) {
             "the caret, a drag selects, a double click selects a word, a triple click all of it. Focusing a field puts "
             "the caret at the end of its text. The caret never stops inside a base character plus its combining marks "
             "or an emoji sequence. Text composed with an input method shows at the caret, underlined, and is typed "
-            "when the player commits it. Events: ui.change {id, value} on every edit (one per frame), ui.submit "
+            "when the player commits it (a click in the field, or the focus moving to another field, commits it too). "
+            "Caret and selection assume left-to-right text for now. A field that loses the focus keeps its last "
+            "scroll. Events: ui.change {id, value} on every edit (one per frame), ui.submit "
             "{id, value} on Enter. Space types a space (ui_submit is ignored); Up / Down move the focus.",
             "UI");
         ui_control_fields(field)
@@ -3069,8 +3071,10 @@ void register_builtin_components(TypeRegistry& r) {
             .field("maxLength", &TextField::maxLength, "Longest text, in characters (code points). 0 = unlimited.")
             .range(0, 1000000)
             .field("password", &TextField::password,
-                   "Draws every character (and the composition) as '*'; Copy and Cut do nothing. `text` still holds "
-                   "what was typed.")
+                   "Draws every character (and the composition) as '*'; Copy and Cut do nothing, the platform's input "
+                   "method "
+                   "is off, and the whole text is one word (word keys go to its ends, a double click selects all). "
+                   "`text` still holds what was typed and scripts can read it, and the composition.")
             .field("caret", &TextField::caret,
                    "Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled "
                    "clock; it "

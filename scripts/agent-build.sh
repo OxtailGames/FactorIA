@@ -31,8 +31,12 @@
 # runs a windowed program skips that step and is listed too), and the job ends as `DONE INCOMPLETE`. Wake the display
 # and run the listed tests, or leave them to CI. FA_AGENT_WINDOW_TESTS=run runs them whatever the display says.
 #
-# Environment: FA_AGENT_JOBS (build jobs, default 8 or the CPU count), FA_AGENT_CTEST_JOBS (parallel tests, default 3:
-# some tests are timing sensitive), FA_AGENT_WAIT_S, FA_AGENT_DEBUG_FLAGS, FA_AGENT_WINDOW_TESTS. bash 3.2 (macOS) runs
+# At most three jobs build or test at once on one machine (FA_AGENT_MAX_JOBS), counting every checkout and worktree of
+# this user: one more waits for a free slot and reports `RUNNING (waiting for a build slot ...)` meanwhile.
+#
+# Environment: FA_AGENT_MAX_JOBS (jobs at once on this machine, default 3), FA_AGENT_JOBS (build jobs, default the CPU
+# count divided by FA_AGENT_MAX_JOBS, 2 to 8), FA_AGENT_CTEST_JOBS (parallel tests, default 3: some tests are timing
+# sensitive), FA_AGENT_SLOTS_DIR, FA_AGENT_WAIT_S, FA_AGENT_DEBUG_FLAGS, FA_AGENT_WINDOW_TESTS. bash 3.2 (macOS) runs
 # this file: no associative arrays, no mapfile.
 set -uo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -69,7 +73,15 @@ case "$BUILD_DIR" in
 esac
 
 ncpu="$( (nproc || sysctl -n hw.ncpu) 2>/dev/null || echo 4)"
-JOBS="${FA_AGENT_JOBS:-$(( ncpu < 8 ? ncpu : 8 ))}"
+# At most MAX_JOBS jobs build or test at once on this machine, whatever checkout or build dir they come from: twelve
+# agents building side by side (load 108 on a 10-core Mac) left the computer unusable. A job past the limit waits for a
+# slot (it shows as `RUNNING (waiting for a build slot ...)`). Each job's share of the cores is its default -j.
+MAX_JOBS="${FA_AGENT_MAX_JOBS:-3}"
+case "$MAX_JOBS" in ''|*[!0-9]*|0) MAX_JOBS=3 ;; esac
+SLOTS_DIR="${FA_AGENT_SLOTS_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/factoria/agent-build-slots}"
+share=$(( (ncpu + MAX_JOBS - 1) / MAX_JOBS ))
+[ $share -lt 2 ] && share=2
+JOBS="${FA_AGENT_JOBS:-$(( share < 8 ? share : 8 ))}"
 CTEST_JOBS="${FA_AGENT_CTEST_JOBS:-3}"
 WAIT_S="${FA_AGENT_WAIT_S:-100}"
 DEBUG_FLAGS="${FA_AGENT_DEBUG_FLAGS:--O1 -g1}"
@@ -112,6 +124,49 @@ job_running() {
     local pid
     pid="$(cat "$PID_FILE" 2>/dev/null)"
     [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+
+# ---------------------------------------------------------------------------------------------------------------------
+# Build slots, shared by every job of this user on this machine: $SLOTS_DIR/slot-<n> is a directory (mkdir is atomic)
+# holding the pid and build dir of the job that owns it. A slot whose job is gone (killed, machine restarted) is taken
+# over. The job holds its slot from configure to the last test, and frees it when it exits.
+
+SLOT=""
+slot_owner_alive() {  # slot_owner_alive <slot dir>
+    local pid
+    pid="$(sed -n 1p "$1/owner" 2>/dev/null)"
+    [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null
+}
+release_slot() {
+    [ -n "$SLOT" ] && [ "$(sed -n 1p "$SLOT/owner" 2>/dev/null)" = "$$" ] && rm -rf "$SLOT"
+    SLOT=""
+}
+acquire_slot() {
+    local i dir busy waited=0
+    mkdir -p "$SLOTS_DIR" 2>/dev/null || { say "note: cannot create $SLOTS_DIR: building without the job limit"; return 0; }
+    while :; do
+        i=1
+        while [ $i -le "$MAX_JOBS" ]; do
+            dir="$SLOTS_DIR/slot-$i"
+            if mkdir "$dir" 2>/dev/null; then
+                printf '%s\n%s\n' "$$" "$BUILD_DIR" > "$dir/owner"
+                SLOT="$dir"
+                [ $waited = 1 ] && say "waited $((SECONDS - T_WAIT)) s for a build slot ($MAX_JOBS jobs at most)"
+                return 0
+            fi
+            # A slot left by a job that no longer runs (or that is still being written: give it a moment).
+            if [ -f "$dir/owner" ] && ! slot_owner_alive "$dir"; then rm -rf "$dir"; continue; fi
+            if [ ! -f "$dir/owner" ] && [ -n "$(find "$dir" -maxdepth 0 -mmin +1 2>/dev/null)" ]; then
+                rm -rf "$dir"; continue
+            fi
+            i=$((i + 1))
+        done
+        if [ $waited = 0 ]; then waited=1; T_WAIT=$SECONDS; fi
+        busy="$(for dir in "$SLOTS_DIR"/slot-*; do sed -n 2p "$dir/owner" 2>/dev/null; done | relative |
+            tr '\n' ' ' | sed 's/ *$//')"
+        set_phase "waiting for a build slot ($MAX_JOBS jobs at most; running: ${busy:-?})" ""
+        sleep 5
+    done
 }
 
 # ---------------------------------------------------------------------------------------------------------------------
@@ -389,6 +444,9 @@ example_part() {
 run_job() {
     local rc=0 part
     : > "$OUT_FILE"
+    trap release_slot EXIT
+    trap 'exit 143' TERM INT HUP
+    acquire_slot
     if [ $EXAMPLES_ONLY = 0 ]; then
         debug_part; part=$?
         case $part in 0) ;; 77) rc=77 ;; *) rc=1 ;; esac

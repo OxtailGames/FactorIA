@@ -24,7 +24,11 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 - `TextField` editing: a caret you move with the arrows (by word with Ctrl, Alt on macOS), Home / End, Delete, a selection
   (Shift, drag, double click, Ctrl/Cmd+A), cut / copy / paste of the selection, a scrolling field, `password`, and the IME
   composition drawn at the caret with an exact caret rectangle for the candidate window. Ctrl/Cmd+C with nothing selected
-  no longer copies the whole text. New runtime fields `compositionCaret`, `compositionSelection`, `scrollX`.
+  no longer copies the whole text. New runtime fields `compositionCaret`, `compositionSelection`, `scrollX`. A click, or a focus move, commits a
+  composition into the field it began in; a password field keeps the input method off, passes `password` to the platform
+  keyboard and is one word for word keys and a double click; `maxLength` never cuts inside an emoji sequence; a script's
+  write to `text` moves the caret at once; an unfocused long field keeps its last scroll; caret and selection assume
+  left-to-right text for now.
 - macOS and iOS: a focused `TextField` composes natively. Japanese, Chinese and Korean input methods show their pre-edit
   text as a composition, put the candidate window under the caret and type only the committed text, once; dead keys
   (Option-E) show their pending accent. The keys the input method did not use, and all keys while no field has the focus,

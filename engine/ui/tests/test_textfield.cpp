@@ -18,10 +18,12 @@ using fa_ui_test::Ui;
 using fa_ui_test::V;
 namespace te = fa::text_edit;
 
-te::State st(const char* text, int caret, int anchor = -1) { return te::State{text, caret, anchor < 0 ? caret : anchor}; }
+te::State st(const char* text, int caret, int anchor = -1) {
+    return te::State{text, caret, anchor < 0 ? caret : anchor};
+}
 
-constexpr const char* kEAcute = "\xC3\xA9";      // U+00E9
-constexpr const char* kEComb = "e\xCC\x81";      // e + U+0301: two code points, one character
+constexpr const char* kEAcute = "\xC3\xA9";  // U+00E9
+constexpr const char* kEComb = "e\xCC\x81";  // e + U+0301: two code points, one character
 constexpr const char* kFamily = "\xF0\x9F\x91\xA8\xE2\x80\x8D\xF0\x9F\x91\xA9";  // man ZWJ woman
 constexpr const char* kFlagEs = "\xF0\x9F\x87\xAA\xF0\x9F\x87\xB8";              // two regional indicators
 
@@ -223,7 +225,9 @@ TEST_CASE("text_edit: UTF-8 multi-byte text, clusters never split, indices are c
     CHECK(s.anchor == 5);
     CHECK(te::selected_text(s) == std::string(kEComb) + "z");
     // an ill-formed byte is one U+FFFD and does not break the model
-    te::State bad = st("a\xFF" "b", 3);
+    te::State bad = st("a\xFF"
+                       "b",
+                       3);
     CHECK(te::length(bad) == 3);
     CHECK(te::backspace(bad, false));
     CHECK(te::length(bad) == 2);
@@ -248,6 +252,7 @@ TEST_CASE("text_edit cut and copy of the selection") {
 
 TEST_CASE("text_field_view: caret, selection and click positions follow the text, a narrow field scrolls") {
     TextField tf;
+    tf.focused = true;
     tf.text = "abcdefghij";
     const TextFieldMeasure m = [](const std::string& s) { return Vec2{float(utf8_length(s)) * 10.0f, 20.0f}; };
     const Rect r{0, 0, 74, 30};  // inner width 50: five characters
@@ -508,29 +513,141 @@ TEST_CASE("ui textfield editing: the composition shows at the caret and is typed
     // The UI of this test measures with approx_text_size (0.6 em per byte): the same here.
     const TextFieldMeasure m = [&](const std::string& s) { return approx_text_size(s, 24.0f, 0.0f); };
     const TextFieldView v = text_field_view(f, Rect{0, 0, 300, 30}, m);
-    CHECK(v.display == "ab\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86" "cd");
+    CHECK(v.display == "ab\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86"
+                       "cd");
     CHECK(v.composing);
     CHECK(v.compX0 == doctest::Approx(12 + 2 * cw));
     CHECK(v.compX1 == doctest::Approx(12 + 2 * cw + 9 * cw));
     CHECK(v.caretX == doctest::Approx(12 + 2 * cw + 6 * cw));  // two code points of three bytes into the composition
     CHECK(v.clauseX0 == doctest::Approx(v.caretX));
     CHECK(v.clauseX1 == doctest::Approx(12 + 2 * cw + 9 * cw));
-    CHECK(ime_state().caretRect.x == doctest::Approx(2.0f * v.caretX));  // the IME's window follows the composition caret
+    CHECK(ime_state().caretRect.x ==
+          doctest::Approx(2.0f * v.caretX));  // the IME's window follows the composition caret
     // an arrow or Backspace belongs to the IME meanwhile
     tap(t, Key::Backspace);
     CHECK(f.text == "abcd");
     t.in.on_composition_commit(U"あい");
     t.frame();
-    CHECK(f.text == "ab\xE3\x81\x82\xE3\x81\x84" "cd");
+    CHECK(f.text == "ab\xE3\x81\x82\xE3\x81\x84"
+                    "cd");
     CHECK(f.composition.empty());
     CHECK(f.caretIndex == 4);
-    CHECK(t.events().back() == "ui.change:f=\"ab\xE3\x81\x82\xE3\x81\x84" "cd\"");
-    // a click gives the composition up
+    CHECK(t.events().back() == "ui.change:f=\"ab\xE3\x81\x82\xE3\x81\x84"
+                               "cd\"");
+    // a click inside the field commits the composition at the caret it began at (once), then puts the caret where it landed
     t.in.on_composition_update(U"う", 1, 0);
     t.frame();
+    const int cancels = ime_state().cancels;
     t.click({20, 15});
     CHECK_FALSE(t.in.composing());
     CHECK(f.composition.empty());
+    CHECK(f.text == "ab\xE3\x81\x82\xE3\x81\x84\xE3\x81\x86"
+                    "cd");
+    CHECK(ime_state().cancels == cancels + 1);  // the backend was told to forget it, and delivered nothing
+    CHECK(t.in.text_input().empty());
+    CHECK(f.caretIndex <= 1);  // the click landed at the start of the field
+}
+
+TEST_CASE("ui textfield editing: moving the focus to another field commits the composition into the first one") {
+    ImeGuard guard;
+    Ui t;
+    Entity a = t.add<TextField>("a", {0, 0}, {300, 30});
+    Entity b = t.add<TextField>("b", {0, 100}, {300, 30});
+    TextField& fa_ = *t.w.get<TextField>(a);
+    TextField& fb = *t.w.get<TextField>(b);
+    fa_.autoFocus = true;
+    fa_.text = "ab";
+    t.frame();
+    t.in.on_composition_update(U"xy", 2, 0);
+    t.frame();
+    t.click({20, 115});  // the second field takes the focus
+    CHECK(fa_.text == "abxy");
+    CHECK(fb.text.empty());
+    CHECK_FALSE(t.in.composing());
+}
+
+TEST_CASE("ui textfield editing: a script writing the text of the focused field moves the caret and the IME rectangle "
+          "at once") {
+    ImeGuard guard;
+    Field F("ab");
+    TextField& f = *F.f;
+    const float cw = 24.0f * 0.6f;
+    f.text = "hello world";
+    F.t.frame();  // no key pressed
+    CHECK(f.caretIndex == 11);
+    CHECK(f.selectionStart == 11);
+    CHECK(f.selectionEnd == 11);
+    CHECK(ime_state().caretRect.x == doctest::Approx(12.0f + 11 * cw));
+}
+
+TEST_CASE("ui textfield editing: a double click selects the character under the pointer's word, not the nearest edge") {
+    Field F("hello brave world", {400, 30});
+    TextField& f = *F.f;
+    const float x0 = 12.0f, cw = 14.4f;
+    F.t.frame(60);
+    // the right half of the last letter of "hello" (index 4): still "hello"
+    const Vec2 lastLetter{x0 + cw * 4.0f + cw * 0.8f, 15};
+    F.t.click(lastLetter);
+    F.t.click(lastLetter);
+    CHECK(f.selectionStart == 0);
+    CHECK(f.selectionEnd == 5);
+    F.t.frame(60);
+    // the right half of the single space (index 5): the space only
+    const Vec2 onSpace{x0 + cw * 5.0f + cw * 0.8f, 15};
+    F.t.click(onSpace);
+    F.t.click(onSpace);
+    CHECK(f.selectionStart == 5);
+    CHECK(f.selectionEnd == 6);
+}
+
+TEST_CASE("ui textfield editing: the platform keyboard request carries the password flag") {
+    Ui t;
+    std::vector<TextInputRequest> seen;
+    t.ui.set_text_input_handler([&](const TextInputRequest& r) {
+        seen.push_back(r);
+        return true;
+    });
+    t.in.set_last_device(InputDevice::Gamepad);
+    Entity e = t.add<TextField>("f", {0, 0}, {300, 30});
+    TextField& f = *t.w.get<TextField>(e);
+    f.autoFocus = true;
+    f.password = true;
+    t.frame();
+    REQUIRE_FALSE(seen.empty());
+    CHECK(seen.front().focused);
+    CHECK(seen.front().password);
+}
+
+TEST_CASE("ui textfield editing: a password is one word, and the input method stays off") {
+    ImeGuard guard;
+    Field F("pass word-1", {400, 30});
+    TextField& f = *F.f;
+    CHECK(ime_state().enabled);
+    f.password = true;
+    F.t.frame();
+    CHECK_FALSE(ime_state().enabled);
+    tap(F.t, Key::Left, {kWord});  // the whole text is one word: the caret goes to the start
+    CHECK(f.caretIndex == 0);
+    tap(F.t, Key::Delete, {kWord});  // and the word after the caret is all of it
+    CHECK(f.text.empty());
+    f.text = "pass word-1";
+    F.t.frame();
+    F.t.frame(60);
+    F.t.click({40, 15});
+    F.t.click({40, 15});  // a double click selects all
+    CHECK(f.selectionStart == 0);
+    CHECK(f.selectionEnd == 11);
+}
+
+TEST_CASE("ui textfield editing: maxLength never cuts inside an emoji sequence") {
+    Field F("", {400, 30});
+    TextField& f = *F.f;
+    f.maxLength = 3;
+    MemoryClipboard clip;
+    F.t.ui.set_clipboard(&clip);
+    clip.set(std::string("a") + kFamily + "b");  // a, man ZWJ woman, b: five code points; 3 would cut after ZWJ
+    tap(F.t, Key::V, {Key::LeftControl});
+    CHECK(f.text == "a");
 }
 
 TEST_CASE("ui textfield editing: a password field masks the text and the composition and never copies") {
