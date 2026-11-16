@@ -461,6 +461,8 @@ void Input::rumble(const RumbleRequest& req) {
     r.low = std::isfinite(r.low) ? std::clamp(r.low, 0.0f, 1.0f) : 0.0f;
     r.high = std::isfinite(r.high) ? std::clamp(r.high, 0.0f, 1.0f) : 0.0f;
     r.seconds = std::isfinite(r.seconds) ? std::clamp(r.seconds, 0.0f, kMaxRumbleSeconds) : 0.0f;
+    if (r.low <= 0.0f && r.high <= 0.0f)
+        r.seconds = 0.0f;  // both motors still: that is a stop, however long it was asked for
     if (rumbleLog_.size() < 256) rumbleLog_.push_back(r);  // nobody clears it in a headless run: keep the log short
     Pad& pad = pads_[size_t(r.pad)];
     const std::uint32_t serial = pad.rumble.serial + 1;
@@ -826,6 +828,9 @@ void Input::release_pad(int index) {
         pad.buttons[i] = false;
     }
     pad.axes.fill(0.0f);
+    pad.canRumble =
+        false;  // a pad that comes back says again (a physical one at its next poll, a test pad with connect())
+    pad.rumbleReason = "there is no pad in this slot";
     if (pad.rumble.low != 0.0f || pad.rumble.high != 0.0f || pad.rumble.remaining != 0.0f) {
         const std::uint32_t serial = pad.rumble.serial + 1;  // no pad, no motors: the hardware layer sees a stop
         pad.rumble = {};

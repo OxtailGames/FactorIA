@@ -156,6 +156,7 @@ struct Engine::Impl {
     bool wasUserPaused =
         false;  // scripts.user_time_scale() was 0 at the start of the last frame (pad rumble stops on the edge)
     void advance_pad_rumble(double dt);
+    void cut_pad_rumble_on_pause();
     bool quit = false;
     bool appEnded = false;  // end_app() ran
     bool inFrame = false;   // between the start and the end of run_frame (commands defer risky work)

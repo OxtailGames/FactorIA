@@ -554,11 +554,19 @@ void Engine::Impl::poll_hot_reload(bool force) {
     }
 }
 
-// The engine clock of pad rumble: the frame's time runs every pad's request down, at the START of the frame, so a request of
-// one frame is still seen once by the hardware layer. The game pausing itself (game.paused = true, time.scale 0) stops every pad
-// at that moment; a request made while it stays paused (a menu click) plays on, ending with its seconds.
+// The engine clock of pad rumble: the frame's own duration (real time, not scaled by time.scale: a slow-motion hit-stop does not
+// stretch a rumble) runs every pad's request down, at the START of the frame, so a request of one frame is still seen once by
+// the hardware layer. The game pausing itself (game.paused = true, time.scale 0) stops every pad at that moment; a request made
+// while it stays paused (a menu click) plays on, ending with its seconds.
 void Engine::Impl::advance_pad_rumble(double dt) {
     input.advance_rumble(dt);
+    cut_pad_rumble_on_pause();
+}
+
+// The edge of the game pausing itself. Checked at the start of a frame (a pause a command or the editor made between frames)
+// and again at its end, so a script that pauses and rumbles in the same frame does not buzz for one frame: the hardware layer
+// runs after the frame and never sees that request.
+void Engine::Impl::cut_pad_rumble_on_pause() {
     const bool userPaused = scripts.user_time_scale() <= 0.0;
     if (userPaused && !wasUserPaused) input.stop_all_rumble();
     wasUserPaused = userPaused;
@@ -694,6 +702,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         ProfSystemScope prof(ProfSystem::ScriptsUpdate);
         scripts.update(float(dt));
     }
+    cut_pad_rumble_on_pause();  // a script that paused this frame: its rumble of the same frame is cut too
     {
         ProfSystemScope prof(ProfSystem::Audio);
         audio.update(world, float(dt));
@@ -1191,6 +1200,8 @@ void Engine::frame(double dt) {
         const jobs::OwnerScope jobScope(&I.jobOwner);
         I.inFrame = true;
         I.input.advance_rumble(dt);  // a request made while the engine is paused (the console) still ends by itself
+        I.wasUserPaused =
+            I.scripts.user_time_scale() <= 0.0;  // a pause the game made meanwhile is not an edge on resume
         I.jobOwner.run_main_thread_tasks();  // a paused game still takes the results of its jobs (a load that finished)
         jobs::run_main_thread_tasks();
         I.audio.service();  // the sounds a paused game (or the editor) still plays keep their streams decoded

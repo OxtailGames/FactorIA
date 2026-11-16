@@ -34,6 +34,12 @@ TEST_CASE("evdev rumble: strengths are clamped, the length is whole milliseconds
     r = evdev_rumble(1.0f, 1.0f, 100.0f);
     CHECK(r.lengthMs == 65535);
     CHECK(r.clamped);
+    const float inf = std::numeric_limits<float>::infinity();
+    r = evdev_rumble(1.0f, 1.0f, inf);  // no undefined conversion of an infinite length
+    CHECK(r.lengthMs == 65535);
+    CHECK(r.clamped);
+    CHECK(android_rumble(1.0f, 1.0f, inf, 1).millis == kAndroidRumbleMaxMillis);
+    CHECK(apple_rumble(1.0f, 1.0f, inf, true, true).seconds == kAppleHapticMaxSeconds);
 }
 
 TEST_CASE("android rumble: one vibrator plays the stronger motor, two split low and high, amplitudes are 1..255") {

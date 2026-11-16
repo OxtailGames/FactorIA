@@ -44,11 +44,15 @@
 //
 // At exit (std::atexit, registered when the backend starts), within kExitBudgetMs for every pad together: the XInput
 // motors that were set are zeroed, every HID write in flight is waited for, a HID pad still playing gets its stop, and
-// the driver's exit report goes out (the Switch Pro back to its simple report). On a crash an unhandled-exception filter,
-// chained to the one before it, zeroes the XInput motors (from a thread made for it beforehand, waited for at most
-// kCrashStopWaitMs: the crashing thread may hold any lock); the HID pads are left alone there, their writes need the
-// backend's state, which a crash may have left half-changed. A hang, a debugger that stops the game or a killed process
-// leave the motors as they are, until the pad is switched off.
+// the driver's exit report goes out (the Switch Pro back to its simple report; over USB that is not verified on a real pad).
+// On an unhandled exception (an access violation...) a filter, chained to the one before it, zeroes the XInput motors (from a
+// thread made for it beforehand, waited for at most kCrashStopWaitMs: the crashing thread may hold any lock); the HID pads
+// are left alone there, their writes need the backend's state, which a crash may have left half-changed. A PlayStation pad
+// then keeps shaking; a Switch Pro stops by itself about 50 ms later (its rumble needs the report repeated,
+// kSwitchRumbleRefreshMs). What does not go through that filter leaves the XInput motors on too: abort() (an assert, a
+// noexcept violation, std::terminate), an invalid-parameter or pure-virtual-call handler (crash_win32.cpp ends the process
+// there without exit hooks), a hang, a debugger that stops the game or a killed process; they stay until the pad is
+// switched off or another program sets them.
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -136,7 +140,8 @@ void stop_xinput_motors() {
 constexpr DWORD kCrashStopWaitMs = 200;
 std::atomic<HANDLE> g_crashWake{nullptr};  // set once the thread runs: the filter signals it
 HANDLE g_crashDone = nullptr;              // the thread signals it once the motors are stopped
-LPTOP_LEVEL_EXCEPTION_FILTER g_previousFilter = nullptr;
+// The filter before ours. Written once after ours is installed and read by the filter, which may run on any thread.
+std::atomic<LPTOP_LEVEL_EXCEPTION_FILTER> g_previousFilter{nullptr};
 std::atomic<bool> g_crashSeen{
     false};  // a second crash (in another thread, or in the filter after ours) goes straight on
 
@@ -152,7 +157,8 @@ LONG WINAPI on_unhandled_exception(EXCEPTION_POINTERS* e) {
         SetEvent(wake);
         WaitForSingleObject(g_crashDone, kCrashStopWaitMs);
     }
-    return g_previousFilter ? g_previousFilter(e) : EXCEPTION_CONTINUE_SEARCH;
+    const LPTOP_LEVEL_EXCEPTION_FILTER previous = g_previousFilter.load();
+    return previous ? previous(e) : EXCEPTION_CONTINUE_SEARCH;
 }
 
 // Makes the crash-stop thread and installs the filter, the first time an XInput motor starts (main thread only). A
@@ -172,7 +178,7 @@ void arm_crash_stop() {
         return;
     }
     CloseHandle(thread);  // it ends with the process (or after a crash stop)
-    g_previousFilter = SetUnhandledExceptionFilter(on_unhandled_exception);
+    g_previousFilter.store(SetUnhandledExceptionFilter(on_unhandled_exception));
 }
 
 float thumb(SHORT v) { return std::clamp(float(v) / 32767.0f, -1.0f, 1.0f); }
