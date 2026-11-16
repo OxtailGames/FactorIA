@@ -1525,6 +1525,21 @@ void Editor::at_section_M4(AtScript& at) {
                      "Shift+click selects the rows from the last one clicked to this one, in tree order");
             at_check(selected_id() == "coin_1", "...and the row clicked is the primary");
         });
+        // a second Shift click starts from the same row (ground), not from the row the first one ended on
+        hold(true, true);
+        click("tree:platform_1");
+        hold(true, false);
+        step(3, [this, sel_is] {
+            at_check(sel_is({"ground", "platform_1"}),
+                     "a second Shift+click still selects from the row clicked without Shift (the anchor stays)");
+            at_check(selected_id() == "platform_1", "...and the row of the second Shift+click is the primary");
+        });
+        hold(true, true);
+        click("tree:coin_1");
+        hold(true, false);
+        step(3, [this, sel_is] {
+            at_check(sel_is({"ground", "platform_1", "player", "coin_1"}), "...as often as you like");
+        });
         snap("editor_multi_hierarchy.png");
 
         // 2. The viewport: a marquee selects what it covers entirely; Shift adds; Ctrl+click toggles one.

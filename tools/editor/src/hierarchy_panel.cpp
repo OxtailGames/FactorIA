@@ -113,6 +113,7 @@ void Editor::hierarchy_duplicate_selection() {
         if (c != primaryCopy) selection_.add(c);
     if (!primaryCopy.empty()) selection_.add(primaryCopy);  // the copy of the primary stays the primary
     hierAnchor_ = selection_.primary();
+    hierLastSelected_ = selection_.primary();
 }
 
 void Editor::hierarchy_destroy_selection() {
@@ -160,6 +161,9 @@ void Editor::hierarchy_reparent(const std::string& dragged, const std::string& p
 void Editor::hier_click(const std::string& id) {
     const ImGuiIO& io = ImGui::GetIO();
     click_in_list(selection_, id, SelectMods{io.KeyCtrl, io.KeyShift}, hierAnchor_, hierRowsPrev_);
+    // The tree made this change itself: the panel must not take it for the viewport's and reset the anchor to the primary
+    // (a Shift click moves the primary to the clicked row, and the next Shift click still starts from the anchor).
+    hierLastSelected_ = selection_.primary();
 }
 
 void Editor::draw_hierarchy_node(Entity e, const std::string& filter) {
@@ -218,6 +222,7 @@ void Editor::draw_hierarchy_node(Entity e, const std::string& filter) {
         if (ImGui::IsItemHovered() && dragged.x == 0.0f && dragged.y == 0.0f) {
             select_id(id);
             hierAnchor_ = id;
+            hierLastSelected_ = selection_.primary();
         }
         hierClickPending_.clear();
     }
@@ -225,6 +230,7 @@ void Editor::draw_hierarchy_node(Entity e, const std::string& filter) {
         !isSelected) {  // on a selected row the menu acts on the whole selection
         select_id(id);
         hierAnchor_ = id;
+        hierLastSelected_ = selection_.primary();
     }
     if (ImGui::IsItemHovered() && !info.name.empty()) ImGui::SetItemTooltip("id: %s", id.c_str());
 
