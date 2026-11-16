@@ -47,7 +47,7 @@ and `Button.icon` (docs.components).
   the missing-texture checker and logs why. Every test file starts with no textures.
 - The engine keeps each texture's pixels in memory as well (width x height x 4 bytes) so `toPNG()` works in every run.
 
-```js
+```js fragment
 // Save: the picture goes into storage with the slot. Take it BEFORE a menu covers the game.
 const tex = render.captureTexture({ width: 156, height: 156 });
 if (!tex.placeholder) storage.set("slot1.pic", tex.toPNG());
@@ -156,7 +156,7 @@ A model written as data (`*.model.json`, docs/MODELING.md) is baked to a `.glb` 
 After an `await` (`scene.preload`, `http.fetch`, a timer) the scene may have changed, and the meshes of the old one are
 released: compare `scene.generation` with the value you kept before you use a mesh you made or build a new one.
 
-```js
+```js fragment
 async onStart() {
   const gen = scene.generation;                 // changes on every load, also of the same scene
   const r = await http.fetch("https://api.example.com/terrain").catch(() => null);

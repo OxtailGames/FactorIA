@@ -101,7 +101,7 @@ Action: `{"action":"flash","color":"#ffffff","duration":0.1,"fade":true,"strengt
 
 ## Knockback
 
-```js
+```js fragment
 player.knockback([-1, 0.3]);                             // away from the hit, a little up (default speed)
 enemy.knockback(enemy.transform.position.sub(hitPoint), { speed: 6, lockTime: 0.3 });
 

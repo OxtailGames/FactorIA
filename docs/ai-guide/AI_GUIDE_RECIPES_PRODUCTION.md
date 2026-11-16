@@ -10,7 +10,7 @@ Part of [AI guide](../AI_GUIDE.md): recipes 9.26 to 9.32: 2D production, enemy A
 - **Lights and shadows from tiles.** A dungeon or cave: `Tilemap.occludesLight = true` makes the tiles of `solidTiles` (the ones that already collide) block light, and `Light2D.castShadows = true` on a point light makes it cast: the far side of a wall stays dark, the wall's own face stays lit, and editing a tile at run time (`tilemap.setTile`, the command `tilemap.set_tile`) moves the shadows on the next frame. Both default to false. At most 32 point lights per frame cast shadows (the ones ranked first, `renderStats().lights2dShadowed` counts them; the others shine through walls and the engine warns once per scene): give `castShadows` to the torch the player carries and the few that matter, not to every candle. A light that does not move does not recompute its shadow rays (only its pixels cost, frame after frame). `SceneSettings.lightScale` (0.25 to 1, default 1) is the size of the light buffer as a fraction of the picture: use 0.5 on phones and the web with many lights. Costs: PERFORMANCE.md, "2D lights".
   ```js
   // a wall of solid tiles that blocks light, a torch that casts shadows
-  const map = game.find("walls");
+  const map = world.find("walls");
   map.get("Tilemap").occludesLight = true;          // solidTiles already says which tiles are walls
   world.spawn({ name: "Torch", components: {
     Transform: { position: [120, 80, 0] },

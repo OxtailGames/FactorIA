@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Docs tests (M97.4):** every ```` ```js ```` block of `docs/` (the design docs too) is parsed with the engine's QuickJS
+  and its `root.member` names (`world.`, `ui.`, `tween.`, `Vec2.`...) are checked against the generated script typings
+  (`tools/common/tests/docs_js_test.cpp`); a failure names the file and line and suggests the closest name. A block that is
+  only a piece of a script (a class method, a `return` outside a function) opens with ```` ```js fragment ```` and is not
+  parsed. The docs the test flagged are corrected.
 - **Android end and build, polish (M98):** in a `game.on("quit")` handler on Android the code after `await storage.setAsync(...)`
   now runs (the end delivers each finished write, runs what it wakes, up to 16 writes in a row); before, only the write itself
   was waited for. The end closes only the audio device (it no longer waits for the music's decodes or releases the clips).

@@ -217,7 +217,7 @@ not functions) that the new scene's scripts read with `game.sceneProps()`, from 
 fresh copy, so changing it changes nothing. `factoria run --props '{"level":3}'` (or a `.json` file) starts the first scene with
 props; `game.load(path, props)` and `game.loadJson(scene, props)` do the same in a test.
 
-```js
+```js fragment
 onStart() { const level = game.sceneProps().level ?? 1; }
 ```
 
