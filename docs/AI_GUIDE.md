@@ -129,7 +129,7 @@ Call the MCP tool `feedback_report`, or run `factoria call feedback.report '{...
 |---|---|
 | `category` | one of: rendering-2d, rendering-3d, physics, audio, input, ui, scripting, scene, assets, animation, tooling, ai-integration, docs, platform, performance, networking, other |
 | `severity` | `blocker` (could not build it), `major` (large or fragile workaround), `minor` (small workaround), `nice-to-have` (convenience) |
-| `title` | short noun phrase, such as "No gamepad rumble". Reuse the same wording for the same gap. |
+| `title` | short noun phrase, such as "No adaptive triggers". Reuse the same wording for the same gap. |
 | `missing` | what you needed and what the engine did instead |
 | `workaround` | what you did instead, with `workaroundFiles` (project-relative paths) |
 | `suggestion` | the engine change that would remove the workaround: a field, a command or an API |
@@ -144,10 +144,10 @@ Good example, a missing input feature:
 {
   "category": "input",
   "severity": "minor",
-  "title": "No gamepad rumble",
-  "missing": "The game wants to vibrate the controller when the player is hit, but scripts have no rumble API.",
-  "workaround": "none: feature dropped. A hit is shown with a screen shake only.",
-  "suggestion": "Add input.gamepad(i).rumble(strong, weak, seconds) that vibrates the pad."
+  "title": "No adaptive triggers",
+  "missing": "The game wants the DualSense triggers to resist when the bow is drawn, but scripts have no trigger-effect API.",
+  "workaround": "none: feature dropped. The draw is shown with a camera zoom only.",
+  "suggestion": "Add input.gamepad(i).setTriggerResistance(side, start, strength) that stiffens one trigger."
 }
 ```
 

@@ -11,7 +11,15 @@
 // pad's events meanwhile (and re-sends its whole state if the queue overflowed), so the first poll after focus returns
 // drains them into the mirror and feeds the mirror's complete state, which connects the pad again. A pad that is still
 // plugged in therefore comes back connected and correct without having to move first.
+//
+// Rumble goes through the SAME physical pad's evdev node, /dev/input/eventN (the joystick API has no output): the node is
+// found in /sys/class/input/jsN/device/ and opened O_RDWR the first time the engine asks whether the pad can rumble. One
+// FF_RUMBLE effect is uploaded per pad (EVIOCSFF: strong = low, weak = high) and played by writing an EV_FF event; the next
+// request updates the same effect id. Everything runs on the main thread inside poll/apply (a few ioctl/write calls on a
+// non-blocking descriptor, no waiting). The pad's events are never read from that descriptor: the kernel's per-client
+// buffer drops the oldest ones by itself. UNTESTED on hardware, like the rest of this file.
 #include <fcntl.h>
+#include <linux/input.h>
 #include <linux/joystick.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -21,6 +29,8 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <optional>
 #include <span>
@@ -31,13 +41,25 @@
 #include "fa/core/log.h"
 #include "fa/platform/gamepad.h"
 #include "fa/platform/gamepad_mapping.h"
+#include "fa/platform/gamepad_rumble_map.h"
 
 namespace fa {
 
 namespace {
 
+// The force-feedback side of a pad: the evdev node, opened on first use, and the one rumble effect uploaded to it.
+struct Rumble {
+    bool probed = false;
+    bool can = false;
+    std::string why;    // when !can
+    int fd = -1;        // /dev/input/eventN, O_RDWR
+    int effectId = -1;  // the uploaded FF_RUMBLE effect, -1 = none yet
+    bool playing = false;
+};
+
 struct Slot {
     int fd = -1;
+    Rumble rumble;
     std::optional<GamepadMapper> mapper;  // present while the pad is open
     GamepadInfo info;                     // id, name, ids and the family (from the vendor id and name)
     std::vector<EvdevAxisRoute> routes;   // raw axis number -> mapping axis or hat
@@ -146,6 +168,80 @@ bool open_pad(int index, Slot& s) {
     return true;
 }
 
+// ---- rumble --------------------------------------------------------------------------------------------------------
+
+std::string event_node(int index) {  // "/dev/input/eventN" of the pad jsN, "" when sysfs does not show it
+    namespace stdfs = std::filesystem;
+    std::error_code ec;
+    const stdfs::path dir = "/sys/class/input/js" + std::to_string(index) + "/device";
+    for (stdfs::directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec)) {
+        const std::string name = it->path().filename().string();  // ASCII: the kernel's own names
+        if (name.size() > 5 && name.compare(0, 5, "event") == 0 &&
+            name.find_first_not_of("0123456789", 5) == std::string::npos)
+            return "/dev/input/" + name;
+    }
+    return {};
+}
+
+bool test_bit(const unsigned char* bits, size_t size, unsigned bit) {
+    return bit / 8 < size && (bits[bit / 8] >> (bit % 8) & 1) != 0;
+}
+
+// Opens the pad's event node and asks whether it can play FF_RUMBLE. Once per plugged pad (the result stays until the pad is
+// closed): the answer is read every frame.
+void probe_rumble(int index, Slot& s) {
+    Rumble& r = s.rumble;
+    r.probed = true;
+    const std::string node = event_node(index);
+    if (node.empty()) {
+        r.why = "the kernel does not list an event device (/dev/input/eventN) for this pad under /sys/class/input/js" +
+                std::to_string(index) + "/device, and rumble goes through it";
+        return;
+    }
+    const int fd = open(node.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
+    if (fd < 0) {
+        const int err = errno;
+        r.why = "cannot open " + node + " for writing (" + std::strerror(err) + ")";
+        if (err == EACCES || err == EPERM)
+            r.why +=
+                ": rumble needs write access to it. Add the user to the 'input' group (sudo usermod -aG input $USER, "
+                "then log in again) or a udev rule such as KERNEL==\"event*\", SUBSYSTEM==\"input\", "
+                "TAG+=\"uaccess\" (a file in /etc/udev/rules.d/, then udevadm control --reload and replug the pad)";
+        return;
+    }
+    unsigned char ff[(FF_MAX + 7) / 8 + 1] = {};
+    if (ioctl(fd, EVIOCGBIT(EV_FF, sizeof(ff)), ff) < 0 || !test_bit(ff, sizeof(ff), FF_RUMBLE)) {
+        r.why = "this pad's driver offers no rumble effect (" + node + " has no FF_RUMBLE force feedback)";
+        close(fd);
+        return;
+    }
+    r.fd = fd;
+    r.can = true;
+}
+
+// Erases the effect (the kernel also does it when the descriptor closes) and closes the node. Called when the pad goes.
+void close_rumble(Slot& s) {
+    Rumble& r = s.rumble;
+    if (r.fd >= 0) {
+        if (r.effectId >= 0) ioctl(r.fd, EVIOCRMFF, r.effectId);
+        close(r.fd);
+    }
+    r = Rumble{};
+}
+
+bool write_ff(int fd, int code, int value) {  // EV_FF: value 1 plays effect `code`, 0 stops it
+    input_event ev = {};
+    ev.type = EV_FF;
+    ev.code = std::uint16_t(code);
+    ev.value = value;
+    for (;;) {
+        const ssize_t n = write(fd, &ev, sizeof(ev));
+        if (n == ssize_t(sizeof(ev))) return true;
+        if (n < 0 && errno == EINTR) continue;
+        return false;  // EAGAIN (the kernel's queue is full), ENODEV (unplugged), ...
+    }
+}
+
 void apply(Slot& s, const js_event& e) {
     const std::uint8_t type = std::uint8_t(e.type & ~JS_EVENT_INIT);  // INIT: the state sent when the device is opened
     if (type == JS_EVENT_BUTTON) {
@@ -186,6 +282,7 @@ void poll_gamepads(Input& in) {
             }
         }
         if (!alive) {
+            close_rumble(s);
             close(s.fd);
             s.fd = -1;
             s.mapper.reset();
@@ -196,6 +293,39 @@ void poll_gamepads(Input& in) {
         in.set_gamepad_info(i, s.info);  // before the feed, which connects the pad
         s.mapper->state().feed(in, i);   // all of it, every poll: also reconnects the pad after a focus loss
     }
+}
+
+GamepadRumbleSupport gamepad_backend_rumble_support(int slot) {
+    if (slot < 0 || slot >= kMaxGamepads || g_slots[slot].fd < 0) return {false, "there is no pad in this slot"};
+    Slot& s = g_slots[slot];
+    if (!s.rumble.probed) probe_rumble(slot, s);
+    return {s.rumble.can, s.rumble.can ? std::string() : s.rumble.why};
+}
+
+bool gamepad_backend_rumble(int slot, float low, float high, float seconds) {
+    if (slot < 0 || slot >= kMaxGamepads) return false;
+    Rumble& r = g_slots[slot].rumble;
+    if (!r.can || r.fd < 0) return false;
+    if (seconds <= 0.0f && low <= 0.0f && high <= 0.0f) {  // stop
+        if (!r.playing || r.effectId < 0) return true;
+        r.playing = false;
+        return write_ff(r.fd, r.effectId, 0);
+    }
+    const EvdevRumble m = evdev_rumble(low, high, seconds);
+    ff_effect effect = {};
+    effect.type = FF_RUMBLE;
+    effect.id = std::int16_t(r.effectId);  // -1 uploads a new effect; the id of the last one updates it in place
+    effect.replay.length = m.lengthMs;     // a request longer than 65.5 s is cut: the engine's stop ends it anyway
+    effect.u.rumble.strong_magnitude = m.strong;
+    effect.u.rumble.weak_magnitude = m.weak;
+    if (ioctl(r.fd, EVIOCSFF, &effect) < 0) {
+        if (r.effectId < 0) return false;
+        effect.id = -1;  // the old id is not known to the kernel any more (the device was re-registered): upload anew
+        if (ioctl(r.fd, EVIOCSFF, &effect) < 0) return false;
+    }
+    r.effectId = effect.id;  // the kernel picked it
+    r.playing = write_ff(r.fd, r.effectId, 1);
+    return r.playing;
 }
 
 }  // namespace fa
