@@ -42,6 +42,11 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   Korean IMEs show their pre-edit text in the field with the converted clause selected, their candidate list sits under the
   caret, and the commit types once. A key the IME takes (Enter that confirms, Backspace inside a composition) is not also a
   game key. While no field has the focus the window has no input context, so the IME leaves game keys alone.
+- Linux and the web: a focused `TextField` composes natively as well. On Linux the X input method (ibus, fcitx, from
+  `XMODIFIERS`; through XWayland on a Wayland desktop) draws its pre-edit text in the field when it can, with the
+  converted clause selected and its candidate window under the caret. In a browser a hidden `<input>` sits at the caret
+  and its composition events become the field's composition, on desktop and phone keyboards. On both the keys the input
+  method takes are not game keys, and the commit types once.
 - **Docs (M97.3a):** the docs are laid out for reading cheaply. `docs/COMPONENTS.md` (1.8 MB) is no longer inside the
   binary: `docs.read components` answers with a pointer to `docs.components`, which serves one component at a time (the
   file stays in the repository for GitHub readers). `docs/MENUS.md` no longer prints the files of the menu kit (257 KB

@@ -16,6 +16,12 @@
 #if defined(_WIN32)
 #include "ime_win32.h"
 #endif
+#if defined(__linux__) && !defined(__ANDROID__)
+#include "ime_linux.h"
+#endif
+#if defined(__EMSCRIPTEN__)
+#include "ime_web.h"
+#endif
 #include "mobile_impl.h"
 #include "sokol_window.h"
 #include "sokol_gfx.h"
@@ -182,6 +188,13 @@ void on_init() {
 #if defined(_WIN32)
     ime_win32_attach(g.desc.input);  // Windows: the same, through IMM32 on sokol_app's window
 #endif
+#if defined(__linux__) && !defined(__ANDROID__)
+    ime_linux_attach(g.desc.input);  // Linux: the same, through XIM on sokol_app's X11 window
+#endif
+#if defined(__EMSCRIPTEN__)
+    fa_sapp_web_route_events();    // the web: the keys the browser's input method takes are not the game's
+    ime_web_attach(g.desc.input);  // and its compositions go to this Input, through a hidden <input>
+#endif
     if (const AppIconImage& dock = g.desc.dockIcon;
         dock.width > 0 && dock.height > 0 && dock.rgba.size() == std::size_t(dock.width) * std::size_t(dock.height) * 4)
         fa_sapp_set_dock_icon(dock.rgba.data(), dock.width, dock.height);  // macOS only; NSApp exists from here on
@@ -216,6 +229,12 @@ void on_cleanup() {
 #endif
 #if defined(_WIN32)
     ime_win32_attach(nullptr);
+#endif
+#if defined(__linux__) && !defined(__ANDROID__)
+    ime_linux_attach(nullptr);
+#endif
+#if defined(__EMSCRIPTEN__)
+    ime_web_attach(nullptr);
 #endif
     if (g.desc.cleanup) g.desc.cleanup();
     g.active = false;

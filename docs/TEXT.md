@@ -446,8 +446,8 @@ focus moving to another field, commits it at once (the backend then forgets it a
 keeps the input method off. Where the
 characters come from depends on the device, and the game does not change for any of them:
 
-- **Desktop.** The operating system's text input: composed text (shift, dead keys, IME) arrives as typed. On **macOS** and
-  **Windows** a focused `TextField` also composes natively (below).
+- **Desktop.** The operating system's text input: composed text (shift, dead keys, IME) arrives as typed. On **macOS**,
+  **Windows** and **Linux** a focused `TextField` also composes natively (below).
 - **Phones and tablets.** The `TextField` raises the system keyboard when it gets the focus and hides it when it loses it
   (the UI does this by itself: [MOBILE.md](mobile/MOBILE_DEVICE.md#the-on-screen-keyboard)). iOS delivers composed text; Android
   delivers what each key types in its layout.
@@ -458,10 +458,10 @@ characters come from depends on the device, and the game does not change for any
   `keypress` for it. A real keyboard does; a browser pane's or automation tool's synthetic events may send `keydown`
   only, and then letters do not appear (the key still works as a button). To test typing in a page, send events the
   browser treats as typed (Chrome DevTools `Input.dispatchKeyEvent` with `text`, as `platforms/web/smoke.mjs` does for the
-  CI check), or use the page's own keyboard. On a touch device a hidden `<input>` takes the focus while a `TextField`
-  has it, which is what makes a phone browser show its keyboard; what it receives (typed text, Backspace) goes to the same
-  `input.text` and Backspace. Text that a keyboard composes (predictive words, swipe, IME) arrives when the composition
-  ends.
+  CI check), or use the page's own keyboard. While a `TextField` has the focus a hidden `<input>` takes the browser's
+  focus (on a touch device also for a password field), which is what makes a phone browser show its keyboard and a
+  desktop browser's input method compose; what it receives outside a composition (typed text, Backspace) goes to the same
+  `input.text` and Backspace, and what a keyboard composes (an IME, predictive words, swipe) is a composition (below).
 
 ### What composes where
 
@@ -475,7 +475,9 @@ the commit goes to `input.text` once. With no `TextField` focused the IME is off
 | macOS | yes | the game's view takes marked text (`NSTextInputClient`) while a field has the focus: the candidate window sits under the caret, a dead key shows its pending accent as a composition |
 | iOS | yes | the keyboard's marked text in the hidden text field, on-screen and hardware keyboards; the candidate bar follows the field |
 | Windows | yes | the input method (IMM32, which the Windows text services also serve) composes into the game's window while a field has the focus: its own composition window stays hidden (the field draws the composition), its candidate list sits under the caret. A dead key types its accented letter once it is finished, as before |
-| Linux, Android, web | not yet | composed text arrives as typed text, when it is finished |
+| Linux | yes | XIM (ibus, fcitx and the other input methods `XMODIFIERS` names) on the game's X11 window while a field has the focus: on the spot when the input method offers it (the field draws the composition), else in the input method's own window; its candidate window sits under the caret |
+| Web | yes | the browser's input method composes into a hidden `<input>` that sits at the field's caret while the field has the focus: the browser's candidate window follows the caret |
+| Android | not yet | composed text arrives as typed text, when it is finished |
 
 On macOS and iOS:
 
@@ -511,6 +513,42 @@ On Windows:
 - A field that turns the IME off (`ime_set_enabled(false)`: no field focused, a password field) drops the IME's
   composition the same way and takes the window's input context away.
 - Not attached inside the editor either.
+
+On Linux:
+
+- X11 only: sokol_app has no Wayland backend, so on a Wayland desktop the game runs through XWayland, where ibus and fcitx
+  serve XIM as on X11. The input method is the one `XMODIFIERS` names (`@im=ibus`, `@im=fcitx`); with none, Xlib's own
+  (dead keys and the Compose key) is used. One that starts after the game is picked up when it starts, and one that stops
+  turns the IME off until it is back. No input method, or a locale Xlib does not support (`LANG`; a game that left
+  `LC_CTYPE` at "C" gets the environment's, as GLFW and SDL do), leaves the IME off: one log line, keys unchanged.
+- With no `TextField` focused the input context does not have the focus and no key goes to the input method: every key is
+  the game's.
+- A key the input method took (it composes, converts, confirms) does not reach the game, and neither does its release; a
+  key whose press reached the game always gets its release. A key the input method sends back twice is used once.
+- The clause the input method is converting (the run it draws reversed, else highlighted) is the composition's selection;
+  without one the caret is the input method's. Code points, as on macOS.
+- The commit types once. A composition the input method ends without one types nothing. When the field ends one itself
+  (`ime_cancel`) the input context is reset (`XmbResetIC`, whose text is dropped) and nothing the input method still sends
+  about it is used, until the next key or composition. A field that turns the IME off does the same.
+- An input method without on-the-spot drawing shows the composition in its own window, and only its commit reaches the
+  field.
+- Not attached inside the editor either.
+
+On the web:
+
+- The hidden `<input>` has the browser's focus while a field has it, at the field's caret (CSS pixels from the canvas's
+  box), so the browser's candidate window shows there; with no field focused the canvas has it back and every key is the
+  game's. Keys keep reaching the game through the window, as before: the `<input>` takes no ordinary typing.
+- A key the input method took (the browser's `keyCode` 229, or any key while a composition is open) does not reach the
+  game, and neither does its release; the browser keeps its default action for it, so the composition goes on.
+- `compositionupdate` shows the composition, `compositionend` types its text once. Browsers report no clause: the caret is
+  the `<input>`'s caret inside the composition.
+- When the field ends a composition itself (`ime_cancel`) the `<input>` loses the focus and gets it back at once, which
+  ends the browser's composition; what it still sends about it is dropped. On a touch device the value is reset instead
+  (a phone keeps its keyboard only for a focus inside a tap).
+- A touch device's keyboard in a password field (IME off): what it composes is not shown, and typed when it ends, as
+  before the IME existed. Paste is the page's paste event, never the `<input>`'s.
+- The page (`platforms/web/shell.html`) gives the canvas the focus on a click unless the `<input>` has it.
 
 To check it by hand on Windows 10 or 11 (Settings > Time & language > Language & region: add Japanese, Chinese
 (Simplified) and Korean; Win+Space switches), in a game with a `TextField`:
