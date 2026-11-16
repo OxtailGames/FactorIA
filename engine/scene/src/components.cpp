@@ -707,7 +707,9 @@ void register_builtin_components(TypeRegistry& r) {
          "is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the "
          "drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports "
          "where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer "
-         "shifted for itself). Deterministic: it depends only on the camera position.",
+         "shifted for itself). With render interpolation the drawing follows the camera's blended pose, while "
+         "offset and bounds() follow its real pose, so they do not depend on the frame time. Deterministic: it "
+         "depends only on the camera position.",
          "2D")
         .field("factor", &Parallax::factor,
                "[x, y] fraction of the camera's movement this layer follows (0 = fixed on screen, 1 = a normal world "
@@ -722,8 +724,9 @@ void register_builtin_components(TypeRegistry& r) {
                "smaller value "
                "to overlap soft edges, a larger one for gaps.")
         .field("offset", &Parallax::offset,
-               "Runtime: the shift [x, y] currently applied to the drawing, for the first camera (written every frame, "
-               "by the renderer or by the simulation when there is no renderer).")
+               "Runtime: the shift [x, y] for the first camera's real pose (written every frame, by the renderer or by "
+               "the simulation when there is no renderer). With render interpolation a frame is drawn up to one "
+               "fixed step away from it.")
         .runtime_only()
         .read_only();
 
