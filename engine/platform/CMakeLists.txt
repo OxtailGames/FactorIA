@@ -58,6 +58,12 @@ elseif(FA_PLATFORM STREQUAL "android")
     target_link_libraries(fa_platform PUBLIC GLESv3 EGL android log aaudio)
 endif()
 fa_add_tests(platform)
+# The threaded WebSocket clients and the loopback test server (a reader thread per connection) belong to the CI job linux-tsan
+# (`ctest -L tsan`); the rest of the platform tests stay out of it.
+if(FA_SANITIZE_THREAD AND TARGET fa_test_platform)
+    add_test(NAME tsan_platform_websocket COMMAND fa_test_platform "-tc=websocket*" WORKING_DIRECTORY ${FA_ROOT})
+    set_tests_properties(tsan_platform_websocket PROPERTIES LABELS tsan)
+endif()
 if(WIN32 AND TARGET fa_test_platform)
     target_link_libraries(fa_test_platform PRIVATE ws2_32)  # tests/http_test_server.h: a local HTTP server
 endif()

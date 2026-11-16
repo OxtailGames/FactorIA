@@ -1,5 +1,6 @@
 // macOS and iOS: NSURLSessionWebSocketTask (fa/platform/websocket.h, "nsurlsession"). The system brings the certificates, the
-// proxy settings, TLS, the ping/pong keep-alive and the answers to the server's pings. App Transport Security applies as for
+// proxy settings, TLS and the answers to the server's pings (it sends no pings of its own: NSURLSessionWebSocketTask has no
+// keep-alive timer). App Transport Security applies as for
 // http.fetch: plain ws:// is only allowed to loopback.
 //
 // It follows the pattern of fa/platform/websocket.h for every native client. Everything the network does reaches a Core (a
@@ -51,7 +52,9 @@ public:
           queue_(std::make_shared<WebSocketEventQueue>(WebSocketEventQueue::limit_for(request_.maxMessageBytes))) {}
 
     const std::shared_ptr<WebSocketEventQueue>& queue() const { return queue_; }
-    WebSocketState state() const { return state_.load(); }
+    // A queue that ended (a Close event, or an overflow, which pushes its own Error and Close 1008) means Closed, even in the
+    // moment before the callback that saw the end has set the state: the game never reads Close and finds the state open.
+    WebSocketState state() const { return queue_->ended() ? WebSocketState::Closed : state_.load(); }
     std::size_t buffered() const { return buffered_.load(); }
     void add_buffered(std::size_t n) { buffered_ += n; }
     void sub_buffered(std::size_t n) { buffered_ -= n; }
@@ -66,7 +69,7 @@ public:
     // --- the game thread ---------------------------------------------------------------------------------------------
 
     Result<void> can_send(std::size_t size) const {
-        const WebSocketState s = state_.load();
+        const WebSocketState s = state();
         if (s == WebSocketState::Connecting)
             return make_error("the connection is not open yet", "Wait for the \"open\" event before sending.");
         if (s != WebSocketState::Open)
@@ -130,6 +133,18 @@ public:
 
     // The server (or our own close) ended the connection with a close frame.
     void on_closed(int code, std::string reason) {
+        // 1006 and 1015 never travel in a close frame: the system reports them for a connection that broke (or a TLS failure),
+        // and so it does a message above maximumMessageSize (1009, with the receive error EMSGSIZE). That is a failure
+        // (Error, then Close 1006), not a clean close. A 1009 that a server really sent has no such error behind it.
+        bool failure = code == ws::close_code::kAbnormal || code == 1015;
+        if (!failure && code == 1009) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            failure = lastError_ && [lastError_.domain isEqualToString:NSPOSIXErrorDomain] && lastError_.code == EMSGSIZE;
+        }
+        if (failure) {
+            on_complete(nil, nil);
+            return;
+        }
         if (code == 0) code = ws::close_code::kNoStatus;
         end(WebSocketEvent::close(code, std::move(reason), true), nullptr);
     }
@@ -259,6 +274,10 @@ private:
         } else if (isUrl && code == NSURLErrorNetworkConnectionLost) {
             message = "the connection to " + host_ + " was lost";
             hint = "Check the connection; try again.";
+        } else if (isUrl && code == NSURLErrorSecureConnectionFailed) {
+            message = "the secure connection to " + host_ + " failed: " + to_std(error.localizedDescription);
+            hint = "The TLS handshake did not complete: check that the port speaks TLS (wss://) and that the server supports a "
+                   "current TLS version.";
         } else if (isUrl && code <= NSURLErrorServerCertificateHasBadDate && code >= NSURLErrorClientCertificateRequired) {
             message = "the secure connection to " + host_ + " failed: " + to_std(error.localizedDescription);
             hint = "The server's certificate is not trusted by this computer (an expired certificate, a wrong clock, or a "
@@ -318,6 +337,15 @@ private:
     core->on_closed(static_cast<int>(closeCode), fa::bytes_of(reason));
 }
 
+// A WebSocket connection does not follow redirects: the redirect answer ends the attempt (Error with its status and a hint).
+- (void)URLSession:(NSURLSession*)session
+                          task:(NSURLSessionTask*)task
+    willPerformHTTPRedirection:(NSHTTPURLResponse*)response
+                    newRequest:(NSURLRequest*)request
+             completionHandler:(void (^)(NSURLRequest* _Nullable))completionHandler {
+    completionHandler(nil);
+}
+
 - (void)URLSession:(NSURLSession*)session task:(NSURLSessionTask*)task didCompleteWithError:(NSError*)error {
     core->on_complete(error, task.response);
 }
@@ -332,7 +360,7 @@ namespace {
 void arm_receive(NSURLSessionWebSocketTask* task, std::shared_ptr<Core> core) {
     [task receiveMessageWithCompletionHandler:^(NSURLSessionWebSocketMessage* message, NSError* error) {
         if (error || !message) {
-                    core->note_error(error);  // the task's completion (or the close frame) ends the connection
+            core->note_error(error);  // the task's completion (or the close frame) ends the connection
             return;
         }
         bool ok;
@@ -361,10 +389,11 @@ public:
         core_->abandon();
         @autoreleasepool {
             NSURLSession* session = session_;
-            if (s == WebSocketState::Open) {
+            if (s == WebSocketState::Open || s == WebSocketState::Closing) {
                 // A close frame (1001) that takes no waiting; the session ends when the task does, and in any case after
-                // the close wait.
-                [task_ cancelWithCloseCode:NSURLSessionWebSocketCloseCodeGoingAway reason:nil];
+                // the close wait. A connection that is Closing has sent its own close frame already: invalidateAndCancel would
+                // drop it, so it only lets the session finish (no second close).
+                if (s == WebSocketState::Open) [task_ cancelWithCloseCode:NSURLSessionWebSocketCloseCodeGoingAway reason:nil];
                 [session finishTasksAndInvalidate];
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(kWebSocketCloseWaitSec * NSEC_PER_SEC)),
                                dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{

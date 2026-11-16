@@ -56,6 +56,8 @@ constexpr auto kCloseWait =
 constexpr std::size_t kSendChunk = 64u * 1024;
 // What the thread reads before it sends and looks at the state again.
 constexpr std::size_t kReadPerTurn = 1024u * 1024;
+// The capacity inflight_ keeps between two messages: after a message above this (up to 16 MB queued) its memory is given back.
+constexpr std::size_t kKeepCapacity = 1024u * 1024;
 
 std::string compute_unavailable_reason() {
     const lc::Library& c = lc::library();
@@ -224,7 +226,7 @@ private:
             const int n = ::poll(fds, 2, static_cast<int>(std::min<long long>(left, 1000)));
             if (n < 0 && errno != EINTR) return -2;
             if (n > 0 && (fds[1].revents & POLLIN)) drain_wake();
-            if (n > 0 && (fds[0].revents & (events | POLLERR | POLLHUP))) return 1;
+            if (n > 0 && (fds[0].revents & (events | POLLERR | POLLHUP | POLLNVAL))) return 1;
         }
     }
 
@@ -341,6 +343,8 @@ private:
             if (sent_ == inflight_.size()) {
                 inflight_.clear();
                 sent_ = 0;
+                if (inflight_.capacity() > kKeepCapacity)
+                    std::string().swap(inflight_);  // outgoing_ takes its turn below
                 if (outgoing_.empty()) return true;
                 inflight_.swap(outgoing_);
             }
@@ -573,6 +577,9 @@ private:
             // Once reading has stopped, POLLIN is left out: a socket that stays readable would end every poll() at once (a
             // busy loop until kCloseWait). A hang-up or an error is reported anyway, and then the line is gone.
             const bool reading = !peerClosed && !failed;
+            // `want` is never 0: not reading means the peer's close or a failure, and then session_.done() is true (the codec
+            // has answered the close, or failed_ is set), so with nothing left to write the loop ended above (done &&
+            // !needWrite); what is left to write sets POLLOUT.
             const short want = static_cast<short>((reading ? POLLIN : 0) | (needWrite ? POLLOUT : 0));
             pollfd fds[2] = {{fd, want, 0}, {wake_[0], POLLIN, 0}};
             const int n = ::poll(fds, 2, 500);

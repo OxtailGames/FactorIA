@@ -13,6 +13,7 @@
 //   /close?code=4001&reason=bye   sends a close frame at once and waits for the client's answer
 //   /drop              closes the TCP connection right after the handshake, with no close frame
 //   /refuse?status=403 answers the handshake with that HTTP status (default 403) and closes
+//   /redirect          answers the handshake with 302 and a Location of /echo, and closes
 //   /badaccept         answers 101 with a wrong Sec-WebSocket-Accept
 //   /silent            completes the handshake and then says nothing at all (keeps reading and ignoring)
 //   /fragments         sends "Hello" as the text fragments "Hel" + ping + "lo", then echoes
@@ -302,6 +303,10 @@ private:
         if (route == "/refuse") {
             const int status = query.count("status") ? std::atoi(query.at("status").c_str()) : 403;
             write_all(c, ws::build_reject_response(status, status == 403 ? "Forbidden" : "Refused"));
+            return;
+        }
+        if (route == "/redirect") {
+            write_all(c, "HTTP/1.1 302 Found\r\nLocation: /echo\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
             return;
         }
         if (route == "/hang") {

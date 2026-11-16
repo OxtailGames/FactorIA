@@ -174,6 +174,10 @@ TEST_CASE("websocket system: echo, binary, greeting, subprotocol and headers aga
         CHECK(events.back().code == 1000);
         CHECK(events.back().wasClean);
         CHECK(ws->state() == WebSocketState::Closed);
+        // The system's completion handlers may run just after the close was reported: wait for them, bounded.
+        const auto settle = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+        while (ws->buffered_amount() != 0 && std::chrono::steady_clock::now() < settle)
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
         CHECK(ws->buffered_amount() == 0);
     }
     {
@@ -234,6 +238,15 @@ TEST_CASE("websocket system: the server closes, drops, refuses, answers wrong or
         auto events = sys_collect_until_close(*ws);
         REQUIRE(events.size() == 2);  // never opened
         check_failed(*ws, events);
+    }
+    {
+        // A redirect is not followed: the attempt ends with the redirect's status.
+        auto ws = sys_connect(*client, server.url("/redirect"));
+        auto events = sys_collect_until_close(*ws);
+        check_failed(*ws, events);
+        REQUIRE(events.size() == 2);
+        CHECK(events[0].httpStatus == 302);
+        CHECK(events[0].hint.find("redirect") != std::string::npos);
     }
     {
         auto ws = sys_connect(*client, server.url("/nothing-here"));
@@ -352,10 +365,19 @@ TEST_CASE("websocket system: an idle open connection outlives the connect timeou
     auto client = make_system_websocket_client();
     WebSocketRequest r;
     r.url = server.url("/echo");
-    r.connectTimeoutSec = 1.0;
+    // The timeout is generous so that a loaded machine opens the connection well inside it; the test then lets 1.5 times the
+    // timeout pass, polling (it ends at once if the connection fails).
+    r.connectTimeoutSec = 3.0;
     auto ws = client->connect(r).value();
+    const auto started = std::chrono::steady_clock::now();
     REQUIRE(sys_collect(*ws, 1).size() == 1);
-    std::this_thread::sleep_for(std::chrono::milliseconds(2500));
+    const auto until = started + std::chrono::milliseconds(4500);
+    std::vector<WebSocketEvent> idle;
+    while (std::chrono::steady_clock::now() < until && ws->state() == WebSocketState::Open) {
+        ws->poll(idle);
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(idle.empty());
     CHECK(ws->state() == WebSocketState::Open);
     REQUIRE(ws->send_text("still here").ok());
     auto events = sys_collect(*ws, 1);
@@ -367,15 +389,15 @@ TEST_CASE("websocket system: close while connecting is Closing, then Error and C
     fa::test::WsTestServer server;
     REQUIRE(server.ok());
     auto client = make_system_websocket_client();
-    auto ws = sys_connect(*client, server.url("/echo"));
+    // /hang reads the handshake and never answers it: the connection is still Connecting whenever close() comes.
+    auto ws = sys_connect(*client, server.url("/hang"));
+    CHECK(ws->state() == WebSocketState::Connecting);
     CHECK(ws->close(1000, "").ok());
     CHECK(ws->state() == WebSocketState::Closing);
     auto events = sys_collect_until_close(*ws);
-    // The attempt may have opened before close() reached the task: whatever came, it ends with Error and Close 1006 and the
-    // Error says close() was called before the connection opened.
     check_failed(*ws, events);
-    CHECK(events[events.size() - 2].error.find("before it was open") != std::string::npos);
-    CHECK(events.size() <= 3);
+    CHECK(events.size() == 2);  // never opened
+    CHECK(events[0].error.find("before it was open") != std::string::npos);
     CHECK(ws->close(1000, "").ok());  // closing twice is not an error
 }
 

@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **WebSocket on macOS and iOS, polish:** a redirect answer to the upgrade is not followed (it ends the attempt with an `"error"`
+  whose `httpStatus` is the redirect's, as the hint always said), a TLS handshake failure (`wss://` to a port that does not
+  speak TLS) says so, a close the system reports as 1006 or 1015 is a failure (`"error"`, then `"close"` 1006) and not a clean
+  close, and a game destroyed while its close handshake runs still sends its close frame. The docs now say which clients send keep-alive pings (only
+  Windows). On Linux, the memory of a large `send` burst is given back after it.
 - **Editor undo as commands, first half (M98.7e1):** an edit of a field or a component (Inspector fields, rename, the active box,
   Transform gizmo drags, adding and removing a component) no longer stores a copy of the whole scene on the undo stack: it stores
   the command and its inverse, built from the scene before the edit, so 100 edits cost less than one snapshot of a big scene.
