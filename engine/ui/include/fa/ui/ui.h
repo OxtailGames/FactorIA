@@ -191,11 +191,17 @@ public:
     void sync_touch_controls(World& world, Input& input, Vec2 designSize);
 
     // Lays out Panel (layout != none) and ScrollList children only, in UI units (ui_rect.h: the world's ui_scale()), and holds a
-    // Panel between its minSize and maxSize. update() calls it first; the runtime calls it again
+    // Panel between its minSize and maxSize. A child is placed by World::ui_layout_offset, never by writing its Transform.position
+    // (that stays the author's nudge from the slot); the offset of anything the pass did not place is cleared. update() calls it first; the runtime calls it again
     // right before drawing so changes a script made during the frame are drawn in place. `warn` false (ui.layout() from a
     // script, which is still changing the menu) skips the "fit panel larger than the screen" warning: the frame's own
     // layout logs it if the final menu is still too big.
     void layout(World& world, Vec2 designSize, const VisualMeasure& measure, bool warn = true);
+
+    // Migrates a scene saved before 0.30, whose laid-out children carry the layout's result in Transform.position: sets x and y of
+    // the position to 0 for every laid-out child whose position equals its layout offset (what the old engine wrote), after a
+    // layout pass has run. Returns the ids of the entities it changed. The picture does not change: the offset stays.
+    std::vector<std::string> reset_baked_positions(World& world);
 
     // The clipboard a focused TextField pastes from (Ctrl+V / Cmd+V) and copies to (Ctrl+C / Cmd+C). The Engine sets it;
     // without one the keys do nothing.
@@ -349,6 +355,10 @@ private:
     std::unordered_map<u64, AutoSizeMemo> autoSizes_;
     std::unordered_set<u64> warnedClip_;  // turned ScrollLists already reported (their scissor is the bounding box)
     std::unordered_set<u64> warnedFit_;   // fit panels already reported as larger than the screen
+    std::unordered_set<u64>
+        warnedBaked_;  // laid-out children whose position looks baked by an older engine, already reported
+    std::unordered_set<u64>
+        placed_;  // what the running layout pass gave a layout offset (the rest is cleared at its end)
 
     Entity focus_, hover_, press_;
     Entity hoverFocused_;  // the hovered Interactable whose focusOnHover entry already moved the focus

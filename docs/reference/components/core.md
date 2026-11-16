@@ -28,7 +28,7 @@ Position, rotation and scale of an entity relative to its parent. Present on eve
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `position` | vec3 | `[0.0,0.0,0.0]` | Local position relative to the parent [x, y, z]. 2D: x right, y up, z is only used for depth ordering of 3D content. Units: world units (design pixels in 2D, meters in 3D). |
+| `position` | vec3 | `[0.0,0.0,0.0]` | Local position relative to the parent [x, y, z]. 2D: x right, y up, z is only used for depth ordering of 3D content. Units: world units (design pixels in 2D, meters in 3D). A child that a Panel `layout` or a ScrollList places is not moved by writing here: the engine keeps the layout's place apart (never saved), so this is your own offset from the slot, 0 = exactly in it, and entity.worldPosition is where it ends up (since 0.30.0). |
 | `rotation` | vec3 | `[0.0,0.0,0.0]` | Local rotation as euler angles in DEGREES [pitch around X, yaw around Y, roll around Z], applied in the order Y, X, Z. 2D games only use the z value (counter-clockwise). |
 | `scale` | vec3 | `[1.0,1.0,1.0]` | Local scale [x, y, z]. 1 = original size; negative values mirror. |
 

@@ -24,8 +24,10 @@ entities are ignored. Every field is documented in `docs.components`; the ones t
 - **Layout.** A `Panel` with `layout: "column" | "row" | "grid"` places its active children (widgets, and screen-space
   `Text`, `Sprite` and `Shape2D`) inside its rectangle minus `padding`: `spacing` between them, `align` (the cross axis:
   `start`, `center`, `end`; default center), `justify` (where the run sits along the main axis), `columns` for a grid, and
-  `fit: true` makes the Panel as big as its content plus padding. Layout moves the children's `Transform.position`
-  every frame, so a child's own position is only a starting point inside a laid-out Panel. `layout: "none"` (the default)
+  `fit: true` makes the Panel as big as its content plus padding. Layout puts each child in its slot
+  every frame without writing its `Transform.position` (since 0.30.0): that stays the child's own offset from the slot, 0 =
+  exactly in it, so a script can nudge a laid-out widget by setting `position`, and reads where it is with `worldPosition`
+  or `ui.rectOf`. `layout: "none"` (the default)
   leaves them where they are. Give a `Sprite` inside a container an explicit `size` (it is measured as 32 x 32 until
   the texture size is known to the layout); a `Text` is measured with the real font.
 - **ScrollList.** Lays its children out as a column and shows the part inside its rectangle: everything drawn by its

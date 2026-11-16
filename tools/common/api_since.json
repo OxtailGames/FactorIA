@@ -1226,6 +1226,7 @@
     "ui.check_layout": "0.2.0",
     "ui.clear_captions": "0.2.0",
     "ui.force_touch": "0.23.0",
+    "ui.reset_layout_positions": "unreleased",
     "ui.set_mirror_rtl": "0.3.0",
     "ui.set_scale": "0.3.0",
     "ui.set_slider": "0.3.0",

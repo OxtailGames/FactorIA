@@ -135,15 +135,33 @@ bool chain_transforms(const World& w, Entity e) {
     return false;
 }
 
-// The translation in layout space: the sum of the local positions up the parents. Without rotation or scale in the chain it is the
-// world translation, bit for bit.
-Vec3 layout_translation(const World& w, Entity e) {
+// Transform.position plus the layout's placement (World::ui_layout_offset): what an entity adds to the layout-space sum.
+Vec3 layout_position(const World& w, Entity e) {
+    Vec3 p{0, 0, 0};
+    if (const Transform* tr = w.get<Transform>(e)) p = tr->position;
+    const Vec2 o = w.ui_layout_offset(e);
+    return {p.x + o.x, p.y + o.y, p.z};
+}
+
+}  // namespace
+
+// The translation in layout space: the sum of the local positions (and layout offsets) up the parents. Without rotation or
+// scale in the chain it is the world translation, bit for bit.
+Vec3 ui_layout_translation(const World& w, Entity e) {
     if (!chain_transforms(w, e)) return w.world_matrix(e).translation();
     Vec3 t{0, 0, 0};
-    for (Entity a = e; a; a = w.parent(a))
-        if (const Transform* tr = w.get<Transform>(a)) t = t + tr->position;
+    for (Entity a = e; a; a = w.parent(a)) t = t + layout_position(w, a);
     return t;
 }
+
+bool ui_widget_ancestor_turns(const World& w, Entity e) {
+    for (Entity a = w.parent(e); a; a = w.parent(a))
+        if (const Transform* t = w.get<Transform>(a))
+            if (turns_or_scales(*t) && ui_box(w, a)) return true;
+    return false;
+}
+
+namespace {
 
 struct Place {
     Rect rect;    // own frame, UI units
@@ -154,7 +172,7 @@ struct Place {
 std::optional<Place> place_of(const World& w, Entity e, Vec2 designSize) {
     const UiBox* b = ui_box(w, e);
     if (!b) return std::nullopt;
-    Vec3 t = layout_translation(w, e);
+    Vec3 t = ui_layout_translation(w, e);
     Vec2 anchor = b->anchor, pivot = b->pivot;
     if (ui_mirrored(w, e)) {  // the mirror image: anchor, pivot and position flip left to right
         anchor.x = 1.0f - anchor.x;
@@ -221,7 +239,7 @@ Mat4 ui_layout_matrix(const World& w, Entity e) {
     if (!chain_transforms(w, e)) return w.world_matrix(e);
     const Transform* t = w.get<Transform>(e);
     const Vec3 s = t ? Vec3{finite_or(t->scale.x, 1.0f), finite_or(t->scale.y, 1.0f), 1.0f} : Vec3{1, 1, 1};
-    return Mat4::translate(layout_translation(w, e)) * Mat4::scale(s);
+    return Mat4::translate(ui_layout_translation(w, e)) * Mat4::scale(s);
 }
 
 UiAffine ui_transform(const World& w, Entity e, Vec2 designSize) {
@@ -232,7 +250,7 @@ UiAffine ui_transform(const World& w, Entity e, Vec2 designSize) {
     std::vector<Vec3> sums(chain.size());  // the layout translation of chain[i]: positions from the root down to it
     Vec3 sum{0, 0, 0};
     for (std::size_t i = chain.size(); i-- > 0;) {
-        if (const Transform* t = w.get<Transform>(chain[i])) sum = sum + t->position;
+        sum = sum + layout_position(w, chain[i]);
         sums[i] = sum;
     }
     for (std::size_t i = 0; i < chain.size(); ++i) {  // e's own turn first, then each parent's around its own origin

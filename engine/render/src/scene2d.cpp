@@ -177,21 +177,21 @@ Mat4 draw_matrix(const World& world, Entity e, bool screen) {
                   : drawn_visual_matrix(world, e);
 }
 
-// A screen-space visual under a UI parent that turns or scales (itself or above): drawn through the same map as the widgets
-// (ui_transform of the parent chain, ui_rect.h "Rotation and scale"), so the card is rigid. In layout space the visual sits at
-// the parents' positions summed + its anchor point + its own local matrix; the parents' map then turns that point about each
-// parent's origin. Replaces draw_matrix + apply_anchor; false (and `m` untouched) when no parent turns or scales, or when the
-// visual is mirrored (ui.mirrorRtl), which keep the old path.
+// A screen-space visual under a widget that turns or scales (the widget itself or one above it): drawn through the same map as the
+// widgets (ui_transform of the parent chain, ui_rect.h "Rotation and scale"), so the card is rigid. In layout space the visual sits
+// at the parents' layout translation (positions and layout offsets summed) + its anchor point + its own local matrix (which holds
+// its own position and layout offset); the parents' map then turns that point about each parent's origin. Replaces draw_matrix +
+// apply_anchor. False (and `m` untouched, the old path) when the visual is mirrored (ui.mirrorRtl) or when no WIDGET above it
+// turns or scales: a plain group that scales multiplies the child's own offset and leaves the anchor where it is, so a HUD group
+// that animates its scale stays on screen.
 bool turned_parent_matrix(const World& world, Entity e, const Frame& f, Vec2 anchor, bool safeArea, bool mirrored,
                           Mat4& m) {
     const Entity parent = world.parent(e);
-    if (!parent || mirrored) return false;
+    if (!parent || mirrored || !ui_widget_ancestor_turns(world, e)) return false;
     const Vec2 design{float(f.targetW), float(f.targetH)};
     const UiAffine g = ui_transform(world, parent, design);
     if (g.is_identity()) return false;
-    Vec3 sum{0, 0, 0};
-    for (Entity a = parent; a; a = world.parent(a))
-        if (const Transform* t = world.get<Transform>(a)) sum = sum + t->position;
+    const Vec3 sum = ui_layout_translation(world, parent);  // positions + the layout's offsets, root down
     const Vec2 a = anchor_point(anchor, safeArea, ui_layout_screen(world, design), ui_layout_insets(world));
     Mat4 g4 = Mat4::identity();
     g4.at(0, 0) = g.a;
