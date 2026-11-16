@@ -256,6 +256,7 @@ Editor::~Editor() {
     if (atThread_.joinable()) atThread_.join();
     atWatchdogStop_ = true;
     if (atWatchdog_.joinable()) atWatchdog_.join();
+    examples_.shutdown();  // the Examples tab's list and create: cancelled, joined
     if (updateThread_.joinable()) updateThread_.join();
     if (launcherThread_.joinable()) launcherThread_.join();
     share_.join_all();  // sign-in, flush and AI review threads (they only touch share_)
