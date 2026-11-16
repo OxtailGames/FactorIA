@@ -3,12 +3,12 @@
 A prototype that plays is not a game a store accepts. Players expect a menu, options that stay set, saves that survive an
 update, their own language, text they can read, and no surprises on a bad day. This is the path from one to the other, in
 the order that costs least. Each section is a short recipe with real code from **Lantern Keep**
-(`examples/lantern-keep` in the FactorIA repository), a complete 2D platformer built exactly this way, and a link to the
+(a complete 2D platformer built exactly this way; if you got it with `project.create {example: "lantern-keep"}` it is `examples/lantern-keep`), and a link to the
 reference doc instead of a copy of it. Paths in the snippets are relative to the game's folder. For a 3D game made for
-phones, **Clockwork Courier** (`examples/clockwork-courier`) is the second model: on-screen controls, haptics, pause on
+phones, **Clockwork Courier** (`project.create {example: "clockwork-courier"}`, optional) is the second model: on-screen controls, haptics, pause on
 suspend, Android Back, a Japanese font cut to the game's characters (`assets/fonts/make_subset.py`) and every screen
 checked at 200 % text. For a desktop game for several players at one screen, **Burrow Brigade**
-(`examples/burrow-brigade`) is the third: a join screen, per-player rebinding, save slots whose format changed once
+(`project.create {example: "burrow-brigade"}`, optional) is the third: a join screen, per-player rebinding, save slots whose format changed once
 (with the migration and fixtures of both versions), a game speed and hold-or-toggle for assist, a Thai fallback font
 (its `tools/thai_spaces.py` puts real spaces between Thai words; a line also breaks after U+200B, which takes no width, so
 a translation can mark word boundaries with that instead), and `SHIPPING.md` for
@@ -218,7 +218,7 @@ expect(problems).toEqual([]);                   // no text wider than its box, p
 ```
 
    Also look: `FA_LANGUAGE=ar factoria run --headless --frames 3 --screenshot-at 2`, then open the PNG
-   (`examples/lantern-keep/screenshots/` has the Arabic menu and German at 200 % as models).
+   (the Lantern Keep example, `project.create {example: "lantern-keep"}`, has the Arabic menu and German at 200 % in `screenshots/`; optional).
 6. Plurals: a language can have up to six forms (Arabic does); a text with a count needs every form the language has, and
    the `i18n.import` check says which are missing.
 7. Store page texts have their own translations (`nameKey`/`descriptionKey` for the platform catalog, store texts per

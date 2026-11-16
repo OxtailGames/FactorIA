@@ -1,6 +1,7 @@
 #include <doctest.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <map>
 #include <optional>
@@ -1142,4 +1143,54 @@ TEST_CASE("fs: an empty storage.encryptionSecret is not hidden, so the file can 
     std::string expected = text;
     expected.replace(expected.find("\"T\""), 3, "\"U\"");
     CHECK(testing::read_all(f.tmp.path / "factoria.json") == expected);
+}
+
+TEST_CASE("docs: an embedded doc names an example game only as optional (the recipe lives in the doc)") {
+    // The download carries no example games (project.create {example} fetches one), so a doc a user gets must not
+    // send them to `examples/<name>` as if it were there. The rule: a paragraph (lines up to the next blank line)
+    // that cites `examples/<name>` must also mention `project.create`, e.g. "(if you got it with
+    // `project.create {example: \"gem-roller\"}`)".
+    size_t checked = 0;
+    for (const auto& d : list_docs()) {
+        auto text = read_doc(d.path);
+        REQUIRE(text.ok());
+        std::vector<std::string> lines;
+        size_t pos = 0;
+        while (pos <= text->size()) {
+            size_t nl = text->find('\n', pos);
+            if (nl == std::string::npos) nl = text->size();
+            lines.push_back(text->substr(pos, nl - pos));
+            pos = nl + 1;
+        }
+        size_t start = 0;
+        while (start < lines.size()) {
+            size_t end = start;
+            bool optional = false;
+            std::vector<std::pair<size_t, std::string>> cites;
+            for (; end < lines.size() && !lines[end].empty(); ++end) {
+                const std::string& l = lines[end];
+                if (l.find("project.create") != std::string::npos) optional = true;
+                for (size_t p = l.find("examples/"); p != std::string::npos; p = l.find("examples/", p + 1)) {
+                    size_t q = p + 9, e = q;
+                    while (e < l.size() && (std::islower(static_cast<unsigned char>(l[e])) ||
+                                            std::isdigit(static_cast<unsigned char>(l[e])) || l[e] == '-'))
+                        ++e;
+                    if (e - q >= 2)
+                        cites.emplace_back(end + 1,
+                                           l.substr(p, e - p));  // examples/<name>, not examples/ or examples/*
+                }
+            }
+            checked += cites.size();
+            if (!optional)
+                for (const auto& c : cites)
+                    FAIL_CHECK(
+                        d.path
+                        << ":" << c.first << " cites `" << c.second
+                        << "` but its paragraph never says the example is optional: a download has no examples/. "
+                           "Keep the recipe in the doc and add, in the same paragraph, \"(if you got it with "
+                           "`project.create {example: \\\"<name>\\\"}`)\".");
+            start = end + 1;
+        }
+    }
+    CHECK(checked > 0);  // the scan found the citations it guards
 }

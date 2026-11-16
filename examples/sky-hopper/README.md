@@ -1,5 +1,9 @@
 # Sky Hopper
 
+**What it shows:** A 2D platformer: variable jump height, coyote time, jump buffering, vector art made with commands and a generated level.
+
+**Read first:** `docs/GAME_FEEL.md`, `docs/VECTOR.md` (`docs.read`, or `factoria docs read <name>`).
+
 A FactorIA 2D platformer: run, jump (variable height, coyote time, jump buffering), collect coins, stomp
 crawlers, reach the flag. Two hand-made levels, then a generated one, then a win screen. The coin and the flag are vector art drawn
 with the `vector.*` commands (the Vector panel's commands, `assets/src/svg/props`); the other sprites and the sounds are

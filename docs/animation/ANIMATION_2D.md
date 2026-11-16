@@ -286,7 +286,7 @@ renderer. It reads the size of the sheet from the image file (or the packed atla
 exists only on the GPU (`runtime:`, `target:`) keeps the region the renderer gives it when it draws. At `time.scale` 0
 no clip advances. A clip a script changes is shown in the same frame's picture.
 `assets.preview_sheet` shows the clips and checks them before you wire them in; the editor's Project panel plays them.
-`examples/neon-swarm` makes its kill effect this way.
+The Neon Swarm example makes its kill effect this way (`examples/neon-swarm`, if you got it with `project.create {example: "neon-swarm"}`; the clip format and commands above are all you need).
 
 ## Where it runs and what the renderer reads
 
