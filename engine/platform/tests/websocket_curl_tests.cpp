@@ -10,6 +10,9 @@
 #include <sys/socket.h>
 #include <unistd.h>
 
+#include <poll.h>
+
+#include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -19,6 +22,7 @@
 
 #include "fa/core/json.h"
 #include "fa/platform/websocket.h"
+#include "fa/platform/websocket_codec.h"
 #include "ws_test_server.h"
 
 using namespace fa;
@@ -106,6 +110,133 @@ public:
 private:
     int fd_ = -1;
     int port_ = 0;
+};
+
+// The byte at `offset` of message `index` in the burst of the backpressure case: a reordered or a lost chunk shows.
+char burst_byte(int index, std::size_t offset) {
+    return static_cast<char>((static_cast<std::size_t>(index) * 131u + offset * 7u) & 0xffu);
+}
+
+// A WebSocket server for one connection that reads slowly (a small receive buffer, a pause after every 8 KB), so the
+// client's writes stall and curl_easy_send answers CURLE_AGAIN again and again. It checks that `count` binary messages of
+// `size` bytes (burst_byte) arrive whole and in order, then sends "ok <count>" (or what went wrong) and closes with 1000.
+class SlowReader {
+public:
+    SlowReader(int count, std::size_t size) : count_(count), size_(size) {
+        listen_ = ::socket(AF_INET, SOCK_STREAM, 0);
+        if (listen_ < 0) return;
+        const int small = 8 * 1024;  // inherited by the accepted socket
+        ::setsockopt(listen_, SOL_SOCKET, SO_RCVBUF, &small, sizeof(small));
+        sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        if (::bind(listen_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 || ::listen(listen_, 4) != 0) {
+            ::close(listen_);
+            listen_ = -1;
+            return;
+        }
+        socklen_t length = sizeof(addr);
+        ::getsockname(listen_, reinterpret_cast<sockaddr*>(&addr), &length);
+        port_ = ntohs(addr.sin_port);
+        thread_ = std::thread([this] { serve(); });
+    }
+    ~SlowReader() {
+        stop_ = true;
+        if (thread_.joinable()) thread_.join();
+        if (listen_ >= 0) ::close(listen_);
+    }
+    SlowReader(const SlowReader&) = delete;
+    SlowReader& operator=(const SlowReader&) = delete;
+    bool ok() const { return port_ != 0; }
+    std::string url() const { return "ws://127.0.0.1:" + std::to_string(port_) + "/burst"; }
+
+private:
+    // Waits up to 50 ms for `events` on `fd`: true when it is ready.
+    static bool ready(int fd, short events) {
+        pollfd p{fd, events, 0};
+        return ::poll(&p, 1, 50) > 0;
+    }
+
+    bool write_all(int c, const std::string& bytes) {
+        std::size_t at = 0;
+        while (at < bytes.size() && !stop_) {
+            if (!ready(c, POLLOUT)) continue;
+#if defined(MSG_NOSIGNAL)
+            const ssize_t n = ::send(c, bytes.data() + at, bytes.size() - at, MSG_NOSIGNAL);
+#else
+            const ssize_t n = ::send(c, bytes.data() + at, bytes.size() - at, 0);
+#endif
+            if (n <= 0) return false;
+            at += static_cast<std::size_t>(n);
+        }
+        return at == bytes.size();
+    }
+
+    void serve() {
+        const auto end = Clock::now() + std::chrono::seconds(60);  // safety net, far above the second the burst takes
+        int c = -1;
+        while (c < 0 && !stop_ && Clock::now() < end) {
+            if (ready(listen_, POLLIN)) c = ::accept(listen_, nullptr, nullptr);
+        }
+        if (c < 0) return;
+#if defined(SO_NOSIGPIPE)
+        const int one = 1;
+        ::setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
+#endif
+        ws::SessionOptions options;
+        options.role = ws::Role::Server;
+        options.maxMessageBytes = size_ * 2;
+        ws::Session session(options);
+        std::string head;
+        bool upgraded = false, closing = false;
+        int got = 0;
+        std::vector<ws::Event> events;
+        char buffer[8 * 1024];
+        while (!stop_ && Clock::now() < end) {
+            if (!ready(c, POLLIN)) continue;
+            const ssize_t n = ::recv(c, buffer, sizeof(buffer), 0);
+            if (n <= 0) break;
+            events.clear();
+            if (!upgraded) {
+                head.append(buffer, static_cast<std::size_t>(n));
+                const std::size_t headEnd = ws::find_head_end(head);
+                if (headEnd == std::string::npos) continue;
+                auto request = ws::parse_client_request(std::string_view(head).substr(0, headEnd));
+                if (!request.ok() || !write_all(c, ws::build_server_response(request.value(), ""))) break;
+                upgraded = true;
+                session.feed(head.data() + headEnd, head.size() - headEnd, events);
+            } else {
+                session.feed(buffer, static_cast<std::size_t>(n), events);
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            }
+            std::string verdict;
+            for (const ws::Event& e : events) {
+                if (closing || e.type != ws::Event::Type::Binary) continue;
+                bool whole = e.data.size() == size_;
+                for (std::size_t k = 0; whole && k < size_; ++k) whole = e.data[k] == burst_byte(got, k);
+                if (!whole) {
+                    verdict = "message " + std::to_string(got) + " arrived broken or out of order";
+                    break;
+                }
+                if (++got == count_) verdict = "ok " + std::to_string(count_);
+            }
+            if (!verdict.empty() && !closing) {
+                static_cast<void>(session.send_text(verdict));
+                static_cast<void>(session.close(1000));
+                closing = true;
+            }
+            if (session.has_output() && !write_all(c, session.take_output())) break;
+            if (session.done()) break;
+        }
+        ::close(c);
+    }
+
+    int count_;
+    std::size_t size_;
+    int listen_ = -1;
+    int port_ = 0;
+    std::atomic<bool> stop_{false};
+    std::thread thread_;
 };
 
 }  // namespace
@@ -386,6 +517,33 @@ TEST_CASE("websocket curl: close() while connecting, the handshake timeout, and 
     r.url = "ws://127.0.0.1:1/";
     r.headers = {{"X-A", "a\r\nb"}};
     CHECK_FALSE(client->connect(r).ok());
+}
+
+TEST_CASE("websocket curl: a burst of sends to a server that reads slowly arrives whole and in order") {
+    // The client's writes stall (CURLE_AGAIN) while more messages queue behind them; the bytes being written must not move
+    // or change meanwhile (a TLS library retries the same buffer), and nothing may be lost or reordered.
+    auto client = curl_client();
+    if (!client) return;
+    constexpr int kCount = 64;
+    constexpr std::size_t kSize = 64 * 1024;  // 4 MB in all: far more than the socket buffers hold
+    SlowReader server(kCount, kSize);
+    REQUIRE(server.ok());
+    auto ws = open(*client, server.url());
+    auto events = collect(*ws, 1);
+    REQUIRE(events.size() == 1);
+    REQUIRE(events[0].type == WebSocketEvent::Type::Open);
+    std::string message(kSize, '\0');
+    for (int i = 0; i < kCount; ++i) {
+        for (std::size_t k = 0; k < kSize; ++k) message[k] = burst_byte(i, k);
+        REQUIRE(ws->send_binary(message.data(), message.size()).ok());
+    }
+    events = collect_until_close(*ws);
+    REQUIRE(events.size() == 2);
+    CHECK(events[0].type == WebSocketEvent::Type::Text);
+    CHECK(events[0].data == "ok " + std::to_string(kCount));
+    CHECK(events[1].type == WebSocketEvent::Type::Close);
+    CHECK(events[1].code == 1000);
+    CHECK(events[1].wasClean);
 }
 
 #endif
