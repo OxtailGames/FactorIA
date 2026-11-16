@@ -913,7 +913,7 @@ Makes this entity follow the state of an Interactable with no script. Show: the 
 
 Since 0.1.6.
 
-Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement yet: the caret stays at the end (caretIndex, selectionStart, selectionEnd and composition are the contract the editing model fills, M98.6). Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
+Single-line text input with a caret, a selection, the clipboard and IME composition. While focused it takes the typed characters at the caret (replacing the selection); Left / Right move the caret (with Ctrl, or Alt on macOS, a word at a time; with Shift they extend the selection), Home / End go to the ends, Backspace and Delete remove the selection or the character (they repeat while held), Ctrl+A (Cmd+A on macOS) selects all, Ctrl+C / X / V (Cmd on macOS) copy, cut and paste, and Enter submits. A click places the caret, a drag selects, a double click selects a word, a triple click all of it. Focusing a field puts the caret at the end of its text. The caret never stops inside a base character plus its combining marks or an emoji sequence. Text composed with an input method shows at the caret, underlined, and is typed when the player commits it (a click in the field, or the focus moving to another field, commits it too). Caret and selection assume left-to-right text for now. A field that loses the focus keeps its last scroll. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Space types a space (ui_submit is ignored); Up / Down move the focus.
 
 | Field | Type | Default | Description |
 |---|---|---|---|
@@ -943,11 +943,15 @@ Single-line text input. While focused it appends the typed characters (Input tex
 | `text` | string | `""` | The text, UTF-8. Scripts may write it; no event is sent for a write. |
 | `placeholder` | string | `""` | Hint drawn at half alpha while `text` is empty. |
 | `maxLength` | int | `64` | Longest text, in characters (code points). 0 = unlimited. Range 0..1000000. |
+| `password` | bool | `false` | Draws every character (and the composition) as '*'; Copy and Cut do nothing, the platform's input method is off, and the whole text is one word (word keys go to its ends, a double click selects all). `text` still holds what was typed and scripts can read it, and the composition. (not released yet, on main after 0.29.1) |
 | `caret` | bool | `false` | Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled clock; it restarts visible on every edit). Drawn only while focused. Read-only. Runtime-only (not saved). |
-| `caretIndex` | int | `0` | Where the caret is, in code points from the start of `text` (0 = before the first character). Clamped to 0..length of `text` every frame. The editing model that moves it with the arrows, Home / End and clicks is M98.6b; until then caretIndex does NOT follow the caret (typing still appends at the end) and only holds what a scene or script wrote, clamped. Range 0..1000000. (not released yet, on main after 0.29.1) |
-| `selectionStart` | int | `0` | Start of the selected text, in code points. selectionStart == selectionEnd means nothing is selected. Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd). Clamped to 0..length of `text` every frame. Range 0..1000000. (not released yet, on main after 0.29.1) |
+| `caretIndex` | int | `0` | Where the caret is, in code points from the start of `text` (0 = before the first character). It follows the player's edits and clicks, and a script may write it to move the caret. Clamped to 0..length of `text` every frame. A script that changes `text` without touching the caret, selection or caretIndex puts the caret at the end. Range 0..1000000. (not released yet, on main after 0.29.1) |
+| `selectionStart` | int | `0` | Start of the selected text, in code points. selectionStart == selectionEnd means nothing is selected. Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd, the caret). A script selects a range by writing both (caretIndex follows selectionEnd when it is not written). Clamped to 0..length of `text` every frame. Range 0..1000000. (not released yet, on main after 0.29.1) |
 | `selectionEnd` | int | `0` | End of the selected text, in code points (see selectionStart). Clamped to 0..length of `text` every frame. Range 0..1000000. (not released yet, on main after 0.29.1) |
 | `composition` | string | `""` | Runtime: the text an input method (IME) is composing in this field, UTF-8, "" when none. It is not part of `text` until the player commits it. Only the focused field has one. Read-only. Runtime-only (not saved). (not released yet, on main after 0.29.1) |
+| `compositionCaret` | int | `0` | Runtime: the input method's caret inside `composition`, in code points (0 = at its start). Read-only. Runtime-only (not saved). (not released yet, on main after 0.29.1) |
+| `compositionSelection` | int | `0` | Runtime: how many code points from compositionCaret the input method is converting (the clause drawn highlighted); 0 = none. Read-only. Runtime-only (not saved). (not released yet, on main after 0.29.1) |
+| `scrollX` | float | `0.0` | Runtime: how many UI units the text is scrolled to the left so that the caret stays visible in a field narrower than its text. Read-only. Runtime-only (not saved). (not released yet, on main after 0.29.1) |
 
 ### ScrollList
 
@@ -10156,7 +10160,7 @@ declare module "factoria" {
      */
     readonly text: string;
     /**
-     * True while an input method (IME: Japanese, Chinese, Korean, dead keys) is composing text that is not typed yet: from its first pre-edit string until the player commits it or cancels. The committed text then arrives once in input.text. A focused TextField keeps the pre-edit string in TextField.composition (drawn at its caret from M98.6b). Needs a platform that sends composition events (from M98.6c / 6d); until then it stays false.
+     * True while an input method (IME: Japanese, Chinese, Korean, dead keys) is composing text that is not typed yet: from its first pre-edit string until the player commits it or cancels. The committed text then arrives once in input.text. A focused TextField keeps the pre-edit string in TextField.composition (drawn at its caret, underlined). Needs a platform that sends composition events (from M98.6c / 6d); until then it stays false.
      * @since unreleased
      */
     readonly composing: boolean;
@@ -18393,7 +18397,7 @@ declare module "factoria" {
     set disabled(value: ColorLike);
   }
   /**
-   * Single-line text input. While focused it appends the typed characters (Input text), Backspace removes the last one (it repeats while held) and Enter submits. There is no caret movement yet: the caret stays at the end (caretIndex, selectionStart, selectionEnd and composition are the contract the editing model fills, M98.6). Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).
+   * Single-line text input with a caret, a selection, the clipboard and IME composition. While focused it takes the typed characters at the caret (replacing the selection); Left / Right move the caret (with Ctrl, or Alt on macOS, a word at a time; with Shift they extend the selection), Home / End go to the ends, Backspace and Delete remove the selection or the character (they repeat while held), Ctrl+A (Cmd+A on macOS) selects all, Ctrl+C / X / V (Cmd on macOS) copy, cut and paste, and Enter submits. A click places the caret, a drag selects, a double click selects a word, a triple click all of it. Focusing a field puts the caret at the end of its text. The caret never stops inside a base character plus its combining marks or an emoji sequence. Text composed with an input method shows at the caret, underlined, and is typed when the player commits it (a click in the field, or the focus moving to another field, commits it too). Caret and selection assume left-to-right text for now. A field that loses the focus keeps its last scroll. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Space types a space (ui_submit is ignored); Up / Down move the focus.
    * 
    * Category: UI
    * @since 0.1.6
@@ -18537,17 +18541,22 @@ declare module "factoria" {
      */
     maxLength: number;
     /**
+     * Draws every character (and the composition) as '*'; Copy and Cut do nothing, the platform's input method is off, and the whole text is one word (word keys go to its ends, a double click selects all). `text` still holds what was typed and scripts can read it, and the composition.
+     * @since unreleased
+     */
+    password: boolean;
+    /**
      * Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled clock; it restarts visible on every edit). Drawn only while focused. Read-only.
      * @since 0.1.6
      */
     readonly caret: boolean;
     /**
-     * Where the caret is, in code points from the start of `text` (0 = before the first character). Clamped to 0..length of `text` every frame. The editing model that moves it with the arrows, Home / End and clicks is M98.6b; until then caretIndex does NOT follow the caret (typing still appends at the end) and only holds what a scene or script wrote, clamped.
+     * Where the caret is, in code points from the start of `text` (0 = before the first character). It follows the player's edits and clicks, and a script may write it to move the caret. Clamped to 0..length of `text` every frame. A script that changes `text` without touching the caret, selection or caretIndex puts the caret at the end.
      * @since unreleased
      */
     caretIndex: number;
     /**
-     * Start of the selected text, in code points. selectionStart == selectionEnd means nothing is selected. Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd). Clamped to 0..length of `text` every frame.
+     * Start of the selected text, in code points. selectionStart == selectionEnd means nothing is selected. Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd, the caret). A script selects a range by writing both (caretIndex follows selectionEnd when it is not written). Clamped to 0..length of `text` every frame.
      * @since unreleased
      */
     selectionStart: number;
@@ -18561,6 +18570,21 @@ declare module "factoria" {
      * @since unreleased
      */
     readonly composition: string;
+    /**
+     * Runtime: the input method's caret inside `composition`, in code points (0 = at its start). Read-only.
+     * @since unreleased
+     */
+    readonly compositionCaret: number;
+    /**
+     * Runtime: how many code points from compositionCaret the input method is converting (the clause drawn highlighted); 0 = none. Read-only.
+     * @since unreleased
+     */
+    readonly compositionSelection: number;
+    /**
+     * Runtime: how many UI units the text is scrolled to the left so that the caret stays visible in a field narrower than its text. Read-only.
+     * @since unreleased
+     */
+    readonly scrollX: number;
   }
   /**
    * Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. The mouse wheel over the list scrolls it (the innermost list under the pointer) when it has more content than it shows; that wheel is then consumed: input.mouse.wheel reads 0 for the frame and ui.wheelConsumed is true. Focusing a widget inside scrolls just enough to show it.
@@ -19632,7 +19656,7 @@ declare module "factoria" {
     Slider: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; labelAbove?: boolean; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: number; min?: number; max?: number; step?: number; showValue?: boolean; format?: string; formatKey?: string };
     Interactable: { kind?: "button" | "toggle" | "slider"; enabled?: boolean; autoFocus?: boolean; focusOnHover?: boolean; size?: Vec2Like; offset?: Vec2Like; space?: "auto" | "world" | "screen"; on?: boolean; value?: number; min?: number; max?: number; step?: number; axis?: "x" | "y"; knob?: EntityLike; fill?: EntityLike; label?: string; key?: string; keyArgs?: any };
     InteractableVisual: { target?: EntityLike; mode?: "show" | "tint"; when?: "always" | "normal" | "hover" | "pressed" | "focused" | "highlighted" | "disabled" | "on" | "off"; normal?: ColorLike; hover?: ColorLike; pressed?: ColorLike; focused?: ColorLike; disabled?: ColorLike };
-    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number; caretIndex?: number; selectionStart?: number; selectionEnd?: number };
+    TextField: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; placeholder?: string; maxLength?: number; password?: boolean; caretIndex?: number; selectionStart?: number; selectionEnd?: number };
     ScrollList: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; scroll?: number; scrollSpeed?: number; fill?: boolean; shrink?: boolean };
     TouchStick: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; stick?: "left" | "right"; knobColor?: ColorLike; touchOnly?: boolean };
     TouchButton: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; button?: "A" | "B" | "X" | "Y" | "Start" | "Back" | "Guide" | "DpadLeft" | "DpadRight" | "DpadUp" | "DpadDown" | "LeftShoulder" | "RightShoulder" | "LeftThumb" | "RightThumb"; text?: string; key?: string; keyArgs?: any; font?: string; fontSize?: number; autoShrink?: boolean; minFontSize?: number; maxTextScale?: number; markup?: boolean; bold?: boolean; textColor?: ColorLike; touchOnly?: boolean };

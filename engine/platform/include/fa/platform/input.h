@@ -338,8 +338,8 @@ public:
     // composition like a cancel. The text is cut at kMaxCompositionLength code points. An update never writes into
     // text_input(): only a commit does. While the IME is on, telling a commit from ordinary typing is the BACKEND's job: the
     // text that arrives with a commit (for example Windows' WM_CHAR after GCS_RESULTSTR) is delivered through
-    // on_composition_commit and not again through on_text. The platform backends (M98.6c, 6d) and tests call these; from
-    // M98.6b a TextField draws the composition at its caret (it is never stored in `text`).
+    // on_composition_commit and not again through on_text. The platform backends (M98.6c, 6d) and tests call these; a
+    // TextField draws the composition at its caret (it is never stored in `text`).
     void on_composition_update(std::u32string text, int caretCp, int selLen);
     // The IME finished: the composition ends and `text` is delivered as NORMAL text input, exactly once, as if on_text() had
     // been called for each of its code points. A backend calls this INSTEAD of on_text() for the committed text, never

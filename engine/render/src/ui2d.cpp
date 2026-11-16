@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "fa/scene/chart.h"
+#include "fa/scene/text_field_view.h"
 #include "fa/scene/ui_rect.h"
 #include "frame.h"
 #include "nine_slice.h"
@@ -495,19 +496,32 @@ void draw_widget(Frame& f, const World& world, Entity e, UiKind kind, const UiBo
         }
     } else if (kind == UiKind::TextField) {
         const TextField& tf = *world.get<TextField>(e);
-        const Rect inner{r.x + 12, r.y, std::max(0.0f, r.w - 24), r.h};
+        const TextFieldView v =
+            text_field_view(tf, r, [&](const std::string& s) { return line(c, s, tf.font, tf.fontSize).size; });
         const Rect clip = c.clip.empty()
-                              ? to_pixels(c, inner)
-                              : ui_intersect(to_pixels(c, inner), c.clip);  // the text never leaves the field
+                              ? to_pixels(c, v.inner)
+                              : ui_intersect(to_pixels(c, v.inner), c.clip);  // the text never leaves the field
         if (!clip.empty()) {
-            const bool empty = tf.text.empty();
-            const TextLayout lay = line(c, empty ? tf.placeholder : tf.text, tf.font, tf.fontSize);
-            const float width = empty ? 0.0f : lay.size.x,
-                        x = inner.x + std::min(0.0f, inner.w - width);  // long text shows its end
-            const float y = r.y + (r.h - lay.size.y) * 0.5f;
-            text(c, lay, empty ? inner.x : x, y, with_alpha(tf.textColor, empty ? 0.5f : 1.0f), layer, clip);
+            const float h = std::max(0.0f, v.lineH);
+            if (v.hasSelection && tf.focused)
+                fill(c, layer, Rect{v.selX0, v.lineY, v.selX1 - v.selX0, h}, with_alpha(tf.accentColor, 0.35f), clip);
+            if (v.composing && v.clauseX1 > v.clauseX0)  // the part the input method is converting
+                fill(c, layer, Rect{v.clauseX0, v.lineY, v.clauseX1 - v.clauseX0, h}, with_alpha(tf.accentColor, 0.35f),
+                     clip);
+            if (v.placeholder) {
+                const TextLayout lay = line(c, tf.placeholder, tf.font, tf.fontSize);
+                text(c, lay, v.inner.x, v.lineY, with_alpha(tf.textColor, 0.5f), layer, clip);
+            } else {
+                text(c, line(c, v.display, tf.font, tf.fontSize), v.textX, v.lineY, tf.textColor, layer, clip);
+            }
+            if (v.composing)  // the pre-edit text is underlined
+                fill(c, layer, Rect{v.compX0, v.lineY + h - 2.0f, v.compX1 - v.compX0, 1.5f}, tf.textColor, clip);
+            if (v.composing && v.clauseX1 > v.clauseX0)
+                fill(c, layer, Rect{v.clauseX0, v.lineY + h - 3.0f, v.clauseX1 - v.clauseX0, 2.5f}, tf.accentColor,
+                     clip);
             if (tf.caret)
-                fill(c, layer, Rect{x + width + 1, y + 2, 2, std::max(0.0f, lay.size.y - 4)}, tf.accentColor, clip);
+                fill(c, layer, Rect{v.caretX, v.lineY + 2.0f, kTextFieldCaretWidth, std::max(0.0f, h - 4.0f)},
+                     tf.accentColor, clip);
         }
     }
     if (ctl && ctl->focused && ctl->interactable) outline(c, b.layer + 2, r, 3, ctl->accentColor);

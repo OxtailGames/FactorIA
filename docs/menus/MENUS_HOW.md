@@ -207,19 +207,35 @@ Part of [MENUS.md](../MENUS.md): What each part of the kit does and what to chan
   says so once. In `factoria:test`, `game.captions()` returns `[{ text, speaker, key, source }]` (fixture
   `tests/captions.test.js`: a sound and a line, in English, Spanish and Arabic, and the toggle). The speaker name is plain
   text written when the line starts (use `i18n.t`).
-- **Paste and copy.** A focused `TextField` pastes the clipboard with Ctrl+V (Cmd+V on macOS) and copies its whole text
-  with Ctrl/Cmd+C. A paste is appended at the end, drops newlines and control characters, stops at `maxLength` and sends
-  `ui.change` once; the letter of the chord is not typed. Phones have no clipboard for games
-  (`window.supports("clipboard")`; docs/SCRIPTING.md "Clipboard").
-- **Caret, selection and IME composition (the contract of M98.6).** A `TextField` has `caretIndex`, `selectionStart` and
-  `selectionEnd` (code-point indices into `text`; `selectionStart == selectionEnd` means no selection; the UI clamps all three
-  to the text every frame, so a scene or a script that writes a wrong one is harmless) and a runtime, read-only
-  `composition` (the pre-edit string an input method is composing in the focused field, never part of `text` until it is
-  committed). Scripts read the composition in `input.composing` / `input.compositionText`. While a field has the focus the UI
-  turns the platform's IME on and sends it the caret rectangle in window pixels (`ime_set_enabled`, `ime_set_caret_rect`,
-  fa/platform/ime.h). Today nothing moves the caret or edits the selection, and the platform backends do not send
-  composition events yet: M98.6b adds the editing (arrows, Home / End, selection, word moves, cut and select all) and
-  M98.6c / 6d the IME on each platform, filling these fields without changing their names.
+- **Editing a TextField (caret, selection, clipboard, IME).** A focused `TextField` has a caret (`caretIndex`, a code-point
+  index into `text`; focusing a field puts it at the end) and a selection (`selectionStart` is the anchor, `selectionEnd`
+  the moving end, equal = nothing selected; the UI clamps all three to the text every frame). What the player does, with
+  Cmd instead of Ctrl on macOS: typing inserts at the caret and replaces the selection; Left / Right move the caret (they
+  repeat while held; with Shift they extend the selection, with the word key a word at a time: Ctrl, or Alt on macOS);
+  Home / End go to the ends; Backspace and Delete remove the selection, else the character (or the word) before / after the
+  caret, and repeat; Ctrl/Cmd+A selects all; Ctrl/Cmd+C copies the selection (nothing happens without one), Ctrl/Cmd+X cuts
+  it, Ctrl/Cmd+V pastes at the caret over the selection. A paste drops newlines and control characters, stops at `maxLength`
+  (never inside an emoji sequence) and sends `ui.change` once; the letter of the chord is not typed. A press with the mouse
+  or a finger puts the caret there, a drag selects, a double click selects the word under the pointer, a triple click all of
+  it. Up / Down still move the focus. The caret never stops inside a base character and its combining marks, an emoji
+  sequence or a flag. A scripted write is honoured at once, key or no key: `caretIndex` moves the caret, `selectionStart` /
+  `selectionEnd` select a range (the caret follows `selectionEnd`), and a new `text` alone puts the caret at the end.
+  `password: true` draws every character (and the composition) as `*`, switches Copy and Cut off, keeps the platform's input
+  method off, and treats the whole text as one word (word keys and a double click go to its ends or select all); a script
+  can still read `text` and `composition` of a password field, so never log them. A text wider than the field scrolls
+  (`scrollX`, runtime) to keep the caret visible; a field that loses the focus keeps its last scroll. Left and right arrows are
+  for the caret in a TextField, not for the focus; a gamepad's d-pad does the same. Not covered: right-to-left caret and
+  selection (they assume left-to-right text for now: arrows move through the text in reading order, not on screen), Hangul
+  and Indic cluster rules. Phones have no clipboard for games (`window.supports("clipboard")`; docs/SCRIPTING.md
+  "Clipboard").
+- **IME composition.** The runtime, read-only `composition` of the focused field holds the pre-edit string an input method is
+  composing (never part of `text` until committed; scripts read `input.composing` / `input.compositionText`),
+  `compositionCaret` and `compositionSelection` the IME's caret and the part it is converting. The field draws it at the
+  caret, underlined, with the converted part highlighted and the caret inside it. While a field has the focus (and is not a
+  password) the UI turns the platform's IME on and sends it the exact rectangle of the caret in framebuffer pixels
+  (`ime_set_enabled`, `ime_set_caret_rect`, fa/platform/ime.h). While the player composes, Backspace, Delete, Home, End and
+  the arrows belong to the input method; a click inside the field, or moving the focus to another field, commits the
+  composition as typed text (once). Which platforms send composition events is the backend's: docs/TEXT.md, "Typing text".
 - **On-screen keyboard (gamepad players).** A `TextField` takes typed text from a keyboard, and a phone raises its own
   keyboard when one gets the focus (the engine does that, not the game: docs/MOBILE.md). A player with only a pad has
   neither, so `scripts/ui/keyboard.js` (a behaviour: put it on one entity of the scene) opens

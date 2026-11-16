@@ -76,7 +76,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [Panel](components/ui.md#panel): Container widget: a background rectangle (solid or 9-slice) whose children are laid out in a row, a column or a grid. _Since 0.1.6._
 - [ScrollList](components/ui.md#scrolllist): Scrolling container: its children are stacked in a column (aligned left, packed at the top) at -scroll, and everything drawn by them and their descendants (widgets, Text, Sprite, Shape2D) is CLIPPED to the list's rectangle. _Since 0.1.6._
 - [Slider](components/ui.md#slider): Horizontal value slider: label in the left 35% (when not empty), the track in the next 50% (85% without a label) with a fill and a knob in accentColor, the value in the last 15% (with labelAbove the label is above the track and the track gets the 85%). _Since 0.1.6._
-- [TextField](components/ui.md#textfield): Single-line text input. _Since 0.1.6._
+- [TextField](components/ui.md#textfield): Single-line text input with a caret, a selection, the clipboard and IME composition. _Since 0.1.6._
 - [Toggle](components/ui.md#toggle): Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the label to its right. _Since 0.1.6._
 - [TouchButton](components/ui.md#touchbutton): On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (darker while held) with an optional label. _Since 0.2.0._
 - [TouchStick](components/ui.md#touchstick): On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color` with a knob that follows the finger. _Since 0.2.0._

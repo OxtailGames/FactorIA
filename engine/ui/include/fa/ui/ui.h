@@ -64,7 +64,9 @@ struct TextInputRequest {
     Rect rect;            // the field's rectangle, design pixels (empty when the field is gone)
     std::string text;
     std::int32_t maxLength = 0;
-    bool multiline = false, password = false;  // no TextField has either yet
+    bool multiline = false;  // no TextField is multi-line yet
+    bool password =
+        false;  // the field's `password`: the platform's keyboard must not suggest or remember what is typed
 };
 // Returns true when the platform shows its own keyboard for the field. For a request with `focused` false it is ignored.
 using TextInputHandler = std::function<bool(const TextInputRequest&)>;
@@ -205,10 +207,10 @@ public:
     // changes. The handler runs inside update() and reset() on the game thread.
     void set_text_input_handler(TextInputHandler handler) { textInput_ = std::move(handler); }
     // How the IME is told where the caret is (fa/platform/ime.h): the UI turns the IME on while a TextField has the focus and
-    // sends the field's caret rectangle every frame (fa/platform/ime.h). `mapper` takes a design pixel to a FRAMEBUFFER pixel (the
+    // sends the exact rectangle of the field's caret every frame (a thin bar at the caret, or inside the
+    // composition). `mapper` takes a design pixel to a FRAMEBUFFER pixel (the
     // Engine sets it from its window, the same mapping as the platform keyboard's rectangle: not divided by the DPI scale);
-    // without one, design pixels are framebuffer pixels. Until M98.6b the rectangle is the right part of the field, not yet
-    // the exact caret.
+    // without one, design pixels are framebuffer pixels.
     void set_design_to_window(std::function<Vec2(Vec2)> mapper) { designToWindow_ = std::move(mapper); }
     // Text the platform keyboard returned: replaces the text of the field that took the keyboard if it still has the focus
     // (cut to its maxLength, control characters dropped) and sends ui.change when the text changed. False when no field is
@@ -376,7 +378,40 @@ private:
     float clock_ = 0.0f;          // the UI's own unscaled clock (caret blink)
     float caretStart_ = 0.0f;     // clock_ at the last edit or focus change: the caret is visible then
     std::array<Repeat, 4> nav_;   // up, down, left, right
-    Repeat backspace_;
+    Repeat backspace_, delete_;
+
+    // TextField editing (textfield.cpp). The UI remembers what it last wrote to the focused field, so a script
+    // that writes the
+    // text, caretIndex or the selection in between is told from the player's edits.
+    struct FieldMemo {
+        Entity e;
+        std::string text;
+        std::int32_t caret = 0, selStart = 0, selEnd = 0;
+    };
+    FieldMemo fieldMemo_;
+    float clickTime_ = -100.0f;  // clock_ at the last press on a TextField (double and triple click)
+    Entity clickField_;
+    Vec2 clickPos_;
+    int clickCount_ = 0;
+    Rect imeCaret_;  // the focused field's caret in design pixels, this frame (valid when imeCaretValid_)
+    bool imeCaretValid_ = false;
+    void field_focus(World& world, Entity e);  // the caret goes to the end of a field that got the focus
+    // Reads the caret and the anchor of the selection from the field, after what a script may have written since
+    // the UI last did.
+    void field_sync(Entity e, TextField& tf, std::int32_t& caret, std::int32_t& anchor);
+    void field_store(Entity e, TextField& tf, std::int32_t caret,
+                     std::int32_t anchor);  // writes them (and `text` is already written)
+    void field_keys(World& world, Entity e, TextField& tf, Input& in,
+                    float dt);  // typing, deleting, clipboard, Home / End
+    void field_arrow(World& world, Entity e, TextField& tf, Input& in, bool left);
+    // Types the IME's composition into field `e` at its caret (once) and ends it in `in`; the caller then tells
+    // the backend.
+    void field_commit_composition(World& world, Entity e, Input& in);
+    // A press, drag or release of the pointer on the focused TextField `e` (mouse in screen pixels).
+    void field_pointer(World& world, Entity e, TextField& tf, Input& in, Vec2 design, Vec2 mouse, bool pressed,
+                       bool down, const VisualMeasure& measure);
+    // Per frame, for the focused or any field: the scroll, composition caret and (focused) the IME's caret rectangle.
+    void field_frame(World& world, Entity e, TextField& tf, Input& in, Vec2 design, const VisualMeasure& measure);
 
     // Chart hover: the chart and sample the pointer was over at the last update (ui.chartHover is sent when it changes).
     void update_chart_hover(World& world, Vec2 designSize, Vec2 mouse);
