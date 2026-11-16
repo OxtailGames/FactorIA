@@ -10,6 +10,22 @@
 #include "fa/core/strings.h"
 #include "fa/core/utf8.h"
 
+#if defined(__EMSCRIPTEN__)
+#include <emscripten.h>
+
+// The page runs on an Apple device (a Mac, an iPhone or an iPad)? The browser has no compile-time answer: __APPLE__ is false for
+// a web build, but a Mac's browser edits text with Alt+arrow, like macOS. No apostrophes in the JavaScript: it travels through the C
+// preprocessor, and clang-format must not touch it.
+// clang-format off
+EM_JS(int, fa_web_is_apple_device, (), {
+    const nav = typeof navigator !== "undefined" ? navigator : null;
+    if (!nav) return 0;
+    const platform = (nav.userAgentData && nav.userAgentData.platform) || nav.platform || nav.userAgent || "";
+    return /Mac|iPhone|iPad|iPod/.test(platform) ? 1 : 0;
+});
+// clang-format on
+#endif
+
 namespace fa {
 
 // ---------------------------------------------------------------------------
@@ -731,10 +747,15 @@ bool Input::cut_pressed() const { return key_pressed(Key::X) && command_chord_do
 bool Input::select_all_pressed() const { return key_pressed(Key::A) && command_chord_down(); }
 bool Input::word_modifier_down() const {
 #if defined(__APPLE__)
-    return key_down(Key::LeftAlt) || key_down(Key::RightAlt);
+    constexpr bool altMoves = true;
+#elif defined(__EMSCRIPTEN__)
+    static const bool altMoves =
+        fa_web_is_apple_device() != 0;  // a web build on a Mac: Alt, like the Mac's own text fields
 #else
-    return key_down(Key::LeftControl) || key_down(Key::RightControl);
+    constexpr bool altMoves = false;
 #endif
+    if (altMoves) return key_down(Key::LeftAlt) || key_down(Key::RightAlt);
+    return key_down(Key::LeftControl) || key_down(Key::RightControl);
 }
 
 void Input::end_composition() {

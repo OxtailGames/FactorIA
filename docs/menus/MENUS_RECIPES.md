@@ -105,7 +105,9 @@ A scene saved by an older version has the layout's placement baked into those po
 `position` every frame). Loaded now it would be placed twice (the slot plus the old delta), so the engine logs a warning once per
 widget when a laid-out child's position equals the place the layout gives it ("... is laid out by its parent and its
 Transform.position is ..."); the command `ui.reset_layout_positions` sets those positions to 0 and returns `{ count, ids }`; save
-the scene afterwards. A position that is not the layout's place (one the author chose) is not touched.
+the scene afterwards (`ui.reset_layout_positions {"dryRun": true}` only lists them). The test is a guess: a nudge you chose on
+purpose that equals the slot offset is reset too, and a ScrollList scrolled since the scene was loaded can hide a baked
+position, so run it right after loading. A position that is not the layout's place is not touched. In the editor it is one Undo step.
 
 How a parent's layout (`Panel.layout`, a ScrollList) sees a turned or scaled child:
 
@@ -120,7 +122,13 @@ How a parent's layout (`Panel.layout`, a ScrollList) sees a turned or scaled chi
 - A screen-space Text, Sprite or Shape2D that is a child of a layout counts the same way: its own scale makes room, its own
   rotation does not. Drawn, it turns and scales with the parent like a widget child: about the parent's origin (its position
   plus its anchor point), with the child's own `anchor` and position taken in the same layout space (give the child the
-  anchor of the Panel to place it relative to the card). Not under `ui.mirrorRtl`, where a visual child keeps the old pivot.
+  anchor of the Panel to place it relative to the card). Under `ui.mirrorRtl` the card is its mirror image as a whole: the
+  visual's anchor, position and own rotation flip like a widget's. This only applies under a turned or scaled WIDGET (a Panel,
+  a Button...): a plain group that scales multiplies the child's own offset and leaves its anchor where it is, so a HUD group
+  that animates its scale stays on screen. The visual is placed from the Transform and the game feel pose, while the widgets'
+  hit areas read the Transform alone: during a shake or squash of a visual its hit area does not follow it.
+- `TouchStick` and `TouchButton` are the exception: the touch pad takes an axis-aligned rectangle, so a turned one is drawn turned
+  but a finger is tested against the bounding box of its turned rectangle. Keep their rotation at 0.
 
 One limit: a ScrollList clips with a scissor rectangle, which cannot turn. A ScrollList that is turned (itself or a parent) by an angle that is not
 a multiple of 90 degrees clips what it draws to the rectangle that bounds the turned list, so rows can show in
