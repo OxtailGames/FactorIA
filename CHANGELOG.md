@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **UI layout and hit tests follow rotation and scale (M98.6):** a widget whose Transform (or a parent's) has `rotation.z` or a
+  `scale` other than 1 is hovered, clicked, dragged onto, wheel-scrolled, tooltipped, navigated to and (TextField) clicked into
+  the turned rectangle it is drawn as, not an axis-aligned one: the renderer draws widgets turned and scaled around their pivot
+  too. A child's scale multiplies the room its slot takes in a Panel row, column or grid (a `fit` panel grows with it); its
+  rotation keeps the slot. `ui.rectOf` and `ui_rect` report the bounding box; new `ui_quad`, `ui_transform`, `ui_contains`,
+  `ui_local_point`, `ui_footprint_rect` and `ui_own_rect` in `ui_rect.h`. A turned ScrollList still clips to the bounding box
+  of its turned rectangle (a scissor cannot turn) and warns once. Unturned, unscaled UI is bit for bit the same.
 - **Render interpolation (M98.3):** `"render": { "interpolation": true }` in `factoria.json` (default `false`, so nothing
   changes for a game that does not ask) draws entities at the pose between the last two fixed steps, so a 60 Hz simulation
   looks smooth at 120-144 Hz. Only the drawing is blended (position, scale, rotation by slerp; children, cameras and physics

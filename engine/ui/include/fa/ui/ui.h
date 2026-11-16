@@ -347,7 +347,8 @@ private:
         Vec2 design, applied;
     };
     std::unordered_map<u64, AutoSizeMemo> autoSizes_;
-    std::unordered_set<u64> warnedFit_;  // fit panels already reported as larger than the screen
+    std::unordered_set<u64> warnedClip_;  // turned ScrollLists already reported (their scissor is the bounding box)
+    std::unordered_set<u64> warnedFit_;   // fit panels already reported as larger than the screen
 
     Entity focus_, hover_, press_;
     Entity hoverFocused_;  // the hovered Interactable whose focusOnHover entry already moved the focus

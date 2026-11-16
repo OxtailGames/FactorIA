@@ -349,11 +349,17 @@ bool leaves_screen(const World& w, Entity e, const Panel& p, Vec2 design, const 
 
 }  // namespace
 
-namespace ui_detail {
+namespace {
 
-std::optional<Rect> screen_rect(const World& w, Entity e, Vec2 designSize, const VisualMeasure& measure) {
-    if (const std::optional<Rect> r = ui_layout_rect(w, e, designSize)) return r;
-    const Mat4 m = w.world_matrix(e);
+// `layoutSpace`: where a parent's layout sees `e` (a widget's footprint, a visual measured with the layout matrix: no turn, the
+// entity's own scale) instead of where it is drawn (the widget's bounds, the visual's world matrix).
+std::optional<Rect> rect_of(const World& w, Entity e, Vec2 designSize, const VisualMeasure& measure, bool layoutSpace) {
+    if (layoutSpace) {
+        if (const std::optional<Rect> r = ui_footprint_rect(w, e, designSize)) return r;
+    } else if (ui_box(w, e)) {
+        return ui_rect(w, e, designSize);  // pixels: the callers of ui_screen_rect want those
+    }
+    const Mat4 m = layoutSpace ? ui_layout_matrix(w, e) : w.world_matrix(e);
     const Vec2 uiScreen = ui_layout_screen(w, designSize);
     const EdgeInsets uiInsets = ui_layout_insets(w);
     bool any = false;
@@ -379,10 +385,19 @@ std::optional<Rect> screen_rect(const World& w, Entity e, Vec2 designSize, const
     return Rect{x0, y0, x1 - x0, y1 - y0};
 }
 
+}  // namespace
+
+namespace ui_detail {
+
+std::optional<Rect> screen_rect(const World& w, Entity e, Vec2 designSize, const VisualMeasure& measure) {
+    return rect_of(w, e, designSize, measure, true);
+}
+
 }  // namespace ui_detail
 
 std::optional<Rect> ui_screen_rect(const World& w, Entity e, Vec2 designSize, const VisualMeasure& measure) {
-    std::optional<Rect> r = ui_detail::screen_rect(w, e, designSize, measure);
+    if (ui_box(w, e)) return ui_rect(w, e, designSize);
+    std::optional<Rect> r = rect_of(w, e, designSize, measure, false);
     if (!r) return r;
     const float k = ui_scale_clamped(w.ui_scale());  // layout works in UI units; callers get screen pixels
     return Rect{r->x * k, r->y * k, r->w * k, r->h * k};
@@ -438,6 +453,21 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) 
         for (Entity e : candidates) w.get<Panel>(e)->usingFallback = true;
     }
     scrollToFocus_ = false;
+    for (const auto& [depth, e] : containers) {  // a scissor cannot turn: a turned ScrollList clips to its bounding box
+        if (!warn || !w.get<ScrollList>(e)) continue;
+        if (ui_transform(w, e, design).axis_aligned()) {
+            warnedClip_.erase(e.bits());
+        } else if (warnedClip_.insert(e.bits()).second) {
+            FA_WARN(
+                "ui",
+                "ScrollList '{}' is turned (its Transform or a parent's has a rotation), but a scissor rectangle "
+                "cannot "
+                "turn: what it scrolls out of sight is clipped by the rectangle that bounds the turned list, so rows "
+                "may show in its corners. The pointer still hits only the turned list. Keep the list and its parents "
+                "at rotation 0, or accept the corners.",
+                w.info(e).id);
+        }
+    }
     for (const auto& [depth, e] : containers) {  // only the final layout can be too big
         const Panel* p = w.get<Panel>(e);
         if (!warn || !p || !p->fit || used_layout(*p) == UiLayout::None) continue;
