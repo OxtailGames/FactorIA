@@ -249,6 +249,80 @@ TEST_CASE("UndoStack: push_command pushes, coalesces into a command entry and on
     CHECK(small[0].forward[0].args["v"] == 3);
 }
 
+TEST_CASE("UndoStack: Merge replaces the command with the same target and adds the others") {
+    auto call = [](const std::string& target, int v) {
+        UndoCommand c;
+        c.cmd = "set";
+        c.target = target;
+        c.args = Json::object({{"v", v}});
+        return std::vector<UndoCommand>{c};
+    };
+    UndoStack st;
+    CHECK(st.push_command(call("a", 1), call("a", 0), false, CoalesceMode::Merge));
+    CHECK_FALSE(st.push_command(call("b", 11), call("b", 10), true, CoalesceMode::Merge));
+    CHECK(st.back().forward.size() == 2);
+    // a drag of both: every frame replaces its own entry, nothing grows
+    for (int i = 2; i < 20; ++i) {
+        st.push_command(call("a", i), call("a", -1), true, CoalesceMode::Merge);
+        st.push_command(call("b", 10 + i), call("b", -1), true, CoalesceMode::Merge);
+    }
+    REQUIRE(st.back().forward.size() == 2);
+    REQUIRE(st.back().inverse.size() == 2);
+    CHECK(st.back().forward[0].args["v"] == 19);
+    CHECK(st.back().forward[1].args["v"] == 29);
+    CHECK(st.back().inverse[0].target == "b");  // undo runs in the reverse order
+    CHECK(st.back().inverse[0].args["v"] == 10);
+    CHECK(st.back().inverse[1].args["v"] == 0);
+    CHECK(st.bytes() == st.back().bytes);
+    // no target: it chains
+    CHECK_FALSE(st.push_command(call("", 5), call("", 4), true, CoalesceMode::Merge));
+    CHECK(st.back().forward.size() == 3);
+}
+
+TEST_CASE(
+    "UndoStack: Merge with overlapping fields redoes to the newest value, Chain after Merge undoes to the start") {
+    struct State {
+        int pos = 0, scale = 0;
+    };
+    auto call = [](const std::string& target, int pos, int scale) {
+        UndoCommand c;
+        c.cmd = "set";
+        c.target = target;
+        c.args = Json::object({{"pos", pos}});
+        if (scale >= 0) c.args["scale"] = scale;
+        return std::vector<UndoCommand>{c};
+    };
+    auto run = [](State& s, const std::vector<UndoCommand>& cmds) {
+        for (const UndoCommand& c : cmds) {
+            s.pos = c.args["pos"].get<int>();
+            if (c.args.contains("scale")) s.scale = c.args["scale"].get<int>();
+        }
+    };
+    UndoStack st;
+    st.push_command(call("A", 1, -1), call("A", 0, -1), false, CoalesceMode::Merge);  // pos 0 -> 1
+    st.push_command(call("B", 2, 5), call("B", 1, 0), true, CoalesceMode::Merge);     // pos 1 -> 2, scale 0 -> 5
+    st.push_command(call("A", 3, -1), call("A", 2, -1), true, CoalesceMode::Merge);   // pos 2 -> 3
+    REQUIRE(st.back().forward.size() == 2);
+    State s;
+    run(s, st.back().forward);
+    CHECK(s.pos == 3);  // the newest call wins
+    CHECK(s.scale == 5);
+    run(s, st.back().inverse);
+    CHECK(s.pos == 0);
+    CHECK(s.scale == 0);
+    // a Chain call after the merges: undo goes back to the start, redo to the end
+    State t;
+    st.push_command(call("C", 4, -1), call("C", 3, -1), true, CoalesceMode::Chain);
+    st.push_command(call("A", 6, -1), call("A", 4, -1), true,
+                    CoalesceMode::Merge);  // chained entries merge by target too
+    run(t, st.back().forward);
+    CHECK(t.pos == 6);
+    CHECK(t.scale == 5);
+    run(t, st.back().inverse);
+    CHECK(t.pos == 0);
+    CHECK(t.scale == 0);
+}
+
 // ---------------------------------------------------------------------------------------- clicks, ranges, the ancestor skip
 namespace {
 // A tree as the Hierarchy shows it (depth first):  root > (kidA > grand), kidB ; other

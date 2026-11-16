@@ -6,6 +6,12 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Editor undo as commands, first half (M98.7e1):** an edit of a field or a component (Inspector fields, rename, the active box,
+  Transform gizmo drags, adding and removing a component) no longer stores a copy of the whole scene on the undo stack: it stores
+  the command and its inverse, built from the scene before the edit, so 100 edits cost less than one snapshot of a big scene.
+  Undo and Redo run those commands, a drag is still one step, and a step that fails midway puts the scene back and says which
+  command failed. The other edits (entities created, deleted, reparented, pasted; the Console and the AI; bone tools) still take
+  a snapshot until the second half. docs/EDITOR.md, "Undo entries".
 - **Copy, cut and paste of entities (M98.7c):** the new commands `scene.copy_entities` (entities with their subtrees as one
   self-contained JSON text: components, children, links to prefabs) and `scene.paste_entities` (creates them under an optional
   parent or each under the parent it had, with free ids, `nameSuffix`, and the new ids in the answer) make the clipboard

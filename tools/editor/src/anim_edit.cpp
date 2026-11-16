@@ -221,13 +221,14 @@ bool Editor::anim_edit(const std::string& key, const std::vector<ModelCall>& cal
     }
     if (!undoArgs.is_null()) {
         const bool coalesce =
-            key == lastEditKey_ && (time_ - lastEditTime_) < 0.8 && !undo_.empty() && is_clip_entry(undo_.back());
+            edit_coalesces(key, lastEditKey_, time_, lastEditTime_) && !undo_.empty() && is_clip_entry(undo_.back());
         if (!coalesce) {
             undo_.push_back(Json::object({{"$clip", undoArgs}}));
             redo_.clear();
         }
         lastEditKey_ = key;
         lastEditTime_ = time_;
+        lastEditKind_ = UndoEntry::Kind::Special;  // a clip entry: neither a snapshot nor a command edit merges into it
         anim_.dirtyPose = true;
         anim_.ghostKey.clear();
     }

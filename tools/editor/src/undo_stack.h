@@ -5,7 +5,9 @@
 //  - Special: `data` is an object with one `$...` key (`$clip`, `$clip3d`, `$image`, `$vector`, `$sound`, `$particle`,
 //    `$music`, `$modeler`) that points at a step of a document panel; the panel undoes it.
 //  - Command: `forward` and `inverse` are lists of commands ({cmd, args}), in the order they are run. Undoing runs
-//    `inverse`, redoing runs `forward`; nothing stores the scene. Nothing makes these yet (M98.7e migrates the callers).
+//    `inverse`, redoing runs `forward`; nothing stores the scene. Editor::edit_command makes them for the commands that
+//    have an inverse builder (undo_inverse.h: scene.set_component, scene.remove_component); the others still snapshot
+//    (M98.7e2 migrates the structural ones).
 // Every entry knows its approximate size in bytes, so a stack can be capped by memory as well as by length.
 #pragma once
 
@@ -21,16 +23,19 @@ namespace fa::editor {
 struct UndoCommand {
     std::string cmd;
     Json args = Json::object();
+    // What this call sets, for CoalesceMode::Merge: a later call with the same non-empty target replaces this one. Empty =
+    // never merged by target.
+    std::string target;
 };
 
 struct UndoEntry {
     enum class Kind { Snapshot, Command, Special };
 
     Kind kind = Kind::Snapshot;
-    Json data;                          // Snapshot: the scene; Special: {"$key": ...}; Command: null
-    std::vector<UndoCommand> forward;   // Command only: what redo runs
-    std::vector<UndoCommand> inverse;   // Command only: what undo runs
-    size_t bytes = 0;                   // approximate memory of the entry (set by the constructors)
+    Json data;                         // Snapshot: the scene; Special: {"$key": ...}; Command: null
+    std::vector<UndoCommand> forward;  // Command only: what redo runs
+    std::vector<UndoCommand> inverse;  // Command only: what undo runs
+    size_t bytes = 0;                  // approximate memory of the entry (set by the constructors)
 
     UndoEntry() = default;
     // A raw Json is a Special entry when it is an object whose first key starts with '$', a Snapshot otherwise.
@@ -58,7 +63,10 @@ bool edit_coalesces(const std::string& key, const std::string& lastKey, double n
 
 enum class CoalesceMode {
     Replace,  // the new forward replaces the old one, the old inverse stays: for "set X to v" commands
-    Chain     // forward = old then new, inverse = new then old: for relative commands
+    Chain,    // forward = old then new, inverse = new then old: for relative commands
+    Merge  // a one-command call whose `target` an earlier forward command has replaces that command and goes last in the
+    // forward list (the inverse list stays: it holds the oldest values); with a new target it is added like Chain.
+    // For a drag that writes several entities under one key.
 };
 
 // A stack of entries capped by length and by memory. `push_back` drops the oldest entries while there are more than

@@ -1384,39 +1384,49 @@ std::vector<std::string> Editor::selection_roots() {
     return ordered;
 }
 
-void Editor::begin_edit(const std::string& key) {
-    if (play_ != PlayState::Edit || !engine_) return;
-    const bool coalesce = edit_coalesces(key, lastEditKey_, time_, lastEditTime_);
+bool Editor::begin_edit(const std::string& key) {
+    if (play_ != PlayState::Edit || !engine_) return false;
+    const bool coalesce =
+        lastEditKind_ == UndoEntry::Kind::Snapshot && edit_coalesces(key, lastEditKey_, time_, lastEditTime_);
     lastEditTime_ = time_;
     lastEditKey_ = key;
+    lastEditKind_ = UndoEntry::Kind::Snapshot;
     dirty_ = true;
-    if (coalesce) return;
+    if (coalesce) return false;
     undo_.push_back(UndoEntry::snapshot(snapshot_scene(world())));  // the stack drops the oldest beyond its caps
     redo_.clear();
+    return true;
 }
 
 bool Editor::push_command_entry(const std::string& key, std::vector<UndoCommand> forward,
                                 std::vector<UndoCommand> inverse, CoalesceMode mode) {
     if (play_ != PlayState::Edit || !engine_) return false;
-    const bool coalesce = edit_coalesces(key, lastEditKey_, time_, lastEditTime_);
+    const bool coalesce =
+        lastEditKind_ == UndoEntry::Kind::Command && edit_coalesces(key, lastEditKey_, time_, lastEditTime_);
     lastEditTime_ = time_;
     lastEditKey_ = key;
+    lastEditKind_ = UndoEntry::Kind::Command;
     dirty_ = true;
     if (undo_.push_command(std::move(forward), std::move(inverse), coalesce, mode)) redo_.clear();
     return true;
 }
 
-// Runs the commands of a Command entry in order; stops at the first one that fails.
+// Runs the commands of a Command entry in order. A list of several commands that fails midway is run back: the scene is
+// put to what it was before the first one (a transient snapshot, never stored), so a step is applied whole or not at
+// all, and the error names the command that failed. A list of one command needs no snapshot: a refused command changes
+// nothing.
 bool Editor::run_undo_commands(const std::vector<UndoCommand>& cmds, bool forward) {
+    Json before;
+    if (cmds.size() > 1) before = snapshot_scene(world());
     for (const UndoCommand& c : cmds) {
         const CommandResult r = engine_->commands().call(c.cmd, c.args);
         after_command(c.cmd, c.args, r);
-        if (!r.ok) {
-            notify("Could not " + std::string(forward ? "redo" : "undo") + " the edit: " + c.cmd + ": " +
-                       command_error_text(r.error),
-                   2);
-            return false;
-        }
+        if (r.ok) continue;
+        if (!before.is_null()) restore_scene(before);
+        notify("Could not " + std::string(forward ? "redo" : "undo") + " the edit: " + c.cmd + ": " +
+                   command_error_text(r.error) + (before.is_null() ? "" : " (the scene was put back as it was)"),
+               2);
+        return false;
     }
     return true;
 }
@@ -1456,6 +1466,11 @@ void Editor::step_history(bool forward) {
     if (from.back().kind == UndoEntry::Kind::Command) {  // forward and inverse command lists (M98.7e)
         UndoEntry entry = from.take_back();
         lastEditKey_.clear();
+        // The pose holds rest values (boneRest, savedClip) taken before this step: put them back first, so the step changes
+        // the rest values the panel then poses again (the snapshot path got this from the new scene generation).
+        if (anim_.posed) anim_unpose();
+        anim_.dirtyPose = true;
+        // An entry that cannot be applied is dropped (after the scene was put back): it would block every older step.
         const bool ok = run_undo_commands(forward ? entry.forward : entry.inverse, forward);
         if (ok) to.push_back(std::move(entry));
         dirty_ = true;
