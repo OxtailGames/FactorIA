@@ -167,10 +167,11 @@ root `build.gradle` (the same version as the application plugin); and writes the
 never part of the game's assets. The export fails, naming the folder (`factoria validate` warns), when `android/` has
 neither a `build.gradle(.kts)` nor an `.aar` / `.jar`.
 
-**Java code and `hasCode`.** The manifest has `android:hasCode="false"` (the engine is all native), which tells Android not
-to load any code of the APK. The export sets it to `true` as soon as a plugin brings code: its module has
-`src/main/java` or `src/main/kotlin`, or it ships `.aar` / `.jar` files. A module that only lists Maven `dependencies`
-and has no source folder of its own must get one (a Java file with its JNI glue) to turn it on. The exported project
+**Java code and `hasCode`.** The manifest has `android:hasCode="true"` in every export: the engine is native except for
+one Java class, `factoria.engine.Ime` (`app/src/main/java/factoria/engine/Ime.java`, the input method connection that lets
+a keyboard compose into a `TextField`, [TEXT.md](../TEXT.md#what-composes-where)), and a plugin's Java or Kotlin code,
+`.aar` or `.jar` files are loaded with it. A project that keeps its own manifest with `android:hasCode="false"` still
+runs: the keyboard then sends keys only, and the log says so once. The exported project
 allows Google and Maven Central as repositories, and Gradle refuses repositories declared in a module
 (`FAIL_ON_PROJECT_REPOS`): an SDK from another repository ships as `.aar` files.
 

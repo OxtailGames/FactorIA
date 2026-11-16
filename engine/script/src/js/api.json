@@ -1068,7 +1068,7 @@
       },
       {
        "sig": "readonly text: string",
-       "doc": "The characters typed this frame, as UTF-8 text (\"\" when none): from the keyboard or the on-screen keyboard, control characters left out. Append it to a text field's string; handle Backspace and Enter with input.keyPressed(). Desktop and iOS deliver composed text (shift, dead keys, IME). Android delivers what a key types in its layout (letters, digits, punctuation, accents through dead keys): a keyboard app that composes words or emoji (CJK input, emoji) cannot be received by a NativeActivity. docs/MOBILE.md lists the limits."
+       "doc": "The characters typed this frame, as UTF-8 text (\"\" when none): from the keyboard or the on-screen keyboard, control characters left out. Append it to a text field's string; handle Backspace and Enter with input.keyPressed(). Desktop and iOS deliver composed text (shift, dead keys, IME). Android delivers composed text (CJK input, predictive words, emoji) while a TextField has the focus, and otherwise what a key types in its layout (letters, digits, punctuation, accents through dead keys). docs/TEXT.md (\"What composes where\") lists each platform."
       },
       {
        "sig": "readonly composing: boolean",
