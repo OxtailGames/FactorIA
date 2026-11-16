@@ -1047,6 +1047,21 @@ TEST_CASE("examples place: a failed move into a folder says what it could not ta
         CHECK_FALSE(has(r.error().message, "left in"));
         CHECK(names_in(dir).empty());
     }
+    SUBCASE("a cancel while the move of a new folder waits for a sharing violation says it was cancelled") {
+        WindowsRulesOn rules;
+        const stdfs::path heldFile = staging / "p" / "f.txt";
+        held.emplace(heldFile, std::ios::binary);
+        // The rename answers with a sharing violation (a held file cannot be removed) and the user cancels meanwhile.
+        RenameFn busy = [&](const stdfs::path&, const stdfs::path&, std::error_code& ec) {
+            cancel = true;
+            fs::remove_file(heldFile, ec);
+        };
+        auto r = place_project(staging, d.path / "new", false, &cancel, busy);
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "cancelled"));
+        CHECK_FALSE(has(r.error().message, "Cannot move"));
+        held.reset();
+    }
     SUBCASE("a folder that does not exist takes the staging folder whole, and never replaces one that appeared") {
         auto r = place_project(staging, d.path / "new", false, nullptr, {});
         REQUIRE(r.ok());

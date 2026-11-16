@@ -14,7 +14,10 @@ namespace fa::examples_detail {
 
 // One rename that never replaces: `ec` says "file exists" (is_name_taken) when `to` is there. Linux renameat2(RENAME_NOREPLACE), macOS
 // renamex_np(RENAME_EXCL), Windows MoveFileExW without MOVEFILE_REPLACE_EXISTING. A file system that has none of them (an old kernel,
-// NFS, a seccomp filter) gets a look at `to` and a plain rename, which leaves a window of microseconds.
+// NFS, a seccomp filter) gets a look at `to` and a plain rename, which leaves a window of microseconds. Defined in
+// examples_place_posix.cpp and examples_place_win32.cpp. It asks the operating system itself: the emulation of Windows' file rules on
+// other systems (fs::windows_rules, which only knows files opened through fs::ReadStream) is not consulted; a test that needs a sharing
+// violation passes its own RenameFn.
 void rename_no_replace(const std::filesystem::path& from, const std::filesystem::path& to, std::error_code& ec);
 
 // `ec` is "the destination is on another file system": EXDEV, or ERROR_NOT_SAME_DEVICE (17) on Windows, which the standard library only
@@ -24,7 +27,8 @@ bool is_cross_device(const std::error_code& ec);
 bool is_name_taken(const std::error_code& ec);
 
 // The rename move_entry and place_project use, replaced by a test.
-using RenameFn = std::function<void(const std::filesystem::path& from, const std::filesystem::path& to, std::error_code& ec)>;
+using RenameFn =
+    std::function<void(const std::filesystem::path& from, const std::filesystem::path& to, std::error_code& ec)>;
 
 // Moves one file or folder to a name that does not exist yet, never over something that is there. Across file systems a rename is
 // refused: it copies and deletes then. `partial` (when given) is set to a sentence when a copy that failed could not be taken away
