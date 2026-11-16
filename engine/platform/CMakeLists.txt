@@ -8,6 +8,12 @@ fa_add_module(platform
 fa_embed_files(fa_platform fa::gamepad_db embedded_gamepad_db
     FILES ${FA_ROOT}/external/sdl_gamecontrollerdb/gamecontrollerdb_linux.txt
     BASE ${FA_ROOT}/external/sdl_gamecontrollerdb)
+# Its Windows lines, for the HID pads of gamepad_win32.cpp (namespace fa::gamepad_db_windows, header
+# embedded_gamepad_db_windows.h). Compiled on every OS for the tests; only src/gamepad_hid_db.cpp references it, and only
+# gamepad_win32.cpp and the tests reference that file, so the static link of another platform's player leaves both out.
+fa_embed_files(fa_platform fa::gamepad_db_windows embedded_gamepad_db_windows
+    FILES ${FA_ROOT}/external/sdl_gamecontrollerdb/gamecontrollerdb_windows.txt
+    BASE ${FA_ROOT}/external/sdl_gamecontrollerdb)
 
 # sokol is third-party code: silence warnings in its implementation TU.
 if(MSVC)
