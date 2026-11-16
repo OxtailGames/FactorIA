@@ -518,9 +518,12 @@ On Linux:
 
 - X11 only: sokol_app has no Wayland backend, so on a Wayland desktop the game runs through XWayland, where ibus and fcitx
   serve XIM as on X11. The input method is the one `XMODIFIERS` names (`@im=ibus`, `@im=fcitx`); with none, Xlib's own
-  (dead keys and the Compose key) is used. One that starts after the game is picked up when it starts, and one that stops
-  turns the IME off until it is back. No input method, or a locale Xlib does not support (`LANG`; a game that left
-  `LC_CTYPE` at "C" gets the environment's, as GLFW and SDL do), leaves the IME off: one log line, keys unchanged.
+  (dead keys and the Compose key) is used. One that starts after the game is picked up when it starts (it writes
+  `XIM_SERVERS` on the root window). One that stops is noticed when its window is destroyed: its input method is left
+  without another request (Xlib would wait forever for the answer) and the one running now, if any, is opened; a server
+  that dies while the game is waiting for its answer to a key still stalls the game, as in every Xlib XIM client. No input
+  method, or a locale Xlib does not support (`LANG`), leaves the IME off: one log line, keys unchanged. A game that left
+  `LC_CTYPE` at "C" keeps it: the environment's is set only while Xlib opens the input method, which keeps it.
 - With no `TextField` focused the input context does not have the focus and no key goes to the input method: every key is
   the game's.
 - A key the input method took (it composes, converts, confirms) does not reach the game, and neither does its release; a
@@ -547,7 +550,9 @@ On the web:
   ends the browser's composition; what it still sends about it is dropped. On a touch device the value is reset instead
   (a phone keeps its keyboard only for a focus inside a tap).
 - A touch device's keyboard in a password field (IME off): what it composes is not shown, and typed when it ends, as
-  before the IME existed. Paste is the page's paste event, never the `<input>`'s.
+  before the IME existed. Paste is the page's paste event, never the `<input>`'s; a cut, an undo or a redo of the
+  `<input>` itself does nothing.
+- When the page loses the focus the keys held then are forgotten: their release, wherever it arrives, is the game's.
 - The page (`platforms/web/shell.html`) gives the canvas the focus on a click unless the `<input>` has it.
 
 To check it by hand on Windows 10 or 11 (Settings > Time & language > Language & region: add Japanese, Chinese

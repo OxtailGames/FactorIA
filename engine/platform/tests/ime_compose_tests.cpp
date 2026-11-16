@@ -42,8 +42,9 @@ ime_text::Marked marked(std::u32string text, int caret = -1, int sel = 0) {
 }  // namespace
 
 TEST_CASE("IME compose: printable drops control characters, to_utf16 makes surrogate pairs") {
-    CHECK(printable(U"a\nb\tc\x7f" U"d") == U"abcd");
-    CHECK(printable(U"\r") .empty());
+    CHECK(printable(U"a\nb\tc\x7f"
+                    U"d") == U"abcd");
+    CHECK(printable(U"\r").empty());
     CHECK(printable(U"日本😀") == U"日本😀");
     CHECK(to_utf16(U"aé") == u"aé");
     CHECK(to_utf16(U"😀") == u"\xD83D\xDE00");
@@ -317,10 +318,10 @@ TEST_CASE("IME compose: keys the input method took are swallowed with their key 
         CHECK_FALSE(s.key_down(kA, false, 1000));
         CHECK(s.key_down(kA, false, 1000));  // the same time: a copy
         CHECK_FALSE(s.key_down(kA, false, 1016));
-        CHECK_FALSE(s.key_down(kA, false, 0));  // no time: never a copy
+        CHECK_FALSE(s.key_down(kA, false, 0));         // no time: never a copy
         CHECK_FALSE(s.key_down(kShift, false, 1016));  // another key with the same time
-        CHECK_FALSE(s.key_up(kA, true, 1100));         // the input method looked at it: the game got the down, so the up
-        CHECK(s.key_up(kA, false, 1100));              // ...and the copy it sends back is dropped
+        CHECK_FALSE(s.key_up(kA, true, 1100));  // the input method looked at it: the game got the down, so the up
+        CHECK(s.key_up(kA, false, 1100));       // ...and the copy it sends back is dropped
         CHECK_FALSE(s.key_up(kA, false, 1200));
     }
     SUBCASE("time wraps around") {

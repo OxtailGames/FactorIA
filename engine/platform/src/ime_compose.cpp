@@ -125,7 +125,8 @@ void Session::set_enabled(bool on) {
     endPending_ = false;
     if (!on) {
         if (input_ && input_->composing()) input_->on_composition_cancel();
-        if (osComposing_) dropping_ = true;  // the backend cancels it; what the input method still says about it is dropped
+        if (osComposing_)
+            dropping_ = true;  // the backend cancels it; what the input method still says about it is dropped
     } else {
         dropping_ = false;
     }

@@ -13,6 +13,8 @@ int fa_ime_web_key(int kind, int keyCode, int sappKey);
 /* A focus or blur event of the window whose target has the id `targetId`: nonzero when it is the hidden <input> of
    ime_web.cpp, or the focus moving because ime_web.cpp moved it (not the page gaining or losing the focus). */
 int fa_ime_web_ignore_focus(const char* targetId);
+/* The page lost the focus (a blur fa_ime_web_ignore_focus did not ignore): the keys held now get their keyup elsewhere. */
+void fa_ime_web_blur(void);
 
 #ifdef __cplusplus
 }
