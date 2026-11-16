@@ -35,6 +35,9 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   (`docs/<name>/<NAME>_<PART>.md`): `docs.read` serves a `heading` that moved to a page from it (`page`, `requestedName`,
   `note`), the entry page lists its pages (`pages`, `contents`), `docs.list` and `docs.search` carry `family`, and a test checks
   that names are unique and every page is linked from its entry page (docs/design/ARCHITECTURE.md, "Docs").
+- **Docs (M97.3d):** `EXPORTING.md` (190 KB), `PLATFORM.md` (121 KB), `MOBILE.md` (78 KB) and `PERFORMANCE.md` (71 KB) are
+  split into an entry page and pages (`docs/exporting/`, `docs/platform/`, `docs/mobile/`, `docs/performance/`, every one
+  under 45 KB); every heading kept its text, so `docs.read exporting --heading "Android"` still finds it.
 - A deprecation policy for commands, component fields and the script API: the `deprecated` section of
   `tools/common/api_since.json` (empty for now) says since when and what replaces each one. A deprecated command, a scene or
   prefab with a deprecated component or field, and a call of a deprecated script function log one warning that names the
