@@ -10,6 +10,17 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   refused, as `..` is (Windows ignores trailing dots and spaces); the Inspector's "Undo put the scene back" note no longer appears
   after a scene load or when the undo list was trimmed; in a number that differs between selected entities, leaving the box after
   typing (Tab, a click outside) writes the typed value to all of them, as Enter does.
+- **Pad rumble, last polish:** the same-frame pause cut also runs after `onLateUpdate`, so a pause in `onUpdate` with the rumble in
+  `onLateUpdate` (or the other way round) never buzzes for one frame either. Android: the answer of a slot whose pad went is
+  dropped (after the stop of a rumble that was playing has reached the vibrator). Linux: a pad with no event device in sysfs (or
+  whose node vanished) is looked for ten times, about 30 s, and then keeps its reason until it is plugged in again.
+- **Audio, last polish:** a sound's low-pass that is asked to open twice before the mixer ran a block is taken away (before it
+  stayed in the mixer at no effect until the voice ended). Doppler and occlusion changes no longer restart the 20 ms ramp of a
+  voice's volume or occlusion gain when their target did not change. The rays of a frame that the plan gave to sounds already
+  known are kept for them (sounds that start in that frame take only what is left, and a ray whose sound stopped wanting it in
+  that frame goes to another sound that is due). A source or a sound played at a place that is not a number (NaN) is silent, not
+  a NaN volume, pan or pitch in the mixer. The warning about the 256-sound limit of followed sounds is given again after a world
+  change.
 - **Pad rumble, polish:** the seconds of a rumble count the frames' own duration (not scaled by `time.scale`; the docs said
   "game time"); a rumble asked in the same frame that pauses the game (`game.paused = true`, `time.scale` 0) never reaches the
   pad, where before it buzzed for one frame. `input.stopRumble(-1)` now throws like any pad outside 0..3 (without an argument
@@ -22,7 +33,8 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   references are released. macOS and iOS: CoreHaptics errors are logged, an engine that started when its twin failed is
   stopped, and engines shut down by themselves when idle. Web: `getGamepads()` is asked once per frame, and a pad answers
   `canRumble: false` with the reason while the page has had no user activation, so the rumble still running starts once the
-  player pressed a button. An infinite `seconds` in the platform helpers no longer converts to an integer undefined-ly. The
+  player clicked the page or pressed a key (a button of the pad may not count), and the pad list is asked again by the rumble
+  hooks when the page has no focus. An infinite `seconds` in the platform helpers no longer converts to an integer undefined-ly. The
   docs now say that the editor's Game view reads no physical pad, and what a crash, `abort()` or a Switch Pro do to the motors.
 - **WebSocket on Linux (libcurl), Windows and the tcp client, polish:** when a game does not read its messages and the engine ends the connection
   (`"close"` 1008), `readyState` is `"closed"` as soon as that `"close"` event can be read, as it already was for every other
