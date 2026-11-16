@@ -2,6 +2,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -96,14 +97,43 @@ std::vector<Vec2> place(UiLayout layout, const std::vector<Child>& ch, const Rec
     return out;
 }
 
-// Moves the child's Transform.position so its rectangle's top-left lands on `slot` (a delta in screen pixels). A mirrored child
-// (ui_mirrored) is drawn at the mirror image of its position: its position moves the other way.
-void move_to(World& w, const Child& c, Vec2 slot) {
-    const float dx = slot.x - c.r.x, dy = slot.y - c.r.y;
-    if (std::fabs(dx) < 1e-4f && std::fabs(dy) < 1e-4f) return;
-    Transform* t = w.get<Transform>(c.e);
-    t->position.x += ui_mirrored(w, c.e) ? -dx : dx;
-    t->position.y += dy;
+// What a layout pass remembers about the children it places.
+struct Placer {
+    std::unordered_set<std::uint64_t>& placed;  // given a layout offset in this pass (the rest is cleared at its end)
+    std::unordered_set<std::uint64_t>& warned;  // children already reported as having a baked position
+    bool warn;                                  // the pass may log
+};
+
+// Whether a laid-out child's position is what an engine before 0.30 wrote into it: its layout offset (that engine added it into
+// Transform.position, and the saved scene kept it).
+bool baked_position(const Transform& t, Vec2 off) {
+    return (std::fabs(t.position.x) > 0.5f || std::fabs(t.position.y) > 0.5f) &&
+           std::fabs(t.position.x - off.x) <= 0.5f && std::fabs(t.position.y - off.y) <= 0.5f;
+}
+
+// Gives the child the layout offset (World::ui_layout_offset) that puts its rectangle's top-left on `slot`, nudged by its own
+// Transform.position: the author's position is the offset from the slot, 0 = in the slot. The offset is worked out from
+// the rectangle the child has now with the offset and the position taken out, so it never accumulates and a pass that finds the
+// child where it belongs writes nothing. A mirrored child (ui_mirrored) is drawn at the mirror image of its position: both
+// move the other way on x.
+void place_child(World& w, Placer& pl, Entity child, const Rect& now, Vec2 slot) {
+    pl.placed.insert(child.bits());
+    const Transform* t = std::as_const(w).get<Transform>(child);
+    const Vec2 cur = w.ui_layout_offset(child);
+    const float s = ui_mirrored(w, child) ? -1.0f : 1.0f;
+    const Vec2 off{s * (slot.x - (now.x - s * (t->position.x + cur.x))), slot.y - (now.y - (t->position.y + cur.y))};
+    if (!std::isfinite(off.x) || !std::isfinite(off.y)) return;  // a NaN position: leave the child where it is
+    if (pl.warn && baked_position(*t, off) && pl.warned.insert(child.bits()).second)
+        FA_WARN(
+            "ui",
+            "'{}' is laid out by its parent and its Transform.position is ({}, {}), which is where its slot lies. A "
+            "scene saved "
+            "by an engine before 0.30 wrote the layout result into the position; now the position is the child's own "
+            "offset from the slot, so it sits that far from where it was. Set the position of laid-out children to 0 "
+            "(`ui.reset_layout_positions` does it for the whole scene), or keep it if the nudge is what you want.",
+            std::as_const(w).info(child).id, t->position.x, t->position.y);
+    if (std::fabs(off.x - cur.x) < 1e-4f && std::fabs(off.y - cur.y) < 1e-4f) return;
+    w.set_ui_layout_offset(child, off);
 }
 
 Rect inner_box(const Rect& r, const Vec4& pad) {
@@ -122,7 +152,7 @@ Vec2 clamp_panel_size(const Panel& p, Vec2 size) {
     return size;
 }
 
-void layout_panel(World& w, Entity e, Panel& p, Vec2 design, const VisualMeasure& m) {
+void layout_panel(World& w, Placer& pl, Entity e, Panel& p, Vec2 design, const VisualMeasure& m) {
     const UiLayout layout = used_layout(p);
     if (layout == UiLayout::None) {  // ponytail: fit needs a layout; with none the content has no defined size
         p.size = clamp_panel_size(p, p.size);
@@ -140,7 +170,7 @@ void layout_panel(World& w, Entity e, Panel& p, Vec2 design, const VisualMeasure
     // first column all end up on the right.
     if (p.direction == UiDirection::Rtl || (p.direction == UiDirection::Auto && w.rtl()))
         for (std::size_t i = 0; i < ch.size(); ++i) slots[i].x = 2.0f * inner.x + inner.w - slots[i].x - ch[i].r.w;
-    for (std::size_t i = 0; i < ch.size(); ++i) move_to(w, ch[i], slots[i]);
+    for (std::size_t i = 0; i < ch.size(); ++i) place_child(w, pl, ch[i].e, ch[i].r, slots[i]);
 }
 
 // Size of `s` as the renderer draws a UI label: at the player's text size (the measure does that), wrapped at `maxWidth` if > 0.
@@ -305,7 +335,7 @@ void apply_fill(World& w, Entity e, Vec2 design, const VisualMeasure& m) {
 }
 
 // `focus`: the entity to scroll into view (null when the focus did not just change).
-void layout_scroll(World& w, Entity e, ScrollList& s, Entity focus, Vec2 design, const VisualMeasure& m) {
+void layout_scroll(World& w, Placer& pl, Entity e, ScrollList& s, Entity focus, Vec2 design, const VisualMeasure& m) {
     const std::vector<Child> ch = children_of(w, e, design, m);
     const Rect inner = inner_box(*ui_layout_rect(w, e, design), s.padding);
     const Vec2 content = content_size(UiLayout::Column, ch, s.spacing, 1);
@@ -327,7 +357,8 @@ void layout_scroll(World& w, Entity e, ScrollList& s, Entity focus, Vec2 design,
     }
     s.scroll = std::clamp(s.scroll, 0.0f, std::max(0.0f, content.y - inner.h));
     std::vector<Vec2> slots = place(UiLayout::Column, ch, inner, s.spacing, 1, UiAlign::Start, UiAlign::Start);
-    for (std::size_t i = 0; i < ch.size(); ++i) move_to(w, ch[i], {slots[i].x, slots[i].y - s.scroll});
+    for (std::size_t i = 0; i < ch.size(); ++i)
+        place_child(w, pl, ch[i].e, ch[i].r, {slots[i].x, slots[i].y - s.scroll});
 }
 
 // Whether `e` (laid out with its `layout`) leaves the screen: the size it needs, or the size of the outermost fit Panel around
@@ -403,6 +434,21 @@ std::optional<Rect> ui_screen_rect(const World& w, Entity e, Vec2 designSize, co
     return Rect{r->x * k, r->y * k, r->w * k, r->h * k};
 }
 
+std::vector<std::string> UiSystem::reset_baked_positions(World& w) {
+    std::vector<std::string> ids;
+    for (const Entity e : w.ui_layout_offset_entities()) {
+        const Vec2 off = w.ui_layout_offset(e);
+        const Transform* t = std::as_const(w).get<Transform>(e);
+        if (!t || !baked_position(*t, off)) continue;
+        Transform* wt = w.get<Transform>(e);
+        wt->position.x = 0.0f;
+        wt->position.y = 0.0f;
+        ids.push_back(w.info(e).id);
+    }
+    std::sort(ids.begin(), ids.end());
+    return ids;
+}
+
 void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) {
     sync_interactables(w, design, m);  // state, slider knobs and visuals follow what scripts changed
     // Containers deepest first: a nested container is sized and fills itself before the container around it places it
@@ -430,14 +476,16 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) 
     });
     for (const auto& [depth, e] : containers)
         if (Panel* p = w.get<Panel>(e)) p->usingFallback = false;
+    placed_.clear();
+    Placer placer{placed_, warnedBaked_, warn};
     // ponytail: a panel that falls back costs one more layout pass per frame (cheap while UI trees are small).
     for (;;) {
         for (const auto& [depth, e] : containers) {
             if (ScrollList* s = w.get<ScrollList>(e)) {
                 apply_fill(w, e, design, m);
-                layout_scroll(w, e, *s, scrollToFocus_ ? focus_ : kNullEntity, design, m);
+                layout_scroll(w, placer, e, *s, scrollToFocus_ ? focus_ : kNullEntity, design, m);
             } else if (Panel* p = w.get<Panel>(e)) {
-                layout_panel(w, e, *p, design, m);
+                layout_panel(w, placer, e, *p, design, m);
             }
         }
         std::vector<Entity>
@@ -453,6 +501,9 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) 
         for (Entity e : candidates) w.get<Panel>(e)->usingFallback = true;
     }
     scrollToFocus_ = false;
+    for (const Entity e :
+         w.ui_layout_offset_entities())  // what no container placed this frame is in its own place again
+        if (!placed_.count(e.bits())) w.set_ui_layout_offset(e, {0, 0});
     for (const auto& [depth, e] : containers) {  // a scissor cannot turn: a turned ScrollList clips to its bounding box
         if (!warn || !w.get<ScrollList>(e)) continue;
         if (ui_transform(w, e, design).axis_aligned()) {

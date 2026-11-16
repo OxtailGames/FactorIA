@@ -20,7 +20,7 @@ Position, rotation and scale of an entity relative to its parent. Present on eve
 
 | Field | Type | Default | Description |
 |---|---|---|---|
-| `position` | vec3 | `[0.0,0.0,0.0]` | Local position relative to the parent [x, y, z]. 2D: x right, y up, z is only used for depth ordering of 3D content. Units: world units (design pixels in 2D, meters in 3D). |
+| `position` | vec3 | `[0.0,0.0,0.0]` | Local position relative to the parent [x, y, z]. 2D: x right, y up, z is only used for depth ordering of 3D content. Units: world units (design pixels in 2D, meters in 3D). A child that a Panel `layout` or a ScrollList places is not moved by writing here: the engine keeps the layout's place apart (never saved), so this is your own offset from the slot, 0 = exactly in it, and entity.worldPosition is where it ends up (since 0.30.0). |
 | `rotation` | vec3 | `[0.0,0.0,0.0]` | Local rotation as euler angles in DEGREES [pitch around X, yaw around Y, roll around Z], applied in the order Y, X, Z. 2D games only use the z value (counter-clockwise). |
 | `scale` | vec3 | `[1.0,1.0,1.0]` | Local scale [x, y, z]. 1 = original size; negative values mirror. |
 
@@ -742,7 +742,7 @@ Container widget: a background rectangle (solid or 9-slice) whose children are l
 | `tooltip` | json | `null` | The hint that shows next to the pointer after it rests on the widget for `ui.tooltipDelay` seconds (0.5 by default) and goes away when the pointer moves, a button is pressed or another widget is reached. null (default) = none. A string is one line of text, or a localization key (docs/LOCALIZATION.md: a string that is a key of the current language is replaced by its translation, anything else is shown as written). An object {"title": text, "lines": [text or {"text", "color"}], "args": {...}} has a title and body lines; every text may be a key, `args` fills the {placeholders} of the keys, and the tooltip follows a language change while it shows. A widget without a tooltip of its own uses its parent Panel's, so one on a Panel covers its children. It is styled by the `ui.tooltip` section of factoria.json, placed beside the pointer and kept on the screen, and off while the last input was a touch (unless `ui.tooltipOnTouch` is true). A script that returns the text when it shows registers it with ui.setTooltip(entity, () => content) instead. docs/MENUS.md, "Tooltips". (since 0.3.0) |
 | `draggable` | json | `null` | Lets the player drag the widget with the mouse, a finger or a gamepad cursor (ui.setPointer). null or false (default) = not draggable; true = draggable with the default slop; an object {"payload": any JSON, "slop": pixels} sets what the drag carries (default null) and how far the pointer must move after the press before the drag starts (default 6, 0 to 100). A press that is released before the slop is a normal click. When the drag starts the widget is no longer pressed, the click the release would make is swallowed, a tooltip hides, and ui.on("dragStart" \| "dragOver" \| "drop" \| "dragCancel") report it with the widget as source; a press on a child that is not draggable itself drags the nearest draggable ancestor. Slider and TextField keep their own pointer handling and ignore it. docs/MENUS.md, "Drag and drop". (since 0.3.0) |
 | `mirror` | bool | `true` | true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left"). (since 0.3.0) |
-| `layout` | enum: none \| row \| column \| grid | `"none"` | How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout moves its Transform.position so it lands in its slot. A child's Transform.scale multiplies the room its slot takes (a row makes room for a child at scale 2); its rotation.z does not: the slot stays and the child turns in place around its pivot. A turned or scaled Panel lays its children out as if it were not and then turns and scales them with it (since 0.30.0). |
+| `layout` | enum: none \| row \| column \| grid | `"none"` | How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own anchor and pivot do not matter: layout puts it in its slot every frame without writing its Transform.position, which stays the child's own offset from the slot (0 = exactly in it; a script or the inspector can nudge it, and the layout keeps the nudge; since 0.30.0). A child's Transform.scale multiplies the room its slot takes (a row makes room for a child at scale 2); its rotation.z does not: the slot stays and the child turns in place around its pivot. A turned or scaled Panel lays its children out as if it were not and then turns and scales them with it (since 0.30.0). |
 | `spacing` | float | `8.0` | Gap in UI units between children (a grid uses it on both axes; `ui.scale` multiplies it). Range 0.0..10000.0. |
 | `padding` | vec4 | `[16.0,16.0,16.0,16.0]` | Space [left, top, right, bottom] in UI units between the panel's edge and its children (`ui.scale` multiplies it). |
 | `columns` | int | `2` | Grid only: number of columns. Range 1..64. |
@@ -8263,6 +8263,16 @@ TouchStick and TouchButton with touchOnly (the default) are drawn only while the
 |---|---|---|---|
 | `enabled` | boolean | no | true: force the touch interface on; false: back to following the real last input. Default true. |
 
+### `ui.reset_layout_positions` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+Migrate a scene saved before 0.30: set Transform.position x and y to 0 on the laid-out children whose position holds the old layout result.
+
+Capabilities: read, state
+
+Before 0.30 a Panel or ScrollList wrote where it placed a child into the child's Transform.position, and a saved scene kept it. Now the layout keeps its own offset and Transform.position of a laid-out child is the author's nudge from the slot (0 = in the slot), so such a child sits that far from where it was. This runs a layout pass and sets x and y of the position to 0 on every laid-out child whose position equals its layout offset (within half a pixel), so the picture stays what the old engine drew. It changes the open scene only: save it afterwards (scene.save). Returns {count, ids}. A nudge you made on purpose that happens to equal the slot offset is reset too; the log names each such child the first time a layout sees it. Example: ui.reset_layout_positions {}
+
 ### `ui.set_mirror_rtl` (modifies state)
 
 Since 0.3.0.
@@ -15403,7 +15413,7 @@ declare module "factoria" {
    */
   export interface TransformComponent {
     /**
-     * Local position relative to the parent [x, y, z]. 2D: x right, y up, z is only used for depth ordering of 3D content. Units: world units (design pixels in 2D, meters in 3D).
+     * Local position relative to the parent [x, y, z]. 2D: x right, y up, z is only used for depth ordering of 3D content. Units: world units (design pixels in 2D, meters in 3D). A child that a Panel `layout` or a ScrollList places is not moved by writing here: the engine keeps the layout's place apart (never saved), so this is your own offset from the slot, 0 = exactly in it, and entity.worldPosition is where it ends up (since 0.30.0).
      */
     get position(): Vec3;
     set position(value: Vec3Like);
@@ -17801,7 +17811,7 @@ declare module "factoria" {
      */
     mirror: boolean;
     /**
-     * How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout moves its Transform.position so it lands in its slot. A child's Transform.scale multiplies the room its slot takes (a row makes room for a child at scale 2); its rotation.z does not: the slot stays and the child turns in place around its pivot. A turned or scaled Panel lays its children out as if it were not and then turns and scales them with it (since 0.30.0).
+     * How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own anchor and pivot do not matter: layout puts it in its slot every frame without writing its Transform.position, which stays the child's own offset from the slot (0 = exactly in it; a script or the inspector can nudge it, and the layout keeps the nudge; since 0.30.0). A child's Transform.scale multiplies the room its slot takes (a row makes room for a child at scale 2); its rotation.z does not: the slot stays and the child turns in place around its pivot. A turned or scaled Panel lays its children out as if it were not and then turns and scales them with it (since 0.30.0).
      * @since 0.1.6
      */
     layout: "none" | "row" | "column" | "grid";

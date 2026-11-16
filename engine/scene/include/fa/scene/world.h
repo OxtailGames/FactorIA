@@ -263,6 +263,19 @@ public:
     // World does not move it.
     std::uint64_t hierarchy_version() const;
 
+    // The UI layout's placement of a laid-out child (Panel / ScrollList children, ui.h): where the slot is, as an offset in UI
+    // units in the parent's layout space, kept OUT of Transform.position (the author's own offset from the slot). It is
+    // part of the entity's local matrix, so world_matrix / world_position / drawn_matrix of the child and of everything
+    // below it include it, and `set_world_position` / the editor's gizmo subtract it again; it is never saved, never
+    // snapshotted and never read by scripts as a field (`entity.position` stays the author's offset). Written only by
+    // UiSystem::layout every frame (it clears the offset of what it did not place), erased with the entity and by clear().
+    // Zero (no entry) for everything else; reading costs nothing while no entry exists.
+    Vec2 ui_layout_offset(Entity e) const;
+    // Sets the offset (zero removes the entry). Drops the cached matrices of the entity and its subtree when it changes.
+    void set_ui_layout_offset(Entity e, Vec2 offset);
+    // Every entity with a non-zero offset, in no particular order.
+    std::vector<Entity> ui_layout_offset_entities() const;
+
     // --------------------------------------------------------------- misc
     SceneSettings& settings() { return settings_; }
     const SceneSettings& settings() const { return settings_; }

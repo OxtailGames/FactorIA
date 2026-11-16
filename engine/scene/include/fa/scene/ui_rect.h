@@ -16,6 +16,12 @@
 //    ScrollList warns once, but a pointer outside its turned rectangle still hits nothing.
 // An unrotated, unscaled tree takes the same path as before: nothing changes bit for bit.
 //
+// Where a laid-out child is (since 0.30.0): a Panel or ScrollList places a child by the LAYOUT OFFSET, World::ui_layout_offset,
+// not by writing Transform.position. The position of a widget in layout space (what "the sum of the local positions" below
+// means) is Transform.position + that offset, so Transform.position of a laid-out child is the author's own nudge from its slot:
+// 0 = exactly in the slot (a mirrored child, ui_mirrored, nudges the other way, like every position there). The offset is added
+// where the position is, before any rotation and scale of the chain, and world_matrix of the child already contains it.
+//
 // The interface scale (World::ui_scale(), `ui.scale`, k): a screen-space widget is authored and laid out in UI UNITS, a
 // virtual screen of designSize / k with the safe insets divided by k, and drawn k times as big. So k multiplies its size,
 // offset, padding, spacing, margins and font size, but not the anchor point: a widget anchored to the bottom-right corner
@@ -123,6 +129,15 @@ std::optional<Rect> ui_footprint_rect(const World& w, Entity e, Vec2 designSize)
 // layout space and `e`'s own scale (its own and its parents' rotation, and its parents' scale, left out). Used for the
 // footprint of a screen-space Text, Sprite or Shape2D that a layout places.
 Mat4 ui_layout_matrix(const World& w, Entity e);
+
+// The translation of `e` in layout space: the sum, from the root down to `e`, of Transform.position + World::ui_layout_offset.
+// With no rotation or scale from `e` up it is world_matrix(e).translation(), bit for bit.
+Vec3 ui_layout_translation(const World& w, Entity e);
+
+// True when an ANCESTOR of `e` that is a widget (it has a UiBox) rotates or scales. Only then is a screen-space Text, Sprite or
+// Shape2D under it drawn through ui_transform (it turns with the widget's card); a plain group above it that scales leaves it
+// on the old path, where the group's scale multiplies the child's own offset and the anchor stays where it is.
+bool ui_widget_ancestor_turns(const World& w, Entity e);
 
 // The map from layout space to the screen, both in UI units, of everything drawn for `e`: its own scale and rotation about its
 // origin, then each ancestor's about its own. Identity when no entity from `e` up has rotation.z or scale.x/.y other than 0 / 1.

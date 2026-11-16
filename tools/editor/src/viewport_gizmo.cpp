@@ -20,6 +20,16 @@ constexpr float kHitPx = 7.0f;  // how close to a line the mouse has to be to gr
 
 float round4(float v) { return std::round(v * 10000.0f) / 10000.0f; }
 
+// The space the Transform.position of `e` is written in: the parent's world matrix and, for a child the UI layout placed,
+// the place the layout gave it (World::ui_layout_offset), so a viewport drag of a laid-out child edits the author's offset
+// from its slot (0 = in the slot) and never the layout's placement, which the next frame would put back.
+Mat4 gizmo_parent_world(const World& w, Entity e, Entity parent) {
+    const Vec2 off = w.ui_layout_offset(e);
+    Mat4 m = w.world_matrix(parent);
+    if (off.x != 0.0f || off.y != 0.0f) m = m * Mat4::translate(Vec3{off.x, off.y, 0.0f});
+    return m;
+}
+
 // Where things are on screen for one entity: the panel's mapping of world points and of the mouse onto the drag plane.
 struct GizmoSpace {
     Renderer* r = nullptr;
@@ -274,7 +284,7 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
         for (int i = 0; i < 3; ++i) d.local[i] = frame.local[i];
         const Entity par = w.parent(sel);
         d.hasParent = !par.is_null();
-        d.parentWorld = d.hasParent ? w.world_matrix(par) : Mat4::identity();
+        d.parentWorld = d.hasParent ? gizmo_parent_world(w, sel, par) : Mat4::identity();
         d.last = gizmoMode_ == GizmoMode::Move     ? tr->position
                  : gizmoMode_ == GizmoMode::Rotate ? tr->rotation
                                                    : tr->scale;
@@ -290,7 +300,7 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
                 m.start = *mt;
                 const Entity mp = w.parent(me);
                 m.hasParent = !mp.is_null();
-                m.parentWorld = m.hasParent ? w.world_matrix(mp) : Mat4::identity();
+                m.parentWorld = m.hasParent ? gizmo_parent_world(w, me, mp) : Mat4::identity();
                 m.startWorld = w.world_position(me);
                 d.members.push_back(std::move(m));
             }
