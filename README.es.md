@@ -1,3 +1,4 @@
+<!-- follows README.md sha256:unknown behind -->
 # FactorIA
 
 [English](README.md) | **Español**

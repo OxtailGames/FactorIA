@@ -847,7 +847,7 @@ TEST_CASE("vector.info: lists shapes with ids, bounds in the drawing space and n
     CHECK_FALSE(r.contains("svg"));
 }
 
-// ---- shape builders (docs/VECTOR.md, "Shapes") -------------------------------------------------------------------------
+// ---- shape builders (docs/VECTOR.md, "Building shapes") -------------------------------------------------------------------------
 
 #include <algorithm>
 #include <regex>

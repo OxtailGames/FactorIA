@@ -2,7 +2,7 @@
 // API providers), the skills every provider can read (engine, yours, the project's, with on/off per role), from the user's ai.json
 // ("extensions") and from the open project's .factoria/extensions.json. Save writes only those two places
 // (ai::save_extensions keeps every other key of ai.json) and reloads. A project's plugins and hooks run only after the user
-// trusts the project here (docs/EDITOR.md "AI settings", docs/AI_PROVIDERS.md "Extensions"). The last section lists the hooks as
+// trusts the project here (docs/ai-providers/AI_PROVIDERS_AGENT.md "The AI settings window", docs/AI_PROVIDERS.md "Extensions"). The last section lists the hooks as
 // saved (what `ai.hooks` returns) and the recent runs of this editor, failures in red (docs/HOOKS.md).
 #include <algorithm>
 #include <cfloat>

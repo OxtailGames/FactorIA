@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Docs tests (M97.4):** links, citations and reachability are tested. Every relative link and anchor resolves (the anchors now
+  follow GitHub's rules for accents and other scripts, and `<a id>` counts); every citation `X.md, "Section"` in the docs, the
+  source comments, the error texts and the scripts names a section that exists (60 pointed at renamed or missing ones and were
+  corrected); every doc is reachable from README.md; an embedded doc that names a doc outside the binary says so; and no heading
+  repeats inside a doc (five did: renamed). A translation records the English text it follows with a hash on its first line, and a
+  test flags one whose English original changed (docs/design/ARCHITECTURE.md, "Testing").
+
 - **Example games, last polish (M98):** `project.create {example}` into an existing empty folder never replaces a file or folder that
   another process puts there meanwhile (the moves use a no-replace rename on Linux, macOS and Windows; before, a plain rename could
   overwrite it) and stops with "is not empty any more"; when a move fails and something it had put in the folder cannot be taken

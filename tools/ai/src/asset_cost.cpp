@@ -699,7 +699,7 @@ AssetCostGuard AssetCostGuard::begin(const Limits& limits, const AssetCall& call
                                        what, call.provider, perRun > 0 ? "perRun " + format_usd(perRun) : std::string(),
                                        perRun > 0 && perDay > 0 ? ", " : "",
                                        perDay > 0 ? "perDay " + format_usd(perDay) : std::string()),
-                           "Add assetPricing for this provider to ai.json (docs/AI_PROVIDERS.md, \"Asset prices\"), "
+                           "Add assetPricing for this provider to ai.json (docs/AI_COSTS.md, \"Your own prices\"), "
                            "choose a provider whose price is known, or ask "
                            "the user to remove the limit.",
                            Json::object({{"provider", call.provider}, {"kind", media_kind_name(call.kind)}}));

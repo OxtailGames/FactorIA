@@ -294,7 +294,7 @@ Lists commands by category (`*` = modifies state). With an exact name it prints 
 With an exact name the text also has a `Capabilities:` line (for example `Capabilities: read, state`): the capabilities the
 command needs, in camelCase, `none` for a command that needs nothing, or `not declared yet` when the command has not declared
 them (its set is then derived from `readOnly`). The generated reference prints the same line on every command page, and
-`--json` has `capabilities` and `capabilitiesDeclared` on every command (docs/design/ARCHITECTURE_COMMANDS.md, "Capabilities").
+`--json` has `capabilities` and `capabilitiesDeclared` on every command (docs/design/ARCHITECTURE_COMMANDS.md, "Capabilities"; repository only, not in the binary).
 
 ### `factoria api [--md|--json|--dts|--schema scene|prefab|project] [--out FILE] [--project DIR]`
 Prints the API reference: components, commands, scripting. `--dts` writes the TypeScript declarations; with
@@ -309,7 +309,7 @@ your `factoria --version` is older than a mark, that item is missing in your ins
 A deprecated component, field, command or script export (it still works and has a replacement, or a reason for none) is
 marked the same way: a `Deprecated since 0.30.0 - use `x`. Removed in 0.32.0.` line, `@deprecated` in the typings and a
 `deprecated` object in `--json`; using it logs one warning that names the replacement. It is removed two minor versions
-after the one that deprecated it (docs/design/ARCHITECTURE_CORE.md, "Versions").
+after the one that deprecated it (docs/design/ARCHITECTURE_CORE.md, "Versions"; repository only, not in the binary).
 
 The repository keeps the same reference as browsable Markdown: `docs/reference/` (an index plus one page per component
 and per command category) and `docs/COMPONENTS.md` (the whole `factoria api --md` text, 1.8 MB; for GitHub readers). The command

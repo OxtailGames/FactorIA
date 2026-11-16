@@ -200,7 +200,7 @@ public:
     void shutdown();
     bool initialized() const;
 
-    // --- Start-up (docs/PERFORMANCE.md, "Startup"; docs/design/ARCHITECTURE_RENDERING.md "Start-up order") ----------------------------------
+    // --- Start-up (docs/PERFORMANCE.md, "Startup"; docs/design/ARCHITECTURE_RENDERING.md "Start-up order and the shader cache") ----------------------------------
     // A window player opens the graphics context FIRST (open_context), presents one cleared frame (present_clear) and only
     // then starts the engine, which reads the game's files and makes the renderer (init with desc.adoptContext). Nothing here
     // changes what a game draws: the first game frame is the same whether or not these ran.

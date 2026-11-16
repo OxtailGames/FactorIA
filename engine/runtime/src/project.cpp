@@ -816,11 +816,11 @@ constexpr const char* kSchemaText =
           "type": "number",
           "minimum": 0.5,
           "maximum": 3,
-          "description": "The interface scale the game starts with (default 1): the size, offset, padding, spacing, margins and font size of every screen-space widget (Panel, Button, Label, Text with space \"screen\"...) are multiplied by it, on top of the text size option (ui.textScale). Scripts and the Options menu change it while the game runs (ui.scale = 1.25, the ui.set_scale command); tests start from this value. docs/COMPONENTS.md, \"Interface scale\"."
+          "description": "The interface scale the game starts with (default 1): the size, offset, padding, spacing, margins and font size of every screen-space widget (Panel, Button, Label, Text with space \"screen\"...) are multiplied by it, on top of the text size option (ui.textScale). Scripts and the Options menu change it while the game runs (ui.scale = 1.25, the ui.set_scale command); tests start from this value. docs/TEXT.md, \"Interface size\"."
         },
         "mirrorRtl": {
           "type": "boolean",
-          "description": "Whether a right-to-left language (i18n.direction \"rtl\") mirrors the screen-space UI (default true): anchor.x, pivot.x and position.x flip, Toggle boxes and Sliders run right to left, and a widget with UiBox.mirror false stays. Scripts change it with ui.mirrorRtl, the ui.set_mirror_rtl command too. docs/LOCALIZATION.md, \"Right to left\"."
+          "description": "Whether a right-to-left language (i18n.direction \"rtl\") mirrors the screen-space UI (default true): anchor.x, pivot.x and position.x flip, Toggle boxes and Sliders run right to left, and a widget with UiBox.mirror false stays. Scripts change it with ui.mirrorRtl, the ui.set_mirror_rtl command too. docs/LOCALIZATION.md, \"Right-to-left text\"."
         },
         "tooltipDelay": {
           "type": "number",
@@ -1664,7 +1664,7 @@ constexpr const char* kSchemaText =
 )JSON"
     R"JSON(        "pack": {
           "type": "object",
-          "description": "How a release build packs game.pak (factoria export --release for windows, macos, linux, and every web export): the codec of each file type and the order of the files. The pack is compressed in blocks of 256 KiB, each one decoded on its own, so a game reads only the blocks it needs. See docs/EXPORTING.md, \"The game pack\".",
+          "description": "How a release build packs game.pak (factoria export --release for windows, macos, linux, and every web export): the codec of each file type and the order of the files. The pack is compressed in blocks of 256 KiB, each one decoded on its own, so a game reads only the blocks it needs. See docs/exporting/EXPORTING_DESKTOP.md, \"Release build\".",
           "properties": {
             "codecs": {
               "type": "object",

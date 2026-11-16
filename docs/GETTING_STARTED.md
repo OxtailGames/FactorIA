@@ -189,7 +189,7 @@ If the machine runs out of memory, limit the number of parallel jobs: `cmake --b
 - **`cl.exe not found`**: use *Developer PowerShell for VS 2022*.
 - **`running scripts is disabled on this system`**: run the script with `-ExecutionPolicy Bypass`.
 
-More details in `docs/design/BUILDING.md`.
+More details in `docs/design/BUILDING.md` (repository only, not in the binary).
 
 ## 2. Create your first game
 

@@ -433,7 +433,7 @@ is not seen unless you open it with `steps`, a list per scene run before the che
 writes without a `key` is only checked at each text scale (in the state the steps reach). It reloads scenes and restores the language and text size afterwards, so run
 it on a fresh game, not in the middle of a play session.
 
-In a test, `game.checkLayout()` (docs/SCRIPTING.md, "Testing") runs the same check with `current: true`: no scene is loaded, so it
+In a test, `game.checkLayout()` (docs/scripting/SCRIPTING_TESTS_TOOLS.md, "Layout of what is open") runs the same check with `current: true`: no scene is loaded, so it
 measures the running scene with the panels the test has opened, and the game state is kept (`scenes` and `steps` do not apply).
 
 ## 9. Commands

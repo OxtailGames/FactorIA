@@ -74,7 +74,7 @@ std::vector<ValidationIssue> check_audio_loudness(const std::string& projectDir)
     constexpr double kClippedDb = -0.1, kLoudLufs = -9.0, kQuietLufs = -35.0, kEffectSpreadLu = 12.0;
     const char* normalizeHint =
         "Set import \"normalize\": true for it (or under defaults.audio) in assets.json to play it at "
-        "a target loudness, or level the source file. See docs/ASSETS.md, \"Import settings > Audio\".";
+        "a target loudness, or level the source file. See docs/assets/ASSETS_IMPORT.md, \"Import settings\".";
     std::vector<ValidationIssue> out;
     struct Effect {
         std::string path;

@@ -4634,7 +4634,7 @@
       },
       {
        "sig": "gender(key: string): \"f\" | \"m\" | \"n\" | \"\"",
-       "doc": "The grammatical gender of the string `key` in the current language (\"f\" feminine, \"m\" masculine, \"n\" neuter), from a table entry written {\"text\": \"Ligera\", \"gender\": \"f\"}; \"\" when the string has none or no table has the key. Pass it as args.gender to a select entry (an object with forms f, m, n and other) to get the article or adjective that agrees: i18n.t(\"ship.the\", { name: i18n.t(\"ship.light\"), gender: i18n.gender(\"ship.light\") }) is \"la Ligera\" in Spanish. Throws for a key that is not a string. See docs/LOCALIZATION.md, \"Gender\"."
+       "doc": "The grammatical gender of the string `key` in the current language (\"f\" feminine, \"m\" masculine, \"n\" neuter), from a table entry written {\"text\": \"Ligera\", \"gender\": \"f\"}; \"\" when the string has none or no table has the key. Pass it as args.gender to a select entry (an object with forms f, m, n and other) to get the article or adjective that agrees: i18n.t(\"ship.the\", { name: i18n.t(\"ship.light\"), gender: i18n.gender(\"ship.light\") }) is \"la Ligera\" in Spanish. Throws for a key that is not a string. See docs/LOCALIZATION.md, \"Gender and agreement\"."
       },
       {
        "sig": "readonly language: string",

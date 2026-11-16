@@ -225,7 +225,7 @@ weights are recomputed with the edit before anything is written, so an unknown b
 | `limit` | `max` (1 to 4) | Keeps the `max` strongest influences of each vertex. |
 | `mirror` | `from` (`l` = +X, `r` = -X) | Copies the weights of one side to the other: each vertex is paired with the vertex nearest to its mirror image across `symmetryX` (preferring a vertex of the mirrored part, `arm_l` <-> `arm_r`), and takes its weights with every bone swapped for its opposite (`arm_upper_l` <-> `arm_upper_r`; bones on the centre line keep themselves). A vertex with no partner within 2% of the model's size keeps its weights and is counted in `mirrorUnmatched`. |
 
-### Commands
+### Rig commands
 
 | Command | What it does |
 |---|---|

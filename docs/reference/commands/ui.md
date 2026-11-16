@@ -88,7 +88,7 @@ Turn the mirroring of the screen-space UI in a right-to-left language on or off.
 
 Capabilities: read, state
 
-The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, "Right to left"). On (the default, or the "ui": {"mirrorRtl"} of factoria.json) and with i18n.direction "rtl", the screen-space widgets and the Text, Sprite and Shape2D under them are mirrored: anchor.x, pivot.x and position.x flip, Toggle boxes sit on the right and Sliders run right to left; a widget with UiBox.mirror false stays. Returns {mirrorRtl, mirrored}: `mirrored` is whether the UI is mirrored now (the option and a right-to-left language). Example: ui.set_mirror_rtl {"value":false}
+The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, "Right-to-left text"). On (the default, or the "ui": {"mirrorRtl"} of factoria.json) and with i18n.direction "rtl", the screen-space widgets and the Text, Sprite and Shape2D under them are mirrored: anchor.x, pivot.x and position.x flip, Toggle boxes sit on the right and Sliders run right to left; a widget with UiBox.mirror false stays. Returns {mirrorRtl, mirrored}: `mirrored` is whether the UI is mirrored now (the option and a right-to-left language). Example: ui.set_mirror_rtl {"value":false}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

@@ -431,7 +431,7 @@ debug_part() {
 }
 
 # Release build of the CLI and `ctest -L example`: the example games run the whole engine for minutes, so they are
-# tests of an optimized build (FA_EXAMPLE_TESTS, docs/design/BUILDING.md).
+# tests of an optimized build (FA_EXAMPLE_TESTS, docs/design/BUILDING_TESTS.md, "Running tests").
 example_part() {
     local rel="$BUILD_DIR-release"
     configure "$rel" Release || return 1

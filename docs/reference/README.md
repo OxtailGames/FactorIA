@@ -81,7 +81,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 - [Toggle](components/ui.md#toggle): Check box with a label: a square box at the left (a filled inner square in accentColor when on) and the label to its right. _Since 0.1.6._
 - [TouchButton](components/ui.md#touchbutton): On-screen button for phones and tablets (docs/MOBILE.md): a disc in `color` (darker while held) with an optional label. _Since 0.2.0._
 - [TouchStick](components/ui.md#touchstick): On-screen analog stick for phones and tablets (docs/MOBILE.md): a disc in `color` with a knob that follows the finger. _Since 0.2.0._
-- [Video](components/ui.md#video): A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-1 video with MP2 sound, the same decoder on every platform) in this entity's rectangle, the way an image fills a widget. _Since 0.3.0._
+- [Video](components/ui.md#video): A video on the screen (docs/menus/MENUS_RECIPES.md, "A studio intro"): plays an .mpg file (MPEG-1 video with MP2 sound, the same decoder on every platform) in this entity's rectangle, the way an image fills a widget. _Since 0.3.0._
 
 ## Commands
 

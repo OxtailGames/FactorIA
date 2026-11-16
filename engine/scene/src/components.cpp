@@ -126,7 +126,7 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
                "below it) stays "
                "where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes "
                "side with the layout but its picture is never mirrored. Does nothing in a left-to-right "
-               "language or with ui.mirrorRtl off (docs/LOCALIZATION.md, \"Right to left\").");
+               "language or with ui.mirrorRtl off (docs/LOCALIZATION.md, \"Right-to-left text\").");
 }
 
 // maxTextScale of Text and of the UI widgets.
@@ -3413,7 +3413,8 @@ void register_builtin_components(TypeRegistry& r) {
     {
         auto video = r.add<Video>(
             "Video",
-            "A video on the screen (docs/MENUS.md, \"Studio intro\"): plays an .mpg file (MPEG-1 video with MP2 sound, "
+            "A video on the screen (docs/menus/MENUS_RECIPES.md, \"A studio intro\"): plays an .mpg file (MPEG-1 video "
+            "with MP2 sound, "
             "the same "
             "decoder on every platform) in this entity's rectangle, the way an image fills a widget. Convert any other "
             "video with "
