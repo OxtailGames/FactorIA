@@ -610,7 +610,7 @@ On Android:
   `ui.submit`). A frame holds either text and composition changes or one press of an editing key, never both: three
   deletes are three frames of Backspace, and a key press that comes after text or a composition update waits for the
   next frame, as does text that comes after a key press (a commit "a\t" is `a` in one frame and Tab in the next). The
-  Back button is delivered at once.
+  Back button is delivered at once, even when a burst of input has filled the queue.
 - The connection holds only the pre-edit string, never what the field already has: a keyboard cannot read back typed text,
   so it cannot recompose a word already typed, and its suggestions start fresh at the caret.
 - When the field ends a composition itself (a tap in the field, the focus moving to another field: `ime_cancel`) the
@@ -620,6 +620,9 @@ On Android:
   nothing is typed.
 - If the class cannot be loaded (a project with its own manifest and `android:hasCode="false"`) or a call into it fails,
   the IME stays off for the rest of the run, with one log line: the keyboard sends keys, nothing typed is lost.
+- The class sets the window's soft input mode to "state unchanged" (so a window that gets the focus back does not open
+  the keyboard by itself) and keeps the manifest's `adjust` bits; the manifest's `state` bits (`stateHidden`,
+  `stateAlwaysVisible`) are replaced by it. The engine shows and hides the keyboard when a field asks.
 - Not attached inside the editor (the editor does not run on Android).
 
 To check it by hand on a phone (Settings > System > Languages & input), in a game with a `TextField`:

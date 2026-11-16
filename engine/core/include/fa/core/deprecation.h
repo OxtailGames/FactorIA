@@ -1,5 +1,5 @@
 // Deprecations: API that still works but has a replacement (or none), and will be removed two minor versions after the one that
-// deprecated it. The data lives in the "deprecated" section of tools/common/api_since.json (docs/design/ARCHITECTURE_CORE.md, "Versions");
+// deprecated it. The data lives in the "deprecated" section of tools/common/api_since.json (docs/design/ARCHITECTURE_CORE.md, "Deprecations");
 // the tooling loads it into this table at start-up (fa::install_deprecations), the generated reference and typings print it, and
 // the runtime warns through it: a command call (CommandRegistry), a scene or prefab field (the loader) and a script call (the
 // "factoria" prelude). A process that never loads the table (an exported game) has an empty one and pays one atomic load.
@@ -48,12 +48,15 @@ public:
     void set(const Json& section);
     void clear();
     bool empty() const noexcept {
-        return empty_.load(std::memory_order_relaxed);
+        return empty_.load(std::memory_order_acquire);
     }  // lock-free: the hot path of every call
 
     // Lock-free pre-checks for a hot path with a non-empty table (the editor and the CLI have one; the common call asks about
     // something that is not deprecated): false means `key` is certainly not in the table of `kind`, so the caller skips building
     // a key and taking the lock; true means it may be (a small Bloom filter: a rare false positive just takes the slow path).
+    // They answer for the table as set() left it, and a table that was empty is seen with all its words (release/acquire on
+    // empty()); a call that races a set() that replaces a non-empty table may see a mix of the old and the new words, so
+    // for that one call "certainly not" can be wrong and the warning waits for the next call.
     bool may_contain(std::string_view kind, std::string_view key) const noexcept;
     // The same for a component: true when "Name" or any "Name.field" may be in the "components" section.
     bool may_contain_component(std::string_view component) const noexcept;

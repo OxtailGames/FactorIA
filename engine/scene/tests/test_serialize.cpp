@@ -868,3 +868,24 @@ TEST_CASE("scene: patching a deprecated field logs the warning once and still ap
     CHECK(lines[0].find("component field 'Sprite.flipX'") != std::string::npos);
     CHECK(lines[0].find("Use 'Sprite.flipY' instead") != std::string::npos);
 }
+
+// A patch that fails on another field still says what is deprecated in it: the warning was taken from the table, so it would not
+// be given again.
+TEST_CASE("scene: a patch that fails on another field still logs the deprecation warning, once") {
+    Deprecations::global().set(Json::parse(R"({"components": {
+        "Sprite.flipX": {"since": "0.30.0", "use": "Sprite.flipY", "note": ""}}})"));
+    struct Clear {
+        ~Clear() { Deprecations::global().clear(); }
+    } clear;
+    std::vector<std::string> lines;
+    const int sink = add_log_sink([&lines](const LogEntry& e) {
+        if (e.category == "deprecated") lines.push_back(e.message);
+    });
+    World w;
+    Entity e = w.create("e", "e");
+    CHECK_FALSE(patch_component(w, e, World::type_of<Sprite>(), Json::parse(R"({"flipX":true,"noSuchField":1})")).ok());
+    CHECK(patch_component(w, e, World::type_of<Sprite>(), Json::parse(R"({"flipX":true})")).ok());
+    remove_log_sink(sink);
+    REQUIRE(lines.size() == 1);
+    CHECK(lines[0].find("component field 'Sprite.flipX'") != std::string::npos);
+}
