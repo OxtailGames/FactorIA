@@ -251,6 +251,7 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   `docs.components`, `docs.commands` and the MCP tools mark it. Something deprecated is removed two minor versions later, and
   a test fails when it is not (docs/ARCHITECTURE.md, "Versions").
 - **Docs (M97.3b):** `docs/AI_GUIDE.md` (275 KB), `ANIMATION.md` and `MUSIC.md` are split into an entry page plus pages under `docs/ai-guide/`, `docs/animation/` and `docs/music/` (every page under 50 KB). Every heading keeps its text, so `docs.read ai-guide --heading "Platformer character"` still finds it; the AI guide's generated tools table now lives in `docs/ai-guide/AI_GUIDE_TOOLS.md` (`docs.write_reference` fills it there).
+- **Editor polish, multi-selection and prefab overrides (M98 pol-ed2):** the selection is pruned of dead entities only in Edit (a game that destroys and respawns entities no longer empties it); a typed value in the primary's field writes to every selected entity even when it equals the shown one, and the Inspector says "Changed k of N entities"; the move and rotate gizmos refuse a selection that mixes HUD and world entities (one toast); the viewport marquee skips meshes behind the camera. `prefab.apply` shares one rest pose with the other instances, tells when applying a removed component drops an instance's own field overrides, and finds the same prefab file under two spellings on a case-sensitive volume. The Inspector warns when Undo steps back an Apply to prefab (the prefab file stays changed).
 
 ## 0.29.1
 

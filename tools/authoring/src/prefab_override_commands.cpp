@@ -80,11 +80,16 @@ struct Instance {
     PrefabDiff diff;
 };
 
-PrefabDiff diff_instance(World& w, Entity root, const std::string& path) {
+// `shared`: the rest values of the posed fields, when the caller diffs many instances (the walk of the world is done once).
+PrefabDiff diff_instance(World& w, Entity root, const std::string& path, const PoseRest* shared = nullptr) {
     PrefabDiffOptions opts;
     opts.useMarks = true;  // the scene was loaded by this engine: the children carry their marks
-    const PoseRest pose = collect_pose_rest(w);
-    if (!pose.empty()) opts.poseRest = &pose;
+    PoseRest own;
+    if (!shared) {
+        own = collect_pose_rest(w);
+        shared = &own;
+    }
+    if (!shared->empty()) opts.poseRest = shared;
     return diff_entity_with_prefab(w, root, path, opts);
 }
 
@@ -406,33 +411,46 @@ Json localize_component(const World& w, Entity root, const TypeInfo& t, Json val
     return value;
 }
 
-// The same prefab file: the spellings are the project's own and Windows and macOS do not tell cases apart
-// ("Prefabs/Panel.prefab.json" and "prefabs/panel.prefab.json").
+// The project spelling of a prefab path (what the commands read and write), case kept.
 std::string prefab_key(const std::string& path) {
-    std::string key = path;
     try {
-        key = resolve_caller_project_path(path, "prefab.apply");
+        return resolve_caller_project_path(path, "prefab.apply");
     } catch (const CommandError&) {
+        return path;
     }
-#if defined(_WIN32) || defined(__APPLE__)
-    key = to_lower(key);
-#endif
-    return key;
 }
-// The keys of the prefab strings seen in one call: a scene has a few prefabs and many instances.
+
+// Whether two project spellings name the same prefab file. Windows and macOS volumes usually do not tell cases apart
+// ("Prefabs/Panel.prefab.json" and "prefabs/panel.prefab.json"), but a case-sensitive one (APFS can be formatted so) holds
+// both files: when both exist the volume decides (equivalent), so Panel and panel are never merged there.
+bool same_prefab_file(const std::string& a, const std::string& b) {
+    if (a == b) return true;
+#if defined(_WIN32) || defined(__APPLE__)
+    if (to_lower(a) != to_lower(b)) return false;
+    const bool haveA = fs::exists(a), haveB = fs::exists(b);
+    if (!haveA && !haveB) return true;   // neither is there: the case-folded spelling is all there is to compare
+    if (!haveA || !haveB) return false;  // only one spelling is a file: the volume tells the cases apart
+    std::error_code ec;
+    const bool same = sfs::equivalent(fs::resolve(a), fs::resolve(b), ec);
+    return same && !ec;
+#else
+    return false;
+#endif
+}
+// The same prefab seen in one call: a scene has a few prefabs and many instances, so each spelling is asked once.
 class PrefabKeys {
 public:
     explicit PrefabKeys(const std::string& own) : own_(own), ownKey_(prefab_key(own)) {}
     bool is_own(const std::string& path) {
         if (path == own_) return true;
-        auto it = keys_.find(path);
-        if (it == keys_.end()) it = keys_.emplace(path, prefab_key(path)).first;
-        return it->second == ownKey_;
+        auto it = same_.find(path);
+        if (it == same_.end()) it = same_.emplace(path, same_prefab_file(prefab_key(path), ownKey_)).first;
+        return it->second;
     }
 
 private:
     std::string own_, ownKey_;
-    std::map<std::string, std::string> keys_;
+    std::map<std::string, bool> same_;
 };
 
 // Another instance of the prefab as it was before the file changed.
@@ -442,7 +460,7 @@ struct OtherInstance {
 };
 
 // Gives `other` the change that was applied to the prefab file, unless it overrides that very thing. Returns false and
-// says why in `note` when it could not.
+// says why in `note` when it could not (or what went with the change, when it could).
 bool update_other(Engine::Impl& I, const OtherInstance& other, const PrefabChange& c, const Json& childJson,
                   std::string& note) {
     World& w = I.world;
@@ -469,6 +487,16 @@ bool update_other(Engine::Impl& I, const OtherInstance& other, const PrefabChang
         const TypeInfo* t = find_type(c.component);
         if (!t) return true;
         if (c.kind == PrefabChange::Kind::RemovedComponent) {
+            // The component goes even where the instance overrides some of its fields (they have nothing to stand on):
+            // say so, so the user can look at that instance.
+            const std::string prefix = join_path(c.nodePath) + "|" + c.component + "|";
+            std::size_t lost = 0;
+            for (auto it = other.overridden.lower_bound(prefix);
+                 it != other.overridden.end() && starts_with(*it, prefix); ++it)
+                ++lost;
+            if (lost > 0 && w.get(target, *t))
+                note = c.component + " was removed from " + where + " as well, and its " + std::to_string(lost) +
+                       " overridden field" + (lost == 1 ? "" : "s") + " there went with it.";
             w.remove(target, *t);
             return true;
         }
@@ -561,6 +589,7 @@ Json prefab_apply(Engine::Impl& I, const Json& a) {
     std::vector<OtherInstance> others;
     PrefabKeys keys(inst.path);
     std::size_t nested = 0;
+    const PoseRest pose = collect_pose_rest(w);  // once for all the instances: a scene can hold hundreds
     for (Entity x : w.entities()) {
         const EntityInfo& inf = w.info(x);
         if (x == inst.root || inf.prefab.empty() || !keys.is_own(inf.prefab)) continue;
@@ -568,7 +597,7 @@ Json prefab_apply(Engine::Impl& I, const Json& a) {
             ++nested;
             continue;
         }
-        PrefabDiff d = diff_instance(w, x, inf.prefab);
+        PrefabDiff d = diff_instance(w, x, inf.prefab, &pose);
         if (!d.listable) {
             out["skipped"].push_back(Json::object({{"id", inf.id}, {"reason", d.reason}}));
             continue;
@@ -611,10 +640,8 @@ Json prefab_apply(Engine::Impl& I, const Json& a) {
         bool all = true;
         for (std::size_t i = 0; i < sel.changes.size(); ++i) {
             std::string note;
-            if (!update_other(I, o, *sel.changes[i], childJson[i], note)) {
-                all = false;
-                if (!note.empty()) notes.push_back(note);
-            }
+            if (!update_other(I, o, *sel.changes[i], childJson[i], note)) all = false;
+            if (!note.empty()) notes.push_back(note);  // also on success: a change that went through with a warning
         }
         if (all) out["updated"].push_back(w.id_of(o.root));
     }
@@ -693,8 +720,12 @@ void register_prefab_override_commands(Engine& engine, Engine::Impl& I) {
          "them: everything the entity and what is below it overrides, added components and children included; a "
          "component "
          "the instance lost is deleted from the file). The "
-         "prefab file keeps its own layout (its nested prefabs and the parts you did not touch stay), and every other "
-         "instance of the prefab in the open scene gets the same change, except where it overrides that thing itself. "
+         "prefab file keeps its own structure (its nested prefabs and the parts you did not touch stay) but is written "
+         "back in the engine's own JSON layout, like scene.save: the indentation and line endings of a hand-formatted "
+         "file are normalized, so the first Apply of such a file shows up as a whole-file diff. Every other "
+         "instance of the prefab in the open scene gets the same change, except where it overrides that thing itself "
+         "(a component the instance lost is also removed from an instance that overrides some of its fields: a note "
+         "says so; the call looks at every instance of the prefab in the scene, so it takes longer with hundreds). "
          "Example: prefab.apply {\"id\":\"enemy_1\",\"component\":\"Sprite\",\"field\":\"/color\"}" FA_COMMAND_DETAILS
          "Returns {id, root, prefab, applied: [the entries prefab.overrides lists], files: [the prefab file written], "
          "updated: [ids of the other instances that were updated], skipped: [{id, reason}] (instances whose "

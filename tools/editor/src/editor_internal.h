@@ -745,8 +745,9 @@ public:
     void draw_inspector_component_multi(const std::vector<Entity>& ents, const TypeInfo& type);
     // Draws the widget of one reflected field for the JSON `current`; returns true and sets `out` when the user changed it.
     // `mix` (several entities selected): where the other entities' values differ from `current`, the primary's (inspector_model.h).
+    // `forced` (several selected, a number array): which numbers the user committed, even when the value typed is the primary's own.
     bool draw_field_widget(const std::string& key, const FieldInfo& f, const Json& current, bool disabled, Json& out,
-                           const FieldMix* mix = nullptr);
+                           const FieldMix* mix = nullptr, std::vector<bool>* forced = nullptr);
     void draw_animator_clips(Entity e, const std::string& id, const Json& current);
     void draw_material_params(Entity e, const Json& current);
     void draw_profiler_panel();
@@ -1016,6 +1017,7 @@ public:
     GizmoMode gizmoMode_ = GizmoMode::Move;
     std::vector<GizmoShape> gizmoShapes_;  // this frame's handles (panel pixels); empty when no gizmo shows
     GizmoHandle gizmoHover_;
+    bool gizmoMixedSpace_ = false;  // the selection mixes screen-space (HUD) and world entities: no group handles
     struct GizmoDrag {
         bool active = false;
         GizmoHandle handle;
@@ -1286,7 +1288,8 @@ public:
         bool dirty = false;  // the text differs from the value: the user is editing it (or it did not parse)
     };
     std::map<std::string, JsonBox> inspJson_;  // Json fields, by field key
-    std::string inspEntity_;                   // entity the inspector showed last frame (state resets when it changes)
+    unsigned inspTypingId_ = 0;  // the ImGui id of the mixed number being typed into (see draw_field_widget)
+    std::string inspEntity_;     // entity the inspector showed last frame (state resets when it changes)
     // Prefab instances (inspector_panel.cpp): `prefab.overrides` of the selected entity, asked again twice a second and
     // after every edit the Inspector makes. `inspOvRoot_` is the instance's root ("" = not part of an instance).
     Json inspOv_;
@@ -1295,6 +1298,7 @@ public:
     std::uint64_t inspOvStamp_ = 0;
     bool inspOvStale_ = true, inspApplyAsk_ = false;
     std::string inspApplyId_;
+    long inspApplyDepth_ = -1;  // the undo depth right after the last prefab.apply (-1: none to watch)
     void inspector_prefab_refresh(Entity e);
     void inspector_prefab_header(Entity e);
     // prefab.revert / prefab.apply through edit_command (one undo step); the Inspector reads the overrides again.

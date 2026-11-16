@@ -84,7 +84,9 @@ FieldMix field_mix(const std::vector<Json>& values);
 // What to write to one entity when the user edited a field that showed `shown` (the primary's value) and now holds `edited`.
 // A number array is merged per number: only the numbers the user changed (edited[i] != shown[i]) replace the entity's own, so
 // editing x of a position leaves the y and z that differ between the entities alone. Anything else is `edited` as it is.
-Json multi_edit_value(const Json& entityCurrent, const Json& shown, const Json& edited);
+// `forced[i]` (may be shorter or empty) also replaces number i when the user committed it as exactly the value that was shown.
+Json multi_edit_value(const Json& entityCurrent, const Json& shown, const Json& edited,
+                      const std::vector<bool>& forced = {});
 // "3 entities".
 std::string multi_selection_title(size_t count);
 

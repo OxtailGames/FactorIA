@@ -173,6 +173,9 @@ std::vector<std::string> Editor::marquee_hits(Vec2 a, Vec2 b) {
     const bool ortho = primary_is_ortho();
     const Vec2 designSize{float(r->target_width()), float(r->target_height())};
     const VisualMeasure measure = visual_measure();
+    Vec3 eye,
+        forward;  // the camera world_to_screen uses: its position and the way it looks (the ray through the centre)
+    r->screen_ray(Vec2{designSize.x * 0.5f, designSize.y * 0.5f}, eye, forward);
     for (Entity e : w.entities()) {
         if (!w.active_in_hierarchy(e)) continue;
         std::vector<Vec2> pts;
@@ -181,9 +184,18 @@ std::vector<std::string> Editor::marquee_hits(Vec2 a, Vec2 b) {
             Vec3 lo, hi;
             mesh_local_box(e, lo, hi);
             const Mat4 m = w.world_matrix(e);
-            for (int i = 0; i < 8; ++i)
-                pts.push_back(r->world_to_screen(
-                    m.transform_point(Vec3{(i & 1) ? hi.x : lo.x, (i & 2) ? hi.y : lo.y, (i & 4) ? hi.z : lo.z})));
+            bool behind = false;
+            for (int i = 0; i < 8 && !behind; ++i) {
+                const Vec3 corner =
+                    m.transform_point(Vec3{(i & 1) ? hi.x : lo.x, (i & 2) ? hi.y : lo.y, (i & 4) ? hi.z : lo.z});
+                // A corner at or behind the camera has no screen point (the projection divides by w <= 0): the box is not
+                // wholly inside any rectangle, so the entity is not picked.
+                if (dot(corner - eye, forward) <= 1e-3f)
+                    behind = true;
+                else
+                    pts.push_back(r->world_to_screen(corner));
+            }
+            if (behind) continue;
         } else {
             const PickBounds pb = pick_bounds(w, e, measure);
             if (!pb.valid || (!pb.screenSpace && !mask.draws(w, e))) continue;
