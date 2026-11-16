@@ -208,6 +208,8 @@ bool test_bit(const unsigned char* bits, size_t size, unsigned bit) {
     return bit / 8 < size && (bits[bit / 8] >> (bit % 8) & 1) != 0;
 }
 
+constexpr const char* kGaveUpSuffix = " (looked for it for half a minute: plug the pad in again)";
+
 // Opens the pad's event node and asks whether it can play FF_RUMBLE. Once per plugged pad (the result stays until the pad is
 // closed): the answer is read every frame.
 void probe_rumble(int index, Slot& s) {
@@ -220,7 +222,7 @@ void probe_rumble(int index, Slot& s) {
         r.retryAt = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         r.why = "the kernel does not list an event device (/dev/input/eventN) for this pad under /sys/class/input/js" +
                 std::to_string(index) + "/device, and rumble goes through it";
-        if (!r.retry) r.why += " (looked for it for half a minute: plug the pad in again)";
+        if (!r.retry) r.why += kGaveUpSuffix;
         return;
     }
     const int fd = open(node.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
@@ -231,6 +233,7 @@ void probe_rumble(int index, Slot& s) {
         r.retry = err == EACCES || err == EPERM || (err == ENOENT && ++r.noNodeTries < kMaxNoNodeProbes);
         r.retryAt = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         r.why = "cannot open " + node + " for writing (" + std::strerror(err) + ")";
+        if (err == ENOENT && !r.retry) r.why += kGaveUpSuffix;
         if (err == EACCES || err == EPERM)
             r.why +=
                 ": rumble needs write access to it. Add the user to the 'input' group (sudo usermod -aG input $USER, "

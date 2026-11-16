@@ -23,6 +23,7 @@
 #include <string_view>
 
 #include "fa/core/math.h"
+#include "fa/core/types.h"
 
 // Around engine code that hands a Json::json_pointer to contains(), at() or operator[]: nlohmann's key-type overloads of
 // those ask whether a std::string and a json_pointer compare, which instantiates its deprecated operator==(string,
@@ -36,7 +37,6 @@
 #define FA_JSON_POINTER_CALLS_BEGIN
 #define FA_JSON_POINTER_CALLS_END
 #endif
-#include "fa/core/types.h"
 
 namespace fa {
 

@@ -1663,6 +1663,10 @@ void Audio::close_device() {
     saudio_shutdown();  // joins the audio thread: nothing mixes from here on
 #endif
     im.device = false;  // shutdown() later finds it closed, and every command runs at once on this thread
+    // What was staged or in the ring before the close runs first, so a command sent after it cannot overtake an older one
+    // (send() applies at once without a device and assumes the ring is empty). sync_fill stays as it was: the music
+    // service still decodes on its own thread.
+    im.settle();
 }
 
 void Audio::shutdown() {

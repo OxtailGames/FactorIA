@@ -13,6 +13,13 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   checks Windows' "not the same device" error by its raw value too. A doctest packs every example of `examples/`, so a file the
   packer refuses shows in the pull request that adds it and not in the release run (the release workflow still starts only for
   a change of itself or the packer).
+- **Last polish (M98):** `Audio::close_device()` now runs the commands still waiting for the device before it returns, so a
+  later command cannot overtake an older one (only `shutdown()` is expected after it). Android: the answer of a slot whose
+  pad is gone is kept until the stop of a rumble that was playing has reached the vibrator, also when the slot is asked again
+  first. Linux: a node that vanished says "plug the pad in again" as a pad with no node does. Web: the pad list of the rumble
+  functions is refreshed by one shared helper. Tests and docs only: the hex vectors of the crypto tests in 64-digit lines,
+  the camera-under-a-blended-parent and Parallax bounds cases of the interpolation tests, `close_device` without a device,
+  the rewrapped IME paragraphs of TEXT.md and the interpolation paragraphs of PERFORMANCE_AREAS.md.
 - **Android end and build, polish (M98):** in a `game.on("quit")` handler on Android the code after `await storage.setAsync(...)`
   now runs (the end delivers each finished write, runs what it wakes, up to 16 writes in a row); before, only the write itself
   was waited for. The end closes only the audio device (it no longer waits for the music's decodes or releases the clips).
@@ -258,12 +265,13 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   bodies included): Transform, physics and scripts see the real pose. The new `Interpolation` component sets it per entity
   (`on` / `off` / `inherit`), a new entity, a Transform written outside the fixed step and `entity.teleport()` are drawn
   without smearing, and `render.interpolationSnapDistance` treats a long step as a jump. `game.step`, headless runs, replays
-  and a paused game draw the real pose. Scripts, UI hit tests and picking read the real camera pose, so `screenToWorld` does not
-  depend on the frame time; a rotation that turns more than 180 degrees in one step is not blended. See docs/RENDERING.md, "Render interpolation".
-  Polish: `Parallax.offset` and `entity.bounds()` of a parallax layer follow the camera's real pose (the drawing still follows
-  the blended one), so they no longer change with the frame time; with `render.interpolation` off and `Interpolation` components
-  on a few entities, the passes read only those entities instead of every Transform; the docs now say that lights, particle
-  emitters and sounds are placed from the real pose, so a sprite can lag its light or emitter by one fixed step.
+  and a paused game draw the real pose. Scripts, UI hit tests and picking read the real camera pose, so `screenToWorld` does
+  not depend on the frame time; a rotation that turns more than 180 degrees in one step is not blended. See
+  docs/RENDERING.md, "Render interpolation". Polish: `Parallax.offset` and `entity.bounds()` of a parallax layer follow the
+  camera's real pose (the drawing still follows the blended one), so they no longer change with the frame time; with
+  `render.interpolation` off and `Interpolation` components on a few entities, the passes read only those entities instead
+  of every Transform; the docs now say that lights, particle emitters and sounds are placed from the real pose, so a sprite
+  can lag its light or emitter by one fixed step.
 - **Encrypted saves, polish (M98.1):** `fs.read`, `fs.search`, `fs.write`, `fs.edit` and `checkpoint.read` now hide
   `storage.encryptionSecret` in any file named `factoria.json` (before, only the one at the project root), and `fs.edit`
   matches its `find` against the text `fs.read` shows, so it cannot be used to guess the secret one prefix at a time. An
