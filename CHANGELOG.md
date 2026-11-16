@@ -6,6 +6,17 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **UI polish (M98.6 follow-ups):** the input method is one per process: the first UI whose focused `TextField` wants
+  it keeps it until that field loses the focus, the UI is reset or destroyed, and a field of a second UI (the editor's
+  own panels next to Play, a test) is typed as a plain field meanwhile. On a web page opened on a Mac, Alt (not Ctrl)
+  moves and deletes by word, like the native macOS build. A turned or scaled screen-space Text, Sprite or Shape2D
+  under a widget now stays rigid with it under `ui.mirrorRtl` too, and is placed from the Transform and the pose, not
+  from the inverse of its parent's matrix (a parent that scales to 0 no longer makes it vanish).
+  `ui.reset_layout_positions` takes `dryRun` (list what it would reset) and says in its description that it is a guess
+  (an intended nudge equal to the slot offset is reset, a ScrollList scrolled since the load can hide a baked
+  position); `scene.set_parent` says `positionReset: true` when it sent the child to a layout slot. `TouchStick` and
+  `TouchButton` still ignore the rotation of their parents (documented). Two `ui.change` can arrive in one frame (a
+  commit and typed text): the last value is the current text.
 - **WebSocket on Linux (libcurl), Windows and the tcp client, polish:** when a game does not read its messages and the engine ends the connection
   (`"close"` 1008), `readyState` is `"closed"` as soon as that `"close"` event can be read, as it already was for every other
   end (before, a read right then could still say `"open"` for a moment). On Windows, a close frame from the server whose status
@@ -109,8 +120,9 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   the placed result; the Inspector shows the offset and a viewport drag edits it. A scene saved before has the placement baked
   into those positions: the engine warns once per widget and the new command `ui.reset_layout_positions` sets them to 0 (no
   example scene needed it). A widget moved into a laid-out Panel or ScrollList with `scene.set_parent` (keepWorld) goes to its
-  slot, position 0, as before; reordering under the same parent changes only the order. 6e's turned-parent drawing now applies only under a turned or scaled widget, so a plain scaled
-  group of HUD visuals keeps its old placement (docs/menus/MENUS_RECIPES.md, "Where a laid-out child is").
+  slot, position 0, as before; reordering under the same parent changes only the order. 6e's turned-parent drawing now applies
+  only under a turned or scaled widget, so a plain scaled group of HUD visuals keeps its old placement
+  (docs/menus/MENUS_RECIPES.md, "Where a laid-out child is").
   fixed timer only. Generic HID pads answer `canRumble: false` with a reason. Not yet tried with a physical pad.
 - **Windows rumble and full reports for PlayStation and Switch pads (M98.5b2):** the DualShock 4, DualSense (and Edge) and
   Switch Pro, over USB or Bluetooth, now rumble on Windows (`canRumble: true`): the engine's own drivers send each pad's
@@ -227,13 +239,14 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 - `TextField` has `caretIndex`, `selectionStart`, `selectionEnd` and a runtime `composition`, and scripts read
   `input.composing` / `input.compositionText`: the shared interface for text editing and IME composition (M98.6). Nothing
   moves the caret yet.
-- `TextField` editing: a caret you move with the arrows (by word with Ctrl, Alt on macOS), Home / End, Delete, a selection
-  (Shift, drag, double click, Ctrl/Cmd+A), cut / copy / paste of the selection, a scrolling field, `password`, and the IME
-  composition drawn at the caret with an exact caret rectangle for the candidate window. Ctrl/Cmd+C with nothing selected
-  no longer copies the whole text. New runtime fields `compositionCaret`, `compositionSelection`, `scrollX`. A click, or a focus move, commits a
-  composition into the field it began in; a password field keeps the input method off, passes `password` to the platform
-  keyboard and is one word for word keys and a double click; `maxLength` never cuts inside an emoji sequence; a script's
-  write to `text` moves the caret at once; an unfocused long field keeps its last scroll; caret and selection assume
+- `TextField` editing: a caret you move with the arrows (by word with Ctrl, Alt on macOS), Home / End, Delete, a
+  selection (Shift, drag, double click, Ctrl/Cmd+A), cut / copy / paste of the selection, a scrolling field,
+  `password`, and the IME composition drawn at the caret with an exact caret rectangle for the candidate window.
+  Ctrl/Cmd+C with nothing selected no longer copies the whole text. New runtime fields `compositionCaret`,
+  `compositionSelection`, `scrollX`. A click, or a focus move, commits a composition into the field it began in; a
+  password field keeps the input method off, passes `password` to the platform keyboard and is one word for word keys
+  and a double click; `maxLength` never cuts inside an emoji sequence; a script's write to `text` moves the caret at
+  once; an unfocused long field keeps its last scroll until a script empties it; caret and selection assume
   left-to-right text for now.
 - macOS and iOS: a focused `TextField` composes natively. Japanese, Chinese and Korean input methods show their pre-edit
   text as a composition, put the candidate window under the caret and type only the committed text, once; dead keys

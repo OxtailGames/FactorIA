@@ -179,6 +179,12 @@ struct UiClickAim {
 
 class UiSystem {
 public:
+    UiSystem() = default;
+    // Gives the IME back (a UiSystem that turned it on turns it off, see set_design_to_window).
+    ~UiSystem();
+    UiSystem(const UiSystem&) = delete;
+    UiSystem& operator=(const UiSystem&) = delete;
+
     // Every frame, before scripts.update: lays out containers, then updates hover / press / focus / values from `input`
     // and pushes ui.* events. `dt` is REAL (unscaled) seconds: the UI works while time.scale is 0. `designSize` is the
     // renderer's target size (anchors are relative to it). It also hands the rectangles of the active TouchStick and
@@ -200,8 +206,11 @@ public:
 
     // Migrates a scene saved before 0.30, whose laid-out children carry the layout's result in Transform.position: sets x and y of
     // the position to 0 for every laid-out child whose position equals its layout offset (what the old engine wrote), after a
-    // layout pass has run. Returns the ids of the entities it changed. The picture does not change: the offset stays.
-    std::vector<std::string> reset_baked_positions(World& world);
+    // layout pass has run. Returns the ids of the entities it changed (dryRun: the ids it WOULD change, nothing is written). The
+    // picture does not change: the offset stays. The test is a guess: a nudge made on purpose that equals the slot offset counts
+    // too, and a child of a ScrollList is compared with the offset it has at the list's CURRENT scroll, so a list scrolled since
+    // the scene was loaded can hide a baked position: run it right after loading the scene, and look at a dryRun first.
+    std::vector<std::string> reset_baked_positions(World& world, bool dryRun = false);
 
     // The clipboard a focused TextField pastes from (Ctrl+V / Cmd+V) and copies to (Ctrl+C / Cmd+C). The Engine sets it;
     // without one the keys do nothing.
@@ -213,10 +222,13 @@ public:
     // changes. The handler runs inside update() and reset() on the game thread.
     void set_text_input_handler(TextInputHandler handler) { textInput_ = std::move(handler); }
     // How the IME is told where the caret is (fa/platform/ime.h): the UI turns the IME on while a TextField has the focus and
-    // sends the exact rectangle of the field's caret every frame (a thin bar at the caret, or inside the
-    // composition). `mapper` takes a design pixel to a FRAMEBUFFER pixel (the
-    // Engine sets it from its window, the same mapping as the platform keyboard's rectangle: not divided by the DPI scale);
-    // without one, design pixels are framebuffer pixels.
+    // sends the exact rectangle of the field's caret every frame (a thin bar at the caret, or inside the composition).
+    // `mapper` takes a design pixel to a FRAMEBUFFER pixel (the Engine sets it from its window, the same mapping as the platform
+    // keyboard's rectangle: not divided by the DPI scale); without one, design pixels are framebuffer pixels. The editor's
+    // embedded game view sets none, so a candidate window there sits at the design pixel, not under the viewport's caret.
+    // The IME is one per process, so only ONE UiSystem has it at a time: the first whose focused field wants it keeps it until that
+    // field loses the focus, the UiSystem is reset or destroyed; another UiSystem's TextField is typed into as a plain field
+    // (no composition, no candidate window) meanwhile and takes the IME the frame after it is free.
     void set_design_to_window(std::function<Vec2(Vec2)> mapper) { designToWindow_ = std::move(mapper); }
     // Text the platform keyboard returned: replaces the text of the field that took the keyboard if it still has the focus
     // (cut to its maxLength, control characters dropped) and sends ui.change when the text changed. False when no field is
@@ -376,8 +388,10 @@ private:
     Vec2 pointerPos_{};
     TextInputHandler textInput_;
     std::function<Vec2(Vec2)> designToWindow_;
-    bool imeOn_ = false;  // this UI turned the IME on (a TextField has the focus)
+    bool imeOn_ = false;  // this UI holds the IME (a TextField has the focus and no other UiSystem had it first)
     Entity imeField_;     // the TextField the IME is working for (the focused one; kNullEntity = none)
+    // Gives the IME back if this UI holds it: (cancels the composition,) turns it off.
+    void release_ime(bool cancel = true);
     Clipboard* clipboard_ = nullptr;
     Entity platformField_;  // the TextField the platform keyboard was taken for (kNullEntity = none)
     Entity askedField_;     // the TextField the handler was asked about since it got the focus
@@ -391,8 +405,7 @@ private:
     std::array<Repeat, 4> nav_;   // up, down, left, right
     Repeat backspace_, delete_;
 
-    // TextField editing (textfield.cpp). The UI remembers what it last wrote to the focused field, so a script
-    // that writes the
+    // TextField editing (textfield.cpp). The UI remembers what it last wrote to the focused field, so a script that writes the
     // text, caretIndex or the selection in between is told from the player's edits.
     struct FieldMemo {
         Entity e;
@@ -410,13 +423,12 @@ private:
     // Reads the caret and the anchor of the selection from the field, after what a script may have written since
     // the UI last did.
     void field_sync(Entity e, TextField& tf, std::int32_t& caret, std::int32_t& anchor);
-    void field_store(Entity e, TextField& tf, std::int32_t caret,
-                     std::int32_t anchor);  // writes them (and `text` is already written)
-    void field_keys(World& world, Entity e, TextField& tf, Input& in,
-                    float dt);  // typing, deleting, clipboard, Home / End
+    // Writes them (`text` is already written); the memo follows only when `e` is the field it is about.
+    void field_store(Entity e, TextField& tf, std::int32_t caret, std::int32_t anchor);
+    // Typing, deleting, clipboard, Home / End.
+    void field_keys(World& world, Entity e, TextField& tf, Input& in, float dt);
     void field_arrow(World& world, Entity e, TextField& tf, Input& in, bool left);
-    // Types the IME's composition into field `e` at its caret (once) and ends it in `in`; the caller then tells
-    // the backend.
+    // Types the IME's composition into field `e` at its caret (once) and ends it in `in`; the caller then tells the backend.
     void field_commit_composition(World& world, Entity e, Input& in);
     // A press, drag or release of the pointer on the focused TextField `e` (mouse in screen pixels).
     void field_pointer(World& world, Entity e, TextField& tf, Input& in, Vec2 design, Vec2 mouse, bool pressed,

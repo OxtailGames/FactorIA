@@ -18,11 +18,12 @@ void ime_set_enabled(bool enabled);
 // window coordinates are logical points, divide by the DPI scale (app_dpi_scale) in their backend. Ignored while the IME is
 // not enabled.
 void ime_set_caret_rect(Rect framebufferPixels);
-// The composition in progress is over (a click inside the field or the focus moving to another one: the UI has already
-// committed it to Input as typed text, or dropped it). The backend resets the OS's composition state and from now on
-// delivers neither a commit nor updates of THAT composition; a later composition starts normally. ime_cancel NEVER
-// delivers text: the UI commits what it wants kept before calling it (Input::on_composition_commit), so a backend that
-// committed here as well would type the text twice.
+// The composition in progress is over (a click inside the field or the focus moving to another one). The UI has already
+// written what it wants kept into the text field it began in (a commit of its own: no Input::on_composition_commit, so
+// nothing reaches Input::text_input() for it) and has ended Input's composition (Input::on_composition_cancel), or it drops it.
+// The backend resets the OS's composition state and from now on delivers neither a commit nor updates of THAT composition; a
+// later composition starts normally. ime_cancel NEVER delivers text: a backend that committed here as well would type the
+// text twice.
 void ime_cancel();
 
 // What the UI asked for last.

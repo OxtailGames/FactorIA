@@ -671,19 +671,25 @@ Mat4 World::drawn_matrix(Entity e, bool blended) const {
     Mat4 m;
     bool first = true;
     for (std::size_t k = n; k-- > 0;) {
-        const auto* t = static_cast<const Transform*>(impl_->transformPool->get(chain[k]));
-        Mat4 local;
-        if (const Transform* bp = ip ? ip->pose_of(chain[k]) : nullptr)
-            t = bp;  // the blend between the last two fixed steps
-        if (const FeelPose* p = feel_.pose_of(chain[k]))
-            local = Mat4::trs(impl_->effective_position(chain[k], t->position + p->position), t->rotation + p->rotation,
-                              {t->scale.x * p->scale.x, t->scale.y * p->scale.y, t->scale.z * p->scale.z});
-        else
-            local = Mat4::trs(impl_->effective_position(chain[k], t->position), t->rotation, t->scale);
+        const Mat4 local = drawn_local(chain[k], ip);
         m = first ? local : m * local;
         first = false;
     }
     return m;
+}
+
+Mat4 World::drawn_local(Entity e, const InterpState* ip) const {
+    const auto* t = static_cast<const Transform*>(impl_->transformPool->get(e));
+    if (const Transform* bp = ip ? ip->pose_of(e) : nullptr) t = bp;  // the blend between the last two fixed steps
+    if (const FeelPose* p = feel_.pose_of(e))
+        return Mat4::trs(impl_->effective_position(e, t->position + p->position), t->rotation + p->rotation,
+                         {t->scale.x * p->scale.x, t->scale.y * p->scale.y, t->scale.z * p->scale.z});
+    return Mat4::trs(impl_->effective_position(e, t->position), t->rotation, t->scale);
+}
+
+Mat4 World::drawn_local_matrix(Entity e, bool blended) const {
+    if (!alive(e)) return Mat4::identity();
+    return drawn_local(e, blended && interp_.poseCount > 0 ? &interp_ : nullptr);
 }
 
 void World::interp_teleport(Entity e) {
@@ -745,6 +751,22 @@ std::vector<Entity> World::ui_layout_offset_entities() const {
     out.reserve(impl_->layoutOffsets.size());
     for (const auto& [bits, off] : impl_->layoutOffsets) out.push_back(Entity::from_bits(bits));
     return out;
+}
+
+std::size_t World::clear_ui_layout_offsets_except(const std::function<bool(Entity)>& keep) {
+    Impl& d = *impl_;
+    std::size_t removed = 0;
+    for (auto it = d.layoutOffsets.begin(); it != d.layoutOffsets.end();) {
+        const Entity e = Entity::from_bits(it->first);
+        if (keep && keep(e)) {
+            ++it;
+            continue;
+        }
+        it = d.layoutOffsets.erase(it);
+        d.dirty_world(e);
+        ++removed;
+    }
+    return removed;
 }
 
 // ------------------------------------------------------------- observers --

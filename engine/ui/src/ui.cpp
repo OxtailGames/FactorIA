@@ -329,15 +329,28 @@ bool UiSystem::submit_text(World& w, const std::string& text) {
     return true;
 }
 
+namespace {
+// The UiSystem that holds the IME (fa/platform/ime.h is one global state: two UiSystems, the editor's and a play session's, would
+// step on each other). Only the game thread touches it.
+const UiSystem* g_imeHolder = nullptr;
+}  // namespace
+
+UiSystem::~UiSystem() { release_ime(); }
+
+void UiSystem::release_ime(bool cancel) {
+    if (!imeOn_) return;
+    imeOn_ = false;
+    if (g_imeHolder != this) return;
+    g_imeHolder = nullptr;
+    if (cancel) ime_cancel();
+    ime_set_enabled(false);
+}
+
 void UiSystem::reset() {
     release_platform_keyboard(nullptr);
     askedField_ = kNullEntity;
     focus_ = hover_ = press_ = prevHover_ = hoverFocused_ = kNullEntity;
-    if (imeOn_) {
-        ime_cancel();
-        ime_set_enabled(false);
-    }
-    imeOn_ = false;
+    release_ime();
     imeField_ = kNullEntity;
     warnedKnobs_.clear();
     focusCleared_ = false;
@@ -772,7 +785,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         const Entity field = focus_ && w.get<TextField>(focus_) ? focus_ : kNullEntity;
         if (field != imeField_) {
             if (in.composing()) field_commit_composition(w, imeField_, in);  // typed into the field it began in
-            if (imeField_) ime_cancel();
+            if (imeField_ && imeOn_) ime_cancel();
             imeField_ = field;
         }
     }
@@ -794,6 +807,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         if (TextField* tf = w.get<TextField>(it.e)) {
             tf->caret = it.e == focus_ && std::fmod(clock_ - caretStart_, 1.0f) < 0.5f;
             tf->clamp_indices();
+            if (it.e != focus_ && tf->text.empty())
+                tf->scrollX = 0.0f;   // a script emptied it: nothing to be scrolled past
             tf->composition.clear();  // the IME's pre-edit string belongs to the focused field only
             tf->compositionCaret = tf->compositionSelection = 0;
             if (it.e == focus_ && in.composing())
@@ -838,16 +853,18 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     // Text input mode: a focused TextField takes the typed keys, so game actions bound to letters read as up meanwhile.
     in.set_ui_text_input(focus_ && w.get<TextField>(focus_));
 
-    // ---- the IME (candidate window, composition): on while a TextField has the focus, and told where its caret
-    // is (the
+    // ---- the IME (candidate window, composition): on while a TextField has the focus, and told where its caret is (the
     // caret's bar, inside the composition while the player composes).
     const TextField* imeTf = focus_ ? w.get<TextField>(focus_) : nullptr;
     const bool imeWanted = imeTf && !imeTf->password;  // a password is never composed: the input method stays off
-    if (imeWanted != imeOn_) {
-        imeOn_ = imeWanted;
-        ime_set_enabled(imeWanted);
+    if (!imeWanted) {
+        release_ime(false);                // the focus move above cancelled what was composing
+    } else if (!imeOn_ && !g_imeHolder) {  // another UiSystem that holds it keeps it until its field lets go
+        g_imeHolder = this;
+        imeOn_ = true;
+        ime_set_enabled(true);
     }
-    if (imeWanted && imeCaretValid_) {
+    if (imeOn_ && imeCaretValid_) {
         const Rect& c = imeCaret_;
         const Vec2 a = designToWindow_ ? designToWindow_({c.x, c.y}) : Vec2{c.x, c.y};
         const Vec2 b = designToWindow_ ? designToWindow_({c.x + c.w, c.y + c.h}) : Vec2{c.x + c.w, c.y + c.h};

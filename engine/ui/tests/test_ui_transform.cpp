@@ -141,6 +141,33 @@ TEST_CASE("ui transform: a drop lands on the turned target, not in the corner of
     CHECK(drag_over({200 + 30, 90 - 30}) == "");                          // in its box, off the turned panel
 }
 
+TEST_CASE("ui transform: the drag image under a turned and scaled parent is centred under the pointer") {
+    Ui t;
+    const Entity src = t.button("src", {10, 10}, {40, 20});
+    t.w.get<Button>(src)->draggable = Json::object({{"payload", 1}});
+    const Entity holder = t.add<Panel>("holder", {150, 60}, {100, 40});
+    t.w.get<Panel>(holder)->pivot = {0.5f, 0.5f};
+    turn(t, holder, 90);
+    zoom(t, holder, 2.0f);
+    const Entity image = t.add<Panel>("image", {0, 0}, {20, 10}, holder);
+    t.w.get<Panel>(image)->pivot = {0.5f, 0.5f};
+    t.ui.set_drag_image(image);
+    t.frame();
+    t.in.on_mouse_move({20, 20});
+    t.in.on_mouse_button(MouseButton::Left, true);
+    t.frame();
+    t.in.on_mouse_move({220, 130});
+    t.frame(3);
+    REQUIRE(t.ui.drag_json(t.w).is_object());
+    const Rect r = t.rect(image);  // the bounding box of the image as drawn
+    CHECK(r.x + r.w * 0.5f == doctest::Approx(220.0f).epsilon(0.01));
+    CHECK(r.y + r.h * 0.5f == doctest::Approx(130.0f).epsilon(0.01));
+    CHECK(r.w == doctest::Approx(20.0f));  // 20 x 10 turned a quarter and doubled: 20 wide, 40 high
+    CHECK(r.h == doctest::Approx(40.0f));
+    t.in.on_mouse_button(MouseButton::Left, false);
+    t.frame(2);
+}
+
 TEST_CASE("ui transform: a click on a turned TextField puts the caret where the text is under the pointer") {
     Ui t;
     const Entity e = t.add<TextField>("f", {100, 0}, {400, 30});

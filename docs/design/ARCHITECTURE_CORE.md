@@ -36,7 +36,11 @@ entity, instead of walking the parent chain on every call (`engine/scene/src/wor
   `keepWorld` the whole placed spot moves into `Transform.position`, so the child keeps its world place, except under a parent
   that lays its children out (`ui_layout_places`: a Panel with a layout or fallbackLayout, a ScrollList; the child a widget or
   a screen-space Text, Sprite or Shape2D): there x and y become 0 so the child lands in its slot, as it always did (rotation,
-  scale and z are kept).
+  scale and z are kept). `ui_layout_places` looks at the component type and the space only: the layout also skips an inactive
+  child and one with no rectangle (a Text with no text, a Sprite with no size), which `ui_layout_places` still answers true for,
+  so such a child gets position 0 without being placed. `scene.set_parent` says `positionReset: true` when it did this.
+  `clear_ui_layout_offsets_except` erases the entries the layout did not just place, in place (the map is never copied to a list
+  every frame); `drawn_local_matrix` is the local part of `drawn_matrix` (no parent inverse).
 - **Rules for code**: read through a `const World&` (or `std::as_const(world).get<Transform>(e)`): a read through a mutable
   `World` counts as a write and throws the cache away for nothing (`resolve_obj` in the script bridge, the UI and render
   passes already read through const). A `Transform&` or `EntityInfo&` KEPT from an earlier `get` and written after a

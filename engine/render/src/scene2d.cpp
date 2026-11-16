@@ -179,19 +179,27 @@ Mat4 draw_matrix(const World& world, Entity e, bool screen) {
 
 // A screen-space visual under a widget that turns or scales (the widget itself or one above it): drawn through the same map as the
 // widgets (ui_transform of the parent chain, ui_rect.h "Rotation and scale"), so the card is rigid. In layout space the visual sits
-// at the parents' layout translation (positions and layout offsets summed) + its anchor point + its own local matrix (which holds
-// its own position and layout offset); the parents' map then turns that point about each parent's origin. Replaces draw_matrix +
-// apply_anchor. False (and `m` untouched, the old path) when the visual is mirrored (ui.mirrorRtl) or when no WIDGET above it
-// turns or scales: a plain group that scales multiplies the child's own offset and leaves the anchor where it is, so a HUD group
-// that animates its scale stays on screen.
+// at the parents' layout translation (positions and layout offsets summed) + its anchor point + its own local matrix (position,
+// layout offset, rotation and scale, with the game feel and interpolation pose: World::drawn_local_matrix, built from the
+// Transform, never from the inverse of the parent's matrix); the parents' map then turns that point about each parent's origin.
+// ui_transform (and so the widgets' hit areas) reads the raw Transform, this the DRAWN one: while a shake or squash pose runs
+// the visual moves by it and its widget's hit area does not, which is the same for a widget drawn by the renderer.
+// Under ui.mirrorRtl (`mirrored`) the whole card is its mirror image, like ui_transform's: the anchor's x, the translation sum
+// and the local matrix are reflected across the vertical axis (the visual's own rotation changes sign), the caller flips the pivot.
+// False (and `m` untouched, the old path) when no WIDGET above the visual turns or scales: a plain group that scales multiplies
+// the child's own offset and leaves the anchor where it is, so a HUD group that animates its scale stays on screen.
 bool turned_parent_matrix(const World& world, Entity e, const Frame& f, Vec2 anchor, bool safeArea, bool mirrored,
                           Mat4& m) {
     const Entity parent = world.parent(e);
-    if (!parent || mirrored || !ui_widget_ancestor_turns(world, e)) return false;
+    if (!parent || !ui_widget_ancestor_turns(world, e)) return false;
     const Vec2 design{float(f.targetW), float(f.targetH)};
     const UiAffine g = ui_transform(world, parent, design);
     if (g.is_identity()) return false;
-    const Vec3 sum = ui_layout_translation(world, parent);  // positions + the layout's offsets, root down
+    Vec3 sum = ui_layout_translation(world, parent);  // positions + the layout's offsets, root down
+    if (mirrored) {
+        anchor.x = 1.0f - anchor.x;
+        sum.x = -sum.x;
+    }
     const Vec2 a = anchor_point(anchor, safeArea, ui_layout_screen(world, design), ui_layout_insets(world));
     Mat4 g4 = Mat4::identity();
     g4.at(0, 0) = g.a;
@@ -200,7 +208,11 @@ bool turned_parent_matrix(const World& world, Entity e, const Frame& f, Vec2 anc
     g4.at(1, 1) = g.d;
     g4.at(3, 0) = g.tx;
     g4.at(3, 1) = g.ty;
-    const Mat4 local = world.drawn_matrix(parent).inverse() * world.drawn_matrix(e);
+    Mat4 local = world.drawn_local_matrix(e);
+    if (mirrored) {
+        const Mat4 flip = Mat4::scale({-1.0f, 1.0f, 1.0f});
+        local = flip * local * flip;
+    }
     const float k = ui_scale_clamped(world.ui_scale());
     m = Mat4::scale({k, k, 1.0f}) * g4 * Mat4::translate(Vec3{sum.x + a.x, sum.y + a.y, sum.z}) * local;
     return true;

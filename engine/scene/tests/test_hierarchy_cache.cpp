@@ -337,3 +337,60 @@ TEST_CASE(
     w.set_ui_layout_offset(leaf, {5, 5});          // a dead entity gets nothing
     CHECK(w.ui_layout_offset_entities().empty());
 }
+
+TEST_CASE(
+    "hierarchy cache: drawn_local_matrix is the local part of drawn_matrix, with the pose and the layout offset, and "
+    "needs no parent inverse") {
+    ensure_builtin_components();
+    World w;
+    const Entity root = w.create("root", "root");
+    const Entity kid = w.create("kid", "kid");
+    w.set_parent(kid, root);
+    w.get<Transform>(root)->position = {100, 50, 0};
+    w.get<Transform>(root)->scale = {2, 2, 1};
+    w.get<Transform>(kid)->position = {3, 4, 0};
+    w.set_ui_layout_offset(kid, {10, 20});
+    Mat4 local = w.drawn_local_matrix(kid);  // no pose: position + offset
+    CHECK(local.translation().x == doctest::Approx(13));
+    CHECK(local.translation().y == doctest::Approx(24));
+    const Mat4 viaParent = w.drawn_matrix(root) * local;
+    CHECK(viaParent.translation().x == doctest::Approx(w.drawn_matrix(kid).translation().x));
+    CHECK(viaParent.translation().y == doctest::Approx(w.drawn_matrix(kid).translation().y));
+
+    FeelEntity& rec = w.feel().entities[kid.bits()];  // a shake or squash pose on the kid
+    rec.hasPose = true;
+    rec.pose.position = {1, 2, 0};
+    rec.pose.scale = {3, 3, 1};
+    w.feel().poseCount = 1;
+    local = w.drawn_local_matrix(kid);
+    CHECK(local.translation().x == doctest::Approx(14));
+    CHECK(local.translation().y == doctest::Approx(26));
+    CHECK(local.at(0, 0) == doctest::Approx(3));
+    CHECK(w.drawn_matrix(kid).translation().x == doctest::Approx((w.drawn_matrix(root) * local).translation().x));
+
+    w.get<Transform>(root)->scale = {0, 0, 1};  // a parent that cannot be inverted: the local part is still right
+    CHECK(w.drawn_local_matrix(kid).translation().x == doctest::Approx(14));
+    CHECK(w.drawn_local_matrix(kNullEntity).translation().x == 0.0f);  // identity for no entity
+}
+
+TEST_CASE("hierarchy cache: clear_ui_layout_offsets_except erases the entries the answer does not keep, in place") {
+    ensure_builtin_components();
+    World w;
+    const Entity root = w.create("root", "root");
+    const Entity a = w.create("a", "a"), b = w.create("b", "b"), c = w.create("c", "c");
+    for (Entity e : {a, b, c}) w.set_parent(e, root);
+    w.set_ui_layout_offset(a, {1, 1});
+    w.set_ui_layout_offset(b, {2, 2});
+    w.set_ui_layout_offset(c, {3, 3});
+    CHECK(w.world_position(b).x == doctest::Approx(2));
+    const std::size_t removed = w.clear_ui_layout_offsets_except([&](Entity e) { return e == b; });
+    CHECK(removed == 2);
+    CHECK(w.ui_layout_offset(a).x == 0.0f);
+    CHECK(w.ui_layout_offset(b).x == 2.0f);
+    CHECK(w.ui_layout_offset(c).x == 0.0f);
+    CHECK(w.world_position(a).x == doctest::Approx(0));  // the cached matrix of a removed entry is dropped
+    CHECK(w.world_position(b).x == doctest::Approx(2));
+    CHECK(w.clear_ui_layout_offsets_except({}) == 1);  // no answer: everything goes
+    CHECK(w.ui_layout_offset_entities().empty());
+    CHECK(w.clear_ui_layout_offsets_except({}) == 0);
+}

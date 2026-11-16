@@ -2,6 +2,7 @@
 // rectangle).
 #include <doctest.h>
 
+#include <memory>
 #include <string>
 
 #include "../src/text_edit.h"
@@ -225,9 +226,8 @@ TEST_CASE("text_edit: UTF-8 multi-byte text, clusters never split, indices are c
     CHECK(s.anchor == 5);
     CHECK(te::selected_text(s) == std::string(kEComb) + "z");
     // an ill-formed byte is one U+FFFD and does not break the model
-    te::State bad = st("a\xFF"
-                       "b",
-                       3);
+    const char kBadBytes[] = {'a', char(0xFF), 'b', '\0'};  // "a\xFFb" would read the b as part of the escape
+    te::State bad = st(kBadBytes, 3);
     CHECK(te::length(bad) == 3);
     CHECK(te::backspace(bad, false));
     CHECK(te::length(bad) == 2);
@@ -564,6 +564,111 @@ TEST_CASE("ui textfield editing: moving the focus to another field commits the c
     CHECK(fa_.text == "abxy");
     CHECK(fb.text.empty());
     CHECK_FALSE(t.in.composing());
+}
+
+TEST_CASE("ui textfield editing: the focus-move commit types the text once and tells the platform to forget it") {
+    ImeGuard guard;
+    Ui t;
+    Entity a = t.add<TextField>("a", {0, 0}, {300, 30});
+    Entity b = t.add<TextField>("b", {0, 100}, {300, 30});
+    TextField& fa_ = *t.w.get<TextField>(a);
+    TextField& fb = *t.w.get<TextField>(b);
+    fa_.autoFocus = true;
+    fa_.text = "ab";
+    t.frame();
+    t.in.on_composition_update(U"xy", 2, 0);
+    t.frame();
+    const int cancels = ime_state().cancels;
+    t.click({20, 115});
+    CHECK(fa_.text == "abxy");  // typed once, not twice
+    CHECK(t.in.text_input().empty());
+    CHECK(ime_state().cancels == cancels + 1);
+    CHECK(ime_state().enabled);  // the second field takes the input method
+    // The commit into the first field did not point the memory of what the UI wrote back at it: a script writing the new
+    // focused field is noticed (its caret goes to the end).
+    fb.text = "hello";
+    t.frame();
+    CHECK(fb.caretIndex == 5);
+}
+
+TEST_CASE(
+    "ui textfield editing: a focus move into a password field commits the composition and turns the input method off") {
+    ImeGuard guard;
+    Ui t;
+    Entity a = t.add<TextField>("a", {0, 0}, {300, 30});
+    Entity b = t.add<TextField>("b", {0, 100}, {300, 30});
+    TextField& fa_ = *t.w.get<TextField>(a);
+    t.w.get<TextField>(b)->password = true;
+    fa_.autoFocus = true;
+    fa_.text = "ab";
+    t.frame();
+    CHECK(ime_state().enabled);
+    t.in.on_composition_update(U"xy", 2, 0);
+    t.frame();
+    t.click({20, 115});
+    CHECK(fa_.text == "abxy");
+    CHECK_FALSE(t.in.composing());
+    CHECK_FALSE(ime_state().enabled);
+}
+
+TEST_CASE("ui textfield editing: a commit into a field that is full types nothing and sends no ui.change") {
+    ImeGuard guard;
+    Field F("abc");
+    TextField& f = *F.f;
+    f.maxLength = 3;
+    F.t.in.on_composition_update(U"xy", 2, 0);
+    F.t.frame();
+    F.t.click({20, 15});  // a click in the field commits the composition at the caret
+    CHECK(f.text == "abc");
+    CHECK_FALSE(F.t.in.composing());
+    for (const std::string& e : F.t.events()) CHECK(e.rfind("ui.change", 0) != 0);
+}
+
+TEST_CASE("ui textfield editing: a commit longer than the text one frame can carry is cut at that cap, not lost") {
+    ImeGuard guard;
+    Field F("");
+    TextField& f = *F.f;
+    F.t.in.on_composition_commit(std::u32string(Input::kMaxTextPerView + 500, U'a'));
+    F.t.frame();
+    CHECK(f.text.size() == Input::kMaxTextPerView);
+    CHECK(f.caretIndex == int(Input::kMaxTextPerView));
+    int changes = 0;
+    for (const std::string& e : F.t.events()) changes += e.rfind("ui.change", 0) == 0 ? 1 : 0;
+    CHECK(changes == 1);
+}
+
+TEST_CASE("ui textfield editing: only one UI of the process holds the input method, and it gives it back") {
+    ImeGuard guard;
+    auto first = std::make_unique<Field>("ab");
+    Field second("cd");
+    CHECK(ime_state().enabled);  // the first UI took it
+    const Rect rect = ime_state().caretRect;
+    second.t.frame(
+        3);  // the second UI's field is focused too: it types as a plain field and leaves the input method alone
+    CHECK(ime_state().caretRect.x == rect.x);
+    CHECK(ime_state().caretRect.y == rect.y);
+    first.reset();  // destroying the holder gives the input method back
+    CHECK_FALSE(ime_state().enabled);
+    second.t.frame();
+    CHECK(ime_state().enabled);  // and the other UI takes it on its next frame
+    CHECK(ime_state().caretRect.x > 0.0f);
+}
+
+TEST_CASE("ui textfield editing: the field that loses the focus forgets its scroll when a script empties it") {
+    Ui t;
+    Entity a = t.add<TextField>("a", {0, 0}, {120, 30});
+    Entity b = t.add<TextField>("b", {0, 100}, {120, 30});
+    TextField& fa_ = *t.w.get<TextField>(a);
+    fa_.autoFocus = true;
+    fa_.text = "abcdefghijklmnopqrstuvwxyz";
+    t.frame();
+    CHECK(fa_.scrollX > 0.0f);
+    t.click({20, 115});         // b has the focus now
+    CHECK(fa_.scrollX > 0.0f);  // a keeps what it shows while it has text
+    fa_.text.clear();
+    t.frame();
+    CHECK(fa_.scrollX == 0.0f);
+    (void)b;
 }
 
 TEST_CASE("ui textfield editing: a script writing the text of the focused field moves the caret and the IME rectangle "

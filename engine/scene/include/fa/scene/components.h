@@ -755,8 +755,10 @@ struct TextField : UiControl {
     float scrollX = 0.0f;   // runtime: how many UI units the text is scrolled to the left (keeps the caret in view)
     TextField() { size = {320, 48}; }
     // Puts caretIndex, selectionStart and selectionEnd inside 0..(code points of `text`). Called by the UI every frame, so a
-    // scene that was loaded with a wrong index, or a script that shortened `text`, never leaves one outside.
+    // scene that was loaded with a wrong index, or a script that shortened `text`, never leaves one outside. The usual state
+    // of a field nobody edits (all three at 0) costs three comparisons, not a walk over the text.
     void clamp_indices() {
+        if (caretIndex == 0 && selectionStart == 0 && selectionEnd == 0) return;
         const std::int32_t n = std::int32_t(std::min<std::size_t>(utf8_length(text), 1000000));
         caretIndex = std::clamp(caretIndex, 0, n);
         selectionStart = std::clamp(selectionStart, 0, n);
@@ -777,7 +779,10 @@ struct ScrollList : UiBox {
 
 // On-screen gamepad for phones and tablets: a stick and buttons that drive a virtual pad (Input's touch pad), so the
 // actions bound to GamepadA, GamepadLeftStickRight... work on a touch screen without a change to the game. fa_ui hands
-// their rectangles to Input and writes the runtime fields; fa_render draws them. Neither is focusable.
+// their rectangles to Input and writes the runtime fields; fa_render draws them. Neither is focusable. Input takes only an
+// axis-aligned rectangle: a TouchStick or TouchButton whose Transform (or a parent's) turns or scales it is drawn turned, but a
+// finger is tested against (and the stick's offset measured in) the bounding box of that turned rectangle, so keep their
+// rotation at 0 (a scale only grows the box).
 enum class TouchStickSide : std::int32_t { Left, Right };
 // A pad button, in fa::GamepadButton order (fa_ui checks the count), so scene does not depend on fa_platform.
 enum class PadButton : std::int32_t {
