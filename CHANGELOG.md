@@ -14,7 +14,8 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   on one nudges it from the slot instead of being overwritten. Drawing, hit tests, drag, bounds and the editor viewport see
   the placed result; the Inspector shows the offset and a viewport drag edits it. A scene saved before has the placement baked
   into those positions: the engine warns once per widget and the new command `ui.reset_layout_positions` sets them to 0 (no
-  example scene needed it). 6e's turned-parent drawing now applies only under a turned or scaled widget, so a plain scaled
+  example scene needed it). A widget moved into a laid-out Panel or ScrollList with `scene.set_parent` (keepWorld) goes to its
+  slot, position 0, as before; reordering under the same parent changes only the order. 6e's turned-parent drawing now applies only under a turned or scaled widget, so a plain scaled
   group of HUD visuals keeps its old placement (docs/menus/MENUS_RECIPES.md, "Where a laid-out child is").
 - **Several entities selected (M98.7b):** in the editor, Ctrl/Cmd+click toggles and Shift+click selects a range in the
   Hierarchy, and Ctrl/Cmd+click, Shift+click and a marquee on empty space select in the Viewport. Every selected entity is

@@ -136,7 +136,11 @@ TEST_CASE("widgets: backgrounds, labels, state tints, focus ring and ScrollList 
         item.text = "Item " + std::to_string(i);
         item.color = Color{0.8f, 0.2f, 0.2f, 1};
         label(item);
-        w.set_parent(w.find(("item" + std::to_string(i)).c_str()), listE, true);
+        // No layout runs in this test: the items sit at their own positions relative to the list (a keepWorld move into a
+        // ScrollList would put them in its slot, position 0).
+        const Entity itemE = w.find(("item" + std::to_string(i)).c_str());
+        w.get<Transform>(itemE)->position = {0, 24.0f * float(i), 0};
+        w.set_parent(itemE, listE);
     }
     Entity stripe =
         make(w, "stripe", {10, 160, 0});  // anything screen-space under a ScrollList is clipped, not just widgets
@@ -148,7 +152,8 @@ TEST_CASE("widgets: backgrounds, labels, state tints, focus ring and ScrollList 
         s.color = Color::hex(0x40e040);
         s.layer = 300;
     }
-    w.set_parent(stripe, listE, true);
+    w.get<Transform>(stripe)->position = {0, 32, 0};  // relative to the list at (10, 128)
+    w.set_parent(stripe, listE);
     TextField& hint = widget<TextField>(w, "hint", 170, 128, 140, 30);
     hint.placeholder = "Name";
     label(hint);

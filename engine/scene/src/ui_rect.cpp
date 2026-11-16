@@ -63,6 +63,19 @@ const UiBox* ui_box(const World& w, Entity e) {
     return nullptr;
 }
 
+bool ui_layout_places(const World& w, Entity parent, Entity child) {
+    if (!parent || !child) return false;
+    bool container = w.has<ScrollList>(parent);
+    if (const Panel* p = w.get<Panel>(parent))
+        container = container || p->layout != UiLayout::None || p->fallbackLayout != UiLayout::None;
+    if (!container) return false;
+    if (ui_box(w, child)) return true;
+    if (const Text* t = w.get<Text>(child)) return t->space == RenderSpace::Screen;
+    if (const Sprite* s = w.get<Sprite>(child)) return s->space == RenderSpace::Screen;
+    if (const Shape2D* s = w.get<Shape2D>(child)) return s->space == RenderSpace::Screen;
+    return false;
+}
+
 const UiControl* ui_control(const World& w, Entity e) {
     return ui_is_control(ui_kind(w, e)) ? static_cast<const UiControl*>(ui_box(w, e)) : nullptr;
 }
@@ -135,7 +148,8 @@ bool chain_transforms(const World& w, Entity e) {
     return false;
 }
 
-// Transform.position plus the layout's placement (World::ui_layout_offset): what an entity adds to the layout-space sum.
+// Transform.position plus the layout's placement (World::ui_layout_offset): what an entity adds to the layout-space
+// sum.
 Vec3 layout_position(const World& w, Entity e) {
     Vec3 p{0, 0, 0};
     if (const Transform* tr = w.get<Transform>(e)) p = tr->position;
@@ -145,8 +159,8 @@ Vec3 layout_position(const World& w, Entity e) {
 
 }  // namespace
 
-// The translation in layout space: the sum of the local positions (and layout offsets) up the parents. Without rotation or
-// scale in the chain it is the world translation, bit for bit.
+// The translation in layout space: the sum of the local positions (and layout offsets) up the parents. Without rotation
+// or scale in the chain it is the world translation, bit for bit.
 Vec3 ui_layout_translation(const World& w, Entity e) {
     if (!chain_transforms(w, e)) return w.world_matrix(e).translation();
     Vec3 t{0, 0, 0};
