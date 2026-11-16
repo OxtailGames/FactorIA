@@ -34,6 +34,33 @@ std::string kind_label(std::string_view kind) {
     if (kind == kDeprecatedScript) return "script API";
     return "component";  // "component 'Sprite'" or "component field 'Sprite.oldField'", see deprecation_message
 }
+
+// The row of the Bloom filters of a kind.
+int bloom_slot(std::string_view kind) {
+    if (kind == kDeprecatedCommands) return 0;
+    if (kind == kDeprecatedComponents) return 1;
+    if (kind == kDeprecatedScript) return 2;
+    return 3;
+}
+
+// A component is filtered by its name alone, so "Sprite" and "Sprite.oldField" both set the bits of "Sprite".
+std::string_view bloom_key(std::string_view kind, std::string_view key) {
+    if (kind == kDeprecatedComponents) key = key.substr(0, key.find('.'));
+    return key;
+}
+
+std::uint64_t fnv1a(std::string_view s) {
+    std::uint64_t h = 1469598103934665603ull;
+    for (char c : s) h = (h ^ static_cast<unsigned char>(c)) * 1099511628211ull;
+    return h;
+}
+
+constexpr unsigned kBloomBits = 512;  // 8 words of 64 bits
+// The two bit positions of a key.
+void bloom_bits(std::uint64_t h, unsigned& a, unsigned& b) {
+    a = static_cast<unsigned>(h % kBloomBits);
+    b = static_cast<unsigned>((h >> 24) % kBloomBits);
+}
 }  // namespace
 
 std::string deprecation_removal_version(std::string_view since) {
@@ -46,7 +73,8 @@ std::string deprecation_summary(const Deprecation& d) {
     std::string out = d.since == "unreleased" ? "Deprecated before its first release" : "Deprecated since " + d.since;
     out += d.use.empty() ? " - no replacement" : " - use `" + d.use + "`";
     const std::string removal = deprecation_removal_version(d.since);
-    out += removal.empty() ? ". Removed two minor versions after the release that ships it." : ". Removed in " + removal + ".";
+    out += removal.empty() ? ". Removed two minor versions after the release that ships it."
+                           : ". Removed in " + removal + ".";
     return out;
 }
 
@@ -71,6 +99,7 @@ Deprecations& Deprecations::global() {
 void Deprecations::set(const Json& section) {
     std::map<std::string, std::map<std::string, Deprecation, std::less<>>, std::less<>> table;
     bool any = false;
+    std::uint64_t bloom[4][kBloomWords] = {};
     if (section.is_object()) {
         for (auto kind = section.begin(); kind != section.end(); ++kind) {
             if (!kind.value().is_object()) continue;
@@ -80,6 +109,11 @@ void Deprecations::set(const Json& section) {
                 d.since = it.value().value("since", "");
                 d.use = it.value().value("use", "");
                 d.note = it.value().value("note", "");
+                unsigned a = 0, b = 0;
+                bloom_bits(fnv1a(bloom_key(kind.key(), it.key())), a, b);
+                std::uint64_t* row = bloom[bloom_slot(kind.key())];
+                row[a / 64] |= std::uint64_t{1} << (a % 64);
+                row[b / 64] |= std::uint64_t{1} << (b % 64);
                 table[kind.key()][it.key()] = std::move(d);
                 any = true;
             }
@@ -88,10 +122,25 @@ void Deprecations::set(const Json& section) {
     std::lock_guard<std::mutex> lock(mutex_);
     table_ = std::move(table);
     warned_.clear();
+    for (int k = 0; k < 4; ++k)
+        for (int w = 0; w < kBloomWords; ++w) bloom_[k][w].store(bloom[k][w], std::memory_order_relaxed);
     empty_.store(!any, std::memory_order_relaxed);
 }
 
 void Deprecations::clear() { set(Json::object()); }
+
+bool Deprecations::may_contain(std::string_view kind, std::string_view key) const noexcept {
+    if (empty()) return false;
+    unsigned a = 0, b = 0;
+    bloom_bits(fnv1a(bloom_key(kind, key)), a, b);
+    const auto* row = bloom_[bloom_slot(kind)];
+    return (row[a / 64].load(std::memory_order_relaxed) >> (a % 64) & 1) &&
+           (row[b / 64].load(std::memory_order_relaxed) >> (b % 64) & 1);
+}
+
+bool Deprecations::may_contain_component(std::string_view component) const noexcept {
+    return may_contain(kDeprecatedComponents, component);
+}
 
 std::optional<Deprecation> Deprecations::find(std::string_view kind, std::string_view key) const {
     std::lock_guard<std::mutex> lock(mutex_);
@@ -112,7 +161,7 @@ std::vector<std::string> Deprecations::keys(std::string_view kind) const {
 }
 
 std::string Deprecations::take_warning(std::string_view kind, std::string_view key) {
-    if (empty()) return {};
+    if (!may_contain(kind, key)) return {};  // the common call: not deprecated, no lock
     std::lock_guard<std::mutex> lock(mutex_);
     auto k = table_.find(kind);
     if (k == table_.end()) return {};
