@@ -7,8 +7,9 @@
 // shared_ptr: the event queue, the state, the flags) through the delegate of one ephemeral session and the completion blocks
 // of the task; none of them touches the AppleWebSocket that the game holds. Destroying that handle abandons the queue and
 // returns; the session lets go of everything by itself. An Open connection first asks the task to close (1001, which takes
-// no waiting); a Closing one has sent its own close frame already, so the session only finishes; a Connecting or Closed one
-// is cancelled at once (invalidateAndCancel).
+// no waiting; like every close frame, asked from the session's queue: AppleWebSocket::send_close); a Closing one has sent
+// its own close frame already, so the session only finishes; a Connecting or Closed one is cancelled at once
+// (invalidateAndCancel).
 //
 // What NSURLSession does differently from the tcp client (docs/NETWORKING.md):
 //   - a message is held whole before it is handed over: maximumMessageSize is set to maxMessageBytes (the system then fails
@@ -404,10 +405,13 @@ public:
             if (s == WebSocketState::Open || s == WebSocketState::Closing) {
                 // A close frame (1001) that takes no waiting; the session ends when the task does, and in any case after
                 // the close wait. A connection that is Closing has sent its own close frame already: invalidateAndCancel would
-                // drop it, so it only lets the session finish (no second close).
-                if (s == WebSocketState::Open)
-                    [task_ cancelWithCloseCode:NSURLSessionWebSocketCloseCodeGoingAway reason:nil];
-                [session finishTasksAndInvalidate];
+                // drop it, so it only lets the session finish (no second close). Both on the session's queue (send_close).
+                NSURLSessionWebSocketTask* task = task_;
+                const bool open = s == WebSocketState::Open;
+                [session.delegateQueue addOperationWithBlock:^{
+                    if (open) [task cancelWithCloseCode:NSURLSessionWebSocketCloseCodeGoingAway reason:nil];
+                    [session finishTasksAndInvalidate];
+                }];
                 const int64_t waitNs = static_cast<int64_t>(kWebSocketCloseWaitSec * NSEC_PER_SEC);
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, waitNs),
                                dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
@@ -456,7 +460,7 @@ public:
             // NSURLSession cannot send a close frame without a code (code 0 is a plain cancel that drops the connection
             // with no frame at all): "no code" is sent as 1000.
             const int sent = code == 0 ? ws::close_code::kNormal : code;
-            [task_ cancelWithCloseCode:static_cast<NSURLSessionWebSocketCloseCode>(sent) reason:why];
+            send_close(static_cast<NSURLSessionWebSocketCloseCode>(sent), why);
             // Safety net: the system reports the close by itself; if it ever does not, the wait of the contract ends it.
             std::shared_ptr<Core> core = core_;
             NSURLSessionWebSocketTask* task = task_;
@@ -473,6 +477,18 @@ public:
     std::size_t poll(std::vector<WebSocketEvent>& out) override { return core_->queue()->drain(out); }
 
 private:
+    // cancelWithCloseCode from the session's own (serial, background) queue, never from the caller's thread, which for a
+    // game is the main thread. Made on the main thread, the call ended the TCP connection with no close frame on the macOS
+    // 26.7 CI runners (the server never got the code), while the close frames the system sends from its own queue arrived;
+    // https://github.com/dart-lang/http/issues/1814 saw the same call send only a FIN when it moved to the main thread.
+    // The messages sent before were handed to the task already, so they still go first.
+    void send_close(NSURLSessionWebSocketCloseCode code, NSData* reason) {
+        NSURLSessionWebSocketTask* task = task_;
+        [session_.delegateQueue addOperationWithBlock:^{
+            [task cancelWithCloseCode:code reason:reason];
+        }];
+    }
+
     void send(std::size_t n, NSURLSessionWebSocketMessage* message) {
         std::shared_ptr<Core> core = core_;
         core->add_buffered(n);
