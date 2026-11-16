@@ -216,6 +216,11 @@ TEST_CASE("listener zoom: a zoom of 2 doubles the distance a positional sound is
     src.range = 800.0f;
     const auto measure = [&](float x) {
         world.get<Transform>(s)->position = {x, 0, 0};
+        // A move changes the volume over about 20 ms (no click): let it settle before the recording starts.
+        for (int i = 0; i < 4; ++i) {
+            fx.audio.update(world, 1.0f / 60.0f);
+            fx.audio.advance_null_device(1.0 / 60.0);
+        }
         fx.audio.start_recording();
         for (int i = 0; i < 12; ++i) {
             fx.audio.update(world, 1.0f / 60.0f);

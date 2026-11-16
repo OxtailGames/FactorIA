@@ -116,3 +116,28 @@ TEST_CASE(
     s.wall3("room", {10, 0, 0}, {6, 6, 6});  // the source stands inside it, and it is not the source's entity
     CHECK(s.blocked({0, 0, 0}, {10, 0, 0}));
 }
+
+TEST_CASE("audio occlusion probe: a listener with many colliders in its hierarchy does not hide a wall behind them") {
+    for (const bool is2d : {false, true}) {
+        CAPTURE(is2d);
+        Rig r;
+        Entity listener = is2d ? r.wall2("listener", {0, 0}, {2, 2}) : r.wall3("listener", {0, 0, 0}, {2, 2, 2});
+        // 40 children on the way out, more than a single query returns: the wall is behind all of them.
+        for (int i = 0; i < 40; ++i) {
+            Entity child = r.world.create("part", "part");
+            r.world.set_parent(child, listener);
+            r.world.get<Transform>(child)->position = {0.1f * float(i), 0, 0};
+            if (is2d)
+                r.world.add<Collider2D>(child).size = {0.5f, 0.5f};
+            else
+                r.world.add<Collider3D>(child).size = {0.5f, 0.5f, 0.5f};
+        }
+        CHECK_FALSE(r.blocked({0, 0, 0}, {40, 0, 0}, kNullEntity, listener));
+        if (is2d)
+            r.wall2("wall", {20, 0});
+        else
+            r.wall3("wall", {20, 0, 0});
+        CHECK(r.blocked({0, 0, 0}, {40, 0, 0}, kNullEntity, listener));
+        CHECK_FALSE(r.blocked({0, 0, 0}, {15, 0, 0}, kNullEntity, listener));  // stops short of the wall
+    }
+}
