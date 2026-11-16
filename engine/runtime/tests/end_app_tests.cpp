@@ -17,7 +17,8 @@ struct EndProject {
     EndProject() {
         write("factoria.json", R"({"format":"factoria.project/1","name":"End","id":"com.example.end",
                                    "mainScene":"main.scene.json","display":{"width":64,"height":64},"physics":{"fixedHz":60}})");
-        write("main.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})");
+        write("main.scene.json",
+              R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})");
     }
     ~EndProject() {
         std::error_code ec;
@@ -65,6 +66,6 @@ game.on("quit", (e) => { quits++; e.cancel(); storage.setAsync("last", { quits }
     e.end_app();  // a second destroy, or a Back during the end
     CHECK(e.scripts().eval("quits").value() == 1);
     CHECK_FALSE(e.quit_requested());  // the handler's cancel() changes nothing: the end asks the host for nothing
-    e.shutdown();  // the process normally ends instead; running it after the end must be safe
+    e.shutdown();                     // the process normally ends instead; running it after the end must be safe
     e.shutdown();
 }

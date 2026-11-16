@@ -74,7 +74,8 @@ struct Release {
             std::error_code ec;
             if (file.empty() || !stdfs::exists(assets.path / file, ec)) return fail(false, "HTTP 404 for " + rq.url);
             stdfs::create_directories(fs::path_from_utf8(rq.destination).parent_path(), ec);
-            stdfs::copy_file(assets.path / file, fs::path_from_utf8(rq.destination), stdfs::copy_options::overwrite_existing, ec);
+            stdfs::copy_file(assets.path / file, fs::path_from_utf8(rq.destination),
+                             stdfs::copy_options::overwrite_existing, ec);
             return r;
         };
         return c;
