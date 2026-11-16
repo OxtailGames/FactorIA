@@ -61,7 +61,7 @@ and an **Install** button each, with a progress bar, **Cancel** and a log while 
 steps) when it finishes. The Export window and the Platform settings tabs show the button that fixes what their row
 lacks, in plain words (**Install Android build tools**, **Download Windows player**, **Download mobile libraries**, **Install CMake**,
 **Open App Store (Xcode)**). A button calls `fa::setup_install`, the function behind `factoria setup` and `setup.install`, on a
-worker thread: nothing is installed any other way. See [the editor](../EDITOR.md#setting-up-this-computer).
+worker thread: nothing is installed any other way. See [the editor](../editor/EDITOR_SETUP.md#setting-up-this-computer).
 
 **The Android SDK license** is a legal agreement between you and Google. In a terminal `factoria setup android` prints the
 text and asks `[y/N]`; without a terminal it refuses (code `license_required`) until `--accept-licenses` says you have read
@@ -148,7 +148,7 @@ is set in two places:
 - **`factoria.json`** (committed with the game): a top-level `icon` and an `export` object with one object per
   platform. Everything is optional and every field has a default; the file is documented field by field in
   `schemas/project.schema.json` (`factoria api --schema project` prints it; its descriptions are the reference for AIs).
-  The editor's [Platform settings window](../EDITOR.md#platform-settings) edits exactly these keys.
+  The editor's [Platform settings window](../editor/EDITOR_SETUP.md#platform-settings) edits exactly these keys.
 - **`~/.factoria/export.json`** (this computer only, never in a project): where the Android SDK and JDK are, and the
   keystore passwords.
 
@@ -166,7 +166,7 @@ no transparency) and the PNG of a Linux build. `export.<platform>.icon` replaces
 means the platform's default icon (and a warning from the export).
 
 No image tool or provider? `assets.draw_icon` draws the icon and the Android foreground from shapes and text
-([ASSETS.md](../ASSETS.md#the-game-icon-without-a-provider-assetsdraw_icon)).
+([ASSETS.md](../assets/ASSETS_REVIEW.md#the-game-icon-without-a-provider-assetsdraw_icon)).
 
 The same image is the window icon of the running game on Windows and Linux (title bar and taskbar, also when the game
 is started from `factoria run`): the player reads `icon`, or `export.<this platform>.icon`, from `factoria.json` and hands

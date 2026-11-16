@@ -389,7 +389,7 @@ includeText?}`. `ai.review` is not read-only: it spends tokens and writes the re
   `Write`, `NotebookEdit` and `Bash`, plus every FactorIA MCP tool that changes something, and Codex with `--sandbox read-only` and a
   `factoria mcp --read-only` server (Codex is the least tested of the three). Loading a scene to look at it does not
   change the project on disk.
-* **Every role has a capability set** (docs/design/ARCHITECTURE.md, "Capabilities"; repository only, not in the binary). Builders (orchestrator, worker, fast, artist,
+* **Every role has a capability set** (docs/design/ARCHITECTURE_COMMANDS.md, "Capabilities"; repository only, not in the binary). Builders (orchestrator, worker, fast, artist,
   audio) may do everything except write outside the project (`writeAnywhere`) and publish; the critics and reviewers have
   `{read, state}`, and their tool list adds `anim.filmstrip` and `vfx.filmstrip` next to `game.screenshot` and `play.auto`.
   Those pictures are returned to the model; a `path` argument (a copy written to the project) needs `writeProject` and is refused

@@ -194,8 +194,8 @@ Temas, una página cada uno (en inglés):
 
 Lee primero [CLAUDE.md](CLAUDE.md) y [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md). Estas páginas no van en el binario.
 
-- [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md): diseño, módulos, convenciones, comandos y reflexión.
-- [docs/design/BUILDING.md](docs/design/BUILDING.md): requisitos por plataforma, presets, CI, tests y solución de problemas.
+- [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md): diseño, módulos, convenciones, comandos y reflexión (dividido en páginas: el archivo las enumera).
+- [docs/design/BUILDING.md](docs/design/BUILDING.md): requisitos por plataforma, presets, CI, tests y solución de problemas (dividido en páginas: el archivo las enumera).
 - [docs/design/CUSTOM_SHADERS.md](docs/design/CUSTOM_SHADERS.md), [docs/design/FEEDBACK_SHARING.md](docs/design/FEEDBACK_SHARING.md) y [docs/design/SCRIPT_DEBUGGER.md](docs/design/SCRIPT_DEBUGGER.md): documentos de diseño (en inglés).
 - [feedback/ROADMAP.md](feedback/ROADMAP.md) y [CHANGELOG.md](CHANGELOG.md).
 

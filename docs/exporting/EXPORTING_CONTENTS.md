@@ -7,7 +7,7 @@ Part of [Exporting a game](../EXPORTING.md) (the entry page lists every page).
 Everything in the project except: `.factoria/`, every dot-file or dot-folder
 (`.git`, `.mcp.json`, `.gitignore`), `build/` (earlier exports), `tests/`, `tools/`, `types/`,
 `node_modules/`, `ENGINE_FEEDBACK.json` (the file named by `feedbackFile`) and its `.archive.json` next to it,
-`scripts/autoplay.js` (the bot `play.auto` runs, [SCRIPTING](../SCRIPTING.md#the-bot-gameautoplay); `tools/`, `tests/` and `scripts/autoplay.js` are matched in any capitalization), `AGENTS.md`, `CLAUDE.md`, `REVIEW.md` (the note the AI reviewers read first), `jsconfig.json`, the project's own top-level `README.md` (documentation for whoever works on the
+`scripts/autoplay.js` (the bot `play.auto` runs, [SCRIPTING](../scripting/SCRIPTING_UI_SCENES.md#the-bot-gameautoplay); `tools/`, `tests/` and `scripts/autoplay.js` are matched in any capitalization), `AGENTS.md`, `CLAUDE.md`, `REVIEW.md` (the note the AI reviewers read first), `jsconfig.json`, the project's own top-level `README.md` (documentation for whoever works on the
 game; any capitalization), a top-level `steam_appid.txt` (the development app id of the
 [Steam backend](../platform/PLATFORM_BACKENDS.md#steam-steamworks): a game started by Steam gets its app id from Steam), the folder of a native
 plugin that lives inside the project (its build is shipped instead, below), and the output folder itself. Your project is never modified; the feedback file stays in the
@@ -79,7 +79,7 @@ key must never end up in the assets of an APK.
 ### Textures
 
 Textures are the one thing an export changes instead of copying (import settings `compression` and `atlas` in
-`assets.json`; [ASSETS.md](../ASSETS.md#textures) has the details):
+`assets.json`; [ASSETS.md](../assets/ASSETS_IMPORT.md#textures) has the details):
 
 - **Android and iOS exports** compress every PNG to a GPU-ready KTX2 file (UASTC, Basis Universal): the export ships
   `assets/hero.png.ktx2` in place of `assets/hero.png`, and the game, which keeps asking for `assets/hero.png`, loads the

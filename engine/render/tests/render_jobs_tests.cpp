@@ -1,4 +1,4 @@
-// M70.2a: the render work of a frame runs as jobs (render_jobs.h; docs/design/ARCHITECTURE.md, "Systems that run as jobs").
+// M70.2a: the render work of a frame runs as jobs (render_jobs.h; docs/design/ARCHITECTURE_THREADS.md, "Systems that run as jobs").
 // Every pass must give the same frame whatever the thread count: these tests draw scenes far above each pass's
 // threshold with the pool stopped and in inline mode (each pass one chunk on the calling thread, the reference) and
 // with 1, 2 and 8 workers (many chunks, joined in order), and compare the pictures byte for byte, the frame

@@ -212,4 +212,4 @@ It returns `{running, state, url, lanUrl, urls, port, version, warnings}`.
   `AudioWorklet` is missing). Whether a feature works on the phone is for the phone's browser to say; the log line in the
   Console tells.
 
-The editor's File > Play on Phone... window is the front for this command ([EDITOR.md](../EDITOR.md#play-on-phone)).
+The editor's File > Play on Phone... window is the front for this command ([EDITOR.md](../editor/EDITOR_SETUP.md#play-on-phone)).

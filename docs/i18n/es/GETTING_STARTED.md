@@ -87,7 +87,7 @@ necesita nada más.
 5. La exportación (`factoria export`) funciona desde la descarga para escritorio y móvil. Android necesita el JDK 17 y el
    SDK de Android (sin NDK ni CMake): la carpeta `mobile/` junto a `factoria` trae el runtime de Android del motor, y el
    proyecto Gradle exportado solo lo empaqueta. iOS (en un Mac, con Xcode y CMake) usa igual las librerías de iOS del
-   paquete de macOS. No hace falta el código fuente del motor ([EXPORTING.md](../../EXPORTING.md#mobile-exports-prebuilt-or-source)
+   paquete de macOS. No hace falta el código fuente del motor ([EXPORTING.md](../../exporting/EXPORTING_MOBILE.md#mobile-exports-prebuilt-or-source)
    y [MOBILE.md](../../MOBILE.md), en inglés). Compila desde el código fuente si quieres cambiar el motor.
 
 #### Actualizaciones

@@ -1,4 +1,4 @@
-# Fuzzing (tools/fuzz, docs/design/BUILDING.md "Fuzzing").
+# Fuzzing (tools/fuzz, docs/design/BUILDING_TESTS.md "Fuzzing").
 #
 #   FA_FUZZ=ON   Clang only: every target of tools/fuzz links libFuzzer, and the whole tree is built with AddressSanitizer
 #                and UndefinedBehaviorSanitizer (a UBSan finding stops the run like a crash, except inside external/: tools/fuzz/ubsan_ignorelist.txt), so the fuzzer sees the coverage

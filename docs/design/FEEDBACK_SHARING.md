@@ -329,4 +329,4 @@ Reads `feedback-admin.json` (`{endpoint, adminToken}`).
   `ai.review_feedback`; AI_GUIDE.md section 3, templates/common/AGENTS.md (write `share` in engine terms, check the docs
   first, a good and a bad example).
 - M46.4 (L) Developer side: `feedback pull` with classification and quarantine, ban/unban/delete/stats, the new
-  ranking in `collect`, `feedback fixed`, docs/EXTENDING.md section F.
+  ranking in `collect`, `feedback fixed`, docs/design/EXTENDING_FEEDBACK.md section F.

@@ -1,5 +1,5 @@
 // Scene2D: the camera-independent part of the 2D gather, done once per rendered frame and shared by every camera, render target
-// and CameraView of that frame (docs/design/ARCHITECTURE.md, the render core; M95.2).
+// and CameraView of that frame (docs/design/ARCHITECTURE_RENDERING.md, the render core; M95.2).
 #pragma once
 
 #include <cstdint>

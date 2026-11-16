@@ -79,7 +79,7 @@ Reading it:
 
 ## Job threads
 
-The engine hands pieces of its work to a pool of worker threads (docs/design/ARCHITECTURE.md, "Jobs and threads"; repository only, not in the binary). How many is
+The engine hands pieces of its work to a pool of worker threads (docs/design/ARCHITECTURE_THREADS.md, "Jobs and threads"; repository only, not in the binary). How many is
 the `runtime` setting of factoria.json:
 
 ```json
@@ -118,7 +118,7 @@ of two or more, so read the ratios as an order of magnitude, and measure your ow
 chunks and the main-thread queue did not change (11.9 ms and 8.7 ms before, 11.9 ms and 8.2 ms after).
 
 What runs on the workers: the drawing work of a frame once it is big (the sprites, tilemaps, the quads of the particles, the 3D meshes'
-matrices, culling and shadows, the sorts and the vertex stream; docs/design/ARCHITECTURE.md, "Systems that run as jobs"
+matrices, culling and shadows, the sorts and the vertex stream; docs/design/ARCHITECTURE_THREADS.md, "Systems that run as jobs"
 (repository only, not in the binary) lists each job with its threshold), the simulation of the particles and the poses of many animators. A game under every threshold (a few hundred
 sprites, under 2048 particles, under 256 meshes: most games) runs exactly as with 0 workers. In `perf.profile`'s
 `threads` these show as `render.gather_sprites`, `scene.particles`, `render.mesh_cull`, `scene.animation_poses` and
@@ -139,7 +139,7 @@ Choosing `jobThreads`:
 ### Physics on jobs
 
 Physics, path searches and sound rendering use the job threads when the work is big enough, and always give the same
-result as without them (docs/design/ARCHITECTURE.md, "Physics, navigation and audio on jobs"; repository only, not in the binary). Nothing to switch on: a small
+result as without them (docs/design/ARCHITECTURE_THREADS.md, "Physics, navigation and audio on jobs"; repository only, not in the binary). Nothing to switch on: a small
 game never queues a job. The sizes below are counts of items, the same on every machine (never a measured time):
 
 | Work | Runs on the job threads when | Not split further than |

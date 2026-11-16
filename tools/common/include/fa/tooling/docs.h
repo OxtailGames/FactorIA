@@ -2,7 +2,7 @@
 //   docs.list / docs.read / docs.search commands, plus the same as functions.
 // Doc names: file stem lowercased with '_' -> '-' ("AI_GUIDE.md" -> "ai-guide",
 // "SCRIPTING.md" -> "scripting"). A big doc is an entry page `docs/<NAME>.md` plus pages
-// `docs/<name>/<NAME>_<PART>.md` (its family; docs/ARCHITECTURE.md, "Docs"). "components" and "commands" fall back to
+// `docs/<name>/<NAME>_<PART>.md` (its family; docs/ARCHITECTURE_RUNTIME.md, "Docs"). "components" and "commands" fall back to
 // generated reference when no such file exists.
 #pragma once
 

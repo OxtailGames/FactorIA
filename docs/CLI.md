@@ -294,7 +294,7 @@ Lists commands by category (`*` = modifies state). With an exact name it prints 
 With an exact name the text also has a `Capabilities:` line (for example `Capabilities: read, state`): the capabilities the
 command needs, in camelCase, `none` for a command that needs nothing, or `not declared yet` when the command has not declared
 them (its set is then derived from `readOnly`). The generated reference prints the same line on every command page, and
-`--json` has `capabilities` and `capabilitiesDeclared` on every command (docs/design/ARCHITECTURE.md, "Capabilities").
+`--json` has `capabilities` and `capabilitiesDeclared` on every command (docs/design/ARCHITECTURE_COMMANDS.md, "Capabilities").
 
 ### `factoria api [--md|--json|--dts|--schema scene|prefab|project] [--out FILE] [--project DIR]`
 Prints the API reference: components, commands, scripting. `--dts` writes the TypeScript declarations; with
@@ -309,7 +309,7 @@ your `factoria --version` is older than a mark, that item is missing in your ins
 A deprecated component, field, command or script export (it still works and has a replacement, or a reason for none) is
 marked the same way: a `Deprecated since 0.30.0 - use `x`. Removed in 0.32.0.` line, `@deprecated` in the typings and a
 `deprecated` object in `--json`; using it logs one warning that names the replacement. It is removed two minor versions
-after the one that deprecated it (docs/design/ARCHITECTURE.md, "Versions").
+after the one that deprecated it (docs/design/ARCHITECTURE_CORE.md, "Versions").
 
 The repository keeps the same reference as browsable Markdown: `docs/reference/` (an index plus one page per component
 and per command category) and `docs/COMPONENTS.md` (the whole `factoria api --md` text, 1.8 MB; for GitHub readers). The command
@@ -393,7 +393,7 @@ cluster may span categories). The score of a group is `sum over projects of seve
 installations and occurrences. See [ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md).
 
 The engine developer's side of feedback sharing (needs `feedback-admin.json` next to `ai.json`, written by
-`tools/feedback-server/deploy.sh`; routine in [EXTENDING.md](EXTENDING.md), section F.1):
+`tools/feedback-server/deploy.sh`; routine in [EXTENDING_FEEDBACK.md](design/EXTENDING_FEEDBACK.md), section F.1; repository only, not in the binary):
 ```
 factoria feedback pull [--out DIR] [--full] [--classify | --no-classify] [--json]
 factoria feedback reject <shareId>... --reason TEXT | --file batch.json | --suggested [shareId...] | --quarantined --reason TEXT [--json]

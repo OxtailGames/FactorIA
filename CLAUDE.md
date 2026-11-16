@@ -4,9 +4,12 @@
 game project instead, or `factoria docs ai-guide`.)
 
 `docs/design/ARCHITECTURE.md` explains the modules, conventions and the command/reflection systems everything is built on.
-It is long: list its headings (`grep -n '^#' docs/design/ARCHITECTURE.md`), always read "Design principles", "Repository
-layout", "Reflection", "Commands" and "Testing", and then the sections your task touches (threads, loading, files,
-rendering...).
+It is split into pages (`docs/design/ARCHITECTURE_*.md`, each under 60 KB; the entry page lists them): list the headings
+(`grep -n '^#' docs/design/ARCHITECTURE*.md`), always read "Design principles", "Repository layout" and "Testing" (entry
+page), "Reflection" (ARCHITECTURE_CORE.md) and "Commands" (ARCHITECTURE_COMMANDS.md), and then the sections your task
+touches (threads and loading: ARCHITECTURE_THREADS.md; files: ARCHITECTURE_FILES.md; rendering: ARCHITECTURE_RENDERING.md;
+animation, UI, platform services, docs: ARCHITECTURE_RUNTIME.md). Every doc over about 60 KB is split into pages the same
+way (docs/design/BUILDING.md, EXTENDING.md and the rest; a test enforces it).
 
 ## Build & test (Linux; same commands on macOS/Windows with their presets)
 
@@ -25,7 +28,7 @@ ctest --test-dir build/dev --output-on-failure
 - Agents (Linux, macOS): `scripts/agent-build.sh build/agent-<name> [--target fa_test_core] [--tests core | --test]
   [--examples]` configures the first time, builds and tests, and prints only errors, distinct warnings, failing tests
   and ctest's summary (full logs in the build dir). It returns within 100 s: when its last line says `RUNNING`, call it
-  again with `--wait` until it says `DONE` (docs/design/BUILDING.md, "Linux and macOS, short output"). `DONE INCOMPLETE`
+  again with `--wait` until it says `DONE` (docs/design/BUILDING_SCRIPTS.md, "Linux and macOS, short output"). `DONE INCOMPLETE`
   (a Mac whose displays are asleep) is not a pass: nothing failed, but the tests that open a window did not run, so
   they need the display awake or CI. Its Debug tree is built with `-O1 -g1` (assertions on, the suite in less than
   half the time); a debugger session needs a plain Debug tree.
@@ -145,7 +148,7 @@ progress.
   the older minor versions live in `changelog/0.<n>.md`, so move the previous minor's sections there and link it; a test
   fails otherwise), set README.md's "Version x.y" line to the new minor and README.es.md's "al día en la versión x.y"
   note with it (a test compares both with CMakeLists.txt), replace every
-  `"unreleased"` in tools/common/api_since.json with it and regenerate the docs and typings (docs/design/ARCHITECTURE.md,
+  `"unreleased"` in tools/common/api_since.json with it and regenerate the docs and typings (docs/design/ARCHITECTURE_CORE.md,
   "Versions"). The user sees it in the window title and at the right end of the editor's menu bar.
 - Before the push: `scripts/ci-preflight.sh --lint-only` (the risk scan and what CI's `lint` job runs: format,
   clang-tidy on the changed sources, the CI cache keys and test split; minutes, no build), the Debug build of every

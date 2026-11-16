@@ -1,5 +1,5 @@
 // Background loading of an Engine: scene.preload, assets.preload and scene.load {async: true} (docs/PERFORMANCE.md,
-// "Background loading"; docs/design/ARCHITECTURE.md, "Background loading").
+// "Background loading"; docs/design/ARCHITECTURE_THREADS.md, "Background loading").
 //
 // A JOB reads what a scene or a list of files needs, off the main thread, and puts it where the first use finds it:
 //   - the SCAN (one unit) reads the scene (or the listed JSON files and scripts) and everything they point at that is

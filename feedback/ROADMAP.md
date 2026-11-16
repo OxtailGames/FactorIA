@@ -1234,7 +1234,7 @@ entry of `examples/*` opens each milestone.
   its audience (the game's AI, the user, the engine developer).
 - M97.2 (M) — DONE in 0.24.0 Paging: `docs.components` and `docs.commands {full:true}` page with a cursor; MCP `tools/list` offers
   profiles (core, a group, all) for clients without tool search, like M45's catalog does for the API providers.
-- M97.3 (M) Structure: a size budget per doc (about 60 KB, references aside) checked by a test; MENUS.md's copy of the
+- M97.3 (M) — DONE in M98 (97.3a-f) Structure: a size budget per doc (about 60 KB, references aside) checked by a test; MENUS.md's copy of the
   kit (82 % of it) served from the kit instead of embedded; COMPONENTS.md served per component instead of embedded
   whole; the docs for engine developers (releasing, extending, architecture) under `docs/design/`; the 15 docs the
   README does not link reached from its index; the README restructured (what it is, try it, docs by audience).
@@ -1250,6 +1250,13 @@ entry of `examples/*` opens each milestone.
     186034, EDITOR 152447, design/ARCHITECTURE 145870, AI_PROVIDERS 128804, ASSETS 127746, PLATFORM 120622,
     design/BUILDING 112341, MODELING 88078, MENUS 85377, IMAGES 84581, MOBILE 77524, ANIMATION 71991, PERFORMANCE
     70945, MUSIC 68372, EXTENDING 65008. M97.3d adds the budget test.
+  - M97.3f — DONE: the last three docs are split: docs/design/ARCHITECTURE.md (index + ARCHITECTURE_CORE, _COMMANDS,
+    _FILES, _THREADS, _RENDERING, _RUNTIME), docs/design/BUILDING.md (index + BUILDING_SCRIPTS, _TESTS, _RELEASE, _CI) and
+    EXTENDING.md (its sections B-F moved to docs/design/EXTENDING_COMMANDS, _COMPONENTS, _CHECKLISTS, _FEEDBACK; A, G and
+    "Where things go" stay embedded); every reference in code, docs, CLAUDE.md and `.claude/` follows its section. New
+    tests (tools/common/tests/docs_structure_test.cpp): no doc over 60 KB (generated references and translations aside)
+    and every relative Markdown link (docs, READMEs, CLAUDE.md) names an existing file and heading (it found and fixed 30
+    anchors that earlier splits had left broken); an embedded doc that links a doc outside the binary says so.
 - M97.4 (M) Doc tests: every JS block parses and uses only existing script API (checked against the typings); every
   command, component and field a doc names exists; counts and sizes come from their source; every doc is reachable
   from the README; a translation records the English commit it follows and is flagged when the original moves on.
