@@ -191,6 +191,20 @@ TEST_CASE("UndoStack: the entry cap drops the oldest entries (100 by default)") 
     CHECK(small[0].data["n"] == 2);
 }
 
+TEST_CASE("UndoStack: lost() counts what the caps and clear() remove, not what Undo pops") {
+    UndoStack st(3, UndoStack::kMaxBytes);
+    for (int i = 0; i < 3; ++i) st.push_back(snap(i));
+    CHECK(st.lost() == 0);
+    st.pop_back();  // an Undo
+    CHECK(st.lost() == 0);
+    for (int i = 0; i < 4; ++i) st.push_back(snap(i));  // two entries + four pushes: three stay
+    CHECK(st.lost() == 3);
+    st.erase_if([](const UndoEntry& e) { return e.data["n"] == 3; });
+    CHECK(st.lost() == 4);
+    st.clear();
+    CHECK(st.lost() == 6);
+}
+
 TEST_CASE("UndoStack: the byte cap drops the oldest entries but never the newest") {
     CHECK(UndoStack::kMaxBytes == size_t(256) << 20);
     const size_t one = snap(0).bytes;

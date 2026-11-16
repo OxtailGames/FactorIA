@@ -169,13 +169,21 @@ std::vector<std::string> Editor::marquee_hits(Vec2 a, Vec2 b) {
     if (!engine_ || !engine_->renderer()) return out;
     Renderer* r = engine_->renderer();
     World& w = world();
-    const CameraMask mask = CameraMask::of(w, r->camera_at(Vec2{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f}));
+    // With split-screen cameras the marquee belongs to the camera under its centre: it filters, projects and decides what
+    // is behind the camera, so the same entity goes to all three.
+    const Entity cam = r->camera_at(Vec2{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f});
+    const CameraMask mask = CameraMask::of(w, cam);
     const bool ortho = primary_is_ortho();
     const Vec2 designSize{float(r->target_width()), float(r->target_height())};
     const VisualMeasure measure = visual_measure();
-    Vec3 eye,
-        forward;  // the camera world_to_screen uses: its position and the way it looks (the ray through the centre)
-    r->screen_ray(Vec2{designSize.x * 0.5f, designSize.y * 0.5f}, eye, forward);
+    // The camera's position and the way it looks: the ray through the centre of its viewport (of the screen when it has
+    // no rectangle of its own).
+    Vec2 lookAt{designSize.x * 0.5f, designSize.y * 0.5f};
+    if (const Camera* c = cam.is_null() ? nullptr : w.get<Camera>(cam))
+        lookAt = Vec2{(c->viewport.x + c->viewport.w * 0.5f) * designSize.x,
+                      (c->viewport.y + c->viewport.h * 0.5f) * designSize.y};
+    Vec3 eye, forward;
+    r->screen_ray(lookAt, eye, forward, cam);
     for (Entity e : w.entities()) {
         if (!w.active_in_hierarchy(e)) continue;
         std::vector<Vec2> pts;
@@ -193,7 +201,7 @@ std::vector<std::string> Editor::marquee_hits(Vec2 a, Vec2 b) {
                 if (dot(corner - eye, forward) <= 1e-3f)
                     behind = true;
                 else
-                    pts.push_back(r->world_to_screen(corner));
+                    pts.push_back(r->world_to_screen(corner, cam));
             }
             if (behind) continue;
         } else {
@@ -201,7 +209,8 @@ std::vector<std::string> Editor::marquee_hits(Vec2 a, Vec2 b) {
             if (!pb.valid || (!pb.screenSpace && !mask.draws(w, e))) continue;
             const float z = w.world_position(e).z;
             for (const PickOutline& o : pick_outlines(w, e, pb, designSize))
-                for (const Vec2 p : o.box) pts.push_back(o.screenSpace ? p : r->world_to_screen(Vec3{p.x, p.y, z}));
+                for (const Vec2 p : o.box)
+                    pts.push_back(o.screenSpace ? p : r->world_to_screen(Vec3{p.x, p.y, z}, cam));
         }
         if (!pts.empty() && marquee_covers(a, b, pts)) out.push_back(w.id_of(e));
     }

@@ -427,6 +427,17 @@ TEST_CASE("scene.paste_entities: hostile or hand-edited texts are refused with a
     const CommandResult dots = s.paste(entry(R"({"id":"ok4","$prefab":"prefabs/a..b.prefab.json"})"));
     CHECK_MESSAGE(!contains(Session::error_text(dots), "is not a project-relative prefab path"),
                   Session::error_text(dots));
+    const CommandResult leading = s.paste(entry(R"({"id":"ok5","$prefab":"prefabs/..a.prefab.json"})"));
+    CHECK_MESSAGE(!contains(Session::error_text(leading), "is not a project-relative prefab path"),
+                  Session::error_text(leading));
+    // Win32 drops trailing dots and spaces from a segment: these climb a level there.
+    for (const char* hostile : {"prefabs/.. /x.prefab.json", "prefabs/.../x.prefab.json", "prefabs/. ./x.prefab.json",
+                                "prefabs\\\\.. \\\\x.prefab.json", "prefabs/.../"}) {
+        const CommandResult r = s.paste(entry(std::string(R"({"id":"bad","$prefab":")") + hostile + R"("})"));
+        INFO(hostile);
+        CHECK_FALSE(r.ok);
+        CHECK(contains(Session::error_text(r), "is not a project-relative prefab path"));
+    }
 }
 
 TEST_CASE("scene.paste_entities: a text with CRLF line ends (a Windows clipboard) pastes like the same text with LF") {
