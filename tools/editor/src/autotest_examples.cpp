@@ -67,7 +67,8 @@ void Editor::at_section_X2(AtScript& at) {
   {"name":"beta","title":"Beta Blocks","shows":"Blocks that push and fall.","readFirst":[]}]})");
         for (const char* n : {"alpha", "beta"}) {
             write_file(src + "/" + n + "/factoria.json",
-                       std::string(R"({"format":"factoria.project/1","id":"com.test.)") + n + R"(","name":")" + n + R"("})");
+                       std::string(R"({"format":"factoria.project/1","id":"com.test.)") + n + R"(","name":")" + n +
+                           R"("})");
             write_file(src + "/" + n + "/scripts/main.js", std::string("// ") + n + "\n");
         }
         auto m = package_examples(src, w->assets, FA_ENGINE_VERSION);
@@ -83,7 +84,8 @@ void Editor::at_section_X2(AtScript& at) {
             const std::string prefix = probe.substr(0, probe.size() - 5);
             const std::string file = rq.url.rfind(prefix, 0) == 0 ? rq.url.substr(prefix.size()) : std::string();
             const int bit = file == kExamplesManifestFile ? 1 : 2;
-            while ((w->hold.load() & bit) && !is_cancelled(rq.cancel)) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            while ((w->hold.load() & bit) && !is_cancelled(rq.cancel))
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
             if (is_cancelled(rq.cancel)) {
                 r.ok = false;
                 r.cancelled = true;
@@ -96,9 +98,11 @@ void Editor::at_section_X2(AtScript& at) {
                 r.error = make_error(message, "Check the connection.");
                 return r;
             };
-            if (w->offline.load()) return fail(0, "Cannot download " + rq.what + ": cannot resolve the address github.com.");
+            if (w->offline.load())
+                return fail(0, "Cannot download " + rq.what + ": cannot resolve the address github.com.");
             std::error_code ec2;
-            if (file.empty() || !stdfs::exists(stdfs::path(w->assets) / file, ec2)) return fail(404, "HTTP 404 for " + rq.url);
+            if (file.empty() || !stdfs::exists(stdfs::path(w->assets) / file, ec2))
+                return fail(404, "HTTP 404 for " + rq.url);
             if (bit == 2) ++w->zips;
             const stdfs::path dest = fs::path_from_utf8(rq.destination);
             stdfs::create_directories(dest.parent_path(), ec2);
@@ -118,7 +122,8 @@ void Editor::at_section_X2(AtScript& at) {
         at_check(!examples_.list().has_value(), "offline with no saved copy there is no list");
         at_check(has(examples_.error(), "no saved copy") && !examples_.hint().empty(),
                  "...the error says what is missing and the hint what to do (" + examples_.error() + ")");
-        at_check(at_visible("examples:error") && at_enabled("examples:retry"), "...the tab shows the error and an enabled Retry");
+        at_check(at_visible("examples:error") && at_enabled("examples:retry"),
+                 "...the tab shows the error and an enabled Retry");
     });
 
     // Online: Retry lists both games.
@@ -165,7 +170,8 @@ void Editor::at_section_X2(AtScript& at) {
     wait_for([this] { return !examples_.loading(); }, "the failed refresh");
     step(3, [this, has] {
         const auto& l = examples_.list();
-        at_check(l && l->stale && has(l->staleReason, "github.com"), "a failed refresh keeps the saved list marked stale, with the reason");
+        at_check(l && l->stale && has(l->staleReason, "github.com"),
+                 "a failed refresh keeps the saved list marked stale, with the reason");
         at_check(at_visible("examples:stale") && at_enabled("examples:retry") && at_visible("examples:row:alpha"),
                  "...the banner, Retry and the rows are shown");
     });
@@ -181,7 +187,8 @@ void Editor::at_section_X2(AtScript& at) {
     // A zip that does not match the manifest: the error, nothing left behind.
     click("examples:row:alpha");
     step(2, [this, w] {
-        at_check(dlgExampleSel_ == "alpha" && dlgExampleName_ == "alpha", "a click picks the example and proposes its name");
+        at_check(dlgExampleSel_ == "alpha" && dlgExampleName_ == "alpha",
+                 "a click picks the example and proposes its name");
         at_check(at_enabled("examples:create"), "...Create is available");
         w->target = w->parent + "/alpha";
         std::string bad = w->alphaZip;
@@ -189,16 +196,20 @@ void Editor::at_section_X2(AtScript& at) {
         write_file(w->assets + "/alpha.zip", bad);
     });
     click("examples:create");
-    wait_for([this] { return !examples_.creating() && !dlgExampleError_.empty(); }, "the create with a bad zip to fail");
+    wait_for([this] { return !examples_.creating() && !dlgExampleError_.empty(); },
+             "the create with a bad zip to fail");
     step(3, [this, w, has] {
         at_check(has(dlgExampleError_, "SHA-256") && has(dlgExampleError_, "alpha"),
                  "a zip with another hash is an error that names the example (" + dlgExampleError_ + ")");
-        at_check(at_visible("examples:create-error") && at_enabled("examples:create"), "...shown in the tab, Create stays available");
+        at_check(at_visible("examples:create-error") && at_enabled("examples:create"),
+                 "...shown in the tab, Create stays available");
         std::error_code ec;
         at_check(!stdfs::exists(w->target, ec), "...and no project folder was made");
         int left = 0;
         if (stdfs::exists(w->parent, ec))
-            for (auto it = stdfs::directory_iterator(w->parent, ec); !ec && it != stdfs::directory_iterator(); it.increment(ec)) ++left;
+            for (auto it = stdfs::directory_iterator(w->parent, ec); !ec && it != stdfs::directory_iterator();
+                 it.increment(ec))
+                ++left;
         at_check(left == 0, "...nor a half-unpacked folder next to it (" + std::to_string(left) + " entries)");
         at_check(!stdfs::exists(w->root + "/home/cache/examples/" FA_ENGINE_VERSION "/alpha.zip", ec),
                  "...nor a kept copy of the bad zip");
@@ -210,10 +221,13 @@ void Editor::at_section_X2(AtScript& at) {
         w->hold = 2;
     });
     click("examples:create");
-    wait_for([this] { return examples_.creating() && !examples_.progress_line().empty(); }, "the create's first progress line");
+    wait_for([this] { return examples_.creating() && !examples_.progress_line().empty(); },
+             "the create's first progress line");
     step(3, [this, has] {
-        at_check(has(examples_.progress_line(), "alpha"), "the create shows what it is doing (" + examples_.progress_line() + ")");
-        at_check(at_visible("examples:progress") && at_enabled("examples:cancel"), "...with a progress bar and an enabled Cancel");
+        at_check(has(examples_.progress_line(), "alpha"),
+                 "the create shows what it is doing (" + examples_.progress_line() + ")");
+        at_check(at_visible("examples:progress") && at_enabled("examples:cancel"),
+                 "...with a progress bar and an enabled Cancel");
     });
     snap("editor_examples_creating.png");
     click("examples:cancel");
@@ -230,8 +244,8 @@ void Editor::at_section_X2(AtScript& at) {
     wait_for(
         [this, w] {
             std::error_code ec;
-            return engine_ && pendingOpen_.empty() && !pendingWelcome_ && atReopenIn_ == 0 && stdfs::exists(w->target, ec) &&
-                   stdfs::equivalent(projectDir_, w->target, ec);
+            return engine_ && pendingOpen_.empty() && !pendingWelcome_ && atReopenIn_ == 0 &&
+                   stdfs::exists(w->target, ec) && stdfs::equivalent(projectDir_, w->target, ec);
         },
         "the created example project to open");
     step(3, [this, w, has] {

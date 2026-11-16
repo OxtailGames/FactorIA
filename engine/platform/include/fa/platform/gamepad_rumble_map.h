@@ -13,7 +13,7 @@ struct EvdevRumble {
     std::uint16_t strong = 0;    // strong_magnitude: the heavy, low-frequency motor (`low`)
     std::uint16_t weak = 0;      // weak_magnitude: the light, high-frequency motor (`high`)
     std::uint16_t lengthMs = 0;  // replay.length; never 0, which some drivers read as "forever"
-    bool clamped = false;        // `seconds` did not fit the 16-bit length (65.535 s): it was cut, the engine's stop ends it
+    bool clamped = false;  // `seconds` did not fit the 16-bit length (65.535 s): it was cut, the engine's stop ends it
 };
 // Strengths are clamped to 0..1 and scaled to 0..0xFFFF; the length is `seconds` rounded up to whole milliseconds, at
 // least 1 and at most 0xFFFF.
@@ -33,9 +33,9 @@ AndroidRumble android_rumble(float low, float high, float seconds, int vibrators
 // Apple CoreHaptics: a pad has up to two handle engines (GCHapticsLocalityLeftHandle and RightHandle), or one default
 // engine. A continuous haptic event has an intensity 0..1 and a duration in seconds (CoreHaptics allows 30 s at most).
 struct AppleRumble {
-    bool split = false;    // true: two engines, [left, right]; false: one engine, `left` holds the intensity
+    bool split = false;  // true: two engines, [left, right]; false: one engine, `left` holds the intensity
     float left = 0, right = 0;
-    float seconds = 0;     // clamped to 0.01..kAppleHapticMaxSeconds
+    float seconds = 0;  // clamped to 0.01..kAppleHapticMaxSeconds
 };
 constexpr float kAppleHapticMaxSeconds = 30.0f;
 // `haveLeft` and `haveRight`: the controller offers that handle's locality. With both, low goes to the left handle and

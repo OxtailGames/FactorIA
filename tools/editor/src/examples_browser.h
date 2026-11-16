@@ -45,11 +45,11 @@ std::string example_target_problem(const std::string& parent, const std::string&
 
 // What a finished create did.
 struct ExampleCreated {
-    std::string example;     // the example's name
-    std::string targetDir;   // what was asked
+    std::string example;    // the example's name
+    std::string targetDir;  // what was asked
     bool ok = false;
-    bool cancelled = false;  // Cancel (or the window closing) stopped it: nothing was created
-    std::string dir;         // when ok: the project folder
+    bool cancelled = false;   // Cancel (or the window closing) stopped it: nothing was created
+    std::string dir;          // when ok: the project folder
     std::string error, hint;  // when !ok and not cancelled
 };
 
@@ -75,12 +75,15 @@ public:
     bool visited() const { return visited_; }
     bool loading() const { return list_ != nullptr; }
     const std::optional<ExamplesList>& list() const { return data_; }
-    bool shown_from_cache() const { return fromCache_; }  // the list is the saved copy, the refresh has not answered yet
+    bool shown_from_cache() const {
+        return fromCache_;
+    }                                                    // the list is the saved copy, the refresh has not answered yet
     const std::string& error() const { return error_; }  // the refresh failed with no list to show (or was cancelled)
     const std::string& hint() const { return hint_; }
 
     // One create at a time; false while one runs. `targetDir` is the project folder (new or empty).
-    bool create(const SetupContext& ctx, const std::string& example, const std::string& targetDir, const ScaffoldOptions& options);
+    bool create(const SetupContext& ctx, const std::string& example, const std::string& targetDir,
+                const ScaffoldOptions& options);
     bool creating() const { return create_ != nullptr; }
     bool cancelling() const;
     void cancel_create();

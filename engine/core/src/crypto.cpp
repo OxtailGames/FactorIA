@@ -232,8 +232,8 @@ private:
 // ---- The AEAD, with the AAD in two pieces so a blob can authenticate its header and the caller's AAD ---------------------
 
 // Poly1305 tag over aad1 || aad2 (padded), the ciphertext (padded) and both lengths, keyed by block 0 of the ChaCha20 stream.
-void aead_tag(const Key& key, const Nonce& nonce, ByteView aad1, ByteView aad2, const std::uint8_t* ct, std::size_t ctSize,
-              std::uint8_t tag[16]) {
+void aead_tag(const Key& key, const Nonce& nonce, ByteView aad1, ByteView aad2, const std::uint8_t* ct,
+              std::size_t ctSize, std::uint8_t tag[16]) {
     std::uint8_t block[64];
     const auto wipe = scrub(block);
     chacha_block(ChaChaState(key, nonce, 0), block);
@@ -252,7 +252,8 @@ void aead_tag(const Key& key, const Nonce& nonce, ByteView aad1, ByteView aad2, 
 }
 
 // Writes ciphertext (n bytes) then the tag (16) to `out`.
-void seal_into(const Key& key, const Nonce& nonce, ByteView aad1, ByteView aad2, ByteView plaintext, std::uint8_t* out) {
+void seal_into(const Key& key, const Nonce& nonce, ByteView aad1, ByteView aad2, ByteView plaintext,
+               std::uint8_t* out) {
     if (!plaintext.empty()) chacha_xor(key, nonce, 1, plaintext.data(), out, plaintext.size());
     aead_tag(key, nonce, aad1, aad2, out, plaintext.size(), out + plaintext.size());
 }
@@ -269,15 +270,17 @@ bool open_into(const Key& key, const Nonce& nonce, ByteView aad1, ByteView aad2,
 }
 
 Error too_large(std::uint64_t size) {
-    return make_error("Cannot encrypt " + std::to_string(size) + " bytes in one message: the limit of ChaCha20-Poly1305 is " +
+    return make_error("Cannot encrypt " + std::to_string(size) +
+                          " bytes in one message: the limit of ChaCha20-Poly1305 is " +
                           std::to_string(kMaxMessageSize) + " bytes.",
                       "Split the data into several sealed blobs.");
 }
 
 Error tag_mismatch(std::string_view what) {
-    return make_error(std::string(what) + ": the data was changed or the key is wrong.",
-                      "The file was edited, damaged or truncated, or it was sealed with another key (or another "
-                      "associated-data value such as the slot name). Nothing was decrypted; restore a backup or start again.");
+    return make_error(
+        std::string(what) + ": the data was changed or the key is wrong.",
+        "The file was edited, damaged or truncated, or it was sealed with another key (or another "
+        "associated-data value such as the slot name). Nothing was decrypted; restore a backup or start again.");
 }
 
 constexpr std::size_t kHeaderSize = 34;  // magic 4, version 1, reserved 1, salt 16, nonce 12
@@ -373,7 +376,8 @@ Result<Bytes> hkdf_sha256(ByteView ikm, ByteView salt, ByteView info, std::size_
     if (length > kMax)
         return make_error("HKDF-SHA256 cannot produce " + std::to_string(length) + " bytes: the limit is " +
                               std::to_string(kMax) + " (255 blocks of 32).",
-                          "Ask for at most " + std::to_string(kMax) + " bytes, or derive several keys with different `info`.");
+                          "Ask for at most " + std::to_string(kMax) +
+                              " bytes, or derive several keys with different `info`.");
     const std::uint8_t zeros[kDigestSize] = {};
     Digest prk = hmac_sha256(salt.empty() ? ByteView(zeros, sizeof zeros) : salt, ikm);  // extract
     Bytes okm;
@@ -399,7 +403,8 @@ Result<Bytes> hkdf_sha256(ByteView ikm, ByteView salt, ByteView info, std::size_
 }
 
 Key key_from_secret(std::string_view secret, std::string_view context) {
-    auto okm = hkdf_sha256(as_bytes(secret), as_bytes("factoria/crypto/key_from_secret/v1"), as_bytes(context), kKeySize);
+    auto okm =
+        hkdf_sha256(as_bytes(secret), as_bytes("factoria/crypto/key_from_secret/v1"), as_bytes(context), kKeySize);
     Key key;
     std::memcpy(key.data(), okm.value().data(), kKeySize);
     secure_zero(okm.value().data(), okm.value().size());
@@ -431,10 +436,13 @@ Result<Bytes> aead_open(const Key& key, const Nonce& nonce, ByteView aad, ByteVi
 
 // ---- Public: sealed blobs ---------------------------------------------------------------------------------------------------
 
-bool is_sealed_blob(std::string_view blob) { return blob.size() >= kMagic.size() && blob.substr(0, kMagic.size()) == kMagic; }
+bool is_sealed_blob(std::string_view blob) {
+    return blob.size() >= kMagic.size() && blob.substr(0, kMagic.size()) == kMagic;
+}
 
 Result<std::string> seal_blob(const Key& key, ByteView aad, ByteView data) {
-    if (std::uint64_t(data.size()) > kMaxMessageSize || data.size() > std::numeric_limits<std::size_t>::max() - kBlobOverhead)
+    if (std::uint64_t(data.size()) > kMaxMessageSize ||
+        data.size() > std::numeric_limits<std::size_t>::max() - kBlobOverhead)
         return too_large(data.size());
     std::string blob(kBlobOverhead + data.size(), '\0');
     auto* out = reinterpret_cast<std::uint8_t*>(blob.data());
@@ -457,13 +465,13 @@ Result<std::string> open_blob(const Key& key, ByteView aad, std::string_view blo
                           "A plain file (a save made before encryption was turned on) is read as it is; check with "
                           "is_sealed_blob first.");
     if (blob.size() < kBlobOverhead)
-        return make_error("The sealed file is truncated: " + std::to_string(blob.size()) + " bytes, a sealed file has at least " +
-                              std::to_string(kBlobOverhead) + ".",
+        return make_error("The sealed file is truncated: " + std::to_string(blob.size()) +
+                              " bytes, a sealed file has at least " + std::to_string(kBlobOverhead) + ".",
                           "Restore a backup or start again.");
     const auto* in = reinterpret_cast<const std::uint8_t*>(blob.data());
     if (in[4] != kBlobVersion)
-        return make_error("The sealed file has format version " + std::to_string(in[4]) + ", this engine reads version " +
-                              std::to_string(kBlobVersion) + ".",
+        return make_error("The sealed file has format version " + std::to_string(in[4]) +
+                              ", this engine reads version " + std::to_string(kBlobVersion) + ".",
                           "It was written by a newer version of the engine: update the game.");
     const std::size_t n = blob.size() - kBlobOverhead;
     if (std::uint64_t(n) > kMaxMessageSize) return too_large(n);

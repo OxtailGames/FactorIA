@@ -61,7 +61,8 @@ std::string example_target_problem(const std::string& parent, const std::string&
     if (parent.empty()) return "Pick the folder the project is created in.";
     if (name == "." || name == ".." || name.find_first_of("/\\") != std::string::npos ||
         name.find_first_of(":*?\"<>|") != std::string::npos)
-        return "The name '" + name + "' is a folder name: it cannot hold a path, ':' or any of * ? \" < > |. Put the "
+        return "The name '" + name +
+               "' is a folder name: it cannot hold a path, ':' or any of * ? \" < > |. Put the "
                "folders in Folder.";
     return {};
 }
