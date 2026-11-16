@@ -93,7 +93,7 @@ struct Renderer::Impl {
     // The rendering cameras of the last update()/draw in draw order (never empty after the first one: a world without a camera
     // gets one default camera). [0] is "the" camera: the lowest depth.
     std::vector<CameraInfo> lastCams;
-    // The same cameras seen from their REAL pose, filled only while render interpolation blends a pose: scripts, picking and UI
+    // The same cameras seen from their REAL pose, filled only while render interpolation blends a camera (it or an ancestor): scripts, picking and UI
     // hit tests ask these (camera_for), so an answer never depends on alpha. Empty = lastCams.
     std::vector<CameraInfo> logicCams;
     bool warnedNoLight = false;
@@ -207,6 +207,7 @@ struct Renderer::Impl {
                             bool blended = true);
     std::vector<CameraInfo> collect_cameras(World& world, bool blended = true);
     void refresh_logic_cameras(World& world);
+    Vec2 logic_camera_xy() const;  // the first camera's real position: lastCams, or logicCams while a camera is blended
     const CameraInfo& camera_for(Entity camera, const Vec2* screenPoint) const;
     // The 3D world of the frame, gathered once by render() (capture_world: scoped to its subject) before any job and read by the
     // gather_meshes of every camera, render target and CameraView.

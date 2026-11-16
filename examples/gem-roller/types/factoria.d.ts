@@ -6262,7 +6262,7 @@ declare module "factoria" {
     set color(value: ColorLike);
   }
   /**
-   * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer shifted for itself). Deterministic: it depends only on the camera position.
+   * Shifts the drawing of this entity's world-space visuals (Sprite, Shape2D, Text, Tilemap) with the camera so far layers slide slower than near ones. Offset = camera position * (1 - factor) per axis: factor 1 behaves like any world object, 0 stays glued to the camera (a sky), 0.5 is half as fast (distant hills), above 1 is a foreground. With the camera at (0, 0) the entity is exactly where its Transform says. Only the drawing moves: Transform, physics and picking positions stay put, while entity.bounds() reports where it is drawn for the first camera (with several cameras, or a render target, each one draws the layer shifted for itself). With render interpolation the drawing follows the camera's blended pose, while offset and bounds() follow its real pose, so they do not depend on the frame time. Deterministic: it depends only on the camera position.
    * 
    * Category: 2D
    * @since 0.2.0
@@ -6291,7 +6291,7 @@ declare module "factoria" {
     get repeatSize(): Vec2;
     set repeatSize(value: Vec2Like);
     /**
-     * Runtime: the shift [x, y] currently applied to the drawing, for the first camera (written every frame, by the renderer or by the simulation when there is no renderer). Read-only.
+     * Runtime: the shift [x, y] for the first camera's real pose (written every frame, by the renderer or by the simulation when there is no renderer). With render interpolation a frame is drawn up to one fixed step away from it. Read-only.
      * @since 0.2.0
      */
     readonly offset: Vec2;

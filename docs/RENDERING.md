@@ -211,7 +211,15 @@ older to the newer one. The picture runs one step (16.7 ms at 60 Hz) behind the 
   axis in one step (a fast spin, a wrap from 359 to 1) cannot be told from a short turn the other way, so it is not blended: it
   is drawn at the latest rotation. A child follows the blended pose of an interpolated parent (each entity of the chain is blended on its
   local pose). A `Camera` is viewed from its blended pose, so it stays in step with what it follows (see "A follow camera" below). Physics bodies (2D and 3D) are interpolated through their entity's Transform, which physics writes every
-  step. Lights, particles and sounds are placed from the real pose.
+  step. Lights, particles and sounds are placed from the real pose (see "What stays at the real pose" below).
+- **What stays at the real pose.** Lights (`Light2D`, shadows), particle emitters (where particles are born) and sounds read the Transform, not the blended pose, which they do not have. A sprite that moves with a light or an
+  emitter is drawn up to one fixed step behind it (a light or a spark ahead of its sprite by up to 16.7 ms at 60 Hz). That is a
+  limit of the quality, not an error; where it shows (a lantern carried by a character, a trail from a moving projectile), put
+  `Interpolation` with `mode: "off"` on the sprite and what it carries, so both are drawn at the real pose. Likewise `Parallax`
+  layers are drawn shifted for the blended camera, but `Parallax.offset` and `entity.bounds()` of a layer are the shift of the real
+  camera, so they do not depend on the frame time (the drawing and the number can differ by up to one step of the camera). The
+  editor draws its selection outline from the real pose too, so while the game plays with interpolation on, the outline can be
+  up to one step off the picture (the move, rotate and scale handles are only shown in Edit and Pause, which draw the real pose).
 - **Per entity.** The `Interpolation` component overrides the project: `mode: "on"` interpolates an entity even when the project
   does not, `"off"` never (a cursor, an entity a script moves every frame), `"inherit"` follows the project.
 - **No smearing.** A pose is blended only when a fixed step moved it. These are drawn where they are: a new entity, a Transform
@@ -223,8 +231,9 @@ older to the newer one. The picture runs one step (16.7 ms at 60 Hz) behind the 
   autoplay bot) always draws alpha 1, the real pose, and a paused game and the editor's pause and step show the real pose too. A
   windowed run with an unstable frame time draws what its frame times say.
 - **Cost.** Only interpolated entities keep a record (three transforms and a few flags, 128 bytes, in a dense list, plus
-  4 bytes per entity slot); each fixed step and each frame reads the Transforms once, and the work on records is proportional to
-  the interpolated entities. See docs/performance/, "Render interpolation".
+  4 bytes per entity slot); each fixed step and each frame (after the steps and again before drawing) reads the Transforms, or only the
+  `Interpolation` components when the project does not interpolate by default, and the work on records is proportional to the
+  interpolated entities. See docs/performance/, "Render interpolation".
 
 ### A follow camera
 
