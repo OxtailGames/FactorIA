@@ -1269,27 +1269,27 @@
       },
       {
        "sig": "velocity?: number[] | { x: number, y: number, z?: number }",
-       "doc": "With `position`: the velocity of the source in world units per second, for doppler. NOT YET: doppler lands in M98.8b; until then this has no effect."
+       "doc": "With `position`: the velocity of the source in world units per second, for doppler (kept for the whole life of the sound; the listener's velocity is measured each frame)."
       },
       {
        "sig": "dopplerLevel?: number",
-       "doc": "With `position`: how much the pitch shifts with the speed of the source and the listener, 0 (default, off) to 10. NOT YET: lands in M98.8b; no effect until then."
+       "doc": "With `position`: how much the pitch shifts with the speed of the source and the listener, 0 (default, off) to 10: the exponent of the real pitch ratio (1 = the real shift); the factor is limited to 0.25..4."
       },
       {
        "sig": "occlusion?: boolean",
-       "doc": "With `position`: true = a physics ray from the listener that hits a collider of `occlusionMask` muffles the sound (default false). NOT YET: lands in M98.8b; no effect until then."
+       "doc": "With `position`: true = a physics ray from the listener that hits a collider of `occlusionMask` muffles the sound (default false). At most 8 rays per frame in the whole game; the change is smoothed over 0.1 s."
       },
       {
        "sig": "occlusionMask?: number",
-       "doc": "With `position`: the physics layers (bitmask, default -1 = all) that block the sound when `occlusion` is on. NOT YET (M98.8b)."
+       "doc": "With `position`: the physics layers (bitmask, default -1 = all) that block the sound when `occlusion` is on."
       },
       {
        "sig": "occlusionGain?: number",
-       "doc": "With `position`: volume multiplier of a blocked path, 0 to 1 (default 0.4). NOT YET (M98.8b)."
+       "doc": "With `position`: volume multiplier of a blocked path, 0 to 1 (default 0.4)."
       },
       {
        "sig": "occlusionLowpass?: number",
-       "doc": "With `position`: low-pass cutoff in Hz of a blocked path, 20 to 20000 (default 1500). NOT YET (M98.8b)."
+       "doc": "With `position`: low-pass cutoff in Hz of a blocked path, 20 to 20000 (default 1500; 20000 = no filter)."
       },
       {
        "sig": "range?: number",

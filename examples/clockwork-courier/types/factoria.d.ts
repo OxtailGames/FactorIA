@@ -1041,32 +1041,32 @@ declare module "factoria" {
      */
     coneOuterGain?: number;
     /**
-     * With `position`: the velocity of the source in world units per second, for doppler. NOT YET: doppler lands in M98.8b; until then this has no effect.
+     * With `position`: the velocity of the source in world units per second, for doppler (kept for the whole life of the sound; the listener's velocity is measured each frame).
      * @since unreleased
      */
     velocity?: number[] | { x: number, y: number, z?: number };
     /**
-     * With `position`: how much the pitch shifts with the speed of the source and the listener, 0 (default, off) to 10. NOT YET: lands in M98.8b; no effect until then.
+     * With `position`: how much the pitch shifts with the speed of the source and the listener, 0 (default, off) to 10: the exponent of the real pitch ratio (1 = the real shift); the factor is limited to 0.25..4.
      * @since unreleased
      */
     dopplerLevel?: number;
     /**
-     * With `position`: true = a physics ray from the listener that hits a collider of `occlusionMask` muffles the sound (default false). NOT YET: lands in M98.8b; no effect until then.
+     * With `position`: true = a physics ray from the listener that hits a collider of `occlusionMask` muffles the sound (default false). At most 8 rays per frame in the whole game; the change is smoothed over 0.1 s.
      * @since unreleased
      */
     occlusion?: boolean;
     /**
-     * With `position`: the physics layers (bitmask, default -1 = all) that block the sound when `occlusion` is on. NOT YET (M98.8b).
+     * With `position`: the physics layers (bitmask, default -1 = all) that block the sound when `occlusion` is on.
      * @since unreleased
      */
     occlusionMask?: number;
     /**
-     * With `position`: volume multiplier of a blocked path, 0 to 1 (default 0.4). NOT YET (M98.8b).
+     * With `position`: volume multiplier of a blocked path, 0 to 1 (default 0.4).
      * @since unreleased
      */
     occlusionGain?: number;
     /**
-     * With `position`: low-pass cutoff in Hz of a blocked path, 20 to 20000 (default 1500). NOT YET (M98.8b).
+     * With `position`: low-pass cutoff in Hz of a blocked path, 20 to 20000 (default 1500; 20000 = no filter).
      * @since unreleased
      */
     occlusionLowpass?: number;
@@ -8142,27 +8142,27 @@ declare module "factoria" {
     get coneAxis(): Vec3;
     set coneAxis(value: Vec3Like);
     /**
-     * Spatial only: how much the pitch shifts with the speed the source and the listener approach or separate at (the AudioListener's speedOfSound). 0 (default) = off, 1 = the real shift, more exaggerates. Velocities come from the change of each one's world position between frames (not from RigidBody), so scripted and animated movement shifts too. NOT YET: the doppler shift lands in M98.8b; until then this field has no effect.
+     * Spatial only: how much the pitch shifts with the speed the source and the listener approach or separate at (the AudioListener's speedOfSound). 0 (default) = off, 1 = the real shift, more exaggerates (it is the exponent of the real pitch ratio). The pitch factor is limited to 0.25..4 and glides over about 0.05 s. Velocities come from the change of each one's world position between frames (not from RigidBody), so scripted and animated movement shifts too; the first frame and a teleport give velocity 0.
      * @since unreleased
      */
     dopplerLevel: number;
     /**
-     * Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. NOT YET: the rays land in M98.8b; until then this field has no effect.
+     * Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. At most 8 rays per frame in the whole game, each source asked every 0.1 s; the change is smoothed over 0.1 s.
      * @since unreleased
      */
     occlusion: boolean;
     /**
-     * Spatial only: the physics layers (bitmask, -1 = all) whose colliders block the sound when `occlusion` is on. The source's own colliders are ignored. NOT YET (M98.8b).
+     * Spatial only: the physics layers (bitmask, -1 = all) whose colliders block the sound when `occlusion` is on. The source's own colliders, the listener's and triggers are ignored.
      * @since unreleased
      */
     occlusionMask: number;
     /**
-     * Spatial only: volume multiplier while the path is blocked, 0 to 1 (default 0.4). NOT YET (M98.8b).
+     * Spatial only: volume multiplier while the path is blocked, 0 to 1 (default 0.4).
      * @since unreleased
      */
     occlusionGain: number;
     /**
-     * Spatial only: low-pass cutoff in Hz while the path is blocked (default 1500; 20000 = no filtering): a wall makes a sound dull. NOT YET (M98.8b).
+     * Spatial only: low-pass cutoff in Hz while the path is blocked (default 1500; 20000 = no filtering): a wall makes a sound dull. The voice gets its own 12 dB/octave low-pass.
      * @since unreleased
      */
     occlusionLowpass: number;
@@ -8311,7 +8311,7 @@ declare module "factoria" {
      */
     headRadius: number;
     /**
-     * Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel times the change of pitch this speed gives. NOT YET (M98.8b).
+     * Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives.
      * @since unreleased
      */
     speedOfSound: number;
