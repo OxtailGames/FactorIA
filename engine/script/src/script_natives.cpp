@@ -3172,16 +3172,15 @@ NATIVE(inRumble) {  // (pad, low, high, seconds)
     return JS_UNDEFINED;
 }
 
-NATIVE(inStopRumble) {  // (pad, -1 = every pad)
+NATIVE(inStopRumble) {  // (pad | undefined = every pad); a pad outside 0..3, -1 included, throws
     SETUP;
-    const double d = arg_num(ctx, argc, argv, 0, -1);
-    if (d != -1.0) {
+    if (argc < 1 || JS_IsUndefined(argv[0])) {
+        I->host->input().stop_rumble(-1);
+    } else {
         int i = 0;
         JSValue exc = JS_UNDEFINED;
         if (!pad_index(ctx, argc, argv, 0, i, exc)) return exc;
         I->host->input().stop_rumble(i);
-    } else {
-        I->host->input().stop_rumble(-1);
     }
     return JS_UNDEFINED;
 }

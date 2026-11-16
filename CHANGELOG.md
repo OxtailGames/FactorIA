@@ -10,6 +10,20 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   refused, as `..` is (Windows ignores trailing dots and spaces); the Inspector's "Undo put the scene back" note no longer appears
   after a scene load or when the undo list was trimmed; in a number that differs between selected entities, leaving the box after
   typing (Tab, a click outside) writes the typed value to all of them, as Enter does.
+- **Pad rumble, polish:** the seconds of a rumble count the frames' own duration (not scaled by `time.scale`; the docs said
+  "game time"); a rumble asked in the same frame that pauses the game (`game.paused = true`, `time.scale` 0) never reaches the
+  pad, where before it buzzed for one frame. `input.stopRumble(-1)` now throws like any pad outside 0..3 (without an argument
+  it still stops every pad). A request with both strengths 0 is a stop (`game.rumbles()` records seconds 0), and the command
+  `game.rumble` refuses `seconds` without `low` or `high`. `input.gamepad(i).canRumble` is right in the frame a pad connects
+  and in its `gamepadConnected` handler, and a test pad forgets it when it disconnects (say `canRumble: true` at each
+  `connect()`). Linux: an `EVIOCSFF` failure other than "unknown effect" no longer leaks the old effect, interrupted `ioctl`s
+  are restarted, and a pad whose event node was not writable yet (udev) is asked again every few seconds. Android: a slot's
+  answer is dropped when its pad goes (a reused device id is asked again), a failed JNI lookup is logged once and its
+  references are released. macOS and iOS: CoreHaptics errors are logged, an engine that started when its twin failed is
+  stopped, and engines shut down by themselves when idle. Web: `getGamepads()` is asked once per frame, and a pad answers
+  `canRumble: false` with the reason while the page has had no user activation, so the rumble still running starts once the
+  player pressed a button. An infinite `seconds` in the platform helpers no longer converts to an integer undefined-ly. The
+  docs now say that the editor's Game view reads no physical pad, and what a crash, `abort()` or a Switch Pro do to the motors.
 - **WebSocket on Linux (libcurl), Windows and the tcp client, polish:** when a game does not read its messages and the engine ends the connection
   (`"close"` 1008), `readyState` is `"closed"` as soon as that `"close"` event can be read, as it already was for every other
   end (before, a read right then could still say `"open"` for a moment). On Windows, a close frame from the server whose status
@@ -129,13 +143,16 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   Switch Pro's handshake and HD rumble. The drivers also switch each pad to its full input report, so a Bluetooth DualShock 4
   or DualSense reports its analog triggers and a Switch Pro its full sticks (its ZL and ZR stay digital). A Bluetooth
   DualShock 4 or DualSense stays on that full report until it is switched off or reconnected; a Switch Pro is put back on
-  its simple report at exit. A Bluetooth PlayStation report whose CRC is wrong is dropped. A pad another program holds
-  exclusively, or that stops taking reports (a write that fails is tried again up to five times, 100 ms apart, unless the
-  device is gone), answers `canRumble: false` with a reason saying what to do; a pad that vanishes mid-write leaks
-  nothing. The motors stop when the game quits: at exit the process waits at most about 100 ms for every pad's last
-  write, then sends the stop. A crash zeroes the XInput motors (an unhandled-exception filter chained to the crash
-  reporter); the HID pads are not touched after a crash. `hid.dll` and `xinput1_4.dll` load from System32 only, and a pad
-  whose details Windows cannot give yet at its arrival is retried (warned once). Not yet tried with a physical pad.
+  its simple report at exit (over USB that last step is not verified on a real pad). A Bluetooth PlayStation report whose CRC
+  is wrong is dropped. A pad another program holds exclusively, or that stops taking reports (a write that fails is tried
+  five times in all, 100 ms apart, unless the device is gone), answers `canRumble: false` with a reason saying what to do;
+  so does a generic HID pad ("this pad gives no rumble the engine can drive"). A pad that vanishes mid-write leaks nothing.
+  The motors stop when the game quits: at exit the process waits at most about 100 ms for every pad's last write, then
+  sends the stop. An unhandled exception (an access violation...) zeroes the XInput motors (a filter chained to the crash
+  reporter); the HID pads are not touched then, so a PlayStation pad keeps shaking and a Switch Pro stops by itself about
+  50 ms later. `abort()`, a bad CRT call, a hang and a killed process leave the motors on. `hid.dll` and `xinput1_4.dll`
+  load from System32 only, and a pad whose details Windows cannot give yet at its arrival is retried (warned once). Not
+  yet tried with a physical pad.
 - **Several entities selected (M98.7b):** in the editor, Ctrl/Cmd+click toggles and Shift+click selects a range in the
   Hierarchy, and Ctrl/Cmd+click, Shift+click and a marquee on empty space select in the Viewport. Every selected entity is
   outlined; the gizmo moves, rotates and scales all of them about the primary as one Undo step; Delete, Duplicate and
@@ -158,9 +175,9 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 - **Pad rumble, the shared part (M98.5a):** `input.rumble(pad, low, high, seconds)`, `input.stopRumble(pad?)` and
   `input.gamepad(i).canRumble` shake the motors of a pad (low and high frequency, 0..1, up to 10 s, on the game's clock). The
-  engine stops every pad on pause, focus loss, unplug, scene change and quit. It works on Windows (XInput pads) and in
-  Chrome-based browsers; the other platforms answer `canRumble: false` with the reason until their backends land (Linux, macOS,
-  iOS and Android in M98.5c, Windows pads that are not XInput in M98.5b). Tests record the requests (`game.rumbles()`,
+  engine stops every pad on pause, focus loss, unplug, scene change and quit. A platform or pad that cannot rumble answers
+  `canRumble: false` with the reason (the platforms that can are listed in docs/scripting/SCRIPTING_WORLD_INPUT.md, "Pad
+  rumble"). Tests record the requests (`game.rumbles()`,
   `game.rumbleState(pad)`, `connect({ canRumble: true })`) and the command `game.rumble` drives a running game. See
   docs/scripting/SCRIPTING_WORLD_INPUT.md, "Pad rumble".
 - **HRTF for headphones (M98.8c):** `AudioListener.spatialization: "hrtf"` places spatial sounds with a parametric head model

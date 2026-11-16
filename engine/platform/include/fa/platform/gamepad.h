@@ -21,16 +21,23 @@
 // apply_gamepad_rumble() below copies it to the hardware once per frame through two small hooks that each platform
 // backend defines in its gamepad_<platform> file, so a new backend adds code to ITS file and touches nothing shared:
 //   gamepad_backend_rumble_support(slot)  can the pad in `slot` rumble, and if not, why (a sentence that says what to do
-//                                         or which backend will add it). Asked every frame for each connected pad: cheap.
+//                                         about it). Asked every frame for each connected pad, right after poll_gamepads()
+//                                         and again after the game ran: cheap, and a backend that has to open a device or
+//                                         ask the system caches its answer (Linux retries a refused open every few seconds).
 //   gamepad_backend_rumble(slot, low, high, seconds)  starts the motors (each 0..1) for `seconds`, replacing what played;
 //                                         seconds 0 with both strengths 0 stops them. The engine clock ends every rumble
 //                                         with an explicit stop, so a backend whose hardware has no duration (XInput) just
 //                                         sets the motors, and one that has (the web, evdev effects) may pass `seconds` on
-//                                         as a safety net. Returns false when the hardware refused (logged once).
-// Today: Windows XInput and the HID drivers (DualShock 4, DualSense, Switch Pro output reports), Linux evdev force feedback (gamepad_linux.cpp), Android vibrators (gamepad_android.cpp), Apple
-// CoreHaptics (gamepad_apple.mm) and Chrome-based browsers can rumble; a pad a backend cannot drive (a generic Windows HID
-// pad, a Linux pad with no FF_RUMBLE or no write access to its event node...) answers "no" with its reason. The
-// numbers each of those APIs wants are computed by the pure helpers of fa/platform/gamepad_rumble_map.h.
+//                                         as a safety net. Returns false when the hardware refused (apply_gamepad_rumble
+//                                         then warns, once per refused request).
+// Who can rumble today, with what (the reason a pad cannot is the text of its support hook):
+//   Windows  XInput motors; the DualShock 4, DualSense and Switch Pro through their output reports (gamepad_hid_drivers.h);
+//            other HID pads cannot.
+//   Linux    evdev force feedback, one FF_RUMBLE effect per pad on /dev/input/eventN (needs write access to it).
+//   Android  the vibrators of the pad's InputDevice (getVibratorManager() on API 31+, getVibrator() before).
+//   macOS/iOS  CoreHaptics through GCController.haptics (macOS 11, iOS 14).
+//   web      Gamepad.vibrationActuator in Chrome-based browsers, after a user activation.
+// The numbers each of those APIs wants are computed by the pure helpers of fa/platform/gamepad_rumble_map.h.
 // Windowed runs only, like poll_gamepads(): headless runs and tests have no hardware and read Input instead.
 //
 // Slots that have no pad are probed only every couple of seconds, so unplugged slots cost nothing. A pad that stays
@@ -61,6 +68,10 @@ bool gamepad_backend_rumble(int slot, float low, float high, float seconds);
 // request is new, stops those whose request ended, was replaced by a stop or whose pad went away. Call it once per frame
 // after the game ran, and right after a stop (focus lost, quit). Main thread only. It uses the platform hooks above.
 void apply_gamepad_rumble(Input& input);
+// Only the first part of apply_gamepad_rumble: tells Input which connected pads can rumble. The window layer calls it right
+// after poll_gamepads(), so a pad that connected in this frame answers canRumble correctly in the frame's scripts and in its
+// "gamepadConnected" handler, not only from the next frame on.
+void refresh_gamepad_rumble_support(Input& input);
 
 // The same logic against any hardware (the platform hooks are one implementation; the tests use a fake one).
 class GamepadRumbleSink {
@@ -73,6 +84,7 @@ public:
 class GamepadRumbleSync {
 public:
     void apply(Input& input, GamepadRumbleSink& sink);
+    static void refresh_support(Input& input, GamepadRumbleSink& sink);  // the support half of apply()
 
 private:
     struct Sent {

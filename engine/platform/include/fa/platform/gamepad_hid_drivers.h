@@ -144,6 +144,10 @@ std::vector<std::uint8_t> build_switch_usb_command(std::uint8_t command);
 inline constexpr std::uint8_t kSwitchUsbHandshake = 0x02, kSwitchUsbBaud3M = 0x03, kSwitchUsbForceHid = 0x04;
 inline constexpr std::uint8_t kSwitchSubcommandInputMode = 0x03, kSwitchInputModeFull = 0x30,
                               kSwitchInputModeSimple = 0x3F;
+// kSwitchInputModeSimple is sent at exit (HidPadDriver::exit_report), once the full report was asked for: the simple report a
+// Bluetooth pad starts in and its descriptor declares, so a program that reads the pad after the game (an old DirectInput
+// game, a generic HID reader) gets reports it understands. Over USB the same message goes out, but that a USB pad answers it
+// after the "HID only" handshake is NOT verified on a real pad.
 inline constexpr std::uint8_t kSwitchSubcommandVibration = 0x48;
 
 // The set-up steps of the Switch Pro, in order: over USB the bridge's handshake (handshake, 3 Mbit, handshake, then
@@ -154,8 +158,5 @@ inline constexpr unsigned kSwitchReplyTimeoutMs = 300;
 inline constexpr unsigned kSwitchStepTries = 3;
 // How often the motors' report is repeated while they run: the pad stops them by itself when the reports stop coming.
 inline constexpr unsigned kSwitchRumbleRefreshMs = 50;
-// At exit (HidPadDriver::exit_report), once the full report was asked for: subcommand 0x03 0x3F, the simple report a
-// Bluetooth pad starts in and its descriptor declares, so a program that reads the pad after the game (an old DirectInput
-// game, a generic HID reader) gets reports it understands.
 
 }  // namespace fa

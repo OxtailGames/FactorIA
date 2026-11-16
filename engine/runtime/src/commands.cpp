@@ -807,16 +807,22 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "true` "
          "stops the pad instead (without `pad`, every pad). With neither, nothing changes and the result only reports. "
          "The result lists every pad: connected, canRumble, reason (why it cannot, e.g. the pad has no motors the "
-         "platform can drive), and the motors now (low, high, seconds left). Strengths outside 0..1 are clamped; a request for a pad "
-         "that is not connected or cannot rumble is accepted and does nothing. The seconds run down with the game's "
-         "frames (game.step); the engine stops every pad when the game pauses, changes scene or "
-         "quits. " FA_COMMAND_DETAILS "Example: game.rumble {\"pad\":0,\"low\":0.6,\"high\":0.2,\"seconds\":0.3}, then "
+         "platform can drive), and the motors now (low, high, seconds left). Strengths outside 0..1 are clamped, and a "
+         "request with both at 0 is a stop; a "
+         "request for a pad that is not connected or cannot rumble is accepted and does nothing. The seconds run down "
+         "with "
+         "the frames' own duration (game.step), not scaled by time.scale; the engine stops every pad when the game "
+         "pauses "
+         "itself (time.scale 0), changes scene or quits. " FA_COMMAND_DETAILS
+         "Example: game.rumble {\"pad\":0,\"low\":0.6,\"high\":0.2,\"seconds\":0.3}, then "
          "game.rumble {\"stop\":true}. A "
          "headless run has no hardware: connect a test pad first (game.input "
          "{\"gamepad\":{\"index\":0,\"connected\":true}}) "
-         "and read the motors in the result; real motors need a windowed run (Windows XInput pads, Linux pads with "
-         "kernel force feedback, macOS and iOS pads with GameController haptics, Android pads with vibrators, "
-         "Chrome-based browsers).",
+         "and read the motors in the result; real motors need a game running in its own window (`factoria run`, an "
+         "export; the editor's Game view reads no physical pads): Windows pads (XInput, DualShock 4, DualSense, Switch "
+         "Pro), Linux pads with kernel force feedback, macOS and iOS pads with GameController haptics, Android pads "
+         "with "
+         "vibrators, Chrome-based browsers.",
          parse_schema(R"({"type":"object","properties":{
                "pad":{"type":"integer","minimum":0,"maximum":3,"description":"Gamepad slot 0..3 (default 0; with `stop`, default every pad)."},
                "low":{"type":"number","description":"Strength of the heavy, low-frequency motor, 0..1 (clamped)."},
@@ -836,6 +842,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
             if (start && !a.contains("seconds"))
                 throw CommandError("invalid_argument", "`seconds` is required to start the motors.",
                                    "Add how long the rumble lasts, e.g. {\"low\":0.5,\"high\":0.5,\"seconds\":0.3}.");
+            if (start && !a.contains("low") && !a.contains("high"))
+                throw CommandError(
+                    "invalid_argument",
+                    "`seconds` alone starts nothing: give `low` and/or `high` (the strength of a motor, 0..1).",
+                    "Add the strengths, e.g. {\"low\":0.5,\"high\":0.5,\"seconds\":0.3}; to stop the "
+                    "pad use {\"stop\":true}.");
             const auto num = [&a](const char* key) {
                 return a.contains(key) && a[key].is_number() ? a[key].get<double>() : 0.0;
             };
