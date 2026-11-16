@@ -4485,7 +4485,8 @@ JSValue ws_error_object(Impl* I, std::string message, std::string hint, const ch
         Json::object({{"error", Json::object({{"code", code}, {"message", message}, {"hint", hint}})}}));
 }
 
-// The bytes of an ArrayBuffer or a typed array (or DataView). false: it is neither.
+// The bytes of an ArrayBuffer or a typed array, honouring byteOffset and byteLength (the prelude turns a DataView into a
+// Uint8Array first). false: it is neither.
 bool js_bytes(JSContext* ctx, JSValueConst v, std::string& out) {
     std::size_t off = 0, len = 0, per = 0;
     JSValue buf = JS_GetTypedArrayBuffer(ctx, v, &off, &len, &per);

@@ -11,8 +11,8 @@
 // logs what its TextField holds). The web player takes typed text from the keypress events of the window, so this is the
 // check that typing works in a browser; scripts/web-smoke.sh puts a TextField in the game for it.
 //
-// --also: the run passes only once a console line containing <text> has been seen as well (before or after the typing), within the
-// timeout; without --type it is waited for after the frames are rendered. web-smoke.sh waits for the determinism probe's line.
+// --also (it can be repeated): the run passes only once a console line containing each <text> has been seen as well (before or
+// after the typing), within the timeout; without --type it is waited for after the frames are rendered. web-smoke.sh waits for the determinism probe's line.
 //
 // The browser: --browser, else $CHROME_BIN, else the first of google-chrome, chromium, chrome, msedge found in PATH or in
 // the usual install folders of Windows and macOS. Needs Node 22 or newer (built-in WebSocket and fetch), nothing to install.
@@ -32,7 +32,9 @@ const timeoutMs = Number(opt('--timeout', '60')) * 1000;
 const screenshot = opt('--screenshot', '');
 const typeText = opt('--type', '');
 const expectPrefix = opt('--expect', '');
-const alsoText = opt('--also', '');
+// --also can be given several times: every text has to be seen.
+const alsoTexts = [];
+for (let i = args.indexOf('--also'); i >= 0; i = args.indexOf('--also')) alsoTexts.push(args.splice(i, 2)[1]);
 const dir = args[0];
 if (!dir || !fs.existsSync(path.join(dir, 'index.html'))) {
   console.error('usage: node smoke.mjs <export folder with index.html> [--browser path] [--timeout seconds] [--screenshot out.png] [--type text --expect prefix]');
@@ -99,11 +101,12 @@ else {
   let nextId = 1;
   let typing = false, typeTimer = null;
   // --also: the pass waits for a console line containing alsoText as well.
-  let alsoSeen = !alsoText, passMessage = null, alsoTimer = null;
+  const alsoLeft = new Set(alsoTexts);
+  let passMessage = null, alsoTimer = null;
   const pass = (message) => {
     passMessage = message;
-    if (alsoSeen) finish(0, message);
-    else alsoTimer = setTimeout(() => finish(1, `FAIL: no console line containing "${alsoText}" within 30 s of the rest passing`), 30000);
+    if (!alsoLeft.size) finish(0, message);
+    else alsoTimer = setTimeout(() => finish(1, `FAIL: no console line containing "${[...alsoLeft].join('" and "')}" within 30 s of the rest passing`), 30000);
   };
   const pending = new Map();
   const send = (method, params = {}, sessionId) => new Promise((resolve) => {
@@ -133,10 +136,8 @@ else {
       const text = msg.params.args.map((a) => a.value ?? a.description ?? '').join(' ');
       console.log(`[console.${msg.params.type}] ${text}`);
       if (msg.params.type === 'error') { clearTimeout(timer); finish(1, `FAIL: console.error: ${text}`); }
-      if (alsoText && text.includes(alsoText)) {
-        alsoSeen = true;
-        if (passMessage) { clearTimeout(alsoTimer); finish(0, passMessage); }
-      }
+      for (const wanted of [...alsoLeft]) if (text.includes(wanted)) alsoLeft.delete(wanted);
+      if (passMessage && !alsoLeft.size) { clearTimeout(alsoTimer); finish(0, passMessage); }
       if (typing && text.includes(expectPrefix + typeText)) {
         clearTimeout(typeTimer);
         pass(`OK: the player rendered 60 frames and the field took "${typeText}"`);
