@@ -155,8 +155,11 @@ std::filesystem::path examples_cache_dir(const SetupContext& ctx);
 // Order: the target and the options are checked, the example is looked up in list_examples (a name that is not there gets "did you
 // mean"), the zip comes from the cache when its size and SHA-256 match or from the release otherwise, verify_example_file checks it,
 // extract_example_zip unpacks it into a hidden sibling folder of `targetDir`, options.name / options.id replace "name" / "id" of
-// factoria.json when given, and the folder is renamed to `targetDir`. The verified zip is kept in the cache, so the same example
-// again downloads nothing. result.templateName is empty. Blocks while it downloads (a worker thread, ctx.cancel).
+// factoria.json when given, and the folder is renamed to `targetDir`. An existing empty `targetDir` is never deleted or replaced (it
+// may be a working directory, a link or a mount point): what is in the hidden folder moves into it, and if that fails what moved is
+// taken out again. A failure leaves nothing: no hidden folder, no half project, no parent folder this call made. The verified zip is
+// kept in the cache, so the same example again downloads nothing. result.templateName is empty. Blocks while it downloads (a worker
+// thread); ctx.cancel stops it before the download, between files and before the move (an Error, nothing left).
 Result<ScaffoldResult> create_example_project(const SetupContext& ctx, const std::string& name,
                                               const std::string& targetDir, const ScaffoldOptions& options = {});
 
@@ -169,12 +172,15 @@ struct ExampleExtractLimits {
 // Unpacks the project zip `zip` into `destination` (created; its files are replaced). Checks every entry BEFORE it writes any: a
 // name with "..", a "." or empty part, a leading "/", a "\\", a ':' (drive letter, NTFS stream), a character Windows does not allow,
 // a part that ends in a dot or space or is a device name (CON, NUL...), bytes that are not UTF-8, two names that differ only in
-// capitals (or a file that is also a folder), an encrypted, linked or special entry, more entries or bytes than `limits`, and a
-// zip without factoria.json at its top. It also checks that the path it will write lies inside `destination`. Returns the files it
-// wrote (forward slashes, sorted). On an Error `destination` may hold part of the files: the caller unpacks into a folder it removes.
+// capitals (ASCII and Latin-1 letters are folded; the capitals of other scripts and Unicode normalisation are not) or a file that is
+// also a folder, an encrypted, linked or special entry, more entries or bytes than `limits`, and a zip without factoria.json at its
+// top. It also checks that the path it will write lies inside `destination`. `cancel` is looked at before every entry. Returns the
+// files it wrote (forward slashes, sorted). On an Error `destination` may hold part of the files: the caller unpacks into a folder
+// it removes. project.package_examples applies the same name rules, so it never writes a zip this refuses.
 Result<std::vector<std::string>> extract_example_zip(const std::filesystem::path& zip,
                                                      const std::filesystem::path& destination,
-                                                     const ExampleExtractLimits& limits = {});
+                                                     const ExampleExtractLimits& limits = {},
+                                                     const CancelFlag* cancel = nullptr);
 
 // project.create {example}: the arguments (`example`, `dir` resolved by the caller to an absolute path, `name`, `id`; `template` is a
 // contradiction) -> the command's result. Needs the network capability of its caller (CommandError "capability_denied" otherwise).

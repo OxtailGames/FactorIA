@@ -220,7 +220,8 @@ Result<std::vector<CentralEntry>> read_central_directory(const stdfs::path& file
         size = get64(z, 40);
         offset = get64(z, 48);
     }
-    if (offset + size > total) return err(generic(file) + ": the central directory lies outside the file");
+    if (size > total || offset > total - size)
+        return err(generic(file) + ": the central directory lies outside the file");
     std::string central(static_cast<std::size_t>(size), '\0');
     in.seekg(static_cast<std::streamoff>(offset));
     in.read(central.data(), static_cast<std::streamsize>(size));
@@ -274,8 +275,19 @@ Result<std::string> read_entry(std::ifstream& in, const stdfs::path& file, const
     in.read(header.data(), 30);
     if (!in || get32(header, 0) != 0x04034b50)
         return err(generic(file) + ": the entry " + name + " has a damaged header");
-    in.seekg(static_cast<std::streamoff>(e.offset) + 30 + get16(header, 26) + get16(header, 28));
-    std::string packed(e.compressedSize, '\0');
+    const std::uint64_t dataStart = e.offset + 30 + get16(header, 26) + get16(header, 28);
+    in.seekg(0, std::ios::end);
+    const std::uint64_t fileSize = in.good() ? static_cast<std::uint64_t>(in.tellg()) : 0;
+    // The size comes from the zip itself: it must fit in the file before a buffer of that size is made (a damaged or forged zip
+    // that asks for 4 GB gets an Error, never std::bad_alloc).
+    if (dataStart > fileSize || e.compressedSize > fileSize - dataStart)
+        return err(generic(file) + ": the entry " + name + " is cut short");
+    if (maxSize != 0 && e.method == 0 && e.compressedSize > maxSize)
+        return err(generic(file) + ": the entry " + name + " is " + std::to_string(e.compressedSize) +
+                   " bytes, more than the " + std::to_string(maxSize) + " this reads");
+    in.clear();
+    in.seekg(static_cast<std::streamoff>(dataStart));
+    std::string packed(static_cast<std::size_t>(e.compressedSize), '\0');
     in.read(packed.data(), static_cast<std::streamsize>(e.compressedSize));
     if (!in) return err(generic(file) + ": the entry " + name + " is cut short");
     std::string data;
@@ -312,11 +324,11 @@ ZipEntryInfo info_of(const CentralEntry& e) {
     i.compressedSize = e.compressedSize;
     i.directory = !e.name.empty() && e.name.back() == '/';
     i.encrypted = (e.flags & 1) != 0;
-    const bool unix =
+    const bool fromUnix =
         (e.madeBy >> 8) == 3;  // "made by" host 3: the high half of the external attributes is the st_mode
     const std::uint32_t mode = e.externalAttributes >> 16;
-    i.symlink = unix && (mode & 0170000) == 0120000;
-    i.special = unix && mode != 0 && (mode & 0170000) != 0100000 && (mode & 0170000) != 0040000 && !i.symlink;
+    i.symlink = fromUnix && (mode & 0170000) == 0120000;
+    i.special = fromUnix && mode != 0 && (mode & 0170000) != 0100000 && (mode & 0170000) != 0040000 && !i.symlink;
     return i;
 }
 

@@ -9,6 +9,7 @@
 #include <set>
 
 #include "export_internal.h"
+#include "examples_names.h"
 #include "export_zip.h"
 #include "fa/core/build_info.h"
 #include "fa/core/fs.h"
@@ -380,6 +381,7 @@ Result<std::vector<std::string>> example_zip_files(const stdfs::path& dir) {
         if (ec) return fail(ec, it->path());
         if (regular && !left_out_file(name)) out.push_back(utf8_relative(rel));
     }
+    if (ec) return fail(ec, root);  // an increment that failed leaves the iterator at its end: the list is not whole
     std::sort(out.begin(), out.end());
     return out;
 }
@@ -393,6 +395,14 @@ Result<void> package_example_zip(const stdfs::path& dir, const stdfs::path& zipF
     if (!listed.ok()) return listed.error();
     const std::vector<std::string>& files = *listed;
     if (files.empty()) return make_error(fs::path_to_utf8(dir) + " has no files to pack.", "Check the folder.");
+    // The names project.create unpacks (examples_names.h): a zip that every reader refuses is never written.
+    std::vector<ExampleEntryName> names;
+    for (const std::string& rel : files) names.push_back({rel, false});
+    if (auto bad = find_unsafe_example_entry(names))
+        return make_error(
+            "The file \"" + bad->name + "\" of " + fs::path_to_utf8(dir) + " cannot be packed: " + bad->reason + ".",
+            "Rename or delete it: project.create refuses a zip with a name like that, so a release with it would "
+            "give nobody the example.");
     stdfs::create_directories(fs::os_path(zipFile.parent_path()), ec);
     export_detail::ZipWriter zip(zipFile);
     for (const std::string& rel : files) {
@@ -442,6 +452,7 @@ Result<ExamplesManifest> package_examples(const stdfs::path& examplesDir, const 
         if (ec) return cannot_list(dit->path());
         if (hasProject) folders.insert(utf8_relative(dit->path().filename()));
     }
+    if (ec) return cannot_list(examplesDir);  // see example_zip_files: a failed increment ends the loop
     for (const ExampleInfo& e : *source) entries.insert(e.name);
     for (const std::string& f : folders)
         if (!entries.count(f))
@@ -452,7 +463,7 @@ Result<ExamplesManifest> package_examples(const stdfs::path& examplesDir, const 
     for (const std::string& n : entries)
         if (!folders.count(n))
             return make_error(fs::path_to_utf8(sourceFile) + " lists \"" + n + "\", but there is no project folder " +
-                                  fs::path_to_utf8(examplesDir / n) + ".",
+                                  fs::path_to_utf8(examplesDir / fs::path_from_utf8(n)) + ".",
                               "Remove the entry, or fix its name (" +
                                   did_you_mean(n, std::vector<std::string>(folders.begin(), folders.end())) + ").");
     for (const std::string& n : only)
@@ -473,8 +484,8 @@ Result<ExamplesManifest> package_examples(const stdfs::path& examplesDir, const 
     for (ExampleInfo e : sorted) {
         if (!only.empty() && std::find(only.begin(), only.end(), e.name) == only.end()) continue;
         e.file = e.name + ".zip";
-        const stdfs::path zip = outDir / e.file;
-        if (auto r = package_example_zip(examplesDir / e.name, zip); !r.ok()) return r.error();
+        const stdfs::path zip = outDir / fs::path_from_utf8(e.file);
+        if (auto r = package_example_zip(examplesDir / fs::path_from_utf8(e.name), zip); !r.ok()) return r.error();
         std::error_code e2;
         e.size = stdfs::file_size(fs::os_path(zip), e2);
         if (e2)

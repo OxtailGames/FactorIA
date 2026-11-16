@@ -9,11 +9,13 @@
 #include <map>
 #include <set>
 
+#include "examples_names.h"
 #include "export_zip.h"
 #include "fa/core/capability.h"
 #include "fa/core/command.h"
 #include "fa/core/fs.h"
 #include "fa/core/hash.h"
+#include "fa/core/process.h"
 #include "fa/tooling/examples.h"
 #include "fa/tooling/tooling.h"
 #include "fa_test_paths.h"  // FA_REPO_ROOT
@@ -42,7 +44,8 @@ struct Release {
         c.engineVersion = kVersion;
         c.download = [this](const DownloadRequest& rq) {
             DownloadResult r;
-            const std::string prefix = examples_asset_url(kVersion, "x.zip").substr(0, examples_asset_url(kVersion, "x.zip").size() - 5);
+            const std::string prefix =
+                examples_asset_url(kVersion, "x.zip").substr(0, examples_asset_url(kVersion, "x.zip").size() - 5);
             const std::string file = rq.url.rfind(prefix, 0) == 0 ? rq.url.substr(prefix.size()) : "";
             auto fail = [&](int status, const std::string& message) {
                 r.ok = false;
@@ -51,7 +54,8 @@ struct Release {
                 return r;
             };
             if (offline) return fail(0, "Cannot download " + rq.what + ": cannot resolve the address github.com.");
-            if (file.empty() || hidden.count(file) || !stdfs::exists(assets.path / file)) return fail(404, "HTTP 404 for " + rq.url);
+            if (file.empty() || hidden.count(file) || !stdfs::exists(assets.path / file))
+                return fail(404, "HTTP 404 for " + rq.url);
             (file == kExamplesManifestFile ? manifestDownloads : zipDownloads)++;
             const stdfs::path dest = fs::path_from_utf8(rq.destination);
             std::error_code ec;
@@ -73,10 +77,15 @@ struct Release {
         REQUIRE_FALSE(bytes.empty());
         stdfs::create_directories(assets.path);
         write_all(assets.path / (name + ".zip"), bytes);
-        Json m = Json::object({{"format", kExamplesManifestFormat}, {"engineVersion", kVersion},
-                               {"examples", Json::array({Json::object({{"name", name}, {"title", "Evil"}, {"shows", "A test."},
-                                                                       {"readFirst", Json::array()}, {"file", name + ".zip"},
-                                                                       {"size", bytes.size()}, {"sha256", sha256_hex(bytes)}})})}});
+        Json m = Json::object({{"format", kExamplesManifestFormat},
+                               {"engineVersion", kVersion},
+                               {"examples", Json::array({Json::object({{"name", name},
+                                                                       {"title", "Evil"},
+                                                                       {"shows", "A test."},
+                                                                       {"readFirst", Json::array()},
+                                                                       {"file", name + ".zip"},
+                                                                       {"size", bytes.size()},
+                                                                       {"sha256", sha256_hex(bytes)}})})}});
         write_all(assets.path / kExamplesManifestFile, m.dump(2));
     }
 };
@@ -87,7 +96,8 @@ void make_source(const TempDir& d) {
       {"name":"beta","title":"Beta","shows":"The second.","readFirst":[]}]})");
     for (const char* n : {"alpha", "beta"}) {
         const stdfs::path p = d.path / n;
-        write_all(p / "factoria.json", std::string(R"({"format":"factoria.project/1","id":"com.test.)") + n + R"(","name":")" + n + R"("})");
+        write_all(p / "factoria.json",
+                  std::string(R"({"format":"factoria.project/1","id":"com.test.)") + n + R"(","name":")" + n + R"("})");
         write_all(p / "scripts/main.js", std::string("// ") + n + "\n");
         write_all(p / "assets/pic.bin", std::string("\x89PNG\0\1\2\3", 8));
         write_all(p / ".factoria/cache/x.bin", "cache");
@@ -95,8 +105,8 @@ void make_source(const TempDir& d) {
 }
 
 // A zip made of `entries` (name, data), stored, in that order.
-stdfs::path make_zip(const TempDir& d, const std::string& file, const std::vector<std::pair<std::string, std::string>>& entries,
-                     bool deflate = false) {
+stdfs::path make_zip(const TempDir& d, const std::string& file,
+                     const std::vector<std::pair<std::string, std::string>>& entries, bool deflate = false) {
     const stdfs::path zip = d.path / file;
     export_detail::ZipWriter w(zip);
     for (const auto& [name, data] : entries) REQUIRE(w.add(name, data, deflate).ok());
@@ -214,7 +224,8 @@ TEST_CASE("examples download: listing the examples of a release") {
     }
     SUBCASE("a manifest that does not parse falls back to the copy and names the pointer") {
         REQUIRE(list_examples(rel.ctx()).ok());
-        write_all(rel.assets.path / kExamplesManifestFile, R"({"format":"factoria.examples/2","engineVersion":"0.30.0","examples":[]})");
+        write_all(rel.assets.path / kExamplesManifestFile,
+                  R"({"format":"factoria.examples/2","engineVersion":"0.30.0","examples":[]})");
         auto l = list_examples(rel.ctx());
         REQUIRE(l.ok());
         CHECK(l->stale);
@@ -428,7 +439,8 @@ TEST_CASE("examples download: a zip with an unsafe entry is refused before anyth
         {{{"factoria.json", project}, {"tab\there.txt", "x"}}, "control character"},
         {{{"factoria.json", project}, {"bad\xff.txt", "x"}}, "UTF-8"},
         {{{"factoria.json", project}, {"Readme.md", "x"}, {"README.md", "y"}}, "differs only in capitals"},
-        {{{"factoria.json", project}, {"scripts/a.js", "x"}, {"Scripts/B.js", "y"}, {"SCRIPTS/a.JS", "z"}}, "differs only in capitals"},
+        {{{"factoria.json", project}, {"scripts/a.js", "x"}, {"Scripts/B.js", "y"}, {"SCRIPTS/a.JS", "z"}},
+         "differs only in capitals"},
         {{{"factoria.json", project}, {"x.txt", "x"}, {"x.txt", "y"}}, "twice"},
         {{{"factoria.json", project}, {"a", "x"}, {"A/b.txt", "y"}}, "also a file"},
         {{{"factoria.json", project}, {"a/b.txt", "x"}, {"A", "y"}}, "also a folder"},
@@ -452,8 +464,11 @@ TEST_CASE("examples download: a zip with an unsafe entry is refused before anyth
 
     SUBCASE("the good one, with folders and deflated entries") {
         const stdfs::path zip = make_zip(work, "ok.zip",
-                                         {{"factoria.json", project}, {"scripts/", ""}, {"scripts/a.js", std::string(2000, 'a')},
-                                          {"Scripts2/b.js", "b"}, {"empty.txt", ""}},
+                                         {{"factoria.json", project},
+                                          {"scripts/", ""},
+                                          {"scripts/a.js", std::string(2000, 'a')},
+                                          {"Scripts2/b.js", "b"},
+                                          {"empty.txt", ""}},
                                          true);
         auto r = extract_example_zip(zip, work.path / "ok");
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : msg(r.error())));
@@ -462,7 +477,8 @@ TEST_CASE("examples download: a zip with an unsafe entry is refused before anyth
         CHECK(stdfs::exists(work.path / "ok/empty.txt"));
     }
     SUBCASE("limits") {
-        const stdfs::path zip = make_zip(work, "lim.zip", {{"factoria.json", project}, {"a.txt", std::string(50, 'a')}, {"b.txt", "0123456789"}});
+        const stdfs::path zip = make_zip(
+            work, "lim.zip", {{"factoria.json", project}, {"a.txt", std::string(50, 'a')}, {"b.txt", "0123456789"}});
         ExampleExtractLimits few;
         few.maxEntries = 2;
         CHECK(has(extract_example_zip(zip, work.path / "l1", few).error().message, "3 entries"));
@@ -503,7 +519,8 @@ TEST_CASE("examples download: an evil zip the release vouches for creates nothin
     }
     SUBCASE("a failure half way (a damaged entry) leaves no folder and no staging folder") {
         const std::string payload(64, 'Z');
-        const stdfs::path src = make_zip(work, "half-src.zip", {{"factoria.json", project}, {"a.txt", "first"}, {"z.bin", payload}});
+        const stdfs::path src =
+            make_zip(work, "half-src.zip", {{"factoria.json", project}, {"a.txt", "first"}, {"z.bin", payload}});
         std::string bytes = read_all(src);
         const auto at = bytes.find(payload);
         REQUIRE(at != std::string::npos);
@@ -516,7 +533,8 @@ TEST_CASE("examples download: an evil zip the release vouches for creates nothin
         REQUIRE_FALSE(r.ok());
         CHECK(has(r.error().message, "CRC-32"));
         CHECK_FALSE(stdfs::exists(game));
-        CHECK(names_in(work.path / "sub").empty());  // the hidden staging folder is gone
+        CHECK_FALSE(stdfs::exists(work.path /
+                                  "sub"));  // the hidden staging folder is gone, and so is the parent this call made
         CHECK(names_in(examples_cache_dir(rel.ctx())) == std::vector<std::string>{kExamplesManifestFile});
         // An empty folder the caller gave stays an empty folder.
         stdfs::create_directories(game);
@@ -597,5 +615,210 @@ TEST_CASE("examples download: the commands project.examples and project.create {
             CHECK(e.code == "capability_denied");
         }
         CHECK_FALSE(stdfs::exists(work.path / "g2"));
+    }
+}
+
+namespace {
+// Puts the working directory back when it goes (a test that changes it must not leave the process in a folder that is removed).
+struct CwdGuard {
+    stdfs::path old = stdfs::current_path();
+    ~CwdGuard() {
+        std::error_code ec;
+        stdfs::current_path(old, ec);
+    }
+};
+}  // namespace
+
+TEST_CASE("examples download: an existing empty folder is filled, never replaced") {
+    TempDir src, work;
+    make_source(src);
+    Release rel;
+    rel.pack(src.path);
+
+    SUBCASE("the working directory of the process (the AI passes \".\" in an empty folder)") {
+        const stdfs::path dir = work.path / "empty-cwd";
+        stdfs::create_directories(dir);
+        CwdGuard guard;
+        stdfs::current_path(dir);
+        auto r = create_example_project(rel.ctx(), "alpha", ".");
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : msg(r.error())));
+        // The process is still in the same folder: a path relative to it finds the project (a removed and re-made folder
+        // would leave it in a folder that no longer has a name on macOS and Linux, and fails on Windows).
+        std::error_code ec;
+        CHECK(stdfs::exists("factoria.json", ec));
+        CHECK(read_all("scripts/main.js") == "// alpha\n");
+        CHECK(stdfs::equivalent(stdfs::current_path(), dir, ec));
+        CHECK(r->files == std::vector<std::string>{"assets/pic.bin", "factoria.json", "scripts/main.js"});
+        // Nothing else is beside it: the hidden folder is gone.
+        CHECK(names_in(work.path) == std::vector<std::string>{"empty-cwd"});
+    }
+    SUBCASE("a name with accents and CJK characters (no trip through the ANSI code page)") {
+        const stdfs::path dir =
+            work.path / stdfs::path(u8"ejemplo-\u00f1-\u65e5\u672c") / stdfs::path(u8"juego-\u00f1");
+        auto r = create_example_project(rel.ctx(), "beta", fs::path_to_utf8(dir));
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : msg(r.error())));
+        CHECK(read_all(dir / "scripts/main.js") == "// beta\n");
+        CHECK(names_in(dir.parent_path()) == std::vector<std::string>{dir.filename().string()});
+        // The same name as an existing empty folder.
+        const stdfs::path empty = work.path / stdfs::path(u8"vac\u00edo-\u65e5\u672c");
+        stdfs::create_directories(empty);
+        REQUIRE(create_example_project(rel.ctx(), "alpha", fs::path_to_utf8(empty)).ok());
+        CHECK(stdfs::exists(empty / "factoria.json"));
+    }
+#ifndef _WIN32
+    SUBCASE("a symbolic link to an empty folder: the project goes inside the target and the link stays") {
+        const stdfs::path target = work.path / "real-empty", link = work.path / "link";
+        stdfs::create_directories(target);
+        std::error_code ec;
+        stdfs::create_directory_symlink(target, link, ec);
+        REQUIRE_FALSE(ec);
+        auto r = create_example_project(rel.ctx(), "alpha", fs::path_to_utf8(link));
+        REQUIRE_MESSAGE(r.ok(), (r.ok() ? std::string() : msg(r.error())));
+        CHECK(stdfs::is_symlink(link));
+        CHECK(read_all(target / "scripts/main.js") == "// alpha\n");
+    }
+    SUBCASE("a symbolic link to nothing is refused and kept") {
+        const stdfs::path link = work.path / "dangling";
+        std::error_code ec;
+        stdfs::create_directory_symlink(work.path / "nowhere", link, ec);
+        REQUIRE_FALSE(ec);
+        auto r = create_example_project(rel.ctx(), "alpha", fs::path_to_utf8(link));
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "points to nothing"));
+        CHECK_FALSE(r.error().hint.empty());
+        CHECK(stdfs::is_symlink(link));
+        CHECK(rel.manifestDownloads == 0);
+    }
+#endif
+    SUBCASE("a file where the folder should be has a hint") {
+        write_all(work.path / "afile", "x");
+        auto r = create_example_project(rel.ctx(), "alpha", fs::path_to_utf8(work.path / "afile"));
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "is not a directory"));
+        CHECK_FALSE(r.error().hint.empty());
+    }
+    SUBCASE("a failure removes the parent folders this call made, and only those") {
+        // A zip with a damaged entry: the call fails after the parents were made.
+        const std::string project = R"({"format":"factoria.project/1"})";
+        const stdfs::path bad =
+            make_zip(src, "bad-parents.zip", {{"factoria.json", project}, {"z.bin", std::string(64, 'Z')}});
+        std::string bytes = read_all(bad);
+        bytes[bytes.find(std::string(64, 'Z')) + 3] = 'Y';
+        write_all(bad, bytes);
+        Release evil;
+        evil.publish_zip("evil", bad);
+        stdfs::create_directories(work.path / "keep");
+        auto r = create_example_project(evil.ctx(), "evil", fs::path_to_utf8(work.path / "keep" / "a" / "b" / "game"));
+        REQUIRE_FALSE(r.ok());
+        CHECK_FALSE(stdfs::exists(work.path / "keep" / "a"));
+        CHECK(stdfs::exists(work.path / "keep"));
+    }
+}
+
+TEST_CASE("examples download: cancelling leaves nothing") {
+    TempDir src, work;
+    make_source(src);
+    Release rel;
+    rel.pack(src.path);
+    CancelFlag cancel{false};
+
+    SUBCASE("after the download, before anything is unpacked") {
+        SetupContext c = rel.ctx();
+        auto inner = c.download;
+        c.cancel = &cancel;
+        c.download = [&, inner](const DownloadRequest& rq) {
+            auto r = inner(rq);
+            if (rq.url.size() > 4 && rq.url.compare(rq.url.size() - 4, 4, ".zip") == 0) cancel = true;
+            return r;
+        };
+        const stdfs::path dir = work.path / "sub" / "game";
+        auto r = create_example_project(c, "alpha", fs::path_to_utf8(dir));
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "cancelled"));
+        CHECK_FALSE(stdfs::exists(work.path / "sub"));
+        CHECK(names_in(examples_cache_dir(c)) == std::vector<std::string>{kExamplesManifestFile});
+    }
+    SUBCASE("the unpacking looks at the flag before it writes") {
+        const stdfs::path zip = rel.assets.path / "alpha.zip";
+        cancel = true;
+        auto r = extract_example_zip(zip, work.path / "out", {}, &cancel);
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "cancelled"));
+        CHECK_FALSE(stdfs::exists(work.path / "out"));
+        cancel = false;
+        CHECK(extract_example_zip(zip, work.path / "out", {}, &cancel).ok());
+    }
+}
+
+TEST_CASE("examples download: the zip's own sizes are checked before a buffer is made") {
+    TempDir work;
+    const std::string project = R"({"format":"factoria.project/1"})";
+    const stdfs::path zip = make_zip(work, "forged.zip", {{"factoria.json", project}, {"a.txt", "0123456789"}});
+    std::string bytes = read_all(zip);
+    // Central directory entry of a.txt: signature PK\1\2, "compressed size" at +20.
+    const std::size_t at = bytes.rfind(std::string("PK\1\2", 4));
+    REQUIRE(at != std::string::npos);
+    bytes[at + 20] = '\xF0';
+    bytes[at + 21] = '\xFF';
+    bytes[at + 22] = '\xFF';
+    bytes[at + 23] = '\xFF';  // about 4 GB
+    write_all(zip, bytes);
+    auto r = extract_example_zip(zip, work.path / "out");
+    REQUIRE_FALSE(r.ok());  // an Error, not std::bad_alloc
+    CHECK(has(r.error().message, "cut short"));
+    CHECK_FALSE(r.error().hint.empty());
+    auto one = export_detail::zip_read_entry(zip, "a.txt");
+    REQUIRE_FALSE(one.ok());
+    CHECK(has(one.error().message, "cut short"));
+    auto limited = export_detail::zip_read_entry(zip, "a.txt", 100);
+    REQUIRE_FALSE(limited.ok());
+}
+
+TEST_CASE("examples download: capitals are folded for ASCII and Latin-1") {
+    TempDir work;
+    const std::string project = R"({"format":"factoria.project/1"})";
+    const stdfs::path zip =
+        make_zip(work, "latin.zip",
+                 {{"factoria.json", project}, {"\xC3\x89t\xC3\xA9.txt", "x"}, {"\xC3\xA9T\xC3\x89.txt", "y"}});
+    auto r = extract_example_zip(zip, work.path / "out");
+    REQUIRE_FALSE(r.ok());
+    CHECK(has(r.error().message, "differs only in capitals"));
+    CHECK(find_unsafe_example_entry({{"a/B.txt", false}, {"A/c.txt", false}}).has_value() ==
+          false);  // folders, not files
+    CHECK(find_unsafe_example_entry({{"a/B.txt", false}, {"a/b.TXT", false}}).has_value());
+    CHECK_FALSE(find_unsafe_example_entry({{"\xC3\x97.txt", false}, {"\xC3\xB7.txt", false}})
+                    .has_value());  // x and the division sign are no pair
+}
+
+TEST_CASE("examples download: the packer refuses names that the unpacker refuses") {
+    TempDir work;
+    write_all(work.path / "p/factoria.json", R"({"format":"factoria.project/1"})");
+    write_all(work.path / "p/ok.txt", "x");
+    SUBCASE("a Windows device name") {
+        write_all(work.path / "p/con.txt", "x");
+        auto r = package_example_zip(work.path / "p", work.path / "p.zip");
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "con.txt"));
+        CHECK(has(r.error().message, "Windows device"));
+        CHECK(has(r.error().hint, "project.create"));
+        CHECK_FALSE(stdfs::exists(work.path / "p.zip"));
+    }
+    SUBCASE("a character Windows does not allow") {
+        write_all(work.path / "p/what?.txt", "x");
+        auto r = package_example_zip(work.path / "p", work.path / "p.zip");
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "Windows does not allow"));
+    }
+    SUBCASE("a name that is too long") {
+        write_all(work.path / ("p/" + std::string(200, 'a') + "/" + std::string(60, 'b') + ".txt"), "x");
+        auto r = package_example_zip(work.path / "p", work.path / "p.zip");
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "240 bytes"));
+    }
+    SUBCASE("a good folder packs and unpacks") {
+        REQUIRE(package_example_zip(work.path / "p", work.path / "p.zip").ok());
+        auto r = extract_example_zip(work.path / "p.zip", work.path / "out");
+        REQUIRE(r.ok());
+        CHECK(*r == std::vector<std::string>{"factoria.json", "ok.txt"});
     }
 }
