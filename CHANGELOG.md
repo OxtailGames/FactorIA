@@ -29,15 +29,16 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   packer refuses shows in the pull request that adds it and not in the release run (the release workflow still starts only for
   a change of itself or the packer).
 - **Last polish (M98):** `Audio::close_device()` now runs the commands still waiting for the device before it returns, so a
-  later command cannot overtake an older one (only `shutdown()` is expected after it). Android: the answer of a slot whose
-  pad is gone is kept until the stop of a rumble that was playing has reached the vibrator, also when the slot is asked again
-  first. Linux: a node that vanished says "plug the pad in again" as a pad with no node does. Web: the pad list of the rumble
-  functions is refreshed by one shared helper. Web: the hidden input of a phone keyboard with no IME has `autocomplete="off"` (Safari no longer offers "Use strong password"
-  over the game). Android: with a burst of input filling the IME queue the Back button is still delivered. A scene or component
-  patch (`scene.set_component`, a script's `entity.add` / `entity.set`) that fails on one field still logs the deprecation
-  warning of another field it had taken (it was lost); the warning line of a patch shows its location and hint as a script spawn's does. Tests and docs only: the long hex vectors of the crypto tests wrapped at 64 digits,
-  the camera-under-a-blended-parent and Parallax bounds cases of the interpolation tests, `close_device` without a device,
-  the rewrapped IME paragraphs of TEXT.md and the interpolation paragraphs of PERFORMANCE_AREAS.md.
+  later command cannot overtake an older one (only `shutdown()` is expected after it). Android: the answer of a slot whose pad
+  is gone is kept until the stop of a rumble that was playing has reached the vibrator, also when the slot is asked again first.
+  Linux: a node that vanished says "plug the pad in again" as a pad with no node does. Web: the pad list of the rumble functions
+  is refreshed by one shared helper. Web: the hidden input of a phone keyboard with no IME has `autocomplete="off"` (Safari no
+  longer offers "Use strong password" over the game). Android: with a burst of input filling the IME queue the Back button is
+  still delivered. A scene or component patch (`scene.set_component`, a script's `entity.add` / `entity.set`) that fails on one
+  field still logs the deprecation warning of another field it had taken (it was lost); the warning line of a patch shows its
+  location and hint as a script spawn's does. Tests and docs only: the long hex vectors of the crypto tests wrapped at 64
+  digits, the camera-under-a-blended-parent and Parallax bounds cases of the interpolation tests, `close_device` without a
+  device, the rewrapped IME paragraphs of TEXT.md and the interpolation paragraphs of PERFORMANCE_AREAS.md.
 - **Docs tests (M97.4):** every ```` ```js ```` block of `docs/` (the design docs too) is parsed with the engine's QuickJS
   and its `root.member` names (`world.`, `ui.`, `tween.`, `Vec2.`...) are checked against the generated script typings
   (`tools/common/tests/docs_js_test.cpp`); a failure names the file and line and suggests the closest name. A block that is

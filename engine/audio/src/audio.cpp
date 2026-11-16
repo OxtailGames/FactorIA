@@ -1665,7 +1665,8 @@ void Audio::close_device() {
     im.device = false;  // shutdown() later finds it closed, and every command runs at once on this thread
     // What was staged or in the ring before the close runs first, so a command sent after it cannot overtake an older one
     // (send() applies at once without a device and assumes the ring is empty). sync_fill stays as it was: the music
-    // service still decodes on its own thread.
+    // service still decodes on its own thread. settle() may run with the music service alive: it only reads what the
+    // mixer has already published.
     im.settle();
 }
 
