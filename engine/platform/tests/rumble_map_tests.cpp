@@ -1,6 +1,7 @@
 // The rumble numbers of the Linux, Android and Apple backends (pure helpers; the backends themselves need a pad).
 #include <doctest.h>
 
+#include <initializer_list>
 #include <limits>
 
 #include "fa/platform/gamepad_rumble_map.h"

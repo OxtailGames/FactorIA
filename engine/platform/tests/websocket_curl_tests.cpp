@@ -50,7 +50,7 @@ std::unique_ptr<WebSocketClient> curl_client() {
         CHECK_FALSE(ws.error().hint.empty());
 #if defined(__linux__) && !defined(__ANDROID__)
         const char* allow = std::getenv("FA_ALLOW_NO_CURL");
-        CHECK_MESSAGE(allow != nullptr && allow[0] != '\0' && allow[0] != '0',
+        CHECK_MESSAGE((allow != nullptr && allow[0] != '\0' && allow[0] != '0'),
                       "libcurl cannot be loaded on this Linux machine (" << client->unavailable_reason()
                                                                          << "); install libcurl 7.45 or newer, or set "
                                                                             "FA_ALLOW_NO_CURL=1 to skip these cases");
