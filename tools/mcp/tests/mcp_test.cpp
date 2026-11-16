@@ -661,7 +661,8 @@ TEST_CASE("mcp: tool calls through the real tooling commands") {
 TEST_CASE("mcp: resources list and read") {
     Fixture f;
     {
-        std::ofstream(f.tmp.path / "factoria.json") << R"({"format":"factoria.project/1","name":"T"})";
+        std::ofstream(f.tmp.path / "factoria.json")
+            << R"({"format":"factoria.project/1","name":"T","storage":{"encryptionSecret":"0123456789abcdef0123456789abcdef"}})";
         std::ofstream(f.tmp.path / "ENGINE_FEEDBACK.json")
             << R"({"format":"factoria.feedback/1","project":"T","entries":[]})";
     }
@@ -683,6 +684,10 @@ TEST_CASE("mcp: resources list and read") {
     Json proj = f.rpc("resources/read", {{"uri", "factoria://project/factoria.json"}});
     CHECK(proj["result"]["contents"][0]["mimeType"] == "application/json");
     CHECK(Json::parse(proj["result"]["contents"][0]["text"].get<std::string>())["name"] == "T");
+    CHECK(proj["result"]["contents"][0]["text"].get<std::string>().find("0123456789abcdef") ==
+          std::string::npos);  // the saves' secret
+    CHECK(Json::parse(proj["result"]["contents"][0]["text"].get<std::string>())["storage"]["encryptionSecret"] ==
+          "(hidden)");
 
     Json missing = f.rpc("resources/read", {{"uri", "factoria://docs/NOPE.md"}});
     CHECK(missing["error"]["code"] == -32002);

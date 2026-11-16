@@ -11,6 +11,21 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   outlined; the gizmo moves, rotates and scales all of them about the primary as one Undo step; Delete, Duplicate and
   drag-to-reparent act on the whole selection; the Inspector shows the components all of them share ("—" where values
   differ) and an edit writes to all of them as one Undo step. The AI context lists the other selected ids.
+- **Encrypted saves and slot versions (M98.1):** `storage.set(key, value, {encrypt: true})` (and `setAsync`, with or without
+  `compress`) seals the key's file with ChaCha20-Poly1305 under a key derived from a per-project secret
+  (`factoria.json` `storage.encryptionSecret`, created once with the new command `project.create_storage_secret`; a project
+  without it gets a teaching error, and `project.info` / `game.project` show the secret as `"(hidden)"`). `storage.get` opens
+  a sealed value transparently; one that fails authentication is kept aside like a damaged file (`storage.corrupt`). It is
+  tamper-evidence, not secrecy: the secret ships with the game (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). A plain
+  file is still read by default (a game can turn encryption on later), so a player could replace a sealed file with a hand-written
+  one: `storage.get(key, fallback, {encrypted: true})` refuses it (kept aside, `storage.corrupt`), and `storage.isEncrypted(key)`
+  tells which values are sealed. The secret is shown as `"(hidden)"` by `fs.read` / `fs.search` of `factoria.json` (and of a
+  checkpoint's copies), `checkpoint.read` (which refuses `out` for that file), the MCP resource and the AI prompt, so those
+  channels do not hand it to a model; it is masking per channel, not a guarantee (the secret is in the repository).
+  `storage.list` reports `encrypted` per key. The Slots kit writes a `version` in every record (option `version`), calls
+  `upgrade(data, fromVersion)` with it (bare saves and old records are version 0), refuses a record from a newer version, and has
+  an `encrypt` option and a `requireEncrypted` one (a slot that is not sealed is damaged); its tests and the CLI fixture copies are updated.
+
 - **Render interpolation (M98.3):** `"render": { "interpolation": true }` in `factoria.json` (default `false`, so nothing
   changes for a game that does not ask) draws entities at the pose between the last two fixed steps, so a 60 Hz simulation
   looks smooth at 120-144 Hz. Only the drawing is blended (position, scale, rotation by slerp; children, cameras and physics

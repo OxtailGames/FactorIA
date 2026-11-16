@@ -48,7 +48,7 @@ Read one file as it was at a checkpoint (text inline; a binary as base64 or into
 
 Capabilities: read
 
-Returns the content `path` (project-relative, forward slashes) had at checkpoint `id`, so you can compare or copy one old file without checkpoint.restore touching the rest of the project. Text (valid UTF-8, no NUL bytes) comes back in `text` when it is at most 262144 bytes. A binary comes back as `base64` when it is at most 262144 bytes. Anything bigger, and any file when you pass `out`, is written to the project-relative path `out` instead (the folders are created, an existing file there is overwritten) and only {path, size, binary, out} is returned. `out` stays inside the project and cannot start with '.' folders or go through '..' (not into .factoria). Errors: an unknown id or a path the checkpoint does not hold fails with a "did you mean". Returns {id, path, size, binary, text | base64 | out}. Example: {"id":"20261022-153012-7","path":"scripts/player.js"}.
+Returns the content `path` (project-relative, forward slashes) had at checkpoint `id`, so you can compare or copy one old file without checkpoint.restore touching the rest of the project. Text (valid UTF-8, no NUL bytes) comes back in `text` when it is at most 262144 bytes. A binary comes back as `base64` when it is at most 262144 bytes. Anything bigger, and any file when you pass `out`, is written to the project-relative path `out` instead (the folders are created, an existing file there is overwritten) and only {path, size, binary, out} is returned. `out` stays inside the project and cannot start with '.' folders or go through '..' (not into .factoria). Errors: an unknown id or a path the checkpoint does not hold fails with a "did you mean". factoria.json is returned with the value of storage.encryptionSecret shown as "(hidden)" and cannot be copied with `out` (checkpoint.restore brings the real file back). Returns {id, path, size, binary, text | base64 | out}. Example: {"id":"20261022-153012-7","path":"scripts/player.js"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -202,6 +202,20 @@ Creates `dir` (relative to the server's working directory unless absolute) with 
 | `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default "2d-empty". |
 | `name` | string | no | Display name (default: folder name). |
 | `id` | string | no | Reverse-DNS id, e.g. com.example.mygame. |
+
+## `project.create_storage_secret` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+Create the random secret that makes storage.set(..., {encrypt: true}) work, in factoria.json.
+
+Capabilities: read, state, writeProject
+
+Writes "storage": {"encryptionSecret": <64 random hex characters>} into factoria.json, once. Save encryption (storage.set(key, value, {encrypt: true}), the Slots kit's `encrypt` option) derives one key per storage key from it, so run this before the game's first encrypted save and keep the secret for the life of the game: saves written with another secret cannot be opened (they are set aside as damaged files). A project that already has one is left alone (`created: false`) unless `replace` is true, which makes every encrypted save written so far unreadable. The secret is never returned or logged; it ships inside the exported game, so encryption is tamper-evidence, not secrecy from a determined player (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). Commit factoria.json. Result: {created, replaced, file}. Example: project.create_storage_secret {}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `replace` | boolean | no | Make a new secret even when the project has one. Every save written with {encrypt: true} so far stops opening: use it only when the secret leaked and the saves can be lost. Default false. |
 
 ## `project.export` (modifies state)
 

@@ -7,6 +7,7 @@
 #include "fa/ai/session.h"
 #include "fa/ai/skills.h"
 #include "fa/core/strings.h"
+#include "fa/tooling/project_fs.h"
 #include "fa/tooling/skills.h"
 #include "util.h"
 
@@ -430,7 +431,8 @@ std::string build_system_prompt(const PromptContext& ctx) {
     } else {
         fsys::path root(ctx.projectDir);
         out += "Project directory: " + root.string() + "\n";
-        std::string manifest = read_head(root / "factoria.json", 4000);
+        std::string manifest =
+            mask_project_secrets(read_head(root / "factoria.json", 4000));  // the saves' secret stays out of the prompt
         if (!manifest.empty()) out += "\nfactoria.json:\n```json\n" + manifest + "\n```\n";
         out += "\nFiles:\n" + file_listing(root, 150);
         out += "\n" + feedback_summary(root) + "\n";

@@ -70,7 +70,7 @@ test("a record: counter, name, chapter, play time, picture and data; the counter
   expect([a.counter, b.counter]).toEqual([1, 2]);
   const p = slots.peek(1);
   expect(p.status).toBe("used");
-  expect(p.record).toEqual({ counter: 1, name: "Before the cellar", chapter: 2, playTime: 70, pic: PNG, data: { level: 2, gold: 5, seconds: 70 } });
+  expect(p.record).toEqual({ version: 0, counter: 1, name: "Before the cellar", chapter: 2, playTime: 70, pic: PNG, data: { level: 2, gold: 5, seconds: 70 } });
   expect(slots.peek(2).record.pic).toBe(null);
   expect(slots.last()).toBe(2);
   slots.remove(2);
@@ -87,7 +87,7 @@ test("a bare save is read as a record without a name; text that is not a save da
   storage.set("slot1", JSON.stringify({ level: 4, gold: 1, seconds: 125 })); // no "data" field: the game's save as it is
   const bare = slots.peek(1);
   expect(bare.status).toBe("used");
-  expect(bare.record).toEqual({ counter: 0, name: "", chapter: 4, playTime: 125, pic: null, data: { level: 4, gold: 1, seconds: 125 } });
+  expect(bare.record).toEqual({ version: 0, counter: 0, name: "", chapter: 4, playTime: 125, pic: null, data: { level: 4, gold: 1, seconds: 125 } });
   storage.set("slot2", "{ not json");
   storage.set("slot3", "[1, 2]");
   storage.set("slot4", JSON.stringify({ counter: 3, name: "x", data: { old: true } }));
@@ -100,6 +100,143 @@ test("a bare save is read as a record without a name; text that is not a save da
   expect(slots.peek(4).reason).toBe("this save is from an older version");
   expect(slots.parse("{ not json").ok).toBe(false);
   expect(slots.nextCounter()).toBe(1); // counters of readable slots only: the damaged slot 4 (counter 3) does not count
+});
+
+test("the version: a record carries it, upgrade gets the version it was written with, a newer save is refused", () => {
+  clean();
+  const seen = [];
+  const slots = new Slots({
+    version: 2,
+    upgrade: (data, from) => {
+      seen.push(from);
+      let d = data;
+      if (from < 1) d = { ...d, gold: d.coins ?? 0 }; // version 0 called it "coins"
+      if (from < 2) d = { ...d, items: d.items ?? [] };
+      return { ok: true, data: d };
+    },
+  });
+  expect(slots.version).toBe(2);
+  const written = slots.write(1, { data: { gold: 7, items: ["key"] } });
+  expect(written.version).toBe(2);
+  expect(JSON.parse(storage.get("slot1")).version).toBe(2);
+  expect(slots.peek(1).record.data).toEqual({ gold: 7, items: ["key"] });
+  expect(seen).toEqual([2]); // the peek: the record's own version
+  seen.length = 0;
+  storage.set("slot2", JSON.stringify({ counter: 1, name: "old record", data: { coins: 4 } })); // before the version field: version 0
+  storage.set("slot3", JSON.stringify({ coins: 9 })); // a bare save: version 0
+  storage.set("slot4", JSON.stringify({ version: 1, counter: 2, data: { gold: 3 } }));
+  expect(slots.peek(2).record).toMatchObject({ version: 2, data: { coins: 4, gold: 4, items: [] } });
+  expect(slots.peek(3).record.data).toEqual({ coins: 9, gold: 9, items: [] });
+  expect(slots.peek(4).record.data).toEqual({ gold: 3, items: [] });
+  expect(seen).toEqual([0, 0, 1]);
+  storage.set("slot5", JSON.stringify({ version: 3, counter: 5, data: { gold: 1 } })); // written by a build of the game that is newer than this one
+  const newer = slots.peek(5);
+  expect(newer.status).toBe("damaged");
+  expect(newer.reason).toContain("newer version");
+  expect(newer.hint).toContain("Update the game");
+  storage.set("slot1", JSON.stringify({ version: "2", counter: 1, data: { gold: 1 } })); // a version that is not a number is damage, not 0
+  expect(slots.peek(1).status).toBe("damaged");
+  expect(slots.peek(1).reason).toContain("version");
+  storage.set("slot1", JSON.stringify({ version: -1, counter: 1, data: { gold: 1 } }));
+  expect(slots.peek(1).status).toBe("damaged");
+  expect(() => new Slots({ version: -1 })).toThrow("version must be a whole number");
+  expect(() => new Slots({ version: 1.5 })).toThrow("version must be a whole number");
+  expect(() => new Slots({ encrypt: "yes" })).toThrow("encrypt must be true or false");
+});
+
+test("the version: a game without one writes 0 and upgrade still gets (data, 0)", () => {
+  clean();
+  const froms = [];
+  const slots = new Slots({ upgrade: (data, from) => (froms.push(from), { ok: true, data }) });
+  slots.write(1, { data: { a: 1 } });
+  expect(slots.version).toBe(0);
+  expect(JSON.parse(storage.get("slot1")).version).toBe(0);
+  froms.length = 0;
+  expect(slots.peek(1).status).toBe("used");
+  expect(froms).toEqual([0]);
+});
+
+// Whether this project has a storage secret (the CLI fixture has one; a new game has none until `factoria call project.create_storage_secret`).
+function hasSecret() {
+  try {
+    storage.set("probe.secret", 1, { encrypt: true });
+    storage.remove("probe.secret");
+    return true;
+  } catch (e) {
+    expect(e.message).toContain("project.create_storage_secret");
+    return false;
+  }
+}
+
+test("encrypt (the project has a secret): every slot is written sealed, the counters stay plain, a plain slot written before is still read", async () => {
+  clean();
+  if (!hasSecret()) return; // the next test covers a project without one
+  const real = storage.set;
+  const calls = [];
+  storage.set = (key, value, options) => (calls.push({ key, options }), real.call(storage, key, value, options));
+  try {
+    new Slots().write(1, { data: { gold: 1 } });
+    expect(calls.find((c) => c.key === "slot1").options).toBe(undefined);
+    expect(storage.isEncrypted("slot1")).toBe(false);
+    calls.length = 0;
+    const sealed = new Slots({ encrypt: true });
+    expect(sealed.encrypt).toBe(true);
+    sealed.write(2, { data: { gold: 2 }, name: "Sealed" });
+    expect(calls.find((c) => c.key === "slot2").options).toEqual({ encrypt: true });
+    expect(calls.find((c) => c.key === "saveCounter").options).toBe(undefined);
+    expect(storage.isEncrypted("slot2")).toBe(true);
+    expect(storage.isEncrypted("saveCounter")).toBe(false);
+    expect(sealed.peek(2).record).toMatchObject({ name: "Sealed", data: { gold: 2 } });
+    // The plain slot written before encrypt was turned on is still read, and sealed the next time it is written.
+    expect(sealed.peek(1).status).toBe("used");
+    sealed.write(1, { data: { gold: 11 } });
+    expect(storage.isEncrypted("slot1")).toBe(true);
+    // A cloud copy that wins is stored sealed too.
+    await platform.cloud.save("slot4", JSON.stringify({ counter: 50, name: "cloud", chapter: 1, playTime: 1, pic: null, data: { gold: 4 } }));
+    calls.length = 0;
+    expect(await sealed.syncCloud()).toBe(true);
+    expect(calls.find((c) => c.key === "slot4").options).toEqual({ encrypt: true });
+    expect(storage.isEncrypted("slot4")).toBe(true);
+    expect(sealed.peek(4).record.name).toBe("cloud");
+  } finally {
+    storage.set = real;
+  }
+});
+
+test("encrypt (a project without a secret): the write throws an error that names the command and saves nothing", () => {
+  clean();
+  if (hasSecret()) return; // the previous test covers a project with one
+  const sealed = new Slots({ encrypt: true });
+  let failure = null;
+  try {
+    sealed.write(2, { data: { gold: 2 }, name: "Sealed" });
+  } catch (e) {
+    failure = e;
+  }
+  expect(failure).not.toBe(null);
+  expect(failure.message).toContain("project.create_storage_secret");
+  expect(sealed.peek(2).status).toBe("empty");
+});
+
+test("requireEncrypted: a slot that is not sealed is damaged, a sealed one loads, and it needs encrypt", () => {
+  clean();
+  expect(() => new Slots({ requireEncrypted: true })).toThrow("requireEncrypted needs encrypt: true");
+  expect(() => new Slots({ encrypt: true, requireEncrypted: "yes" })).toThrow("requireEncrypted must be true or false");
+  if (!hasSecret()) return;
+  const strict = new Slots({ encrypt: true, requireEncrypted: true });
+  strict.write(1, { data: { gold: 1 } });
+  expect(strict.peek(1).status).toBe("used");
+  // A player replaced the sealed file by a hand-written plain one: it does not load.
+  storage.set("slot2", JSON.stringify({ version: 0, counter: 9, name: "edited", data: { gold: 999999 } }));
+  const p = strict.peek(2);
+  expect(p.status).toBe("damaged");
+  expect(p.reason).toContain("not encrypted");
+  expect(p.hint).toBe("Delete the slot.");
+  expect(strict.last()).toBe(1);
+  // The default still reads it (a game that turns encrypt on later keeps its old saves), and delete clears the damaged row.
+  expect(new Slots({ encrypt: true }).peek(2).record.data.gold).toBe(999999);
+  strict.remove(2);
+  expect(strict.peek(2).status).toBe("empty");
 });
 
 test("the cloud: a save is uploaded, a delete removes the copy, the higher counter wins, failures never lose the local save", async () => {

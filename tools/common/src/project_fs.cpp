@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <functional>
 #include <regex>
 #include <sstream>
 
@@ -31,7 +32,76 @@ bool in_hidden_dir(const std::string& rel) {
     return rel == ".factoria" || rel.rfind(".factoria/", 0) == 0 || rel == ".git" || rel.rfind(".git/", 0) == 0;
 }
 
-[[noreturn]] void fail(const char* code, const std::string& msg, const std::string& hint = {}) {
+// Calls `rewrite` with the text of every string that follows "encryptionSecret": and puts what it returns in its place.
+std::string rewrite_secret_values(std::string_view text,
+                                  const std::function<std::string(const std::string&)>& rewrite) {
+    static constexpr std::string_view kField = "\"encryptionSecret\"";
+    std::string out;
+    std::size_t from = 0;
+    for (;;) {
+        const std::size_t at = text.find(kField, from);
+        if (at == std::string_view::npos) break;
+        std::size_t i = at + kField.size();
+        auto skip_space = [&] {
+            while (i < text.size() && std::isspace(static_cast<unsigned char>(text[i]))) ++i;
+        };
+        skip_space();
+        if (i >= text.size() || text[i] != ':') {
+            out.append(text.substr(from, i - from));
+            from = i;
+            continue;
+        }
+        ++i;
+        skip_space();
+        if (i >= text.size() || text[i] != '"') {  // not a string (null, a number): nothing to hide
+            out.append(text.substr(from, i - from));
+            from = i;
+            continue;
+        }
+        const std::size_t start = ++i;
+        while (i < text.size() && text[i] != '"') i += text[i] == '\\' ? 2 : 1;
+        out.append(text.substr(from, start - from));
+        out += rewrite(std::string(
+            text.substr(start, std::min(i, text.size()) - start)));  // cut text (a 4000-byte head): all of it
+        from = std::min(i, text.size());
+    }
+    out.append(text.substr(std::min(from, text.size())));
+    return out;
+}
+
+constexpr const char* kHiddenSecret = "(hidden)";
+
+// A checkpoint keeps every file of the project, factoria.json included, under its hash. Compared without case, like
+// is_project_file_path: on macOS and Windows ".Factoria/Checkpoints/Objects/..." opens the same file.
+bool is_checkpoint_object(std::string_view rel) {
+    if (rel.size() >= 2 && rel.substr(0, 2) == "./") rel.remove_prefix(2);
+    return to_lower(std::string(rel)).rfind(".factoria/checkpoints/objects/", 0) == 0;
+}
+
+[[noreturn]] void fail(const char* code, const std::string& msg, const std::string& hint = {});
+
+// The text fs.write or fs.edit is about to store in factoria.json. fs.read shows the secret as "(hidden)", so a file written back
+// from what was read keeps the real one: when the value of "encryptionSecret" in `newText` is exactly "(hidden)" it is replaced by the
+// value in `oldText`, and with none to keep the write is refused (a name or description that says "(hidden)" is just text).
+std::string keep_hidden_secret(const std::string& newText, const std::string& oldText) {
+    bool hidden = false;
+    rewrite_secret_values(newText, [&](const std::string& v) {
+        hidden = hidden || v == kHiddenSecret;
+        return v;
+    });
+    if (!hidden) return newText;
+    std::string secret;
+    rewrite_secret_values(oldText, [&](const std::string& v) { return secret = v; });
+    if (secret.empty())
+        fail("invalid_argument",
+             "factoria.json's storage.encryptionSecret is \"(hidden)\", which is what fs.read shows instead of the "
+             "real secret, "
+             "and the file has no secret to keep.",
+             "Remove the field and run `project.create_storage_secret` for a real one.");
+    return rewrite_secret_values(newText, [&](const std::string& v) { return v == kHiddenSecret ? secret : v; });
+}
+
+[[noreturn]] void fail(const char* code, const std::string& msg, const std::string& hint) {
     throw CommandError(code, msg, hint);
 }
 
@@ -104,6 +174,15 @@ Json int_prop(const char* desc, long def) {
 }
 
 }  // namespace
+
+std::string mask_project_secrets(std::string_view text) {
+    return rewrite_secret_values(text, [](const std::string&) { return std::string(kHiddenSecret); });
+}
+
+bool is_project_file_path(std::string_view rel) {
+    if (rel.size() >= 2 && rel.substr(0, 2) == "./") rel.remove_prefix(2);
+    return to_lower(std::string(rel)) == "factoria.json";
+}
 
 Result<stdfs::path> resolve_project_path(const std::string& projectDir, std::string_view relPath) {
     // The confinement rules live in fa::fs (core/fs.h, resolve_for_write): a project-relative path, no absolute form, no ".."
@@ -186,8 +265,12 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.name = "fs.read";
         info.category = "fs";
         info.summary = "Read a text file (optionally a line range).";
-        info.description = "Example: {\"path\":\"scripts/player.js\",\"startLine\":1,\"endLine\":80}. "
-                           "Binary files are refused. Set numbered=true to get line numbers for fs.edit planning.";
+        info.description =
+            "Example: {\"path\":\"scripts/player.js\",\"startLine\":1,\"endLine\":80}. "
+            "Binary files are refused. Set numbered=true to get line numbers for fs.edit planning. In "
+            "factoria.json the value of storage.encryptionSecret (the key that seals the game's saves) is "
+            "shown as \"(hidden)\", here and in fs.search; fs.write of a file that says \"(hidden)\" keeps the "
+            "real secret.";
         info.inputSchema = Json::object(
             {{"type", "object"},
              {"properties",
@@ -216,7 +299,10 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             long end = arg_int(args, "endLine", 0);
             if (end <= 0) end = LONG_MAX;
             long total = 0;
-            std::string content = lines_slice(*text, start, end, arg_bool(args, "numbered", false), &total);
+            const std::string relPath = rel_of(root, p);
+            const bool isProject = is_project_file_path(relPath) || is_checkpoint_object(relPath);
+            std::string content = lines_slice(isProject ? mask_project_secrets(*text) : *text, start, end,
+                                              arg_bool(args, "numbered", false), &total);
             return Json::object({{"path", rel_of(root, p)},
                                  {"content", content},
                                  {"startLine", start},
@@ -292,6 +378,10 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             if (content.size() > kMaxWriteBytes) fail("too_large", "Content larger than 8 MiB.");
             std::error_code ec;
             bool existed = stdfs::exists(os(p), ec);
+            if (is_project_file_path(r) && content.find(kHiddenSecret) != std::string::npos) {
+                auto old = tooling_detail::read_file(p);
+                content = keep_hidden_secret(content, old ? *old : std::string());
+            }
             if (stdfs::is_directory(os(p), ec)) fail("invalid_argument", "'" + rel + "' is a directory.");
             if (existed && !arg_bool(args, "overwrite", true))
                 fail("exists", "'" + rel + "' already exists.", "Pass overwrite=true or choose another path.");
@@ -340,7 +430,11 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                 positions.push_back(pos);
             if (positions.empty())
                 fail("no_match", "Text to replace was not found in '" + rel + "'.",
-                     "Read the file with fs.read and copy the text exactly (indentation, quotes, line breaks).");
+                     is_project_file_path(r) && find.find(kHiddenSecret) != std::string::npos
+                         ? "fs.read shows storage.encryptionSecret as \"(hidden)\" and the file holds the real secret: "
+                           "leave "
+                           "that line out of 'find'."
+                         : "Read the file with fs.read and copy the text exactly (indentation, quotes, line breaks).");
             bool all = arg_bool(args, "replaceAll", false);
             if (positions.size() > 1 && !all) {
                 std::string lines;
@@ -362,6 +456,8 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                 if (!all) break;
             }
             out.append(*text, last, std::string::npos);
+            if (is_project_file_path(r) && repl.find(kHiddenSecret) != std::string::npos)
+                out = keep_hidden_secret(out, *text);
             std::string err;
             if (!tooling_detail::write_file(p, out, &err)) fail("failed", err);
             Json res = Json::object({{"path", r}, {"replacements", all ? positions.size() : size_t(1)}});
@@ -435,6 +531,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                 auto text = tooling_detail::read_file(p);
                 if (!text || is_binary(*text)) continue;
                 ++filesScanned;
+                if (is_project_file_path(rel) || is_checkpoint_object(rel)) *text = mask_project_secrets(*text);
                 std::istringstream in(*text);
                 std::string line;
                 long n = 0;

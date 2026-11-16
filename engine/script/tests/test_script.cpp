@@ -810,6 +810,249 @@ TEST_CASE("storage: a compressed value round-trips and takes fewer bytes") {
     CHECK(ev_err(h, "storage.set('a', 1, {compress: 1})").find("true or false") != std::string::npos);
 }
 
+namespace {
+const char* const kSecret = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+Json encrypted_settings(const char* secret = kSecret) {
+    return Json::object(
+        {{"id", "com.test.vault"}, {"storage", Json::object({{"encryptionSecret", std::string(secret)}})}});
+}
+// Changes one character of the "data" string of a key file (one flipped byte of the sealed blob).
+void tamper_data(const std::filesystem::path& file) {
+    std::string text = slurp_file(file);
+    const std::size_t at = text.find("\"data\": \"");
+    REQUIRE(at != std::string::npos);
+    const std::size_t pos = at + 9 + 60;  // inside the ciphertext, past the header
+    REQUIRE(pos < text.size());
+    text[pos] = text[pos] == 'A' ? 'B' : 'A';
+    std::ofstream(file, std::ios::binary) << text;
+}
+}  // namespace
+
+TEST_CASE("storage: an encrypted value is sealed on disk, round-trips (with and without compress) and reads back") {
+    TestHost h("encstore", encrypted_settings());
+    REQUIRE(h.start());
+    const auto dir = h.root / "save" / "storage";
+    ev_ok(h, "storage.set('gold', {gold: 7777, name: 'Zelda'}, {encrypt: true});"
+             "storage.set('big', {town: Array.from({length: 300}, (_, i) => ({id: 'villager_' + i, job: 'baker'}))}, "
+             "{encrypt: true, compress: true});"
+             "storage.set('plain', {gold: 1});");
+    const std::string sealed = slurp_file(dir / "gold.json");
+    CHECK(sealed.find("chacha20poly1305") != std::string::npos);
+    CHECK(sealed.find("7777") == std::string::npos);  // the value is not readable in the file
+    CHECK(sealed.find("Zelda") == std::string::npos);
+    CHECK(sealed.find("\"value\"") == std::string::npos);
+    const std::string packed = slurp_file(dir / "big.json");
+    CHECK(packed.find("\"z\": \"zlib\"") != std::string::npos);
+    CHECK(packed.find("villager") == std::string::npos);
+    CHECK(slurp_file(dir / "plain.json").find("\"value\"") != std::string::npos);
+    CHECK(ev_ok(h, "storage.size('gold')") == static_cast<double>(sealed.size()));
+    CHECK(ev_ok(h, "storage.size('big')") == static_cast<double>(packed.size()));
+    // two seals of the same value are two different files (fresh salt and nonce)
+    ev_ok(h, "storage.set('gold2', {gold: 7777, name: 'Zelda'}, {encrypt: true})");
+    CHECK(slurp_file(dir / "gold2.json") != sealed);
+    // a restart opens them
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.corrupt") == false);
+    CHECK(ev_ok(h, "storage.get('gold').gold") == 7777);
+    CHECK(ev_ok(h, "storage.get('gold').name") == "Zelda");
+    CHECK(ev_ok(h, "storage.get('big').town.length") == 300);
+    CHECK(ev_ok(h, "storage.get('plain').gold") == 1);
+    CHECK(ev_ok(h, "storage.size('big')") == static_cast<double>(packed.size()));
+    // storage.list says which keys are sealed
+    Json list = h.scripts.storage_list();
+    int sealedKeys = 0;
+    for (const Json& k : list["keys"])
+        if (k["encrypted"] == true) ++sealedKeys;
+    CHECK(sealedKeys == 3);
+    CHECK(list["damaged"].empty());
+    // a plain set of the same key writes it in plain again; options are checked
+    ev_ok(h, "storage.set('gold', {gold: 5})");
+    CHECK(slurp_file(dir / "gold.json").find("\"value\"") != std::string::npos);
+    CHECK(ev_err(h, "storage.set('a', 1, {encrpyt: true})").find("did you mean 'encrypt'") != std::string::npos);
+    CHECK(ev_err(h, "storage.set('a', 1, {encrypt: 'yes'})").find("true or false") != std::string::npos);
+}
+
+TEST_CASE("storage: a value that fails authentication is kept aside like a damaged file") {
+    TestHost h("enctamper", encrypted_settings());
+    REQUIRE(h.start());
+    const auto dir = h.root / "save" / "storage";
+    ev_ok(h, "storage.set('slot1', {gold: 10}, {encrypt: true}); storage.set('slot2', {gold: 20}, {encrypt: true});"
+             "storage.set('slot3', {gold: 30}, {encrypt: true, compress: true});");
+    tamper_data(dir / "slot1.json");  // one byte of the ciphertext
+    // slot3: the unauthenticated "z" flag is flipped
+    {
+        std::string t = slurp_file(dir / "slot3.json");
+        const std::size_t z = t.find("\"z\": \"zlib\"");
+        REQUIRE(z != std::string::npos);
+        t.replace(z, 11, "\"y\": \"zlib\"");
+        std::ofstream(dir / "slot3.json", std::ios::binary) << t;
+    }
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.corrupt") == true);
+    CHECK(ev_ok(h, "storage.get('slot1')").is_null());
+    CHECK(ev_ok(h, "storage.get('slot3')").is_null());
+    CHECK(ev_ok(h, "storage.get('slot2').gold") == 20);  // the others load
+    CHECK(!std::filesystem::exists(dir / "slot1.json"));
+    CHECK(std::filesystem::exists(h.root / "save" / "storage.corrupt.json"));  // kept for the player to send
+    CHECK(std::filesystem::exists(h.root / "save" / "storage.corrupt.2.json"));
+    // the save the game writes next replaces nothing that was kept
+    ev_ok(h, "storage.set('slot1', {gold: 1}, {encrypt: true})");
+    CHECK(ev_ok(h, "storage.get('slot1').gold") == 1);
+}
+
+TEST_CASE("storage: get with {encrypted: true} refuses a plain file where a sealed one was, and keeps it aside") {
+    TestHost h("encrequire", encrypted_settings());
+    REQUIRE(h.start());
+    const auto dir = h.root / "save" / "storage";
+    ev_ok(h, "storage.set('slot1', {gold: 10}, {encrypt: true}); storage.set('slot2', {gold: 20}, {encrypt: true});"
+             "storage.set('old', {gold: 5});");
+    // a player deletes the sealed file of slot1 and writes the plain format by hand
+    std::filesystem::remove(dir / "slot1.json");
+    std::ofstream(dir / "slot1.json", std::ios::binary) << "{\"key\": \"slot1\", \"value\": {\"gold\": 999999}}\n";
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.corrupt") == false);
+    // by default a plain file is read (a game can turn encryption on later), and storage.isEncrypted tells them apart
+    CHECK(ev_ok(h, "storage.isEncrypted('slot1')") == false);
+    CHECK(ev_ok(h, "storage.isEncrypted('slot2')") == true);
+    CHECK(ev_ok(h, "storage.isEncrypted('nothing')").is_null());
+    CHECK(ev_ok(h, "storage.get('slot1').gold") == 999999);
+    // {encrypted: true} does not trust it: it is kept aside like a damaged file and the fallback is returned
+    CHECK(ev_ok(h, "storage.get('slot2', null, {encrypted: true}).gold") == 20);
+    CHECK(ev_ok(h, "storage.get('slot1', 'fallback', {encrypted: true})") == "fallback");
+    CHECK(ev_ok(h, "storage.corrupt") == true);
+    CHECK(!std::filesystem::exists(dir / "slot1.json"));
+    CHECK(std::filesystem::exists(h.root / "save" / "storage.corrupt.json"));
+    CHECK(slurp_file(h.root / "save" / "storage.corrupt.json").find("999999") !=
+          std::string::npos);  // kept for the player
+    CHECK(ev_ok(h, "storage.get('slot1')").is_null());
+    CHECK(ev_ok(h, "storage.get('old', null, {encrypted: true})")
+              .is_null());  // a plain file from before encryption: refused too
+    // what the game stores plain in this run is not returned either, and nothing is kept aside for it
+    ev_ok(h, "storage.set('mem', 1)");
+    CHECK(ev_ok(h, "storage.get('mem', 'fb', {encrypted: true})") == "fb");
+    CHECK(ev_ok(h, "storage.get('mem')") == 1);
+    // the next sealed save of the key works
+    ev_ok(h, "storage.set('slot1', {gold: 1}, {encrypt: true})");
+    CHECK(ev_ok(h, "storage.get('slot1', null, {encrypted: true}).gold") == 1);
+    // options teach
+    CHECK(ev_err(h, "storage.get('a', 0, {encrpyted: true})").find("did you mean 'encrypted'") != std::string::npos);
+    CHECK(ev_err(h, "storage.get('a', 0, {encrypted: 1})").find("true or false") != std::string::npos);
+}
+
+TEST_CASE("storage: the wrong secret, another game id, another key or a plain edit do not open an encrypted value") {
+    TestHost h("encwrong", encrypted_settings());
+    REQUIRE(h.start());
+    const auto dir = h.root / "save" / "storage";
+    ev_ok(h, "storage.set('a', {gold: 1}, {encrypt: true}); storage.set('b', {gold: 2}, {encrypt: true});");
+    const std::string a = slurp_file(dir / "a.json");
+    // the file of key "a" under the name and key of "b": the key is part of the derivation
+    {
+        std::string moved = a;
+        const std::size_t k = moved.find("\"key\": \"a\"");
+        REQUIRE(k != std::string::npos);
+        moved.replace(k, 10, "\"key\": \"b\"");
+        std::ofstream(dir / "b.json", std::ios::binary) << moved;
+    }
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.corrupt") == true);
+    CHECK(ev_ok(h, "storage.get('a').gold") == 1);
+    CHECK(ev_ok(h, "storage.get('b')").is_null());
+    // another secret: nothing opens
+    h.proj["storage"]["encryptionSecret"] = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.corrupt") == true);
+    CHECK(ev_ok(h, "storage.keys().length") == 0);
+    // another game id with the right secret: nothing opens either (the id is the salt)
+    ev_ok(h, "storage.clear()");
+    h.proj["storage"]["encryptionSecret"] = kSecret;
+    ev_ok(h, "storage.set('a', {gold: 1}, {encrypt: true})");
+    h.proj["id"] = "com.test.other";
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.corrupt") == true);
+    CHECK(ev_ok(h, "storage.get('a')").is_null());
+    // a project that lost its secret reports the reason
+    h.proj = Json::object({{"id", "com.test.vault"}});
+    ev_ok(h, "storage.clear()");
+    {
+        std::filesystem::create_directories(dir);
+        std::ofstream(dir / "a.json", std::ios::binary) << a;
+    }
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.corrupt") == true);
+    CHECK(ev_ok(h, "storage.get('a')").is_null());
+}
+
+TEST_CASE("storage: encrypt without a project secret throws a teaching error and changes nothing") {
+    TestHost h("encnosecret", Json::object({{"id", "com.test.vault"}}));
+    REQUIRE(h.start());
+    const std::string err = ev_err(h, "storage.set('a', 1, {encrypt: true})");
+    CHECK(err.find("project.create_storage_secret") != std::string::npos);
+    CHECK(err.find("no storage encryption secret") != std::string::npos);
+    CHECK(ev_err(h, "storage.setAsync('a', 1, {encrypt: true})").find("project.create_storage_secret") !=
+          std::string::npos);
+    CHECK(ev_ok(h, "storage.get('a')").is_null());
+    CHECK(!std::filesystem::exists(h.root / "save" / "storage" / "a.json"));
+    // a secret that is too short is refused too, and says so
+    h.proj["storage"] = Json::object({{"encryptionSecret", "short"}});
+    CHECK(ev_err(h, "storage.set('a', 1, {encrypt: true})").find("too short") != std::string::npos);
+    // plain saves are untouched
+    ev_ok(h, "storage.set('a', 1)");
+    CHECK(ev_ok(h, "storage.get('a')") == 1);
+}
+
+TEST_CASE("storage: setAsync encrypts (and compresses) off the frame; the secret never shows in game.project") {
+    TestHost h("encasync", encrypted_settings());
+    h.file("tests/encasync.test.js",
+           "import { test, expect, game } from 'factoria:test';\nimport { storage } from 'factoria';\n"
+           "test('setAsync with encrypt resolves with the size of the sealed file', async () => {\n"
+           "  const p = storage.setAsync('slot', { gold: 7, list: [1, 2, 3] }, { encrypt: true, compress: true });\n"
+           "  expect(storage.get('slot').gold).toBe(7);\n"
+           "  game.step(1);\n"
+           "  const bytes = await p;\n"
+           "  expect(bytes).toBe(storage.size('slot'));\n"
+           "  expect(storage.get('slot').list).toEqual([1, 2, 3]);\n"
+           "});\n");
+    REQUIRE(h.start());
+    TestReport rep = h.scripts.run_tests({"tests/encasync.test.js"});
+    MESSAGE(rep.summary());
+    CHECK(rep.ok());
+    ev_ok(h, "storage.setAsync('disk', { gold: 4242 }, { encrypt: true }); 1");
+    CHECK(ev_ok(h, "storage.size('disk')").get<double>() > 0);
+    const std::string text = slurp_file(h.root / "save" / "storage" / "disk.json");
+    CHECK(text.find("4242") == std::string::npos);
+    CHECK(text.find("chacha20poly1305") != std::string::npos);
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.get('disk').gold") == 4242);
+}
+
+TEST_CASE("storage files: encode and decode an encrypted value, and refuse every kind of damage with a reason") {
+    storage_files::KeyMaterial m{kSecret, "com.test.vault"};
+    auto key = storage_files::derive_key(m, "slot1");
+    REQUIRE(key.ok());
+    CHECK(storage_files::derive_key(m, "slot2").value() != key.value());
+    CHECK(storage_files::derive_key({kSecret, "other"}, "slot1").value() != key.value());
+    CHECK(storage_files::derive_key(m, "slot1").value() == key.value());  // deterministic: it survives a reinstall
+    CHECK(!storage_files::derive_key({"", "x"}, "k").ok());
+    CHECK(storage_files::derive_key({"", "x"}, "k").error().hint.find("project.create_storage_secret") !=
+          std::string::npos);
+    for (bool compress : {false, true}) {
+        auto text = storage_files::encode("slot1", R"({"gold":5})", compress, &key.value());
+        REQUIRE(text.ok());
+        storage_files::Decoded d;
+        std::string problem;
+        REQUIRE(storage_files::decode(text.value(), d, problem, &m));
+        CHECK(d.value["gold"] == 5);
+        CHECK(d.encrypted);
+        CHECK(d.compressed == compress);
+        storage_files::Decoded e;
+        CHECK(!storage_files::decode(text.value(), e, problem, nullptr));  // a reader without a key
+        CHECK(!storage_files::decode(text.value(), e, problem, &(m = {kSecret, "x"})));
+        CHECK(problem.find("failed authentication") != std::string::npos);
+        CHECK(problem.find("another storage.encryptionSecret") != std::string::npos);
+        m = {kSecret, "com.test.vault"};
+    }
+}
+
 TEST_CASE("storage: setAsync writes the file off the frame and resolves") {
     TestHost h("asyncstore");
     h.file("tests/async.test.js",

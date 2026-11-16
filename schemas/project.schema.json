@@ -307,6 +307,17 @@
         }
       }
     },
+    "storage": {
+      "type": "object",
+      "description": "Save storage settings (docs/scripting/SCRIPTING_UI_SCENES.md, \"Encrypted saves\").",
+      "properties": {
+        "encryptionSecret": {
+          "type": "string",
+          "minLength": 16,
+          "description": "The random secret that storage.set(key, value, {encrypt: true}) derives its keys from (HKDF-SHA256, salted with \"id\", one key per storage key). Create it ONCE with the command project.create_storage_secret (`factoria call project.create_storage_secret`), never by hand and never in the running game. Keep it for the life of the game: saves written with another secret cannot be opened. It is packed into the exported game, so it makes saves tamper-evident, not secret from a determined player. project.info and `game.project` show it as \"(hidden)\"."
+        }
+      }
+    },
     "runtime": {
       "type": "object",
       "description": "How the engine runs the game on the player's machine. These settings never change what the game computes: a game gives the same result with any of them (docs/PERFORMANCE.md, \"Job threads\").",
