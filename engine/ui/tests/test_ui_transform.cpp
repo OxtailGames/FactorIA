@@ -3,6 +3,7 @@
 #include <doctest.h>
 
 #include <cmath>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -32,7 +33,8 @@ TEST_CASE("ui transform: a widget that does not turn or scale has the identity m
     CHECK(*ui_footprint_rect(t.w, b, t.design) == Rect{20, 30, 80, 20});
 }
 
-TEST_CASE("ui transform: a button turned 45 degrees is hit inside its corners and not in the corners of its bounding box") {
+TEST_CASE(
+    "ui transform: a button turned 45 degrees is hit inside its corners and not in the corners of its bounding box") {
     Ui t;
     const Entity b = t.button("b", {160, 90}, {100, 20});
     t.w.get<Button>(b)->pivot = {0.5f, 0.5f};
@@ -43,7 +45,7 @@ TEST_CASE("ui transform: a button turned 45 degrees is hit inside its corners an
     CHECK(box.center().x == doctest::Approx(160.0f));
     CHECK(box.center().y == doctest::Approx(90.0f));
     const Vec2 along{160.0f + 40.0f * kCos45, 90.0f + 40.0f * kCos45};  // on the long axis, 40 from the middle
-    const Vec2 corner{160.0f + 40.0f, 90.0f - 40.0f};                    // inside the box, off the turned button
+    const Vec2 corner{160.0f + 40.0f, 90.0f - 40.0f};                   // inside the box, off the turned button
     CHECK(box.contains(corner));
     CHECK(ui_contains(t.w, b, t.design, along));
     CHECK_FALSE(ui_contains(t.w, b, t.design, corner));
@@ -188,11 +190,20 @@ TEST_CASE("ui transform: a turned ScrollList clips to its bounding box but the p
     t.frame();
     CHECK_FALSE(ui_transform(t.w, list, t.design).axis_aligned());
     CHECK(ui_transform(t.w, b, t.design).is_identity() == false);
-    CHECK(ui_clip_contains(t.w, b, t.design, {100, 120}));        // inside the turned list
+    CHECK(ui_clip_contains(t.w, b, t.design, {100, 120}));       // inside the turned list
     CHECK_FALSE(ui_clip_contains(t.w, b, t.design, {165, 60}));  // in the bounding box only
     const Rect clip = *ui_clip_rect(t.w, b, t.design);           // the scissor
     CHECK(clip.contains({165, 60}));
     // a quarter turn stays axis aligned: no warning, an exact clip
     turn(t, list, 90);
     CHECK(ui_transform(t.w, list, t.design).axis_aligned());
+}
+
+TEST_CASE("ui transform: a widget whose Transform is not finite is hit nowhere") {
+    Ui t;
+    const Entity b = t.button("b", {160, 90}, {100, 20});
+    turn(t, b, 30);
+    t.w.get<Transform>(b)->position.x = std::numeric_limits<float>::infinity();
+    t.frame();
+    CHECK_FALSE(ui_contains(t.w, b, t.design, {160, 90}));
 }
