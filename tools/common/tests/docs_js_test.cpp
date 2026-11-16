@@ -67,6 +67,8 @@ std::vector<Block> js_blocks_of(const std::string& rel, const std::string& text)
     std::vector<Block> out;
     const std::vector<std::string> lines = split_lines(text);
     static const std::regex open(R"(^(\s*)(`{3,})\s*(js|javascript)(\s.*)?$)");
+    static const std::regex fragmentRe(R"(\bfragment\b)");
+    static const std::regex namesSkipRe(R"(\bnames-skip\b)");
     for (size_t i = 0; i < lines.size(); ++i) {
         std::smatch m;
         if (!std::regex_match(lines[i], m, open)) continue;
@@ -74,17 +76,21 @@ std::vector<Block> js_blocks_of(const std::string& rel, const std::string& text)
         b.file = rel;
         b.line = int(i) + 1;
         const std::string info = m[4].str();
-        b.fragment = std::regex_search(info, std::regex(R"(\bfragment\b)"));
-        b.skipNames = std::regex_search(info, std::regex(R"(\bnames-skip\b)"));
+        b.fragment = std::regex_search(info, fragmentRe);
+        b.skipNames = std::regex_search(info, namesSkipRe);
         const size_t indent = m[1].str().size();
         const std::string fence = m[2].str();
         size_t j = i + 1;
         for (; j < lines.size(); ++j) {
             std::string t = lines[j];
             const size_t nb = t.find_first_not_of(" \t");
-            if (nb != std::string::npos && t.compare(nb, fence.size(), fence) == 0 &&
-                t.find_first_not_of('`', nb) == std::string::npos)
-                break;
+            if (nb != std::string::npos && t[nb] == '`') {
+                const size_t run = t.find_first_not_of('`', nb) == std::string::npos
+                                       ? t.size() - nb
+                                       : t.find_first_not_of('`', nb) - nb;
+                // a closing fence is at least as long as the opening one and may carry trailing spaces or tabs
+                if (run >= fence.size() && t.find_first_not_of(" \t", nb + run) == std::string::npos) break;
+            }
             b.code +=
                 (t.size() >= indent && t.compare(0, indent, std::string(indent, ' ')) == 0 ? t.substr(indent) : t);
             b.code += '\n';
@@ -656,6 +662,14 @@ TEST_CASE("docs js: the scanner finds blocks, fragments and API names") {
     CHECK_FALSE(blocks[0].fragment);
     CHECK(blocks[1].fragment);
     CHECK(blocks[1].code == "{ a: 1 }\n");
+    // the marker is parsed by the scanner; a closing fence may carry trailing blanks
+    const auto skip = js_blocks_of("docs/X.md", "```js names-skip\nui.layot();\n```  \t\nafter\n```js\nb();\n```\n");
+    REQUIRE(skip.size() == 2);
+    CHECK(skip[0].skipNames);
+    CHECK_FALSE(skip[0].fragment);
+    CHECK(skip[0].code == "ui.layot();\n");
+    CHECK_FALSE(skip[1].skipNames);
+    CHECK(skip[1].code == "b();\n");
     CHECK(strip_text("a // x.y\nb(\"w.q\") /* z.z */").find('.') == std::string::npos);
 
     Typings ty;
