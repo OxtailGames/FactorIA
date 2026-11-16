@@ -23,8 +23,10 @@
 #include "fa/ai/project_settings.h"
 #include "fa/cli/cli.h"
 #include "fa/core/date.h"
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/json.h"
+#include "fa/tooling/api_export.h"
 #include "fa/tooling/feedback_share.h"
 #include "fa/tooling/scaffold.h"
 #include "fa/tooling/tool_groups.h"
@@ -1563,4 +1565,32 @@ TEST_CASE("validate: a load error appears once; --json leaves stderr empty") {
     std::error_code ec;
     stdfs::remove_all(root, ec);
     fa::fs::set_project_root(oldRoot);
+}
+
+TEST_CASE("commands: a deprecated command shows its deprecation in the text, the JSON of one command and the list") {
+    fa::install_deprecations();  // the file's table first, so the entry below is not replaced by it at the first lookup
+    struct Restore {
+        ~Restore() { fa::install_deprecations(true); }
+    } restore;
+    fa::Deprecations::global().set(fa::Json::parse(
+        R"({"commands": {"game.step": {"since": "0.30.0", "use": "game.pause", "note": "Pause first."}}})"));
+    auto text = run({"commands", "game.step"});
+    REQUIRE(text.code == 0);
+    CHECK(text.out.find("Deprecated since 0.30.0 - use `game.pause`. Removed in 0.32.0. Pause first.") !=
+          std::string::npos);
+    auto one = run({"commands", "game.step", "--json"});
+    REQUIRE(one.code == 0);
+    CHECK(fa::Json::parse(one.out)["deprecated"]["use"] == "game.pause");
+    auto list = run({"commands", "game", "--json"});
+    REQUIRE(list.code == 0);
+    int deprecated = 0;
+    for (const auto& c : fa::Json::parse(list.out))
+        if (c.contains("deprecated")) {
+            ++deprecated;
+            CHECK(c["name"] == "game.step");
+        }
+    CHECK(deprecated == 1);
+    fa::Deprecations::global().clear();
+    auto plain = run({"commands", "game.step"});
+    CHECK(plain.out.find("Deprecated") == std::string::npos);
 }

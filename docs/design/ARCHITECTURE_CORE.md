@@ -105,12 +105,25 @@ not load the tooling, an exported game, has an empty table and pays one atomic l
   `tween.pauseAll`, cannot be wrapped and only has the typings and the reference). The text names what is deprecated,
   since which version, what to use instead (or that nothing replaces it, and the `note`) and the version that removes it:
   `Deprecated: command 'scene.old_command' (since 0.30.0) will be removed in 0.32.0. Use 'scene.new_command' instead. <note>`.
+  The limits of the warning (the typings, the reference and the generated output always carry the mark):
+  - It comes from three places only: `CommandRegistry::call`, the scene and prefab loader (a scene or prefab file, and the
+    patch behind `scene.set_component` and a script's `entity.add` / `entity.set`, which logs it) and the script prelude. A
+    value written some other way does not warn: a field assigned through a script's component view (`e.Sprite.oldField = 1`),
+    or by native code that uses the component struct. Such a project finds out from the reference, the typings or a test.
+  - Once per process: `factoria validate` of several scenes flags the deprecated field in the first scene only, not in each
+    (one process, one table of what was warned).
+  - Only a process that called `install_deprecations()` has a table: `factoria` (its `main` and the commands of the tooling,
+    editor and MCP server included) does; the player and exported games, `fa_bench`, the fuzzers and a test of one engine
+    module never do, so nothing warns there unless the test fills `Deprecations::global()` itself.
+  - The check on every command call and every loaded component is lock-free (a Bloom filter by name, `may_contain`): a table
+    with entries costs a call that is not deprecated nothing, and a false positive only takes the lock once.
   The editor forgets which ones it warned about whenever it opens a project.
 - The generated output marks it: `@deprecated 0.30.0: use `x`. Removed in 0.32.0. <note>` in the typings, a bold
   `Deprecated since 0.30.0 - use `x`. Removed in 0.32.0.` line in docs/COMPONENTS.md and docs/reference (under the heading
   of a component or command, in the description of a field), `_Deprecated._` in the reference index, a `deprecated` object
   (`since`, `use`, `note`, `removedIn`, `summary`) in `factoria api --json`, `docs.components`, `docs.commands` and the MCP
-  tool's `_meta`, and the summary in the MCP tool description.
+  tool's `_meta` (and `tool_describe`, `factoria commands <name>`, in the text and in `--json`), and the summary in the MCP
+  tool description.
 - Removal: two minor versions after `since` (deprecated in 0.30.x, removed in 0.32.0). The test `api_since` fails once
   the current version is that far, with "remove the API and this entry"; it also fails for an entry that names something
   that no longer exists (remove the entry), whose `use` does not exist or is deprecated itself, or without a `use` and a

@@ -589,15 +589,19 @@ Json McpServer::run_loader_tool(const std::string& tool, const Json& args, const
                 continue;
             }
             if (!done.insert(c->name).second) continue;
-            commands.push_back(Json::object({{"name", c->name},
-                                             {"tool", mcp_tool_name(c->name)},
-                                             {"category", c->category},
-                                             {"summary", c->summary},
-                                             {"description", c->full_description()},
-                                             {"readOnly", c->readOnly},
-                                             {"capabilities", c->capabilities.to_json()},
-                                             {"capabilitiesDeclared", c->capabilitiesDeclared},
-                                             {"inputSchema", c->inputSchema}}));
+            Json def = Json::object({{"name", c->name},
+                                     {"tool", mcp_tool_name(c->name)},
+                                     {"category", c->category},
+                                     {"summary", c->summary},
+                                     {"description", c->full_description()},
+                                     {"readOnly", c->readOnly},
+                                     {"capabilities", c->capabilities.to_json()},
+                                     {"capabilitiesDeclared", c->capabilitiesDeclared},
+                                     {"inputSchema", c->inputSchema}});
+            // The same object as `_meta.deprecated` of tools/list: {since, use, note, removedIn, summary}.
+            if (Json deprecated = deprecation_json("commands", c->name); !deprecated.is_null())
+                def["deprecated"] = std::move(deprecated);
+            commands.push_back(std::move(def));
         }
         const bool none = commands.empty();
         Json out = Json::object({{"commands", std::move(commands)}});

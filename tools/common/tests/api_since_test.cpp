@@ -170,8 +170,11 @@ std::map<std::string, std::set<std::string>> live_names() {
     return {{"components", component_names()}, {"commands", command_names()}, {"script", script_names()}};
 }
 
-// Puts the file's own deprecated section back when a test that injected entries ends.
+// Puts the file's own deprecated section back when a test that injected entries ends. The first install happens here, before the
+// test injects anything: install_deprecations() loads the file once per process, so a test that ran first (`-tc`) and called
+// set() before any install would see its entries replaced by the file's at the first deprecation_json().
 struct RestoreDeprecations {
+    RestoreDeprecations() { install_deprecations(); }
     ~RestoreDeprecations() { install_deprecations(true); }
 };
 

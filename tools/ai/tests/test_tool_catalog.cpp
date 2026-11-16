@@ -6,6 +6,8 @@
 #include <algorithm>
 
 #include "fa/ai/tool_catalog.h"
+#include "fa/core/deprecation.h"
+#include "fa/tooling/api_export.h"
 
 using namespace fa;
 using namespace fa::ai;
@@ -438,4 +440,28 @@ TEST_CASE("context split: estimate_context counts the three parts and survives J
     CHECK(back.toolBytes == c.toolBytes);
     CHECK(back.toolCount == 2);
     CHECK_FALSE(ContextSplit::from_json(Json::object()).known());
+}
+
+TEST_CASE("tool catalog: describe_commands marks a deprecated command and no other") {
+    CommandRegistry reg;
+    for (const char* name : {"test.old_thing", "test.new_thing"}) {
+        CommandInfo i;
+        i.name = name;
+        i.summary = "A command.";
+        reg.add(i, [](const Json&) { return Json::object(); });
+    }
+    install_deprecations();  // the file's table first: it loads once per process and would replace the entries below
+    struct Restore {
+        ~Restore() { install_deprecations(true); }
+    } restore;
+    Deprecations::global().set(Json::parse(
+        R"({"commands": {"test.old_thing": {"since": "0.30.0", "use": "test.new_thing", "note": "Same arguments."}}})"));
+    bool ok = false;
+    const Json out = describe_commands(reg, {"test.old_thing", "test.new_thing"}, false, ok, CapabilitySet::all());
+    REQUIRE(ok);
+    REQUIRE(out["commands"].size() == 2);
+    CHECK(out["commands"][0]["deprecated"]["use"] == "test.new_thing");
+    CHECK(out["commands"][0]["deprecated"]["summary"] ==
+          "Deprecated since 0.30.0 - use `test.new_thing`. Removed in 0.32.0.");
+    CHECK_FALSE(out["commands"][1].contains("deprecated"));
 }

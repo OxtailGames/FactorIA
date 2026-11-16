@@ -6,6 +6,7 @@
 #pragma once
 
 #include <atomic>
+#include <cstdint>
 #include <map>
 #include <mutex>
 #include <optional>
@@ -50,6 +51,13 @@ public:
         return empty_.load(std::memory_order_relaxed);
     }  // lock-free: the hot path of every call
 
+    // Lock-free pre-checks for a hot path with a non-empty table (the editor and the CLI have one; the common call asks about
+    // something that is not deprecated): false means `key` is certainly not in the table of `kind`, so the caller skips building
+    // a key and taking the lock; true means it may be (a small Bloom filter: a rare false positive just takes the slow path).
+    bool may_contain(std::string_view kind, std::string_view key) const noexcept;
+    // The same for a component: true when "Name" or any "Name.field" may be in the "components" section.
+    bool may_contain_component(std::string_view component) const noexcept;
+
     std::optional<Deprecation> find(std::string_view kind, std::string_view key) const;
     // Every key of a kind, sorted.
     std::vector<std::string> keys(std::string_view kind) const;
@@ -65,6 +73,9 @@ private:
     std::map<std::string, std::map<std::string, Deprecation, std::less<>>, std::less<>> table_;
     std::set<std::string> warned_;
     std::atomic<bool> empty_{true};
+    // One Bloom filter per kind (commands, components by component name, script, anything else): 512 bits, two probes.
+    static constexpr int kBloomWords = 8;
+    std::atomic<std::uint64_t> bloom_[4][kBloomWords] = {};
 };
 
 // take_warning + a log line (category "deprecated", level warning) when there is one; true when it warned.
