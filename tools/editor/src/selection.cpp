@@ -23,6 +23,15 @@ void Selection::replace(const std::string& id) {
     primary_ = id;
 }
 
+void Selection::set(const std::vector<std::string>& ids, const std::string& primary) {
+    ids_.clear();
+    primary_.clear();
+    for (const std::string& id : ids)
+        if (!id.empty() && index_of(id) < 0) ids_.push_back(id);
+    if (ids_.empty()) return;
+    primary_ = index_of(primary) >= 0 ? primary : ids_.back();
+}
+
 void Selection::add(const std::string& id) {
     if (id.empty()) return;
     if (index_of(id) < 0) ids_.push_back(id);

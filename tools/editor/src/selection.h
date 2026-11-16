@@ -15,6 +15,9 @@ class Selection {
 public:
     // Replaces the whole selection by one id (it becomes the primary). An empty id clears it.
     void replace(const std::string& id);
+    // Replaces the whole selection by `ids` in that order (empty and repeated ids are skipped) and makes `primary` the
+    // primary; a `primary` that is not in the list (or empty) leaves the last id as the primary.
+    void set(const std::vector<std::string>& ids, const std::string& primary);
     // Adds an id at the end and makes it the primary (an id already in the set only becomes the primary).
     void add(const std::string& id);
     // Adds the id when it is not selected, removes it when it is (Ctrl-click). Removing the primary promotes the last

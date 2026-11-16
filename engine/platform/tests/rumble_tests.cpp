@@ -1,5 +1,6 @@
 // Pad rumble: the request checks, Input's motors and their clock, and the copy to the hardware (against a fake one). The
-// real backends (XInput, the browser's Gamepad API) need a pad and are not covered here.
+// real backends (XInput, evdev, Android vibrators, CoreHaptics, the browser's Gamepad API) need a pad and are not covered
+// here; the numbers they send are in rumble_map_tests.cpp.
 #include <doctest.h>
 
 #include <cmath>
@@ -42,7 +43,7 @@ TEST_CASE("rumble requests: strengths are clamped, bad pads and seconds are expl
     auto ok = make_rumble_request("input.rumble", 2, 1.5, -0.5, 0.25);
     REQUIRE(ok.ok());
     CHECK(ok->pad == 2);
-    CHECK(ok->low == 1.0f);   // clamped, not an error: a curve that overshoots is harmless
+    CHECK(ok->low == 1.0f);  // clamped, not an error: a curve that overshoots is harmless
     CHECK(ok->high == 0.0f);
     CHECK(ok->seconds == 0.25f);
 
@@ -212,7 +213,8 @@ TEST_CASE("apply_gamepad_rumble logic: a new request starts the motors once, the
     CHECK(hw.calls[6].low == 0.0f);
 }
 
-TEST_CASE("apply_gamepad_rumble logic: a pad that cannot rumble is never driven; a refusal does not stop the bookkeeping") {
+TEST_CASE(
+    "apply_gamepad_rumble logic: a pad that cannot rumble is never driven; a refusal does not stop the bookkeeping") {
     Input in;
     GamepadRumbleSync sync;
     FakeHardware hw;
@@ -233,12 +235,16 @@ TEST_CASE("apply_gamepad_rumble logic: a pad that cannot rumble is never driven;
 }
 
 #if defined(__linux__) || defined(__APPLE__) || defined(__ANDROID__)
-TEST_CASE("platforms without a rumble backend say no, with the reason") {
+TEST_CASE("the Linux, Apple and Android backends answer 'no' with a reason while no pad is attached") {
+    // poll_gamepads() is never called here, so the backend has no pad in any slot: it must not touch the hardware.
     Input in;
     in.on_gamepad_connected(0, true);
     in.rumble(req(0, 1.0f, 1.0f, 1.0f));
     apply_gamepad_rumble(in);
     CHECK_FALSE(in.gamepad_can_rumble(0));
-    CHECK(in.gamepad_rumble_reason(0).find("M98.5") != std::string::npos);
+    CHECK_FALSE(in.gamepad_rumble_reason(0).empty());
+    CHECK_FALSE(gamepad_backend_rumble_support(-1).can);
+    CHECK_FALSE(gamepad_backend_rumble_support(kMaxGamepads).can);
+    CHECK_FALSE(gamepad_backend_rumble(0, 1.0f, 1.0f, 1.0f));
 }
 #endif

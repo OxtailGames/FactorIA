@@ -321,10 +321,23 @@ Vibration option only where it works. This is a different motor from a phone's `
   or the app is suspended, when a pad is unplugged, on a scene change and on quit, so a pad never keeps shaking. A request made
   while the game is paused plays.
 - Mistakes throw with a hint: a pad outside 0..3, a strength or `seconds` that is not a number, `seconds` outside 0..10.
-- Where it works today: Windows (XInput pads: Xbox 360, One, Series and the pads that present themselves as one) and
-  Chrome-based browsers (Xbox and PlayStation pads, through `gamepad.vibrationActuator`; the browser may refuse it until a
-  button was pressed on the pad). Linux, macOS, iOS and Android answer `canRumble: false` for now (M98.5c) and so do Windows pads
-  that are not XInput (DualShock, DualSense, Switch Pro: M98.5b); Firefox and Safari do not offer the browser API.
+- Where it works today, and how:
+
+  | Platform | Pads | How | Needs |
+  |---|---|---|---|
+  | Windows | XInput pads (Xbox 360, One, Series and pads that present themselves as one) | XInput motors | nothing |
+  | Linux | pads whose kernel driver offers force feedback (`FF_RUMBLE`: Xbox, DualShock 4, DualSense, Switch Pro with the usual drivers) | evdev: one rumble effect per pad on `/dev/input/eventN` | write access to that node |
+  | macOS, iOS | pads GameController gives haptics (Xbox One/Series, DualShock 4, DualSense) | CoreHaptics: `low` on the left handle, `high` on the right, one engine plays the stronger when the pad has no handles | macOS 11, iOS 14 |
+  | Android | pads whose `InputDevice` has vibrators | API 31+: `getVibratorManager()` (one vibrator plays the stronger of `low` and `high`, two play `low` on the first and `high` on the second); API 26 to 30: `getVibrator()` | nothing beyond the `VIBRATE` permission the player already has |
+  | Chrome-based browsers | Xbox and PlayStation pads | `gamepad.vibrationActuator` | a button pressed on the pad first |
+
+  Everything else answers `canRumble: false` with the reason: Windows pads that are not XInput (DualShock, DualSense, Switch
+  Pro: M98.5b) and Firefox and Safari, which have no browser API. On Linux the reason names what to do when `/dev/input/eventN`
+  cannot be opened for writing: add the user to the `input` group (`sudo usermod -aG input $USER`, log in again) or add a udev
+  rule such as `KERNEL=="event*", SUBSYSTEM=="input", TAG+="uaccess"`; the answer is read when the pad is plugged in, so replug the
+  pad after changing it. Strengths are not the same motor on every pad: the 0..1 maps to the motor's whole range, and Android
+  amplitudes are 1..255 (a tiny strength still runs the motor). A phone or tablet pad may expose no vibrator to Android at all,
+  most often over Bluetooth, and then `canRumble` is `false`.
 - Tests and headless runs: a test pad has no motors unless `game.gamepad(i).connect({ canRumble: true })`. `game.rumbles()` lists
   the requests the game made (strengths already clamped, `seconds` 0 for a stop, at most 256) and `game.rumbleState(pad)` says
   what the motors do now (the seconds left run down with `game.step`).

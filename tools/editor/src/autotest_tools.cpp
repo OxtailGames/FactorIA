@@ -388,6 +388,8 @@ void Editor::at_build_tools_script() {
     at_section_M(at);
     section("M4");
     at_section_M4(at);
+    section("M5");
+    at_section_M5(at);
     section("N");
     at_section_N(at);
     section("O");

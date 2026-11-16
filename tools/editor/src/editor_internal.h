@@ -247,6 +247,9 @@ public:
     Entity selected();
     void select(Entity e);
     void select_id(const std::string& id) { selection_.replace(id); }
+    // Selects exactly `ids` (in that order) with `primary` as the primary (the last id when `primary` is not in the list),
+    // and makes it the row the next Shift click starts from and the tree scrolls to. Paste and Duplicate select what they made.
+    void select_ids(const std::vector<std::string>& ids, const std::string& primary);
     const std::string& selected_id() const { return selection_.primary(); }
     // The whole set. It first drops the ids whose entity no longer exists (deleted, or removed by an undo or a scene
     // load), so what it returns is alive; selected() and selected_id() do not prune, so a selected entity that an
@@ -716,7 +719,16 @@ public:
     void draw_hierarchy_node(Entity e, const std::string& filter);
     void hierarchy_spawn(const std::string& parentId, const std::string& name);
     void hierarchy_duplicate_selection();  // one copy of every selected entity (and its children), one undo step
-    void hierarchy_destroy_selection();    // every selected entity, one undo step
+    // Copy, Cut and Paste of entities (entity_clipboard.cpp). Copy puts the selected entities and their children on the system
+    // clipboard as scene.copy_entities text and returns whether it did; Cut is a Copy and a delete (one undo step); Paste
+    // creates what the clipboard holds next to the primary (under its parent, or at the top level), one undo step, and selects it.
+    bool entity_copy();
+    void entity_cut();
+    void entity_paste();
+    // True when Ctrl+C, X and V (Cmd on macOS) are the entity clipboard's: in Edit mode, with the Hierarchy or the Viewport holding
+    // the keyboard (the Animation, Image... panels use those keys for their own) and no text box.
+    bool entity_clipboard_keys_active() const;
+    void hierarchy_destroy_selection();  // every selected entity, one undo step
     // Moves `dragged` under `parentId` ("" = the top level); when `dragged` is selected the whole selection moves, in tree order,
     // as one undo step.
     void hierarchy_reparent(const std::string& dragged, const std::string& parentId);
@@ -982,6 +994,8 @@ public:
     // viewport (ImGui logical coordinates; sokol event coordinates / dpi match them)
     ImVec2 vpImageMin_{0, 0}, vpImageSize_{1, 1};
     bool vpHovered_ = false, vpFocused_ = false;
+    std::uint64_t hierFocusFrame_ =
+        0;  // the uiFrame_ the Hierarchy window last had the keyboard (the shortcuts run before it is drawn)
     bool vpFocusNext_ = false;  // focus the Viewport window on its next draw (set when Play starts)
     bool vpMouseCaptured_[3] = {false, false, false};
     bool showColliders_ = true;
@@ -1650,6 +1664,7 @@ public:
     void at_section_L(AtScript& at);
     void at_section_M(AtScript& at);   // autotest_editing.cpp
     void at_section_M4(AtScript& at);  // autotest_editing.cpp: several entities selected
+    void at_section_M5(AtScript& at);  // autotest_editing.cpp: copy, cut and paste of entities
     void at_section_N(AtScript& at);
     void at_section_O(AtScript& at);
     void at_section_P(AtScript& at);
@@ -1787,6 +1802,9 @@ std::string pick_folder(const std::string& title, const std::string& start);
 // Same for one existing file of the given kinds (`filterName` "Images", `extensions` {"png", "jpg"}, no dot).
 std::string pick_file(const std::string& title, const std::string& start, const std::string& filterName,
                       const std::vector<std::string>& extensions);
+// The size of the system clipboard the editor asks sokol_app for: a longer text is cut by sokol, so a copy of entities that
+// does not fit is refused (entity_copy).
+inline constexpr std::size_t kClipboardBytes = std::size_t(1) << 20;
 // The picture on the system clipboard as PNG bytes; empty when there is none (or no tool to read it on Linux).
 std::vector<std::uint8_t> clipboard_image_png();
 // Whether the system clipboard holds text (what Ctrl+V pastes into a text box).
