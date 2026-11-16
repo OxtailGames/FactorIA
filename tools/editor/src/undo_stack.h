@@ -6,8 +6,8 @@
 //    `$music`, `$modeler`) that points at a step of a document panel; the panel undoes it.
 //  - Command: `forward` and `inverse` are lists of commands ({cmd, args}), in the order they are run. Undoing runs
 //    `inverse`, redoing runs `forward`; nothing stores the scene. Editor::edit_command makes them for the commands that
-//    have an inverse builder (undo_inverse.h: scene.set_component, scene.remove_component); the others still snapshot
-//    (M98.7e2 migrates the structural ones).
+//    have an inverse builder (undo_inverse.h: set_component, remove_component, spawn, destroy, set_parent, paste, bones.create);
+//    the others still snapshot.
 // Every entry knows its approximate size in bytes, so a stack can be capped by memory as well as by length.
 #pragma once
 
@@ -64,9 +64,10 @@ bool edit_coalesces(const std::string& key, const std::string& lastKey, double n
 enum class CoalesceMode {
     Replace,  // the new forward replaces the old one, the old inverse stays: for "set X to v" commands
     Chain,    // forward = old then new, inverse = new then old: for relative commands
-    Merge  // a one-command call whose `target` an earlier forward command has replaces that command and goes last in the
-    // forward list (the inverse list stays: it holds the oldest values); with a new target it is added like Chain.
-    // For a drag that writes several entities under one key.
+    // A one-command call whose `target` an earlier forward command has replaces that command and goes last in the forward
+    // list (the inverse list stays: it holds the oldest values); with a new target it is added like Chain. For a drag that
+    // writes several entities under one key.
+    Merge,
 };
 
 // A stack of entries capped by length and by memory. `push_back` drops the oldest entries while there are more than
