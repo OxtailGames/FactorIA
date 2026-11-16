@@ -17,7 +17,7 @@
 //            Xbox, PlayStation, Switch Pro and Steam Deck pads. Like everywhere, a pad is hidden until a button is pressed.
 // Rumble. Input holds what the game asked for and what the motors should do now (Input::rumble, fa/platform/input.h);
 // apply_gamepad_rumble() below copies it to the hardware once per frame through two small hooks that each platform
-// backend defines in its gamepad_<platform> file, so a new backend (Linux evdev, Android, Apple, Windows HID pads) adds
+// backend defines in its gamepad_<platform> file, so a new backend (Windows HID pads) adds
 // code to ITS file and touches nothing shared:
 //   gamepad_backend_rumble_support(slot)  can the pad in `slot` rumble, and if not, why (a sentence that says what to do
 //                                         or which backend will add it). Asked every frame for each connected pad: cheap.
@@ -26,7 +26,10 @@
 //                                         with an explicit stop, so a backend whose hardware has no duration (XInput) just
 //                                         sets the motors, and one that has (the web, evdev effects) may pass `seconds` on
 //                                         as a safety net. Returns false when the hardware refused (logged once).
-// Today: Windows XInput and Chrome-based browsers can rumble; every other backend answers "no" with its reason.
+// Today: Windows XInput, Linux evdev force feedback (gamepad_linux.cpp), Android vibrators (gamepad_android.cpp), Apple
+// CoreHaptics (gamepad_apple.mm) and Chrome-based browsers can rumble; a pad a backend cannot drive (a Windows pad that is
+// not XInput, a Linux pad with no FF_RUMBLE or no write access to its event node...) answers "no" with its reason. The
+// numbers each of those APIs wants are computed by the pure helpers of fa/platform/gamepad_rumble_map.h.
 // Windowed runs only, like poll_gamepads(): headless runs and tests have no hardware and read Input instead.
 //
 // Slots that have no pad are probed only every couple of seconds, so unplugged slots cost nothing. A pad that stays

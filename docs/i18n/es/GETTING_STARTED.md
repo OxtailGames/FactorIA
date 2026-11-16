@@ -402,11 +402,11 @@ Ejemplo de entrada:
 {
   "category": "input",
   "severity": "minor",
-  "title": "No gamepad rumble",
-  "missing": "The game wants to vibrate the controller when the player is hit, but scripts have no rumble API.",
-  "workaround": "none: feature dropped. A hit is shown with a screen shake only.",
+  "title": "No adaptive triggers",
+  "missing": "The game wants the DualSense triggers to resist when the bow is drawn, but scripts have no trigger-effect API.",
+  "workaround": "none: feature dropped. The draw is shown with a camera zoom only.",
   "workaroundFiles": [],
-  "suggestion": "Add input.gamepad(i).rumble(strong, weak, seconds) that vibrates the pad.",
+  "suggestion": "Add input.gamepad(i).setTriggerResistance(side, start, strength) that stiffens one trigger.",
   "effort": "small"
 }
 ```

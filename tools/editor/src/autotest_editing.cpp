@@ -1721,6 +1721,192 @@ void Editor::at_section_M4(AtScript& at) {
     }
 }
 
+void Editor::at_section_M5(AtScript& at) {
+    AT_SCRIPT_LOCALS(at)
+    // ------------------------------------------------------------------------------ M5. Copy, cut and paste of entities
+    // Ctrl/Cmd+C puts the selected entities on the system clipboard as text and changes nothing else; Ctrl+V creates them next
+    // to the primary (one undo step), selects the copies with the copy of the old primary as the primary; Ctrl+X is Copy and
+    // delete (one undo step). The keys belong to the Hierarchy and the Viewport: another panel with the keyboard keeps them, and
+    // text that is not entities pastes nothing and leaves no undo step.
+    {
+        struct Clip {
+            size_t undo = 0, entities = 0;
+            std::string big;
+        };
+        auto m = std::make_shared<Clip>();
+        auto hold_ctrl = [this, &step](bool down) {
+            step(2, [this, down] {
+#if defined(__APPLE__)
+                atMods_ = down ? SAPP_MODIFIER_SUPER : 0;  // Dear ImGui swaps Cmd and Ctrl on macOS
+                inject_key(down ? SAPP_EVENTTYPE_KEY_DOWN : SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_LEFT_SUPER);
+#else
+                atMods_ = down ? SAPP_MODIFIER_CTRL : 0;
+                inject_key(down ? SAPP_EVENTTYPE_KEY_DOWN : SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_LEFT_CONTROL);
+#endif
+            });
+        };
+        // Ctrl+C and Ctrl+X arrive as key events; sokol_app turns Ctrl+V into CLIPBOARD_PASTED, which sokol_imgui presses for ImGui.
+        auto chord = [this, &step, hold_ctrl](int keyCode) {
+            hold_ctrl(true);
+            step(3, [this, keyCode] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, keyCode); });
+            step(3, [this, keyCode] { inject_key(SAPP_EVENTTYPE_KEY_UP, keyCode); });
+            hold_ctrl(false);
+        };
+        auto paste_key = [this, &step] {
+            step(4, [this] {
+                sapp_event ev{};
+                ev.type = SAPP_EVENTTYPE_CLIPBOARD_PASTED;
+                on_event(&ev);
+            });
+        };
+        auto clip_has = [](const char* needle) {
+            const char* c = sapp_get_clipboard_string();
+            return c && std::string(c).find(needle) != std::string::npos;
+        };
+        auto pos_of_id = [this](const std::string& id) {
+            Entity e = world().find_by_id(id);
+            const Transform* t = e.is_null() ? nullptr : world().get<Transform>(e);
+            return t ? t->position : Vec3{9999, 9999, 9999};
+        };
+
+        // 1. Two coins selected in the tree (coin_2 last: the primary), Ctrl+C: text on the clipboard, nothing else changes.
+        step(3, [this, m] {
+            select_id("");
+            sapp_set_clipboard_string("not entities");
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+        });
+        click("tree:coin_1");
+        hold_ctrl(true);
+        click("tree:coin_2");
+        hold_ctrl(false);
+        chord(SAPP_KEYCODE_C);
+        step(3, [this, m, clip_has] {
+            at_check(clip_has("factoria.entities/1"), "Ctrl+C puts the selected entities on the clipboard as text");
+            at_check(world().entities().size() == m->entities && undo_depth() == m->undo,
+                     "...and changes nothing in the scene, with no undo step");
+            at_check(selection_peek().size() == 2 && selected_id() == "coin_2", "...and keeps the selection");
+        });
+
+        // 2. Select the player and paste: two copies next to it, one undo step, the copy of coin_2 is the primary.
+        click("tree:player");
+        paste_key();
+        step(4, [this, m, pos_of_id] {
+            at_check(world().entities().size() == m->entities + 2, "Ctrl+V creates a copy of every copied entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            const std::vector<std::string>& ids = selection_peek().ids();
+            at_check(ids.size() == 2 && ids[0] != "coin_1" && ids[1] != "coin_2", "...and selects the copies");
+            const Vec3 a = pos_of_id(selected_id()), b = pos_of_id("coin_2");
+            at_check(a.x == b.x && a.y == b.y && selected_id() != "coin_2",
+                     "...with the copy of the old primary as the primary");
+            undo();
+            at_check(world().entities().size() == m->entities, "Undo removes both copies");
+            select_id("");
+        });
+
+        // 3. Cut: Ctrl+X removes them (one undo step), the clipboard holds them; Ctrl+V puts them back, Undo twice undoes both.
+        click("tree:coin_1");
+        step(2, [this, m] {
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+            sapp_set_clipboard_string("not entities");
+        });
+        chord(SAPP_KEYCODE_X);
+        step(3, [this, m, clip_has] {
+            at_check(world().find_by_id("coin_1").is_null(), "Ctrl+X deletes the selected entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            at_check(clip_has("factoria.entities/1"), "...after copying it to the clipboard");
+        });
+        paste_key();
+        step(4, [this, m] {
+            at_check(!world().find_by_id("coin_1").is_null() && world().entities().size() == m->entities,
+                     "Ctrl+V puts the cut entity back under its own id");
+            at_check(undo_depth() == m->undo + 2, "...as its own undo step");
+            undo();
+            at_check(world().find_by_id("coin_1").is_null(), "Undo takes the pasted entity away");
+            undo();
+            at_check(!world().find_by_id("coin_1").is_null() && world().entities().size() == m->entities,
+                     "Undo again brings the cut entity back");
+            select_id("");
+        });
+
+        // 4. Text that is not entities pastes nothing and records no undo step.
+        click("tree:player");
+        step(2, [this, m] {
+            sapp_set_clipboard_string("hello, not an entity");
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+        });
+        paste_key();
+        step(4, [this, m] {
+            at_check(world().entities().size() == m->entities && undo_depth() == m->undo,
+                     "Ctrl+V of text that is not entities creates nothing and leaves no undo step");
+        });
+
+        // 4b. A copy that does not fit the clipboard is refused, and Cut deletes nothing.
+        step(2, [this, m] {
+            const CommandResult r = engine_->commands().call(
+                "scene.spawn", Json::object({{"name", std::string(kClipboardBytes + 1000, 'x')}}));
+            at_check(r.ok, "an entity with a name longer than the clipboard is made");
+            m->big = r.result.value("id", std::string());
+            select_id(m->big);
+            sapp_set_clipboard_string("sentinel");
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+        });
+        chord(SAPP_KEYCODE_X);
+        step(3, [this, m, clip_has] {
+            at_check(clip_has("sentinel"), "a copy bigger than the clipboard leaves the clipboard alone");
+            at_check(!world().find_by_id(m->big).is_null() && world().entities().size() == m->entities &&
+                         undo_depth() == m->undo,
+                     "...and Cut deletes nothing");
+            (void)engine_->commands().call("scene.destroy", Json::object({{"id", m->big}}));
+            select_id("");
+        });
+
+        // 5. Another panel holding the keyboard keeps Ctrl+C: the Inspector does not copy the selection.
+        step(2, [this] {
+            sapp_set_clipboard_string("sentinel");
+            focus_window("Inspector");
+        });
+        step(4, [] {});
+        chord(SAPP_KEYCODE_C);
+        step(3, [this, clip_has] {
+            at_check(clip_has("sentinel"), "Ctrl+C with the Inspector focused leaves the clipboard alone");
+            focus_window("Hierarchy");
+        });
+        step(4, [] {});
+
+        // 6. The context menu has Copy and Paste too.
+        auto right_click = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), 1); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), 1); });
+        };
+        click("tree:coin_2");
+        right_click("tree:coin_2");
+        step(3, [this] {
+            at_check(at_visible("tree:ctx:copy") && at_visible("tree:ctx:paste"), "the row menu lists Copy and Paste");
+        });
+        click("tree:ctx:copy");
+        step(3, [this, m, clip_has] {
+            at_check(clip_has("factoria.entities/1"), "Copy in the row menu puts the entity on the clipboard");
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+        });
+        right_click("tree:coin_2");
+        step(3, [] {});
+        click("tree:ctx:paste");
+        step(4, [this, m] {
+            at_check(world().entities().size() == m->entities + 1 && undo_depth() == m->undo + 1,
+                     "Paste in the row menu creates a copy, one undo step");
+            at_check(selection_peek().size() == 1 && selected_id() != "coin_2", "...and selects it");
+            undo();
+            select_id("");
+        });
+    }
+}
+
 void Editor::at_section_P4(AtScript& at) {
     AT_SCRIPT_LOCALS(at)
     // ------------------------------------------------------- P4. Prefab overrides: marked, reverted, applied, undone

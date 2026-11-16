@@ -14,6 +14,26 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   (blue label, tooltip with the prefab's value) and added components, shows the prefab and the override count under the name,
   and offers Revert to prefab / Apply to prefab in the right-click menu of a field and of a component header, and Revert all /
   Apply all (which asks first) for the entity (docs/EDITOR.md, "Prefab instances").
+- **Copy, cut and paste of entities (M98.7c):** the new commands `scene.copy_entities` (entities with their subtrees as one
+  self-contained JSON text: components, children, links to prefabs) and `scene.paste_entities` (creates them under an optional
+  parent or each under the parent it had, with free ids, `nameSuffix`, and the new ids in the answer) make the clipboard
+  scriptable, across scenes and projects. An Entity field that names an entity of the copied set names the copy; one that names an
+  entity outside it is kept when the target exists in the destination and cleared otherwise (listed in `cleared`). A text that is
+  not a copy (not JSON, another format or version) gives an error with the JSON pointer and the fix. In the editor, Ctrl/Cmd+C, X
+  and V in the Hierarchy and the Viewport (and Edit > Copy, Cut, Paste, Duplicate, and the row menu) use the system clipboard;
+  Paste goes next to the primary and selects the copies with the copy of the primary last; Cut and Paste are one Undo step each.
+  Duplicate now goes through the same code, so references inside the duplicated set follow the copies (before, they were not
+  remapped), and the copies keep their prefab links. On macOS the system menu shows no key for Copy, Cut and Paste (it would
+  take Cmd+C from the other panels).
+- **Windows gamepads beyond XInput (M98.5b1):** DualShock 4, DualSense, Switch Pro and generic USB/Bluetooth pads are read on
+  Windows through Raw Input and HID (`hid.dll`, loaded at run time), next to XInput for Xbox pads. Each report is parsed
+  through the pad's own descriptor (buttons, axes scaled by their logical range, the hat) in DirectInput's numbering, so the
+  Windows lines of SDL GameControllerDB, now embedded in the Windows build only, map them; `SDL_GAMECONTROLLERCONFIG` and
+  the project's `gamecontrollerdb.txt` come first, and a pad nothing lists gets a default layout read from the pad. XInput
+  and HID pads share the slots 0..3 (a pad keeps its slot while connected, a gap is filled first); plugging comes from the
+  OS's device notifications, and XInput's empty slots are asked every 2 s and right after a notification instead of on a
+  fixed timer only. HID pads answer `canRumble: false` with a reason saying their rumble is coming (M98.5b2). Not yet tried
+  with a physical pad.
 - **Several entities selected (M98.7b):** in the editor, Ctrl/Cmd+click toggles and Shift+click selects a range in the
   Hierarchy, and Ctrl/Cmd+click, Shift+click and a marquee on empty space select in the Viewport. Every selected entity is
   outlined; the gizmo moves, rotates and scales all of them about the primary as one Undo step; Delete, Duplicate and
@@ -56,6 +76,13 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   rotation keeps the slot. `ui.rectOf` and `ui_rect` report the bounding box; new `ui_quad`, `ui_transform`, `ui_contains`,
   `ui_local_point`, `ui_footprint_rect` and `ui_own_rect` in `ui_rect.h`. A turned ScrollList still clips to the bounding box
   of its turned rectangle (a scissor cannot turn) and warns once. Unturned, unscaled UI is bit for bit the same.
+- **Pad rumble on Linux, Android and Apple (M98.5c):** `input.rumble` now drives the motors on Linux (evdev force feedback:
+  one `FF_RUMBLE` effect per pad on `/dev/input/eventN`, which must be writable: the reason names the `input` group and the
+  udev rule when it is not), on Android (the pad's `InputDevice` vibrators: `getVibratorManager()` on API 31+, `getVibrator()`
+  before; two vibrators get low and high apart, one the stronger of the two) and on macOS and iOS (GameController haptics with
+  CoreHaptics: low on the left handle, high on the right). The numbers each API wants are pure, unit-tested helpers
+  (`fa/platform/gamepad_rumble_map.h`); the three backends are untested on hardware. The AI guide's feedback example no longer
+  uses "No gamepad rumble".
 - **Render interpolation (M98.3):** `"render": { "interpolation": true }` in `factoria.json` (default `false`, so nothing
   changes for a game that does not ask) draws entities at the pose between the last two fixed steps, so a 60 Hz simulation
   looks smooth at 120-144 Hz. Only the drawing is blended (position, scale, rotation by slerp; children, cameras and physics

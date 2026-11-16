@@ -922,7 +922,7 @@
       },
       {
        "sig": "readonly canRumble: boolean",
-       "doc": "True when this pad has motors the platform can drive now, so input.rumble(pad, ...) shakes it; false for a slot with no pad and for a platform or pad without rumble. Windows (XInput pads) and Chrome-based browsers (Xbox and PlayStation pads) can today; Linux, macOS, iOS and Android do not yet, Firefox and Safari never; Windows pads that are not XInput (DualShock, DualSense, Switch Pro) come later. Games need not check it: input.rumble on a pad that cannot rumble does nothing. Check it to show a Vibration option only where it works. A test pad answers false unless game.gamepad(i).connect({ canRumble: true })."
+       "doc": "True when this pad has motors the platform can drive now, so input.rumble(pad, ...) shakes it; false for a slot with no pad and for a platform or pad without rumble. Windows (XInput pads), Linux (pads with kernel force feedback, when /dev/input/eventN is writable), macOS and iOS (pads with GameController haptics), Android (pads whose InputDevice has vibrators) and Chrome-based browsers (Xbox and PlayStation pads) can today; Firefox and Safari never; Windows pads that are not XInput (DualShock, DualSense, Switch Pro) come later. Games need not check it: input.rumble on a pad that cannot rumble does nothing. Check it to show a Vibration option only where it works. A test pad answers false unless game.gamepad(i).connect({ canRumble: true })."
       },
       {
        "sig": "down(button: GamepadButton): boolean",

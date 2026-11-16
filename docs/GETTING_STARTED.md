@@ -401,11 +401,11 @@ Example entry:
 {
   "category": "input",
   "severity": "minor",
-  "title": "No gamepad rumble",
-  "missing": "The game wants to vibrate the controller when the player is hit, but scripts have no rumble API.",
-  "workaround": "none: feature dropped. A hit is shown with a screen shake only.",
+  "title": "No adaptive triggers",
+  "missing": "The game wants the DualSense triggers to resist when the bow is drawn, but scripts have no trigger-effect API.",
+  "workaround": "none: feature dropped. The draw is shown with a camera zoom only.",
   "workaroundFiles": [],
-  "suggestion": "Add input.gamepad(i).rumble(strong, weak, seconds) that vibrates the pad.",
+  "suggestion": "Add input.gamepad(i).setTriggerResistance(side, start, strength) that stiffens one trigger.",
   "effort": "small"
 }
 ```
@@ -435,7 +435,7 @@ Keys and fixed values (`category`, `severity`) are in English, as in the example
 | Built-in AI with an API key (`factoria ai`) | `doctor`, `providers` and `config` work. `ai run` needs an API key or an installed CLI (Claude Code or Codex) |
 | Exporting games (`factoria export`) | Linux tested (`--platform linux`); CI exports an Android game and builds its APK. Windows, macOS, Android and iOS: see `docs/EXPORTING.md` and `docs/MOBILE.md`. `--platform web` writes a browser build and the zip itch.io takes as an HTML5 game (`docs/EXPORTING.md`, "Web"); CI exports a template for the web and runs it in headless Chrome (Firefox, Safari and phone browsers untested) |
 | Documentation for AI | In English: `docs/AI_GUIDE.md`, `factoria docs read ai-guide` |
-| Gamepads | Bindings (`GamepadA`, `GamepadLeftStickLeft`, ...), `input.gamepad(i)` and `game.gamepad(i)` in tests. Real pads: Windows (XInput), Linux (joystick API; the Linux lines of SDL's GameControllerDB are built in, extra lines go in `SDL_GAMECONTROLLERCONFIG` or a `gamecontrollerdb.txt` next to `factoria.json`), macOS/iOS (GameController) and Android; all compiled by CI, none tested with a physical pad yet. The web build reads pads through the browser Gamepad API (`docs/MOBILE.md`, "Web") |
+| Gamepads | Bindings (`GamepadA`, `GamepadLeftStickLeft`, ...), `input.gamepad(i)` and `game.gamepad(i)` in tests. Real pads: Windows (XInput for Xbox pads, Raw Input and HID for the others, with the Windows lines of SDL's GameControllerDB built in), Linux (joystick API; the Linux lines of SDL's GameControllerDB are built in, extra lines go in `SDL_GAMECONTROLLERCONFIG` or a `gamecontrollerdb.txt` next to `factoria.json`), macOS/iOS (GameController) and Android; all compiled by CI, none tested with a physical pad yet. The web build reads pads through the browser Gamepad API (`docs/MOBILE.md`, "Web") |
 
 ## 9. Where to read next
 
