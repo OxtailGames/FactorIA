@@ -446,7 +446,9 @@ composes shows at the caret, underlined, and is typed when committed; a click in
 field, commits it at once (the backend then forgets it and delivers nothing more). A password field keeps the input method
 off. There is one input method per process: when two UIs run in it (the editor's and a game's), only the `TextField` that
 took it first has it; a field of the other UI is typed into as a plain field (no composition, no candidate window) until that
-one lets go. A turned TextField gives the input method the bounding box of its caret as drawn. Where the characters come from
+one lets go (or stops updating: after more than 30 updates of the other UI without one of its own, the other takes it).
+The editor's own window has no input method wired to the game's Input: a `TextField` in the Play view of the editor takes
+typed text and pastes, but does not compose (no IME, no candidate window); a built game does. A turned TextField gives the input method the axis-aligned bounding box of its caret bar as drawn (the candidate window of a rotated field sits at that box, not on the tilted bar). Where the characters come from
 depends on the device, and the game does not change for any of them:
 
 - **Desktop.** The operating system's text input: what the keyboard types (shift, AltGr) arrives as typed text. What an input
@@ -486,13 +488,16 @@ the commit goes to `input.text` once. With no `TextField` focused the IME is off
 On macOS and iOS:
 
 - A key the input method used (it composes, converts or confirms) is not also a game key: Enter that confirms a conversion
-  does not submit the field. Every other key, Backspace, arrows and Enter included, reaches the game as before, and so do
+  does not submit the field. Known limit: an input method that both commits and inserts a newline on one Enter (some Korean
+  setups) has the Enter swallowed, so the field is not submitted; press Enter again. Every other key, Backspace, arrows and Enter included, reaches the game as before, and so do
   all keys while no field has the focus. Command and Control chords are never offered to the input method (shortcuts, Cmd+V).
 - The clause the input method is converting is the composition's selection (`compositionCaret` .. `+ selectionLength`, in code
   points; the platform counts UTF-16 and the engine converts).
 - When the system ends a composition without a commit (the window loses the focus, the input source changes, a click) the
   text built so far is accepted and typed, as `NSTextInputClient` says. A cancel (the focus moving to another field) and a
   marked text the input method emptied (Backspace on the last character) type nothing.
+- Text the system inserts with no key behind it (the emoji picker, dictation) is typed as `input.text` also while no
+  field has the focus or the IME is off (a password field); control characters are dropped.
 - iOS: `input.showKeyboard` (the UI does it with the focus) is still what shows the keyboard; turning the IME on or off
   shows and hides nothing. The IME starts working at the first time the keyboard is shown.
 - iOS reads the keyboard's text field after each change; its text starts with a fixed first character that the engine puts

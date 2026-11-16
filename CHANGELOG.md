@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **IME and text field polish (M98):** a UI that holds the input method and stops updating (the editor's own panels with a
+  focused `TextField` while a game runs) gives it up: after 30 updates of another UI without one of its own, the other takes
+  it. macOS and iOS: text the system inserts with no key behind it (the emoji picker,
+  dictation) is typed as `input.text` also while no field has the focus or the IME is off; before it was dropped. The editor's
+  `ui.reset_layout_positions {dryRun: true}` is no longer an undo step or a scene save. Documented limits: the editor's Play
+  view has no input method (the editor window has no `AppDesc::input`), and an input method that commits and inserts a
+  newline on one Enter has that Enter swallowed (docs/TEXT.md).
 - **Editor polish (M98):** pasting a copied entity whose `$prefab` path has a segment of only dots and spaces (`.. `, `...`) is
   refused, as `..` is (Windows ignores trailing dots and spaces); the Inspector's "Undo put the scene back" note no longer appears
   after a scene load or when the undo list was trimmed; in a number that differs between selected entities, leaving the box after

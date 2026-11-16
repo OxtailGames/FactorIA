@@ -629,6 +629,7 @@ TEST_CASE("ui textfield editing: a commit longer than the text one frame can car
     Field F("");
     TextField& f = *F.f;
     F.t.in.on_composition_commit(std::u32string(Input::kMaxTextPerView + 500, U'a'));
+    CHECK(F.t.in.text_input().size() == Input::kMaxTextPerView);  // Input itself cuts the burst at the cap
     F.t.frame();
     CHECK(f.text.size() == Input::kMaxTextPerView);
     CHECK(f.caretIndex == int(Input::kMaxTextPerView));
@@ -640,8 +641,9 @@ TEST_CASE("ui textfield editing: a commit longer than the text one frame can car
 TEST_CASE("ui textfield editing: only one UI of the process holds the input method, and it gives it back") {
     ImeGuard guard;
     auto first = std::make_unique<Field>("ab");
+    first->t.frame();  // the UI that updates first takes it (not a side effect of building the field)
+    CHECK(ime_state().enabled);
     Field second("cd");
-    CHECK(ime_state().enabled);  // the first UI took it
     const Rect rect = ime_state().caretRect;
     second.t.frame(
         3);  // the second UI's field is focused too: it types as a plain field and leaves the input method alone
@@ -652,6 +654,28 @@ TEST_CASE("ui textfield editing: only one UI of the process holds the input meth
     second.t.frame();
     CHECK(ime_state().enabled);  // and the other UI takes it on its next frame
     CHECK(ime_state().caretRect.x > 0.0f);
+}
+
+TEST_CASE("ui textfield editing: a UI that stopped updating with a focused field loses the input method to another") {
+    ImeGuard guard;
+    Field stale("ab");
+    CHECK(ime_state().enabled);  // taken by `stale`
+    Field live("cdefg", {200, 30});
+    live.t.frame(5);  // a few updates of the other UI: the holder is only idle, it keeps the input method
+    const int cancels = ime_state().cancels;
+    const Rect heldRect = ime_state().caretRect;
+    CHECK(ime_state().enabled);
+    live.t.frame(40);  // far more updates than a holder may miss: `stale` is taken to have stopped
+    CHECK(ime_state().enabled);
+    CHECK(ime_state().cancels == cancels + 1);     // what the old holder was composing is dropped, once
+    CHECK(ime_state().caretRect.x != heldRect.x);  // the rectangle is the live field's now (its text is not the same)
+    // The old holder, back at last, has lost it: it does not move the caret rectangle and does not turn the input method off
+    // or cancel anything.
+    const Rect rect = ime_state().caretRect;
+    stale.t.frame(3);
+    CHECK(ime_state().enabled);
+    CHECK(ime_state().caretRect.x == rect.x);
+    CHECK(ime_state().cancels == cancels + 1);
 }
 
 TEST_CASE("ui textfield editing: the field that loses the focus forgets its scroll when a script empties it") {

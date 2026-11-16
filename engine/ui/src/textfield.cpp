@@ -46,8 +46,8 @@ void UiSystem::field_sync(Entity e, TextField& tf, std::int32_t& caret, std::int
         anchor = tf.selectionStart;
     } else if (caretMoved && !selChanged) {  // a script moved the caret: nothing stays selected
         caret = anchor = tf.caretIndex;
-    } else if (textChanged && !caretMoved &&
-               !selChanged) {  // a script wrote the text and left the caret: it goes to the end
+    } else if (textChanged && !caretMoved && !selChanged) {
+        // a script wrote the text and left the caret: it goes to the end
         caret = anchor = n;
     } else {
         caret = tf.caretIndex;
@@ -67,13 +67,14 @@ void UiSystem::field_store(Entity e, TextField& tf, std::int32_t caret, std::int
     tf.selectionStart = anchor;
     tf.selectionEnd = caret;
     // What the UI last wrote to the FOCUSED field: a commit into another field (the focus has just moved) must not point it back.
-    if (fieldMemo_.e == e || !fieldMemo_.e) fieldMemo_ = FieldMemo{e, tf.text, caret, anchor, caret};
+    if (fieldMemo_.e == e) fieldMemo_ = FieldMemo{e, tf.text, caret, anchor, caret};
 }
 
 void UiSystem::field_focus(World& w, Entity e) {
     TextField* tf = w.get<TextField>(e);
     fieldMemo_ = FieldMemo{};
     if (!tf) return;
+    fieldMemo_.e = e;  // field_store follows only the field the memo is about
     const std::int32_t n = std::int32_t(std::min<std::size_t>(utf8_length(tf->text), 1000000));
     field_store(e, *tf, n, n);
 }
@@ -145,13 +146,13 @@ void UiSystem::field_pointer(World& w, Entity e, TextField& tf, Input& in, Vec2 
     // focus change, which commits it into the field it began in.
     if (pressed && in.composing() && imeField_ == e) {
         field_commit_composition(w, e, in);
-        if (imeOn_) ime_cancel();
+        if (holds_ime()) ime_cancel();
     }
     const float k = ui_scale_clamped(w.ui_scale());
     const TextFieldMeasure m = field_measure(tf, measure);
     const Rect local{0, 0, units->w, units->h};
-    const float x =
-        (ui_local_point(w, e, design, mouse).x - px->x) / k;  // a turned field: the pointer in its own frame
+    // A turned field: the pointer in its own frame.
+    const float x = (ui_local_point(w, e, design, mouse).x - px->x) / k;
     const std::int32_t index = text_field_index_at(tf, local, m, x);
     std::int32_t caret = 0, anchor = 0;
     field_sync(e, tf, caret, anchor);
@@ -199,9 +200,11 @@ void UiSystem::field_commit_composition(World& w, Entity e, Input& in) {
 void UiSystem::field_frame(World& w, Entity e, TextField& tf, Input& in, Vec2 design, const VisualMeasure& measure) {
     // A script may have written the text, caret or selection since the last frame: then they are read, fixed and written back.
     // Nothing changed (the usual frame) costs a comparison, not a copy of the text.
-    const bool untouched = fieldMemo_.e == e && tf.caretIndex == fieldMemo_.caret &&
-                           tf.selectionStart == fieldMemo_.selStart && tf.selectionEnd == fieldMemo_.selEnd &&
-                           tf.text == fieldMemo_.text;
+    // The focus normally arrives through field_focus; a memo of another field means a path that did not: adopt the field as it is.
+    const bool adopted = fieldMemo_.e != e;
+    if (adopted) fieldMemo_ = FieldMemo{e, tf.text, tf.caretIndex, tf.selectionStart, tf.selectionEnd};
+    const bool untouched = !adopted && tf.caretIndex == fieldMemo_.caret && tf.selectionStart == fieldMemo_.selStart &&
+                           tf.selectionEnd == fieldMemo_.selEnd && tf.text == fieldMemo_.text;
     if (!untouched) {
         std::int32_t caret = 0, anchor = 0;
         field_sync(e, tf, caret, anchor);

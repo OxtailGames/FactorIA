@@ -48,8 +48,7 @@ TextFieldView text_field_view(const TextField& tf, const Rect& r, const TextFiel
     } else {
         v.display = before + tf.composition + after;
     }
-    // A field that is not focused, with nothing selected or composed and never scrolled, needs no measuring of
-    // its text: it
+    // A field that is not focused, with nothing selected or composed and never scrolled, needs no measuring of its text: it
     // is drawn from its start (a field that scrolled while focused keeps its last scroll through the full path below).
     if (!tf.focused && !v.composing && tf.selectionStart == tf.selectionEnd && tf.scrollX <= 0.0f) {
         v.textX = v.inner.x;
