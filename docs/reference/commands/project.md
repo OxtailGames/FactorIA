@@ -203,6 +203,20 @@ Creates `dir` (relative to the server's working directory unless absolute) with 
 | `name` | string | no | Display name (default: folder name). |
 | `id` | string | no | Reverse-DNS id, e.g. com.example.mygame. |
 
+## `project.create_storage_secret` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+Create the random secret that makes storage.set(..., {encrypt: true}) work, in factoria.json.
+
+Capabilities: read, state, writeProject
+
+Writes "storage": {"encryptionSecret": <64 random hex characters>} into factoria.json, once. Save encryption (storage.set(key, value, {encrypt: true}), the Slots kit's `encrypt` option) derives one key per storage key from it, so run this before the game's first encrypted save and keep the secret for the life of the game: saves written with another secret cannot be opened (they are set aside as damaged files). A project that already has one is left alone (`created: false`) unless `replace` is true, which makes every encrypted save written so far unreadable. The secret is never returned or logged; it ships inside the exported game, so encryption is tamper-evidence, not secrecy from a determined player (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). Commit factoria.json. Result: {created, replaced, file}. Example: project.create_storage_secret {}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `replace` | boolean | no | Make a new secret even when the project has one. Every save written with {encrypt: true} so far stops opening: use it only when the secret leaked and the saves can be lost. Default false. |
+
 ## `project.export` (modifies state)
 
 Since 0.1.2.

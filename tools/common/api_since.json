@@ -1119,6 +1119,7 @@
     "prefab.save": "0.1.0",
     "project.add_menu_kit": "0.3.0",
     "project.create": "0.1.0",
+    "project.create_storage_secret": "unreleased",
     "project.export": "0.1.2",
     "project.info": "0.1.0",
     "project.new_ci_workflow": "0.2.0",

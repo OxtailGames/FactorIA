@@ -2,14 +2,30 @@
 // Save slots: named slots and an autosave in `storage`, each a string of JSON text and, when the player is signed in to a store,
 // a copy in the cloud under the same key. A slot holds a RECORD:
 //
-//   { "counter": 7, "name": "Before the cellar", "chapter": 3, "playTime": 3725.5, "pic": "<base64 PNG>" | null, "data": <the game's save> }
+//   { "version": 2, "counter": 7, "name": "Before the cellar", "chapter": 3, "playTime": 3725.5, "pic": "<base64 PNG>" | null, "data": <the game's save> }
 //
 // `data` is whatever the game saves (any JSON); the rest is what the slot screen (scripts/ui/slot_screen.js) shows without opening
 // the slot. `counter` goes up by one on every save (the wall clock is never read): when a cloud copy and a local one differ, the
 // higher counter wins (syncCloud). A text that is not a record (no "data" field) is read as a bare save: a record without a
 // name, picture or counter, so a game can start with plain saves and move to slots later.
 //
-//   const slots = new Slots({ upgrade: (data) => ({ ok: true, data }), describe: (data) => ({ chapter: data.chapter, playTime: data.playTime }) });
+// VERSION. `version` (an option, a whole number, default 0) is the layout of `data` that this build of the game writes; every record
+// carries the version it was written with. When a slot is read, `upgrade(data, fromVersion)` gets the data and the version in the
+// record (a bare save and a record from before this field count as version 0) and returns the data in the newest layout. Change
+// `version` whenever the layout of `data` changes, and let `upgrade` step an old save forward:
+//
+//   upgrade: (data, from) => { if (from < 1) data = { ...data, gold: data.coins ?? 0 }; if (from < 2) data = addInventory(data); return { ok: true, data }; }
+//
+// A record written by a NEWER build (its version is higher than `version`) is not guessed at: the slot is "damaged" with a hint to
+// update the game. `upgrade` is called for every read, also when the record is already at `version`; it must leave such data as it is.
+//
+// ENCRYPTION. `encrypt: true` seals the slot files (storage.set(key, text, { encrypt: true }): ChaCha20-Poly1305, so a text editor
+// shows nothing and a changed byte makes the save unreadable instead of loading edited gold). It needs the project's secret
+// (`factoria call project.create_storage_secret`, once) and it is tamper-evidence, not secrecy: the secret ships with the game
+// (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). The counter and last-slot keys and the cloud copies stay plain text.
+// A slot that was saved before `encrypt` was turned on is still read, and is sealed the next time it is written.
+//
+//   const slots = new Slots({ version: 2, encrypt: true, upgrade: migrate, describe: (data) => ({ chapter: data.chapter, playTime: data.playTime }) });
 //   slots.write(1, { name: "Before the cellar", data: mySave, chapter: 3, playTime: 3725.5, pic: capturePic() });
 //   const p = slots.peek(1);                  // { status: "used", record } | { status: "empty" } | { status: "damaged", reason, hint }
 //   if (p.status === "used") load(p.record.data);
@@ -47,7 +63,7 @@ export function capturePic(size = PIC) {
 }
 
 /**
- * @typedef {{ counter: number, name: string, chapter: number, playTime: number, pic: string | null, data: any }} SlotRecord
+ * @typedef {{ version: number, counter: number, name: string, chapter: number, playTime: number, pic: string | null, data: any }} SlotRecord
  * @typedef {{ ok: true, data: any } | { ok: false, message: string, hint?: string }} Upgraded
  */
 
@@ -59,7 +75,9 @@ export class Slots {
    * @param {string} [options.keyPrefix] storage (and cloud) key of slot N is `${keyPrefix}${N}`, "slot1"; the autosave is `${keyPrefix}_${auto}`
    * @param {string} [options.counterKey] storage key of the highest counter handed out
    * @param {string} [options.lastKey] storage key of the id of the slot saved last (for a "Continue" button)
-   * @param {(data: any) => Upgraded} [options.upgrade] migrates the data of a slot to the newest layout when it is read; a not-ok result makes the slot "damaged" with that message
+   * @param {number} [options.version] the layout of `data` this build writes (a whole number, default 0); stored in every record and given to `upgrade`
+   * @param {boolean} [options.encrypt] seal the slot files with the project's storage secret (default false)
+   * @param {(data: any, fromVersion: number) => Upgraded} [options.upgrade] migrates the data of a slot to the newest layout when it is read, knowing the version it was written with (0 for a bare save or a record without a version); a not-ok result makes the slot "damaged" with that message
    * @param {(data: any) => { chapter?: number, playTime?: number }} [options.describe] chapter and play time of a bare save (a record's own fields win)
    */
   constructor(options = {}) {
@@ -70,8 +88,18 @@ export class Slots {
     this.keyPrefix = options.keyPrefix ?? "slot";
     this.counterKey = options.counterKey ?? "saveCounter";
     this.lastKey = options.lastKey ?? "lastSlot";
+    const version = options.version ?? 0;
+    if (!Number.isInteger(version) || version < 0) throw new Error(`Slots: version must be a whole number from 0 up, but got ${JSON.stringify(version)}. It is the layout of the saved data; raise it by one when that layout changes.`);
+    if (options.encrypt !== undefined && typeof options.encrypt !== "boolean") throw new Error(`Slots: encrypt must be true or false, but got ${JSON.stringify(options.encrypt)}.`);
+    this.version = version;
+    this.encrypt = options.encrypt === true;
     this.upgrade = options.upgrade ?? ((data) => ({ ok: true, data }));
     this.describe = options.describe ?? (() => ({}));
+  }
+
+  /** The options of the storage.set that writes a slot. */
+  storeOptions() {
+    return this.encrypt ? { encrypt: true } : undefined;
   }
 
   /** The storage key (and cloud key) of a slot id. */
@@ -81,7 +109,7 @@ export class Slots {
 
   /**
    * Reads the text of a slot (or a cloud copy). `{ ok: true, record }` with the data in the newest layout, or `{ ok: false, reason, hint }`
-   * for text that is not JSON, not an object, or refused by `upgrade`. Never throws.
+   * for text that is not JSON, not an object, written by a newer version of the game, or refused by `upgrade`. Never throws.
    * @param {any} text
    * @returns {{ ok: true, record: SlotRecord } | { ok: false, reason: string, hint: string }}
    */
@@ -94,9 +122,17 @@ export class Slots {
     }
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, reason: "not a JSON object", hint: "Delete the slot." };
     const bare = !Object.hasOwn(raw, "data");
+    const from = !bare && Number.isInteger(raw.version) && raw.version >= 0 ? raw.version : 0;
+    if (from > this.version) {
+      return {
+        ok: false,
+        reason: `this save was made by a newer version of the game (save version ${from}, this game reads up to ${this.version})`,
+        hint: "Update the game to open it, or delete the slot.",
+      };
+    }
     let up;
     try {
-      up = this.upgrade(bare ? raw : raw.data);
+      up = this.upgrade(bare ? raw : raw.data, from);
     } catch (e) {
       up = { ok: false, message: `the save could not be read (${e.message})` };
     }
@@ -106,6 +142,7 @@ export class Slots {
     return {
       ok: true,
       record: {
+        version: this.version, // the data is in this layout now, whatever it was saved as
         counter: !bare && Number.isInteger(raw.counter) && raw.counter >= 0 ? raw.counter : 0,
         name: !bare && typeof raw.name === "string" ? raw.name : "",
         chapter: (bare ? undefined : number(raw.chapter)) || number(info.chapter) || 0,
@@ -150,9 +187,9 @@ export class Slots {
    * @returns {SlotRecord}
    */
   write(id, { data, name = "", chapter = 0, playTime = 0, pic = null }) {
-    const record = { counter: this.nextCounter(), name: String(name).trim(), chapter, playTime, pic, data };
+    const record = { version: this.version, counter: this.nextCounter(), name: String(name).trim(), chapter, playTime, pic, data };
     const text = JSON.stringify(record);
-    storage.set(this.key(id), text);
+    storage.set(this.key(id), text, this.storeOptions());
     storage.set(this.lastKey, id);
     this.upload(id, text);
     return record;
@@ -183,7 +220,7 @@ export class Slots {
         const local = this.peek(id);
         const remote = cloud === undefined || cloud === null ? null : this.parse(cloud);
         if (remote?.ok && (local.status !== "used" || remote.record.counter > local.record.counter)) {
-          storage.set(this.key(id), JSON.stringify(remote.record));
+          storage.set(this.key(id), JSON.stringify(remote.record), this.storeOptions());
           replaced = true;
         } else if (local.status === "used" && (!remote?.ok || local.record.counter > remote.record.counter)) {
           this.upload(id, storage.get(this.key(id)));

@@ -2296,23 +2296,28 @@
     }
   }
   function storageReset() { storageJobs.clear(); }
-  function storageCompress(fn, options) {
-    if (options === undefined || options === null) return false;
-    if (!isObj(options)) throw new Error(`${fn}: the options must be an object like { compress: true }, but got ${inspect(options)}`);
+  // The options of set / setAsync: { compress?: boolean, encrypt?: boolean } -> [compress, encrypt].
+  function storageOptions(fn, options) {
+    if (options === undefined || options === null) return [false, false];
+    if (!isObj(options)) throw new Error(`${fn}: the options must be an object like { compress: true } or { encrypt: true }, but got ${inspect(options)}`);
     for (const k of Object.keys(options)) {
-      if (k === "compress") continue;
-      const sug = closest(k, ["compress"]);
-      throw new Error(`${fn}: unknown option '${k}'${sug ? `; did you mean '${sug}'?` : ""} The only option is compress.`);
+      if (k === "compress" || k === "encrypt") continue;
+      const sug = closest(k, ["compress", "encrypt"]);
+      throw new Error(`${fn}: unknown option '${k}'${sug ? `; did you mean '${sug}'?` : ""} The options are compress and encrypt.`);
     }
-    if (options.compress !== undefined && typeof options.compress !== "boolean") throw new Error(`${fn}: compress must be true or false, but got ${inspect(options.compress)}`);
-    return options.compress === true;
+    for (const k of ["compress", "encrypt"])
+      if (options[k] !== undefined && typeof options[k] !== "boolean") throw new Error(`${fn}: ${k} must be true or false, but got ${inspect(options[k])}`);
+    return [options.compress === true, options.encrypt === true];
   }
   const storage = {
     get(key, fallback) { const v = N.storageGet(key); return v === undefined ? fallback : v; },
-    set(key, value, options) { N.storageSet(key, plain(value), storageCompress("storage.set(key, value, options)", options)); },
+    set(key, value, options) {
+      const [compress, encrypt] = storageOptions("storage.set(key, value, options)", options);
+      N.storageSet(key, plain(value), compress, encrypt);
+    },
     setAsync(key, value, options) {
-      const compress = storageCompress("storage.setAsync(key, value, options)", options);
-      const id = N.storageSetAsync(key, plain(value), compress);
+      const [compress, encrypt] = storageOptions("storage.setAsync(key, value, options)", options);
+      const id = N.storageSetAsync(key, plain(value), compress, encrypt);
       return new Promise((resolve, reject) => { storageJobs.set(id, { key, resolve, reject }); });
     },
     size(key) { return N.storageSize(key); },

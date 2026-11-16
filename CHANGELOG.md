@@ -6,6 +6,16 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Encrypted saves and slot versions (M98.1):** `storage.set(key, value, {encrypt: true})` (and `setAsync`, with or without
+  `compress`) seals the key's file with ChaCha20-Poly1305 under a key derived from a per-project secret
+  (`factoria.json` `storage.encryptionSecret`, created once with the new command `project.create_storage_secret`; a project
+  without it gets a teaching error, and `project.info` / `game.project` show the secret as `"(hidden)"`). `storage.get` opens
+  a sealed value transparently; one that fails authentication is kept aside like a damaged file (`storage.corrupt`). It is
+  tamper-evidence, not secrecy: the secret ships with the game (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves").
+  `storage.list` reports `encrypted` per key. The Slots kit writes a `version` in every record (option `version`), calls
+  `upgrade(data, fromVersion)` with it (bare saves and old records are version 0), refuses a record from a newer version, and has
+  an `encrypt` option; its tests and the CLI fixture copies are updated.
+
 - **Render interpolation (M98.3):** `"render": { "interpolation": true }` in `factoria.json` (default `false`, so nothing
   changes for a game that does not ask) draws entities at the pose between the last two fixed steps, so a 60 Hz simulation
   looks smooth at 120-144 Hz. Only the drawing is blended (position, scale, rotation by slerp; children, cameras and physics
