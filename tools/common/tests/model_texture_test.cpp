@@ -504,8 +504,8 @@ TEST_CASE("model.create and model.edit: the texturing and vertexColors sections 
 
 TEST_CASE("docs/MODELING.md: the examples of Texturing are valid documents") {
     namespace stdfs = std::filesystem;
-    const std::string text = read_text(stdfs::path(FA_REPO_ROOT) / "docs" / "MODELING.md");
-    const std::size_t from = text.find("\n## Texturing\n"), to = text.find("\n## Game-ready models\n");
+    const std::string text = read_text(stdfs::path(FA_REPO_ROOT) / "docs" / "modeling" / "MODELING_EDITING.md");
+    const std::size_t from = text.find("\n## Texturing\n"), to = text.size();
     REQUIRE(from != std::string::npos);
     REQUIRE(to != std::string::npos);
     int found = 0;

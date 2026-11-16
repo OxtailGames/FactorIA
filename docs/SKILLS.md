@@ -86,7 +86,7 @@ Over MCP they are `skills_list`, `skills_read` and `skills_new`.
 ## Turning skills on and off per role
 
 A skill folder with no entry is on for its default roles. To change that, add an entry under `extensions.skills` in `ai.json`
-(or in the project's `.factoria/extensions.json`; see [AI_PROVIDERS.md](AI_PROVIDERS.md#extensions)):
+(or in the project's `.factoria/extensions.json`; see [AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_EXTENSIONS.md#extensions)):
 
 ```json
 {
