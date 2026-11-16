@@ -419,7 +419,7 @@ TEST_CASE("docs.read: the default result fits an MCP tool result, a cut read end
     CommandRegistry reg;
     register_docs_commands(reg);
     register_api_export_commands(reg);
-    for (const char* doc : {"ai-guide", "licenses"}) {
+    for (const char* doc : {"ai-guide-tools", "licenses"}) {
         CAPTURE(doc);
         auto r = reg.call("docs.read", {{"name", doc}});
         REQUIRE(r.ok);
@@ -467,10 +467,22 @@ TEST_CASE("docs.read: a section is read by heading, exact title first, several m
 }
 
 // docs/AI_GUIDE.md starts with "## Index": a short list of every section, read alone with heading "Index" (AGENTS.md and the
-// make-game prompt send agents there first). It must stay small and complete.
-TEST_CASE("ai-guide: the Index at the top is under 5 KB and lists exactly the ## and ### headings of the guide") {
+// make-game prompt send agents there first). It must stay small and complete: the guide is an entry page plus pages
+// (docs/ai-guide/), so the headings are those of the whole family and an entry names its page in a trailing `[page]`.
+TEST_CASE("ai-guide: the Index at the top is under 7 KB and lists exactly the ## and ### headings of the guide") {
     std::string text = testing::read_all(stdfs::path(FA_REPO_ROOT) / "docs" / "AI_GUIDE.md");
     text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
+    {
+        std::vector<stdfs::path> pages;
+        for (const auto& de : stdfs::directory_iterator(stdfs::path(FA_REPO_ROOT) / "docs" / "ai-guide"))
+            if (de.path().extension() == ".md") pages.push_back(de.path());
+        std::sort(pages.begin(), pages.end());
+        for (const stdfs::path& pg : pages) {
+            std::string more = testing::read_all(pg);
+            more.erase(std::remove(more.begin(), more.end(), '\r'), more.end());
+            text += "\n" + more;  // after the Index: only the headings count
+        }
+    }
     REQUIRE_FALSE(text.empty());
     std::set<std::string> headings;
     std::set<std::string> listed;
@@ -493,18 +505,21 @@ TEST_CASE("ai-guide: the Index at the top is under 5 KB and lists exactly the ##
                 inIndex = true;
             else
                 headings.insert(title);
-        } else if (inIndex && line.rfind("- ", 0) == 0) {
+        } else if (inIndex && line.rfind("- ", 0) == 0 && line.rfind("- [", 0) != 0) {
             const size_t sep = line.find(" -- ");
-            listed.insert(sep == std::string::npos ? line.substr(2) : line.substr(2, sep - 2));
+            std::string entry = sep == std::string::npos ? line.substr(2) : line.substr(2, sep - 2);
+            const size_t br = entry.rfind(" [");
+            if (sep == std::string::npos && br != std::string::npos && entry.back() == ']') entry.resize(br);
+            listed.insert(entry);
         }
         pos = nl + 1;
     }
     REQUIRE_MESSAGE(indexEnd != std::string::npos,
                     "docs/AI_GUIDE.md needs a `## Index` section near the top, followed by the numbered sections.");
-    CHECK_MESSAGE(indexEnd < 5120,
+    CHECK_MESSAGE(indexEnd < 7168,
                   "The start of docs/AI_GUIDE.md up to the end of `## Index` is "
                       << indexEnd
-                      << " bytes; keep it under 5120 (shorten the notes of the index): an agent reads it first.");
+                      << " bytes; keep it under 7168 (shorten the notes of the index): an agent reads it first.");
     std::string problems;
     for (const std::string& h : headings)
         if (!listed.count(h))
@@ -528,7 +543,7 @@ TEST_CASE("ai-guide: the Index at the top is under 5 KB and lists exactly the ##
     CHECK(content.rfind("## Index", 0) == 0);
     CHECK(content.find("## 1. Mental model") == std::string::npos);
     CHECK(content.find("14. Where to read more") != std::string::npos);
-    CHECK(content.size() < 5120);
+    CHECK(content.size() < 7168);
 }
 
 TEST_CASE("docs.components and docs.commands: the default lists names, name gives one in full, filter narrows, full is "

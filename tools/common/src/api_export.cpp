@@ -747,7 +747,8 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
             "<out>/reference/: README.md (index of every component and command), "
             "components/<category>.md and commands/<category>.md, and it refreshes the generated tools table between "
             "the markers in "
-            "section 4 of <out>/AI_GUIDE.md (an <out> without that file, or a file without the markers, gives a "
+            "section 4 of <out>/ai-guide/AI_GUIDE_TOOLS.md (an <out> without that file, or a file without the markers, "
+            "gives a "
             "`warnings` entry and "
             "nothing else changes); all generated from the registries of this session. Run it outside a project (the "
             "scratch session) "
@@ -780,22 +781,22 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
             const std::filesystem::path out = resolvedOut.value();
             Json written = Json::array();
             Json warnings = Json::array();
-            // The generated tools table inside <out>/AI_GUIDE.md (the rest of that hand-written page stays). It is spliced BEFORE any
-            // page is written: a guide without the markers is a warning (the reference pages are still written), not a failure after
-            // half the pages are on disk; no AI_GUIDE.md in <out> is a warning too.
-            std::optional<std::string> guide = tooling_detail::read_file(out / "AI_GUIDE.md");
+            // The generated tools table inside <out>/ai-guide/AI_GUIDE_TOOLS.md (the page that holds section 4 of the guide; the rest of
+            // that hand-written page stays). It is spliced BEFORE any
+            // page is written: a page without the markers is a warning (the reference pages are still written), not a failure after
+            // half the pages are on disk; no AI_GUIDE_TOOLS.md in <out>/ai-guide is a warning too.
+            std::optional<std::string> guide = tooling_detail::read_file(out / "ai-guide" / "AI_GUIDE_TOOLS.md");
             bool guideReady = false;
             if (guide) {
                 guide->erase(std::remove(guide->begin(), guide->end(), '\r'), guide->end());
                 std::string err;
                 guideReady = splice_ai_guide_tools_table(*guide, registry, &err);
                 if (!guideReady)
-                    warnings.push_back(
-                        err +
-                        " AI_GUIDE.md was left as it is; restore the markers in section 4 and run the command again.");
+                    warnings.push_back(err + " AI_GUIDE_TOOLS.md was left as it is; restore the markers in section 4 "
+                                             "and run the command again.");
             } else {
                 warnings.push_back(
-                    "No AI_GUIDE.md in " + out.generic_string() +
+                    "No ai-guide/AI_GUIDE_TOOLS.md in " + out.generic_string() +
                     ": the generated tools table was not written (fine outside the repository's docs folder).");
             }
             for (const ApiReferencePage& p : export_api_reference(registry, scripts)) {
@@ -808,11 +809,12 @@ void register_api_reference_command(CommandRegistry& registry, const ScriptSyste
             }
             if (guideReady) {
                 std::string err;
-                if (!tooling_detail::write_file(out / "AI_GUIDE.md", *guide, &err))
+                if (!tooling_detail::write_file(out / "ai-guide" / "AI_GUIDE_TOOLS.md", *guide, &err))
                     throw CommandError("write_failed",
-                                       "Cannot write AI_GUIDE.md under " + out.generic_string() + ": " + err,
+                                       "Cannot write ai-guide/AI_GUIDE_TOOLS.md under " + out.generic_string() + ": " +
+                                           err,
                                        "Check that the file is writable.");
-                written.push_back("AI_GUIDE.md");
+                written.push_back("ai-guide/AI_GUIDE_TOOLS.md");
             }
             Json result = Json::object({{"out", out.generic_string()}, {"written", written}});
             if (!warnings.empty()) result["warnings"] = warnings;
