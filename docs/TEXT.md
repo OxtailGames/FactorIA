@@ -55,7 +55,7 @@ DejaVu Sans, as for any font.
 
 **They cost nothing for games that do not use them.** DejaVu Sans and Press Start 2P are inside every player; the other four
 are files that live in `factoria` and the editor. `factoria export` copies the files of the families a game names into
-`builtin-fonts/` and adds their licenses to `FACTORIA_NOTICES.txt` ([EXPORTING.md](EXPORTING.md#license-notices)); the
+`builtin-fonts/` and adds their licenses to `FACTORIA_NOTICES.txt` ([EXPORTING.md](exporting/EXPORTING_CONTENTS.md#license-notices)); the
 player reads them from there. The export finds a font by its name written out in full in a scene, prefab, script, data file
 or `factoria.json`, so `font: "builtin:" + kind` is not seen: write the whole name somewhere (a comment in a script is enough).
 A player that lacks the file (a folder copied by hand) logs one error and falls back to DejaVu Sans. Files are not subset:
@@ -442,7 +442,7 @@ come from depends on the device, and the game does not change for any of them:
 
 - **Desktop.** The operating system's text input: composed text (shift, dead keys, IME) arrives as typed.
 - **Phones and tablets.** The `TextField` raises the system keyboard when it gets the focus and hides it when it loses it
-  (the UI does this by itself: [MOBILE.md](MOBILE.md#the-on-screen-keyboard)). iOS delivers composed text; Android
+  (the UI does this by itself: [MOBILE.md](mobile/MOBILE_DEVICE.md#the-on-screen-keyboard)). iOS delivers composed text; Android
   delivers what each key types in its layout.
 - **A gamepad alone.** The kit's on-screen keyboard ([MENUS.md](MENUS.md), "On-screen keyboard (gamepad players)"): the
   d-pad walks the keys, its layout follows the language's script.
