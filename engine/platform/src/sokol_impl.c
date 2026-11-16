@@ -487,11 +487,16 @@ bool fa_sapp_set_class_name(const char* name) {
 // is closed and on every relaunch the manifest cannot opt out of (an assets-path change: wallpaper colours or theme
 // on Android 12+, an overlay; see AndroidManifest.xml). So the entry point below wraps sokol_app's and turns that
 // exit(0) into _exit(0): the process ends at once, nothing is torn down under a running thread.
+//
+// Before that, the game ends (activity_end_android.cpp): its "quit" handlers, the storage writes still waiting, the audio
+// device, all on sokol_app's loop thread while this main thread waits for them, at most about 1.5 s. A loop thread that
+// does not answer in time is busy: sokol's onDestroy would wait for it without a limit, so the process ends here at once.
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
 static void (*fa_sokol_on_destroy)(ANativeActivity* activity);
+int fa_android_activity_ending(void);  // activity_end_android.cpp
 
 static void fa_exit_now(void) {
     fflush(NULL);  // what exit() would still do for stdio
@@ -499,6 +504,7 @@ static void fa_exit_now(void) {
 }
 
 static void fa_on_destroy(ANativeActivity* activity) {
+    if (!fa_android_activity_ending()) _exit(0);  // the game's end timed out (and logged it): no stdio flush either
     // Registered after every static object was constructed, so exit() calls it before any static destructor.
     atexit(fa_exit_now);
     fa_sokol_on_destroy(activity);  // sokol: stop the loop thread, close the pipe, exit(0)

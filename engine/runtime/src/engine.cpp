@@ -1119,6 +1119,15 @@ void Engine::shutdown() {
     I.gpu.reset();
 }
 
+void Engine::end_app() {
+    Impl& I = *impl_;
+    if (!I.initialized || I.appEnded) return;
+    I.appEnded = true;
+    I.scripts.app_ending();
+    I.input.stop_all_rumble();
+    I.audio.shutdown();  // the device stops before the process ends under it; shutdown() later finds it closed
+}
+
 void Engine::begin_load_trace() {
     end_load_trace();
     impl_->loadTrace = std::make_unique<LoadTrace>(impl_->traceOwner);

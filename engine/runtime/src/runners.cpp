@@ -362,6 +362,13 @@ AppDesc build_app_desc(const EngineConfig& config, std::shared_ptr<WindowedState
                     !st->engine.quit_requested())
                     app_cancel_quit();
                 break;
+            case AppEvent::Type::Ending:
+                // Android destroyed the activity (Back, game.quit(), a relaunch, the system closing the app): the process ends
+                // right after this, and its surface is gone, so the game's last code runs without the GPU teardown.
+                st->engine.end_app();
+                apply_gamepad_rumble(st->engine.input());
+                FA_INFO("player", "ended");  // scripts/android-smoke.sh looks for it
+                break;
             default: break;
         }
     };
