@@ -39,15 +39,24 @@ CommandResult Editor::edit_command(const std::string& key, const std::string& na
     // A command with an inverse builder (undo_inverse.h) is one Command entry: the inverse is built from the scene as it
     // is now (rest values: the pose is off), and the entry is pushed once the call succeeded, so a refused call leaves
     // nothing behind and keeps the redo list.
-    if (edits && !forceSnapshot) {
+    // An edit that comes right after a snapshot step with the same key (several commands of one Console line or one AI call)
+    // joins that step, which already restores the scene from before them all: a Command entry would make it two steps. (The
+    // other order, a snapshot after a Command entry, is two steps: docs/EDITOR.md, "Undo entries".)
+    const bool joinsSnapshot = lastEditKind_ == UndoEntry::Kind::Snapshot && !undo_.empty() &&
+                               undo_.back().kind == UndoEntry::Kind::Snapshot &&
+                               edit_coalesces(key, lastEditKey_, time_, lastEditTime_);
+    if (edits && !forceSnapshot && !joinsSnapshot) {
         if (std::optional<UndoPlan> plan = plan_undo(world(), name, args)) {
             r = engine_->commands().call(name, args);
             after_command(name, args, r);
             if (r.ok) {
-                if (finish_undo_plan(world(), name, *plan, r.result)) {
+                if (plan->noop) {  // the call left the scene as it was: no step, nothing to save
+                } else if (finish_undo_plan(world(), name, *plan, r.result)) {
                     push_command_entry(key, std::move(plan->forward), std::move(plan->inverse), CoalesceMode::Merge);
                 } else {  // the result is not what the builder expects: the edit is done and nothing can undo it
                     dirty_ = true;
+                    redo_.clear();  // the edit happened: a redo list from before it no longer applies
+                    lastEditKey_.clear();
                     notify("This edit cannot be undone: " + name + " gave an unexpected result.", 1);
                 }
             } else if (error) {
@@ -114,7 +123,7 @@ void Editor::hierarchy_destroy_selection() {
     // all of them take the snapshot, which coalesces under the key.
     bool snapshot = false;
     for (const std::string& id : ids)
-        if (!plan_undo(world(), "scene.destroy", Json::object({{"id", id}}))) snapshot = true;
+        if (!has_undo_plan(world(), "scene.destroy", Json::object({{"id", id}}))) snapshot = true;
     for (const std::string& id : ids) {
         std::string err;
         CommandResult r = edit_command(key, "scene.destroy", Json::object({{"id", id}}), &err, snapshot);

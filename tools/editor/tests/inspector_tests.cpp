@@ -230,18 +230,6 @@ TEST_CASE("hierarchy: the search box matches every word in the name or the id") 
     CHECK(tree_label("e7", "e7") == "e7");
 }
 
-TEST_CASE("hierarchy: Duplicate spawns the entity and its children under new ids") {
-    const Json src = Json::parse(R"({"id":"squad","name":"Squad","components":{"Transform":{"position":[1,2,0]}},
-      "children":[{"id":"gunner","name":"Gunner"}]})");
-    const Json copy = duplicate_spec(src);
-    CHECK_FALSE(copy.contains("id"));
-    CHECK(copy["name"] == "Squad copy");
-    CHECK_FALSE(copy["children"][0].contains("id"));
-    CHECK(copy["children"][0]["name"] == "Gunner");
-    CHECK(copy["components"]["Transform"]["position"][0] == 1);
-    CHECK(duplicate_spec(Json::parse(R"({"id":"x"})"))["name"] == "Entity copy");
-}
-
 TEST_CASE("inspector: a big typed array (a 512 x 512 Tilemap) is summarised, not copied into the JSON every frame") {
     World w;
     Entity e = w.create("map", "map");

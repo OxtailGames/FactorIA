@@ -272,9 +272,6 @@ public:
     bool dirty() const { return dirty_; }
     void undo();
     void redo();
-    void step_history(bool forward);
-    // One undo (forward false) or redo step of a Command entry: all of its commands or none (a failure puts the scene back).
-    bool run_undo_commands(const std::vector<UndoCommand>& cmds, bool forward);
     // Records a command entry (forward and inverse command lists, nothing of the scene) as one undo step, coalesced the
     // way begin_edit coalesces: the same key within kEditCoalesceSeconds merges into the previous entry if that one is a
     // command entry (a snapshot entry and a command entry never merge into each other). Clears redo and marks the scene
@@ -285,6 +282,12 @@ public:
     size_t undo_depth() const { return undo_.size(); }
     size_t redo_depth() const { return redo_.size(); }
 
+private:
+    void step_history(bool forward);
+    // One undo (forward false) or redo step of a Command entry: all of its commands or none (a failure puts the scene back).
+    bool run_undo_commands(const std::vector<UndoCommand>& cmds, bool forward);
+
+public:
     // ---------------------------------------------------------------- UI helpers
     void notify(const std::string& text, int level = 0);
     // A toast with a button: it stays longer and does not vanish while the mouse is over it.

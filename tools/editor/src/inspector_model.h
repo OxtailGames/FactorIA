@@ -125,9 +125,6 @@ std::string material_build_error(const Json& assetReport, const std::string& mat
 bool tree_matches(std::string_view filter, std::string_view name, std::string_view id);
 // "Name  (id)", or just the id when the entity has no name.
 std::string tree_label(std::string_view name, std::string_view id);
-// The entity JSON a Duplicate spawns: `entityJson` (entity_to_json) without the ids of the entity and its children, so
-// the engine gives the copies new ones, and the name followed by " copy".
-Json duplicate_spec(Json entityJson);
 
 // ---------------------------------------------------------------------------------------------- prefab overrides
 // Questions about the `overrides` array of a `prefab.overrides` result (what the Inspector marks). The where-it-stands entry

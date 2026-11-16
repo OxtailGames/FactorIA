@@ -674,15 +674,19 @@ void Editor::at_section_L(AtScript& at) {
             at_check(pos_x() == 40.0f, "(L2) ...and Undo goes back to the value before the whole drag");
             redo();
             at_check(pos_x() == 43.0f, "(L2) ...Redo to the last value of it");
-            // A snapshot entry and a command entry never merge into each other, even with the same key.
+            // A command edit right after a snapshot step with its key joins that step (the snapshot restores the scene from
+            // before both); a snapshot after a command step with its key is a step of its own (docs/EDITOR.md, "Undo entries").
             ce->depth = undo_depth();
             begin_edit("at:cmd:mix");
             move_to("at:cmd:mix", 50.0f);
+            at_check(undo_depth() == ce->depth + 1 && undo_.back().kind == UndoEntry::Kind::Snapshot,
+                     "(L2) a command edit with the key of the snapshot step just before it joins that step");
+            move_to("at:cmd:mix2", 51.0f);
             at_check(undo_depth() == ce->depth + 2 && undo_.back().kind == UndoEntry::Kind::Command,
-                     "(L2) a command edit does not merge into a snapshot entry with the same key");
-            begin_edit("at:cmd:mix");
+                     "(L2) a command edit with another key is a command step");
+            begin_edit("at:cmd:mix2");
             at_check(undo_depth() == ce->depth + 3 && undo_.back().kind == UndoEntry::Kind::Snapshot,
-                     "(L2) ...nor a snapshot into a command entry");
+                     "(L2) ...and a snapshot never merges into a command entry, even with the same key");
             // A refused edit leaves no entry and keeps the redo list.
             undo();
             undo();
@@ -694,7 +698,8 @@ void Editor::at_section_L(AtScript& at) {
                                                    field_edit_args("coin_2", "Shape2D", "thickness", -5.0f), &err);
             at_check(!bad.ok && undo_depth() == ce->depth && redo_depth() == ce->redoDepth,
                      "(L2) a refused edit leaves no entry and keeps the redo list");
-            at_check(!bad.ok && err.find("thickness") != std::string::npos,
+            at_check(!bad.ok && err.find("thickness") != std::string::npos &&
+                         err.find("outside the allowed range") != std::string::npos,
                      "(L2) ...because the value is out of the field's range: " + err);
             // A component that was absent: set adds it, undo removes it, redo adds it with its value; remove and undo.
             const CommandResult added = edit_command(
@@ -2117,6 +2122,33 @@ void Editor::at_section_M5(AtScript& at) {
             select_id("");
         });
 
+        // 3b. Cut, Undo, Paste: Undo brings the entity back, so the paste gets a new id and the clipboard still has the text.
+        click("tree:coin_1");
+        step(2, [this, m] {
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+        });
+        chord(SAPP_KEYCODE_X);
+        step(3, [this, m] {
+            at_check(world().find_by_id("coin_1").is_null() && undo_depth() == m->undo + 1,
+                     "Ctrl+X cuts the entity again");
+            undo();
+            at_check(!world().find_by_id("coin_1").is_null() && world().entities().size() == m->entities,
+                     "Undo of the Cut brings it back");
+            select_id("");
+        });
+        paste_key();
+        step(4, [this, m] {
+            at_check(world().entities().size() == m->entities + 1 && selected_id() != "coin_1" &&
+                         !selected_id().empty(),
+                     "Ctrl+V after the Undo pastes a copy under a new id (the original is back) and selects it");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            undo();
+            at_check(world().entities().size() == m->entities && !world().find_by_id("coin_1").is_null(),
+                     "...which Undo removes, leaving the original");
+            select_id("");
+        });
+
         // 4. Text that is not entities pastes nothing and records no undo step.
         click("tree:player");
         step(2, [this, m] {
@@ -2130,19 +2162,25 @@ void Editor::at_section_M5(AtScript& at) {
                      "Ctrl+V of text that is not entities creates nothing and leaves no undo step");
         });
 
-        // 4b. A copy that does not fit the clipboard is refused, and Cut deletes nothing.
-        step(2, [this, m] {
+        // 4b. A copy that does not fit the clipboard is refused, and Cut deletes nothing. The big text sits in Script.props,
+        // which nothing draws as a label, and the whole check runs inside one step: no frame of the Hierarchy, the Inspector
+        // or the viewport ever shows the 1 MB entity.
+        step(2, [this, m, clip_has] {
             const CommandResult r = engine_->commands().call(
-                "scene.spawn", Json::object({{"name", std::string(kClipboardBytes + 1000, 'x')}}));
-            at_check(r.ok, "an entity with a name longer than the clipboard is made");
+                "scene.spawn",
+                Json::object(
+                    {{"name", "Big"},
+                     {"components",
+                      Json::object(
+                          {{"Script", Json::object({{"props", Json::object({{"blob", std::string(kClipboardBytes + 1000,
+                                                                                                 'x')}})}})}})}}));
+            at_check(r.ok, "an entity with a property longer than the clipboard is made");
             m->big = r.result.value("id", std::string());
             select_id(m->big);
             sapp_set_clipboard_string("sentinel");
             m->undo = undo_depth();
             m->entities = world().entities().size();
-        });
-        chord(SAPP_KEYCODE_X);
-        step(3, [this, m, clip_has] {
+            entity_cut();
             at_check(clip_has("sentinel"), "a copy bigger than the clipboard leaves the clipboard alone");
             at_check(!world().find_by_id(m->big).is_null() && world().entities().size() == m->entities &&
                          undo_depth() == m->undo,

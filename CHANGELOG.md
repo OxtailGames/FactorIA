@@ -20,8 +20,9 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   Each editor action is still one step. Deleting a top-level entity that is not the last one still takes a snapshot, so the
   order of the top-level entities (the file's order, and the tie-break of drawing order) is kept exactly; deleting the last one or
   a child is a command step. `scene.import_ascii`,
-  `scene.ascii_edit`, `script.eval`, `prefab.revert`/`apply`, `skin.*` and the AI revert still take a snapshot. docs/EDITOR.md,
-  "Undo entries".
+  `scene.ascii_edit`, `script.eval`, `prefab.revert`/`apply`, `skin.*` and the AI revert still take a snapshot, and so does
+  an edit whose subtree is deeper than 64 levels (a paste would refuse it). A reparent that changes nothing (to the place the
+  entity already has) records no step. docs/EDITOR.md, "Undo entries".
 - **Editor undo as commands, first half (M98.7e1):** an edit of a field or a component (Inspector fields, rename, the active box,
   Transform gizmo drags, adding and removing a component) no longer stores a copy of the whole scene on the undo stack: it stores
   the command and its inverse, built from the scene before the edit, so 100 edits cost less than one snapshot of a big scene.
@@ -58,7 +59,9 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   and V in the Hierarchy and the Viewport (and Edit > Copy, Cut, Paste, Duplicate, and the row menu) use the system clipboard;
   Paste goes next to the primary and selects the copies with the copy of the primary last; Cut and Paste are one Undo step each.
   Duplicate now goes through the same code, so references inside the duplicated set follow the copies (before, they were not
-  remapped), and the copies keep their prefab links. On macOS the system menu shows no key for Copy, Cut and Paste (it would
+  remapped), and the copies keep their prefab links: an instance is copied inline, with a `$prefab` mark that names its prefab
+  file (a mark that leaves the project is refused). A duplicate takes the next free number of its id (`coin_3` becomes `coin_4`;
+  before it got an engine id such as `e12`). On macOS the system menu shows no key for Copy, Cut and Paste (it would
   take Cmd+C from the other panels).
 - **Windows gamepads beyond XInput (M98.5b1):** DualShock 4, DualSense, Switch Pro and generic USB/Bluetooth pads are read on
   Windows through Raw Input and HID (`hid.dll`, loaded at run time), next to XInput for Xbox pads. Each report is parsed
