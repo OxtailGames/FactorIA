@@ -58,3 +58,25 @@ TEST_CASE("deprecated script API: the first call warns with the replacement, the
     CHECK(cap.lines.size() == 2);
     CHECK(h.scripts.errors().empty());
 }
+
+// world.spawnPrefab and world.spawn load through the scene loader: its deprecation warning (taken from the once-per-process table)
+// must reach the log, not be dropped with the successful report.
+TEST_CASE("deprecated component fields: a prefab spawned from a script logs the warning once") {
+    Deprecations::global().set(Json::parse(R"({"components": {
+        "Sprite.flipX": {"since": "0.30.0", "use": "Sprite.flipY", "note": ""}}})"));
+    struct Clear {
+        ~Clear() { Deprecations::global().clear(); }
+    } clear;
+    Capture cap;
+    TestHost h("deprecated_prefab");
+    h.file("prefabs/flip.prefab.json",
+           R"({"format":"factoria.prefab/1","entity":{"name":"Flip","components":{"Sprite":{"flipX":true}}}})");
+    REQUIRE(h.start());
+    auto r = h.scripts.eval(
+        "world.spawnPrefab('prefabs/flip.prefab.json'); world.spawnPrefab('prefabs/flip.prefab.json'); 1");
+    if (!r.ok()) FAIL(r.error().to_string());
+    REQUIRE(cap.lines.size() == 1);  // two spawns, the process is told once
+    CHECK(cap.lines[0].find("component field 'Sprite.flipX'") != std::string::npos);
+    CHECK(cap.lines[0].find("Use 'Sprite.flipY' instead") != std::string::npos);
+    CHECK(h.scripts.errors().empty());
+}
