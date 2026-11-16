@@ -85,6 +85,59 @@ Json field_edit_args(const std::string& entityId, const std::string& component, 
     return a;
 }
 
+SharedComponents shared_components(const std::vector<std::vector<std::string>>& perEntity) {
+    SharedComponents out;
+    if (perEntity.empty()) return out;
+    // First-seen order: the primary's components, then the ones only others have.
+    std::vector<std::string> names;
+    for (const auto& list : perEntity)
+        for (const std::string& n : list)
+            if (std::find(names.begin(), names.end(), n) == names.end()) names.push_back(n);
+    for (const std::string& n : names) {
+        int have = 0;
+        for (const auto& list : perEntity) have += std::find(list.begin(), list.end(), n) != list.end() ? 1 : 0;
+        if (have == int(perEntity.size()))
+            out.shared.push_back(n);
+        else
+            out.partial.emplace_back(n, have);
+    }
+    return out;
+}
+
+FieldMix field_mix(const std::vector<Json>& values) {
+    FieldMix m;
+    if (values.size() < 2) return m;
+    const Json& first = values[0];
+    const bool numbers =
+        first.is_array() && std::all_of(first.begin(), first.end(), [](const Json& v) { return v.is_number(); });
+    if (numbers) m.parts.assign(first.size(), false);
+    for (size_t i = 1; i < values.size(); ++i) {
+        const Json& v = values[i];
+        if (v == first) continue;
+        m.mixed = true;
+        if (!numbers) continue;
+        if (!v.is_array() || v.size() != first.size()) {
+            m.parts.assign(first.size(), true);  // not comparable number by number: every number is mixed
+            continue;
+        }
+        for (size_t k = 0; k < first.size(); ++k)
+            if (v[k] != first[k]) m.parts[k] = true;
+    }
+    return m;
+}
+
+Json multi_edit_value(const Json& entityCurrent, const Json& shown, const Json& edited) {
+    const bool arrays = edited.is_array() && shown.is_array() && entityCurrent.is_array() &&
+                        edited.size() == shown.size() && entityCurrent.size() == shown.size();
+    if (!arrays) return edited;
+    Json out = entityCurrent;
+    for (size_t i = 0; i < edited.size(); ++i)
+        if (edited[i] != shown[i]) out[i] = edited[i];
+    return out;
+}
+
+std::string multi_selection_title(size_t count) { return std::to_string(count) + " entities"; }
+
 Result<Json> parse_json_box(const std::string& text) {
     std::string trimmed = text;
     while (!trimmed.empty() && std::isspace(static_cast<unsigned char>(trimmed.back()))) trimmed.pop_back();

@@ -114,4 +114,19 @@ float scale_uniform_factor(Vec2 mouseStart, Vec2 mouseNow, float refPx);
 // start * factor, keeping start's sign. With `snapStep` the value snaps to it and stays at least one step away from 0.
 float scale_apply(float start, float factor, float snapStep);
 
+// ------------------------------------------------------------------------------------------------ several entities
+// A gizmo drag of a multi-selection moves every selected entity (without a selected ancestor) relative to the gizmo's pivot:
+// the primary's world position. These are the per-entity parts of that; viewport_gizmo.cpp applies them to each entity.
+// `p` turned by `deg` (right-handed) about the axis through `pivot` with direction `axis` (unit length): where an entity at
+// `p` is after the group turned.
+Vec3 orbit_about(Vec3 p, Vec3 pivot, Vec3 axis, float deg);
+// The scale of the group as a factor per axis: now / start, 1 where start is (nearly) 0.
+Vec3 scale_ratio(Vec3 start, Vec3 now);
+// An offset from the pivot after a group scale: its part along each of the three unit `axes` (the primary's local axes)
+// is multiplied by that axis' ratio.
+Vec3 scale_offset(Vec3 offset, const Vec3 axes[3], Vec3 ratio);
+// Whether every point of `points` (panel or design pixels) lies inside the marquee rectangle (corners in any order); a marquee
+// selects the entities whose outline it covers completely. False for no points.
+bool marquee_covers(Vec2 cornerA, Vec2 cornerB, const std::vector<Vec2>& points);
+
 }  // namespace fa::editor

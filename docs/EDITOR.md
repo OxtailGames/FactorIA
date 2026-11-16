@@ -141,8 +141,9 @@ Every change is a `scene.set_component` call on `Transform` through the same pat
 step, the scene is marked dirty, Save writes the values, and a value the command refuses stops the drag and shows the
 message. Handles are drawn while the game is in edit mode or paused (a paused drag edits the running game, adds no Undo
 step and is lost on Stop, like the Inspector); while the game plays there are none, because the input goes to the game.
-Not here yet: panning or zooming the view independently of the game camera, selecting several entities, a local/world
-axis switch.
+Not here yet: panning or zooming the view independently of the game camera, a local/world
+axis switch. With several entities selected the gizmo moves, rotates or scales all of them about the primary
+([Selecting things](#selecting-things)).
 
 ## Hierarchy and Inspector
 
@@ -164,7 +165,8 @@ number, a colour picker, a drop-down for enums and for entity references (by id)
 (only files of the right type), and a multi-line text box for free-form JSON (`Script.props`...) that is applied when you
 click away and refuses invalid JSON, showing the parse error. A number array longer than 512 elements (a big tile map, the vertices of a sprite mesh of more than 128 points) shows only its length, not its numbers: the Inspector rebuilds its JSON every frame, so edit such a field with `scene.set_component`, a script or the file. Hover a name for the field's doc string and range. Read-only
 fields (the entity id) are disabled and runtime-only state is not shown. A value the command refuses (outside the range)
-changes nothing and its message shows under the field. **Add Component** lists the components the entity lacks.
+changes nothing and its message shows under the field. **Add Component** lists the components the entity lacks. With
+several entities selected the Inspector shows what they share ([Selecting things](#selecting-things)).
 
 **MeshRenderer.** `material` is a file list of `*.material.json`. `materialParams` is typed by the material's `material.info`:
 one widget per param (drag with its `min`/`max`, vectors, a colour picker), an `*` and a **Reset** button when this entity
@@ -183,8 +185,41 @@ Inside the editor the selection is a set (`tools/editor/src/selection.h`): an or
 so it survives an undo or a scene load) and one primary, the id selected last. `Editor::selected()` and `selected_id()` are the
 primary, so everything that works on one entity (the Inspector, the gizmos, the AI's "this") is unchanged; `Editor::selection()` is
 the set, after dropping the ids whose entity no longer exists. The set has `replace`, `add`, `toggle` (Ctrl-click), `range`
-(Shift-click, over the ids in the order the Hierarchy lists them), `remove`, `clear` and `prune`. Today the UI still sets one id at a
-time; multi-selection, copy and paste build on this set (M98.7).
+(Shift-click, over the ids in the order the Hierarchy lists them), `remove`, `clear` and `prune`. `Editor::selection()` prunes the set (it drops what no
+longer exists), so code that only draws uses `selection_peek()`, which reads without changing it. Copy and paste build on this set (M98.7).
+
+**Selecting several entities** (Ctrl is Cmd on macOS):
+
+- **Hierarchy:** a click selects one row; **Ctrl+click** toggles a row; **Shift+click** selects the rows from the last row
+  clicked without Shift to this one, in the order the tree shows them (rows hidden inside a collapsed parent are not in that
+  order); **Ctrl+Shift+click** adds that range. Selected rows are highlighted and the primary has a yellow bar. Right-click on
+  a row that is not selected selects it; on a selected row it keeps the selection. A click on empty space clears the selection
+  (not with Ctrl or Shift held). Dragging a selected row drags the whole selection (the preview says "N entities"): the
+  entities keep their order, and one whose ancestor is also selected is skipped because it moves with that ancestor.
+  **Duplicate (N)** and **Delete (N)** in the right-click menu, and the Del key, act on the whole selection and are ONE Undo
+  step each (the children of a selected entity are copied or deleted with it, once). The copy of the primary becomes the
+  primary.
+- **Viewport:** a click selects the entity under the cursor; **Ctrl+click** toggles it, **Shift+click** adds it. Dragging
+  on empty space draws a **marquee**: it selects the entities whose outline (the picked bounds below) it covers completely and
+  replaces the selection; with **Shift** it adds them, with **Ctrl** it toggles each. A plain click on empty space clears the
+  selection. Every selected entity is outlined: the primary in yellow, the others in orange.
+- **Gizmos:** the handles sit at the primary's world position, which is the pivot (there is no other pivot setting). Move,
+  rotate and scale apply to every selected entity relative to that pivot, as ONE Undo step: move shifts all by the same world
+  offset, rotate turns their positions about the pivot and their own rotation by the same angle, scale scales their offsets
+  from the pivot and their own scale by the same factor. An entity whose ancestor is also selected is skipped, since it
+  follows that ancestor. Esc puts every entity back. While the animation recorder is on, a multi-selection has no handles
+  (a clip key belongs to one entity).
+- **Inspector:** the header reads "N entities" and shows the components EVERY selected entity has. A field with the same
+  value everywhere shows it; one that differs shows "—". Editing a field writes it to all the entities as ONE Undo step and
+  leaves their other fields as they are (editing `rotation` keeps each entity's own `position`). Free-form JSON and
+  `materialParams` that differ between the entities cannot be edited in this mode. A component only some of the entities have
+  is listed as not shared and is not editable. **Add Component** lists the components at least one entity lacks, with
+  "(k of N)", and adds the component to every selected entity that lacks it (one Undo step); the x of a header removes the
+  component from all of them.
+- **AI Assistant:** "this" and "it" mean the primary; the context names it and lists the ids of the others (the first 20,
+  `scene.list_entities` has the rest), and "these" and "them" mean all of them. No command or flag changed: commands still
+  take entity ids.
+
 The outline of the selected entity comes from the engine's own geometry (`fa/scene/bounds.h`), the code behind
 `entity.bounds()` in scripts, so what the editor outlines is what a script measures:
 

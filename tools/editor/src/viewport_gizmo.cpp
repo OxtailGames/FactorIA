@@ -1,6 +1,8 @@
 // Transform gizmos in the viewport: move (W), rotate (E), scale (R) the selected entity by dragging handles drawn with ImGui's
 // draw list over the game image. The math (handle layout, hit testing, what a drag does) is in gizmo_model.h and works for
-// orthographic 2D cameras, perspective 3D cameras and screen-space (HUD) entities alike. Nothing here edits the world directly:
+// orthographic 2D cameras, perspective 3D cameras and screen-space (HUD) entities alike. With several entities selected the
+// handles sit at the primary's pivot and the drag moves, turns or scales all of them about it (the selected entities that have no
+// selected ancestor; the others come along with their ancestor). Nothing here edits the world directly:
 // every change is a `scene.set_component` call on Transform through Editor::edit_command, the path the Inspector, the Console
 // and the AI use, so undo (one step per drag), the scene file and the "lost on Stop" rule of the play modes come with it.
 #include <algorithm>
@@ -84,11 +86,13 @@ void Editor::gizmo_toolbar_buttons() {
     static const Row rows[] = {
         {GizmoMode::Select, " Select ", "toolbar:gizmo:select", "Select only: no handles in the viewport (Q)"},
         {GizmoMode::Move, " Move ", "toolbar:gizmo:move",
-         "Move the selected entity by dragging its arrows or the centre square (W). Hold Ctrl to snap."},
+         "Move the selected entities by dragging the arrows or the centre square of the primary one (W). Hold Ctrl to "
+         "snap."},
         {GizmoMode::Rotate, " Rotate ", "toolbar:gizmo:rotate",
-         "Rotate the selected entity by dragging a ring (E). Hold Ctrl to snap to 15 degrees."},
+         "Rotate the selected entities about the primary one by dragging a ring (E). Hold Ctrl to snap to 15 degrees."},
         {GizmoMode::Scale, " Scale ", "toolbar:gizmo:scale",
-         "Scale the selected entity by dragging a handle or the centre box (R). Hold Ctrl to snap to 0.1."},
+         "Scale the selected entities about the primary one by dragging a handle or the centre box (R). Hold Ctrl to "
+         "snap to 0.1."},
     };
     for (const Row& row : rows) {
         const bool on = gizmoMode_ == row.mode;
@@ -124,14 +128,77 @@ void Editor::gizmo_end_drag(bool cancel) {
                                                  : d.start.scale;
     if (lastEditKey_ == d.key) lastEditTime_ = time_;
     std::string err;
-    edit_command(d.key, "scene.set_component", field_edit_args(d.id, "Transform", field, Json::array({v.x, v.y, v.z})),
-                 &err);
+    if (d.members.empty()) {
+        edit_command(d.key, "scene.set_component",
+                     field_edit_args(d.id, "Transform", field, Json::array({v.x, v.y, v.z})), &err);
+    } else {
+        for (const GizmoDrag::Member& m : d.members) {  // every entity of the group goes back to where it was
+            const Vec3 p = m.start.position;
+            edit_command(d.key, "scene.set_component",
+                         field_edit_args(m.id, "Transform", "position", Json::array({p.x, p.y, p.z})), &err);
+            if (d.mode == GizmoMode::Move) continue;
+            const Vec3 q = d.mode == GizmoMode::Rotate ? m.start.rotation : m.start.scale;
+            edit_command(d.key, "scene.set_component",
+                         field_edit_args(m.id, "Transform", field, Json::array({q.x, q.y, q.z})), &err);
+        }
+    }
     if (play_ == PlayState::Edit && !undo_.empty()) {
         undo_.pop_back();
         redo_ = std::move(d.redoBefore);
         dirty_ = d.dirtyBefore;
         lastEditKey_.clear();
     }
+}
+
+// One step of a multi-selection drag: `primaryValue` is what the drag gave the primary's field (position, rotation or scale, by
+// mode), `groupWorld` the pivot's new world position (move) and `turn` the degrees about the primary's local axis (rotate). Every
+// member gets the same move, or turns and scales about the pivot, written under the drag's one edit key (one undo step).
+CommandResult Editor::write_group_drag(Vec3 primaryValue, Vec3 groupWorld, float turn, std::string* err) {
+    GizmoDrag& d = gizmoDrag_;
+    CommandResult last;
+    last.ok = true;
+    auto put = [&](const std::string& id, const char* field, Vec3 v) {
+        v = {round4(v.x), round4(v.y), round4(v.z)};
+        CommandResult res = edit_command(d.key, "scene.set_component",
+                                         field_edit_args(id, "Transform", field, Json::array({v.x, v.y, v.z})), err);
+        if (!res.ok) last = res;
+    };
+    const int axis = d.handle.axis;
+    const Vec3 ratio = d.mode == GizmoMode::Scale ? scale_ratio(d.start.scale, primaryValue) : Vec3{1, 1, 1};
+    for (const GizmoDrag::Member& m : d.members) {
+        Vec3 world = m.startWorld;
+        if (d.mode == GizmoMode::Move) {
+            world = m.startWorld + (groupWorld - d.pivot);
+        } else if (d.mode == GizmoMode::Rotate) {
+            world = orbit_about(m.startWorld, d.pivot, d.local[axis], turn);
+        } else {
+            world = d.pivot + scale_offset(m.startWorld - d.pivot, d.local, ratio);
+        }
+        put(m.id, "position", m.hasParent ? world_to_local_position(m.parentWorld, world) : world);
+        if (d.mode == GizmoMode::Rotate) {
+            Vec3 rot;
+            if (m.id == d.id) {
+                rot = primaryValue;
+            } else {
+                // The group's axis seen from the member's parent: the member turns about it by the same angle.
+                Vec3 ax = d.local[axis];
+                if (m.hasParent) {
+                    const Vec3 a = m.parentWorld.inverse().transform_dir(ax);
+                    ax = length(a) > 1e-6f ? normalize(a) : ax;
+                }
+                if (axis == 2 && std::fabs(ax.z - 1.0f) < 1e-5f)
+                    rot = {m.start.rotation.x, m.start.rotation.y, m.start.rotation.z + turn};
+                else
+                    rot = (Quat::axis_angle_deg(ax, turn) * Quat::from_euler_deg(m.start.rotation)).to_euler_deg();
+            }
+            put(m.id, "rotation", rot);
+        } else if (d.mode == GizmoMode::Scale) {
+            put(m.id, "scale",
+                m.id == d.id ? primaryValue
+                             : Vec3{m.start.scale.x * ratio.x, m.start.scale.y * ratio.y, m.start.scale.z * ratio.z});
+        }
+    }
+    return last;
 }
 
 bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) {
@@ -157,7 +224,9 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
 
     const Entity sel = selected();
     Transform* tr = sel.is_null() ? nullptr : w.get<Transform>(sel);
-    if (!editing || gizmoMode_ == GizmoMode::Select || !tr || r.target_width() <= 0) {
+    // A group drag writes Transform fields of many entities; a clip key (record mode) is one entity's, so there are no handles then.
+    const bool groupOff = selection_peek().size() > 1 && anim_recording();
+    if (!editing || gizmoMode_ == GizmoMode::Select || !tr || groupOff || r.target_width() <= 0) {
         gizmo_end_drag(false);
         return false;
     }
@@ -211,6 +280,21 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
                                                    : tr->scale;
         d.redoBefore = redo_;
         d.dirtyBefore = dirty_;
+        if (selection_peek().size() > 1) {
+            for (const std::string& mid : selection_roots()) {
+                const Entity me = w.find_by_id(mid);
+                const Transform* mt = me.is_null() ? nullptr : w.get<Transform>(me);
+                if (!mt) continue;
+                GizmoDrag::Member m;
+                m.id = mid;
+                m.start = *mt;
+                const Entity mp = w.parent(me);
+                m.hasParent = !mp.is_null();
+                m.parentWorld = m.hasParent ? w.world_matrix(mp) : Mat4::identity();
+                m.startWorld = w.world_position(me);
+                d.members.push_back(std::move(m));
+            }
+        }
         if (d.handle.kind == GizmoKind::MovePlane) d.planeStart = space.on_plane(mouse, pivotW).value_or(pivotW);
         if (d.handle.kind == GizmoKind::RotateAxis) {
             const int i = d.handle.axis;
@@ -230,6 +314,8 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
             Vec3 value = d.last;
             const char* field = "position";
             const Vec2 p0 = space.project(d.pivot);
+            Vec3 groupWorld = d.pivot;  // move: where the pivot is now (the group moves by groupWorld - pivot)
+            float groupTurn = 0;        // rotate: the turn about the primary's local axis, in degrees
             if (d.mode == GizmoMode::Move) {
                 Vec3 world = d.pivot;
                 if (d.handle.kind == GizmoKind::MoveAxis) {
@@ -239,6 +325,7 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
                     world = d.pivot + (*now - d.planeStart);
                 }
                 if (snap) world = snap_move(d.pivot, world, threeD ? 0.25f : 1.0f);
+                groupWorld = world;
                 value = d.hasParent ? world_to_local_position(d.parentWorld, world) : world;
             } else if (d.mode == GizmoMode::Rotate) {
                 field = "rotation";
@@ -247,6 +334,7 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
                 // Z is the roll itself: snap the value. Around x and y the euler value is not the turn, so snap the turn.
                 value = rotate_local_euler(d.start.rotation, i, i == 2 ? turn : (snap ? snap_to(turn, 15.0f) : turn));
                 if (snap && i == 2) value.z = snap_to(value.z, 15.0f);
+                groupTurn = i == 2 ? value.z - d.start.rotation.z : (snap ? snap_to(turn, 15.0f) : turn);
             } else {
                 field = "scale";
                 const float step = snap ? 0.1f : 0.0f;
@@ -272,9 +360,14 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
             value = {round4(value.x), round4(value.y), round4(value.z)};
             if (value.x != d.last.x || value.y != d.last.y || value.z != d.last.z) {
                 std::string err;
-                CommandResult res = edit_command(
-                    d.key, "scene.set_component",
-                    field_edit_args(d.id, "Transform", field, Json::array({value.x, value.y, value.z})), &err);
+                CommandResult res;
+                if (d.members.empty()) {
+                    res = edit_command(
+                        d.key, "scene.set_component",
+                        field_edit_args(d.id, "Transform", field, Json::array({value.x, value.y, value.z})), &err);
+                } else {
+                    res = write_group_drag(value, groupWorld, groupTurn, &err);
+                }
                 if (!res.ok) {
                     notify("Could not change " + std::string(field) + ": " + err, 2);
                     d.active = false;

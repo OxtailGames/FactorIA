@@ -234,3 +234,126 @@ TEST_CASE("UndoStack: push_command pushes, coalesces into a command entry and on
     CHECK(small.size() == 2);
     CHECK(small[0].forward[0].args["v"] == 3);
 }
+
+// ---------------------------------------------------------------------------------------- clicks, ranges, the ancestor skip
+namespace {
+// A tree as the Hierarchy shows it (depth first):  root > (kidA > grand), kidB ; other
+const Ids kTree = {"root", "kidA", "grand", "kidB", "other"};
+std::string parent_in_tree(const std::string& id) {
+    if (id == "kidA" || id == "kidB") return "root";
+    if (id == "grand") return "kidA";
+    return {};
+}
+}  // namespace
+
+TEST_CASE("click_in_list: plain replaces, Ctrl toggles, Shift selects the rows between in the order shown") {
+    Selection s;
+    std::string anchor;
+    click_in_list(s, "kidA", {}, anchor, kTree);
+    CHECK(s.ids() == Ids{"kidA"});
+    CHECK(anchor == "kidA");
+    // Shift: the rows from the anchor to the clicked one, over the displayed tree order (grand sits between kidA and kidB)
+    click_in_list(s, "kidB", SelectMods{false, true}, anchor, kTree);
+    CHECK(s.ids() == Ids{"kidA", "grand", "kidB"});
+    CHECK(s.primary() == "kidB");
+    CHECK(anchor == "kidA");  // a Shift click keeps the anchor
+    // Shift the other way round from the same anchor: replaces the range, it does not extend the old one
+    click_in_list(s, "root", SelectMods{false, true}, anchor, kTree);
+    CHECK(s.ids() == Ids{"root", "kidA"});
+    // Ctrl+Shift adds a range to what is selected
+    click_in_list(s, "other", SelectMods{false, false}, anchor, kTree);
+    click_in_list(s, "kidA", SelectMods{true, false}, anchor, kTree);
+    click_in_list(s, "kidB", SelectMods{true, true}, anchor, kTree);
+    CHECK(s.ids() == Ids{"other", "kidA", "grand", "kidB"});
+    // Ctrl toggles one row off again
+    click_in_list(s, "grand", SelectMods{true, false}, anchor, kTree);
+    CHECK_FALSE(s.contains("grand"));
+    CHECK(anchor == "grand");
+    // a plain click on one of several rows leaves that one only
+    click_in_list(s, "other", {}, anchor, kTree);
+    CHECK(s.ids() == Ids{"other"});
+}
+
+TEST_CASE("click_in_list: the anchor survives two Shift clicks in a row (A, Shift C, Shift B is A..B, not C..B)") {
+    Selection s;
+    std::string anchor;
+    click_in_list(s, "root", {}, anchor, kTree);
+    click_in_list(s, "kidB", SelectMods{false, true}, anchor, kTree);
+    CHECK(s.ids() == Ids{"root", "kidA", "grand", "kidB"});
+    CHECK(s.primary() == "kidB");
+    click_in_list(s, "kidA", SelectMods{false, true}, anchor, kTree);
+    CHECK(s.ids() == Ids{"root", "kidA"});
+    CHECK(anchor == "root");
+    CHECK(s.primary() == "kidA");
+}
+
+TEST_CASE("Selection: deleting the primary hands the primary to a live id, or leaves the selection empty") {
+    Selection s;
+    s.add("a");
+    s.add("b");
+    s.add("c");  // primary c
+    CHECK(s.prune([](const std::string& id) { return id != "c"; }) == 1);
+    CHECK(s.ids() == Ids{"a", "b"});
+    CHECK(s.primary() == "b");
+    CHECK(s.prune([](const std::string&) { return false; }) == 2);
+    CHECK(s.empty());
+    CHECK(s.primary().empty());
+}
+
+TEST_CASE("click_in_list: a Shift click with no usable anchor starts from the primary, then from the row itself") {
+    Selection s;
+    s.replace("kidB");
+    std::string anchor = "gone";  // a row that is not shown (collapsed away, deleted)
+    click_in_list(s, "root", SelectMods{false, true}, anchor, kTree);
+    CHECK(s.ids() == Ids{"root", "kidA", "grand", "kidB"});
+    Selection none;
+    std::string empty;
+    click_in_list(none, "other", SelectMods{false, true}, empty, kTree);
+    CHECK(none.ids() == Ids{"other"});
+    // a row that is not in the list is selected alone, and an empty id changes nothing
+    click_in_list(none, "hidden", SelectMods{false, true}, empty, kTree);
+    CHECK(none.ids() == Ids{"hidden"});
+    click_in_list(none, "", {}, empty, kTree);
+    CHECK(none.ids() == Ids{"hidden"});
+}
+
+TEST_CASE("click_in_space: plain replaces, Ctrl toggles, Shift adds") {
+    Selection s;
+    click_in_space(s, "a", {});
+    click_in_space(s, "b", SelectMods{false, true});
+    CHECK(s.ids() == Ids{"a", "b"});
+    CHECK(s.primary() == "b");
+    click_in_space(s, "a", SelectMods{true, false});
+    CHECK(s.ids() == Ids{"b"});
+    click_in_space(s, "c", {});
+    CHECK(s.ids() == Ids{"c"});
+}
+
+TEST_CASE("apply_marquee: no modifier replaces (and an empty marquee clears), Shift adds, Ctrl toggles") {
+    Selection s;
+    s.add("a");
+    s.add("b");
+    apply_marquee(s, {"c", "d"}, {});
+    CHECK(s.ids() == Ids{"c", "d"});
+    CHECK(s.primary() == "d");
+    apply_marquee(s, {"e", "c"}, SelectMods{false, true});
+    CHECK(s.ids() == Ids{"c", "d", "e"});
+    apply_marquee(s, {"d", "a"}, SelectMods{true, false});
+    CHECK(s.ids() == Ids{"c", "e", "a"});
+    apply_marquee(s, {}, SelectMods{true, false});  // Ctrl and nothing covered: unchanged
+    CHECK(s.ids() == Ids{"c", "e", "a"});
+    apply_marquee(s, {}, {});  // a click on empty space
+    CHECK(s.empty());
+}
+
+TEST_CASE("without_selected_descendants keeps the order and drops what an ancestor in the set already carries") {
+    CHECK(without_selected_descendants({"grand", "root", "other"}, parent_in_tree) == Ids{"root", "other"});
+    CHECK(without_selected_descendants({"kidA", "grand"}, parent_in_tree) ==
+          Ids{"kidA"});  // not only the direct parent
+    CHECK(without_selected_descendants({"kidB", "kidA"}, parent_in_tree) == Ids{"kidB", "kidA"});  // siblings stay
+    CHECK(without_selected_descendants({"grand"}, parent_in_tree) == Ids{"grand"});
+    CHECK(without_selected_descendants({}, parent_in_tree).empty());
+    // a parent_of that loops does not hang
+    auto loop = [](const std::string& id) { return id == "x" ? std::string("y") : std::string("x"); };
+    CHECK(without_selected_descendants({"x", "y"}, loop).size() <= 2);
+}

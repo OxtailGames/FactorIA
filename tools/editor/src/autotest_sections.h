@@ -37,6 +37,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"K", "Custom material: params, snippet reload, a broken snippet"},
     {"L", "Hand editing in the Hierarchy and the Inspector"},
     {"M", "Transform gizmos: 2D, 3D and a HUD entity"},
+    {"M4", "Several entities selected: Ctrl and Shift clicks in the Hierarchy, a marquee and Ctrl click in the viewport, the move gizmo and the Inspector write to all of them as one undo step, Esc puts them back, Add Component, Duplicate and Delete on the selection"},
     {"N", "Project panel"},
     {"O", "CLI agent through the editor's MCP endpoint"},
     {"P", "Revert an AI run: checkpoint, Revert, Undo revert"},
