@@ -6,12 +6,14 @@
 // Why Raw Input + hid.dll (and not DirectInput, Windows.Gaming.Input or a read thread per device):
 //   - Raw Input delivers each pad's input reports as WM_INPUT messages and its arrival and removal as
 //     WM_INPUT_DEVICE_CHANGE (RIDEV_DEVNOTIFY): hot-plug comes from the OS, nothing scans for devices every frame, and
-//     no device handle stays open (ReadFile on a HID handle would need a thread or overlapped I/O per pad).
+//     nothing reads a device handle (ReadFile on a HID handle would need a thread or overlapped I/O per pad); only the
+//     pads with a driver keep one open, to write to them (below).
 //   - hid.dll's HidP_* functions read a report through the device's own descriptor (its "preparsed data"), which gives the
 //     DirectInput numbering SDL_GameControllerDB's platform:Windows lines were written for (see gamepad_hid.h).
 //   - DirectInput is COM and deprecated; Windows.Gaming.Input is WinRT, needs a focused CoreWindow-style app for some pads
 //     and hides the raw numbering the database needs.
-//   hid.dll and the XInput DLL are loaded at run time (no import library, no new link dependency).
+//   hid.dll and the XInput DLL are loaded at run time (no import library, no new link dependency), from System32 only
+//   (LOAD_LIBRARY_SEARCH_SYSTEM32: a DLL of that name next to the game is never picked up).
 //
 // Threads: none. The messages go to a message-only window of our own, created on the thread that calls
 // poll_gamepads() (the main thread, fa::run_app). sokol_app's message loop (PeekMessageW for every window of the thread)
@@ -23,6 +25,20 @@
 //
 // XInput pads also show up as HID devices whose path carries "IG_": those are skipped (hid_path_is_xinput), XInput reads
 // them. Their arrival and removal still matter: they tell when to probe the XInput slots (GamepadProbeSchedule).
+//
+// Writing (the set-up and rumble of the pads with a driver: DualShock 4, DualSense, Switch Pro; gamepad_hid_drivers.h).
+// Raw Input only reads, so each of those pads also gets a file handle of its own, opened for reading and writing and
+// shared with every other program (FILE_SHARE_READ | FILE_SHARE_WRITE), with FILE_FLAG_OVERLAPPED. Every write and
+// feature read is overlapped I/O started on the main thread, at most one in flight per pad; the rumble wanted meanwhile
+// waits in one slot that the next request replaces (coalesced: only the latest strengths are ever sent), and the driver's
+// set-up requests go first, in order. Why overlapped I/O and not a writer thread per pad: a HID write takes a few
+// milliseconds over Bluetooth and nothing here needs to wait for it, so a thread would add locks, a queue and a join at
+// shutdown (where a write to a pad that is going away can hang) for no gain; with overlapped I/O the main thread only
+// checks HasOverlappedIoCompleted, never waits. The checks run in poll_gamepads(), in gamepad_backend_rumble() and on a
+// 10 ms timer of the message-only window while anything is pending, because poll_gamepads() stops while the game window
+// is unfocused and the stop sent at focus loss must still leave. A pad that disappears mid-write: its I/O is cancelled
+// (CancelIoEx), its handle closed, and the OVERLAPPED with its buffer kept until the OS has finished with them. At exit a
+// pad still playing gets its stop with a bounded wait (50 ms per step), so no motor keeps running after the game closes.
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -33,6 +49,8 @@
 #include <xinput.h>
 
 #include <algorithm>
+#include <array>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -48,6 +66,7 @@
 #include "fa/core/log.h"
 #include "fa/platform/gamepad.h"
 #include "fa/platform/gamepad_hid.h"
+#include "fa/platform/gamepad_hid_drivers.h"
 #include "fa/platform/gamepad_mapping.h"
 
 namespace fa {
@@ -67,8 +86,8 @@ struct XInputApi {
 
 XInputApi load_xinput() {
     XInputApi api;
-    for (const char* dll : {"xinput1_4.dll", "xinput9_1_0.dll"})
-        if (HMODULE m = LoadLibraryA(dll)) {
+    for (const wchar_t* dll : {L"xinput1_4.dll", L"xinput9_1_0.dll"})
+        if (HMODULE m = LoadLibraryExW(dll, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)) {
             api.getState = reinterpret_cast<GetStateFn>(reinterpret_cast<void*>(GetProcAddress(m, "XInputGetState")));
             if (!api.getState) continue;
             api.setState = reinterpret_cast<SetStateFn>(reinterpret_cast<void*>(GetProcAddress(m, "XInputSetState")));
@@ -151,7 +170,8 @@ void load_proc(HMODULE m, const char* name, Fn& out) {
 
 HidApi load_hid() {
     HidApi api;
-    HMODULE m = LoadLibraryW(L"hid.dll");  // kept loaded for the process, like the XInput DLL
+    // Kept loaded for the process, like the XInput DLL.
+    HMODULE m = LoadLibraryExW(L"hid.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!m) return api;
     load_proc(m, "HidP_GetCaps", api.getCaps);
     load_proc(m, "HidP_GetSpecificButtonCaps", api.getButtonCaps);
@@ -177,6 +197,46 @@ std::string utf8(const wchar_t* s, size_t len) {
 // ---------------------------------------------------------------------------
 // The backend
 // ---------------------------------------------------------------------------
+// IOCTL_HID_GET_FEATURE, what HidD_GetFeature sends (hidclass.h, a driver-kit header): CTL_CODE(FILE_DEVICE_KEYBOARD,
+// 100, METHOD_OUT_DIRECT, FILE_ANY_ACCESS). HidD_GetFeature itself is synchronous, which an overlapped handle does not
+// allow, so the request goes through DeviceIoControl with an OVERLAPPED, as hidapi does.
+constexpr DWORD kIoctlHidGetFeature = 0x000B0192;
+constexpr UINT_PTR kServiceTimer = 1;  // the message-only window's timer that checks the pads' writes
+constexpr UINT kServiceTimerMs = 10;   // USER_TIMER_MINIMUM
+constexpr DWORD kExitWaitMs = 50;      // at exit: the longest wait for a write in flight, then for the stop
+
+// One overlapped I/O on a pad's file handle: the OS writes into `ov` and `buffer` until it completes, so this stays alive
+// (moved to Backend::retired when the pad goes) until HasOverlappedIoCompleted says so.
+struct HidIo {
+    enum class Kind : std::uint8_t { None, Request, Rumble };
+    OVERLAPPED ov{};
+    HANDLE event = nullptr;  // manual-reset, signalled at completion
+    std::vector<std::uint8_t> buffer;
+    Kind kind = Kind::None;  // None: nothing in flight
+    bool feature = false;    // a feature read (IOCTL_HID_GET_FEATURE), not a write
+    HidIo() = default;
+    HidIo(const HidIo&) = delete;
+    HidIo& operator=(const HidIo&) = delete;
+    ~HidIo() {
+        if (event) CloseHandle(event);
+    }
+    bool busy() const { return kind != Kind::None; }
+};
+
+// The writing half of a pad with a driver.
+struct HidWriter {
+    HANDLE file = INVALID_HANDLE_VALUE;
+    std::unique_ptr<HidIo> io;                    // set while the file is open
+    USHORT outputBytes = 0;                       // HIDP_CAPS.OutputReportByteLength: every write is exactly this long
+    USHORT featureBytes = 0;                      // HIDP_CAPS.FeatureReportByteLength
+    std::string why;                              // set when the pad cannot rumble (the open or a write failed)
+    std::optional<std::array<float, 2>> pending;  // the strengths to send next (low, high); replaced by newer ones
+    float low = 0.0f, high = 0.0f;                // what the motors were last sent
+    bool motorsOn = false;
+    std::uint64_t lastRumbleMs = 0;
+    bool open() const { return file != INVALID_HANDLE_VALUE; }
+};
+
 struct HidPad {
     HANDLE handle = nullptr;  // the Raw Input device handle: not a file handle, nothing to close
     std::vector<std::uint8_t>
@@ -184,10 +244,11 @@ struct HidPad {
     HidLayout layout;
     std::optional<GamepadMapper> mapper;
     GamepadInfo info;
-    std::unique_ptr<HidPadDriver> driver;  // nullptr: the generic parser (every pad today)
+    std::unique_ptr<HidPadDriver> driver;  // nullptr: the generic parser, and no rumble
     GamepadState driverState;              // what the driver read, when it reads the reports
     bool driverRead = false;
     ULONG usageCapacity = 0;  // HidP_MaxUsageListLength of the button page
+    HidWriter writer;         // open only for a pad with a driver
     PHIDP_PREPARSED_DATA data() { return reinterpret_cast<PHIDP_PREPARSED_DATA>(preparsed.data()); }
 };
 
@@ -213,6 +274,13 @@ struct Backend {
     std::vector<USAGE> usages;
     HidReport report;
     std::optional<UserMappings> user;
+    // Writes of pads that went away while the OS still owned their OVERLAPPED; freed once complete.
+    std::vector<std::unique_ptr<HidIo>> retired;
+    // HID devices whose arrival failed for a reason that may pass (Raw Input not ready with their data yet): tried again
+    // when the probe schedule says so. `warned`: those already said once in the log.
+    std::vector<HANDLE> retry, warned;
+    bool timerOn = false;   // kServiceTimer is running
+    bool exitHook = false;  // flush_at_exit is registered
 };
 
 Backend* g_backend = nullptr;  // created on the first poll, lives for the process (as the window and the DLLs do)
@@ -291,37 +359,277 @@ GamepadMapping choose_mapping(Backend& b, const GamepadIdentity& id, const HidLa
     return default_hid_gamepad_mapping(layout);
 }
 
-// A HID device appeared (an arrival notification, or the list taken when Raw Input was registered).
-void on_arrival(Backend& b, HANDLE device) {
-    if (!b.hid.ok() || find_pad(b, device)) return;
+// ---------------------------------------------------------------------------
+// Writing to a pad with a driver (see the top of the file)
+// ---------------------------------------------------------------------------
+std::uint64_t now_ms() { return std::uint64_t(GetTickCount64()); }
+
+// A Windows error as the log and canRumble say it: the number and, for the ones a pad gives, what it means.
+std::string win_error(DWORD e) {
+    const char* what = "";
+    switch (e) {
+        case ERROR_ACCESS_DENIED: what = "access denied"; break;
+        case ERROR_SHARING_VIOLATION: what = "the device is in use by another program"; break;
+        case ERROR_FILE_NOT_FOUND:
+        case ERROR_PATH_NOT_FOUND: what = "the device is gone"; break;
+        case ERROR_DEVICE_NOT_CONNECTED: what = "the device is not connected"; break;
+        case ERROR_GEN_FAILURE: what = "the device did not accept the report"; break;
+        case ERROR_INVALID_PARAMETER: what = "the device refused the report"; break;
+        case ERROR_INVALID_FUNCTION: what = "the device does not take output reports"; break;
+        default: break;
+    }
+    return "error " + std::to_string(e) + (*what ? std::string(": ") + what : std::string());
+}
+
+// Closes the pad's file handle. An I/O still in flight is cancelled and kept alive in Backend::retired until the OS has
+// finished with its OVERLAPPED and buffer.
+void close_writer(Backend& b, HidPad& pad) {
+    HidWriter& w = pad.writer;
+    if (!w.open()) return;
+    if (w.io && w.io->busy()) {
+        CancelIoEx(w.file, nullptr);
+        b.retired.push_back(std::move(w.io));
+    }
+    CloseHandle(w.file);
+    w.file = INVALID_HANDLE_VALUE;
+    w.io.reset();
+    w.pending.reset();
+    w.motorsOn = false;
+}
+
+// The pad cannot rumble any more: said once in the log and by canRumble; the handle is closed. Plugging the pad in
+// again gives it a new Raw Input handle, so a new writer.
+void fail_writer(Backend& b, HidPad& pad, std::string why) {
+    FA_WARN("gamepad", "HID pad '{}': {}.", pad.info.name, why);
+    pad.writer.why = std::move(why);
+    close_writer(b, pad);
+}
+
+std::string write_failed(DWORD e) {
+    return "sending a report to this pad failed (" + win_error(e) + "), so it cannot rumble; plug the pad in again";
+}
+
+std::string report_too_long(size_t want, USHORT has) {
+    return "this pad's output report is " + std::to_string(has) + " bytes, shorter than the " + std::to_string(want) +
+           " its rumble report needs (a clone that is not quite the original?), so it cannot rumble";
+}
+
+void flush_at_exit();
+
+// Opens the pad for writing (a pad with a driver, when it appears). A failure leaves the pad readable (Raw Input does
+// not need this handle) and says why it cannot rumble.
+void open_writer(Backend& b, HidPad& pad, const std::wstring& path, const HIDP_CAPS& caps) {
+    HidWriter& w = pad.writer;
+    w.outputBytes = caps.OutputReportByteLength;
+    w.featureBytes = caps.FeatureReportByteLength;
+    HANDLE f = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
+                           OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+    if (f == INVALID_HANDLE_VALUE) {
+        const DWORD e = GetLastError();
+        w.why = "the engine cannot open this pad for writing (" + win_error(e) + ")";
+        if (e == ERROR_ACCESS_DENIED || e == ERROR_SHARING_VIOLATION)
+            w.why +=
+                ": another program holds it exclusively (DS4Windows or HidHide in exclusive mode, another remapper). "
+                "Close that program or turn its exclusive mode off, then plug the pad in again";
+        else
+            w.why += "; plug the pad in again";
+        FA_WARN("gamepad", "HID pad '{}': {}. It is still read, without rumble.", pad.info.name, w.why);
+        return;
+    }
+    auto io = std::make_unique<HidIo>();
+    io->event = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!io->event) {
+        const DWORD e = GetLastError();
+        CloseHandle(f);
+        w.why = "the engine could not create an event to write to this pad (" + win_error(e) + ")";
+        FA_WARN("gamepad", "HID pad '{}': {}.", pad.info.name, w.why);
+        return;
+    }
+    w.file = f;
+    w.io = std::move(io);
+    if (!b.exitHook) {
+        b.exitHook = true;
+        std::atexit(flush_at_exit);
+    }
+}
+
+// Starts one overlapped write (or feature read) of `bytes`. 0: started (or already done; the completion is picked up
+// by the next check); else the Windows error.
+DWORD start_io(HidPad& pad, HidIo::Kind kind, bool feature, std::vector<std::uint8_t> bytes) {
+    HidWriter& w = pad.writer;
+    HidIo& io = *w.io;
+    io.buffer = std::move(bytes);
+    if (feature && io.buffer.size() < w.featureBytes) io.buffer.resize(w.featureBytes, 0);
+    io.ov = OVERLAPPED{};
+    ResetEvent(io.event);
+    io.ov.hEvent = io.event;
+    const DWORD size = DWORD(io.buffer.size());
+    // The feature read passes the buffer both ways: its first byte names the report, the reply overwrites it.
+    const BOOL done = feature ? DeviceIoControl(w.file, kIoctlHidGetFeature, io.buffer.data(), size, io.buffer.data(),
+                                                size, nullptr, &io.ov)
+                              : WriteFile(w.file, io.buffer.data(), size, nullptr, &io.ov);
+    if (!done) {
+        const DWORD e = GetLastError();
+        if (e != ERROR_IO_PENDING) return e;
+    }
+    io.kind = kind;
+    io.feature = feature;
+    return 0;
+}
+
+// The device's write length for `report`, or nothing (fail_writer said why).
+std::optional<std::vector<std::uint8_t>> fitted(Backend& b, HidPad& pad, const std::vector<std::uint8_t>& report) {
+    std::optional<std::vector<std::uint8_t>> out = fit_hid_output_report(report, pad.writer.outputBytes);
+    if (!out) fail_writer(b, pad, report_too_long(report.size(), pad.writer.outputBytes));
+    return out;
+}
+
+// Moves one pad's writing on, never waiting: picks up the I/O that completed, then starts the next one (the driver's
+// set-up first, then the latest rumble, then the Switch Pro's refresh of running motors).
+void service_pad(Backend& b, HidPad& pad, std::uint64_t now) {
+    HidWriter& w = pad.writer;
+    if (!pad.driver || !w.open()) return;
+    HidIo& io = *w.io;
+    if (io.busy()) {
+        if (!HasOverlappedIoCompleted(&io.ov)) return;
+        DWORD got = 0;
+        const bool ok = GetOverlappedResult(w.file, &io.ov, &got, FALSE) != FALSE;
+        const DWORD e = ok ? 0 : GetLastError();
+        const HidIo::Kind kind = io.kind;
+        const bool feature = io.feature;
+        io.kind = HidIo::Kind::None;
+        // A feature read's reply is the whole buffer (DeviceIoControl counts the bytes after the report id).
+        if (kind == HidIo::Kind::Request)
+            pad.driver->request_done(ok,
+                                     ok ? std::span<const std::uint8_t>(io.buffer) : std::span<const std::uint8_t>());
+        // A feature read that fails leaves the driver on its fallback; a write that fails means the motors are lost.
+        if (!ok && !feature && e != ERROR_OPERATION_ABORTED) {
+            fail_writer(b, pad, write_failed(e));
+            return;
+        }
+    }
+    if (std::optional<HidPadRequest> rq = pad.driver->next_request(now)) {
+        const bool feature = rq->kind == HidPadRequest::Kind::GetFeature;
+        std::vector<std::uint8_t> bytes = std::move(rq->bytes);
+        if (!feature) {
+            std::optional<std::vector<std::uint8_t>> sized = fitted(b, pad, bytes);
+            if (!sized) return;
+            bytes = std::move(*sized);
+        }
+        if (const DWORD e = start_io(pad, HidIo::Kind::Request, feature, std::move(bytes))) {
+            pad.driver->request_done(false, {});
+            if (!feature) fail_writer(b, pad, write_failed(e));
+        }
+        return;
+    }
+    if (!pad.driver->setup_done()) return;
+    std::optional<std::array<float, 2>> send = w.pending;
+    const unsigned refresh = pad.driver->rumble_refresh_ms();
+    if (!send && w.motorsOn && refresh > 0 && now - w.lastRumbleMs >= refresh)
+        send = std::array<float, 2>{w.low, w.high};
+    if (!send) return;
+    w.pending.reset();
+    std::optional<std::vector<std::uint8_t>> sized = fitted(b, pad, pad.driver->rumble_report((*send)[0], (*send)[1]));
+    if (!sized) return;
+    if (const DWORD e = start_io(pad, HidIo::Kind::Rumble, false, std::move(*sized))) {
+        fail_writer(b, pad, write_failed(e));
+        return;
+    }
+    w.low = (*send)[0];
+    w.high = (*send)[1];
+    w.motorsOn = w.low > 0.0f || w.high > 0.0f;
+    w.lastRumbleMs = now;
+}
+
+// Whether some pad's writing still needs checking without a poll: an I/O in flight, a rumble waiting, the set-up
+// waiting for a reply or a time-out, motors that need their refresh, or a retired I/O not complete yet.
+bool needs_service(const Backend& b) {
+    if (!b.retired.empty()) return true;
+    for (const std::unique_ptr<HidPad>& p : b.pads) {
+        const HidWriter& w = p->writer;
+        if (!p->driver || !w.open()) continue;
+        if (w.io->busy() || w.pending || !p->driver->setup_done() || (w.motorsOn && p->driver->rumble_refresh_ms() > 0))
+            return true;
+    }
+    return false;
+}
+
+void update_timer(Backend& b) {
+    if (!b.hwnd) return;
+    const bool want = needs_service(b);
+    if (want && !b.timerOn) b.timerOn = SetTimer(b.hwnd, kServiceTimer, kServiceTimerMs, nullptr) != 0;
+    if (!want && b.timerOn) {
+        KillTimer(b.hwnd, kServiceTimer);
+        b.timerOn = false;
+    }
+}
+
+void service_all(Backend& b) {
+    std::erase_if(b.retired, [](const std::unique_ptr<HidIo>& io) { return HasOverlappedIoCompleted(&io->ov); });
+    const std::uint64_t now = now_ms();
+    for (size_t i = 0; i < b.pads.size(); ++i) service_pad(b, *b.pads[i], now);
+    update_timer(b);
+}
+
+// At exit (std::atexit): a pad whose motors run, or whose stop is still waiting, gets the stop, with bounded waits. The
+// engine already asked for the stop when it shut down, but the write in flight may have kept it waiting. No logging:
+// the log may be gone by now.
+void flush_at_exit() {
+    Backend* b = g_backend;
+    if (!b) return;
+    for (const std::unique_ptr<HidPad>& p : b->pads) {
+        HidWriter& w = p->writer;
+        // motorsOn: the last strengths sent (or being sent) are not 0. A rumble still waiting is dropped: it is exit.
+        if (!p->driver || !w.open() || !w.motorsOn) continue;
+        if (w.io->busy()) {
+            WaitForSingleObject(w.io->event, kExitWaitMs);
+            if (!HasOverlappedIoCompleted(&w.io->ov)) continue;
+            w.io->kind = HidIo::Kind::None;
+        }
+        if (!p->driver->setup_done()) continue;
+        std::optional<std::vector<std::uint8_t>> stop =
+            fit_hid_output_report(p->driver->rumble_report(0.0f, 0.0f), w.outputBytes);
+        if (stop && start_io(*p, HidIo::Kind::Rumble, false, std::move(*stop)) == 0)
+            WaitForSingleObject(w.io->event, kExitWaitMs);
+    }
+}
+
+// What on_arrival() made of a device: a pad (Done), not a pad of ours (Skip), or not readable yet (Retry).
+enum class Arrival : std::uint8_t { Done, Skip, Retry };
+
+// A HID device appeared (an arrival notification, the list taken when Raw Input was registered, or a retry).
+Arrival add_device(Backend& b, HANDLE device) {
+    if (!b.hid.ok() || find_pad(b, device)) return Arrival::Skip;
     RID_DEVICE_INFO info{};
     info.cbSize = sizeof(info);
     UINT size = sizeof(info);
-    if (GetRawInputDeviceInfoW(device, RIDI_DEVICEINFO, &info, &size) == UINT(-1) || info.dwType != RIM_TYPEHID) return;
+    if (GetRawInputDeviceInfoW(device, RIDI_DEVICEINFO, &info, &size) == UINT(-1) || info.dwType != RIM_TYPEHID)
+        return Arrival::Skip;
     const RID_DEVICE_INFO_HID& hidInfo = info.hid;  // the member dwType names
     if (hidInfo.usUsagePage != kHidPageGenericDesktop ||
         (hidInfo.usUsage != kHidUsageJoystick && hidInfo.usUsage != kHidUsageGamepad))
-        return;
+        return Arrival::Skip;
     const std::wstring path = device_path(device);
-    if (path.empty()) return;
+    if (path.empty()) return Arrival::Retry;
     std::string ascii(path.size(), '?');  // device paths are ASCII; anything else cannot be "IG_" anyway
     for (size_t i = 0; i < path.size(); ++i)
         if (path[i] < 0x80) ascii[i] = char(path[i]);
     if (hid_path_is_xinput(ascii)) {
         b.probes.notify();  // an XInput pad: XInput reads it, and may take it in a moment
-        return;
+        return Arrival::Skip;
     }
 
     auto pad = std::make_unique<HidPad>();
     pad->handle = device;
     UINT bytes = 0;
     if (GetRawInputDeviceInfoW(device, RIDI_PREPARSEDDATA, nullptr, &bytes) != 0 || bytes == 0 || bytes > (1u << 20))
-        return;
+        return Arrival::Retry;
     pad->preparsed.resize(size_t(bytes));
-    if (GetRawInputDeviceInfoW(device, RIDI_PREPARSEDDATA, pad->preparsed.data(), &bytes) == UINT(-1)) return;
+    if (GetRawInputDeviceInfoW(device, RIDI_PREPARSEDDATA, pad->preparsed.data(), &bytes) == UINT(-1))
+        return Arrival::Retry;
 
     HIDP_CAPS caps{};
-    if (b.hid.getCaps(pad->data(), &caps) != HIDP_STATUS_SUCCESS) return;
+    if (b.hid.getCaps(pad->data(), &caps) != HIDP_STATUS_SUCCESS) return Arrival::Retry;
     std::vector<HIDP_BUTTON_CAPS> buttonCaps(caps.NumberInputButtonCaps);
     std::vector<HIDP_VALUE_CAPS> valueCaps(caps.NumberInputValueCaps);
     USHORT nButtons = caps.NumberInputButtonCaps, nValues = caps.NumberInputValueCaps;
@@ -361,37 +669,63 @@ void on_arrival(Backend& b, HANDLE device) {
         cap.logicalMax = std::int32_t(c.LogicalMax);
         values.push_back(cap);
     }
-    pad->layout = make_hid_layout(buttons, values);
-    if (pad->layout.empty()) return;  // a "joystick" with no input we can read
-    pad->usageCapacity = b.hid.maxUsageListLength(HidP_Input, kHidPageButton, pad->data());
-
     const std::uint16_t vendor = std::uint16_t(hidInfo.dwVendorId & 0xffffu);
     const std::uint16_t product = std::uint16_t(hidInfo.dwProductId & 0xffffu);
+    pad->driver = make_hid_pad_driver(vendor, product, hid_transport_from_path(ascii));
+    pad->layout = make_hid_layout(buttons, values);
+    // A "joystick" with no input we can read. A pad with a driver may declare its full reports as vendor-defined bytes
+    // only: the driver reads those.
+    if (pad->layout.empty() && !pad->driver) return Arrival::Skip;
+    pad->usageCapacity = b.hid.maxUsageListLength(HidP_Input, kHidPageButton, pad->data());
+
     std::string name, serial;
     read_strings(b.hid, path, name, serial);
     const GamepadIdentity id = windows_hid_identity(vendor, product, name);
     pad->mapper.emplace(choose_mapping(b, id, pad->layout));
-    pad->driver = make_hid_pad_driver(vendor, product);
     pad->info.name = name.empty() ? "Gamepad" : name;
     pad->info.vendor = vendor;
     pad->info.product = product;
     pad->info.type = gamepad_type_from_ids(vendor, name);
     // The serial is a Bluetooth pad's address and many USB pads have none: two such pads of one model share an id.
     pad->info.id = make_gamepad_id(vendor, product, pad->info.name, serial);
+    if (pad->driver) open_writer(b, *pad, path, caps);
 
     b.slots.add(hid_key(device));
     b.pads.push_back(std::move(pad));
+    return Arrival::Done;
+}
+
+void forget_retry(Backend& b, HANDLE device) {
+    std::erase(b.retry, device);
+    std::erase(b.warned, device);
+}
+
+void on_arrival(Backend& b, HANDLE device) {
+    if (add_device(b, device) != Arrival::Retry) {
+        forget_retry(b, device);
+        return;
+    }
+    if (std::find(b.retry.begin(), b.retry.end(), device) == b.retry.end()) b.retry.push_back(device);
+    if (std::find(b.warned.begin(), b.warned.end(), device) != b.warned.end()) return;
+    b.warned.push_back(device);
+    FA_WARN("gamepad",
+            "A HID gamepad could not be read yet (Windows did not give its description); trying again in a moment.");
+    // The first time only: a burst of probes, which the retries ride on. Later retries follow the schedule's slow rate.
+    b.probes.notify();
 }
 
 void on_removal(Backend& b, HANDLE device) {
+    forget_retry(b, device);
     const auto it = std::find_if(b.pads.begin(), b.pads.end(),
                                  [&](const std::unique_ptr<HidPad>& p) { return p->handle == device; });
     if (it == b.pads.end()) {
         b.probes.notify();  // not ours: maybe an XInput pad leaving
         return;
     }
+    close_writer(b, **it);
     b.slots.remove(hid_key(device));
     b.pads.erase(it);
+    update_timer(b);
 }
 
 // One report of `pad`: the driver first, then the generic parser.
@@ -461,6 +795,10 @@ LRESULT CALLBACK window_proc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) 
                 on_arrival(*b, device);
             else if (wParam == GIDC_REMOVAL)
                 on_removal(*b, device);
+            return 0;
+        }
+        if (msg == WM_TIMER && wParam == kServiceTimer) {
+            service_all(*b);  // also while the game window is unfocused and poll_gamepads() does not run
             return 0;
         }
     }
@@ -541,9 +879,15 @@ void poll_gamepads(Input& in) {
         while (PeekMessageW(&msg, b.hwnd, 0, 0, PM_REMOVE)) DispatchMessageW(&msg);
     }
 
+    // The probe schedule: XInput's empty user indices, and the HID devices whose arrival is to be tried again.
+    const bool probe = b.probes.tick();
+    if (probe && !b.retry.empty()) {
+        const std::vector<HANDLE> again = b.retry;  // on_arrival() edits the list
+        for (HANDLE device : again) on_arrival(b, device);
+    }
+
     // XInput: the pads it holds are read every poll; its empty user indices only when the schedule says so.
     if (const GetStateFn get_state = xinput().getState) {
-        const bool probe = b.probes.tick();
         for (int i = 0; i < kMaxGamepads; ++i) {
             if (!b.xinputOn[i] && !probe) continue;
             XINPUT_STATE st{};
@@ -582,6 +926,8 @@ void poll_gamepads(Input& in) {
         }
         b.fed[s] = true;  // every poll: also reconnects the pad after a focus loss
     }
+
+    service_all(b);  // the HID pads' set-up and rumble writes move on
 }
 
 GamepadRumbleSupport gamepad_backend_rumble_support(int slot) {
@@ -589,8 +935,9 @@ GamepadRumbleSupport gamepad_backend_rumble_support(int slot) {
     if (!owner) return {false, "there is no pad in this slot"};
     if (owner->source == GamepadSlotTable::Source::Hid) {
         HidPad* pad = find_pad(*g_backend, reinterpret_cast<HANDLE>(std::uintptr_t(owner->id)));
-        if (pad && pad->driver) return pad->driver->rumble_support();
-        return {false, kHidRumbleWhy};
+        if (!pad || !pad->driver) return {false, kHidRumbleWhy};
+        if (!pad->writer.open()) return {false, pad->writer.why};
+        return pad->driver->rumble_support();
     }
     if (!xinput().setState)
         return {false, "this Windows has no XInputSetState (xinput1_4.dll or xinput9_1_0.dll could not be loaded)"};
@@ -600,12 +947,29 @@ GamepadRumbleSupport gamepad_backend_rumble_support(int slot) {
 
 // XInput motors are 0..65535: the left one is the heavy, low-frequency motor and the right one the light, high-frequency
 // one. XInput has no duration: the motors keep going until they are set to 0, which the engine does when the request's
-// time is up (and at pause, focus loss, scene change and quit). HID pads cannot rumble yet (kHidRumbleWhy): M98.5b2 adds
-// the output reports of their drivers here.
+// time is up (and at pause, focus loss, scene change and quit). The HID pads with a driver work the same way: the
+// strengths wait in the pad's pending slot and leave as the driver's output report as soon as no other write is in
+// flight (the Switch Pro's report is repeated while its motors run, since that pad stops them by itself otherwise).
 bool gamepad_backend_rumble(int slot, float low, float high, float) {
     const std::optional<SlotKey> owner = g_backend ? g_backend->slots.owner(slot) : std::nullopt;
+    if (!owner) return false;
+    if (owner->source == GamepadSlotTable::Source::Hid) {
+        Backend& b = *g_backend;
+        HidPad* pad = find_pad(b, reinterpret_cast<HANDLE>(std::uintptr_t(owner->id)));
+        if (!pad || !pad->driver || !pad->writer.open()) return false;
+        HidWriter& w = pad->writer;
+        const float l = std::clamp(std::isnan(low) ? 0.0f : low, 0.0f, 1.0f);
+        const float h = std::clamp(std::isnan(high) ? 0.0f : high, 0.0f, 1.0f);
+        if (l <= 0.0f && h <= 0.0f && !w.motorsOn)
+            w.pending.reset();  // a stop, and nothing plays: a rumble still waiting is dropped, nothing is sent
+        else
+            w.pending = std::array<float, 2>{l, h};
+        service_pad(b, *pad, now_ms());
+        update_timer(b);
+        return pad->writer.open();  // false when this very write failed (fail_writer logged why)
+    }
     const SetStateFn set_state = xinput().setState;
-    if (!owner || owner->source != GamepadSlotTable::Source::XInput || !set_state) return false;
+    if (!set_state) return false;
     auto motor = [](float v) { return WORD(std::clamp(v, 0.0f, 1.0f) * 65535.0f + 0.5f); };
     XINPUT_VIBRATION vib{};
     vib.wLeftMotorSpeed = motor(low);

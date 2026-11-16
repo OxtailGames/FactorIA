@@ -63,6 +63,7 @@ A release holds these files (the header of `release.yml` says the same):
 | `FactorIA-macos-arm64.tar.gz` | The same file, only because editors up to 0.1.2 download this name. Remove the `publish` step that copies it once nobody runs them | none (a copy) |
 | `FactorIA-linux-x64.tar.gz` | Linux package; what the editor's updater downloads. Built in the Steam Runtime sniper container: needs glibc 2.31 or newer | `build-sniper.sh all` (symbol versions, then `--version`, `new` and a headless frame inside the sniper runtime), then as the zip |
 | `FactorIA-linux-x64.AppImage` | The same files in one file (`scripts/package-appimage.sh`, `platforms/linux/`): no arguments open the editor, arguments are the `factoria` command, a link named `factoria` is the CLI. No self-update. Like the tar.gz it uses the system's X11, OpenGL and ALSA and needs glibc 2.31 or newer (built in the sniper container) | `--appimage-extract-and-run` (the runner has no FUSE): `version`, `new`, `test`, `export`, the `factoria` link prints the help, and with no arguments the editor stays open under Xvfb |
+| `<name>.zip` (one per example game, `block-push.zip`, ...) and `examples-manifest.json` | The example games of `examples/`, which the download does not carry, and the list that says what each is and what its zip's size and SHA-256 are. `project.create {example}` and the start window's Examples tab download them (see "Example games in the release") | the Linux leg of `package` packs them with its own `factoria` and checks every zip against the manifest |
 
 Every package (and so the installer and the AppImage) carries sokol-shdc, the shader compiler of custom materials, next to
 `factoria`. `scripts/bundle-sokol-shdc.sh` downloads it with the commit and SHA-256 that `fa/tooling/setup.h` pins for
@@ -77,6 +78,53 @@ runtime are pinned by version and SHA-256 in `scripts/package-appimage.sh`; to u
 `scripts/package-appimage.sh <unpacked FactorIA folder> out.AppImage` on Linux; on Windows, with Inno Setup 6.3 or newer,
 set `FA_INSTALLER_VERSION` and `FA_INSTALLER_SOURCE` and run `ISCC /O<dir> platforms\windows\FactorIA.iss` (the top of the
 `.iss` file has the example).
+
+### Example games in the release
+
+The download carries no `examples/` folder (only a clone of the repository has it), so every release publishes each example
+game as its own asset, plus one manifest. The pieces and where they live:
+
+- `examples/examples.json` is the **source manifest**, kept in the repository (format `factoria.examples-source/1`): per
+  example its `name` (the folder), `title`, `shows` (one line: what the example shows) and `readFirst` (docs to read
+  first, as `docs/<NAME>.md` paths). A doctest (`examples_test.cpp`) fails when a folder of `examples/` has no entry, an
+  entry has no folder, a doc does not exist or the entries are not sorted by name. **A new example game needs its entry
+  here**, or the release job stops.
+- `factoria call project.package_examples '{"examples":"examples","out":"dist/examples"}'` (`fa/tooling/examples.h`) writes
+  `<name>.zip` per example and `examples-manifest.json`. A zip is the project without `.factoria/`, any other hidden
+  folder, `node_modules/`, a top-level `build/`, `.DS_Store`, `Thumbs.db` and `*.actual.png`; entries are sorted by name,
+  stored with the DOS date 1980-01-01 and no extra fields, so the same files give the same zip and the same hash.
+- The Linux leg of the `package` job of `.github/workflows/release.yml` runs that command with the `factoria` it just
+  packed (so it also runs on a pull request that changes the workflow). It packs twice and compares the manifests,
+  checks every zip against the manifest with `sha256sum`, `stat` and `unzip -t` (tools that share no code with the
+  packer), validates the unpacked `block-push`, and uploads the files as the artifact `FactorIA-examples`; the `publish`
+  job attaches them to the release with the packages.
+- The **release manifest** `examples-manifest.json` (format `factoria.examples/1`):
+
+  ```json
+  {
+    "format": "factoria.examples/1",
+    "engineVersion": "0.30.0",
+    "examples": [
+      {
+        "name": "block-push",
+        "title": "Block Push",
+        "shows": "A Sokoban puzzle: ...",
+        "readFirst": ["docs/GETTING_STARTED.md", "docs/SCRIPTING.md"],
+        "file": "block-push.zip",
+        "size": 123456,
+        "sha256": "<64 lowercase hex digits of the zip>"
+      }
+    ]
+  }
+  ```
+
+  A reader that finds another format number (`factoria.examples/2`) refuses the file and says to update FactorIA: change
+  the number only when a field changes meaning or goes away; adding a field a reader may ignore does not need it.
+- The assets of the release `v<version>` are at `https://github.com/OxtailGames/FactorIA/releases/download/v<version>/<file>`.
+  `examples_asset_url(version, file)` and `examples_manifest_url(version)` build that and nothing else builds it: a client
+  needs only the installed version. It refuses a file name with a folder, `..`, `?` or `#`, and every URL it returns passes
+  `is_trusted_download_url`. `verify_example_bytes` and `verify_example_file` check a download's size and SHA-256 against
+  its manifest entry before anything is unpacked.
 
 ### Code signing
 

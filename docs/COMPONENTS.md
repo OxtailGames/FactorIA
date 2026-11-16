@@ -717,7 +717,7 @@ The 'ears' for spatial audio, usually on the camera or player. If no listener ex
 |---|---|---|---|
 | `volume` | float | `1.0` | Master volume multiplier for everything this listener hears. Range 0.0..4.0. |
 | `zoom` | float | `1.0` | Scales how far positional sounds are heard: a spatial AudioSource is silent at `range * zoom` from the listener (gain = 1 - distance / (range * zoom), and the pan spans the same distance), so 2 doubles the reach and 0.5 halves it. A game with a zoomable 2D camera sets it from the camera's orthoSize each frame. When the camera is the listener (no AudioListener component) the zoom is 1. Range 0.01..100.0. (since 0.3.0) |
-| `spatialization` | enum: pan \| hrtf | `"pan"` | How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/SOUND.md, Headphones. (not released yet, on main after 0.29.1) |
+| `spatialization` | enum: pan \| hrtf | `"pan"` | How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/sound/SOUND_SPATIAL.md, Headphones. (not released yet, on main after 0.29.1) |
 | `headRadius` | float | `0.0875` | hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; scale it with the world in a game that does not use meters). It sets the time difference between the ears (Woodworth: about 0.66 ms at 90 degrees for the default). A head smaller than 0.03 m or larger than 0.12 m at speedOfSound 343 (the ratio headRadius / speedOfSound is what counts) is clamped, with a warning that says how to fix it. Range 0.001..100000.0. (not released yet, on main after 0.29.1) |
 | `speedOfSound` | float | `343.0` | Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives. Range 1.0..10000000.0. (not released yet, on main after 0.29.1) |
 
@@ -3140,7 +3140,7 @@ Check an audio document and say what its chain renders to; with no arguments, li
 
 Capabilities: read
 
-An audio document (`*.audio.json`, docs/SOUND.md "Audio documents") is a non-destructive chain over a sound: a WAV/OGG, an .sfx.json patch or another audio document, then steps (trim, fade, normalize, gain, pitch, stretch, speed, eq, filter, compressor, distortion, bitcrush, reverb, delay, reverse, layer, loop, granular). With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns its steps, where it bakes to and whether that sound is fresh or stale, and (unless render is false) renders it in memory: seconds, loudness, peak, brightness (centroidHz), the loop points of a loop step and the length and peak after each step. With no argument it returns the catalog of step types with every field, its range, default and doc string. Example: {"path":"assets/audio/door.audio.json"}
+An audio document (`*.audio.json`, docs/sound/SOUND_DOCUMENTS.md "Audio documents") is a non-destructive chain over a sound: a WAV/OGG, an .sfx.json patch or another audio document, then steps (trim, fade, normalize, gain, pitch, stretch, speed, eq, filter, compressor, distortion, bitcrush, reverb, delay, reverse, layer, loop, granular). With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns its steps, where it bakes to and whether that sound is fresh or stale, and (unless render is false) renders it in memory: seconds, loudness, peak, brightness (centroidHz), the loop points of a loop step and the length and peak after each step. With no argument it returns the catalog of step types with every field, its range, default and doc string. Example: {"path":"assets/audio/door.audio.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6667,6 +6667,23 @@ With `dryRun` true nothing is written: the result lists the `files` and the `key
 | `optional` | boolean | no | Written as "optional" in factoria.json: true = the game runs without the plugin (a missing build is a validate warning, not an error). Pass false when the game cannot work without it. Default true. |
 | `dryRun` | boolean | no | true = write nothing: list the files and the factoria.json keys it would write. Default false. |
 
+### `project.package_examples` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+Zip every example game of examples/ and write examples-manifest.json, the files a release publishes.
+
+Capabilities: read, writeAnywhere
+
+For the engine's release (docs/design/BUILDING_RELEASE.md, "Example games in the release"). Reads `examples`/examples.json (the title, what each example shows and the docs to read first), checks that every project folder has an entry and every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/, other hidden folders, node_modules/ and build/: the same files give the same bytes) and examples-manifest.json beside them (format, engineVersion, and per example name, title, shows, readFirst, file, size and sha256). Replaces files of the same names in `out`. Returns the manifest. Run it from a checkout of the repository: a download has no examples/. Example: {"examples":"examples","out":"dist/examples"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `examples` | string | no | The folder that holds the example projects and examples.json (default: examples, relative to the current directory). Default "examples". |
+| `out` | string | yes | The folder the zips and examples-manifest.json are written to (created). |
+| `only` | array | no | Pack only these examples (default: all). |
+| `version` | string | no | The engine version written to the manifest (default: this factoria's version). |
+
 ### `project.serve_web` (modifies state)
 
 Since 0.18.0.
@@ -10157,7 +10174,7 @@ declare module "factoria" {
      */
     readonly name: string;
     /**
-     * True when this pad has motors the platform can drive now, so input.rumble(pad, ...) shakes it; false for a slot with no pad and for a platform or pad without rumble. Windows (XInput pads), Linux (pads with kernel force feedback, when /dev/input/eventN is writable), macOS and iOS (pads with GameController haptics), Android (pads whose InputDevice has vibrators) and Chrome-based browsers (Xbox and PlayStation pads) can today; Firefox and Safari never; Windows pads that are not XInput (DualShock, DualSense, Switch Pro) come later. Games need not check it: input.rumble on a pad that cannot rumble does nothing. Check it to show a Vibration option only where it works. A test pad answers false unless game.gamepad(i).connect({ canRumble: true }).
+     * True when this pad has motors the platform can drive now, so input.rumble(pad, ...) shakes it; false for a slot with no pad and for a platform or pad without rumble. Windows (XInput pads, and the DualShock 4, DualSense and Switch Pro over USB or Bluetooth), Linux (pads with kernel force feedback, when /dev/input/eventN is writable), macOS and iOS (pads with GameController haptics), Android (pads whose InputDevice has vibrators) and Chrome-based browsers (Xbox and PlayStation pads) can today; Firefox and Safari never, nor other Windows HID pads; a Windows pad another program holds exclusively (DS4Windows, HidHide) or that stopped taking reports answers false too. Games need not check it: input.rumble on a pad that cannot rumble does nothing. Check it to show a Vibration option only where it works. A test pad answers false unless game.gamepad(i).connect({ canRumble: true }).
      * @since unreleased
      */
     readonly canRumble: boolean;
@@ -17819,7 +17836,7 @@ declare module "factoria" {
      */
     zoom: number;
     /**
-     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/SOUND.md, Headphones.
+     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/sound/SOUND_SPATIAL.md, Headphones.
      * @since unreleased
      */
     spatialization: "pan" | "hrtf";

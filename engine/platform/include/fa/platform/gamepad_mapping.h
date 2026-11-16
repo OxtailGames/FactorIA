@@ -185,6 +185,8 @@ private:
 // DualSense and Switch Pro as the Linux kernel drivers hid-sony, hid-playstation and hid-nintendo number them; derived
 // from the drivers' key and axis lists with the joystick API's numbering rule, NOT verified on hardware). They come
 // last, so they win a tie: they are what those pads get on a version nobody listed. Indexed on first use.
+// Defined in src/gamepad_mapping_db.cpp, apart from the rest, so only what calls these three (and
+// select_gamepad_mapping()) links the embedded text: the Linux backend and the tests.
 const GamepadMappingDb& builtin_gamepad_database();
 // The raw text of the embedded database (comment lines included), for tests and tools.
 std::string_view embedded_gamepad_database_text();

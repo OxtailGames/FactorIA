@@ -13,7 +13,7 @@
 //   - a few atomics (peak, frames mixed, underruns, the last command applied).
 // The mixer never takes a lock, never allocates and never frees: the objects it reads (clips, rings, reverbs, bus tables,
 // music sources) belong to the game side, which keeps each alive until the mixer said it let go of it (the command that
-// removed it came back, or the voice's end did). docs/SOUND.md, "The audio callback".
+// removed it came back, or the voice's end did). docs/sound/SOUND_MIXER.md, "The audio callback".
 #pragma once
 
 #include <array>
@@ -223,7 +223,7 @@ private:
     std::atomic<std::size_t> lost_{0};
 };
 
-// ---- HRTF for headphones (AudioListener.spatialization = "hrtf"; docs/SOUND.md, "Headphones"): the voice's own head model.
+// ---- HRTF for headphones (AudioListener.spatialization = "hrtf"; docs/sound/SOUND_SPATIAL.md, "Headphones"): the voice's own head model.
 //
 // A parametric model of a spherical head, written for this engine with no measured data (the structure is the one of Brown and
 // Duda, "A structural model for binaural sound synthesis", IEEE Trans. Speech and Audio Processing 6(5), 1998):
@@ -422,7 +422,7 @@ public:
     // The null device: the mixer runs on the game thread, so a streamed voice that has nothing decoded decodes right there.
     void set_sync_fill(bool on) { syncFill_ = on; }
 
-    // ---- the queues (sizes: docs/SOUND.md, "The audio callback")
+    // ---- the queues (sizes: docs/sound/SOUND_MIXER.md, "The audio callback")
     SpscRing<Cmd*> commands{2048};
     SpscRing<Ret> returns{4096};
 

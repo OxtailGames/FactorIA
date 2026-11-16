@@ -151,7 +151,7 @@ when a loop needs it many times.
   `{ connected, down(button), pressed(button), released(button), axis(name), rawAxis(name) }`. Buttons: `A B X Y Start Back
   Guide DpadLeft DpadRight DpadUp DpadDown LeftShoulder RightShoulder LeftThumb RightThumb`; axes: `LeftX LeftY RightX RightY`
   (-1..1, +Y up) and `LeftTrigger RightTrigger` (0..1). `axis` has the deadzone applied (what the bindings see), `rawAxis`
-  does not. Real pads are read in windowed runs only (Windows XInput, Linux joystick API, macOS/iOS GameController,
+  does not. Real pads are read in windowed runs only (Windows XInput and Raw Input/HID, Linux joystick API, macOS/iOS GameController,
   Android's input queue, the browser's Gamepad API on the web), so headless runs and tests stay deterministic. A pad
   that stays plugged in survives the window losing focus (inputs are released meanwhile, and the pad reports its real state when focus is
   back). Face buttons are positional: `A` is the bottom one, `B` right, `X` left, `Y` top, whatever the pad prints on
@@ -166,8 +166,15 @@ when a loop needs it many times.
   pad nothing lists. Inside one source an exact bus + version match beats a vendor + product match; a source beats the
   ones below it even with the worse match (the user's word is final). The engine logs each pad's GUID and the mapping it chose, and warns about
   lines it cannot read; a database line for a stick driven by buttons or a hat (N64 and Joy-Con entries) is not
-  supported and is skipped. On macOS and iOS (GameController) a pad keeps its slot while connected and an unplugged pad
-  frees it. On Android an unplugged pad frees its slot (checked about every 2 s through the Java
+  supported and is skipped. On Windows, Xbox pads (XInput) and the other pads (Raw Input and HID: DualShock 4, DualSense
+  and Switch Pro have their full reports read by the engine's own drivers, the analog triggers included; generic pads go
+  through the Windows lines of SDL GameControllerDB) share the slots 0..3: a pad keeps its slot while connected, and a pad
+  that appears takes the slot it had last time when that is free, else the lowest free one (an Xbox pad no longer takes its
+  XInput user index). A remapper that shows a PlayStation or Switch pad to games as a virtual Xbox pad (DS4Windows, Steam
+  Input outside Steam's own games) makes the engine see two pads, the virtual XInput one and the physical HID one, each in
+  its slot: turn the remapper off for the game, or have it hide the physical pad (DS4Windows' "Hide DS4 Controller", which
+  uses HidHide), so one pad is one slot. On macOS and iOS (GameController) a pad keeps its slot while connected and an
+  unplugged pad frees it. On Android an unplugged pad frees its slot (checked about every 2 s through the Java
   `InputDevice`) and the pad's reported axes decide whether Z/RZ are its right stick or its triggers
   (`docs/MOBILE.md`). Real pads tried so far: an Xbox Wireless Controller on macOS; Linux and Android not yet.
   On phones the `TouchStick` and `TouchButton` components draw an on-screen pad whose fingers feed the same gamepad
@@ -326,13 +333,15 @@ Vibration option only where it works. This is a different motor from a phone's `
   | Platform | Pads | How | Needs |
   |---|---|---|---|
   | Windows | XInput pads (Xbox 360, One, Series and pads that present themselves as one) | XInput motors | nothing |
+  | Windows | DualShock 4, DualSense (and Edge), Switch Pro, over USB or Bluetooth | the pad's own output report, sent through its HID device: the two motors of a DualShock 4, the DualSense's compatible vibration, and on the Switch Pro HD rumble at fixed frequencies (`low` on the 160 Hz band, `high` on the 320 Hz band, both grips alike) | no other program holding the pad exclusively (DS4Windows or HidHide in exclusive mode) |
   | Linux | pads whose kernel driver offers force feedback (`FF_RUMBLE`: Xbox, DualShock 4, DualSense, Switch Pro with the usual drivers) | evdev: one rumble effect per pad on `/dev/input/eventN` | write access to that node |
   | macOS, iOS | pads GameController gives haptics (Xbox One/Series, DualShock 4, DualSense) | CoreHaptics: `low` on the left handle, `high` on the right, one engine plays the stronger when the pad has no handles | macOS 11, iOS 14 |
   | Android | pads whose `InputDevice` has vibrators | API 31+: `getVibratorManager()` (one vibrator plays the stronger of `low` and `high`, two play `low` on the first and `high` on the second); API 26 to 30: `getVibrator()` | nothing beyond the `VIBRATE` permission the player already has |
   | Chrome-based browsers | Xbox and PlayStation pads | `gamepad.vibrationActuator` | a button pressed on the pad first |
 
-  Everything else answers `canRumble: false` with the reason: Windows pads that are not XInput (DualShock, DualSense, Switch
-  Pro: M98.5b) and Firefox and Safari, which have no browser API. On Linux the reason names what to do when `/dev/input/eventN`
+  Everything else answers `canRumble: false` with the reason: other Windows pads (generic HID pads: "this pad gives no rumble the
+  engine can drive"), a Windows pad another program holds exclusively or that stopped taking reports (the reason says which;
+  plug it in again), and Firefox and Safari, which have no browser API. On Linux the reason names what to do when `/dev/input/eventN`
   cannot be opened for writing: add the user to the `input` group (`sudo usermod -aG input $USER`, log in again) or add a udev
   rule such as `KERNEL=="event*", SUBSYSTEM=="input", TAG+="uaccess"`; the answer is read when the pad is plugged in, so replug the
   pad after changing it. Strengths are not the same motor on every pad: the 0..1 maps to the motor's whole range, and Android

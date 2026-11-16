@@ -1,4 +1,4 @@
-// Doppler and occlusion of 3D audio (docs/SOUND.md, "Doppler" and "Occlusion"): the pitch a moving source or listener gets, the
+// Doppler and occlusion of 3D audio (docs/sound/SOUND_SPATIAL.md, "Doppler" and "Occlusion"): the pitch a moving source or listener gets, the
 // rays Audio asks for (a fake probe stands in for physics, which the audio module cannot reach), their budget and smoothing, and
 // the per-voice low-pass of the mixer.
 #include <doctest.h>

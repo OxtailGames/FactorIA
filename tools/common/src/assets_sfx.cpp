@@ -185,7 +185,7 @@ SfxPatch effective_patch(const LoadedPatch& loaded, const RenderArgs& args, cons
     if (args.variant > 0) {
         if (loaded.patch.variations.count <= 0)
             fail("invalid_argument", std::string(command) + ": " + loaded.rel + " declares no variations.",
-                 "Add \"variations\": {\"count\": 6} to the patch (docs/SOUND.md, \"Variations\").");
+                 "Add \"variations\": {\"count\": 6} to the patch (docs/sound/SOUND_PATCHES.md, \"Variations\").");
         if (args.variant > loaded.patch.variations.count)
             fail("invalid_argument",
                  std::string(command) + ": variant " + std::to_string(args.variant) + " does not exist: " + loaded.rel +
@@ -415,7 +415,7 @@ Json sfx_render_command(const std::string& projectDir, const Json& a) {
         const int count = loaded.patch.variations.count;
         if (count <= 0)
             fail("invalid_argument", "sfx.render: " + rel + " declares no variations.",
-                 "Add \"variations\": {\"count\": 6} to the patch (docs/SOUND.md, \"Variations\").");
+                 "Add \"variations\": {\"count\": 6} to the patch (docs/sound/SOUND_PATCHES.md, \"Variations\").");
         Json items = Json::array();
         std::vector<audio_mix::SheetRow> rows;
         std::vector<double> lufs;
@@ -736,7 +736,7 @@ Json sfx_tweak_command(const std::string& projectDir, const Json& a) {
         Json::array({"Compare measurementsBefore and measurements (centroidHz is the brightness, riseSeconds the "
                      "attack, seconds the length), then turn the macro again if it is not enough.",
                      "The numbers are saved in the patch's `macros`; edit " + rel +
-                         " by hand to change what a macro does (docs/SOUND.md, \"Macros\")."});
+                         " by hand to change what a macro does (docs/sound/SOUND_PATCHES.md, \"Macros\")."});
     return result;
 }
 

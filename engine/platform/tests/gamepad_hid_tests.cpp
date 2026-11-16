@@ -294,10 +294,11 @@ TEST_CASE("XInput's own pads are told apart by IG_ in their device path") {
     CHECK_FALSE(hid_path_is_xinput(""));
 }
 
-TEST_CASE("HID pads have no motors yet and say why; no pad has a driver of its own yet") {
-    CHECK(std::string(kHidRumbleWhy).find("M98.5b2") != std::string::npos);
+TEST_CASE("a generic HID pad has no driver and says why it cannot rumble") {
     CHECK(std::string(kHidRumbleWhy).find("XInput") != std::string::npos);
-    CHECK(make_hid_pad_driver(0xbeef, 0xcafe) == nullptr);
+    CHECK(std::string(kHidRumbleWhy).find("DualSense") != std::string::npos);
+    CHECK(make_hid_pad_driver(0xbeef, 0xcafe, HidTransport::Usb) == nullptr);
+    CHECK(make_hid_pad_driver(0x054c, 0x0268, HidTransport::Usb) == nullptr);  // a DualShock 3: no driver
 }
 
 TEST_CASE("pad slots: stable while connected, gaps filled, XInput and HID mixed, a fifth device waits") {
@@ -352,7 +353,6 @@ TEST_CASE("pad slots: a device takes the slot it prefers when free, else the low
     t.add(hid(1));
     t.add(hid(2));
     t.add(hid(3));
-    std::vector<int> asked;
     t.assign([&](const SlotKey& key, std::span<const bool> occupied) {
         CHECK(occupied.size() == size_t(kMaxGamepads));
         if (key == hid(1)) return 2;  // free: taken

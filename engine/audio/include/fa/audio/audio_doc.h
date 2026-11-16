@@ -1,4 +1,4 @@
-// Audio documents (`*.audio.json`, format "factoria.audio/1", schemas/audio.schema.json, docs/SOUND.md "Audio documents"): a
+// Audio documents (`*.audio.json`, format "factoria.audio/1", schemas/audio.schema.json, docs/sound/SOUND_DOCUMENTS.md "Audio documents"): a
 // non-destructive chain of steps over a sound, so an imported CC0 recording or a rendered synth patch becomes a source you can
 // keep editing instead of a file you destroyed. The document names a source (a WAV or OGG, an `.sfx.json` patch, or another
 // audio document) and a list of steps (trim, fade, normalize, gain, pitch, stretch, speed, eq, compressor, reverb, delay, reverse,

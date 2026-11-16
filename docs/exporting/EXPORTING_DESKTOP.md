@@ -488,7 +488,7 @@ What each desktop export takes from [Platform settings](EXPORTING_SETUP.md#platf
   [AppImage](#linux-appimage) carries the same entry, with `Icon=<name>` and the game's version.
 
 Windows: the player of a release download would carry FactorIA's signature if the release were signed, but the
-Windows releases are not signed yet ([BUILDING.md](../design/BUILDING.md), "Code signing"; repository only, not in the binary), and one built from source never is.
+Windows releases are not signed yet ([BUILDING_RELEASE.md](../design/BUILDING_RELEASE.md), "Code signing"; repository only, not in the binary), and one built from source never is.
 Writing the game's icon and version
 information edits the exe, which invalidates a signature, so the export removes it (the certificate table at the end of
 the file) and says so in the report: an exe with the wrong signature is worse than an unsigned one. Only a player
