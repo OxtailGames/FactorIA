@@ -226,7 +226,8 @@ TEST_CASE("text_edit: UTF-8 multi-byte text, clusters never split, indices are c
     CHECK(s.anchor == 5);
     CHECK(te::selected_text(s) == std::string(kEComb) + "z");
     // an ill-formed byte is one U+FFFD and does not break the model
-    const char kBadBytes[] = {'a', char(0xFF), 'b', '\0'};  // "a\xFFb" would read the b as part of the escape
+    const char kBadBytes[] = "a\xFF"
+                             "b";  // two literals: "a\xFFb" would read the b as part of the escape
     te::State bad = st(kBadBytes, 3);
     CHECK(te::length(bad) == 3);
     CHECK(te::backspace(bad, false));

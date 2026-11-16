@@ -426,7 +426,7 @@ Json ScriptSystem::Impl::deprecation_targets() const {
         const bool test = key.rfind("test:", 0) == 0;
         const std::string bare = test ? key.substr(5) : key;
         const size_t dot = bare.find('.');
-        const std::string owner = bare.substr(0, dot);
+        const std::string item_name = bare.substr(0, dot);
         const std::string member = dot == std::string::npos ? std::string() : bare.substr(dot + 1);
         auto add = [&](std::vector<std::string> path) {
             Json p = Json::array();
@@ -436,10 +436,11 @@ Json ScriptSystem::Impl::deprecation_targets() const {
         for (const Json& mod : data["modules"]) {
             if ((mod.value("name", "") == "factoria:test") != test) continue;
             for (const Json& it : mod["items"]) {
-                if (item_key("", it) != owner) continue;
+                if (item_key("", it) != item_name) continue;
                 const std::string kind = it.value("kind", "");
                 if (member.empty()) {
-                    if (kind == "function" || kind == "class" || kind == "const" || kind == "namespace") add({owner});
+                    if (kind == "function" || kind == "class" || kind == "const" || kind == "namespace")
+                        add({item_name});
                     continue;
                 }
                 auto has = [&](const char* list) {
@@ -449,14 +450,14 @@ Json ScriptSystem::Impl::deprecation_targets() const {
                     return false;
                 };
                 if (kind == "namespace" && has("members")) {
-                    add({owner, member});
+                    add({item_name, member});
                 } else if (kind == "class") {
-                    if (has("statics")) add({owner, member});
-                    if (has("members")) add({owner, "prototype", member});
+                    if (has("statics")) add({item_name, member});
+                    if (has("members")) add({item_name, "prototype", member});
                 } else if (kind == "interface" && has("members")) {
                     // The objects of this type the module exports (`nav` is a NavAPI).
                     for (const Json& c : mod["items"])
-                        if (c.value("kind", "") == "const" && c.value("type", "") == owner)
+                        if (c.value("kind", "") == "const" && c.value("type", "") == item_name)
                             add({item_key("", c), member});
                 }
             }
