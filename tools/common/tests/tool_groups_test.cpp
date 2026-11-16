@@ -63,7 +63,9 @@ TEST_CASE("tool groups: a count of core commands written in the docs or in the h
     const std::string real = std::to_string(core_command_names().size());
     const std::regex counted(R"((\d+) core (?:commands|tools))");
     // docs/design/ is not embedded in the binary: read it from the checkout.
-    for (const char* doc : {"docs/MCP.md", "docs/AI_PROVIDERS.md", "docs/design/ARCHITECTURE.md"}) {
+    for (const char* doc : {"docs/MCP.md", "docs/AI_PROVIDERS.md", "docs/ai-providers/AI_PROVIDERS_CONFIG.md",
+                            "docs/ai-providers/AI_PROVIDERS_AGENT.md", "docs/ai-providers/AI_PROVIDERS_EXTENSIONS.md",
+                            "docs/design/ARCHITECTURE.md"}) {
         auto text = bundled_read(doc);
         if (!text && std::string(doc).rfind("docs/design/", 0) == 0)
             text = testing::read_text(std::filesystem::path(FA_REPO_ROOT) / doc);

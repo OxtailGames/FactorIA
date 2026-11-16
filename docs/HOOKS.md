@@ -10,7 +10,7 @@ Claude Code and FactorIA's own loop** (the `anthropic` and `openai-compatible` p
 its own, `beforeCommand` and `afterCommand`, that fire around **every command of the engine for every caller**: an MCP client, the
 `factoria` CLI, the editor, a script, the built-in AI.
 
-Hooks live in the `hooks` entries of `extensions` ([AI_PROVIDERS.md](AI_PROVIDERS.md#extensions)): in your `ai.json` (every project)
+Hooks live in the `hooks` entries of `extensions` ([AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_EXTENSIONS.md#extensions)): in your `ai.json` (every project)
 or in the project's `.factoria/extensions.json` (it travels with the project). The editor lists them, and the recent runs with their
 failures, in **AI > AI Settings... > Extensions > Hooks** ([EDITOR.md](EDITOR.md)). The commands `ai.hooks` and `ai.hooks_test`
 do the same for an AI.
@@ -48,7 +48,7 @@ do the same for an AI.
 }
 ```
 
-An entry has the usual fields (`roles`, `enabled`, `note`; see [AI_PROVIDERS.md](AI_PROVIDERS.md#extensions)) and `hooks`:
+An entry has the usual fields (`roles`, `enabled`, `note`; see [AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_EXTENSIONS.md#extensions)) and `hooks`:
 `event -> [ { "matcher", "hooks": [ handler... ] } ]`. A group may write `match` instead of `matcher`. A handler is:
 
 | Field | Meaning |
@@ -114,7 +114,7 @@ Windows, `SystemRoot`, `ComSpec`, `USERPROFILE`, `APPDATA`... so that `cmd.exe` 
 and the names the user lists in the top-level `"inheritEnv"` of `~/.factoria/ai.json` (exact names, or a prefix ending in `*`,
 like `"AWS_*"`). A hook that needs `AWS_PROFILE`, a proxy (`HTTPS_PROXY`) or `GIT_SSH_COMMAND` needs the name listed there; a
 project's own AI settings file cannot list names (it could pull a secret into its own hooks). See
-[AI_PROVIDERS.md](AI_PROVIDERS.md#environment-of-the-programs-the-ai-starts).
+[AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_CONFIG.md#environment-of-the-programs-the-ai-starts).
 
 ## What a hook answers
 
@@ -200,7 +200,7 @@ event out of the entry's `hooks` instead of exporting nothing for it.
 ## Trust
 
 A `command` handler starts a program with your permissions, so a project's hooks that start a program run only after you trust the
-project (the same trust as its plugins: [AI_PROVIDERS.md](AI_PROVIDERS.md#trusting-a-projects-extensions); no command can grant it). Hooks
+project (the same trust as its plugins: [AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_EXTENSIONS.md#trusting-a-projects-extensions); no command can grant it). Hooks
 in your own `ai.json` need no trust. A `js` handler needs none either, in either file: it cannot start anything. Until the project is
 trusted, `ai.hooks` and the editor show its program hooks as not trusted and they do not run.
 

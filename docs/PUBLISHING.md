@@ -39,7 +39,7 @@ Do these once, in this order. Each is a full section elsewhere.
 
 1. Set `name`, `id` (the bundle id / package name, it cannot change after release), `version` and `icon` in
    `factoria.json` ([Platform settings](EXPORTING.md#platform-settings), [Icon](EXPORTING.md#icon)). No image tool:
-   `assets.draw_icon` ([ASSETS.md](ASSETS.md#the-game-icon-without-a-provider-assetsdraw_icon)).
+   `assets.draw_icon` ([ASSETS.md](assets/ASSETS_REVIEW.md#the-game-icon-without-a-provider-assetsdraw_icon)).
 2. Make the machine ready: `factoria setup` lists what is missing ([What each export needs](EXPORTING.md#what-each-export-needs),
    [Setting up this computer](EXPORTING.md#setting-up-this-computer)).
 3. Export a release build of each platform you ship (`--release`, one `game.pak`;

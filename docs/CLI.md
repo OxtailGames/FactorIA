@@ -351,7 +351,7 @@ program: the event as JSON on stdin, the module's answer as JSON on stdout ([HOO
 Hooks of `beforeCommand` / `afterCommand` also apply to `factoria call` and to every command the CLI runs.
 
 `ai run`, `ai review` and the commands above run in the project given as argument or `--project`, else the one that contains the current
-folder, and use its AI settings (`<project>/.factoria/ai/settings.json`; [AI_PROVIDERS.md](AI_PROVIDERS.md#per-project)): `ai run --role artist` in a
+folder, and use its AI settings (`<project>/.factoria/ai/settings.json`; [AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_CONFIG.md#per-project)): `ai run --role artist` in a
 project that turned the artist off is refused and says which setting did it. To read or change those settings use the commands
 `factoria call ai.settings.get '{"scope":"resolved"}'` and `factoria call ai.settings.set '{"scope":"project","pointer":"/roles/artist/enabled","value":false}'`
 (a project change waits until you accept the file in the editor).

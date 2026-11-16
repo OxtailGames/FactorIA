@@ -102,10 +102,10 @@ that takes twice the steps in a context twice as large costs four times as much.
 
 - **Long chats.** A chat that has been going for hours carries everything said so far in every step. Open a new chat tab for
   a new task (AI panel, [EDITOR.md](EDITOR.md)); the project files are the memory, not the chat. The built-in agent does not
-  trim its history ([AI_PROVIDERS.md](AI_PROVIDERS.md#conversations-and-resume)).
+  trim its history ([AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_AGENT.md#conversations-and-resume)).
 - **Compaction.** `maxContextTokens` on a role (at least 100000, **AI > Roles...** in the editor, **Context** column) caps how
   much conversation a session keeps: past it, the earlier turns become a summary and each step reads less. It works with
-  Claude Code and the Anthropic API ([AI_PROVIDERS.md](AI_PROVIDERS.md#roles)).
+  Claude Code and the Anthropic API ([AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_CONFIG.md#roles)).
 - **Screenshots.** A picture is tokens too. FactorIA scales big pictures to 1568 px on the long side, which is what the
   model looks at anyway ([EDITOR.md](EDITOR.md)). Take a screenshot where you need to see something, not after every edit.
 - **Roles.** Your messages go to the orchestrator (Opus, the dearest model). It plans and reviews, and hands the work to
@@ -124,7 +124,7 @@ that takes twice the steps in a context twice as large costs four times as much.
 
 The built-in agent (API providers) sends the core commands, the tool groups of its role and two helper tools in full, and
 lists every other command as a line of the system prompt that the model describes (`tool_describe`) and calls (`tool_call`)
-when it needs it ([AI_PROVIDERS.md](AI_PROVIDERS.md#tool-groups-and-the-catalog) has the mechanism and the reasons). The tool
+when it needs it ([AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_AGENT.md#tool-groups-and-the-catalog) has the mechanism and the reasons). The tool
 list and the catalog do not change while the conversation goes on, so the provider's prompt cache keeps working: the first
 step writes the prefix once, every later step reads it back at the cache price.
 
@@ -185,7 +185,7 @@ skill's `SKILL.md` to the conversation, once.
 
 ### Savers that learn from your runs
 
-Three more savers of the built-in agent (switches in AI settings > Extensions, `savers` in `ai.json`; [AI_PROVIDERS.md](AI_PROVIDERS.md#token-savers)):
+Three more savers of the built-in agent (switches in AI settings > Extensions, `savers` in `ai.json`; [AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_EXTENSIONS.md#token-savers)):
 a loop guard that answers a command failing the same way three times with a short redirect instead of more model steps (its
 optional judge costs one short call per redirect, counted in the run), tool groups your project's runs keep loading, proposed
 for loading up front only when you accept, and project facts proposed for `AGENTS.md`. They are not measured on a paid run: the
@@ -197,13 +197,13 @@ The savers above work on one project's runs. What an engine fix would save in ev
 command) is reported instead: `factoria ai retrospective` measures the waste in your transcripts, files at most three entries of
 `kind: "efficiency"` that pass the gate and costs one short call of the fast role (shown in the result). The thresholds, what is refused
 (a different model or limit is your setting, not the engine's) and how the numbers are measured:
-[ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md#efficiency-feedback) and [AI_PROVIDERS.md](AI_PROVIDERS.md#retrospective).
+[ENGINE_FEEDBACK.md](ENGINE_FEEDBACK.md#efficiency-feedback) and [AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_EXTENSIONS.md#retrospective).
 
 ### TokenEconomizer with Claude Code: measured
 
 [TokenEconomizer](https://github.com/microsoft/TokenEconomizer) is a Claude Code plugin with similar savers for Claude Code
 itself: a loop guard, a deny list of the tools a repository never uses, and learned facts injected at session start. FactorIA
-can load it as an extension plugin (AI settings > Extensions, [AI_PROVIDERS.md](AI_PROVIDERS.md#extensions)). We measured it on
+can load it as an extension plugin (AI settings > Extensions, [AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_EXTENSIONS.md#extensions)). We measured it on
 six paid runs (2026-11-01, engine 0.11.0): the same task on a fresh copy of Sky Hopper (a double-jump feather pickup: a new
 prefab, a legend letter, a placement in level 1 and three tests), `factoria ai run --role worker --no-delegate` with Claude
 Code and Sonnet at medium effort, three runs with the plugin and three without, alternated, the project reset to the same
@@ -288,7 +288,7 @@ that were written.
 | `limits.maxAssetCostUsd.perDay` | estimated dollars of asset calls of this project today, counted across every editor, terminal and agent (0 = no limit) | 0 |
 | `limits.askAboveUsd` | a call estimated above this, or whose total with the unasked calls since your last yes is, waits for your yes; 0 asks before every paid call | 0.50 |
 
-They go in `ai.json` or in a project's `.factoria/ai/settings.json` ([AI_PROVIDERS.md](AI_PROVIDERS.md#per-project)), and
+They go in `ai.json` or in a project's `.factoria/ai/settings.json` ([AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_CONFIG.md#per-project)), and
 in the editor in **AI > AI Settings... > Assets > Spending limits**. With a per-run or per-day limit set and a price the table does not
 know, the call is refused (FactorIA cannot count what it cannot price): set the price in `assetPricing` or call a provider
 that has one.
@@ -378,7 +378,7 @@ whose figure you did not confirm.
 
 - **In the editor**, the usage lines above the AI transcript: **Session (5h)** and **Week** (plan windows, with the time
   they reset), **Context** (tokens in the window now), **Tokens** (in / out / cache) and **API cost est.** of the chat
-  ([EDITOR.md](EDITOR.md), [AI_PROVIDERS.md](AI_PROVIDERS.md#usage-display)); hover **Context** to see where the last call's
+  ([EDITOR.md](EDITOR.md), [AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_AGENT.md#usage-display)); hover **Context** to see where the last call's
   context went (system prompt, tool definitions, conversation; estimated). The plan windows are the provider's and sit above
   the chat tabs; the rest belongs to the chat. The dollars are what the same tokens would cost on the pay-per-token API:
   with a subscription (Claude Code / Codex sign-in) none of it is charged on top of the plan, and plan percentages are
