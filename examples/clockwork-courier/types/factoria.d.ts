@@ -423,7 +423,7 @@ declare module "factoria" {
     squash(opts?: SquashOptions): void;
     /**
      * Marks the pose the entity has NOW as a jump, not a move: with render interpolation (factoria.json render.interpolation, docs/RENDERING.md) the next frames draw it where it is instead of blending from where it was. Set the position first, then call teleport() in the same fixed step (a respawn, a door, a warp). A Transform written outside the fixed step (update, lateUpdate, a command) and a new entity are never smeared, so they need no call. Does nothing for an entity that is not interpolated. Example: me.position = spawn.position; me.teleport();
-     * @since unreleased
+     * @since 0.30.0
      */
     teleport(): void;
     /**
@@ -666,7 +666,7 @@ declare module "factoria" {
     readonly name: string;
     /**
      * True when this pad has motors the platform can drive now, so input.rumble(pad, ...) shakes it; false for a slot with no pad and for a platform or pad without rumble. Windows (XInput pads, and the DualShock 4, DualSense and Switch Pro over USB or Bluetooth), Linux (pads with kernel force feedback, when /dev/input/eventN is writable), macOS and iOS (pads with GameController haptics), Android (pads whose InputDevice has vibrators) and Chrome-based browsers (Xbox and PlayStation pads) can today; Firefox and Safari never, nor other Windows HID pads; a Windows pad another program holds exclusively (DS4Windows, HidHide) or that stopped taking reports answers false too. Games need not check it: input.rumble on a pad that cannot rumble does nothing. Check it to show a Vibration option only where it works. A test pad answers false unless game.gamepad(i).connect({ canRumble: true }), at every connect. It is already right in the frame a pad connects.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly canRumble: boolean;
     /**
@@ -838,12 +838,12 @@ declare module "factoria" {
     readonly text: string;
     /**
      * True while an input method (IME: Japanese, Chinese, Korean, dead keys) is composing text that is not typed yet: from its first pre-edit string until the player commits it or cancels. The committed text then arrives once in input.text. A focused TextField keeps the pre-edit string in TextField.composition (drawn at its caret, underlined). Needs a platform that sends composition events (from M98.6c / 6d); until then it stays false.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly composing: boolean;
     /**
      * The pre-edit string of the IME composition in progress, as UTF-8 ("" when input.composing is false). It is not part of any text yet: do not append it to a string, wait for input.text.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly compositionText: string;
     /**
@@ -878,12 +878,12 @@ declare module "factoria" {
     onBack(handler: () => boolean | void): () => void;
     /**
      * Shakes the motors of gamepad pad (0..3, the slot input.gamepad(i) reads): low is the heavy, low-frequency motor (the left one of an Xbox pad) and high the light, high-frequency one, each 0..1 (a value outside is clamped), for seconds above 0 and up to 10 (0.05 to 0.15 is a tap, 0.3 a hit, 1 an explosion). A new call on the same pad replaces the one playing; both strengths 0 is a stop. It ends by itself when the seconds run out, counted in the frames' own duration (not scaled by time.scale); to go on, ask again before. The engine also stops every pad when the game pauses itself (game.paused = true or time.scale 0, the editor's pause), loses the window focus, changes scene or quits, so a pad never keeps shaking: a rumble asked in the same frame that pauses never reaches the pad, one asked while the game stays paused plays, and one asked in a scene's onStart plays. The editor's Game view reads no physical pad, so nothing rumbles there; run the game on its own (factoria run, an export). A pad that is not connected or cannot rumble (input.gamepad(pad).canRumble) ignores it; on the web a browser may refuse it until the player clicked the page or pressed a key (a button of the pad may not count). Phones vibrate with input.vibrate(), a different motor. Throws for a pad outside 0..3, a strength or seconds that is not a number, and seconds outside 0..10; a headless run or test records the request (game.rumbles(), game.rumbleState(pad)). Example: input.rumble(0, 0.7, 0.3, 0.2) when the player is hit.
-     * @since unreleased
+     * @since 0.30.0
      */
     rumble(pad: number, low: number, high: number, seconds: number): void;
     /**
      * Stops the rumble of gamepad pad (0..3) now; without an argument, of every pad. Does nothing for a pad that is not rumbling. A pad outside 0..3 throws.
-     * @since unreleased
+     * @since 0.30.0
      */
     stopRumble(pad?: number): void;
     /**
@@ -1032,57 +1032,57 @@ declare module "factoria" {
     rolloffFactor?: number;
     /**
      * With `position` and rolloff: "curve" (required with it, and only then): the volume over the distance, [position, gain] keys where position is d / range (0 = at the listener, 1 = at `range`) and gain 0 to 1, e.g. [[0, 1], [0.3, 0.8], [1, 0]]; same form as ParticleEmitter.sizeCurve, at most 16 keys. Throws for a curve that does not parse.
-     * @since unreleased
+     * @since 0.30.0
      */
     rolloffCurve?: number[][] | { keys: number[][], interp?: "linear" | "smooth" | "step" };
     /**
      * With `position`: the world direction the sound points in, for the cone (coneInnerAngle ...). Omitted or [0, 0, 0] = the same in every direction. The cone is worked out once, when the sound starts.
-     * @since unreleased
+     * @since 0.30.0
      */
     direction?: number[] | { x: number, y: number, z?: number };
     /**
      * With `position` and `direction`: full angle in degrees of the cone where the sound is at full volume, 0 to 360 (default 360 = no cone).
-     * @since unreleased
+     * @since 0.30.0
      */
     coneInnerAngle?: number;
     /**
      * With `position` and `direction`: full angle in degrees of the outer cone, 0 to 360 (default 360); outside it the volume is multiplied by coneOuterGain, between the cones it blends linearly in the angle.
-     * @since unreleased
+     * @since 0.30.0
      */
     coneOuterAngle?: number;
     /**
      * With `position` and `direction`: volume multiplier outside the outer cone, 0 to 1 (default 0).
-     * @since unreleased
+     * @since 0.30.0
      */
     coneOuterGain?: number;
     /**
      * With `position`: the velocity of the source in world units per second, for doppler (kept for the whole life of the sound; the listener's velocity is measured each frame).
-     * @since unreleased
+     * @since 0.30.0
      */
     velocity?: number[] | { x: number, y: number, z?: number };
     /**
      * With `position`: how much the pitch shifts with the speed of the source and the listener, 0 (default, off) to 10: the exponent of the real pitch ratio (1 = the real shift); the factor is limited to 0.25..4.
-     * @since unreleased
+     * @since 0.30.0
      */
     dopplerLevel?: number;
     /**
      * With `position`: true = a physics ray from the listener that hits a collider of `occlusionMask` muffles the sound (default false). At most 8 rays per frame in the whole game; the change is smoothed over 0.1 s.
-     * @since unreleased
+     * @since 0.30.0
      */
     occlusion?: boolean;
     /**
      * With `position`: the physics layers (bitmask, default -1 = all) that block the sound when `occlusion` is on.
-     * @since unreleased
+     * @since 0.30.0
      */
     occlusionMask?: number;
     /**
      * With `position`: volume multiplier of a blocked path, 0 to 1 (default 0.4).
-     * @since unreleased
+     * @since 0.30.0
      */
     occlusionGain?: number;
     /**
      * With `position`: low-pass cutoff in Hz of a blocked path, 20 to 20000 (default 1500; 20000 = no filter).
-     * @since unreleased
+     * @since 0.30.0
      */
     occlusionLowpass?: number;
     /**
@@ -3080,7 +3080,7 @@ declare module "factoria" {
     setAsync(key: string, value: Json, options?: { compress?: boolean, encrypt?: boolean }): Promise<number>;
     /**
      * true when the value under `key` is stored sealed ({encrypt: true}), false when it is plain, undefined when the key is not stored. It does not move or change anything, so a game can show "this save is not protected" or decide what to do with a plain value before it trusts it (storage.get(key, fallback, {encrypted: true}) refuses it instead).
-     * @since unreleased
+     * @since 0.30.0
      */
     isEncrypted(key: string): boolean | undefined;
     /**
@@ -4343,263 +4343,263 @@ declare module "factoria" {
 
   /**
    * How websocket.connect tries again after a connection you did not close ends (the server went away, the network dropped, an attempt failed). The wait before attempt n is min(maxDelay, minDelay * factor^(n-1)) seconds, moved by up to +-jitter of itself with a pseudo-random sequence that is the same on every run (seeded by the URL and the connection's number: no rand(), no wall clock), counted on the engine clock.
-   * @since unreleased
+   * @since 0.30.0
    */
   export interface WebSocketReconnectOptions {
     /**
      * Reconnects tried in a row before the connection closes for good: a whole number of 1 or more, or Infinity. Default 10. The count starts again when a connection opens.
-     * @since unreleased
+     * @since 0.30.0
      */
     maxAttempts?: number;
     /**
      * Seconds before the first attempt, above 0. Default 1.
-     * @since unreleased
+     * @since 0.30.0
      */
     minDelay?: number;
     /**
      * The longest wait in seconds, at least minDelay. Default 30.
-     * @since unreleased
+     * @since 0.30.0
      */
     maxDelay?: number;
     /**
      * Each attempt waits this many times longer than the one before, 1 or more. Default 2.
-     * @since unreleased
+     * @since 0.30.0
      */
     factor?: number;
     /**
      * A fraction from 0 to 1 of the wait that the delay may move up or down, so that many players do not reconnect at the same instant. Default 0.25.
-     * @since unreleased
+     * @since 0.30.0
      */
     jitter?: number;
   }
 
   /**
    * Options of websocket.connect.
-   * @since unreleased
+   * @since 0.30.0
    */
   export interface WebSocketOptions {
     /**
      * Subprotocols to offer the server, in order of preference (Sec-WebSocket-Protocol); the one it picks is WebSocketConnection.protocol. Each must be a token like "chat.v1".
-     * @since unreleased
+     * @since 0.30.0
      */
     protocols?: string[];
     /**
      * Extra headers of the handshake, string values, no line breaks. Host, Upgrade, Connection and Sec-* are set by the system and throw. The browser's WebSocket cannot send headers: a game for the web puts what the server needs in the URL or in the first message.
-     * @since unreleased
+     * @since 0.30.0
      */
     headers?: Record<string, string>;
     /**
      * Seconds to wait for the connection and the handshake together, above 0 and at most 120. Default 15; a connection that takes longer gets an "error" event and a "close" event with code 1006.
-     * @since unreleased
+     * @since 0.30.0
      */
     timeout?: number;
     /**
      * The longest message in either direction, 4194304 (4 MB) by default and at most 67108864. A longer incoming message fails the connection (an "error" event, then "close" with code 1006; the server is told 1009); send() throws for a longer outgoing one.
-     * @since unreleased
+     * @since 0.30.0
      */
     maxMessageBytes?: number;
     /**
      * true or an object: connect again after a close you did not ask for. false (default): never. A connection you close() yourself, and one that the platform cannot open at all, never reconnect.
-     * @since unreleased
+     * @since 0.30.0
      */
     reconnect?: boolean | WebSocketReconnectOptions;
   }
 
   /**
    * The "open" event of a connection: the handshake is done and send() works.
-   * @since unreleased
+   * @since 0.30.0
    */
   export interface WebSocketOpenEvent {
     /**
      * The subprotocol the server chose, "" when none.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly protocol: string;
     /**
      * True when this is a reconnect (the connection was open before), so the game can ask the server for what it missed.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly reconnected: boolean;
   }
 
   /**
    * The "message" event: one whole message. Messages of a connection arrive in order, at the start of an engine frame.
-   * @since unreleased
+   * @since 0.30.0
    */
   export interface WebSocketMessageEvent {
     /**
      * A text message as a string; a binary message as an ArrayBuffer (wrap it in new Uint8Array(data) to read it).
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly data: string | ArrayBuffer;
     /**
      * True when data is an ArrayBuffer.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly binary: boolean;
   }
 
   /**
    * The "error" event: something went wrong. A "close" event always follows with code 1006.
-   * @since unreleased
+   * @since 0.30.0
    */
   export interface WebSocketErrorEvent {
     /**
      * What went wrong, in a sentence that says what to do.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly message: string;
     /**
      * What to try, "" when the platform gave none.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly hint: string;
     /**
      * The HTTP status the server answered to the handshake when it refused it (403, 404...), 0 when there was none.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly httpStatus: number;
   }
 
   /**
    * The "close" event: the end of a connection (or of one attempt, when it reconnects). Nothing more is delivered on it.
-   * @since unreleased
+   * @since 0.30.0
    */
   export interface WebSocketCloseEvent {
     /**
      * The close code: 1000 normal, 1001 going away, 1006 the connection failed or broke with no closing handshake (could not connect, a message too big, a server that breaks the protocol), 1008 the game did not read its messages, 3000 to 4999 the server's own.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly code: number;
     /**
      * The reason text the closer sent, "" when none.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly reason: string;
     /**
      * True when the closing handshake completed.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly wasClean: boolean;
     /**
      * True when websocket.connect was given reconnect and will try again: a "reconnecting" event follows. Call connection.close() in this handler to stop it.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly willReconnect: boolean;
   }
 
   /**
    * The "reconnecting" event: the next attempt is scheduled.
-   * @since unreleased
+   * @since 0.30.0
    */
   export interface WebSocketReconnectingEvent {
     /**
      * 1 for the first reconnect since the connection was last open, 2 for the second...
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly attempt: number;
     /**
      * Seconds until the attempt starts (engine time).
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly delay: number;
   }
 
   /**
    * One WebSocket connection, from websocket.connect. Events are delivered at the start of an engine frame, never in the middle of a script. A scene change or a script unload closes the connection WITHOUT events (readyState becomes "closed"): open the connections of a scene in that scene.
-   * @since unreleased
+   * @since 0.30.0
    */
   export interface WebSocketConnection {
     /**
      * The address given to websocket.connect.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly url: string;
     /**
      * "connecting" until the handshake completes and also while a connection waits to reconnect; "closing" after close() until the "close" event.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly readyState: "connecting" | "open" | "closing" | "closed";
     /**
      * The subprotocol the server chose, "" when none or not open yet.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly protocol: string;
     /**
      * Reconnects tried since the connection was last open: 0 while it is open.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly attempt: number;
     /**
      * Bytes that send() accepted and the network has not taken yet.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly bufferedAmount: number;
     /**
      * Calls fn when the connection opens (again after each reconnect). Returns a function that removes the handler. A handler that throws is reported as a script error and the others still run.
-     * @since unreleased
+     * @since 0.30.0
      */
     on(event: "open", fn: (e: WebSocketOpenEvent) => void): () => void;
     /**
      * Calls fn for every message the server sends. Example: `ws.on("message", (e) => { if (!e.binary) handle(JSON.parse(e.data)); });`.
-     * @since unreleased
+     * @since 0.30.0
      */
     on(event: "message", fn: (e: WebSocketMessageEvent) => void): () => void;
     /**
      * Calls fn when the connection fails: could not connect, refused (e.httpStatus), a broken stream, a message over maxMessageBytes. Followed by a "close" event.
-     * @since unreleased
+     * @since 0.30.0
      */
     on(event: "error", fn: (e: WebSocketErrorEvent) => void): () => void;
     /**
      * Calls fn when the connection ends, whoever ended it.
-     * @since unreleased
+     * @since 0.30.0
      */
     on(event: "close", fn: (e: WebSocketCloseEvent) => void): () => void;
     /**
      * Calls fn when a reconnect is scheduled (options.reconnect only).
-     * @since unreleased
+     * @since 0.30.0
      */
     on(event: "reconnecting", fn: (e: WebSocketReconnectingEvent) => void): () => void;
     /**
      * Removes a handler added with on(). An unknown handler does nothing.
-     * @since unreleased
+     * @since 0.30.0
      */
     off(event: "open" | "message" | "error" | "close" | "reconnecting", fn: Function): void;
     /**
      * Queues one message: a string goes as a text message, an ArrayBuffer or typed array as a binary one. Returns true when queued, false when the connection is not open (still connecting, waiting to reconnect, closing, closed): nothing is queued or kept for later. Throws for data of another type (send an object as ws.send(JSON.stringify(obj))) and for a message over maxMessageBytes. Example: `if (!ws.send(JSON.stringify({ move: "left" }))) ui.toast("Reconnecting...");`.
-     * @since unreleased
+     * @since 0.30.0
      */
     send(data: string | ArrayBuffer | ArrayBufferView): boolean;
     /**
      * Starts the closing handshake; the "close" event follows when the server answers (or after a few seconds). code is 1000 (default) or 3000 to 4999, reason at most 123 bytes of UTF-8; others throw. Never reconnects afterwards, and stops a connection that waits to reconnect. Closing twice does nothing.
-     * @since unreleased
+     * @since 0.30.0
      */
     close(code?: number, reason?: string): void;
   }
 
   /**
    * WebSocket connections to the hosts the game declares in factoria.json "network" (docs/NETWORKING.md, "WebSocket"), the same list as http.fetch: ws:// and wss://, wss:// everywhere except plain ws:// to localhost for development. A host that is not declared throws at once with the same hint and "did you mean". At most 32 connections at once. Which platforms can connect depends on the build (docs/NETWORKING.md says which): `websocket.supported` tells; where it is false, connect() still returns a connection, which fails with an "error" and a "close" event at the next frame. In tests and headless runs a scripted in-memory server answers (game.websocket) and nothing touches the network. Replays do not record WebSocket traffic.
-   * @since unreleased
+   * @since 0.30.0
    */
   export interface WebSocketAPI {
     /**
      * Starts connecting and returns at once: attach handlers with on() before the next frame. A mistake in the call (an undeclared host, a bad scheme, an unknown option, a header the handshake refuses, more than 32 connections) throws with what to change. Example: `const ws = websocket.connect("wss://game.example.com/room", { reconnect: true }); ws.on("open", () => ws.send("hello"));`.
-     * @since unreleased
+     * @since 0.30.0
      */
     connect(url: string, options?: WebSocketOptions): WebSocketConnection;
     /**
      * True when this platform has a WebSocket client that can connect.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly supported: boolean;
     /**
      * The client in use: "memory" (tests, headless), "winhttp", "nsurlsession", "curl", "socket", "browser" or "unavailable".
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly backend: string;
     /**
      * Why supported is false, "" when it is true.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly unsupportedReason: string;
   }
@@ -4832,7 +4832,7 @@ declare module "factoria" {
      */
     has(key: string): boolean;
     /**
-     * The grammatical gender of the string `key` in the current language ("f" feminine, "m" masculine, "n" neuter), from a table entry written {"text": "Ligera", "gender": "f"}; "" when the string has none or no table has the key. Pass it as args.gender to a select entry (an object with forms f, m, n and other) to get the article or adjective that agrees: i18n.t("ship.the", { name: i18n.t("ship.light"), gender: i18n.gender("ship.light") }) is "la Ligera" in Spanish. Throws for a key that is not a string. See docs/LOCALIZATION.md, "Gender".
+     * The grammatical gender of the string `key` in the current language ("f" feminine, "m" masculine, "n" neuter), from a table entry written {"text": "Ligera", "gender": "f"}; "" when the string has none or no table has the key. Pass it as args.gender to a select entry (an object with forms f, m, n and other) to get the article or adjective that agrees: i18n.t("ship.the", { name: i18n.t("ship.light"), gender: i18n.gender("ship.light") }) is "la Ligera" in Spanish. Throws for a key that is not a string. See docs/LOCALIZATION.md, "Gender and agreement".
      * @since 0.3.0
      */
     gender(key: string): "f" | "m" | "n" | "";
@@ -5043,7 +5043,7 @@ declare module "factoria" {
 
   /**
    * websocket.connect(url, options): WebSocket connections to the hosts declared in factoria.json "network", with reconnects (docs/NETWORKING.md, "WebSocket").
-   * @since unreleased
+   * @since 0.30.0
    */
   export const websocket: WebSocketAPI;
 
@@ -6300,12 +6300,12 @@ declare module "factoria" {
    * Draws this entity at the pose BETWEEN the last two fixed simulation steps, so a 60 Hz simulation moves smoothly on a 120-144 Hz display (docs/RENDERING.md, "Render interpolation"). Only the drawing changes: Transform, physics, scripts, bounds and commands always see the real, latest pose; the blend is never written to the Transform. Children follow an interpolated parent and a Camera is viewed from its blended pose. A pose set outside the fixed step (a script's update, a command) or after entity.teleport() is not smeared: it is drawn where it is. The project default is factoria.json render.interpolation (false); add this component to opt one entity in ("on") or out ("off"). Nothing is blended while the game is paused or stepped.
    * 
    * Category: Core
-   * @since unreleased
+   * @since 0.30.0
    */
   export interface InterpolationComponent {
     /**
      * on: interpolated whatever the project says. off: never interpolated (a cursor that must follow the pointer at once, an entity a script moves every frame). inherit: what factoria.json render.interpolation says.
-     * @since unreleased
+     * @since 0.30.0
      */
     mode: "inherit" | "on" | "off";
   }
@@ -8143,53 +8143,53 @@ declare module "factoria" {
     rolloffFactor: number;
     /**
      * Spatial only, used when rolloff is "curve": the volume over the distance, as a curve of [position, gain] keys where position is the distance divided by `range` (0 = at the listener, 1 = at `range`, where the sound is cut anyway) and gain is 0 to 1: [[0, 1], [0.3, 0.8], [1, 0]]. Same form as ParticleEmitter.sizeCurve: {"keys": [...], "interp": "smooth"} eases between keys, at most 16 keys. [] (default) or a form that does not parse (the log says why) = the linear curve. refDistance and rolloffFactor do not apply to it. Returns a plain-object COPY; assign a new value to write.
-     * @since unreleased
+     * @since 0.30.0
      */
     rolloffCurve: any;
     /**
      * Spatial only: full angle in degrees of the cone around `coneAxis` where the sound is at full volume. 360 (default) = no cone, the sound is the same in every direction. The cone points where the entity faces (its rotation turns coneAxis), in 2D and 3D.
-     * @since unreleased
+     * @since 0.30.0
      */
     coneInnerAngle: number;
     /**
      * Spatial only: full angle in degrees of the outer cone: outside it the volume is multiplied by `coneOuterGain`; between the inner and the outer cone it blends linearly in the angle. 360 (default) with an inner angle below 360 blends all the way to straight behind. A value below coneInnerAngle is taken as coneInnerAngle.
-     * @since unreleased
+     * @since 0.30.0
      */
     coneOuterAngle: number;
     /**
      * Spatial only: volume multiplier outside the outer cone, 0 (silent, default) to 1 (no effect).
-     * @since unreleased
+     * @since 0.30.0
      */
     coneOuterGain: number;
     /**
      * Spatial only: the direction the cone points in the entity's local space. Default (0, 0, -1) is forward in 3D (as lights and cameras); in a 2D game, where sprites face +X, use (1, 0, 0). A zero vector turns the cone off.
-     * @since unreleased
+     * @since 0.30.0
      */
     get coneAxis(): Vec3;
     set coneAxis(value: Vec3Like);
     /**
      * Spatial only: how much the pitch shifts with the speed the source and the listener approach or separate at (the AudioListener's speedOfSound). 0 (default) = off, 1 = the real shift, more exaggerates (it is the exponent of the real pitch ratio). The pitch factor is limited to 0.25..4 and glides over about 0.05 s. Velocities come from the change of each one's world position between frames (not from RigidBody), so scripted and animated movement shifts too; the first frame and a teleport give velocity 0.
-     * @since unreleased
+     * @since 0.30.0
      */
     dopplerLevel: number;
     /**
      * Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. Each source is asked every 0.1 s, but at most 8 rays per frame go out in the whole game: with more sources than that the ones not asked yet come first, then the one asked longest ago, so none is left out for good. The change is smoothed over 0.1 s and the mixer ramps the volume and the low-pass to it (no click).
-     * @since unreleased
+     * @since 0.30.0
      */
     occlusion: boolean;
     /**
      * Spatial only: the physics layers (bitmask, -1 = all) whose colliders block the sound when `occlusion` is on. The source's own colliders, the listener's and triggers are ignored.
-     * @since unreleased
+     * @since 0.30.0
      */
     occlusionMask: number;
     /**
      * Spatial only: volume multiplier while the path is blocked, 0 to 1 (default 0.4).
-     * @since unreleased
+     * @since 0.30.0
      */
     occlusionGain: number;
     /**
      * Spatial only: low-pass cutoff in Hz while the path is blocked (default 1500; 20000 = no filtering): a wall makes a sound dull. The voice gets its own 12 dB/octave low-pass.
-     * @since unreleased
+     * @since 0.30.0
      */
     occlusionLowpass: number;
     /**
@@ -8328,17 +8328,17 @@ declare module "factoria" {
     zoom: number;
     /**
      * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and a stereo output (a mono device and a surround one, 5.1 and more, keep pan). A change between pan and hrtf crossfades over 4 ms. See docs/sound/SOUND_SPATIAL.md, Headphones.
-     * @since unreleased
+     * @since 0.30.0
      */
     spatialization: "pan" | "hrtf";
     /**
      * hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; scale it with the world in a game that does not use meters). It sets the time difference between the ears (Woodworth: about 0.66 ms at 90 degrees for the default). A head smaller than 0.03 m or larger than 0.12 m at speedOfSound 343 (the ratio headRadius / speedOfSound is what counts) is clamped, with a warning that says how to fix it.
-     * @since unreleased
+     * @since 0.30.0
      */
     headRadius: number;
     /**
      * Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives. With hrtf it is also the speed the head model divides headRadius by to get the time between the ears.
-     * @since unreleased
+     * @since 0.30.0
      */
     speedOfSound: number;
   }
@@ -8405,7 +8405,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -8551,7 +8551,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -8740,7 +8740,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -8910,7 +8910,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -9291,7 +9291,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -9374,7 +9374,7 @@ declare module "factoria" {
     maxLength: number;
     /**
      * Draws every character (and the composition) as '*'; Copy and Cut do nothing, the platform's input method is off, and the whole text is one word (word keys go to its ends, a double click selects all). `text` still holds what was typed and scripts can read it, and the composition.
-     * @since unreleased
+     * @since 0.30.0
      */
     password: boolean;
     /**
@@ -9384,37 +9384,37 @@ declare module "factoria" {
     readonly caret: boolean;
     /**
      * Where the caret is, in code points from the start of `text` (0 = before the first character). It follows the player's edits and clicks, and a script may write it to move the caret. Clamped to 0..length of `text` every frame. A script that changes `text` without touching the caret, selection or caretIndex puts the caret at the end.
-     * @since unreleased
+     * @since 0.30.0
      */
     caretIndex: number;
     /**
      * Start of the selected text, in code points. selectionStart == selectionEnd means nothing is selected. Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd, the caret). A script selects a range by writing both (caretIndex follows selectionEnd when it is not written). Clamped to 0..length of `text` every frame.
-     * @since unreleased
+     * @since 0.30.0
      */
     selectionStart: number;
     /**
      * End of the selected text, in code points (see selectionStart). Clamped to 0..length of `text` every frame.
-     * @since unreleased
+     * @since 0.30.0
      */
     selectionEnd: number;
     /**
      * Runtime: the text an input method (IME) is composing in this field, UTF-8, "" when none. It is not part of `text` until the player commits it. Only the focused field has one. Read-only.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly composition: string;
     /**
      * Runtime: the input method's caret inside `composition`, in code points (0 = at its start). Read-only.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly compositionCaret: number;
     /**
      * Runtime: how many code points from compositionCaret the input method is converting (the clause drawn highlighted); 0 = none. Read-only.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly compositionSelection: number;
     /**
      * Runtime: how many UI units the text is scrolled to the left so that the caret stays visible in a field narrower than its text. Read-only.
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly scrollX: number;
   }
@@ -9481,7 +9481,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -9580,7 +9580,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -9679,7 +9679,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -9823,7 +9823,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -9877,7 +9877,7 @@ declare module "factoria" {
     readonly lines: any;
   }
   /**
-   * A video on the screen (docs/MENUS.md, "Studio intro"): plays an .mpg file (MPEG-1 video with MP2 sound, the same decoder on every platform) in this entity's rectangle, the way an image fills a widget. Convert any other video with `factoria call assets.import '{"source":"intro.mp4"}'` (needs ffmpeg: `factoria setup ffmpeg`). The sound plays on the mixer bus `bus` at `volume`. Time follows the game clock: the video pauses with the game (time.scale 0) and a headless run shows the same pictures at the same times as a windowed one. Control it from a script with `entity.video.play()`, `pause()`, `stop()`, `seek(seconds)` and read `time`, `duration`, `playing`; when it reaches its end the game event `video.ended` ({id, path}) fires once (`entity.video.on("ended", fn)`). The picture is decoded on the CPU: keep videos at most about 1280 x 720. Defaults: 640 x 360, a black background (shown as bars where the picture does not fill the rectangle), starts playing at once.
+   * A video on the screen (docs/menus/MENUS_RECIPES.md, "A studio intro"): plays an .mpg file (MPEG-1 video with MP2 sound, the same decoder on every platform) in this entity's rectangle, the way an image fills a widget. Convert any other video with `factoria call assets.import '{"source":"intro.mp4"}'` (needs ffmpeg: `factoria setup ffmpeg`). The sound plays on the mixer bus `bus` at `volume`. Time follows the game clock: the video pauses with the game (time.scale 0) and a headless run shows the same pictures at the same times as a windowed one. Control it from a script with `entity.video.play()`, `pause()`, `stop()`, `seek(seconds)` and read `time`, `duration`, `playing`; when it reaches its end the game event `video.ended` ({id, path}) fires once (`entity.video.on("ended", fn)`). The picture is decoded on the CPU: keep videos at most about 1280 x 720. Defaults: 640 x 360, a black background (shown as bars where the picture does not fill the rectangle), starts playing at once.
    * 
    * Category: UI
    * @since 0.3.0
@@ -9939,7 +9939,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -10111,7 +10111,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -10205,7 +10205,7 @@ declare module "factoria" {
      */
     draggable: any;
     /**
-     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right to left").
+     * true (default): in a right-to-left language the widget is mirrored when `ui.mirrorRtl` is on (it is, by default, when i18n.direction is rtl): its anchor.x, pivot.x and position.x flip, so it sits where its mirror image about the middle of the screen would, with the same size; a Toggle's box is at the right of its label, a Slider fills from its right end, a Button's icon changes side, and a Panel with direction auto runs its rows right to left. Text, Sprite and Shape2D below the widget are mirrored with it. false: the widget (and everything below it) stays where it is written, for what is not text-like: a map, a joystick, a clock face. A CameraView changes side with the layout but its picture is never mirrored. Does nothing in a left-to-right language or with ui.mirrorRtl off (docs/LOCALIZATION.md, "Right-to-left text").
      * @since 0.3.0
      */
     mirror: boolean;
@@ -10820,114 +10820,114 @@ declare module "factoria:test" {
 
   /**
    * One connection the game made, seen from the scripted server side (game.websocket.connections()).
-   * @since unreleased
+   * @since 0.30.0
    */
   export interface TestWebSocketConnection {
     /**
      * The number to pass to the other game.websocket calls: connections count in the order websocket.connect started them, reconnects included.
-     * @since unreleased
+     * @since 0.30.0
      */
     index: number;
     /**
      * The address the game asked for.
-     * @since unreleased
+     * @since 0.30.0
      */
     url: string;
     /**
      * The subprotocols the game offered.
-     * @since unreleased
+     * @since 0.30.0
      */
     protocols: string[];
     /**
      * The handshake headers the game set.
-     * @since unreleased
+     * @since 0.30.0
      */
     headers: Record<string, string>;
     /**
      * Accepted and not closed.
-     * @since unreleased
+     * @since 0.30.0
      */
     open: boolean;
     /**
      * Over, whoever closed it. A connection the game never closed but that its scene dropped counts as closed by the game with code 1001.
-     * @since unreleased
+     * @since 0.30.0
      */
     closed: boolean;
     /**
      * The game closed it (close(), or its scene ended).
-     * @since unreleased
+     * @since 0.30.0
      */
     closedByGame: boolean;
     /**
      * The code of the game's close, 0 when it did not close.
-     * @since unreleased
+     * @since 0.30.0
      */
     closeCode: number;
     /**
      * The reason of the game's close.
-     * @since unreleased
+     * @since 0.30.0
      */
     closeReason: string;
     /**
      * What the game sent, oldest first: a string for a text message, an ArrayBuffer for a binary one.
-     * @since unreleased
+     * @since 0.30.0
      */
     received: (string | ArrayBuffer)[];
   }
 
   /**
    * The server side of the game's WebSocket connections in tests (docs/NETWORKING.md, "Testing"): every websocket.connect meets a scripted in-memory server, nothing touches the network. The events of an action reach the game at the next game.step(). Connection numbers are the `index` of game.websocket.connections(); an unknown number throws.
-   * @since unreleased
+   * @since 0.30.0
    */
   export interface TestWebSocket {
     /**
      * Every connection made since the last reset(), in order, closed ones included, with what the game sent.
-     * @since unreleased
+     * @since 0.30.0
      */
     connections(): TestWebSocketConnection[];
     /**
      * Completes the handshake: the game's "open" event. Needed only after autoAccept(false). protocol is the subprotocol the server picks: one the game offered, else it throws.
-     * @since unreleased
+     * @since 0.30.0
      */
     accept(i: number, protocol?: string): void;
     /**
      * The handshake fails: the game gets an "error" event (with httpStatus, e.g. 403) and then "close" with code 1006.
-     * @since unreleased
+     * @since 0.30.0
      */
     refuse(i: number, message?: string, httpStatus?: number): void;
     /**
      * The server sends a message to the game: text for a string, binary for an ArrayBuffer or typed array.
-     * @since unreleased
+     * @since 0.30.0
      */
     send(i: number, data: string | ArrayBuffer | ArrayBufferView): void;
     /**
      * The server closes cleanly (code 1000 by default): the game gets "close" with that code, reason and wasClean true.
-     * @since unreleased
+     * @since 0.30.0
      */
     close(i: number, code?: number, reason?: string): void;
     /**
      * The connection breaks with no closing handshake: "error" then "close" with code 1006.
-     * @since unreleased
+     * @since 0.30.0
      */
     drop(i: number, message?: string): void;
     /**
      * false: new connections wait for accept(i) or refuse(i) (default true: they open at the next step).
-     * @since unreleased
+     * @since 0.30.0
      */
     autoAccept(on?: boolean): void;
     /**
      * The next `count` connection attempts (default 1) fail like an unreachable server: "error" then "close" 1006. What a reconnect test needs.
-     * @since unreleased
+     * @since 0.30.0
      */
     refuseNext(count?: number, message?: string): void;
     /**
      * false: the server does not answer the game's close() until close(i) is called, so the game stays "closing". Default true.
-     * @since unreleased
+     * @since 0.30.0
      */
     autoCloseReply(i: number, on?: boolean): void;
     /**
      * Closes the game's connections without events, forgets every connection of the server and restores autoAccept and refuseNext. Every test file starts this way; call it at the start of a test that counts connections.
-     * @since unreleased
+     * @since 0.30.0
      */
     reset(): void;
   }
@@ -11120,12 +11120,12 @@ declare module "factoria:test" {
     setStorageText(text: string | null): void;
     /**
      * The requests input.rumble() and input.stopRumble() made since the test started, oldest first (cleared before each test, at most 256): pad, the strengths low and high already clamped to 0..1, and seconds (0 for a stop). They are recorded for any pad, connected or not; what a pad does is rumbleState(pad).
-     * @since unreleased
+     * @since 0.30.0
      */
     rumbles(): { pad: number; low: number; high: number; seconds: number }[];
     /**
      * What the motors of pad (default 0) do now: the strengths and the seconds left (game.step runs it down with the frames' own duration, not scaled by time.scale). All 0 for a pad that is not connected and once the rumble ended by itself, was stopped, or was cut by the game pausing, a scene change or the window losing focus.
-     * @since unreleased
+     * @since 0.30.0
      */
     rumbleState(pad?: number): { low: number; high: number; seconds: number };
     /**
@@ -11266,7 +11266,7 @@ declare module "factoria:test" {
     readonly remoteConfig: TestRemoteConfig;
     /**
      * The scripted server of the game's WebSocket connections: game.websocket.connections(), accept(i), send(i, data), close(i), drop(i), refuseNext(n), reset().
-     * @since unreleased
+     * @since 0.30.0
      */
     readonly websocket: TestWebSocket;
   }

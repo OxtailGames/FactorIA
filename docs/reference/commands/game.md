@@ -87,7 +87,7 @@ Example: game.resume {}
 
 ## `game.rumble` (modifies state)
 
-Not released yet (on main after 0.29.1).
+Since 0.30.0.
 
 Rumble a gamepad (the heavy and the light motor, 0..1, for some seconds), stop it, or just read what every pad does and whether it can rumble.
 

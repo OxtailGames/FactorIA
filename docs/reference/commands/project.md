@@ -206,7 +206,7 @@ Creates `dir` (relative to the server's working directory unless absolute) with 
 
 ## `project.create_storage_secret` (modifies state)
 
-Not released yet (on main after 0.29.1).
+Since 0.30.0.
 
 Create the random secret that makes storage.set(..., {encrypt: true}) work, in factoria.json.
 
@@ -220,7 +220,7 @@ Writes "storage": {"encryptionSecret": <64 random hex characters>} into factoria
 
 ## `project.examples` (modifies state)
 
-Not released yet (on main after 0.29.1).
+Since 0.30.0.
 
 List the example games of the installed FactorIA version: what each shows and the docs to read first.
 
@@ -304,7 +304,7 @@ With `dryRun` true nothing is written: the result lists the `files` and the `key
 
 ## `project.package_examples` (modifies state)
 
-Not released yet (on main after 0.29.1).
+Since 0.30.0.
 
 Zip every example game of examples/ and write examples-manifest.json, the files a release publishes.
 

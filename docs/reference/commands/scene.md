@@ -49,7 +49,7 @@ With `id`: that load (from scene.preload, assets.preload, scene.load {async:true
 
 ## `prefab.apply` (modifies state)
 
-Not released yet (on main after 0.29.1).
+Since 0.30.0.
 
 Write an instance's values into its prefab file: one field, one component, or everything; the other instances follow.
 
@@ -67,7 +67,7 @@ Returns {id, root, prefab, applied: [the entries prefab.overrides lists], files:
 
 ## `prefab.overrides`
 
-Not released yet (on main after 0.29.1).
+Since 0.30.0.
 
 List what a prefab instance of the open scene overrides: what differs from its prefab.
 
@@ -83,7 +83,7 @@ Capabilities: read
 
 ## `prefab.revert` (modifies state)
 
-Not released yet (on main after 0.29.1).
+Since 0.30.0.
 
 Put the prefab's values back into an instance: one field, one component, or everything.
 
@@ -136,7 +136,7 @@ The edited `rows` are written back to `file` (one row per line, every other key 
 
 ## `scene.copy_entities`
 
-Not released yet (on main after 0.29.1).
+Since 0.30.0.
 
 Write entities of the running world, with their subtrees, as one JSON text.
 
@@ -249,7 +249,7 @@ Loads immediately (outside a frame) or at the end of the current frame. Like sce
 
 ## `scene.paste_entities` (modifies state)
 
-Not released yet (on main after 0.29.1).
+Since 0.30.0.
 
 Create the entities of a scene.copy_entities text in the running world.
 
