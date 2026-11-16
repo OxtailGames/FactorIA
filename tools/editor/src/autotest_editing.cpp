@@ -1971,6 +1971,26 @@ void Editor::at_section_M4(AtScript& at) {
             undo();
             at_check(pos_of("player").x == m->player.x && pos_of("coin_3").x == m->coin3.x, "Undo restores both");
         });
+        // Leaving the box with Tab after typing the primary's own value commits it too.
+        step(2, [this, m, pos_of] {
+            at_check(pos_of("player").x != pos_of("coin_3").x, "the two entities differ in x once more");
+            m->undo = undo_depth();
+        });
+        click("insp:Transform.position.0");
+        step(3, [this, pos_of] {
+            char text[32];
+            std::snprintf(text, sizeof text, "%g", pos_of("coin_3").x);
+            for (const char* c = text; *c; ++c) inject_char(unsigned(static_cast<unsigned char>(*c)));
+        });
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_TAB); });
+        step(4, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_TAB); });
+        step(4, [this, m, pos_of] {
+            at_check(pos_of("player").x == pos_of("coin_3").x,
+                     "leaving the box with Tab after typing the primary's own value writes it to every entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            undo();
+            at_check(pos_of("player").x == m->player.x && pos_of("coin_3").x == m->coin3.x, "Undo restores both");
+        });
 
         // 5. Add Component with several selected: added to each entity that lacks it, one undo step.
         step(2, [this, m] { m->undo = undo_depth(); });
@@ -2396,6 +2416,12 @@ void Editor::at_section_P4(AtScript& at) {
                      "Apply writes the instance's layer");
             at_check(layer_of("panel_2") == 1,
                      "...and the other instance keeps its own layer (after the Undo above it overrides the file's 7)");
+            at_check(inspApplyDepth_ >= 0, "the Inspector watches the undo depth after the Apply");
+            undo_.clear();  // a scene load or the cap does this: the depth no longer names the step of the Apply
+        });
+        step(3, [this] {
+            at_check(inspApplyDepth_ == -1,
+                     "a cleared undo stack stops the watch, so no false \"Undo put the scene back\"");
         });
 
         // 5. A component the instance lost is named in the header and counted; Revert gives it back.

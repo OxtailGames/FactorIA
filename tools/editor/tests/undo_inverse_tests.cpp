@@ -27,6 +27,7 @@ const char* kProject = R"({
   "physics": { "fixedHz": 60, "pixelsPerMeter": 100 }
 })";
 
+// hero and target carry RigidBody2D because Joint2D needs a body on its entity.
 const char* kScene = R"({
   "format": "factoria.scene/1",
   "entities": [
@@ -707,7 +708,7 @@ TEST_CASE("undo inverse: restoring several roots under one parent adds a set_par
     const UndoPlan plan = s.edit_round_trip("scene.paste_entities",
                                             Json::object({{"text", copied.result["text"]}, {"parent", "holder"}}));
     for (const UndoCommand& c : plan.forward) CHECK(c.cmd != "scene.set_parent");
-    // pair_b has two children after it now (pair_d and the pasted ones): one set_parent puts it back, and the trip is exact
+    // The round trip undid the paste, so only pair_d is after pair_b: one set_parent puts it back, and the trip is exact
     const UndoPlan mid = s.edit_round_trip("scene.destroy", Json::object({{"id", "pair_b"}}));
     int reorders = 0;
     for (const UndoCommand& c : mid.inverse) reorders += c.cmd == "scene.set_parent";
