@@ -23,6 +23,11 @@
 #include "ime_web.h"
 #endif
 #include "mobile_impl.h"
+#if defined(__ANDROID__)
+#include <android/native_activity.h>
+
+#include "activity_end.h"
+#endif
 #include "sokol_window.h"
 #include "sokol_gfx.h"
 #include "sokol_glue.h"
@@ -53,6 +58,7 @@ struct AppState {
     int framesToInsets = 0;
     bool quitFromApp = false;  // app_request_quit() was called and its QuitRequested event has not arrived yet
     bool inQuitEvent = false;  // a QuitRequested event is being handled: app_cancel_quit() may act
+    bool finishing = false;    // Android: app_request_quit() asked the system to finish the activity
 };
 AppState g;
 
@@ -203,6 +209,9 @@ void on_init() {
     // The browser decides when a paste happens: a TextField pastes on the paste event, not on the V key.
     if (g.desc.input) g.desc.input->set_paste_from_events(true);
     fa_web_install_lifecycle();
+#endif
+#if defined(__ANDROID__)
+    android_end_attach();  // from here on a destroyed activity runs the game's end on this thread (activity_end_android.cpp)
 #endif
     if (g.desc.init) g.desc.init();
 }
@@ -441,8 +450,17 @@ int app_framebuffer_width() { return sapp_isvalid() ? sapp_width() : g.fbW; }
 int app_framebuffer_height() { return sapp_isvalid() ? sapp_height() : g.fbH; }
 float app_dpi_scale() { return sapp_isvalid() ? sapp_dpi_scale() : 1.0f; }
 void app_request_quit() {
+#if defined(__ANDROID__)
+    // sokol_app never reads a quit request on Android: finish the activity instead (once; the call only posts to Android's
+    // main thread). The system destroys it, and the onDestroy wrapper of sokol_impl.c sends AppEvent::Type::Ending.
+    if (g.finishing) return;
+    g.finishing = true;
+    if (const void* activity = sapp_android_get_native_activity())
+        ANativeActivity_finish(static_cast<ANativeActivity*>(const_cast<void*>(activity)));
+#else
     g.quitFromApp = true;
     sapp_request_quit();
+#endif
 }
 void app_cancel_quit() {
     if (g.inQuitEvent) sapp_cancel_quit();
@@ -572,6 +590,12 @@ bool app_set_vsync(bool on) {
     g.vsync = on;
     return true;
 }
+
+#if defined(__ANDROID__)
+void app_android_end() {
+    if (g.active) emit(AppEvent::Type::Ending);
+}
+#endif
 
 bool app_is_mobile() {
 #if defined(__ANDROID__)

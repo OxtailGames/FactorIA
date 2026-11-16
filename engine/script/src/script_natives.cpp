@@ -4285,6 +4285,7 @@ NATIVE(debugDraw) {  // (kind, ...)
 // ---- game / storage / commands ------------------------------------------------------------------------------------
 NATIVE(quit) {
     SETUP;
+    I->quitByGame = true;  // the app's end on Android (ScriptSystem::app_ending) then raises no "quit"
     I->request_quit();
     return JS_UNDEFINED;
 }

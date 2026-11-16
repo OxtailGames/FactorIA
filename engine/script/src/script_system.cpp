@@ -1896,6 +1896,23 @@ bool ScriptSystem::close_requested() {
     return true;
 }
 
+void ScriptSystem::app_ending() {
+    Impl& I = *impl_;
+    if (!I.initialized || I.appEnded) return;
+    I.appEnded = true;
+    if (!I.quitByGame) {  // game.quit() raises no "quit", on the desktop either
+        I.quitCancelled = false;
+        I.host->world().events().game.push_back(GameEvent{"app.quit", Json::object(), kNullEntity});
+        dispatch_events();
+        I.quitCancelled = false;  // too late: the system ends the app whatever the handlers say
+    }
+    // The analytics request for the events that wait starts now; nothing waits for it (the process ends within the system's
+    // budget, so it may not reach the server).
+    I.service_call("serviceQuit", {});
+    I.run_jobs();  // the promise jobs the handlers left (an awaited storage.setAsync, a .then) run before the drain
+    I.storage_drain();  // every storage.setAsync write is on disk before the process ends
+}
+
 void ScriptSystem::reset_app_state() {
     Impl& I = *impl_;
     I.appFocused = true;
