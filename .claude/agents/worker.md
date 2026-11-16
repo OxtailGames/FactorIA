@@ -21,6 +21,8 @@ INCOMPLETE` (a Mac whose displays are asleep) means nothing failed, but what the
 name it in your report as not run, never as passed, and do not spend turns trying to run it. On a Mac
 never run Docker or `scripts/ci-local.sh` (x86-64 emulation turns minutes into hours): if you need another backend's
 numbers (llvmpipe, D3D11/WARP), say so in the report and the orchestrator measures them on the Windows PC.
+The user's Android emulators (AVDs) and devices hold the user's own apps and settings: never start one with
+`-wipe-data`, never wipe, reset or delete one; if you need a clean emulator, create your own AVD named `fa-agent-*`.
 
 Every turn of yours sends your whole context again, so a package costs its number of turns:
 - Put independent tool calls in ONE message: the three files to read, the grep for a symbol and the grep for its
