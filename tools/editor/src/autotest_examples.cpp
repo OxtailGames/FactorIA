@@ -221,8 +221,10 @@ void Editor::at_section_X2(AtScript& at) {
         w->hold = 2;
     });
     click("examples:create");
-    wait_for([this] { return examples_.creating() && !examples_.progress_line().empty(); },
-             "the create's first progress line");
+    // The create reads the list again first ("Downloading the list..."), then the zip, which the hold stops: wait for that
+    // stage, not the first line (a slow runner still shows the list's line one frame later).
+    wait_for([this, has] { return examples_.creating() && has(examples_.progress_line(), "alpha"); },
+             "the create's progress line of the zip");
     step(3, [this, has] {
         at_check(has(examples_.progress_line(), "alpha"),
                  "the create shows what it is doing (" + examples_.progress_line() + ")");
