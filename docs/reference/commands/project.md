@@ -291,6 +291,23 @@ With `dryRun` true nothing is written: the result lists the `files` and the `key
 | `optional` | boolean | no | Written as "optional" in factoria.json: true = the game runs without the plugin (a missing build is a validate warning, not an error). Pass false when the game cannot work without it. Default true. |
 | `dryRun` | boolean | no | true = write nothing: list the files and the factoria.json keys it would write. Default false. |
 
+## `project.package_examples` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+Zip every example game of examples/ and write examples-manifest.json, the files a release publishes.
+
+Capabilities: read, writeAnywhere
+
+For the engine's release (docs/design/BUILDING.md, "Example games in the release"). Reads `examples`/examples.json (the title, what each example shows and the docs to read first), checks that every project folder has an entry and every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/, other hidden folders, node_modules/ and build/: the same files give the same bytes) and examples-manifest.json beside them (format, engineVersion, and per example name, title, shows, readFirst, file, size and sha256). Replaces files of the same names in `out`. Returns the manifest. Run it from a checkout of the repository: a download has no examples/. Example: {"examples":"examples","out":"dist/examples"}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `examples` | string | no | The folder that holds the example projects and examples.json (default: examples, relative to the current directory). Default "examples". |
+| `out` | string | yes | The folder the zips and examples-manifest.json are written to (created). |
+| `only` | array | no | Pack only these examples (default: all). |
+| `version` | string | no | The engine version written to the manifest (default: this factoria's version). |
+
 ## `project.serve_web` (modifies state)
 
 Since 0.18.0.
