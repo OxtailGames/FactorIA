@@ -241,7 +241,7 @@ ws.send(JSON.stringify({ type: "join", name: "Ann" }));  // false until the conn
 
 ### Which platforms can connect now
 
-**This build has no WebSocket client for a real network yet.** The shared part is done and tested (the address checks, the
+**Not every platform has its WebSocket client for a real network yet.** The shared part is done and tested (the address checks, the
 script API, reconnects, the protocol code, the test server); the clients that the platforms use arrive in this milestone,
 one per platform, and this table says what works today:
 
@@ -251,7 +251,7 @@ one per platform, and this table says what works today:
 | Windows | WinHTTP's WebSocket API | not yet (M98.2b) |
 | macOS, iOS | `NSURLSessionWebSocketTask` | not yet (M98.2b) |
 | Linux | libcurl's WebSocket support, loaded when first needed (like `http.fetch`) | not yet (M98.2c); without `libcurl.so.4` it stays unavailable |
-| Android | a socket stream with the engine's own WebSocket protocol code, through JNI | not yet (M98.2c) |
+| Android | the engine's own WebSocket protocol code over a socket: `wss://` through Java's `SSLSocket` (JNI; the system's certificates, and the certificate must name the host), `ws://` (localhost only) over a plain socket | yes; built by CI, not yet run on a device. It needs the `INTERNET` permission, which the export adds when `network.hosts` is declared; without it the connection fails with an error that says so. Destroying an open `wss://` connection (a scene change) closes the socket without a close frame, so the server sees 1006 |
 | Web | the browser's `WebSocket` | not yet (M98.2d) |
 
 Where there is no client, `websocket.supported` is `false` and `websocket.unsupportedReason` says why
@@ -350,7 +350,7 @@ test("the lobby shows the players the server lists", () => {
 | `reset()` | Closes the game's connections without events and forgets the server's side. Call it at the start of a test that counts connections. |
 
 The tests of the engine itself also run the protocol code against a real server on `127.0.0.1` (`engine/platform/tests/`);
-that plain `ws://` client over a POSIX socket is a tool for those tests, not what a player uses.
+that plain `ws://` client over a POSIX socket is a tool for those tests, and what Android opens its `ws://` addresses with.
 
 ## Troubleshooting
 
