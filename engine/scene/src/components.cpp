@@ -2541,16 +2541,18 @@ void register_builtin_components(TypeRegistry& r) {
                "the rolloff). "
                "The AudioListener's zoom multiplies it.")
         .range(0, 1000000)
-        .enum_field("rolloff", &AudioSource::rolloff, {"linear", "inverse", "exponential"},
-                    "Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = "
-                    "rolloffFactor, "
-                    "d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the "
-                    "defaults it is "
-                    "1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web "
-                    "Audio and OpenAL). "
-                    "exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at "
-                    "`range`, so set "
-                    "`range` where they are already quiet. Same curves as audio.play({position, range, rolloff}).")
+        .enum_field(
+            "rolloff", &AudioSource::rolloff, {"linear", "inverse", "exponential", "curve"},
+            "Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = "
+            "rolloffFactor, "
+            "d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the "
+            "defaults it is "
+            "1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web "
+            "Audio and OpenAL). "
+            "exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at "
+            "`range`, so set "
+            "`range` where they are already quiet. curve: the gain is `rolloffCurve` evaluated at d / range (0 = at "
+            "the listener, 1 = at `range`). Same curves as audio.play({position, range, rolloff}).")
         .field("refDistance", &AudioSource::refDistance,
                "Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 "
                "(default) = linear "
@@ -2564,6 +2566,52 @@ void register_builtin_components(TypeRegistry& r) {
                "less leaves some volume there (cut at range anyway); for inverse and exponential higher = quieter far "
                "away.")
         .range(0, 100)
+        .field("rolloffCurve", &AudioSource::rolloffCurve,
+               "Spatial only, used when rolloff is \"curve\": the volume over the distance, as a curve of [position, "
+               "gain] keys where position is the distance divided by `range` (0 = at the listener, 1 = at `range`, "
+               "where the sound is cut anyway) and gain is 0 to 1: [[0, 1], [0.3, 0.8], [1, 0]]. Same form as "
+               "ParticleEmitter.sizeCurve: {\"keys\": [...], \"interp\": \"smooth\"} eases between keys, at most 16 "
+               "keys. [] (default) or a form that does not parse (the log says why) = the linear curve. refDistance "
+               "and rolloffFactor do not apply to it.")
+        .field("coneInnerAngle", &AudioSource::coneInnerAngle,
+               "Spatial only: full angle in degrees of the cone around `coneAxis` where the sound is at full volume. "
+               "360 (default) = no cone, the sound is the same in every direction. The cone points where the entity "
+               "faces (its rotation turns coneAxis), in 2D and 3D.")
+        .range(0, 360)
+        .field("coneOuterAngle", &AudioSource::coneOuterAngle,
+               "Spatial only: full angle in degrees of the outer cone: outside it the volume is multiplied by "
+               "`coneOuterGain`; between the inner and the outer cone it blends linearly in the angle. 360 (default) "
+               "with an inner angle below 360 blends all the way to straight behind. A value below coneInnerAngle is "
+               "taken as coneInnerAngle.")
+        .range(0, 360)
+        .field("coneOuterGain", &AudioSource::coneOuterGain,
+               "Spatial only: volume multiplier outside the outer cone, 0 (silent, default) to 1 (no effect).")
+        .range(0, 1)
+        .field("coneAxis", &AudioSource::coneAxis,
+               "Spatial only: the direction the cone points in the entity's local space. Default (0, 0, -1) is forward "
+               "in 3D (as lights and cameras); in a 2D game, where sprites face +X, use (1, 0, 0). A zero vector "
+               "turns the cone off.")
+        .field("dopplerLevel", &AudioSource::dopplerLevel,
+               "Spatial only: how much the pitch shifts with the speed the source and the listener approach or "
+               "separate at (the AudioListener's speedOfSound). 0 (default) = off, 1 = the real shift, more "
+               "exaggerates. Velocities come from the change of each one's world position between frames (not from "
+               "RigidBody), so scripted and animated movement shifts too. NOT YET: the doppler shift lands in M98.8b; "
+               "until then this field has no effect.")
+        .range(0, 10)
+        .field("occlusion", &AudioSource::occlusion,
+               "Spatial only: true = a physics ray from the listener to the source that hits a collider of "
+               "`occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. NOT YET: the rays "
+               "land in M98.8b; until then this field has no effect.")
+        .field("occlusionMask", &AudioSource::occlusionMask,
+               "Spatial only: the physics layers (bitmask, -1 = all) whose colliders block the sound when `occlusion` "
+               "is on. The source's own colliders are ignored. NOT YET (M98.8b).")
+        .field("occlusionGain", &AudioSource::occlusionGain,
+               "Spatial only: volume multiplier while the path is blocked, 0 to 1 (default 0.4). NOT YET (M98.8b).")
+        .range(0, 1)
+        .field("occlusionLowpass", &AudioSource::occlusionLowpass,
+               "Spatial only: low-pass cutoff in Hz while the path is blocked (default 1500; 20000 = no filtering): "
+               "a wall makes a sound dull. NOT YET (M98.8b).")
+        .range(20, 20000)
         .field(
             "priority", &AudioSource::priority,
             "Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the "
@@ -2671,7 +2719,22 @@ void register_builtin_components(TypeRegistry& r) {
                "A game with a zoomable 2D camera sets it from the camera's orthoSize each frame. When the camera is "
                "the listener "
                "(no AudioListener component) the zoom is 1.")
-        .range(0.01f, 100);
+        .range(0.01f, 100)
+        .enum_field("spatialization", &AudioListener::spatialization, {"pan", "hrtf"},
+                    "How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for "
+                    "speakers. hrtf: a head model for headphones (time and level differences between the ears and "
+                    "the shadow of the head, with no recorded data). NOT YET: hrtf lands in M98.8c; until then it "
+                    "sounds as pan.")
+        .field("headRadius", &AudioListener::headRadius,
+               "hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; "
+               "scale it with the world in a game that does not use meters). It sets the time difference between "
+               "the ears. NOT YET (M98.8c).")
+        .range(0.001f, 100000)
+        .field("speedOfSound", &AudioListener::speedOfSound,
+               "Doppler only: the world units per second a sound travels at (default 343, meters per second in air). "
+               "A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source "
+               "is its dopplerLevel times the change of pitch this speed gives. NOT YET (M98.8b).")
+        .range(1, 10000000);
 
     // --------------------------------------------------------------- UI ---
     {

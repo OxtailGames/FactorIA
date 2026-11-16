@@ -1001,10 +1001,10 @@ declare module "factoria" {
      */
     position?: number[] | { x: number, y: number, z?: number };
     /**
-     * With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: "linear" (default) 1 - k*(d-r)/(range-r); "inverse" r/(r + k*(d-r)); "exponential" (d/r)^-k (d is at least r). The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value.
+     * With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: "linear" (default) 1 - k*(d-r)/(range-r); "inverse" r/(r + k*(d-r)); "exponential" (d/r)^-k (d is at least r); "curve" is the gain of `rolloffCurve` at d / range. The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value.
      * @since 0.23.0
      */
-    rolloff?: "linear" | "inverse" | "exponential";
+    rolloff?: "linear" | "inverse" | "exponential" | "curve";
     /**
      * With `position`: distance in world units up to which the sound is at full volume (default 0: linear starts at 0, inverse and exponential use range / 20; the listener's zoom stretches it). Throws without a position.
      * @since 0.23.0
@@ -1015,6 +1015,61 @@ declare module "factoria" {
      * @since 0.23.0
      */
     rolloffFactor?: number;
+    /**
+     * With `position` and rolloff: "curve" (required with it, and only then): the volume over the distance, [position, gain] keys where position is d / range (0 = at the listener, 1 = at `range`) and gain 0 to 1, e.g. [[0, 1], [0.3, 0.8], [1, 0]]; same form as ParticleEmitter.sizeCurve, at most 16 keys. Throws for a curve that does not parse.
+     * @since unreleased
+     */
+    rolloffCurve?: number[][] | { keys: number[][], interp?: "linear" | "smooth" | "step" };
+    /**
+     * With `position`: the world direction the sound points in, for the cone (coneInnerAngle ...). Omitted or [0, 0, 0] = the same in every direction. The cone is worked out once, when the sound starts.
+     * @since unreleased
+     */
+    direction?: number[] | { x: number, y: number, z?: number };
+    /**
+     * With `position` and `direction`: full angle in degrees of the cone where the sound is at full volume, 0 to 360 (default 360 = no cone).
+     * @since unreleased
+     */
+    coneInnerAngle?: number;
+    /**
+     * With `position` and `direction`: full angle in degrees of the outer cone, 0 to 360 (default 360); outside it the volume is multiplied by coneOuterGain, between the cones it blends linearly in the angle.
+     * @since unreleased
+     */
+    coneOuterAngle?: number;
+    /**
+     * With `position` and `direction`: volume multiplier outside the outer cone, 0 to 1 (default 0).
+     * @since unreleased
+     */
+    coneOuterGain?: number;
+    /**
+     * With `position`: the velocity of the source in world units per second, for doppler. NOT YET: doppler lands in M98.8b; until then this has no effect.
+     * @since unreleased
+     */
+    velocity?: number[] | { x: number, y: number, z?: number };
+    /**
+     * With `position`: how much the pitch shifts with the speed of the source and the listener, 0 (default, off) to 10. NOT YET: lands in M98.8b; no effect until then.
+     * @since unreleased
+     */
+    dopplerLevel?: number;
+    /**
+     * With `position`: true = a physics ray from the listener that hits a collider of `occlusionMask` muffles the sound (default false). NOT YET: lands in M98.8b; no effect until then.
+     * @since unreleased
+     */
+    occlusion?: boolean;
+    /**
+     * With `position`: the physics layers (bitmask, default -1 = all) that block the sound when `occlusion` is on. NOT YET (M98.8b).
+     * @since unreleased
+     */
+    occlusionMask?: number;
+    /**
+     * With `position`: volume multiplier of a blocked path, 0 to 1 (default 0.4). NOT YET (M98.8b).
+     * @since unreleased
+     */
+    occlusionGain?: number;
+    /**
+     * With `position`: low-pass cutoff in Hz of a blocked path, 20 to 20000 (default 1500). NOT YET (M98.8b).
+     * @since unreleased
+     */
+    occlusionLowpass?: number;
     /**
      * With `position`: the distance in world units where the sound reaches 0 (default 800, the same as AudioSource.range; the listener's zoom stretches it). Throws without a position, or for a value that is not above 0.
      * @since 0.23.0
@@ -8046,10 +8101,10 @@ declare module "factoria" {
      */
     range: number;
     /**
-     * Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. Same curves as audio.play({position, range, rolloff}).
+     * Spatial only: how the volume falls with the distance d from the listener (r = refDistance, k = rolloffFactor, d clamped to at least r). linear (default): 1 - k*(d-r)/(range-r), down to 0 at range; with the defaults it is 1 - d/range. inverse: r/(r + k*(d-r)), a loud close sound that fades slowly far away (like Web Audio and OpenAL). exponential: (d/r)^-k. inverse and exponential do not reach 0 by themselves: the sound is cut at `range`, so set `range` where they are already quiet. curve: the gain is `rolloffCurve` evaluated at d / range (0 = at the listener, 1 = at `range`). Same curves as audio.play({position, range, rolloff}).
      * @since 0.23.0
      */
-    rolloff: "linear" | "inverse" | "exponential";
+    rolloff: "linear" | "inverse" | "exponential" | "curve";
     /**
      * Spatial only: the reference distance r in world units: up to it the sound is at full volume. 0 (default) = linear starts at 0 (the classic 1 - d/range), inverse and exponential use range / 20. A value at or above `range` is held just under it (99.9% of range), so linear drops to 0 right before `range`.
      * @since 0.23.0
@@ -8060,6 +8115,57 @@ declare module "factoria" {
      * @since 0.23.0
      */
     rolloffFactor: number;
+    /**
+     * Spatial only, used when rolloff is "curve": the volume over the distance, as a curve of [position, gain] keys where position is the distance divided by `range` (0 = at the listener, 1 = at `range`, where the sound is cut anyway) and gain is 0 to 1: [[0, 1], [0.3, 0.8], [1, 0]]. Same form as ParticleEmitter.sizeCurve: {"keys": [...], "interp": "smooth"} eases between keys, at most 16 keys. [] (default) or a form that does not parse (the log says why) = the linear curve. refDistance and rolloffFactor do not apply to it. Returns a plain-object COPY; assign a new value to write.
+     * @since unreleased
+     */
+    rolloffCurve: any;
+    /**
+     * Spatial only: full angle in degrees of the cone around `coneAxis` where the sound is at full volume. 360 (default) = no cone, the sound is the same in every direction. The cone points where the entity faces (its rotation turns coneAxis), in 2D and 3D.
+     * @since unreleased
+     */
+    coneInnerAngle: number;
+    /**
+     * Spatial only: full angle in degrees of the outer cone: outside it the volume is multiplied by `coneOuterGain`; between the inner and the outer cone it blends linearly in the angle. 360 (default) with an inner angle below 360 blends all the way to straight behind. A value below coneInnerAngle is taken as coneInnerAngle.
+     * @since unreleased
+     */
+    coneOuterAngle: number;
+    /**
+     * Spatial only: volume multiplier outside the outer cone, 0 (silent, default) to 1 (no effect).
+     * @since unreleased
+     */
+    coneOuterGain: number;
+    /**
+     * Spatial only: the direction the cone points in the entity's local space. Default (0, 0, -1) is forward in 3D (as lights and cameras); in a 2D game, where sprites face +X, use (1, 0, 0). A zero vector turns the cone off.
+     * @since unreleased
+     */
+    get coneAxis(): Vec3;
+    set coneAxis(value: Vec3Like);
+    /**
+     * Spatial only: how much the pitch shifts with the speed the source and the listener approach or separate at (the AudioListener's speedOfSound). 0 (default) = off, 1 = the real shift, more exaggerates. Velocities come from the change of each one's world position between frames (not from RigidBody), so scripted and animated movement shifts too. NOT YET: the doppler shift lands in M98.8b; until then this field has no effect.
+     * @since unreleased
+     */
+    dopplerLevel: number;
+    /**
+     * Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. NOT YET: the rays land in M98.8b; until then this field has no effect.
+     * @since unreleased
+     */
+    occlusion: boolean;
+    /**
+     * Spatial only: the physics layers (bitmask, -1 = all) whose colliders block the sound when `occlusion` is on. The source's own colliders are ignored. NOT YET (M98.8b).
+     * @since unreleased
+     */
+    occlusionMask: number;
+    /**
+     * Spatial only: volume multiplier while the path is blocked, 0 to 1 (default 0.4). NOT YET (M98.8b).
+     * @since unreleased
+     */
+    occlusionGain: number;
+    /**
+     * Spatial only: low-pass cutoff in Hz while the path is blocked (default 1500; 20000 = no filtering): a wall makes a sound dull. NOT YET (M98.8b).
+     * @since unreleased
+     */
+    occlusionLowpass: number;
     /**
      * Voice stealing, 0..255 (default 128): when all 64 voices play, a new sound replaces the voice of the lowest priority, the quietest of those, if its own priority is higher, or the same and it is louder; otherwise the new sound does not play (and `playing` goes back to false). Raise it for sounds that must be heard (dialogue, alarms), lower it for ambient detail.
      * @since 0.21.0
@@ -8194,6 +8300,21 @@ declare module "factoria" {
      * @since 0.3.0
      */
     zoom: number;
+    /**
+     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, with no recorded data). NOT YET: hrtf lands in M98.8c; until then it sounds as pan.
+     * @since unreleased
+     */
+    spatialization: "pan" | "hrtf";
+    /**
+     * hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; scale it with the world in a game that does not use meters). It sets the time difference between the ears. NOT YET (M98.8c).
+     * @since unreleased
+     */
+    headRadius: number;
+    /**
+     * Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel times the change of pitch this speed gives. NOT YET (M98.8b).
+     * @since unreleased
+     */
+    speedOfSound: number;
   }
   /**
    * Container widget: a background rectangle (solid or 9-slice) whose children are laid out in a row, a column or a grid. Children are ordinary entities parented to it (Button, Toggle, Slider, TextField, Text, other Panels...). Every UI widget is SCREEN SPACE only (design pixels, origin top-left, +Y down; no `space` field); rotation and scale of UI entities are ignored by layout and hit-testing. Widgets draw above the world and above HUD Text; the interface scale `ui.scale` (docs/SCRIPTING.md) multiplies every size, offset, padding, spacing and font size of them; events (ui.click, ui.change...) and focus are in docs/SCRIPTING.md.
@@ -10334,9 +10455,9 @@ declare module "factoria" {
     CharacterController3D: { radius?: number; height?: number; center?: Vec3Like; stepOffset?: number; slopeLimit?: number; skin?: number; layer?: number; mask?: number; velocity?: Vec3Like; carriedByPlatforms?: boolean; applyWeight?: boolean; mass?: number; pushStrength?: number };
     NavMesh3D: { size?: Vec3Like; cellSize?: number; cellHeight?: number; agentRadius?: number; agentHeight?: number; stepHeight?: number; maxSlope?: number; autoBake?: boolean; enabled?: boolean };
     NavLink3D: { end?: Vec3Like; bidirectional?: boolean; cost?: number };
-    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number; rolloff?: "linear" | "inverse" | "exponential"; refDistance?: number; rolloffFactor?: number; priority?: number };
+    AudioSource: { clip?: string; variants?: number; volume?: number; pitch?: number; loop?: boolean; playOnStart?: boolean; playing?: boolean; spatial?: boolean; range?: number; rolloff?: "linear" | "inverse" | "exponential" | "curve"; refDistance?: number; rolloffFactor?: number; rolloffCurve?: any; coneInnerAngle?: number; coneOuterAngle?: number; coneOuterGain?: number; coneAxis?: Vec3Like; dopplerLevel?: number; occlusion?: boolean; occlusionMask?: number; occlusionGain?: number; occlusionLowpass?: number; priority?: number };
     MusicPlayer: { song?: string; mode?: "auto" | "live" | "stems"; volume?: number; bus?: string; intensity?: number; playOnStart?: boolean; loop?: boolean; startSection?: string; quantize?: "none" | "beat" | "bar" | "section"; layerQuantize?: "none" | "beat" | "bar" | "section"; layerFade?: number; layerRange?: number; transitionFade?: number; crossfadeBars?: number; playing?: boolean; ready?: boolean; section?: string; bar?: number; beat?: number; tempo?: number; activeMode?: string };
-    AudioListener: { volume?: number; zoom?: number };
+    AudioListener: { volume?: number; zoom?: number; spatialization?: "pan" | "hrtf"; headRadius?: number; speedOfSound?: number };
     Panel: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; layout?: "none" | "row" | "column" | "grid"; spacing?: number; padding?: readonly number[] | { x: number; y: number; z: number; w: number }; columns?: number; align?: "start" | "center" | "end"; justify?: "start" | "center" | "end"; direction?: "ltr" | "auto" | "rtl"; fit?: boolean; minSize?: Vec2Like; maxSize?: Vec2Like; uniformSize?: boolean; modal?: boolean; wheelPassThrough?: boolean; fallbackLayout?: "none" | "row" | "column" | "grid" };
     Button: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; text?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; icon?: string; iconRegion?: RectLike; iconSize?: Vec2Like; iconPosition?: "left" | "top" | "alone" };
     Toggle: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; font?: string; key?: string; keyArgs?: any; fontSize?: number; maxTextScale?: number; textColor?: ColorLike; accentColor?: ColorLike; interactable?: boolean; autoFocus?: boolean; label?: string; maxWidth?: number; autoSize?: boolean; autoShrink?: boolean; minFontSize?: number; markup?: boolean; bold?: boolean; value?: boolean };

@@ -1236,8 +1236,8 @@
        "doc": "Play the sound from this place, without an entity: [x, y, z] (or [x, y] in a 2D game), world units. It is heard as an AudioSource with spatial: true is: the volume falls with the distance from the AudioListener (else the primary camera) along `rolloff` (linear to 0 at `range` by default) and it pans to the side of the listener it is on. The sound does not follow anything after it starts (for a moving source use an AudioSource; `loop: true` with a position throws). With no listener it plays at `volume` and `pan`; a sound at or beyond the range plays nothing, play() returns 0 and a `caption` is not shown unless `captionSeconds` is given. `volume` is the sound's own volume, `pan` is replaced. Example: audio.play(\"assets/sfx/bite.wav\", { position: [4, 0, -2], range: 30 })."
       },
       {
-       "sig": "rolloff?: \"linear\" | \"inverse\" | \"exponential\"",
-       "doc": "With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: \"linear\" (default) 1 - k*(d-r)/(range-r); \"inverse\" r/(r + k*(d-r)); \"exponential\" (d/r)^-k (d is at least r). The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value."
+       "sig": "rolloff?: \"linear\" | \"inverse\" | \"exponential\" | \"curve\"",
+       "doc": "With `position`: the fall-off curve, as AudioSource.rolloff. With d the distance, r `refDistance` and k `rolloffFactor`: \"linear\" (default) 1 - k*(d-r)/(range-r); \"inverse\" r/(r + k*(d-r)); \"exponential\" (d/r)^-k (d is at least r); \"curve\" is the gain of `rolloffCurve` at d / range. The sound is cut at `range` for all of them, so with inverse and exponential give a `range` where they are already quiet. Throws without a position or for another value."
       },
       {
        "sig": "refDistance?: number",
@@ -1246,6 +1246,50 @@
       {
        "sig": "rolloffFactor?: number",
        "doc": "With `position`: how fast the volume falls, 0 to 100 (default 1; see `rolloff`). Throws without a position."
+      },
+      {
+       "sig": "rolloffCurve?: number[][] | { keys: number[][], interp?: \"linear\" | \"smooth\" | \"step\" }",
+       "doc": "With `position` and rolloff: \"curve\" (required with it, and only then): the volume over the distance, [position, gain] keys where position is d / range (0 = at the listener, 1 = at `range`) and gain 0 to 1, e.g. [[0, 1], [0.3, 0.8], [1, 0]]; same form as ParticleEmitter.sizeCurve, at most 16 keys. Throws for a curve that does not parse."
+      },
+      {
+       "sig": "direction?: number[] | { x: number, y: number, z?: number }",
+       "doc": "With `position`: the world direction the sound points in, for the cone (coneInnerAngle ...). Omitted or [0, 0, 0] = the same in every direction. The cone is worked out once, when the sound starts."
+      },
+      {
+       "sig": "coneInnerAngle?: number",
+       "doc": "With `position` and `direction`: full angle in degrees of the cone where the sound is at full volume, 0 to 360 (default 360 = no cone)."
+      },
+      {
+       "sig": "coneOuterAngle?: number",
+       "doc": "With `position` and `direction`: full angle in degrees of the outer cone, 0 to 360 (default 360); outside it the volume is multiplied by coneOuterGain, between the cones it blends linearly in the angle."
+      },
+      {
+       "sig": "coneOuterGain?: number",
+       "doc": "With `position` and `direction`: volume multiplier outside the outer cone, 0 to 1 (default 0)."
+      },
+      {
+       "sig": "velocity?: number[] | { x: number, y: number, z?: number }",
+       "doc": "With `position`: the velocity of the source in world units per second, for doppler. NOT YET: doppler lands in M98.8b; until then this has no effect."
+      },
+      {
+       "sig": "dopplerLevel?: number",
+       "doc": "With `position`: how much the pitch shifts with the speed of the source and the listener, 0 (default, off) to 10. NOT YET: lands in M98.8b; no effect until then."
+      },
+      {
+       "sig": "occlusion?: boolean",
+       "doc": "With `position`: true = a physics ray from the listener that hits a collider of `occlusionMask` muffles the sound (default false). NOT YET: lands in M98.8b; no effect until then."
+      },
+      {
+       "sig": "occlusionMask?: number",
+       "doc": "With `position`: the physics layers (bitmask, default -1 = all) that block the sound when `occlusion` is on. NOT YET (M98.8b)."
+      },
+      {
+       "sig": "occlusionGain?: number",
+       "doc": "With `position`: volume multiplier of a blocked path, 0 to 1 (default 0.4). NOT YET (M98.8b)."
+      },
+      {
+       "sig": "occlusionLowpass?: number",
+       "doc": "With `position`: low-pass cutoff in Hz of a blocked path, 20 to 20000 (default 1500). NOT YET (M98.8b)."
       },
       {
        "sig": "range?: number",
