@@ -123,6 +123,15 @@ EM_JS(void, fa_web_text_init, (), {
             }
             // Only typing and Backspace go to the field: a cut, an undo or a redo of the <input> itself (its menu, Ctrl+Z)
             // does not, and sokol_app delivers the paste event of the window itself. A browser without inputType: the value.
+            // A replacement (a phone keyboard autocorrect or suggestion) and a yank (Ctrl+Y on macOS) put text in a value
+            // that held only the mark: what is there besides it is the text, typed as is. A transpose (Ctrl+T) swaps the
+            // characters around the caret, which are the field ones, never in the <input>: nothing to type.
+            if (type === "insertReplacementText" || type === "insertFromYank") {
+                const text = clean(el.value);
+                if (text.length > 0) push(text);
+                st.reset();
+                return;
+            }
             const typed = type === "insertText" || (type === "" && el.value.length >= MARK.length);
             const erased = type === "deleteContentBackward" || type === "deleteWordBackward" ||
                            (type === "" && el.value.length < MARK.length);

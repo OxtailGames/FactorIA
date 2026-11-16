@@ -38,7 +38,6 @@
 #include "ime_linux.h"
 #include "sokol_app.h"
 
-#include <X11/Xatom.h>
 #include <X11/Xlib.h>
 #include <X11/Xutil.h>
 
@@ -60,7 +59,7 @@ Display* g_display = nullptr;  // sokol_app's, while an Input is attached
 Window g_window = 0;
 Window g_root = 0;              // screen 0's root window, which holds XIM_SERVERS (as Xlib reads it)
 Atom g_ximServers = 0;          // the XIM_SERVERS atom: the input method servers running now
-std::vector<Window> g_servers;  // their windows when the input method opened: one destroyed may be its server
+bool g_reopen = false;          // the server stopped (on_im_destroy): open another input method after XFilterEvent
 locale_t g_imLocale = nullptr;  // the LC_CTYPE the input method opened with: its multibyte strings are in it
 bool g_localeWarned = false;
 XIM g_im = nullptr;
@@ -202,7 +201,6 @@ void apply_caret() {
 void forget_im() {
     g_ic = nullptr;
     g_im = nullptr;
-    g_servers.clear();
     g_preedit.clear();
     if (g_imLocale) freelocale(g_imLocale);
     g_imLocale = nullptr;
@@ -214,22 +212,14 @@ void close_im() {
     forget_im();
 }
 
-int ignore_x_error(Display*, XErrorEvent*) { return 0; }
-
-// Requests about windows that may be gone (an input method server that stopped): their errors are dropped instead of
-// reaching Xlib's default handler, which ends the process. XSync before and after, so only these requests' errors are.
-template <typename F>
-void with_x_errors_ignored(F&& f) {
-    XSync(g_display, False);
-    const XErrorHandler previous = XSetErrorHandler(&ignore_x_error);
-    f();
-    XSync(g_display, False);
-    XSetErrorHandler(previous);
-}
-
 // Xlib picks its locale data from the process's LC_CTYPE when it checks or opens an input method, and keeps them in the
 // input method. A process that left LC_CTYPE at "C" (every program starts so) gets the environment's (LANG, LC_ALL,
-// LC_CTYPE) for those calls only, as GLFW and SDL do for good; the game's own comes back right after.
+// LC_CTYPE) for those calls only, as GLFW and SDL do for good; the game's own comes back right after. setlocale changes
+// the whole process's locale, and the engine's other threads (loads, audio) run meanwhile: anything of theirs that reads
+// LC_CTYPE (the C library's multibyte functions, printf's %ls) may see the environment's for these few calls. The
+// engine decodes its UTF-8 itself and calls no multibyte function outside this file, and the ASCII classes (isalpha,
+// tolower) are the same in every locale; it happens only when an input method opens (at start, when a server starts
+// or stops).
 class LocaleScope {
 public:
     LocaleScope() {
@@ -248,45 +238,13 @@ private:
     bool changed_ = false;
 };
 
-// The windows of the input method servers running now (the owners of the selections XIM_SERVERS names), which XOpenIM
-// chose from: the window asks for their DestroyNotify, so a server that stops is noticed (libX11 never calls an input
-// method's XNDestroyCallback).
-void watch_servers() {
-    g_servers.clear();
-    if (!g_ximServers) return;
-    Atom type = 0;
-    int format = 0;
-    unsigned long count = 0, after = 0;
-    unsigned char* data = nullptr;
-    if (XGetWindowProperty(g_display, g_root, g_ximServers, 0, 256, False, XA_ATOM, &type, &format, &count, &after,
-                           &data) != Success)
-        return;
-    if (type == XA_ATOM && format == 32 && data) {
-        const auto* atoms = reinterpret_cast<const Atom*>(data);  // format 32 arrives as an array of long
-        for (unsigned long i = 0; i < count && g_servers.size() < 64; ++i)
-            if (const Window w = XGetSelectionOwner(g_display, atoms[i])) g_servers.push_back(w);
-    }
-    if (data) XFree(data);
-    if (!g_servers.empty())
-        with_x_errors_ignored([] {
-            for (const Window w : g_servers) XSelectInput(g_display, w, StructureNotifyMask);
-        });
-}
-
-// The server of the input method stopped. Xlib does not notice: it would wait forever for the answer to any request that
-// wants one (XDestroyIC, XCloseIM, XmbResetIC, XSetICValues), so the input method and its context get no more requests and
-// stay allocated (only XCloseIM frees them). Only the key filter Xlib put on the window for the context (XSetICFocus) is
-// taken off first, by XUnsetICFocus, which sends without waiting (the error of a server that is gone is dropped).
-void abandon_im() {
-    if (XIC old = g_ic) with_x_errors_ignored([old] { XUnsetICFocus(old); });
-    forget_im();
-    g_session.cancel();  // Input's composition ends; nothing more comes about it
-}
-
-// Other Xlib implementations call it when the server stops: the same as a DestroyNotify of its window.
+// The server of the input method stopped (Xlib saw its window destroyed, in XFilterEvent: _XimFilterServerDestroy). Xlib
+// calls this before it frees the input method and its context itself, without a request to the server: they get no more
+// calls from here (no X call in this callback). The window tries another input method once XFilterEvent returns.
 void on_im_destroy(XIM, XPointer, XPointer) {
     forget_im();
-    g_session.cancel();
+    g_session.cancel();  // Input's composition ends; nothing more comes about it
+    g_reopen = true;
 }
 
 bool create_ic() {
@@ -344,7 +302,6 @@ void open_im() {
         return;
     }
     XSetLocaleModifiers("");  // XMODIFIERS (@im=ibus): the locale data keep it
-    watch_servers();
     g_im = XOpenIM(g_display, nullptr, nullptr, nullptr);
     if (!g_im) return;  // none now: the next change of XIM_SERVERS (a server that starts) tries again
     if (const char* name = std::setlocale(LC_CTYPE, nullptr)) g_imLocale = newlocale(LC_CTYPE_MASK, name, nullptr);
@@ -372,6 +329,7 @@ void detach() {
     g_window = 0;
     g_root = 0;
     g_ximServers = 0;
+    g_reopen = false;
 }
 
 void on_key_press(XEvent* e) {
@@ -431,30 +389,27 @@ extern "C" void fa_ime_x11_event(void* xevent) {
                 apply_focus();
             }
             break;
-        case DestroyNotify:  // a server's window (watch_servers): the input method may have lost its server
-            if (g_im && std::find(g_servers.begin(), g_servers.end(), e->xdestroywindow.window) != g_servers.end()) {
-                abandon_im();
-                open_im();  // another server, Xlib's own, or none until the next change of XIM_SERVERS
-                return;
-            }
-            break;
         case PropertyNotify:
             if (e->xproperty.window == g_root && g_ximServers && e->xproperty.atom == g_ximServers) {
                 // A server started or stopped (a server writes XIM_SERVERS when it starts, also when its name is there).
-                if (!g_im) {
-                    open_im();
-                } else if (g_servers.empty()) {  // Xlib's own input method, as none ran: a server may serve it now
-                    g_session.cancel();
-                    close_im();  // no server to wait for
-                    open_im();
-                }
+                // Only a game without an input method tries again. One that is open stays: Xlib picks its own input
+                // method (no server) whenever XMODIFIERS names none (or "local") and the locale has a Compose file,
+                // whatever servers run, so reopening it would only cancel a dead-key sequence; with a server named, or
+                // without a Compose file, XOpenIM opens nothing until a server runs, and the input method it opened
+                // then notices its server stopping itself (on_im_destroy).
+                if (!g_im) open_im();
                 return;
             }
             break;
         default: break;
     }
-    // XIM also talks to its server through properties of its own windows.
+    // XIM also talks to its server through properties of its own windows, and watches the server's window: its
+    // DestroyNotify goes through here (XFilterEvent calls on_im_destroy, then frees the input method).
     if (g_im && XFilterEvent(e, None)) neutralise(e);
+    if (g_reopen) {
+        g_reopen = false;
+        open_im();  // another server, Xlib's own, or none until the next change of XIM_SERVERS
+    }
 }
 
 extern "C" void fa_ime_x11_batch(void) {
@@ -478,8 +433,8 @@ void ime_linux_attach(Input* input) {
         g_focused = true;
         g_localeWarned = false;
         // An input method server that starts after the game, or again after it stopped, writes XIM_SERVERS on the root
-        // window: the window asks for its PropertyNotify (XRegisterIMInstantiateCallback would too, but Xlib calls it
-        // once per input method it never closed, and one whose server stopped cannot be closed: abandon_im).
+        // window: the window asks for its PropertyNotify (XRegisterIMInstantiateCallback watches the same property,
+        // but calls its callback once per registration).
         g_root = RootWindow(display, 0);
         g_ximServers = XInternAtom(display, "XIM_SERVERS", False);
         XWindowAttributes root;
