@@ -1287,6 +1287,19 @@ public:
     };
     std::map<std::string, JsonBox> inspJson_;  // Json fields, by field key
     std::string inspEntity_;                   // entity the inspector showed last frame (state resets when it changes)
+    // Prefab instances (inspector_panel.cpp): `prefab.overrides` of the selected entity, asked again twice a second and
+    // after every edit the Inspector makes. `inspOvRoot_` is the instance's root ("" = not part of an instance).
+    Json inspOv_;
+    std::string inspOvId_, inspOvRoot_, inspOvPrefab_, inspOvWhy_;
+    double inspOvAt_ = -1.0;
+    std::uint64_t inspOvStamp_ = 0;
+    bool inspOvStale_ = true, inspApplyAsk_ = false;
+    std::string inspApplyId_;
+    void inspector_prefab_refresh(Entity e);
+    void inspector_prefab_header(Entity e);
+    // prefab.revert / prefab.apply through edit_command (one undo step); the Inspector reads the overrides again.
+    void inspector_prefab_edit(const std::string& command, const std::string& id, const std::string& component,
+                               const std::string& field);
     std::string inspScrollTo_;  // "Component" or "Component.field": scroll the Inspector to that row (the autotest)
     struct MaterialInfoEntry {
         Json info;
@@ -1697,6 +1710,7 @@ public:
     void at_section_T2(AtScript& at);  // autotest_play_review.cpp
     void at_section_S3(AtScript& at);
     void at_section_R4(AtScript& at);
+    void at_section_P4(AtScript& at);  // autotest_editing.cpp
     void at_run_steps(int frame);
     bool capture_window(Image& img);
     void inject_key(int type, int keyCode);
