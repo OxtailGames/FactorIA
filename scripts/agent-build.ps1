@@ -62,7 +62,10 @@ function Invoke-Logged([string]$Log, [string]$CommandLine) {
 $script:SlotStream = $null
 
 function Get-SlotsDir {
-    if ($env:FA_AGENT_SLOTS_DIR) { return $env:FA_AGENT_SLOTS_DIR }
+    if ($env:FA_AGENT_SLOTS_DIR) {
+        if ([IO.Path]::IsPathRooted($env:FA_AGENT_SLOTS_DIR)) { return $env:FA_AGENT_SLOTS_DIR }
+        return [IO.Path]::GetFullPath((Join-Path $root $env:FA_AGENT_SLOTS_DIR))   # relative: to the repository root
+    }
     $base = $env:LOCALAPPDATA
     if (-not $base) { $base = Join-Path $HOME '.cache' }
     return (Join-Path $base 'factoria\agent-build-slots')
@@ -72,6 +75,15 @@ function Get-MaxJobs {
     $n = 0
     if ($env:FA_AGENT_MAX_JOBS -and [int]::TryParse($env:FA_AGENT_MAX_JOBS, [ref]$n) -and $n -gt 0) { return $n }
     return 3
+}
+
+# $true when the exception says that another process holds the file: ERROR_SHARING_VIOLATION (32) or
+# ERROR_LOCK_VIOLATION (33). PowerShell on Unix (where the slot logic is tested) reports EAGAIN / EWOULDBLOCK instead.
+function Test-SlotHeld($Err) {
+    if ($Err -isnot [System.IO.IOException]) { return $false }
+    $code = $Err.HResult -band 0xFFFF
+    if ($code -in 32, 33) { return $true }
+    return ($PSVersionTable.PSEdition -eq 'Core' -and -not $IsWindows -and $code -in 11, 35)
 }
 
 # The build dir named by the holder of a slot ('?' when it cannot be read).
@@ -92,7 +104,7 @@ function Enter-BuildSlot([string]$Owner, [int]$PollSeconds = 5) {
     $dir = Get-SlotsDir
     $max = Get-MaxJobs
     try {
-        New-Item -ItemType Directory -Force -Path $dir -ErrorAction Stop | Out-Null
+        [IO.Directory]::CreateDirectory($dir) | Out-Null   # literal: no wildcard in the path is expanded
     } catch {
         Write-Output "note: cannot create ${dir}: building without the job limit"
         return
@@ -109,13 +121,14 @@ function Enter-BuildSlot([string]$Owner, [int]$PollSeconds = 5) {
                 $stream = New-Object System.IO.FileStream($path, [IO.FileMode]::OpenOrCreate, [IO.FileAccess]::ReadWrite,
                     [IO.FileShare]::None)
             } catch {
-                # A plain IOException is the sharing violation of a slot that another job holds; a missing folder, a
-                # path that is too long or no access is something else and must not make the job wait for ever.
+                # Only a sharing or lock violation (ERROR_SHARING_VIOLATION 32, ERROR_LOCK_VIOLATION 33) means that
+                # another job holds the slot; a missing folder, a path that is too long, a full disk or no access is
+                # something else and must not make the job wait for ever.
                 $err = $_.Exception
                 if ($err -is [System.Management.Automation.MethodInvocationException] -and $err.InnerException) {
                     $err = $err.InnerException   # New-Object wraps what the constructor threw
                 }
-                if ($err.GetType() -eq [System.IO.IOException]) {
+                if (Test-SlotHeld $err) {
                     $busy += (Read-SlotOwner $info)
                     continue
                 }
@@ -279,7 +292,10 @@ function Invoke-AgentJob {
     if ($Examples) { Invoke-ExampleTests }
 }
 
-Enter-BuildSlot $BuildDir
+# The build dir the jobs that wait are shown, relative to the repository root like agent-build.sh does.
+$shownDir = $BuildDir
+if ($BuildDir.StartsWith("$root\", [StringComparison]::OrdinalIgnoreCase)) { $shownDir = $BuildDir.Substring($root.Length + 1) }
+Enter-BuildSlot $shownDir
 try {
     Invoke-AgentJob
 } finally {
