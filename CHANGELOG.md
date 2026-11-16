@@ -54,8 +54,7 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   shows a PlayStation or Switch pad as a virtual Xbox pad (DS4Windows, Steam Input) makes two pads, the virtual and the
   physical one: turn it off for the game or have it hide the physical pad. Plugging comes from the
   OS's device notifications, and XInput's empty slots are asked every 2 s and right after a notification instead of on a
-  fixed timer only. HID pads answer `canRumble: false` with a reason saying their rumble is coming (M98.5b2). Not yet tried
-  with a physical pad.
+  fixed timer only. Their rumble came with M98.5b2 (below). Not yet tried with a physical pad.
 - **A UI layout that does not write `Transform.position` (M98.6f), a behaviour change:** a Panel or ScrollList used to move
   its children by adding the layout's delta into `Transform.position` every frame (so a saved scene held the layout's
   result). It now keeps the placement apart (`World::ui_layout_offset`, not saved, not in an undo snapshot) and the child's
