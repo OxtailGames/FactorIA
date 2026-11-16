@@ -55,7 +55,8 @@ struct ApiReferencePage {
 std::string export_api_markdown(const CommandRegistry& registry, const ScriptSystem& scripts);
 std::vector<ApiReferencePage> export_api_reference(const CommandRegistry& registry, const ScriptSystem& scripts);
 
-// The tools table of section 4 of the AI guide (docs/ai-guide/AI_GUIDE_TOOLS.md): one row per command category (tool names, one-line purpose), between
+// The tools table of section 4 of the AI guide (docs/ai-guide/AI_GUIDE_TOOLS.md): one row per command category (tool
+// names, one-line purpose), between
 // `<!-- generated: tools table ... -->` and `<!-- end generated -->`. splice_ai_guide_tools_table replaces that block of
 // `guide` (false, with *error, when the markers are missing); docs.write_reference does it for
 // <out>/ai-guide/AI_GUIDE_TOOLS.md.

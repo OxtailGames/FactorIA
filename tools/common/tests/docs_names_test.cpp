@@ -58,8 +58,7 @@ struct Names {
     std::set<std::string> commands;
     std::set<std::string> namespaces;
     std::set<std::string> script;
-    std::set<std::string> scriptWords;  // every identifier of the script typings: `game.paused` is JS when `paused` is there
-    std::set<std::string> jsRoots;      // namespaces that are a command namespace and a script root (`scene`, `game`, `ui`)
+    std::set<std::string> jsRoots;  // namespaces that are a command namespace and a script root (`scene`, `game`, `ui`)
     std::map<std::string, std::set<std::string>> components;  // name -> field names
 };
 
@@ -99,9 +98,6 @@ Names collect_names() {
         }
         for (const std::string& k : engine.scripts().script_api_keys()) n.script.insert(k);
         const std::string dts = export_typescript(engine.scripts());
-        static const std::regex word(R"([A-Za-z_][A-Za-z0-9_]*)");
-        for (auto it = std::sregex_iterator(dts.begin(), dts.end(), word); it != std::sregex_iterator(); ++it)
-            n.scriptWords.insert(it->str());
         static const std::regex root(R"(\n  export (?:const|namespace) ([A-Za-z_$][\w$]*))");
         for (auto it = std::sregex_iterator(dts.begin(), dts.end(), root); it != std::sregex_iterator(); ++it)
             if (n.namespaces.count((*it)[1].str())) n.jsRoots.insert((*it)[1].str());
@@ -110,8 +106,6 @@ Names collect_names() {
     fs::set_project_root(savedRoot);
     return n;
 }
-
-bool starts_with(const std::string& s, const std::string& p) { return s.rfind(p, 0) == 0; }
 
 std::vector<std::string> split_lines(const std::string& text) {
     std::vector<std::string> lines;
@@ -138,7 +132,8 @@ std::vector<DocFile> doc_files() {
     std::sort(files.begin(), files.end());
     for (const stdfs::path& p : files) {
         const std::string rel = p.lexically_relative(root).generic_string();
-        if (starts_with(rel, "docs/i18n/") || starts_with(rel, "docs/reference/") || rel == "docs/COMPONENTS.md")
+        if (fa::starts_with(rel, "docs/i18n/") || fa::starts_with(rel, "docs/reference/") ||
+            rel == "docs/COMPONENTS.md")
             continue;
         out.push_back({rel, testing::read_all(p)});
     }
@@ -190,10 +185,11 @@ std::vector<Span> spans_of(const std::string& line) {
 
 bool is_file_extension(const std::string& s) {
     static const std::set<std::string> ext = {
-        "json", "md",  "js",   "ts",  "mjs", "png",  "jpg", "jpeg", "ogg", "wav", "mp3", "glb",  "gltf", "obj",   "fbx",
-        "html", "txt", "yml",  "yaml", "toml", "cpp", "h",   "hpp",  "cmake", "sh", "ps1", "svg", "ttf", "otf",   "woff",
-        "zip",  "gz",  "tar",  "apk", "aab", "ipa",  "exe", "dll",  "so", "dylib", "xml", "plist", "wasm", "pak",  "csv",
-        "glsl", "frag", "vert", "wgsl", "scene", "prefab", "anim", "mat", "model", "ase", "psd", "kra", "mid", "midi"};
+        "json", "md",    "js",     "ts",    "mjs", "png",   "jpg",  "jpeg", "ogg", "wav",  "mp3",  "glb",
+        "gltf", "obj",   "fbx",    "html",  "txt", "yml",   "yaml", "toml", "cpp", "h",    "hpp",  "cmake",
+        "sh",   "ps1",   "svg",    "ttf",   "otf", "woff",  "zip",  "gz",   "tar", "apk",  "aab",  "ipa",
+        "exe",  "dll",   "so",     "dylib", "xml", "plist", "wasm", "pak",  "csv", "glsl", "frag", "vert",
+        "wgsl", "scene", "prefab", "anim",  "mat", "model", "ase",  "psd",  "kra", "mid",  "midi"};
     return ext.count(s) > 0;
 }
 
@@ -229,7 +225,7 @@ struct Checker {
 
     bool claimed_near(const std::string& name) const {
         for (const std::string& c : names.commands)
-            if (starts_with(c, "project.") && edit_distance(name, c) <= 1) return true;
+            if (fa::starts_with(c, "project.") && edit_distance(name, c) <= 1) return true;
         return false;
     }
 
@@ -246,7 +242,7 @@ struct Checker {
         if (!claimed && names.jsRoots.count(ns)) return;
         std::set<std::string> pool;
         for (const std::string& c : names.commands)
-            if (starts_with(c, ns + ".")) pool.insert(c);
+            if (fa::starts_with(c, ns + ".")) pool.insert(c);
         if (!claimed) {  // a settings key, a JSON path, a host name: only a typo of a real command of its namespace counts
             bool nearMiss = false;
             for (const std::string& c : pool) nearMiss = nearMiss || edit_distance(name, c) <= 1;
@@ -254,7 +250,8 @@ struct Checker {
         }
         ++checkedCommands;
         report(f, line,
-               "`" + name + "` is not a command (and not a script API name)." + hint_for(name, pool.empty() ? names.commands : pool) +
+               "`" + name + "` is not a command (and not a script API name)." +
+                   hint_for(name, pool.empty() ? names.commands : pool) +
                    " Fix the doc, not the API: use the real name (`factoria commands` lists them).");
     }
 
@@ -263,9 +260,14 @@ struct Checker {
         static const std::regex dotted(R"(^([a-z][a-z0-9]*)((?:\.[a-z][a-z0-9_]*)+))");
         static const std::regex pascal(R"(^[A-Z][A-Za-z0-9]*$)");
         static const std::regex compField(R"(^([A-Z][A-Za-z0-9]*)\.([a-z][A-Za-z0-9_]*))");
+        static const std::regex negated(R"(\b(?:no|not|never|without)\s+$)");
+        static const std::regex cmdAfter(R"(^\s+(?:commands?|tools?)\b)");
+        static const std::regex cmdBefore(R"(\b(?:commands?|tools?|call)\s+$)");
+        static const std::regex compAfter(R"(^\s+components?\b)");
+        static const std::regex compBefore(R"(\bcomponents?\s+$)");
         std::smatch m;
         const std::string before = line_text.substr(0, begin), after = line_text.substr(sp.end);
-        if (std::regex_search(before, std::regex(R"(\b(?:no|not|never|without)\s+$)"))) return;  // "there is no `x.y`"
+        if (std::regex_search(before, negated)) return;  // "there is no `x.y`"
         if (std::regex_search(t, m, dotted)) {
             const std::string word = m[0].str();
             const std::string rest = t.substr(word.size());
@@ -273,16 +275,15 @@ struct Checker {
             const std::string lastPart = word.substr(word.rfind('.') + 1);
             const bool endsOk = rest.empty() || rest[0] == ' ' || rest[0] == '{' || rest[0] == ',' || rest[0] == ':';
             const bool claimed = (rest.find('{') != std::string::npos && !names.jsRoots.count(ns)) ||
-                                 std::regex_search(after, std::regex(R"(^\s+(?:commands?|tools?)\b)")) ||
-                                 std::regex_search(before, std::regex(R"(\b(?:commands?|tools?|call)\s+$)"));
-            if (endsOk && names.namespaces.count(ns) && !is_file_extension(lastPart)) check_command(f, line, word, claimed);
+                                 std::regex_search(after, cmdAfter) || std::regex_search(before, cmdBefore);
+            if (endsOk && names.namespaces.count(ns) && !is_file_extension(lastPart))
+                check_command(f, line, word, claimed);
             return;
         }
         if (std::regex_match(t, pascal)) {
             ++checkedComponents;
             if (componentNames.count(t)) return;
-            const bool byPlace = std::regex_search(after, std::regex(R"(^\s+components?\b)")) ||
-                                 std::regex_search(before, std::regex(R"(\bcomponents?\s+$)"));
+            const bool byPlace = std::regex_search(after, compAfter) || std::regex_search(before, compBefore);
             const std::string near = near_component(t);
             if (byPlace || !near.empty())
                 report(f, line,
@@ -293,15 +294,16 @@ struct Checker {
         if (std::regex_search(t, m, compField)) {
             const std::string comp = m[1].str(), field = m[2].str();
             const std::string rest = t.substr(m[0].str().size());
-            const bool endsOk = rest.empty() || rest[0] == ' ' || rest[0] == '=' || rest[0] == ',' || rest[0] == ':' ||
-                                rest[0] == '.';
+            const bool endsOk =
+                rest.empty() || rest[0] == ' ' || rest[0] == '=' || rest[0] == ',' || rest[0] == ':' || rest[0] == '.';
             if (!endsOk || is_file_extension(field)) return;
             auto it = names.components.find(comp);
             if (it == names.components.end()) {
                 const std::string near = near_component(comp);
                 if (!near.empty())
-                    report(f, line, "`" + comp + "." + field + "`: `" + comp + "` is not a component. Did you mean `" +
-                                        near + "`? Fix the doc, not the API.");
+                    report(f, line,
+                           "`" + comp + "." + field + "`: `" + comp + "` is not a component. Did you mean `" + near +
+                               "`? Fix the doc, not the API.");
                 return;
             }
             ++checkedFields;
@@ -323,12 +325,13 @@ struct Checker {
                 const std::string run = l.substr(nb, l.find_first_not_of(l[nb], nb) - nb);
                 if (fence.empty())
                     fence = run;
-                else if (run.size() >= fence.size() && l.find_first_not_of(l[nb], nb) == std::string::npos)
-                    fence.clear();
+                else if (run.size() >= fence.size() && l.find_first_not_of(" \t", nb + run.size()) == std::string::npos)
+                    fence.clear();  // a closing fence may carry trailing spaces (CommonMark)
                 continue;
             }
             if (!fence.empty()) {
-                static const std::regex call(R"(\bfactoria call (?:--[a-z-]+(?: \S+)? )*([a-z][a-z0-9]*\.[a-z][a-z0-9_.]*)\b)");
+                static const std::regex call(
+                    R"(\bfactoria call (?:--[a-z-]+(?: \S+)? )*([a-z][a-z0-9]*\.[a-z][a-z0-9_.]*)\b)");
                 std::smatch m;
                 if (std::regex_search(l, m, call) && names.namespaces.count(m[1].str().substr(0, m[1].str().find('.'))))
                     check_command(f, int(i) + 1, m[1].str(), true);
@@ -342,7 +345,8 @@ struct Checker {
                 // `factoria call x.y` inside a span
                 static const std::regex call(R"(^factoria call ([a-z][a-z0-9]*\.[a-z][a-z0-9_]*)(?:\s|$))");
                 std::smatch m;
-                if (std::regex_search(sp.text, m, call) && names.namespaces.count(m[1].str().substr(0, m[1].str().find('.'))))
+                if (std::regex_search(sp.text, m, call) &&
+                    names.namespaces.count(m[1].str().substr(0, m[1].str().find('.'))))
                     check_command(f, int(i) + 1, m[1].str(), true);
             }
         }
@@ -358,25 +362,25 @@ std::string join_problems(const std::vector<std::string>& p, size_t cap = 400) {
 
 // ------------------------------------------------------------------------------------------------ stated figures
 struct Figure {
-    const char* doc;        // the doc that states it
-    const char* docRegex;   // group 1: the number
-    double docUnit;         // bytes in one of the doc's unit
-    const char* source;     // the file that sets it
-    const char* srcRegex;   // group 1: the number, group 2 (optional): a multiplier `* 1024`
-    double srcUnit;         // bytes in one unit of group 1
+    const char* doc;       // the doc that states it
+    const char* docRegex;  // group 1: the number
+    double docUnit;        // bytes in one of the doc's unit
+    const char* source;    // the file that sets it
+    const char* srcRegex;  // group 1: the number, group 2 (optional): a multiplier `* 1024`
+    double srcUnit;        // bytes in one unit of group 1
     const char* what;
 };
 
 const Figure kFigures[] = {
-    {"docs/MCP.md", R"(result over (\d+) KiB of JSON)", 1024, "tools/mcp/include/fa/mcp/server.h",
+    {"docs/MCP.md", R"(result\s+over\s+(\d+)\s+KiB\s+of\s+JSON)", 1024, "tools/mcp/include/fa/mcp/server.h",
      R"(kMcpResultCap = (\d+) \* 1024)", 1024, "the size an MCP result is cut at (kMcpResultCap)"},
-    {"docs/design/ARCHITECTURE_COMMANDS.md", R"(description stays under (\d+(?:\.\d+)?) KB)", 1024,
+    {"docs/design/ARCHITECTURE_COMMANDS.md", R"(description\s+stays\s+under\s+(\d+(?:\.\d+)?)\s+KB)", 1024,
      "tools/cli/tests/mcp_description_budget_test.cpp", R"(kBudget = (\d+);)", 1,
      "the description budget of mcp_description_budget_test.cpp"},
-    {"docs/design/ARCHITECTURE.md", R"(each page stays under (\d+) KB)", 1024, "tools/common/tests/docs_structure_test.cpp",
-     R"(kDocBudgetBytes = (\d+);)", 1, "the page budget of docs_structure_test.cpp"},
-    {"docs/design/BUILDING.md", R"(each page stays under (\d+) KB)", 1024, "tools/common/tests/docs_structure_test.cpp",
-     R"(kDocBudgetBytes = (\d+);)", 1, "the page budget of docs_structure_test.cpp"},
+    {"docs/design/ARCHITECTURE.md", R"(each\s+page\s+stays\s+under\s+(\d+)\s+KB)", 1024,
+     "tools/common/tests/docs_test_util.h", R"(kDocBudgetBytes = (\d+);)", 1, "the page budget of docs_test_util.h"},
+    {"docs/design/BUILDING.md", R"(each\s+page\s+stays\s+under\s+(\d+)\s+KB)", 1024,
+     "tools/common/tests/docs_test_util.h", R"(kDocBudgetBytes = (\d+);)", 1, "the page budget of docs_test_util.h"},
 };
 
 }  // namespace
@@ -387,15 +391,19 @@ TEST_CASE("docs names: the scanner reads commands, components and fields") {
     n.namespaces = {"scene", "project"};
     n.components = {{"Sprite", {"color", "layer"}}, {"RigidBody2D", {"mass"}}};
     Checker c(n);
-    const DocFile f{"docs/X.md",
-                    "Use `scene.add_entity` and `project.create {\"a\": 1}`; and `scene.add_entty`, `project.json`, "
-                    "`world.spawn(`, `scene.*`.\n"
-                    "The `Sprite` component, the `Sprites` and the `Foo` component; `Sprite.colour = 1`, `Sprite.layer`, "
-                    "`Vec2`, `Sprites.layer`.\n"
-                    "```sh\nfactoria call scene.nope {}\nfactoria call scene.add_entity\n```\n"};
+    const DocFile f{
+        "docs/X.md",
+        "Use `scene.add_entity` and `project.create {\"a\": 1}`; and `scene.add_entty`, `project.json`, "
+        "`world.spawn(`, `scene.*`.\n"
+        "The `Sprite` component, the `Sprites` and the `Foo` component; `Sprite.colour = 1`, `Sprite.layer`, "
+        "`Vec2`, `Sprites.layer`.\n"
+        "```sh\nfactoria call scene.nope {}\nfactoria call scene.add_entity\n```\n"
+        "```sh\nx\n```  \nThen `scene.add_entiy` is read again.\n"};
     c.check_file(f);
     const std::string all = join_problems(c.problems);
-    CHECK_MESSAGE(c.problems.size() == 6, all);
+    CHECK_MESSAGE(c.problems.size() == 7, all);
+    // A closing fence with trailing spaces closes the block: the span after it is read.
+    CHECK(all.find("docs/X.md:10: `scene.add_entiy`") != std::string::npos);
     CHECK(all.find("docs/X.md:1: `scene.add_entty` is not a command") != std::string::npos);
     CHECK(all.find("Did you mean `scene.add_entity`?") != std::string::npos);
     CHECK(all.find("`Sprites` is not a component") != std::string::npos);
@@ -417,8 +425,9 @@ TEST_CASE("docs names: every command, component and field a doc names exists") {
     CHECK(c.checkedCommands > 200);
     CHECK(c.checkedComponents > 100);
     CHECK(c.checkedFields > 20);
-    CHECK_MESSAGE(c.problems.empty(), c.problems.size() << " name(s) in the docs do not exist; fix each doc (the API is right):"
-                                                         << join_problems(c.problems));
+    CHECK_MESSAGE(c.problems.empty(), c.problems.size()
+                                          << " name(s) in the docs do not exist; fix each doc (the API is right):"
+                                          << join_problems(c.problems));
 }
 
 TEST_CASE("docs names: the figures a doc states come from the source that sets them") {
@@ -434,15 +443,16 @@ TEST_CASE("docs names: the figures a doc states come from the source that sets t
             continue;
         }
         if (!std::regex_search(src, sm, std::regex(fig.srcRegex))) {
-            problems.push_back(std::string(fig.source) + ": /" + fig.srcRegex + "/ no longer matches: update kFigures.");
+            problems.push_back(std::string(fig.source) + ": searched this file for /" + fig.srcRegex + "/ (" +
+                               fig.what + ") and found nothing: the constant moved or was renamed; update kFigures.");
             continue;
         }
         const double stated = std::stod(dm[1].str()) * fig.docUnit;
         const double real = std::stod(sm[1].str()) * fig.srcUnit;
         if (stated != real)
             problems.push_back(std::string(fig.doc) + " states " + dm[1].str() + " (" + std::to_string(long(stated)) +
-                               " bytes) for " + fig.what + ", which is " + std::to_string(long(real)) +
-                               " bytes in " + fig.source + ". Fix the doc.");
+                               " bytes) for " + fig.what + ", which is " + std::to_string(long(real)) + " bytes in " +
+                               fig.source + ". Fix the doc.");
     }
     CHECK_MESSAGE(problems.empty(), join_problems(problems));
 }

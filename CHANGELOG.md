@@ -20,6 +20,15 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   corrected); every doc is reachable from README.md; an embedded doc that names a doc outside the binary says so; and no heading
   repeats inside a doc (five did: renamed). A translation records the English text it follows with a hash on its first line, and a
   test flags one whose English original changed (docs/design/ARCHITECTURE.md, "Testing").
+  The js blocks too: every ```` ```js ```` block of `docs/` (the design docs too) is parsed with the engine's QuickJS
+  and its `root.member` names (`world.`, `ui.`, `tween.`, `Vec2.`...) are checked against the generated script typings
+  (`tools/common/tests/docs_js_test.cpp`); a failure names the file and line and suggests the closest name. A block that is
+  only a piece of a script (a class method, a `return` outside a function) opens with ```` ```js fragment ```` and is not
+  parsed. The docs the test flagged are corrected.
+  A block that shows a wrong name on purpose opens with ```` ```js names-skip ```` (parsed, names not checked). The names test checks a
+  dotted name only when the text says it is a command (a tool, `factoria call`, arguments in braces) or when it is one edit from a
+  real one, so a settings key or an event name is left alone; a closing code fence may carry trailing spaces. A citation `X.md, "Title": text`
+  is checked (the colon no longer hides it), and `[x](y.md "Title")` is a link, not a citation.
 
 - **Example games, last polish (M98):** `project.create {example}` into an existing empty folder never replaces a file or folder that
   another process puts there meanwhile (the moves use a no-replace rename on Linux, macOS and Windows; before, a plain rename could
@@ -40,11 +49,6 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   location and hint as a script spawn's does. Tests and docs only: the long hex vectors of the crypto tests wrapped at 64
   digits, the camera-under-a-blended-parent and Parallax bounds cases of the interpolation tests, `close_device` without a
   device, the rewrapped IME paragraphs of TEXT.md and the interpolation paragraphs of PERFORMANCE_AREAS.md.
-- **Docs tests (M97.4):** every ```` ```js ```` block of `docs/` (the design docs too) is parsed with the engine's QuickJS
-  and its `root.member` names (`world.`, `ui.`, `tween.`, `Vec2.`...) are checked against the generated script typings
-  (`tools/common/tests/docs_js_test.cpp`); a failure names the file and line and suggests the closest name. A block that is
-  only a piece of a script (a class method, a `return` outside a function) opens with ```` ```js fragment ```` and is not
-  parsed. The docs the test flagged are corrected.
 - **Android end and build, polish (M98):** in a `game.on("quit")` handler on Android the code after `await storage.setAsync(...)`
   now runs (the end delivers each finished write, runs what it wakes, up to 16 writes in a row); before, only the write itself
   was waited for. The end closes only the audio device (it no longer waits for the music's decodes or releases the clips).

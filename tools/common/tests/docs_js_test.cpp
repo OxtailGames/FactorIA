@@ -13,6 +13,8 @@
 //   It is a name check, not a type checker. What it does not see: the members of a returned value (`world.find(x).foo`),
 //   a chain that continues on the next line, a regular-expression literal that holds a quote or `//`, a root used as a
 //   property name written `root .x`, and a declaration that an earlier block of the same page made.
+//   A block that shows a wrong name on purpose (a "this does not work" example) opens with ```js names-skip: it is parsed,
+//   its API names are not checked. `...world.items` (a spread) is checked; `a.world.x` (a property) is not.
 // The typings are the ones `factoria api --dts` writes, produced in memory by the engine that is running.
 #include <doctest.h>
 
@@ -44,6 +46,7 @@ struct Block {
     std::string file;  // below the checkout, '/'
     int line = 0;      // the line of the opening fence
     bool fragment = false;
+    bool skipNames = false;  // ```js names-skip
     std::string code;
 };
 
@@ -72,6 +75,7 @@ std::vector<Block> js_blocks_of(const std::string& rel, const std::string& text)
         b.line = int(i) + 1;
         const std::string info = m[4].str();
         b.fragment = std::regex_search(info, std::regex(R"(\bfragment\b)"));
+        b.skipNames = std::regex_search(info, std::regex(R"(\bnames-skip\b)"));
         const size_t indent = m[1].str().size();
         const std::string fence = m[2].str();
         size_t j = i + 1;
@@ -404,6 +408,12 @@ bool is_keyword_before_paren(const std::string& t) {
     return kw.count(t) > 0;
 }
 
+// A method declaration `name(a, b) { ... }` follows the start of a body, a member or a modifier: not `x = name(a) {`.
+bool is_member_start(const std::string& prev) {
+    static const std::set<std::string> ok = {"{", "}", ";", ",", "static", "async", "get", "set", "*"};
+    return ok.count(prev) > 0;
+}
+
 // Names a block declares itself, from its code with strings and comments blanked.
 std::set<std::string> declared_names(const std::string& code) {
     std::set<std::string> names;
@@ -431,10 +441,37 @@ std::set<std::string> declared_names(const std::string& code) {
         const bool hasNext = i + 1 < toks.size();
         if ((t == "const" || t == "let" || t == "var") && hasNext) {
             const size_t j = i + 1;
-            if (toks[j].ident) {
-                names.insert(toks[j].text);
-            } else if ((toks[j].text == "[" || toks[j].text == "{") && match[j] != size_t(-1)) {
-                collect_pattern(toks, j, match[j] + 1, names);
+            // `const a = 1, world = 2`: every declarator of the list, until a `;` or the end of the enclosing bracket
+            size_t pos = j;
+            for (bool more = true; more && pos < toks.size();) {
+                more = false;
+                size_t after = pos + 1;
+                if (toks[pos].ident) {
+                    names.insert(toks[pos].text);
+                } else if ((toks[pos].text == "[" || toks[pos].text == "{") && match[pos] != size_t(-1)) {
+                    collect_pattern(toks, pos, match[pos] + 1, names);
+                    after = match[pos] + 1;
+                } else {
+                    break;
+                }
+                int depth = 0;
+                for (size_t k = after; k < toks.size(); ++k) {
+                    const std::string& u = toks[k].text;
+                    if (is_open(u)) {
+                        ++depth;
+                    } else if (is_close(u)) {
+                        if (--depth < 0) break;
+                    } else if (depth == 0 &&
+                               (u == ";" || u == "const" || u == "let" || u == "var" || u == "function" ||
+                                u == "class" || u == "return" || u == "if" || u == "for" || u == "while")) {
+                        break;
+                    } else if (depth == 0 && u == "," && k + 1 < toks.size() &&
+                               (toks[k + 1].ident || toks[k + 1].text == "[" || toks[k + 1].text == "{")) {
+                        pos = k + 1;
+                        more = true;
+                        break;
+                    }
+                }
             }
         } else if ((t == "function" || t == "class") && hasNext) {
             size_t j = i + 1;
@@ -455,7 +492,7 @@ std::set<std::string> declared_names(const std::string& code) {
             }
         } else if (toks[i].ident && hasNext && toks[i + 1].text == "(" && !is_keyword_before_paren(t) &&
                    match[i + 1] != size_t(-1) && match[i + 1] + 1 < toks.size() && toks[match[i + 1] + 1].text == "{" &&
-                   (i == 0 || (toks[i - 1].text != "." && toks[i - 1].text != "new"))) {
+                   (i == 0 || is_member_start(toks[i - 1].text))) {
             params_at(i + 1);  // a method: name(a, b) { ... }
         }
     }
@@ -469,7 +506,7 @@ struct ImportInfo {
 };
 
 ImportInfo read_imports(const std::string& code) {
-    static const std::regex importRe(R"re(\bimport\s+([^;"'\n]*?)\s*from\s*["']([^"']+)["'])re");
+    static const std::regex importRe(R"re(\bimport\s+((?:[\w$*, \t]|\{[^}]*\})*?)\s*from\s*["']([^"']+)["'])re");
     static const std::regex itemRe(R"(([\w$]+)(?:\s+as\s+([\w$]+))?)");
     ImportInfo info;
     for (auto it = std::sregex_iterator(code.begin(), code.end(), importRe); it != std::sregex_iterator(); ++it) {
@@ -511,16 +548,24 @@ std::string api_problems(const Typings& ty, const Block& b) {
     const std::string code = strip_text(b.code);
     const ImportInfo imports = read_imports(b.code);
     std::map<std::string, std::string> roots = ty.roots;
-    static const std::regex testCode(R"(\b(?:test|it|describe|expect|robust|beforeEach)\()");
-    if (imports.fromTest || std::regex_search(code, testCode))
-        for (const auto& kv : ty.testRoots) roots[kv.first] = kv.second;
+    if (b.skipNames) return "";
     std::set<std::string> declared = declared_names(code);
     declared.insert(imports.declared.begin(), imports.declared.end());
     const std::vector<Tok> toks = tokenize(code);
+    // test()/expect()... of the test module; a function of the game that is called test( or it( is a declaration
+    static const std::set<std::string> testFns = {"test", "it", "describe", "expect", "robust", "beforeEach"};
+    bool testCode = imports.fromTest;
+    for (size_t i = 0; i + 1 < toks.size() && !testCode; ++i)
+        testCode = testFns.count(toks[i].text) && toks[i + 1].text == "(" && !declared.count(toks[i].text) &&
+                   (i == 0 || toks[i - 1].text != ".");
+    if (testCode)
+        for (const auto& kv : ty.testRoots) roots[kv.first] = kv.second;
     std::string out;
     std::set<std::string> reported;
     for (size_t i = 0; i < toks.size(); ++i) {
-        if (!toks[i].ident || (i > 0 && toks[i - 1].text == ".")) continue;
+        // `a.world` is a property; `...world.items` (three dots) is a spread of the root
+        const bool spread = i >= 3 && toks[i - 1].text == "." && toks[i - 2].text == "." && toks[i - 3].text == ".";
+        if (!toks[i].ident || (i > 0 && toks[i - 1].text == "." && !spread)) continue;
         const std::string& root = toks[i].text;
         if (declared.count(root)) continue;
         auto rt = roots.find(root);
@@ -642,6 +687,28 @@ TEST_CASE("docs js: the scanner finds blocks, fragments and API names") {
     CHECK(api_problems(ty, b).empty());
     b.code = "const g = ({ ui }) => ui.layot();\nfor (const [i, ui] of xs) ui.layot();\nconst [a, ui2] = y; ui2.q;\n";
     CHECK(api_problems(ty, b).empty());
+    b.code = "const f = [...ui.layot];\n";  // a spread is not a property access
+    CHECK(api_problems(ty, b).find("`ui.layot`") != std::string::npos);
+    b.code = "const a = 1, ui = {};\nui.layot();\n";  // a second declarator declares too
+    CHECK(api_problems(ty, b).empty());
+    b.code = "let a = f(1, 2), [b, ui] = y;\nui.layot();\n";
+    CHECK(api_problems(ty, b).empty());
+    b.code = "const a = 1;\nx = foo(ui) {\n};\nui.layot();\n";  // `foo(ui) {` after `=` is no method
+    CHECK(api_problems(ty, b).find("`ui.layot`") != std::string::npos);
+    b.code = "class A {\n  run(ui) { ui.layot(); }\n}\n";  // a real method
+    CHECK(api_problems(ty, b).empty());
+    b.code = "import {\n  test,\n  game\n} from \"factoria:test\";\n";  // a multi-line import is read
+    CHECK(read_imports(b.code).fromTest);
+    ty.testRoots["game"] = "GameAPI";
+    ty.types["GameAPI"].members["ok"] = "";
+    b.code = "import {\n  test,\n  game\n} from \"factoria:test\";\ngame.nope();\n";
+    CHECK(api_problems(ty, b).find("`game.nope`") != std::string::npos);
+    b.code = "function test(x) { return x; }\ntest(1);\ngame.nope();\n";  // the game's own test(): not the test module
+    CHECK(api_problems(ty, b).empty());
+    b.code = "ui.layot();\n";
+    b.skipNames = true;  // ```js names-skip
+    CHECK(api_problems(ty, b).empty());
+    b.skipNames = false;
     b.code = "const t = `a ${ui.layot()} b`;\n";  // code inside ${} is checked
     CHECK(api_problems(ty, b).find("`ui.layot`") != std::string::npos);
 }

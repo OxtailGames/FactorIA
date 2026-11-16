@@ -159,8 +159,8 @@ field is crowded. The song, made with the commands above:
 ```
 music.create {"path":"assets/music/score.song.json","key":"A","mode":"minor","tempo":132,"style":"four_on_floor","progression":"Am F C G"}
 music.edit {"path":"assets/music/score.song.json","ops":[
-  {"op":"set_pattern","track":"bass","pattern":"drive","notes":"<four bars of eighths>"},
-  {"op":"set_pattern","track":"drums","pattern":"drive","grid":{"kick":"<64 steps>","clap":"<64 steps>","hat":"<64 steps>","openhat":"<64 steps>"}},
+  {"op":"set_pattern","track":"bass","pattern":"drive","notes":"v105 A1:8! A1 E2 A1 A1! E2 A1 A2 | F1:8! F1 C2 F1 F1! C2 F1 F2 | C2:8! C2 G2 C2 C2! G2 C2 C3 | G1:8! G1 D2 G1 G1! D2 G1 G2"},
+  {"op":"set_pattern","track":"drums","pattern":"drive","grid":{"kick":"x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x.x.","clap":"....x.......x.......x.......x.......x.......x.......x...x.xxx.xx","hat":"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx","openhat":"..x...x...x...x...x...x...x...x...x...x...x...x...x...x...x...x."}},
   {"op":"remove_section","section":"loop"},
   {"op":"add_section","section":"calm","kind":"loop","repeat":2,"play":{"pad":"chords","bass":"line","drums":"groove","arp":"arp"}},
   {"op":"add_section","section":"battle","kind":"loop","repeat":2,"play":{"pad":"chords","bass":"drive","drums":"drive","arp":"arp"}},
