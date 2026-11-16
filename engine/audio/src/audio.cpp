@@ -160,6 +160,9 @@ struct EntityAudio {
     std::uint64_t seen = 0;
     int lastVariant = 0;      // AudioSource.variants: the variant played last (1-based), never picked twice in a row
     std::uint32_t plays = 0;  // how many plays picked a variant: part of the pick's seed
+    Json curveSrc;            // AudioSource.rolloffCurve as it was parsed into `curve`
+    Curve curve;
+    bool curveOk = false;  // `curve` is the parse of curveSrc
 };
 
 // Import settings come from a file people edit: read them without assuming their types.
@@ -3473,15 +3476,37 @@ float audio_spatial_gain(AudioRolloff rolloff, float distance, float reach, floa
     const float d = std::max(distance, 0.0f);
     if (d >= reach) return 0.0f;
     factor = std::max(factor, 0.0f);
-    float r = refDistance > 0.0f ? refDistance : (rolloff == AudioRolloff::Linear ? 0.0f : reach / 20.0f);
+    float r = refDistance > 0.0f
+                  ? refDistance
+                  : (rolloff == AudioRolloff::Linear || rolloff == AudioRolloff::Curve ? 0.0f : reach / 20.0f);
     r = std::min(r, reach * 0.999f);
     const float dc = std::max(d, r);
     switch (rolloff) {
         case AudioRolloff::Inverse: return saturate(r / std::max(r + factor * (dc - r), r));
         case AudioRolloff::Exponential: return r > 0.0f ? saturate(std::pow(dc / r, -factor)) : 1.0f;
-        case AudioRolloff::Linear: break;
+        case AudioRolloff::Linear:
+        case AudioRolloff::Curve: break;
     }
     return saturate(1.0f - factor * (dc - r) / (reach - r));
+}
+
+float audio_curve_gain(const Curve& curve, float distance, float reach) {
+    reach = std::max(reach, 1e-3f);
+    const float d = std::max(distance, 0.0f);
+    if (d >= reach) return 0.0f;
+    return curve.empty() ? saturate(1.0f - d / reach) : saturate(curve.eval(d / reach));
+}
+
+float audio_cone_gain(Vec3 axis, Vec3 toListener, float innerAngle, float outerAngle, float outerGain) {
+    if (innerAngle >= 360.0f || length_sq(axis) < 1e-12f || length_sq(toListener) < 1e-12f) return 1.0f;
+    outerGain = saturate(outerGain);
+    const float inner = std::max(innerAngle, 0.0f) * 0.5f;
+    const float outer = std::max(std::min(outerAngle, 360.0f) * 0.5f, inner);
+    const float c = clamp(dot(normalize(axis), normalize(toListener)), -1.0f, 1.0f);
+    const float angle = std::acos(c) * (180.0f / 3.14159265358979f);  // 0 = in front, 180 = behind
+    if (angle <= inner) return 1.0f;
+    if (angle >= outer) return outerGain;
+    return 1.0f + (outerGain - 1.0f) * (angle - inner) / (outer - inner);
 }
 
 namespace {
@@ -3533,19 +3558,34 @@ static ListenerPose find_listener(World& world) {
 
 VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position, float range,
                        AudioRolloff rolloff, float refDistance, float rolloffFactor, bool* outOfRange) {
+    SpatialSound sound;
+    sound.range = range;
+    sound.rolloff = rolloff;
+    sound.refDistance = refDistance;
+    sound.rolloffFactor = rolloffFactor;
+    return play_at(world, clipPath, params, position, sound, outOfRange);
+}
+
+VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position,
+                       const SpatialSound& sound, bool* outOfRange) {
     if (outOfRange) *outOfRange = false;
     const ListenerPose l = find_listener(world);
     PlayParams p = params;
     if (l.have) {
         // The same model as an AudioSource with spatial = true (update() below).
         const Vec3 d = position - l.pos;
-        const float reach = std::max(range, 1e-3f) * l.zoom;
+        const float reach = std::max(sound.range, 1e-3f) * l.zoom;
         if (length(d) >= reach) {
             if (outOfRange) *outOfRange = true;
             return 0;
         }  // out of range: no voice taken (a quiet sound in range still gets an id)
-        p.volume = params.volume * audio_spatial_gain(rolloff, length(d), reach, refDistance * l.zoom, rolloffFactor) *
-                   l.volume;
+        const float gain =
+            sound.rolloff == AudioRolloff::Curve
+                ? audio_curve_gain(sound.rolloffCurve, length(d), reach)
+                : audio_spatial_gain(sound.rolloff, length(d), reach, sound.refDistance * l.zoom, sound.rolloffFactor);
+        const float cone =
+            audio_cone_gain(sound.direction, -d, sound.coneInnerAngle, sound.coneOuterAngle, sound.coneOuterGain);
+        p.volume = params.volume * gain * cone * l.volume;
         p.pan = clamp(dot(d, l.right) / (reach * 0.5f), -1.0f, 1.0f);
     }
     return play(clipPath, p);
@@ -3639,7 +3679,32 @@ void Audio::update(World& world, float dt) {
             Vec3 d = world.world_position(e) - lpos;
             // The listener's zoom stretches the distance a sound is heard at: a zoom of 2 doubles the reach (and the pan's span).
             float range = std::max(src->range, 1e-3f) * lzoom;
-            gain = audio_spatial_gain(src->rolloff, length(d), range, src->refDistance * lzoom, src->rolloffFactor);
+            if (src->rolloff == AudioRolloff::Curve) {
+                if (!ea.curveOk || ea.curveSrc != src->rolloffCurve) {  // parse again only when the field changed
+                    ea.curveSrc = src->rolloffCurve;
+                    ea.curveOk = true;
+                    ea.curve = Curve{};
+                    if (!src->rolloffCurve.is_null() && !(src->rolloffCurve.is_array() && src->rolloffCurve.empty())) {
+                        Result<Curve> parsed = Curve::parse(src->rolloffCurve, "AudioSource.rolloffCurve");
+                        if (parsed)
+                            ea.curve = std::move(*parsed);
+                        else
+                            FA_WARN("audio", "{} ({}); the sound falls off linearly instead", parsed.error().message,
+                                    parsed.error().hint);
+                    }
+                }
+                gain = audio_curve_gain(ea.curve, length(d), range);
+            } else {
+                gain = audio_spatial_gain(src->rolloff, length(d), range, src->refDistance * lzoom, src->rolloffFactor);
+            }
+            if (src->coneInnerAngle < 360.0f && length_sq(src->coneAxis) > 1e-12f) {
+                const Mat4 m = world.world_matrix(e);
+                const Vec3 a = src->coneAxis;
+                const Vec3 axis{a.x * m.at(0, 0) + a.y * m.at(1, 0) + a.z * m.at(2, 0),
+                                a.x * m.at(0, 1) + a.y * m.at(1, 1) + a.z * m.at(2, 1),
+                                a.x * m.at(0, 2) + a.y * m.at(1, 2) + a.z * m.at(2, 2)};
+                gain *= audio_cone_gain(axis, -d, src->coneInnerAngle, src->coneOuterAngle, src->coneOuterGain);
+            }
             pan = clamp(dot(d, lright) / (range * 0.5f), -1.0f, 1.0f);
         }
         const float volume = src->volume * gain * (haveListener ? lvol : 1.0f);
