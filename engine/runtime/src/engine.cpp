@@ -1508,8 +1508,15 @@ void Engine::set_design_to_window(std::function<Vec2(Vec2)> mapper) {
 }
 
 Vec2 Engine::design_size() const { return impl_->design_size(); }
+void Engine::storage_key_material(std::string& secret, std::string& gameId) const {
+    gameId = impl_->project.id;
+    const Json& raw = impl_->project.raw;
+    if (auto st = raw.find("storage"); st != raw.end() && st->is_object())
+        if (auto sec = st->find("encryptionSecret"); sec != st->end() && sec->is_string())
+            secret = sec->get<std::string>();
+}
 Json Engine::project_settings() const {
-    Json j = impl_->project.to_json();
+    Json j = impl_->project.to_json_redacted();
     j["seed"] = impl_->cfg.seed;  // the effective run seed (scripts reseed test files with it)
     return j;
 }

@@ -1564,7 +1564,8 @@ void ScriptSystem::dispatch_platform() {
         Json list = Json::array();
         for (const storage_files::Job& j : done) {
             auto m = I.storageMeta.find(j.key);
-            if (m != I.storageMeta.end() && m->second.compressed == j.compress && m->second.bytes < 0)
+            if (m != I.storageMeta.end() && m->second.compressed == j.compress && m->second.encrypted == j.encrypt &&
+                m->second.bytes < 0)
                 m->second.bytes = static_cast<std::int64_t>(j.bytes);
             if (j.persist) {
                 if (j.ok)

@@ -223,7 +223,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          parse_schema(R"({"type":"object","properties":{}})"), true, "project"},
         [&I](const Json&) {
             Json j = Json::object();
-            j["project"] = I.project.to_json();
+            j["project"] = I.project.to_json_redacted();
             j["currentScene"] = I.currentScene;
             Json scenes = Json::array(), scripts = Json::array(), prefabs = Json::array();
             for (const auto& f : fs::list("scenes", true, ".json")) scenes.push_back(f);
@@ -1607,7 +1607,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                     "List the keys of the game's save storage (storage.set): the ones the running game holds and the "
                     "key files in the save folder.",
                     "Shows what `storage.get/set` keeps for this project: each key with `inMemory`, `onDisk`, "
-                    "`compressed` and `bytes`, the "
+                    "`compressed`, `encrypted` and `bytes`, the "
                     "storage `mode`, and the `dir` (<user dir>/storage, one JSON file per key) that the editor and "
                     "`factoria run` write to. "
                     "`factoria mcp` and `factoria call` keep the game's storage in memory (--persist-storage opts in), "
@@ -1618,7 +1618,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                     "storage and never "
                     "reads or writes the save folder, so a stale save cannot change a test result. `damaged` lists key "
                     "files that do not "
-                    "parse. Example: storage.list {}",
+                    "parse or, for an encrypted one, do not authenticate (edited, damaged, or written with another "
+                    "storage.encryptionSecret). Example: storage.list {}",
                     parse_schema(R"({"type":"object","properties":{}})"), true, "script"},
                    [&I](const Json&) { return I.scripts.storage_list(); });
 

@@ -104,6 +104,18 @@ public:
     virtual UiSystem* ui() { return nullptr; }  // the game UI (ui.focus, ui.focused, ui.hovered); nullptr without one
     virtual CommandRegistry& commands() = 0;
     virtual Json project_settings() const = 0;
+    // What storage.set(..., {encrypt: true}) derives its keys from: the project's secret (factoria.json "storage"
+    // ."encryptionSecret"; "" when it has none) and its game id ("id", the salt). An engine's project_settings() leaves the
+    // secret out (a script reading `game.project`, or a tool printing the settings, never sees it) and overrides this; the
+    // default reads both from project_settings() for hosts that do not hide it (test hosts).
+    virtual void storage_key_material(std::string& secret, std::string& gameId) const {
+        const Json p = project_settings();
+        if (!p.is_object()) return;
+        gameId = p.value("id", std::string());
+        if (auto st = p.find("storage"); st != p.end() && st->is_object())
+            if (auto sec = st->find("encryptionSecret"); sec != st->end() && sec->is_string())
+                secret = sec->get<std::string>();
+    }
     virtual double fixed_dt() const = 0;
     // The renderer's target size in pixels (what `game.screenSize` reads on every call: cheap, no settings copy); without a
     // renderer, the project's display size. Hosts that keep that size at hand override it.

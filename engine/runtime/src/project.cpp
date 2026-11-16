@@ -136,6 +136,15 @@ Json ProjectSettings::to_json() const {
     return j;
 }
 
+Json ProjectSettings::to_json_redacted() const {
+    Json j = to_json();
+    if (auto st = j.find("storage"); st != j.end() && st->is_object())
+        if (auto sec = st->find("encryptionSecret");
+            sec != st->end() && sec->is_string() && !sec->get<std::string>().empty())
+            *sec = "(hidden)";
+    return j;
+}
+
 const char* runtime_platform() {
 #if defined(__ANDROID__)
     return "android";
@@ -552,6 +561,18 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
         double snap = s.renderInterpolationSnapDistance;
         FA_TRY(read_double(*it, "interpolationSnapDistance", "/render", snap, 0.0, false));
         s.renderInterpolationSnapDistance = float(snap);
+    }
+    if (auto it = j.find("storage"); it != j.end() && !it->is_null()) {
+        if (!it->is_object()) return field_error("/storage", "an object like {\"encryptionSecret\": \"...\"}", *it);
+        std::string secret;
+        FA_TRY(read_string(*it, "encryptionSecret", "/storage", secret));
+        if (it->contains("encryptionSecret") && !(*it)["encryptionSecret"].is_null() && secret.size() < 16)
+            return make_error(
+                at("/storage/encryptionSecret") + ": the secret is " + std::to_string(secret.size()) +
+                    " characters, too short to be a key",
+                "Do not write it by hand: delete the field and run `factoria call "
+                "project.create_storage_secret` for a random one (saves written with the old secret cannot "
+                "be opened afterwards).");
     }
     if (auto it = j.find("runtime"); it != j.end() && !it->is_null()) {
         if (!it->is_object()) return field_error("/runtime", "an object like {\"jobThreads\": \"auto\"}", *it);
@@ -1001,7 +1022,18 @@ constexpr const char* kSchemaText =
       }
     },
 )JSON"
-    R"JSON(    "runtime": {
+    R"JSON(    "storage": {
+      "type": "object",
+      "description": "Save storage settings (docs/scripting/SCRIPTING_UI_SCENES.md, \"Encrypted saves\").",
+      "properties": {
+        "encryptionSecret": {
+          "type": "string",
+          "minLength": 16,
+          "description": "The random secret that storage.set(key, value, {encrypt: true}) derives its keys from (HKDF-SHA256, salted with \"id\", one key per storage key). Create it ONCE with the command project.create_storage_secret (`factoria call project.create_storage_secret`), never by hand and never in the running game. Keep it for the life of the game: saves written with another secret cannot be opened. It is packed into the exported game, so it makes saves tamper-evident, not secret from a determined player. project.info and `game.project` show it as \"(hidden)\"."
+        }
+      }
+    },
+    "runtime": {
       "type": "object",
       "description": "How the engine runs the game on the player's machine. These settings never change what the game computes: a game gives the same result with any of them (docs/PERFORMANCE.md, \"Job threads\").",
       "properties": {

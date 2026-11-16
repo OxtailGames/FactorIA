@@ -5,11 +5,11 @@ Part of [MENUS.md](../MENUS.md): Save slots, text speed, anchors, gamepad cursor
 ## Save slots
 
 The `slots` part is the save / load screen of a game with several saves: five named slots and an autosave, each a record
-`{ counter, name, chapter, playTime, pic, data }` in `storage` (key `slot1`..`slot5`, `slot_auto`), where `data` is whatever the game
+`{ version, counter, name, chapter, playTime, pic, data }` in `storage` (key `slot1`..`slot5`, `slot_auto`), where `data` is whatever the game
 saves. `counter` goes up by one on every save, so with cloud saves (`platform.has("cloudSave")`) the copy with the higher counter wins
 when the screen opens (`slots.syncCloud()`); a delete removes the cloud copy too. A text in a slot that has no `data` is read as a bare
-save (a game can start with plain saves), and one that cannot be read or is from a version `upgrade` rejects is `damaged`: the row says
-so, with the reason, and the player can delete it. The game supplies two things: what is saved (`snapshot`, or `save` to write the slot
+save (a game can start with plain saves), and one that cannot be read, is from a newer version of the game or is refused by `upgrade` is
+`damaged`: the row says so, with the reason, and the player can delete it. The game supplies two things: what is saved (`snapshot`, or `save` to write the slot
 yourself) and how a slot is loaded (`launch`). Everything else is the kit's: the screen builds `prefabs/ui/slots.prefab.json` and
 `slot_dialog.prefab.json`, a click on a slot in save mode opens the dialog with a TextField for the name (the on-screen keyboard opens
 by itself for a gamepad player), an empty name saves under `defaultName()`, and a delete asks first. `cannotSave()` returns a string-table
@@ -17,7 +17,7 @@ key (`"slots.busy"`) while the game may not be saved (a cut-scene, a loading scr
 under the title. A cloud answer that arrives after the scene changed draws nothing (the screen compares `scene.generation`).
 
 ```js
-const slots = new Slots({ upgrade: migrate, describe: (d) => ({ chapter: d.level, playTime: d.seconds }) });
+const slots = new Slots({ version: 2, encrypt: true, upgrade: migrate, describe: (d) => ({ chapter: d.level, playTime: d.seconds }) });
 const screen = new SlotScreen(menus, {
   slots,
   launch: (data) => startFrom(data),                              // load
@@ -27,6 +27,23 @@ const screen = new SlotScreen(menus, {
 });
 screen.open("save");                                             // or "load"; call screen.tick() every frame
 ```
+
+**Version and migration.** `version` (a whole number, default 0) is the layout of `data` this build writes; every record carries it.
+When a slot is read, `upgrade(data, fromVersion)` gets the data and the version it was written with (a bare save and a record from
+before this field are version 0) and returns `{ ok: true, data }` in the newest layout, or `{ ok: false, message, hint }` to damage the
+slot. Raise `version` by one whenever the layout of `data` changes and let `upgrade` step an old save forward
+(`if (from < 1) ...; if (from < 2) ...`); it is called on every read, also for data already at `version`, and must leave that as it is.
+A record from a NEWER build (higher version than this one) is not guessed at: the slot is `damaged` with "update the game". The record
+the screen and `peek` return shows the version the data has now.
+
+**Encryption.** `encrypt: true` writes every slot with `storage.set(key, text, { encrypt: true })`: the file is sealed, so a text
+editor shows nothing and an edited or damaged slot is refused instead of loaded (kept aside as a damaged file; `storage.corrupt`
+is `true` and the slot looks empty). It needs the project's secret: run `factoria call project.create_storage_secret` once and commit
+`factoria.json` (without it, the first `write` throws an Error that names that command). The secret ships with the game, so this is
+tamper-evidence against casual editing, not secrecy or anti-cheat: read "Encrypted saves" in `docs/scripting/SCRIPTING_UI_SCENES.md`
+before relying on it. A slot saved before `encrypt` was turned on is still read and is sealed when it is written next. The counter and
+last-slot keys and the cloud copies stay plain text (the cloud copy that wins a sync is sealed when it is stored locally). Slots are
+sealed per storage key, so a cloud copy moves between a player's devices of the same game.
 
 The files are read with `docs.read menu-kit` (see "The files" below). `tests/slots.test.js` builds its own scene, so it passes in any game with the part.
 

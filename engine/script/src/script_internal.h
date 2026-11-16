@@ -315,11 +315,13 @@ struct ScriptSystem::Impl {
     struct StorageMeta {
         bool compressed = false;
         std::int64_t bytes = -1;
+        bool encrypted = false;
     };
     std::map<std::string, StorageMeta> storageMeta;
     storage_files::Writer storageWriter;  // storage.setAsync
     int nextStorageJob = 1;
-    void storage_write(const std::string& key, bool compress);  // writes one key's file now
+    void storage_write(const std::string& key, bool compress, bool encrypt = false);  // writes one key's file now
+    storage_files::KeyMaterial storage_material() const;  // the project's encryption secret and game id (the host's)
     void storage_remove_file(const std::string& key);
     Json storage_report();                                      // storage.list: the keys in memory and on disk
     Json storage_clear_keys(const std::string& key, bool all);  // storage.clear

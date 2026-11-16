@@ -6494,6 +6494,20 @@ Creates `dir` (relative to the server's working directory unless absolute) with 
 | `name` | string | no | Display name (default: folder name). |
 | `id` | string | no | Reverse-DNS id, e.g. com.example.mygame. |
 
+### `project.create_storage_secret` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+Create the random secret that makes storage.set(..., {encrypt: true}) work, in factoria.json.
+
+Capabilities: read, state, writeProject
+
+Writes "storage": {"encryptionSecret": <64 random hex characters>} into factoria.json, once. Save encryption (storage.set(key, value, {encrypt: true}), the Slots kit's `encrypt` option) derives one key per storage key from it, so run this before the game's first encrypted save and keep the secret for the life of the game: saves written with another secret cannot be opened (they are set aside as damaged files). A project that already has one is left alone (`created: false`) unless `replace` is true, which makes every encrypted save written so far unreadable. The secret is never returned or logged; it ships inside the exported game, so encryption is tamper-evidence, not secrecy from a determined player (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). Commit factoria.json. Result: {created, replaced, file}. Example: project.create_storage_secret {}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `replace` | boolean | no | Make a new secret even when the project has one. Every save written with {encrypt: true} so far stops opening: use it only when the secret leaked and the saves can be lost. Default false. |
+
 ### `project.export` (modifies state)
 
 Since 0.1.2.
@@ -7904,7 +7918,7 @@ List the keys of the game's save storage (storage.set): the ones the running gam
 
 Capabilities: read
 
-Shows what `storage.get/set` keeps for this project: each key with `inMemory`, `onDisk`, `compressed` and `bytes`, the storage `mode`, and the `dir` (<user dir>/storage, one JSON file per key) that the editor and `factoria run` write to. `factoria mcp` and `factoria call` keep the game's storage in memory (--persist-storage opts in), but this command still lists the key files on disk, so a stale save left by the editor or a play run (a "Continue" button that should not be there) is visible. `project.test` runs every test file on its own fresh in-memory storage and never reads or writes the save folder, so a stale save cannot change a test result. `damaged` lists key files that do not parse. Example: storage.list {}
+Shows what `storage.get/set` keeps for this project: each key with `inMemory`, `onDisk`, `compressed`, `encrypted` and `bytes`, the storage `mode`, and the `dir` (<user dir>/storage, one JSON file per key) that the editor and `factoria run` write to. `factoria mcp` and `factoria call` keep the game's storage in memory (--persist-storage opts in), but this command still lists the key files on disk, so a stale save left by the editor or a play run (a "Continue" button that should not be there) is visible. `project.test` runs every test file on its own fresh in-memory storage and never reads or writes the save folder, so a stale save cannot change a test result. `damaged` lists key files that do not parse or, for an encrypted one, do not authenticate (edited, damaged, or written with another storage.encryptionSecret). Example: storage.list {}
 
 ## assets
 
@@ -12339,18 +12353,21 @@ declare module "factoria" {
    * Persistent JSON save data, one file per key in <user dir>/storage/ (an older storage.json is split into them at the first start). Tests and `--storage memory` runs use a throw-away in-memory object instead.
    */
   export interface StorageAPI {
+    /**
+     * The value stored under `key`, or `fallback`. A value written with `{encrypt: true}` is opened at the first use of storage and returned like any other; one that fails authentication (edited, damaged, or written with another secret) is kept aside as a damaged file, storage.corrupt is true and the value is missing.
+     */
     get<T = any>(key: string, fallback?: T): T;
     /**
-     * Stores `value` under `key` and writes that key's file now (atomically: temporary file, then rename), so a save costs the size of its own key only. `{compress: true}` stores the value zlib-compressed (smaller on disk, for big saves; storage.get returns the same value either way). The write blocks the frame; use setAsync for a big value. Throws on an empty key or an unknown option.
+     * Stores `value` under `key` and writes that key's file now (atomically: temporary file, then rename), so a save costs the size of its own key only. `{compress: true}` stores the value zlib-compressed (smaller on disk, for big saves; storage.get returns the same value either way). `{encrypt: true}` seals the file with ChaCha20-Poly1305 under a key derived from the project's secret (factoria.json storage.encryptionSecret, created once with the command project.create_storage_secret), so a player cannot read or edit it with a text or hex editor without the game noticing; it combines with compress (compressed first, then sealed). It is tamper evidence, not secrecy: the secret ships with the game (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). Each call decides for its key: a set without encrypt writes the key in plain again. Throws, changing nothing, when encrypt is asked and the project has no secret (the error names the command). The write blocks the frame; use setAsync for a big value. Throws on an empty key or an unknown option.
      */
-    set(key: string, value: Json, options?: { compress?: boolean }): void;
+    set(key: string, value: Json, options?: { compress?: boolean, encrypt?: boolean }): void;
     /**
-     * Like set, but the file is encoded (and compressed when asked) and written off the frame: on a worker thread on desktop and mobile, between frames on the web (no threads there). storage.get returns the new value at once; the Promise resolves with the file's size in bytes when the file is written, and rejects with the reason if it could not be. Writes to one key land in the order they were asked, and a later set, remove, clear or size waits for the pending ones. Serializing `value` into JSON still happens in this call.
+     * Like set (compress and encrypt work the same, and encrypt throws at once when the project has no secret), but the file is encoded (compressed and sealed when asked) and written off the frame: on a worker thread on desktop and mobile, between frames on the web (no threads there). storage.get returns the new value at once; the Promise resolves with the file's size in bytes when the file is written, and rejects with the reason if it could not be. Writes to one key land in the order they were asked, and a later set, remove, clear or size waits for the pending ones. Serializing `value` into JSON still happens in this call.
      * @since 0.3.0
      */
-    setAsync(key: string, value: Json, options?: { compress?: boolean }): Promise<number>;
+    setAsync(key: string, value: Json, options?: { compress?: boolean, encrypt?: boolean }): Promise<number>;
     /**
-     * Bytes the key's file takes (the compressed size for a compressed value); 0 when the key is not stored. Waits for pending setAsync writes.
+     * Bytes the key's file takes (the compressed size for a compressed value, the sealed size for an encrypted one); 0 when the key is not stored. Waits for pending setAsync writes.
      * @since 0.3.0
      */
     size(key: string): number;

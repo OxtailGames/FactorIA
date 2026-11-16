@@ -272,7 +272,7 @@ job.promise.catch(() => { if (!this.gone && !job.cancelled) scene.load("scenes/l
   intact, and a leftover temporary file is ignored.
 - `storage.set(key, value, {compress: true})` stores the value zlib-compressed (the file is `{"key", "z": "zlib", "n",
   "data": <base64>}`): a big, repetitive save takes a fraction of the disk space and `get` returns the same value. Any
-  other option throws with a suggestion. `storage.size(key)` is the number of bytes the key's file takes (the compressed
+  other option throws with a suggestion (`compress` and `encrypt` are the two options). `storage.size(key)` is the number of bytes the key's file takes (the compressed
   size for a compressed value; `0` when the key is not stored): measure a save, or choose to compress above a size.
 - `storage.setAsync(key, value, options?)` returns a Promise that resolves with the file's size once the file is written
   (and rejects with the reason when it cannot be). `storage.get` returns the new value at once; the encoding, the
@@ -293,6 +293,36 @@ job.promise.catch(() => { if (!this.gone && !job.cancelled) scene.load("scenes/l
   On the web the save folder lives in IndexedDB and the same rules apply to its copy of the files. A web page that is
   hidden or closing copies it to IndexedDB right after the `suspend` and `quit` handlers have run (see below), so a
   `storage.set` made inside one is kept.
+- **Encrypted saves** (`storage.set(key, value, {encrypt: true})`, `setAsync` the same, together with `compress` if you
+  like). The file is sealed with ChaCha20-Poly1305 (`{"key", "enc": "chacha20poly1305", "data": <base64>}`, plus `"z"` and
+  `"n"` when compressed: the value is compressed first, then sealed): a text editor shows nothing readable and a changed
+  byte, a truncated file or a file copied under another key makes the save fail authentication instead of loading edited
+  gold. `storage.get` opens a sealed value like any other, and a game can turn encryption on later: the plain files its
+  players already have are still read, and sealed the next time they are written (each `set` decides for its own key; a
+  `set` without `encrypt` writes the key in plain again). `storage.list` marks the sealed keys (`encrypted: true`).
+  A sealed file that fails authentication behaves like a damaged one: it is **kept** as `storage.corrupt.json` (`.2`,
+  `.3`...), the log names it and says the save was modified, damaged, or written with another secret or game id,
+  `storage.corrupt` is `true` and the game starts without that key (the others load; `storage.list` shows the
+  problem under `damaged` for a file that is still in the folder). Never treat a missing sealed save as a new game
+  without checking `storage.corrupt`.
+  - **The key.** The project's secret is a random value in `factoria.json`, `"storage": {"encryptionSecret": "<64 hex
+    characters>"}`. Create it ONCE with `factoria call project.create_storage_secret` (also from the editor console and
+    MCP; `{"replace": true}` makes a new one and makes every sealed save so far unreadable; the command never prints it)
+    and commit `factoria.json`. A project without it throws on `{encrypt: true}` with an Error that names the command, and
+    changes nothing; the running game never creates a secret. The key of each value is HKDF-SHA256 over the secret, salted
+    with the game id (`"id"`), with `factoria.storage.v1:` and the storage key as context, so a value moved to another
+    key, another game or another secret does not open, and every file gets a fresh random salt and nonce. The secret is
+    packed with the exported game like the rest of `factoria.json` (the exported pack is not readable text, but it is not
+    a vault either), so it is the same in every build and install of the game: sealed saves survive an update or a
+    reinstall and can be copied between a player's devices (the cloud copy of the Slots kit is plain text). It is never
+    logged, and `project.info` and `game.project` show it as `"(hidden)"`. Keep the secret and the game id for the life
+    of the game: changing either one orphans every sealed save.
+  - **What it protects, and what it does not.** It is tamper-evidence and protection against casual reading: a player
+    cannot raise their gold with a text or hex editor, and a half-written or damaged file is reported. It is NOT secrecy
+    and NOT anti-cheat: the key necessarily ships inside the game, so anyone who takes the secret out of the pack (or
+    out of the running process) can read and forge saves; the file size is visible; and an older sealed file can be put
+    back (a rollback: keep a counter or a timestamp in the data and check it if that matters). Real secrecy needs a key
+    that never leaves the player's device or a server that holds it. Do not keep passwords or purchase state in it.
 
 ### The bot (`game.autoplay`)
 
