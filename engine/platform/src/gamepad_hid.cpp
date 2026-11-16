@@ -210,8 +210,17 @@ bool hid_path_is_xinput(std::string_view devicePath) {
     return false;
 }
 
-std::unique_ptr<HidPadDriver> make_hid_pad_driver(std::uint16_t, std::uint16_t) {
-    return nullptr;  // M98.5b2 adds the DualShock 4, DualSense and Switch Pro drivers here, by vendor and product id
+HidTransport hid_transport_from_path(std::string_view devicePath) {
+    // The Bluetooth HID service classes (classic, then Low Energy's HID over GATT) in the paths the Bluetooth stacks give.
+    static constexpr std::string_view kServices[] = {"00001124-0000-1000-8000-00805f9b34fb",
+                                                     "00001812-0000-1000-8000-00805f9b34fb"};
+    for (std::string_view service : kServices)
+        for (size_t i = 0; i + service.size() <= devicePath.size(); ++i) {
+            size_t k = 0;
+            while (k < service.size() && std::tolower(static_cast<unsigned char>(devicePath[i + k])) == service[k]) ++k;
+            if (k == service.size()) return HidTransport::Bluetooth;
+        }
+    return HidTransport::Usb;
 }
 
 // ---------------------------------------------------------------------------
