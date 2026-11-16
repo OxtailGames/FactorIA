@@ -42,7 +42,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 ### [Core](components/core.md)
 
 - [EntityInfo](components/core.md#entityinfo): Identity of an entity; present on every entity.
-- [Interpolation](components/core.md#interpolation): Draws this entity at the pose BETWEEN the last two fixed simulation steps, so a 60 Hz simulation moves smoothly on a 120-144 Hz display (docs/RENDERING.md, "Render interpolation"). _Not released yet._
+- [Interpolation](components/core.md#interpolation): Draws this entity at the pose BETWEEN the last two fixed simulation steps, so a 60 Hz simulation moves smoothly on a 120-144 Hz display (docs/RENDERING.md, "Render interpolation"). _Since 0.30.0._
 - [Transform](components/core.md#transform): Position, rotation and scale of an entity relative to its parent.
 
 ### [Physics](components/physics.md)
@@ -390,7 +390,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`game.pause`](commands/game.md#gamepause-modifies-state): Pause the simulation (frame() stops simulating; game.step still works).
 - [`game.render_stats`](commands/game.md#gamerender_stats): What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory. _Since 0.3.0._
 - [`game.resume`](commands/game.md#gameresume-modifies-state): Resume the simulation after game.pause.
-- [`game.rumble`](commands/game.md#gamerumble-modifies-state): Rumble a gamepad (the heavy and the light motor, 0..1, for some seconds), stop it, or just read what every pad does and whether it can rumble. _Not released yet._
+- [`game.rumble`](commands/game.md#gamerumble-modifies-state): Rumble a gamepad (the heavy and the light motor, 0..1, for some seconds), stop it, or just read what every pad does and whether it can rumble. _Since 0.30.0._
 - [`game.screenshot`](commands/game.md#gamescreenshot-modifies-state): Capture the game view as a PNG and show it: whole, a magnified region, or a filmstrip of frames.
 - [`game.state`](commands/game.md#gamestate): Dump the game state as JSON: entities, physics, script errors, recent warnings, render stats.
 - [`game.state_hash`](commands/game.md#gamestate_hash): One 64-bit hash of the whole simulation state: every entity, component and field, the live particles of every emitter, the clock and the random generator. _Since 0.19.0._
@@ -468,13 +468,13 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`player.run_ios_sim`](commands/project.md#playerrun_ios_sim-modifies-state): Play an input replay on the iOS player in the iOS Simulator (an iPhone or an iPad), turn the screen and take a screenshot. _Since 0.3.0._
 - [`project.add_menu_kit`](commands/project.md#projectadd_menu_kit-modifies-state): Copy the menu kit (main menu, options, pause, loading screen, ...) into the game and merge its strings into the locales. _Since 0.3.0._
 - [`project.create`](commands/project.md#projectcreate-modifies-state): Create a new game project from a template.
-- [`project.create_storage_secret`](commands/project.md#projectcreate_storage_secret-modifies-state): Create the random secret that makes storage.set(..., {encrypt: true}) work, in factoria.json. _Not released yet._
-- [`project.examples`](commands/project.md#projectexamples-modifies-state): List the example games of the installed FactorIA version: what each shows and the docs to read first. _Not released yet._
+- [`project.create_storage_secret`](commands/project.md#projectcreate_storage_secret-modifies-state): Create the random secret that makes storage.set(..., {encrypt: true}) work, in factoria.json. _Since 0.30.0._
+- [`project.examples`](commands/project.md#projectexamples-modifies-state): List the example games of the installed FactorIA version: what each shows and the docs to read first. _Since 0.30.0._
 - [`project.export`](commands/project.md#projectexport-modifies-state): Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5). _Since 0.1.2._
 - [`project.info`](commands/project.md#projectinfo): Show the project settings, input actions, current scene, scenes and scripts.
 - [`project.new_ci_workflow`](commands/project.md#projectnew_ci_workflow-modifies-state): Write a GitHub Actions workflow that validates, tests and exports the game on every push. _Since 0.2.0._
 - [`project.new_plugin`](commands/project.md#projectnew_plugin-modifies-state): Create a native plugin (C/C++) for this game and declare it in factoria.json. _Since 0.1.6._
-- [`project.package_examples`](commands/project.md#projectpackage_examples-modifies-state): Zip every example game of examples/ and write examples-manifest.json, the files a release publishes. _Not released yet._
+- [`project.package_examples`](commands/project.md#projectpackage_examples-modifies-state): Zip every example game of examples/ and write examples-manifest.json, the files a release publishes. _Since 0.30.0._
 - [`project.serve_web`](commands/project.md#projectserve_web-modifies-state): Serve the game's web build on this computer, or on the Wi-Fi to try it on a phone; it reloads when the project changes. _Since 0.18.0._
 - [`project.templates`](commands/project.md#projecttemplates): List the project templates `project.create` can start from.
 - [`project.test`](commands/project.md#projecttest-modifies-state): Run the project's JavaScript tests (tests/*.test.js) headless and return the report.
@@ -512,19 +512,19 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`bones.create`](commands/scene.md#bonescreate-modifies-state): Create a chain of Bone2D entities along points, under a parent. _Since 0.7.0._
 - [`load.cancel`](commands/scene.md#loadcancel-modifies-state): Stop a background load, or drop the files a finished one read ahead. _Since 0.19.0._
 - [`load.status`](commands/scene.md#loadstatus): Show the background loads: progress, items, bytes, errors. _Since 0.19.0._
-- [`prefab.apply`](commands/scene.md#prefabapply-modifies-state): Write an instance's values into its prefab file: one field, one component, or everything; the other instances follow. _Not released yet._
-- [`prefab.overrides`](commands/scene.md#prefaboverrides): List what a prefab instance of the open scene overrides: what differs from its prefab. _Not released yet._
-- [`prefab.revert`](commands/scene.md#prefabrevert-modifies-state): Put the prefab's values back into an instance: one field, one component, or everything. _Not released yet._
+- [`prefab.apply`](commands/scene.md#prefabapply-modifies-state): Write an instance's values into its prefab file: one field, one component, or everything; the other instances follow. _Since 0.30.0._
+- [`prefab.overrides`](commands/scene.md#prefaboverrides): List what a prefab instance of the open scene overrides: what differs from its prefab. _Since 0.30.0._
+- [`prefab.revert`](commands/scene.md#prefabrevert-modifies-state): Put the prefab's values back into an instance: one field, one component, or everything. _Since 0.30.0._
 - [`prefab.save`](commands/scene.md#prefabsave-modifies-state): Save an entity of the running world, with its children, as a prefab file.
 - [`scene.ascii_edit`](commands/scene.md#sceneascii_edit-modifies-state): Edit the ASCII map of a level file (a scene.import_ascii args file) with operations instead of rewriting rows, then rebuild the level. _Since 0.2.0._
-- [`scene.copy_entities`](commands/scene.md#scenecopy_entities): Write entities of the running world, with their subtrees, as one JSON text. _Not released yet._
+- [`scene.copy_entities`](commands/scene.md#scenecopy_entities): Write entities of the running world, with their subtrees, as one JSON text. _Since 0.30.0._
 - [`scene.destroy`](commands/scene.md#scenedestroy-modifies-state): Destroy an entity and its children.
 - [`scene.format`](commands/scene.md#sceneformat-modifies-state): Rewrite scene and prefab files in the canonical compact layout, without loading them.
 - [`scene.get_entity`](commands/scene.md#sceneget_entity): Get one entity with every component field (including defaults and runtime values).
 - [`scene.import_ascii`](commands/scene.md#sceneimport_ascii-modifies-state): Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
 - [`scene.list_entities`](commands/scene.md#scenelist_entities): List entities (id, name, tags, components) with optional filters.
 - [`scene.load`](commands/scene.md#sceneload-modifies-state): Replace the running scene with a scene file.
-- [`scene.paste_entities`](commands/scene.md#scenepaste_entities-modifies-state): Create the entities of a scene.copy_entities text in the running world. _Not released yet._
+- [`scene.paste_entities`](commands/scene.md#scenepaste_entities-modifies-state): Create the entities of a scene.copy_entities text in the running world. _Since 0.30.0._
 - [`scene.place_ascii`](commands/scene.md#sceneplace_ascii-modifies-state): Build a Tilemap level and the objects standing on it into the RUNNING world from ASCII rows and a legend; never writes a file. _Since 0.25.0._
 - [`scene.preload`](commands/scene.md#scenepreload-modifies-state): Read a scene's files in the background, so a later scene.load waits for nothing. _Since 0.19.0._
 - [`scene.reload`](commands/scene.md#scenereload-modifies-state): Reload the current scene from disk (discards runtime changes).
@@ -587,7 +587,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`ui.check_layout`](commands/ui.md#uicheck_layout-modifies-state): Load each screen in each language and text size and list every text that overflows its box, overlaps another text or leaves the screen. _Since 0.2.0._
 - [`ui.clear_captions`](commands/ui.md#uiclear_captions-modifies-state): Remove every subtitle from the screen now. _Since 0.2.0._
 - [`ui.force_touch`](commands/ui.md#uiforce_touch-modifies-state): Show the touch interface on a desktop: the touch-only controls are drawn and the last input device reads touch. _Since 0.23.0._
-- [`ui.reset_layout_positions`](commands/ui.md#uireset_layout_positions-modifies-state): Migrate a scene saved before 0.30: set Transform.position x and y to 0 on the laid-out children whose position holds the old layout result. _Not released yet._
+- [`ui.reset_layout_positions`](commands/ui.md#uireset_layout_positions-modifies-state): Migrate a scene saved before 0.30: set Transform.position x and y to 0 on the laid-out children whose position holds the old layout result. _Since 0.30.0._
 - [`ui.set_mirror_rtl`](commands/ui.md#uiset_mirror_rtl-modifies-state): Turn the mirroring of the screen-space UI in a right-to-left language on or off. _Since 0.3.0._
 - [`ui.set_scale`](commands/ui.md#uiset_scale-modifies-state): Set the interface scale: every screen-space widget and Text gets bigger or smaller. _Since 0.3.0._
 - [`ui.set_slider`](commands/ui.md#uiset_slider-modifies-state): Set a Slider the way a drag does: clamped, snapped to step, and ui.change is sent. _Since 0.3.0._

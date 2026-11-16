@@ -14,7 +14,7 @@ Identity of an entity; present on every entity. In scene files these fields are 
 
 ## Interpolation
 
-Not released yet (on main after 0.29.1).
+Since 0.30.0.
 
 Draws this entity at the pose BETWEEN the last two fixed simulation steps, so a 60 Hz simulation moves smoothly on a 120-144 Hz display (docs/RENDERING.md, "Render interpolation"). Only the drawing changes: Transform, physics, scripts, bounds and commands always see the real, latest pose; the blend is never written to the Transform. Children follow an interpolated parent and a Camera is viewed from its blended pose. A pose set outside the fixed step (a script's update, a command) or after entity.teleport() is not smeared: it is drawn where it is. The project default is factoria.json render.interpolation (false); add this component to opt one entity in ("on") or out ("off"). Nothing is blended while the game is paused or stepped.
 

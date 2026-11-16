@@ -68,7 +68,7 @@ TouchStick and TouchButton with touchOnly (the default) are drawn only while the
 
 ## `ui.reset_layout_positions` (modifies state)
 
-Not released yet (on main after 0.29.1).
+Since 0.30.0.
 
 Migrate a scene saved before 0.30: set Transform.position x and y to 0 on the laid-out children whose position holds the old layout result.
 
