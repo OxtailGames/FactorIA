@@ -61,8 +61,6 @@
 #include "ai_usage.h"
 #include "anim3d_ui.h"
 #include "anim_ui.h"
-#include "selection.h"
-#include "undo_stack.h"
 #include "editor_tools.h"
 #include "export_job.h"
 #include "phone_model.h"
@@ -86,7 +84,9 @@
 #include "native_menu.h"
 #include "platform_settings.h"
 #include "project_browser_model.h"
+#include "selection.h"
 #include "setup_job.h"
+#include "undo_stack.h"
 
 struct sapp_event;
 
@@ -254,6 +254,14 @@ public:
     const Selection& selection();
     // For the code that edits the set (Ctrl/Shift clicks, select all): add, toggle, range.
     Selection& selection_mut() { return selection_; }
+    // The set as it is, without pruning: for drawing (every frame) and for reading. A caller that meets an id that is no longer in
+    // the scene skips it; the ones that act (copy, delete, move) call selection() or selection_roots().
+    const Selection& selection_peek() const { return selection_; }
+    // What a delete, a duplicate, a reparent or a gizmo drag of the selection acts on: the selected entities that exist and have
+    // no selected ancestor, in the order the Hierarchy shows them (the tree order of the scene). Prunes the set first.
+    std::vector<std::string> selection_roots();
+    // A click on a Hierarchy row (hierarchy_panel.cpp) with the modifier keys of the moment.
+    void hier_click(const std::string& id);
     // Records an undo snapshot (coalesced per key) and marks the scene dirty. Call BEFORE mutating.
     void begin_edit(const std::string& key);
     void mark_dirty() { dirty_ = true; }
@@ -301,6 +309,8 @@ public:
     // edit_command, so undo, the scene file and "lost on Stop" come with it.
     bool gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered);
     void gizmo_draw(ImDrawList* dl);
+    // One step of a drag of several entities (viewport_gizmo.cpp): writes the move, the turn or the scale to every member.
+    CommandResult write_group_drag(Vec3 primaryValue, Vec3 groupWorld, float turn, std::string* err);
     void gizmo_end_drag(bool cancel);
     void gizmo_toolbar_buttons();
     Vec2 image_size_of(const std::string& path);
@@ -705,11 +715,20 @@ public:
     void draw_inspector_panel();
     void draw_hierarchy_node(Entity e, const std::string& filter);
     void hierarchy_spawn(const std::string& parentId, const std::string& name);
-    void hierarchy_duplicate(Entity e);
-    void hierarchy_destroy(Entity e);
+    void hierarchy_duplicate_selection();  // one copy of every selected entity (and its children), one undo step
+    void hierarchy_destroy_selection();    // every selected entity, one undo step
+    // Moves `dragged` under `parentId` ("" = the top level); when `dragged` is selected the whole selection moves, in tree order,
+    // as one undo step.
+    void hierarchy_reparent(const std::string& dragged, const std::string& parentId);
     void draw_inspector_component(Entity e, const TypeInfo& type);
+    // Several entities selected (inspector_panel.cpp): the components all of them have, a field shows "—" where their values
+    // differ and an edit writes to all of them, as one undo step. `ents[0]` is the primary.
+    void draw_inspector_multi(const std::vector<Entity>& ents);
+    void draw_inspector_component_multi(const std::vector<Entity>& ents, const TypeInfo& type);
     // Draws the widget of one reflected field for the JSON `current`; returns true and sets `out` when the user changed it.
-    bool draw_field_widget(const std::string& key, const FieldInfo& f, const Json& current, bool disabled, Json& out);
+    // `mix` (several entities selected): where the other entities' values differ from `current`, the primary's (inspector_model.h).
+    bool draw_field_widget(const std::string& key, const FieldInfo& f, const Json& current, bool disabled, Json& out,
+                           const FieldMix* mix = nullptr);
     void draw_animator_clips(Entity e, const std::string& id, const Json& current);
     void draw_material_params(Entity e, const Json& current);
     void draw_profiler_panel();
@@ -988,6 +1007,16 @@ public:
         bool hasParent = false, wrote = false,
              recorded = false;  // recorded: the edits went to a clip key (record mode)
         Vec3 planeStart{};      // free move: where the mouse was on the drag plane
+        // The entities a multi-selection drag moves (selection_roots(), the primary included when it has no selected ancestor);
+        // empty for one entity, which `id`, `start` and `parentWorld` describe.
+        struct Member {
+            std::string id;
+            Transform start;
+            Mat4 parentWorld;
+            bool hasParent = false;
+            Vec3 startWorld{};
+        };
+        std::vector<Member> members;
         AngleTracker angle;
         float sign = 1;
         UndoStack redoBefore;
@@ -1213,6 +1242,20 @@ public:
     bool hierRenameOpen_ = false;                // request to open the rename popup this frame
     std::string hierLastSelected_;  // selection the tree last scrolled to (a viewport click moves the tree)
     std::string hierRevealId_;      // entity whose ancestors open and which scrolls into view next frame
+    std::vector<std::string> hierRows_,
+        hierRowsPrev_;        // the rows drawn this frame / last frame, in the order shown (Shift range)
+    std::string hierAnchor_;  // the row a Shift click selects from (the last one clicked without Shift)
+    std::string
+        hierClickPending_;  // a plain click on a selected row of a multi-selection waits for the mouse release (a drag moves them all)
+    // The rectangle dragged on empty space in the viewport (viewport.cpp): `pending` from the press, `active` once the mouse moved
+    // far enough, in panel pixels.
+    struct Marquee {
+        bool pending = false, active = false;
+        ImVec2 start{0, 0}, now{0, 0};
+        SelectMods mods;
+    } marquee_;
+    // The entities whose outline the rectangle (design pixels) covers, in scene order (viewport.cpp).
+    std::vector<std::string> marquee_hits(Vec2 designA, Vec2 designB);
     std::map<std::string, std::string>
         inspErrors_;  // field key -> the last refused edit's message (shown under the field)
     struct JsonBox {
@@ -1592,7 +1635,8 @@ public:
     void at_section_J(AtScript& at);
     void at_section_K(AtScript& at);
     void at_section_L(AtScript& at);
-    void at_section_M(AtScript& at);  // autotest_editing.cpp
+    void at_section_M(AtScript& at);   // autotest_editing.cpp
+    void at_section_M4(AtScript& at);  // autotest_editing.cpp: several entities selected
     void at_section_N(AtScript& at);
     void at_section_O(AtScript& at);
     void at_section_P(AtScript& at);

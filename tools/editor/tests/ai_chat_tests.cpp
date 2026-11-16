@@ -438,6 +438,23 @@ TEST_CASE("selection_line tells the AI which entity this and it mean") {
     CHECK(selection_line("", "e7").find("\"e7\"") != std::string::npos);
 }
 
+TEST_CASE("selection_line with several entities names the primary and the others, and caps the list") {
+    CHECK(selection_line("A", "a", {}) == selection_line("A", "a"));  // no others: the one-entity line
+    CHECK(selection_line("A", "", {{"B", "b"}}).empty());
+    const std::string two = selection_line("A", "a", {{"B", "b"}, {"", "c"}});
+    CHECK(two.find("3 entities") != std::string::npos);
+    CHECK(two.find("primary one is \"A\" (id \"a\")") != std::string::npos);
+    CHECK(two.find("\"B\" (id \"b\")") != std::string::npos);
+    CHECK(two.find("\"c\" (id \"c\")") != std::string::npos);  // no name: the id
+    CHECK(two.find('\n') == std::string::npos);
+    std::vector<std::pair<std::string, std::string>> many;
+    for (std::size_t i = 0; i < kSelectionLineMax + 5; ++i) many.emplace_back("n", "id" + std::to_string(i));
+    const std::string capped = selection_line("A", "a", many);
+    CHECK(capped.find("and 5 more") != std::string::npos);
+    CHECK(capped.find("\"id" + std::to_string(kSelectionLineMax - 1) + "\"") != std::string::npos);
+    CHECK(capped.find("\"id" + std::to_string(kSelectionLineMax) + "\"") == std::string::npos);
+}
+
 TEST_CASE("Run and Revert items survive a save and a reload") {
     ChatItem run;
     run.kind = ChatItem::Kind::Run;

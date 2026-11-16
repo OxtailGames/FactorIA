@@ -1352,6 +1352,38 @@ const Selection& Editor::selection() {
     return selection_;
 }
 
+std::vector<std::string> Editor::selection_roots() {
+    if (!engine_) return {};
+    const Selection& sel = selection();  // drops what no longer exists
+    World& w = world();
+    std::vector<std::string> ids = without_selected_descendants(sel.ids(), [&w](const std::string& id) {
+        const Entity e = w.find_by_id(id);
+        const Entity p = e.is_null() ? kNullEntity : w.parent(e);
+        return p.is_null() ? std::string() : w.id_of(p);
+    });
+    if (ids.size() < 2) return ids;
+    // The order the Hierarchy shows: a depth-first walk of the scene, keeping the selected ones. A selected entity's children are
+    // not walked: none of them is in `ids`.
+    const std::set<std::string> wanted(ids.begin(), ids.end());
+    std::vector<std::string> ordered;
+    std::vector<Entity> stack;
+    const std::vector<Entity> roots = w.roots();
+    stack.assign(roots.rbegin(), roots.rend());
+    while (!stack.empty() && ordered.size() < ids.size()) {
+        const Entity e = stack.back();
+        stack.pop_back();
+        if (!w.alive(e)) continue;
+        const std::string id = w.id_of(e);
+        if (wanted.count(id)) {
+            ordered.push_back(id);
+            continue;
+        }
+        const std::vector<Entity> kids = w.children(e);
+        stack.insert(stack.end(), kids.rbegin(), kids.rend());
+    }
+    return ordered;
+}
+
 void Editor::begin_edit(const std::string& key) {
     if (play_ != PlayState::Edit || !engine_) return;
     const bool coalesce = edit_coalesces(key, lastEditKey_, time_, lastEditTime_);
