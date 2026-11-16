@@ -202,6 +202,30 @@ overrides the default (written with `scene.set_component` and `merge: true`). Un
 not compile shows its error with the snippet's file and line; it disappears when the material builds again. Texture params
 of a material are not editable here yet (use the Console or the AI).
 
+**Prefab instances.** An entity a prefab file made (a scene entry with `prefab`, `scene.spawn {prefab}`, a prefab dropped on the
+viewport) shows its prefab under its name: the path, and `Part of prefab <path> (<root id>)` for something below the root. The
+Inspector asks `prefab.overrides` for it and marks what differs from the file: the label of an overridden field is blue (hover
+it: the prefab's value is in the tooltip), a component header says `(N overridden)` or `(added to the instance)`, and a line
+under the name counts the overrides. Where the instance stands (the root's `Transform.position`) is never an override.
+Everything below goes through the commands, so the Console and the AI can do the same:
+
+- **Revert to prefab** (right-click an overridden field; right-click a component header for the whole component; **Revert all**
+  in the instance's header for everything of the selected entity and below, added components and children included) calls
+  `prefab.revert`. It is one Undo step, and all or nothing: when one part cannot be put back, none is. A component the
+  instance removed is not drawn (the entity no longer has it): the header names it (`Removed from the prefab: ...`) and Revert
+  all gives it back.
+- **Apply to prefab** (the same menus; **Apply all** asks first) calls `prefab.apply`: the value is written into the prefab
+  file, which keeps its own layout (nested prefabs and the parts you did not touch stay), and every other instance of that
+  prefab in the open scene gets the same change, except where it overrides that very value. A child you added under an
+  instance becomes a part of the prefab (and of every other instance). Undo puts the open scene back, not the prefab file
+  (use version control for that). A component the instance removed is deleted from the prefab file (and from the other
+  instances); a prefab child the instance removed cannot be listed (the children are paired by position, so the rest would be
+  matched with the wrong parts), so such an instance is refused, like one with a child added under a part of the prefab, with
+  the reason; a read-only prefab file is refused too, and `prefab.overrides` marks what the file has no place for
+  (`applyBlocked`). Apply is greyed out while the game plays (the running game's values are not the scene's, and the file is
+  written for good), with the reason in its tooltip; Revert stays. Instances of the prefab that sit inside another prefab are
+  updated after `scene.reload`.
+
 **While the game plays** both panels edit the running game; an orange note says the edits are lost on Stop (and they add no
 Undo step).
 

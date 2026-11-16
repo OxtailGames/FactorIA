@@ -139,6 +139,34 @@ void strip_instance_state(const World& w, Entity e, Json& j, bool isRoot, const 
     }
 }
 
+}  // namespace
+
+// The entity JSON that prefab.apply adds to a prefab file for a child added under an instance: the child and everything
+// below it as prefab.save would write it (nothing that is only true of this scene), with the child's own Transform kept,
+// since it is relative to the instance root. Unlike prefab.save, an id somebody chose stays (the instance that is applied
+// keeps it as the prefab's own id, so it still matches the file); automatic ids ("e12") and ids nothing needs go.
+Json prefab_child_json(const World& w, Entity child, std::vector<std::string>& notes) {
+    std::vector<Entity> tree;
+    collect_tree(w, child, tree);
+    std::set<std::string> treeIds, keepIds;
+    for (Entity x : tree) treeIds.insert(w.id_of(x));
+    for (Entity x : tree) {
+        const std::string& id = w.id_of(x);
+        const bool automatic =
+            id.size() > 1 && id[0] == 'e' && id.find_first_not_of("0123456789", 1) == std::string::npos;
+        if (!automatic) keepIds.insert(id);
+    }
+    for (Entity x : tree)
+        each_entity_ref(w, x, [&](const TypeInfo&, const FieldInfo&, Entity target) {
+            if (treeIds.count(w.id_of(target))) keepIds.insert(w.id_of(target));
+        });
+    Json entity = make_prefab(w, child)["entity"];
+    strip_instance_state(w, child, entity, false, treeIds, keepIds, notes);
+    return entity;
+}
+
+namespace {
+
 // "prefabs/enemy.prefab.json" for whatever the caller wrote as a path.
 std::string suggest_prefab_path(const std::string& path, const std::string& fallbackName) {
     std::string name = fs::filename(path);
