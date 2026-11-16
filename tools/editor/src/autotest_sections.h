@@ -38,6 +38,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"L", "Hand editing in the Hierarchy and the Inspector"},
     {"M", "Transform gizmos: 2D, 3D and a HUD entity"},
     {"M4", "Several entities selected: Ctrl and Shift clicks in the Hierarchy, a marquee and Ctrl click in the viewport, the move gizmo and the Inspector write to all of them as one undo step, Esc puts them back, Add Component, Duplicate and Delete on the selection"},
+    {"M5", "Copy, cut and paste of entities: Ctrl+C, Ctrl+X and Ctrl+V in the Hierarchy through the system clipboard, one undo step each, the copy of the primary selected last, text that is not entities pastes nothing, another panel keeps the keys, the row menu's Copy and Paste"},
     {"N", "Project panel"},
     {"O", "CLI agent through the editor's MCP endpoint"},
     {"P", "Revert an AI run: checkpoint, Revert, Undo revert"},

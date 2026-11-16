@@ -82,6 +82,23 @@ The edited `rows` are written back to `file` (one row per line, every other key 
 | `rebuild` | boolean | no | Rebuild the level with scene.import_ascii on the edited file when it has a `path`. Default true. |
 | `dryRun` | boolean | no | Write nothing; return the edited rows (and the import's dry run). Needs no writeProject: `file` is only read. Default false. |
 
+## `scene.copy_entities`
+
+Not released yet (on main after 0.29.1).
+
+Write entities of the running world, with their subtrees, as one JSON text.
+
+Capabilities: read
+
+Returns {text, count, roots}: `text` is self-contained (components, children, links to prefabs), so it can be kept, sent, or given to scene.paste_entities in this scene, another scene or another editor. `ids` are ids or names; an entity whose ancestor is also listed is copied with that ancestor, once. `count` is every entity in the text, `roots` the ids that head it. The world is not changed. Example: scene.copy_entities {"ids":["player","coin_3"]}
+
+The text is {"format":"factoria.entities/1","entities":[{"parent":"<id the root had>"?,"entity":{...}}]}. The entity JSON is the one the editor's undo keeps: every serialized field that differs from its default, the children inline, and the `$prefab` / `$fromPrefab` keys that keep an instance of a prefab linked to it. Runtime state (velocities, animation time) is not copied, and a field an animation drives is copied at its rest value. Entity fields stay as the ids they hold; scene.paste_entities remaps them.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `ids` | array | yes | Ids (or names) of the entities to copy; each is copied with all its children. |
+| `primary` | string | no | One of the copied entities (or one below them): scene.paste_entities returns the pasted root that holds its copy as `primary`, so the editor can select it last. |
+
 ## `scene.destroy` (modifies state)
 
 Destroy an entity and its children.
@@ -177,6 +194,25 @@ Loads immediately (outside a frame) or at the end of the current frame. Like sce
 | `path` | string | yes | Project-relative scene path. |
 | `props` | object | no | Plain JSON the new scene's scripts read with game.sceneProps() (default: none, {}). |
 | `async` | boolean | no | Read the scene's files in the background and switch once they are ready (answers {async, loadId} at once). Default false: load now (or at the end of the frame). Default false. |
+
+## `scene.paste_entities` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+Create the entities of a scene.copy_entities text in the running world.
+
+Capabilities: read, state
+
+`text` is what scene.copy_entities returned, from this scene or another. Every pasted entity gets an id that is free here (the copied id when it is free, else the next number: coin_3 -> coin_4). Entity fields that name an entity of the copied set name its new copy; a field that names an entity outside the set keeps it when this scene has an entity with that id and is cleared when it has not (listed in `cleared`). The pasted roots go under `parent` (null or "" = top level), or with keepParents under the parent each had when copied (top level when that parent is gone); without either, at the top level. Returns {ids, count, cleared, primary?, messages?}: `ids` are the new roots in the order of the text; `primary` is the pasted root that is or holds the copy of the entity scene.copy_entities got as `primary`. Nothing is created when anything is wrong. Example: scene.paste_entities {"text":"<what scene.copy_entities returned>","parent":"level"}
+
+`nameSuffix` is appended to the name of every pasted root (an unnamed one becomes "Entity" + suffix): nameSuffix " copy" with keepParents is a duplicate. `parent` and keepParents together are refused. A text that is not an entity clipboard (not JSON, another `format`, another version) is an error that names the JSON pointer of the problem; a text with a "prefab" key, a `$prefab` path outside the project or more than 64 levels of children is refused. Only Entity fields are remapped: an id inside a Json field (Script.props, for example) is copied as it is. `cleared` entries are {entity, component, field, target}.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `text` | string | yes | The text scene.copy_entities returned (the system clipboard in the editor). |
+| `parent` | any | no | Id of the entity the pasted roots go under; null or "" = top level. Not with keepParents. |
+| `keepParents` | boolean | no | Put each pasted root under the parent it had when copied, when that entity exists here. Not with parent. Default false. |
+| `nameSuffix` | string | no | Appended to the name of every pasted root, e.g. " copy". |
 
 ## `scene.place_ascii` (modifies state)
 
