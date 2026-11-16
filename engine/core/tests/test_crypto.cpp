@@ -456,7 +456,8 @@ TEST_CASE("crypto: `{}` for the data of seal_blob is not ambiguous") {
 }
 
 TEST_CASE("crypto: messages over the size limit are refused before anything is read") {
-    if constexpr (sizeof(std::size_t) > 4) {
+#if SIZE_MAX > 0xFFFFFFFFu  // a 32-bit size_t cannot hold a size past the limit
+    {
         // Views whose size is past kMaxMessageSize over a small buffer: every function checks the size first and never reads.
         const Key key = key_from_secret("secret", "save-slots");
         Nonce nonce{};
@@ -472,8 +473,8 @@ TEST_CASE("crypto: messages over the size limit are refused before anything is r
         check_too_large(seal_blob(key, {}, ByteView(small, huge)));
         check_too_large(
             open_blob(key, {}, std::string_view(reinterpret_cast<const char*>(small), huge + kBlobOverhead)));
-        // Exactly the limit is not "too large" for aead_open's size check: it gets as far as the tag (not run here).
     }
+#endif
 }
 
 TEST_CASE("crypto: the header's version and reserved bytes are authenticated, not just checked") {

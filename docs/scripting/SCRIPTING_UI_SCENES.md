@@ -286,9 +286,11 @@ job.promise.catch(() => { if (!this.gone && !job.cancelled) scene.load("scenes/l
   `const p = storage.setAsync("slot", data); game.step(1); await p;`. A Promise outlives nothing it needs: storage is not
   tied to a scene.
 - A write that fails (the disk is full, or, on Windows, another program holds the key's file open, which stops it from being
-  replaced: the engine tries again for about a second first) leaves the file as it was, sealed or not: `storage.set`
-  throws an Error saying the value was kept in memory but not written, `storage.setAsync` rejects and the log has a
-  warning. The value stays readable in this run; save again later, or the next run loads the older file.
+  replaced: the engine tries again for about a second first) leaves the file as it was, sealed or not. `storage.set` does not
+  throw for it: the value stays in memory for this run and the log has a warning `cannot write <file> for storage key '<key>': ...`
+  (it throws only when the value cannot be encoded or encrypted). `storage.setAsync` rejects with the reason and the log has
+  a warning too. Check the log, or use `setAsync` and handle the rejection, when a save must not be lost; the next run loads the
+  older file if no later write succeeded.
 - `storage.corrupt` — `true` when a storage file (a key's file, or an older `storage.json`) did not parse at the first use
   of `storage` in this run. The damaged file is **kept** as `storage.corrupt.json` in the save folder
   (`storage.corrupt.2.json`, `.3`... when one is already there: an earlier one is never replaced), the engine logs a
