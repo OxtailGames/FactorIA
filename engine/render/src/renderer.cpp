@@ -73,7 +73,8 @@ void DebugDraw::clear() {
     impl_->texts.clear();
 }
 
-CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* viewSize, bool renderTarget, bool blended) {
+CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* viewSize, bool renderTarget,
+                                        bool blended) {
     CameraTarget target;
     target.width = targetW;
     target.height = targetH;
@@ -82,7 +83,8 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     target.expand = scaleMode == ScaleMode::Expand;
     target.zeroToOne = gpu.depth_zero_to_one();
     CameraInfo ci;
-    static_cast<CameraGeometry&>(ci) = camera_geometry(world, best, target, warnedViewport, viewSize, renderTarget, blended);
+    static_cast<CameraGeometry&>(ci) =
+        camera_geometry(world, best, target, warnedViewport, viewSize, renderTarget, blended);
     Camera cam;  // defaults when no camera exists
     if (best) {
         cam = *world.get<Camera>(best);
@@ -128,7 +130,8 @@ const CameraInfo& Renderer::Impl::camera_for(Entity camera, const Vec2* screenPo
     static const CameraInfo kNone{};
     // Render interpolation: queries answer from the real pose of the cameras, drawing from the blended one (logicCams is empty
     // while nothing is blended).
-    const CameraInfo* c = pick_camera(logicCams.empty() ? lastCams : logicCams, camera, screenPoint, Vec2{float(targetW), float(targetH)});
+    const CameraInfo* c = pick_camera(logicCams.empty() ? lastCams : logicCams, camera, screenPoint,
+                                      Vec2{float(targetW), float(targetH)});
     return c ? *c : kNone;
 }
 
