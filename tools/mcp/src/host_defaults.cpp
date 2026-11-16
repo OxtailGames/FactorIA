@@ -181,6 +181,9 @@ std::vector<McpResource> default_mcp_resources(const std::string& projectDir) {
         if (!d.family.empty()) description += " (page of " + d.family + ")";
         out.push_back({"factoria://docs/" + d.path.substr(5), d.name, std::move(description), "text/markdown"});
     }
+    out.push_back({"factoria://docs/menu-kit", "menu-kit",
+                   "The files of the menu kit (templates/menus/); read one as factoria://docs/menu-kit/<file>",
+                   "text/markdown"});
     std::error_code ec;
     auto exists = [&](const char* f) { return stdfs::exists(stdfs::path(projectDir) / f, ec); };
     if (exists("factoria.json"))

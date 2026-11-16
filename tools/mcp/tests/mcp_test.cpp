@@ -673,6 +673,7 @@ TEST_CASE("mcp: resources list and read") {
         CHECK_FALSE(r["mimeType"].get<std::string>().empty());
     }
     CHECK(uris.count("factoria://docs/SCRIPTING.md") == 1);
+    CHECK(uris.count("factoria://docs/menu-kit") == 1);
     CHECK(uris.count("factoria://project/factoria.json") == 1);
     CHECK(uris.count("factoria://project/ENGINE_FEEDBACK.json") == 1);
 
@@ -680,6 +681,10 @@ TEST_CASE("mcp: resources list and read") {
     REQUIRE(doc.contains("result"));
     CHECK(doc["result"]["contents"][0]["mimeType"] == "text/markdown");
     CHECK(doc["result"]["contents"][0]["text"].get<std::string>().find("Behaviour") != std::string::npos);
+
+    Json kit = f.rpc("resources/read", {{"uri", "factoria://docs/menu-kit"}});
+    REQUIRE(kit.contains("result"));
+    CHECK(kit["result"]["contents"][0]["text"].get<std::string>().find("`kit.json`") != std::string::npos);
 
     Json proj = f.rpc("resources/read", {{"uri", "factoria://project/factoria.json"}});
     CHECK(proj["result"]["contents"][0]["mimeType"] == "application/json");

@@ -99,7 +99,7 @@ scripts. It is summed into a bus (`music` by default) of this mixer (docs/MUSIC.
 | `audio.create {path, source, steps?, seed?, output?, doc?, bake?, overwrite?}` | Writes a document (checked whole before it is written) and bakes it. |
 | `audio.edit {path, op, ...}` | `op` is `add` (a `step` at `index`), `set` (`values` of step `index`; a null removes a field), `remove`, `move` (`index` to `to`) or `document` (`source`, `seed`, `output`). The result is checked whole before it is written, and the sound is baked again unless `bake` is false. |
 
-### Baking, provenance and staleness
+### Baking, provenance and staleness of an audio document
 
 Baking records the sound in `assets.json` like an image document does: provenance origin `original` (the license of the input
 files when they say one, CC0-1.0 otherwise; an AI-made input keeps the `ai` flag) and a **recipe**, `audio.bake`, whose inputs

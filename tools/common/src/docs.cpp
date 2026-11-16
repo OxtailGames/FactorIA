@@ -154,10 +154,10 @@ const std::vector<DocManifestEntry>& manifest() {
         {"ai-guide", "How to build a game: the loop, project layout, recipes by genre. Read its Index, then sections.",
          aud({kGameAi})},
         {"ai-guide-tools",
-         "AI guide: MCP tools and CLI, skills, units, scene and prefab files, components (sections 4 to 7).",
+         "AI guide pages: MCP tools and CLI, skills, units, scene and prefab files, components (sections 4 to 7).",
          aud({kGameAi})},
         {"ai-guide-scripts",
-         "AI guide: the JavaScript API; recipes 9.1 to 9.7 (platformer, top-down, HUD, camera, sounds).",
+         "AI guide pages: the JavaScript API; recipes 9.1 to 9.7 (platformer, top-down, HUD, camera, sounds).",
          aud({kGameAi})},
         {"ai-guide-tilemaps", "AI guide pages: recipe 9.8, tilemap levels, objects and tile collision.",
          aud({kGameAi})},
@@ -170,7 +170,7 @@ const std::vector<DocManifestEntry>& manifest() {
          "analytics).",
          aud({kGameAi})},
         {"ai-guide-recipes-production",
-         "AI guide: recipes 9.26 to 9.32 (2D production, enemy AI, multiplayer, split screen, game feel).",
+         "AI guide pages: recipes 9.26 to 9.32 (2D production, enemy AI, multiplayer, split screen, game feel).",
          aud({kGameAi})},
         {"ai-guide-checks",
          "AI guide pages: tests, debugging and replays, common mistakes, performance, where to read more (sections 10 "
@@ -317,10 +317,18 @@ const std::vector<DocManifestEntry>& manifest() {
         {"shaders", "Custom shaders and materials: the template, uniforms and limits.", aud({kGameAi, kEngineDev})},
         {"skills", "Agent Skills: topic guides an AI loads when the work needs them.", aud({kGameAi, kUser})},
         {"sound", "Sound patches (*.sfx.json) and audio documents (*.audio.json).", aud({kGameAi})},
-        {"sound-patches", "Sound patch format, presets, macros and variations.", aud({kGameAi})},
-        {"sound-documents", "Audio documents (*.audio.json).", aud({kGameAi})},
-        {"sound-spatial", "Playing a sound at a place in the scene.", aud({kGameAi})},
-        {"sound-mixer", "Voice stealing, the Sound panel and the audio callback.", aud({kGameAi})},
+        {"sound-patches",
+         "Sound pages: writing a *.sfx.json patch: layers, oscillators, envelopes, filters, effects, presets, macros.",
+         aud({kGameAi})},
+        {"sound-documents",
+         "Sound pages: writing an *.audio.json document: steps, loops, its commands, baking and a worked example.",
+         aud({kGameAi})},
+        {"sound-spatial",
+         "Sound pages: a sound at a place in the scene: rolloff, cones, Doppler, occlusion and headphones.",
+         aud({kGameAi})},
+        {"sound-mixer",
+         "Sound pages: what happens when too many sounds play (voice stealing), the Sound panel, the audio callback.",
+         aud({kGameAi})},
         {"text", "Fonts, languages and text size.", aud({kGameAi})},
         {"vector", "Vector illustration: the vector.* commands and SVG import.", aud({kGameAi})},
     };
@@ -356,10 +364,25 @@ std::string menu_kit_listing() {
     return out;
 }
 
+// The size of the whole kit: the sum of the bytes of its files (what docs.list says for the "menu-kit" entry).
+long menu_kit_bytes() {
+    long total = 0;
+    for (const std::string& f : bundled_list(kMenuKitRoot))
+        if (auto text = bundled_read(f)) total += long(text->size());
+    return total;
+}
+
 Result<std::string> read_menu_kit(const std::string& q) {
     std::string rel = q.size() > kMenuKitName.size() ? q.substr(kMenuKitName.size() + 1) : std::string();
     if (rel.empty()) return menu_kit_listing();
-    if (auto t = bundled_read(std::string(kMenuKitRoot) + rel)) return *t;
+    if (auto t = bundled_read(std::string(kMenuKitRoot) + rel)) {
+        if (t->find('\0') != std::string::npos)
+            return make_error(
+                "The menu kit file '" + rel + "' is binary (it contains NUL bytes), not text.",
+                "docs.read serves text files only; `docs.read {\"name\":\"menu-kit\"}` lists the kit with the "
+                "size of each file.");
+        return *t;
+    }
     std::vector<std::string> names;
     for (const std::string& f : bundled_list(kMenuKitRoot)) names.push_back(f.substr(kMenuKitRoot.size()));
     return make_error("The menu kit has no file '" + rel + "'. " + did_you_mean(rel, names),
@@ -670,8 +693,8 @@ void register_docs_commands(CommandRegistry& registry) {
                      {"summary",
                       "The files of the menu kit, one by one: read `menu-kit/<file>`; this name lists them."},
                      {"audience", Json::array({"gameAi"})},
-                     {"path", ""},
-                     {"bytes", 0}}));
+                     {"path", std::string(kMenuKitRoot)},
+                     {"bytes", menu_kit_bytes()}}));
             if (wanted({"user", "engineDev"}))
                 arr.push_back(Json::object(
                     {{"name", "licenses"},

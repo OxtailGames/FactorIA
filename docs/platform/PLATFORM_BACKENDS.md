@@ -261,7 +261,7 @@ desktop OS you ship.
 9. In Steam's own page for the achievement (Library > Spacewar > Achievements, or `steamcommunity.com/stats/480/achievements`),
    "Win a game" shows unlocked.
 10. **Deck keyboard (on a real Steam Deck, or a desktop in Big Picture mode).** The tests run against a mock; this is
-    the check against the real keyboard. Add a scene with a `TextField` (`factoria call scene.add_entity`, or the menu kit's
+    the check against the real keyboard. Add a scene with a `TextField` (`factoria call scene.spawn`, or the menu kit's
     `name` scene) and run the game from Steam as a non-Steam game, or from Desktop Mode with Steam open.
     a. With the pad (do not touch the keyboard or the touch screen), move the focus to the field with the d-pad: Steam's
        floating keyboard appears next to the field, over the game, and the kit's own on-screen keyboard does not.
