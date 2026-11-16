@@ -232,6 +232,18 @@ Advice for phones, tablets and the web (fill-rate bound GPUs):
   2. Where the GPU cannot render to either, the engine shades per pixel with the first 16 lights, as it did before the
   light buffer. `FA_LIGHT_FORMAT=rgba16f|rgba8|none` forces one of them, to try it.
 
+## Render interpolation
+
+`"render": { "interpolation": true }` (docs/RENDERING.md, "Render interpolation") costs only the entities it interpolates: a
+36-byte-per-pose record each, one pass over the Transforms before each fixed step and two per frame (after the steps, and before
+drawing, which finds what scripts moved), and a blended local pose per moving entity when its matrix is built. With the setting
+off (the default) and no `Interpolation` component there is no pass and `drawn_matrix` is what it was. Measured with
+`fa_bench --filter interpolation.` (Release, Apple silicon): 20000 interpolated entities, every one moved by a step each frame,
+take about 0.28 microseconds per entity and frame in total (the three passes, the move and the draw matrix of each entity), so
+about 5.7 ms for 20000 and well under 0.1 ms for the few hundred moving entities of a typical scene. Put `Interpolation` mode
+`"off"` on what never moves smoothly (static scenery in a project that turned it on is already free: a pose is only blended when
+a step moved it, but the record pass still reads its Transform).
+
 ## Path finding on tile maps
 
 `nav.findTilePath` with a `{ width, height, cost }` array converts the whole array on every call (to JSON, to a float

@@ -631,6 +631,10 @@
        "doc": "Squash and stretch: a short scale pulse that keeps the volume (x * y constant in 2D) and springs back to exactly the entity's own scale (it is drawn multiplied, entity.scale is never written). amount > 0 squashes (flatter and wider, a landing), < 0 stretches (a jump); axis \"y\" (default) or \"x\". With reduceMotion on the amount is a quarter. Example: player.squash({ amount: 0.35, duration: 0.25 });"
       },
       {
+       "sig": "teleport(): void",
+       "doc": "Marks the pose the entity has NOW as a jump, not a move: with render interpolation (factoria.json render.interpolation, docs/RENDERING.md) the next frames draw it where it is instead of blending from where it was. Set the position first, then call teleport() in the same fixed step (a respawn, a door, a warp). A Transform written outside the fixed step (update, lateUpdate, a command) and a new entity are never smeared, so they need no call. Does nothing for an entity that is not interpolated. Example: me.position = spawn.position; me.teleport();"
+      },
+      {
        "sig": "knockback(direction: Vec3Like, opts?: KnockbackOptions): void",
        "doc": "Pushes the entity away: `speed` world units per second along `direction` (any length, it is normalised). A dynamic RigidBody2D/RigidBody3D gets the impulse on its velocity; an entity without one moves with a velocity that decays (opts.decay) and is integrated on the fixed clock. For opts.lockTime seconds isKnockedBack is true so your movement script can leave the player without control. Frozen by hit-stop like the rest of the simulation. Example: if (!me.isKnockedBack) move(); me.knockback(vec2(-1, 0.3), { speed: 8 });"
       },

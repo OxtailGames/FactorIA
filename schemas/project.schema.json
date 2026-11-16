@@ -166,6 +166,23 @@
         }
       }
     },
+    "render": {
+      "type": "object",
+      "description": "Drawing settings.",
+      "properties": {
+        "interpolation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Draw entities at the pose between the last two fixed simulation steps, so a 60 Hz simulation looks smooth on a 120-144 Hz display (the picture is one step behind the simulation). Only the drawing changes: Transform, physics and scripts see the real pose. Cameras, physics bodies and children of interpolated entities are included; a Transform written outside the fixed step, a new entity and entity.teleport() are not smeared. The Interpolation component overrides it per entity. Default false (docs/RENDERING.md, \"Render interpolation\")."
+        },
+        "interpolationSnapDistance": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "With interpolation: a fixed step that moves an entity farther than this many world units (pixels in 2D) is a jump and is drawn without blending. 0 (default) = no limit; use entity.teleport() for known jumps."
+        }
+      }
+    },
     "input": {
       "type": "object",
       "description": "Input configuration.",

@@ -103,6 +103,10 @@ struct ProjectSettings {
         true;  // "pauseOnSuspend": freeze the game and the music while the app is in the background (docs/MOBILE.md, "Lifecycle")
     double fixedHz = 60.0;
     float pixelsPerMeter = 100.0f;
+    // "render": {"interpolation", "interpolationSnapDistance"}: draw the pose between the last two fixed steps (docs/RENDERING.md,
+    // "Render interpolation"); the Interpolation component overrides it per entity. Snap distance 0 = no limit.
+    bool renderInterpolation = false;
+    float renderInterpolationSnapDistance = 0.0f;
     Json inputActions = Json::object();
     Json inputSchemes = Json::
         object();  // "input.schemes": the key sets local players can use (Input::set_key_schemes checks them at start)

@@ -91,7 +91,7 @@ my-game/
 - **Components are data.** An entity has a stable `id`, optional `name` and `tags`, and components such as `Transform`, `Sprite` or `RigidBody2D`. Engine systems (rendering, physics, audio, scripts) read them.
 - **Behaviours are JavaScript.** Logic lives in classes that extend `Behaviour`. Attach one with the `Script` component: `"Script": {"path": "scripts/player.js", "props": {"speed": 300}}`. `props` override the class fields, so one script serves many entities.
 - **Commands are tools.** Every engine capability is a named command, such as `scene.spawn`. Over MCP the name has `.` replaced by `_`: `scene_spawn`. The file `tools/spawn_wave.js` becomes the command `project.spawn_wave` and the MCP tool `project_spawn_wave`.
-- **The simulation is fixed-step and deterministic.** It runs at `physics.fixedHz` steps per second (60 by default). The same seed and the same input give the same result, so tests are reliable.
+- **The simulation is fixed-step and deterministic.** It runs at `physics.fixedHz` steps per second (60 by default). The same seed and the same input give the same result, so tests are reliable. On a display faster than the simulation, `"render": {"interpolation": true}` in `factoria.json` draws every entity between its last two steps so movement is smooth at 120-144 Hz (the `Interpolation` component overrides it per entity, `entity.teleport()` marks a jump; docs/RENDERING.md, "Render interpolation").
 
 ## 2. The development loop
 
