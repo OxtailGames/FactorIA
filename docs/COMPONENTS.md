@@ -3978,9 +3978,9 @@ Rumble a gamepad (the heavy and the light motor, 0..1, for some seconds), stop i
 
 Capabilities: read, state
 
-Give `low` (the heavy, low-frequency motor), `high` (the light, high-frequency one) and `seconds` (above 0, up to 10) to start the motors of pad `pad` (0..3, default 0); the same as input.rumble() in a script. `stop: true` stops the pad instead (without `pad`, every pad). With neither, nothing changes and the result only reports. The result lists every pad: connected, canRumble, reason (why it cannot, e.g. the platform has no backend yet), and the motors now (low, high, seconds left). Strengths outside 0..1 are clamped; a request for a pad that is not connected or cannot rumble is accepted and does nothing. The seconds run down with the game's frames (game.step); the engine stops every pad when the game pauses, changes scene or quits.
+Give `low` (the heavy, low-frequency motor), `high` (the light, high-frequency one) and `seconds` (above 0, up to 10) to start the motors of pad `pad` (0..3, default 0); the same as input.rumble() in a script. `stop: true` stops the pad instead (without `pad`, every pad). With neither, nothing changes and the result only reports. The result lists every pad: connected, canRumble, reason (why it cannot, e.g. the pad has no motors the platform can drive), and the motors now (low, high, seconds left). Strengths outside 0..1 are clamped; a request for a pad that is not connected or cannot rumble is accepted and does nothing. The seconds run down with the game's frames (game.step); the engine stops every pad when the game pauses, changes scene or quits.
 
-Example: game.rumble {"pad":0,"low":0.6,"high":0.2,"seconds":0.3}, then game.rumble {"stop":true}. A headless run has no hardware: connect a test pad first (game.input {"gamepad":{"index":0,"connected":true}}) and read the motors in the result; real motors need a windowed run on Windows (XInput pads) or in a Chrome-based browser.
+Example: game.rumble {"pad":0,"low":0.6,"high":0.2,"seconds":0.3}, then game.rumble {"stop":true}. A headless run has no hardware: connect a test pad first (game.input {"gamepad":{"index":0,"connected":true}}) and read the motors in the result; real motors need a windowed run (Windows XInput pads, Linux pads with kernel force feedback, macOS and iOS pads with GameController haptics, Android pads with vibrators, Chrome-based browsers).
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -10059,7 +10059,7 @@ declare module "factoria" {
      */
     readonly name: string;
     /**
-     * True when this pad has motors the platform can drive now, so input.rumble(pad, ...) shakes it; false for a slot with no pad and for a platform or pad without rumble. Windows (XInput pads) and Chrome-based browsers (Xbox and PlayStation pads) can today; Linux, macOS, iOS and Android do not yet, Firefox and Safari never; Windows pads that are not XInput (DualShock, DualSense, Switch Pro) come later. Games need not check it: input.rumble on a pad that cannot rumble does nothing. Check it to show a Vibration option only where it works. A test pad answers false unless game.gamepad(i).connect({ canRumble: true }).
+     * True when this pad has motors the platform can drive now, so input.rumble(pad, ...) shakes it; false for a slot with no pad and for a platform or pad without rumble. Windows (XInput pads), Linux (pads with kernel force feedback, when /dev/input/eventN is writable), macOS and iOS (pads with GameController haptics), Android (pads whose InputDevice has vibrators) and Chrome-based browsers (Xbox and PlayStation pads) can today; Firefox and Safari never; Windows pads that are not XInput (DualShock, DualSense, Switch Pro) come later. Games need not check it: input.rumble on a pad that cannot rumble does nothing. Check it to show a Vibration option only where it works. A test pad answers false unless game.gamepad(i).connect({ canRumble: true }).
      * @since unreleased
      */
     readonly canRumble: boolean;
