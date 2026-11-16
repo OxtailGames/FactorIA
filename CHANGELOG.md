@@ -46,6 +46,9 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 - Linux: `websocket.connect` reaches real servers (`ws://` and `wss://`). libcurl, loaded at run time as for `http.fetch`, opens
   the connection (proxy, TCP, TLS) and the engine's own protocol code does the rest, so any libcurl from 7.45 works; without
   libcurl `websocket.supported` is false and says why (docs/NETWORKING.md, "WebSocket").
+- Android: `websocket.connect` works (M98.2c): `wss://` over Java's `SSLSocket` through JNI, with the host name checked
+  against the certificate, and `ws://` to localhost over a plain socket, both with the engine's own protocol code; built
+  by CI, not yet run on a device (docs/NETWORKING.md, "Which platforms can connect now").
 - `factoria validate` warns about a script that calls `websocket.connect` in a game with no `network` hosts, as it does for
   `http.fetch`.
 - `TextField` has `caretIndex`, `selectionStart`, `selectionEnd` and a runtime `composition`, and scripts read
