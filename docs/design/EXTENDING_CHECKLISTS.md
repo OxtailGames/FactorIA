@@ -47,6 +47,7 @@ throw CommandError("not_found", "Entity 'enemy_9' not found.", "Use scene.list_e
 
 - `docs/*.md` is embedded in the binary. Update it in the same change as any user-facing behaviour.
 - Generated references (components, commands) need no edit.
+- Every ```` ```js ```` block of `docs/` is parsed as a module and its `world.`, `ui.`, `tween.`... names are checked against the generated typings (`tools/common/tests/docs_js_test.cpp`). Write code that parses; a block that is only a piece of a script (a class method without its class, a `return` outside a function) opens with ```` ```js fragment ````, which skips the parse but not the name check. Keep the marker rare. A wrong name is a doc bug: fix the doc, never the API.
 - `docs/AI_GUIDE.md` is the workflow for game-making AIs. `templates/common/AGENTS.md` is the short guide that `factoria new` writes into each project, so keep the two consistent.
 
 ### Rules from `CLAUDE.md`
