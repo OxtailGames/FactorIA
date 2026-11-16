@@ -11883,6 +11883,9 @@ declare module "factoria" {
   }
 
   export interface GameAPI {
+    /**
+     * Ends the game: the analytics events that wait are sent first (up to 3 seconds for the request), then the window closes (desktop) or the activity finishes (Android: the system destroys it and the process ends). Does not raise game.on("quit"). In a test it only sets game.quitRequested. Example: if (input.pressed("quit")) game.quit();
+     */
     quit(): void;
     /**
      * True while time.scale is 0. Setting it true sets time.scale to 0 (physics, particles, animators, timers and onUpdate stop; runWhilePaused behaviours and the UI keep running), false restores the time.scale it had when it was set true (1 if it was already 0). Setting time.scale while paused changes the scale to restore, the game stays paused.
@@ -11914,7 +11917,7 @@ declare module "factoria" {
      */
     on(event: "gamepadConnected" | "gamepadDisconnected", fn: (pad: { readonly slot: number; readonly id: string; readonly name: string; readonly type: GamepadType }) => void): () => void;
     /**
-     * Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). Desktop windows only: the web and phones never raise it. The handler gets an event whose cancel() keeps the window open (to ask "Really quit?", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example: game.on("quit", (e) => { e.cancel(); flush().then(() => game.quit()); });
+     * Listens for the player closing the window (the close button, Cmd+Q, Alt+F4). The handler gets an event whose cancel() keeps the window open (to ask "Really quit?", to save or to send a last analytics event with a short timeout); game.quit() closes it afterwards and does not come back to this handler, so a handler that cancelled can still end the game later. The web raises it when the page goes away (pagehide) and Android when the system destroys the game's activity (a Back no input.onBack handler consumed, the system closing the app, a relaunch for a theme change); there it cannot be cancelled, and on Android the process ends right after the handlers and the storage.setAsync writes still waiting, within about 1.5 s, so keep it short. iOS never raises it; a force-stop raises nothing anywhere. Not raised by game.quit() itself, nor in headless runs (tests simulate it with game.closeWindow()). Returns a function that stops listening; listeners end with the scene. Example: game.on("quit", (e) => { e.cancel(); flush().then(() => game.quit()); });
      * @since 0.3.0
      */
     on(event: "quit", fn: (event: { readonly cancelled: boolean; cancel(): void }) => void): () => void;

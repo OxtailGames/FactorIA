@@ -36,7 +36,10 @@ struct GfxSwapchain {
 };
 
 struct AppEvent {
-    enum class Type { Resized, FocusLost, FocusGained, Suspended, Resumed, QuitRequested, FilesDropped };
+    // Ending (Android only): the system destroyed the activity (Back that no handler consumed, game.quit(), the system
+    // relaunching or closing the app). Sent once, on the engine's thread, while Android's main thread waits for it (about
+    // 1.5 s at most). The surface is already gone: no GPU work. The process ends right after, without AppDesc::cleanup.
+    enum class Type { Resized, FocusLost, FocusGained, Suspended, Resumed, QuitRequested, FilesDropped, Ending };
     Type type;
     int width = 0, height = 0;  // Resized: framebuffer pixels
     // QuitRequested: true when the app itself asked (app_request_quit(): game.quit(), a failed start, --frames): the window
@@ -101,6 +104,8 @@ GfxSwapchain app_gfx_swapchain();
 int app_framebuffer_width();
 int app_framebuffer_height();
 float app_dpi_scale();
+// Closes the window (desktop: a QuitRequested event with fromApp follows). Android: finishes the activity once, so the
+// system destroys it and an Ending event follows; sokol_app ignores a quit request there.
 void app_request_quit();
 // Keeps the window open after a QuitRequested event that did not come from the app (the close button, Cmd+Q, Alt+F4).
 // Only meaningful while that event is handled (inside AppDesc::event); no effect anywhere else.

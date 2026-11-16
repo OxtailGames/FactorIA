@@ -1368,8 +1368,9 @@ jobs:
           PY
 
       # What a phone adds to the scripts (tools/cli/tests/mobile_probe.js): the game logs its safe area, buzzes once through the
-      # Vibrator and consumes the Back button with input.onBack; scripts/android-smoke.sh sends KEYCODE_BACK and waits for that log
-      # line (FA_SMOKE_BACK below), and the game must stay alive.
+      # Vibrator and consumes the first Back with input.onBack; scripts/android-smoke.sh sends KEYCODE_BACK and waits for that log
+      # line (FA_SMOKE_BACK below), and the game must stay alive. The second Back ends the game, and its game.on("quit") handler
+      # logs a marker and counts the quits in storage (FA_SMOKE_QUIT).
       - name: Add the mobile probe (safe area, vibration, Back)
         run: |
           cp tools/cli/tests/mobile_probe.js /tmp/ci-game/scripts/mobile_probe.js
@@ -1487,7 +1488,8 @@ jobs:
   # Android on a virtual device: boot an x86_64 emulator, install the APK of the job above, start it and assert that the
   # process stays alive, the player logged "player: 60 frames rendered", an audio stream runs, a tap reaches the player,
   # the app survives HOME and coming back and a font-size change, nothing crashed, the display shows a picture, and the
-  # game comes back in a new process after a relaunch it cannot opt out of (`am update-appinfo`)
+  # game comes back in a new process after a relaunch it cannot opt out of (`am update-appinfo`); both the relaunch and a
+  # Back the game lets through run the game's end (game.on("quit"), its storage write) before the process ends
   # (scripts/android-smoke.sh; it waits for the system to be ready, no fixed sleep). Needs KVM, which GitHub's Linux
   # runners offer once the udev rule below is set. There is no arm64 emulator job: no hosted runner can run one
   # (docs/MOBILE.md).
@@ -1517,12 +1519,17 @@ jobs:
       # answers (tools/cli/tests/admob_probe.js): it runs as the ads backend next to Google Play, with the manifest's test app id.
       # FA_SMOKE_BACK: the line tools/cli/tests/mobile_probe.js logs when its input.onBack handler consumes the Back button; the
       # smoke test sends `adb shell input keyevent KEYCODE_BACK` and needs that line once more, with the game still running.
+      # FA_SMOKE_QUIT: the line the probe's game.on("quit") handler logs; the process the relaunch ends must log it once, and so
+      # must the one a second Back ends (the last step). "probe quits stored=1" (FA_SMOKE_EXPECT) is the count that handler
+      # wrote with storage.setAsync before its process ended, read by the process the relaunch started (a fresh emulator).
       - name: Run the APK in the emulator (smoke test)
         uses: reactivecircus/android-emulator-runner@v2.38.0
         env:
           FA_SMOKE_BACK: probe back=consumed
+          FA_SMOKE_QUIT: probe quit n=
           FA_SMOKE_DET_HASH: 1
           FA_SMOKE_EXPECT: |
+            probe quits stored=1
             probe safearea=
             probe vibrate=sent
             probe add=3

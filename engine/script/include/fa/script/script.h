@@ -556,6 +556,11 @@ public:
     // once. A handler may call event.cancel(). Returns false when one did (the window stays open), true when the window
     // may close. A quit the game asked for itself (game.quit()) must not come here: hosts check AppEvent::fromApp.
     bool close_requested();
+    // The app is ending and cannot be kept (Android: the system destroyed the activity; the process ends right after). Sends
+    // "app.quit" to the scripts unless the game asked for the quit itself with game.quit(); event.cancel() changes nothing
+    // here. Then starts the analytics request for the events that wait (without waiting for it) and waits for the storage.setAsync
+    // writes, so they are on disk. Runs once; later calls do nothing.
+    void app_ending();
     bool app_focused() const;
     bool app_suspended() const;
     // A new test: focus, no suspend (the audio and time.scale are put back by the test reset), the date back to the start date.

@@ -2240,9 +2240,10 @@
     // set; fn gets game.today()). fn gets no arguments otherwise. Returns the function that stops listening; listeners end with the scene,
     // like world.on. With factoria.json "pauseOnSuspend" (default true) the engine freezes the game and the music after the
     // "suspend" handlers ran (unless a handler paused it already) and unfreezes it before the "resume" handlers.
-    // "quit" (desktop windows only: the close button, Cmd+Q, Alt+F4) gets an event { cancel(), cancelled }: event.cancel() keeps
-    // the window open, for a "Really quit?" menu or a last save; call game.quit() later to close it. A quit the game asked for
-    // with game.quit() does not raise "quit".
+    // "quit" (the close button, Cmd+Q, Alt+F4 of a desktop window; the web's pagehide; Android destroying the activity) gets an
+    // event { cancel(), cancelled }: event.cancel() keeps a desktop window open, for a "Really quit?" menu or a last save; call
+    // game.quit() later to close it. The web and Android cannot be kept open. A quit the game asked for with game.quit() does not
+    // raise "quit".
     // "gamepadConnected" and "gamepadDisconnected" (a pad was plugged in or out, or paired or lost over Bluetooth) get
     // { slot, id, name, type }: the slot is the pad number input.gamepad(slot) answers for, the id stays the same for the same
     // physical pad every time (use it to give a player their pad back), the name is what the OS calls it and the type is
@@ -2255,8 +2256,8 @@
       }
       if (typeof fn !== "function") throw new Error(`game.on("${event}", fn) expects a function, e.g. game.on("${event}", () => console.log("${event}")), but got ${inspect(fn)}`);
       if (event === "quit") {
-        // The player's close button, Cmd+Q or Alt+F4 (desktop only). event.cancel() keeps the window open; game.quit() closes it
-        // for good (it does not come back to this handler).
+        // The player's close button, Cmd+Q or Alt+F4 (and the web's pagehide, Android's end, which cannot be cancelled).
+        // event.cancel() keeps the window open; game.quit() closes it for good (it does not come back to this handler).
         return addListener("app.quit", () => {
           const ev = { cancelled: false, cancel() { ev.cancelled = true; N.quitCancel(); } };
           fn(ev);
