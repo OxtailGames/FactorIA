@@ -717,8 +717,8 @@ The 'ears' for spatial audio, usually on the camera or player. If no listener ex
 |---|---|---|---|
 | `volume` | float | `1.0` | Master volume multiplier for everything this listener hears. Range 0.0..4.0. |
 | `zoom` | float | `1.0` | Scales how far positional sounds are heard: a spatial AudioSource is silent at `range * zoom` from the listener (gain = 1 - distance / (range * zoom), and the pan spans the same distance), so 2 doubles the reach and 0.5 halves it. A game with a zoomable 2D camera sets it from the camera's orthoSize each frame. When the camera is the listener (no AudioListener component) the zoom is 1. Range 0.01..100.0. (since 0.3.0) |
-| `spatialization` | enum: pan \| hrtf | `"pan"` | How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, with no recorded data). NOT YET: hrtf lands in M98.8c; until then it sounds as pan. (not released yet, on main after 0.29.1) |
-| `headRadius` | float | `0.0875` | hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; scale it with the world in a game that does not use meters). It sets the time difference between the ears. NOT YET (M98.8c). Range 0.001..100000.0. (not released yet, on main after 0.29.1) |
+| `spatialization` | enum: pan \| hrtf | `"pan"` | How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/SOUND.md, Headphones. (not released yet, on main after 0.29.1) |
+| `headRadius` | float | `0.0875` | hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; scale it with the world in a game that does not use meters). It sets the time difference between the ears (Woodworth: about 0.66 ms at 90 degrees for the default). A head smaller than 0.03 m or larger than 0.12 m at speedOfSound 343 (the ratio headRadius / speedOfSound is what counts) is clamped, with a warning that says how to fix it. Range 0.001..100000.0. (not released yet, on main after 0.29.1) |
 | `speedOfSound` | float | `343.0` | Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives. Range 1.0..10000000.0. (not released yet, on main after 0.29.1) |
 
 ## UI
@@ -17718,12 +17718,12 @@ declare module "factoria" {
      */
     zoom: number;
     /**
-     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, with no recorded data). NOT YET: hrtf lands in M98.8c; until then it sounds as pan.
+     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/SOUND.md, Headphones.
      * @since unreleased
      */
     spatialization: "pan" | "hrtf";
     /**
-     * hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; scale it with the world in a game that does not use meters). It sets the time difference between the ears. NOT YET (M98.8c).
+     * hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; scale it with the world in a game that does not use meters). It sets the time difference between the ears (Woodworth: about 0.66 ms at 90 degrees for the default). A head smaller than 0.03 m or larger than 0.12 m at speedOfSound 343 (the ratio headRadius / speedOfSound is what counts) is clamped, with a warning that says how to fix it.
      * @since unreleased
      */
     headRadius: number;

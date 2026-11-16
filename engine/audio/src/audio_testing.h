@@ -29,6 +29,10 @@ struct AudioTestAccess {
     // The gain of a blocked path on a sound played at a place (apart from the voice's volume); -1 for no voice.
     static float voice_occlusion_gain(Audio& audio, VoiceId voice);
     static void set_voice_lowpass(Audio& audio, VoiceId voice, float hz);
+    // Whether the game side has the voice under the head model (AudioListener.spatialization "hrtf"), and the output's channel count
+    // as init() found it (a test of a mono device).
+    static bool voice_hrtf(Audio& audio, VoiceId voice);
+    static void set_device_channels(Audio& audio, int channels);
     // The music cache's size limit (default 128 MB).
     static void set_music_cache_budget(Audio& audio, std::size_t bytes);
     // Off: no decode job refills the streamed voices (a test makes underruns).
