@@ -6,12 +6,18 @@
 //   parsed; keep that marker rare. The API names of a fragment are still checked.
 // - API names: `root.member` (and `root.member.member` while the member's declared type is an interface of the typings)
 //   for every root the typings export as a const (`world`, `ui`, `input`, ...), a namespace (`tween`) or a class (static
-//   members: `Vec2.zero`). Strings and comments are ignored; a root the block declares itself is skipped. It is a name
-//   check, not a type checker.
+//   members: `Vec2.zero`). Strings and comments are ignored (code inside `${...}` is checked); a root the block declares
+//   itself (const/let/var/function/class, a parameter, a destructured name, an alias or an import from another module) is
+//   skipped; a name imported from "factoria" or "factoria:test" is NOT a declaration, it is the root checked. A block that
+//   imports from "factoria:test" or calls test()/expect()/describe() reads the roots of that module (its `game`).
+//   It is a name check, not a type checker. What it does not see: the members of a returned value (`world.find(x).foo`),
+//   a chain that continues on the next line, a regular-expression literal that holds a quote or `//`, a root used as a
+//   property name written `root .x`, and a declaration that an earlier block of the same page made.
 // The typings are the ones `factoria api --dts` writes, produced in memory by the engine that is running.
 #include <doctest.h>
 
 #include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <map>
 #include <regex>
@@ -115,18 +121,63 @@ struct Typings {
     std::map<std::string, std::string> testRoots;  // the same for module "factoria:test" (its `game` is another one)
 };
 
-void add_member(TypeInfo& t, const std::string& line, bool wantStatic) {
-    if (std::regex_search(line, std::regex(R"(^    (?:readonly\s+)?\[)"))) t.indexed = true;
-    static const std::regex m(
-        R"(^    (static\s+)?(?:readonly\s+|get\s+|set\s+)*([A-Za-z_$][\w$]*)\s*(\??)\s*([:(<])\s*([\w$]*)([^;]*))");
-    std::smatch r;
-    if (!std::regex_search(line, r, m)) return;
-    const bool isStatic = r[1].matched;
-    if (isStatic != wantStatic) return;
-    std::string type;
-    if (r[4] == ":" && r[6].str().empty()) type = r[5];  // `name: Type;` and nothing after the identifier
-    t.members[r[2]] = type;
+bool word_char(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$'; }
+
+// The identifier that starts at line[i] ("" when none); moves i past it.
+std::string take_ident(const std::string& line, size_t& i) {
+    const size_t start = i;
+    if (i < line.size() && (std::isalpha(static_cast<unsigned char>(line[i])) || line[i] == '_' || line[i] == '$'))
+        while (i < line.size() && word_char(line[i])) ++i;
+    return line.substr(start, i - start);
 }
+
+void skip_spaces(const std::string& line, size_t& i) {
+    while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
+}
+
+// One member line of an interface, class or namespace body (4 spaces of indent): `name?: Type;`, `name(...): T;`,
+// `static readonly name: T;`, `[key: string]: T;` (an index signature: any name is a member).
+void add_member(TypeInfo& t, const std::string& line, bool wantStatic) {
+    if (line.compare(0, 4, "    ") != 0 || line.size() < 5 || line[4] == ' ') return;
+    size_t i = 4;
+    if (line.compare(i, 9, "readonly ") == 0 && line.size() > i + 9 && line[i + 9] == '[') i += 9;
+    if (line[i] == '[') {  // `[name: string]` is an index signature; `[Symbol.iterator]` is not
+        size_t k = i + 1;
+        if (!take_ident(line, k).empty() && k < line.size() && line[k] == ':') t.indexed = true;
+        return;
+    }
+    bool isStatic = false;
+    for (;;) {  // modifiers: a word followed by a space and another identifier
+        size_t k = i;
+        const std::string w = take_ident(line, k);
+        if ((w == "static" || w == "readonly" || w == "get" || w == "set") && k < line.size() && line[k] == ' ') {
+            size_t k2 = k;
+            skip_spaces(line, k2);
+            size_t k3 = k2;
+            if (!take_ident(line, k3).empty()) {
+                if (w == "static") isStatic = true;
+                i = k2;
+                continue;
+            }
+        }
+        break;
+    }
+    const std::string name = take_ident(line, i);
+    if (name.empty() || isStatic != wantStatic) return;
+    if (i < line.size() && line[i] == '?') ++i;
+    skip_spaces(line, i);
+    if (i >= line.size() || (line[i] != ':' && line[i] != '(' && line[i] != '<')) return;
+    std::string type;
+    if (line[i] == ':') {  // `name: Type;` and nothing after the identifier
+        ++i;
+        skip_spaces(line, i);
+        const std::string ty = take_ident(line, i);
+        if (i >= line.size() || line[i] == ';') type = ty;
+    }
+    t.members[name] = type;
+}
+
+bool starts_with_at(const std::string& s, const char* p) { return s.rfind(p, 0) == 0; }
 
 Typings parse_typings(const std::string& dts) {
     Typings ty;
@@ -134,14 +185,14 @@ Typings parse_typings(const std::string& dts) {
     static const std::regex declNs(R"(^  export namespace ([\w$]+) \{$)");
     static const std::regex declConst(R"(^  export const ([\w$]+): ([\w$]+);$)");
     static const std::regex declFn(R"(^  export function ([\w$]+)\()");
-    static const std::regex nsMember(R"(^    (?:function|const|let) ([\w$]+))");
     std::string cur;
     bool inTest = false;
     enum { None, Type, Ns } mode = None;
     for (const std::string& line : split_lines(dts)) {
         std::smatch m;
-        if (line.rfind("declare module ", 0) == 0) inTest = line.find("factoria:test") != std::string::npos;
+        if (starts_with_at(line, "declare module ")) inTest = line.find("factoria:test") != std::string::npos;
         if (mode == None) {
+            if (!starts_with_at(line, "  export ")) continue;  // the regexes below all start with it
             if (std::regex_match(line, m, declType)) {
                 cur = m[1];
                 mode = Type;
@@ -161,36 +212,45 @@ Typings parse_typings(const std::string& dts) {
         } else if (mode == Type) {
             add_member(ty.types[cur], line, false);
             add_member(ty.statics[cur], line, true);
-        } else if (std::regex_search(line, m, nsMember)) {
-            ty.statics[cur].members[m[1]] = "";
+        } else if (line.compare(0, 4, "    ") == 0) {  // namespace member: function / const / let name
+            size_t i = 4;
+            const std::string kw = take_ident(line, i);
+            if (kw == "function" || kw == "const" || kw == "let") {
+                skip_spaces(line, i);
+                const std::string name = take_ident(line, i);
+                if (!name.empty()) ty.statics[cur].members[name] = "";
+            }
         }
     }
     return ty;
 }
 
+// Puts the global project root back when the scope ends, also when a REQUIRE throws.
+struct ProjectRootGuard {
+    stdfs::path saved = fs::project_root();
+    ~ProjectRootGuard() { fs::set_project_root(saved); }
+};
+
 std::string typings_text() {
     std::string dts;
     testing::TempDir tmp;
-    const stdfs::path savedRoot = fs::project_root();
+    ProjectRootGuard guard;
     REQUIRE(create_project(tmp.str(), "2d-empty", {}).ok());
     fs::set_project_root(tmp.str());
-    {
-        EngineConfig cfg;
-        cfg.projectDir = tmp.str();
-        cfg.graphics = false;
-        cfg.headless = true;
-        cfg.audioDevice = false;
-        cfg.hotReload = false;
-        cfg.memoryStorage = true;
-        cfg.platformBackend = "fake";
-        Engine engine;
-        std::string err;
-        const bool started = engine.init(cfg, nullptr, &err);
-        REQUIRE_MESSAGE(started, err);
-        dts = export_typescript(engine.scripts());
-        engine.shutdown();
-    }
-    fs::set_project_root(savedRoot);
+    EngineConfig cfg;
+    cfg.projectDir = tmp.str();
+    cfg.graphics = false;
+    cfg.headless = true;
+    cfg.audioDevice = false;
+    cfg.hotReload = false;
+    cfg.memoryStorage = true;
+    cfg.platformBackend = "fake";
+    Engine engine;
+    std::string err;
+    const bool started = engine.init(cfg, nullptr, &err);
+    REQUIRE_MESSAGE(started, err);
+    dts = export_typescript(engine.scripts());
+    engine.shutdown();
     return dts;
 }
 
@@ -213,10 +273,31 @@ bool member_of(const Typings& ty, const std::string& type, const std::string& na
 }
 
 // -------------------------------------------------------------------------------------------------------- the scan
-// The code of a block with comments and the contents of string literals blanked out (newlines kept).
-std::string strip_text(const std::string& s) {
-    std::string out = s;
-    for (size_t i = 0; i < s.size();) {
+// Blanks comments and the text of string literals in s[i..] (newlines kept), writing into out. Code inside `${...}` of a
+// template literal stays. Stops at the `}` that closes a `${` when inBrace.
+void strip_code(const std::string& s, std::string& out, size_t& i, bool inBrace);
+
+void strip_template(const std::string& s, std::string& out, size_t& i) {  // s[i] is the opening backtick
+    ++i;
+    while (i < s.size() && s[i] != '`') {
+        if (s[i] == '\\' && i + 1 < s.size()) {
+            out[i++] = ' ';
+            if (s[i] != '\n') out[i] = ' ';
+            ++i;
+        } else if (s[i] == '$' && i + 1 < s.size() && s[i + 1] == '{') {
+            i += 2;
+            strip_code(s, out, i, true);
+        } else {
+            if (s[i] != '\n') out[i] = ' ';
+            ++i;
+        }
+    }
+    if (i < s.size()) ++i;
+}
+
+void strip_code(const std::string& s, std::string& out, size_t& i, bool inBrace) {
+    int depth = 0;
+    while (i < s.size()) {
         const char c = s[i];
         if (c == '/' && i + 1 < s.size() && s[i + 1] == '/') {
             while (i < s.size() && s[i] != '\n') out[i++] = ' ';
@@ -225,31 +306,194 @@ std::string strip_text(const std::string& s) {
             const size_t stop = end == std::string::npos ? s.size() : end + 2;
             for (; i < stop; ++i)
                 if (s[i] != '\n') out[i] = ' ';
-        } else if (c == '"' || c == '\'' || c == '`') {
+        } else if (c == '`') {
+            strip_template(s, out, i);
+        } else if (c == '"' || c == '\'') {
             ++i;
-            while (i < s.size() && s[i] != c && !(s[i] == '\n' && c != '`')) {
+            while (i < s.size() && s[i] != c && s[i] != '\n') {
                 if (s[i] == '\\' && i + 1 < s.size()) out[i++] = ' ';
-                if (s[i] != '\n') out[i] = ' ';
+                out[i] = ' ';
                 ++i;
             }
-            if (i < s.size()) ++i;
+            if (i < s.size() && s[i] == c) ++i;
+        } else if (c == '{') {
+            ++depth;
+            ++i;
+        } else if (c == '}') {
+            if (inBrace && depth == 0) {
+                ++i;
+                return;
+            }
+            --depth;
+            ++i;
         } else {
             ++i;
         }
     }
+}
+
+// The code of a block with comments and the contents of string literals blanked out (newlines kept).
+std::string strip_text(const std::string& s) {
+    std::string out = s;
+    size_t i = 0;
+    strip_code(s, out, i, false);
     return out;
 }
 
-bool declares(const std::string& code, const std::string& name) {
-    const std::string n = std::regex_replace(name, std::regex(R"(\$)"), R"(\$)");
-    return std::regex_search(code, std::regex("\\b(?:const|let|var|function|class)\\s+" + n + "\\b")) ||
-           std::regex_search(code, std::regex("[(,]\\s*" + n + "\\s*[,)=]")) ||  // a parameter or a destructured name
-           std::regex_search(code, std::regex("\\b" + n + "\\s*=>")) ||
-           std::regex_search(code, std::regex("[{,]\\s*(?:[\\w$]+\\s*:\\s*)?" + n + "\\s*[,}]\\s*=")) ||
-           std::regex_search(code, std::regex("\\bimport\\b[^;\\n]*\\b" + n + "\\b"));
+struct Tok {
+    std::string text;
+    size_t pos = 0;
+    bool ident = false;
+};
+
+std::vector<Tok> tokenize(const std::string& code) {
+    std::vector<Tok> toks;
+    for (size_t i = 0; i < code.size();) {
+        const char c = code[i];
+        if (std::isspace(static_cast<unsigned char>(c))) {
+            ++i;
+        } else if (word_char(c)) {
+            const size_t start = i;
+            while (i < code.size() && word_char(code[i])) ++i;
+            toks.push_back({code.substr(start, i - start), start, !std::isdigit(static_cast<unsigned char>(c))});
+        } else if (c == '=' && i + 1 < code.size() && code[i + 1] == '>') {
+            toks.push_back({"=>", i, false});
+            i += 2;
+        } else {
+            toks.push_back({std::string(1, c), i, false});
+            ++i;
+        }
+    }
+    return toks;
 }
 
-bool ident_char(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$'; }
+bool is_open(const std::string& t) { return t == "(" || t == "[" || t == "{"; }
+bool is_close(const std::string& t) { return t == ")" || t == "]" || t == "}"; }
+
+// The names a binding or parameter list declares: toks[from, to). A key before `:` inside `{}` is not one, and neither is
+// the value after a `=` (a default).
+void collect_pattern(const std::vector<Tok>& toks, size_t from, size_t to, std::set<std::string>& names) {
+    std::vector<std::string> stack;
+    bool skip = false;
+    size_t skipDepth = 0;
+    for (size_t k = from; k < to; ++k) {
+        const std::string& t = toks[k].text;
+        if (is_open(t)) {
+            stack.push_back(t);
+        } else if (is_close(t)) {
+            if (!stack.empty()) stack.pop_back();
+            if (skip && stack.size() < skipDepth) skip = false;
+        } else if (t == ",") {
+            if (skip && stack.size() == skipDepth) skip = false;
+        } else if (t == "=") {
+            if (!skip) {
+                skip = true;
+                skipDepth = stack.size();
+            }
+        } else if (!skip && toks[k].ident) {
+            const bool key = !stack.empty() && stack.back() == "{" && k + 1 < to && toks[k + 1].text == ":";
+            if (!key) names.insert(t);
+        }
+    }
+}
+
+bool is_keyword_before_paren(const std::string& t) {
+    static const std::set<std::string> kw = {"if",    "for",   "while", "switch", "with",   "return", "typeof",
+                                             "await", "yield", "in",    "of",     "new",    "delete", "void",
+                                             "throw", "else",  "case",  "do",     "import", "super",  "function"};
+    return kw.count(t) > 0;
+}
+
+// Names a block declares itself, from its code with strings and comments blanked.
+std::set<std::string> declared_names(const std::string& code) {
+    std::set<std::string> names;
+    const std::vector<Tok> toks = tokenize(code);
+    std::vector<size_t> match(toks.size(), size_t(-1));  // the closing bracket of each opening one
+    {
+        std::vector<size_t> st;
+        for (size_t i = 0; i < toks.size(); ++i) {
+            if (is_open(toks[i].text)) {
+                st.push_back(i);
+            } else if (is_close(toks[i].text) && !st.empty()) {
+                match[st.back()] = i;
+                st.pop_back();
+            }
+        }
+    }
+    auto params_at = [&](size_t open) {  // toks[open] is "("
+        if (match[open] != size_t(-1)) collect_pattern(toks, open + 1, match[open], names);
+    };
+    std::map<size_t, size_t> openOf;  // closing bracket -> opening one
+    for (size_t i = 0; i < toks.size(); ++i)
+        if (match[i] != size_t(-1)) openOf[match[i]] = i;
+    for (size_t i = 0; i < toks.size(); ++i) {
+        const std::string& t = toks[i].text;
+        const bool hasNext = i + 1 < toks.size();
+        if ((t == "const" || t == "let" || t == "var") && hasNext) {
+            const size_t j = i + 1;
+            if (toks[j].ident) {
+                names.insert(toks[j].text);
+            } else if ((toks[j].text == "[" || toks[j].text == "{") && match[j] != size_t(-1)) {
+                collect_pattern(toks, j, match[j] + 1, names);
+            }
+        } else if ((t == "function" || t == "class") && hasNext) {
+            size_t j = i + 1;
+            if (toks[j].text == "*" && j + 1 < toks.size()) ++j;
+            if (toks[j].ident && toks[j].text != "extends") names.insert(toks[j].text);
+            if (t == "function") {
+                while (j < toks.size() && toks[j].text != "(" && toks[j].text != "{" && toks[j].text != ";") ++j;
+                if (j < toks.size() && toks[j].text == "(") params_at(j);
+            }
+        } else if (t == "catch" && hasNext && toks[i + 1].text == "(") {
+            params_at(i + 1);
+        } else if (t == "=>" && i > 0) {
+            if (toks[i - 1].ident) {
+                names.insert(toks[i - 1].text);  // x => ...
+            } else if (toks[i - 1].text == ")") {
+                auto it = openOf.find(i - 1);
+                if (it != openOf.end()) params_at(it->second);  // (a, { b }) => ...
+            }
+        } else if (toks[i].ident && hasNext && toks[i + 1].text == "(" && !is_keyword_before_paren(t) &&
+                   match[i + 1] != size_t(-1) && match[i + 1] + 1 < toks.size() && toks[match[i + 1] + 1].text == "{" &&
+                   (i == 0 || (toks[i - 1].text != "." && toks[i - 1].text != "new"))) {
+            params_at(i + 1);  // a method: name(a, b) { ... }
+        }
+    }
+    return names;
+}
+
+// What the imports of a block say (read from the raw code: the module name is a string).
+struct ImportInfo {
+    std::set<std::string> declared;  // local names that are not a root of the typings
+    bool fromTest = false;           // imports from "factoria:test"
+};
+
+ImportInfo read_imports(const std::string& code) {
+    static const std::regex importRe(R"re(\bimport\s+([^;"'\n]*?)\s*from\s*["']([^"']+)["'])re");
+    static const std::regex itemRe(R"(([\w$]+)(?:\s+as\s+([\w$]+))?)");
+    ImportInfo info;
+    for (auto it = std::sregex_iterator(code.begin(), code.end(), importRe); it != std::sregex_iterator(); ++it) {
+        const std::string clause = (*it)[1], module = (*it)[2];
+        const bool engine = module == "factoria" || module == "factoria:test";
+        if (module == "factoria:test") info.fromTest = true;
+        for (auto m = std::sregex_iterator(clause.begin(), clause.end(), itemRe); m != std::sregex_iterator(); ++m) {
+            const std::string first = (*m)[1], alias = (*m)[2];
+            if (first == "type") continue;
+            if (!alias.empty()) {
+                info.declared.insert(alias);  // `{ world as w }`, `* as fa`: w is not the root
+            } else if (!engine && first != "as") {
+                info.declared.insert(first);
+            }
+        }
+        if (clause.find("* as") != std::string::npos && engine) {  // `import * as f from "factoria"`: f is a namespace
+            const size_t at = clause.find("* as");
+            size_t k = at + 4;
+            skip_spaces(clause, k);
+            info.declared.insert(take_ident(clause, k));
+        }
+    }
+    return info;
+}
 
 std::string describe_candidates(const std::map<std::string, std::string>& members, const std::string& name) {
     std::vector<std::string> names;
@@ -257,76 +501,76 @@ std::string describe_candidates(const std::map<std::string, std::string>& member
     return did_you_mean(name, names);
 }
 
+std::string problem_line(const Block& b, int line, const std::string& what, const std::string& hint) {
+    return "  " + b.file + ":" + std::to_string(line) + ": `" + what + "` is not in the script API" +
+           (hint.empty() ? "" : " (" + hint + ")") + "\n";
+}
+
 // Problems of the API names of one block ("" when none).
 std::string api_problems(const Typings& ty, const Block& b) {
-    // A block that imports from "factoria:test", or is a test (test(...), expect(...)), reads that module's roots (its `game`) over the others.
-    std::map<std::string, std::string> roots = ty.roots;
-    static const std::regex testCode(R"(factoria:test|\b(?:test|it|describe|expect|robust|beforeEach)\()");
-    if (std::regex_search(b.code, testCode))
-        for (const auto& kv : ty.testRoots) roots[kv.first] = kv.second;
     const std::string code = strip_text(b.code);
+    const ImportInfo imports = read_imports(b.code);
+    std::map<std::string, std::string> roots = ty.roots;
+    static const std::regex testCode(R"(\b(?:test|it|describe|expect|robust|beforeEach)\()");
+    if (imports.fromTest || std::regex_search(code, testCode))
+        for (const auto& kv : ty.testRoots) roots[kv.first] = kv.second;
+    std::set<std::string> declared = declared_names(code);
+    declared.insert(imports.declared.begin(), imports.declared.end());
+    const std::vector<Tok> toks = tokenize(code);
     std::string out;
     std::set<std::string> reported;
-    for (const auto& [root, type] : roots) {
-        if (declares(code, root)) continue;
-        size_t at = 0;
-        while ((at = code.find(root, at)) != std::string::npos) {
-            const size_t start = at;
-            at += root.size();
-            if (start > 0 && (ident_char(code[start - 1]) || code[start - 1] == '.')) continue;
-            // `root?.a` is read like `root.a`
-            size_t p = at;
-            std::string curType = type;
-            std::string path = root;
-            while (p < code.size() && !curType.empty()) {
-                if (code[p] == '?' && p + 1 < code.size() && code[p + 1] == '.') ++p;
-                if (code[p] != '.') break;
-                size_t q = p + 1;
-                while (q < code.size() && ident_char(code[q])) ++q;
-                const std::string name = code.substr(p + 1, q - p - 1);
-                if (name.empty()) break;
-                std::string next;
-                if (!member_of(ty, curType, name, &next)) {
-                    const int line = b.line + 1 + int(std::count(code.begin(), code.begin() + start, '\n'));
-                    const std::string key = path + "." + name + "@" + std::to_string(line);
-                    if (reported.insert(key).second) {
-                        std::string hint;
-                        auto it = ty.types.find(curType);
-                        if (it != ty.types.end()) hint = describe_candidates(it->second.members, name);
-                        out += "  " + b.file + ":" + std::to_string(line) + ": `" + path + "." + name +
-                               "` is not in the script API";
-                        out += hint.empty() ? "" : " (" + hint + ")";
-                        out += "\n";
-                    }
-                    break;
-                }
-                path += "." + name;
-                curType = next;
-                p = q;
-            }
-        }
-    }
-    // Namespaces and classes: static members.
-    static const std::regex staticRef(R"((^|[^\w$.])([A-Z_a-z$][\w$]*)\.([A-Za-z_$][\w$]*))");
-    for (auto it = std::sregex_iterator(code.begin(), code.end(), staticRef); it != std::sregex_iterator(); ++it) {
-        const std::string root = (*it)[2], name = (*it)[3];
+    std::string lastImportLine;
+    for (size_t i = 0; i < toks.size(); ++i) {
+        if (!toks[i].ident || (i > 0 && toks[i - 1].text == ".")) continue;
+        const std::string& root = toks[i].text;
+        if (declared.count(root)) continue;
+        auto rt = roots.find(root);
         auto st = ty.statics.find(root);
-        if (st == ty.statics.end() || roots.count(root) || declares(code, root)) continue;
-        if (st->second.members.empty()) continue;  // a function or a class without static members
-        if (st->second.members.count(name)) continue;
-        if (ty.types.count(root) && name == "prototype") continue;
-        const int line = b.line + 1 + int(std::count(code.begin(), code.begin() + it->position(2), '\n'));
-        if (!reported.insert(root + "." + name + "@" + std::to_string(line)).second) continue;
-        const std::string hint = describe_candidates(st->second.members, name);
-        out += "  " + b.file + ":" + std::to_string(line) + ": `" + root + "." + name + "` is not in the script API";
-        out += hint.empty() ? "" : " (" + hint + ")";
-        out += "\n";
+        const bool isRoot = rt != roots.end();
+        if (!isRoot && (st == ty.statics.end() || st->second.members.empty())) continue;
+        // walk the chain `.a.b` (also `?.a`)
+        std::string curType = isRoot ? rt->second : "";
+        std::string path = root;
+        size_t k = i + 1;
+        bool first = true;
+        while (k + 1 < toks.size() && (isRoot || first)) {
+            size_t d = k;
+            if (toks[d].text == "?" && d + 1 < toks.size() && toks[d + 1].text == ".") ++d;
+            if (toks[d].text != "." || d + 1 >= toks.size() || !toks[d + 1].ident) break;
+            // `..` or `...` is a spread, not a member access
+            if (d > 0 && toks[d - 1].text == ".") break;
+            const std::string& name = toks[d + 1].text;
+            const int line = b.line + 1 + int(std::count(code.begin(), code.begin() + toks[i].pos, '\n'));
+            std::string next;
+            bool ok;
+            std::string hint;
+            if (isRoot) {
+                ok = member_of(ty, curType, name, &next);
+                if (!ok) {
+                    auto it = ty.types.find(curType);
+                    if (it != ty.types.end()) hint = describe_candidates(it->second.members, name);
+                }
+            } else {
+                ok = st->second.members.count(name) > 0 || (ty.types.count(root) && name == "prototype");
+                if (!ok) hint = describe_candidates(st->second.members, name);
+            }
+            if (!ok) {
+                if (reported.insert(path + "." + name + "@" + std::to_string(line)).second)
+                    out += problem_line(b, line, path + "." + name, hint);
+                break;
+            }
+            path += "." + name;
+            curType = next;
+            k = d + 2;
+            first = false;
+            if (curType.empty()) break;
+        }
     }
     return out;
 }
 
 // ---------------------------------------------------------------------------------------------------------- parsing
-// Every import resolves to an empty module: only the syntax of the block is checked.
+// QuickJS asks for every imported module while it compiles: each one is an empty module, only the syntax is checked.
 JSModuleDef* empty_module(JSContext* ctx, const char* name, void*) {
     static const std::string src = "export {};";
     JSValue v = JS_Eval(ctx, src.c_str(), src.size(), name, JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
@@ -385,6 +629,22 @@ TEST_CASE("docs js: the scanner finds blocks, fragments and API names") {
     CHECK(p.find("nope") == std::string::npos);
     b.code = "const ui = {}; ui.anything;\n";
     CHECK(api_problems(ty, b).empty());
+    // an import from "factoria" is the root itself: it is checked, not a declaration
+    b.code = "import { ui } from \"factoria\";\nui.layot();\n";
+    CHECK(api_problems(ty, b).find("`ui.layot`") != std::string::npos);
+    b.code = "import { ui as u } from \"factoria\";\nui.layot();\n";  // only the alias is local
+    CHECK(api_problems(ty, b).find("`ui.layot`") != std::string::npos);
+    b.code = "import { ui } from \"./other.js\";\nui.layot();\n";
+    CHECK(api_problems(ty, b).empty());
+    // a call argument is not a declaration; a parameter, a destructuring and a loop variable are
+    b.code = "foo(ui); ui.layot();\n";
+    CHECK(api_problems(ty, b).find("`ui.layot`") != std::string::npos);
+    b.code = "function f(a, ui) { ui.layot(); }\n";
+    CHECK(api_problems(ty, b).empty());
+    b.code = "const g = ({ ui }) => ui.layot();\nfor (const [i, ui] of xs) ui.layot();\nconst [a, ui2] = y; ui2.q;\n";
+    CHECK(api_problems(ty, b).empty());
+    b.code = "const t = `a ${ui.layot()} b`;\n";  // code inside ${} is checked
+    CHECK(api_problems(ty, b).find("`ui.layot`") != std::string::npos);
 }
 
 TEST_CASE("docs js: every js block of docs/ parses and uses only names of the script API") {

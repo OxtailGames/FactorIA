@@ -145,7 +145,8 @@ answers where it is drawn, and a mesh that did not change is not rebuilt (the tr
 inside a submesh count, the ones the mesh draws:
 
 ```js
-import { game, camera } from "factoria";
+import { camera } from "factoria";
+import { game } from "factoria:test";
 // The screen point where the model shows the toggle (here: the model's point [0, 0.2, 0]); any point over the mesh will do.
 const pos = camera.worldToScreen([0, 0.2, 0]);
 game.mouseMove(pos);                  // ui.hover fires for the Interactable under that point of the picture
