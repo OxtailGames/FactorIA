@@ -531,7 +531,7 @@ TEST_CASE("websocket client: destroying an open connection leaves nothing behind
         for (int code : server.client_close_codes()) goodbye = goodbye || code == 1001;
         if (!goodbye) std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    CHECK(goodbye);
+    CHECK_MESSAGE(goodbye, server.diagnostics());
     while (server.finished_connections() < 1 && std::chrono::steady_clock::now() < end)
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     CHECK(server.finished_connections() >= 1);
@@ -561,7 +561,7 @@ TEST_CASE("websocket client: a client closes with an application code") {
     CHECK(events.back().code == 4242);
     CHECK(events.back().reason == "custom");
     const auto codes = server.client_close_codes();
-    REQUIRE(codes.size() == 1);
+    REQUIRE_MESSAGE(codes.size() == 1, server.diagnostics());
     CHECK(codes[0] == 4242);
 }
 
