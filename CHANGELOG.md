@@ -49,7 +49,10 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   through the pad's own descriptor (buttons, axes scaled by their logical range, the hat) in DirectInput's numbering, so the
   Windows lines of SDL GameControllerDB, now embedded in the Windows build only, map them; `SDL_GAMECONTROLLERCONFIG` and
   the project's `gamecontrollerdb.txt` come first, and a pad nothing lists gets a default layout read from the pad. XInput
-  and HID pads share the slots 0..3 (a pad keeps its slot while connected, a gap is filled first); plugging comes from the
+  and HID pads share the slots 0..3: a pad keeps its slot while connected, and a pad that appears takes the slot it had last
+  time when that is free, else the lowest free one, so an Xbox pad no longer takes its XInput user index. A remapper that
+  shows a PlayStation or Switch pad as a virtual Xbox pad (DS4Windows, Steam Input) makes two pads, the virtual and the
+  physical one: turn it off for the game or have it hide the physical pad. Plugging comes from the
   OS's device notifications, and XInput's empty slots are asked every 2 s and right after a notification instead of on a
   fixed timer only. HID pads answer `canRumble: false` with a reason saying their rumble is coming (M98.5b2). Not yet tried
   with a physical pad.
@@ -64,6 +67,15 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   example scene needed it). A widget moved into a laid-out Panel or ScrollList with `scene.set_parent` (keepWorld) goes to its
   slot, position 0, as before; reordering under the same parent changes only the order. 6e's turned-parent drawing now applies only under a turned or scaled widget, so a plain scaled
   group of HUD visuals keeps its old placement (docs/menus/MENUS_RECIPES.md, "Where a laid-out child is").
+  fixed timer only. Generic HID pads answer `canRumble: false` with a reason. Not yet tried with a physical pad.
+- **Windows rumble and full reports for PlayStation and Switch pads (M98.5b2):** the DualShock 4, DualSense (and Edge) and
+  Switch Pro, over USB or Bluetooth, now rumble on Windows (`canRumble: true`): the engine's own drivers send each pad's
+  output report through its HID device (non-blocking, one write in flight per pad, the latest request wins), with the
+  Switch Pro's handshake and HD rumble. The drivers also switch each pad to its full input report, so a Bluetooth DualShock 4
+  or DualSense reports its analog triggers and a Switch Pro its full sticks. A pad another program holds exclusively, or
+  that stops taking reports, answers `canRumble: false` with a reason saying what to do; a pad that vanishes mid-write
+  leaks nothing, and the motors stop when the game quits. `hid.dll` and `xinput1_4.dll` load from System32 only, and a pad
+  whose details Windows cannot give yet at its arrival is retried (warned once). Not yet tried with a physical pad.
 - **Several entities selected (M98.7b):** in the editor, Ctrl/Cmd+click toggles and Shift+click selects a range in the
   Hierarchy, and Ctrl/Cmd+click, Shift+click and a marquee on empty space select in the Viewport. Every selected entity is
   outlined; the gizmo moves, rotates and scales all of them about the primary as one Undo step; Delete, Duplicate and
