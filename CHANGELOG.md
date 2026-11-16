@@ -32,7 +32,10 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   later command cannot overtake an older one (only `shutdown()` is expected after it). Android: the answer of a slot whose
   pad is gone is kept until the stop of a rumble that was playing has reached the vibrator, also when the slot is asked again
   first. Linux: a node that vanished says "plug the pad in again" as a pad with no node does. Web: the pad list of the rumble
-  functions is refreshed by one shared helper. Tests and docs only: the hex vectors of the crypto tests in 64-digit lines,
+  functions is refreshed by one shared helper. Web: the hidden input of a phone keyboard with no IME has `autocomplete="off"` (Safari no longer offers "Use strong password"
+  over the game). Android: with a burst of input filling the IME queue the Back button is still delivered. A scene or component
+  patch (`scene.set_component`, a script's `entity.add` / `entity.set`) that fails on one field still logs the deprecation
+  warning of another field it had taken (it was lost); the warning line of a patch shows its location and hint as a script spawn's does. Tests and docs only: the long hex vectors of the crypto tests wrapped at 64 digits,
   the camera-under-a-blended-parent and Parallax bounds cases of the interpolation tests, `close_device` without a device,
   the rewrapped IME paragraphs of TEXT.md and the interpolation paragraphs of PERFORMANCE_AREAS.md.
 - **Docs tests (M97.4):** every ```` ```js ```` block of `docs/` (the design docs too) is parsed with the engine's QuickJS
@@ -424,7 +427,8 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   `docs.components`, `docs.commands` and the MCP tools mark it. Something deprecated is removed two minor versions later, and
   a test fails when it is not (docs/ARCHITECTURE.md, "Versions"). `tool_describe` (MCP and the built-in agent) and
   `factoria commands <name>` (text and `--json`, and `--json` of the list) show the `deprecated` object too. A warning
-  comes only from the command registry, the scene and prefab loader and the script prelude, once per process, and only in a
+  comes only from the command registry, the scene and prefab loader and the script prelude, once per process (once per project in
+  the editor, which forgets what it said when a project opens), and only in a
   program that calls `install_deprecations()` (the docs say so). A non-empty table costs a command call or a loaded component
   no lock and no key (a lock-free filter by name); a deprecated script constant stays non-writable after its first warning.
 - **Docs (M97.3b):** `docs/AI_GUIDE.md` (275 KB), `ANIMATION.md` and `MUSIC.md` are split into an entry page plus pages under `docs/ai-guide/`, `docs/animation/` and `docs/music/` (every page under 50 KB). Every heading keeps its text, so `docs.read ai-guide --heading "Platformer character"` still finds it; the AI guide's generated tools table now lives in `docs/ai-guide/AI_GUIDE_TOOLS.md` (`docs.write_reference` fills it there).

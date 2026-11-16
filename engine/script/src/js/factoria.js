@@ -5250,7 +5250,7 @@
     tooltipFns.clear(); worldTooltipFn = null; dropFns.clear(); worldDropFn = null;
   }
 
-  // Deprecated script API (docs/design/ARCHITECTURE_CORE.md, "Versions"): `targets` is [{ key, test, path }] from the engine (the "script" part of the
+  // Deprecated script API (docs/design/ARCHITECTURE_CORE.md, "Deprecations"): `targets` is [{ key, test, path }] from the engine (the "script" part of the
   // deprecated section of api_since.json, mapped to where each export or member lives); empty in nearly every run, so nothing is wrapped.
   // A function or class is wrapped in a Proxy that asks the engine for the warning on its first call (the engine logs it once per key
   // per process); a plain value gets an accessor that warns on its first read or write and then puts the data property back with the
@@ -5278,8 +5278,14 @@
           let v = desc.value;
           // After the first warning the property is a data property again (the same attributes, the current value), so a
           // deprecated value costs nothing afterwards and a constant never becomes writable.
-          const restore = () => Object.defineProperty(owner, last,
-            { value: v, writable: desc.writable, enumerable: desc.enumerable, configurable: desc.configurable });
+          // A script may freeze the owner after this ran: putting the data property back then throws, and the accessor stays
+          // (it still returns the value), so a read never throws because of it.
+          const restore = () => {
+            try {
+              Object.defineProperty(owner, last,
+                { value: v, writable: desc.writable, enumerable: desc.enumerable, configurable: desc.configurable });
+            } catch (e) { /* frozen or sealed since: the accessor stays and warned once */ }
+          };
           const accessor = { configurable: true, enumerable: desc.enumerable, get() { warn(); restore(); return v; } };
           if (desc.writable) accessor.set = (x) => { warn(); v = x; restore(); };
           Object.defineProperty(owner, last, accessor);

@@ -263,6 +263,20 @@ TEST_CASE("Android IME: with the queue full the key releases still get through")
     CHECK(in.text_input().empty());
 }
 
+TEST_CASE("Android IME: with the queue full a Back still gets through") {
+    Input in;
+    Session s;
+    AndroidKeys keys;
+    const std::int32_t g = s.set_enabled(true);
+    for (std::size_t i = 0; i < kMaxQueued; ++i) REQUIRE(s.push(simple(Event::Kind::Finish, g)));
+    keys.on_key(kKeycode1, true, '1', false);
+    keys.on_key(kAndroidKeyBack, true, 0, false);
+    CHECK_FALSE(s.push_keys(keys.take()));  // the digit is dropped, the Back is kept
+    s.feed(in);
+    CHECK(in.back_pressed());
+    CHECK(in.text_input().empty());
+}
+
 TEST_CASE("Android IME: deleteSurroundingText presses Backspace and Delete, one per frame") {
     Input in;
     Session s;
