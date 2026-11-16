@@ -27,18 +27,28 @@
 // them. Their arrival and removal still matter: they tell when to probe the XInput slots (GamepadProbeSchedule).
 //
 // Writing (the set-up and rumble of the pads with a driver: DualShock 4, DualSense, Switch Pro; gamepad_hid_drivers.h).
-// Raw Input only reads, so each of those pads also gets a file handle of its own, opened for reading and writing and
-// shared with every other program (FILE_SHARE_READ | FILE_SHARE_WRITE), with FILE_FLAG_OVERLAPPED. Every write and
-// feature read is overlapped I/O started on the main thread, at most one in flight per pad; the rumble wanted meanwhile
-// waits in one slot that the next request replaces (coalesced: only the latest strengths are ever sent), and the driver's
-// set-up requests go first, in order. Why overlapped I/O and not a writer thread per pad: a HID write takes a few
-// milliseconds over Bluetooth and nothing here needs to wait for it, so a thread would add locks, a queue and a join at
-// shutdown (where a write to a pad that is going away can hang) for no gain; with overlapped I/O the main thread only
-// checks HasOverlappedIoCompleted, never waits. The checks run in poll_gamepads(), in gamepad_backend_rumble() and on a
-// 10 ms timer of the message-only window while anything is pending, because poll_gamepads() stops while the game window
-// is unfocused and the stop sent at focus loss must still leave. A pad that disappears mid-write: its I/O is cancelled
-// (CancelIoEx), its handle closed, and the OVERLAPPED with its buffer kept until the OS has finished with them. At exit a
-// pad still playing gets its stop with a bounded wait (50 ms per step), so no motor keeps running after the game closes.
+// Raw Input only reads, so each of those pads also gets a file handle of its own, opened for writing only
+// (GENERIC_WRITE: the reports come from Raw Input, and the feature reads are IOCTL_HID_GET_FEATURE, FILE_ANY_ACCESS,
+// which any handle may send) and shared with every other program (FILE_SHARE_READ | FILE_SHARE_WRITE), with
+// FILE_FLAG_OVERLAPPED. Every write and feature read is overlapped I/O started on the main thread, at most one in
+// flight per pad; the rumble wanted meanwhile waits in one slot that the next request replaces (coalesced: only the
+// latest strengths are ever sent), and the driver's set-up requests go first, in order. Why overlapped I/O and not a
+// writer thread per pad: a HID write takes a few milliseconds over Bluetooth and nothing here needs to wait for it, so
+// a thread would add locks, a queue and a join at shutdown (where a write to a pad that is going away can hang) for no
+// gain; with overlapped I/O the main thread only checks HasOverlappedIoCompleted, never waits. The checks run in
+// poll_gamepads(), in gamepad_backend_rumble() and on a 10 ms timer of the message-only window while anything is
+// pending, because poll_gamepads() stops while the game window is unfocused and the stop sent at focus loss must still
+// leave. A pad that disappears mid-write: its I/O is cancelled (CancelIoEx), its handle closed, and the OVERLAPPED with
+// its buffer kept until the OS has finished with them. A write that fails is tried again (kWriteTries in a row,
+// kWriteRetryMs apart); only an error that says the device is gone, or the last try, ends the pad's rumble.
+//
+// At exit (std::atexit, registered when the backend starts), within kExitBudgetMs for every pad together: the XInput
+// motors that were set are zeroed, every HID write in flight is waited for, a HID pad still playing gets its stop, and
+// the driver's exit report goes out (the Switch Pro back to its simple report). On a crash an unhandled-exception filter,
+// chained to the one before it, zeroes the XInput motors (from a thread made for it beforehand, waited for at most
+// kCrashStopWaitMs: the crashing thread may hold any lock); the HID pads are left alone there, their writes need the
+// backend's state, which a crash may have left half-changed. A hang, a debugger that stops the game or a killed process
+// leave the motors as they are, until the pad is switched off.
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -50,6 +60,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
@@ -89,7 +100,10 @@ XInputApi load_xinput() {
     for (const wchar_t* dll : {L"xinput1_4.dll", L"xinput9_1_0.dll"})
         if (HMODULE m = LoadLibraryExW(dll, nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32)) {
             api.getState = reinterpret_cast<GetStateFn>(reinterpret_cast<void*>(GetProcAddress(m, "XInputGetState")));
-            if (!api.getState) continue;
+            if (!api.getState) {
+                FreeLibrary(m);  // not the XInput we know: try the next one
+                continue;
+            }
             api.setState = reinterpret_cast<SetStateFn>(reinterpret_cast<void*>(GetProcAddress(m, "XInputSetState")));
             return api;
         }
@@ -99,6 +113,66 @@ XInputApi load_xinput() {
 const XInputApi& xinput() {
     static const XInputApi api = load_xinput();
     return api;
+}
+
+// The XInput user indices whose motors may be running (set before a strength other than 0 is sent, cleared by a stop
+// that succeeded), for the stop at exit and on a crash. Atomic: the crash stop runs on a thread of its own.
+std::atomic<bool> g_xinputBuzzing[kMaxGamepads];
+
+// Zeroes the motors of every XInput pad that may be running. A flag is only ever set after xinput() was loaded with
+// its XInputSetState, so this never loads anything.
+void stop_xinput_motors() {
+    for (int i = 0; i < kMaxGamepads; ++i)
+        if (g_xinputBuzzing[i].exchange(false)) {
+            XINPUT_VIBRATION off{};
+            xinput().setState(DWORD(i), &off);
+        }
+}
+
+// The XInput stop on a crash. The crashing thread may hold any lock (the heap's, the loader's, XInput's own), so the
+// stop runs on a thread made beforehand (when an XInput motor first starts), which the filter wakes and waits for at most
+// kCrashStopWaitMs: a stop that cannot run in that time is given up and the crash goes on (to the filter that was there
+// before, the crash reporter's).
+constexpr DWORD kCrashStopWaitMs = 200;
+std::atomic<HANDLE> g_crashWake{nullptr};  // set once the thread runs: the filter signals it
+HANDLE g_crashDone = nullptr;              // the thread signals it once the motors are stopped
+LPTOP_LEVEL_EXCEPTION_FILTER g_previousFilter = nullptr;
+std::atomic<bool> g_crashSeen{
+    false};  // a second crash (in another thread, or in the filter after ours) goes straight on
+
+DWORD WINAPI crash_stop_thread(LPVOID) {
+    WaitForSingleObject(g_crashWake.load(), INFINITE);
+    stop_xinput_motors();
+    SetEvent(g_crashDone);
+    return 0;
+}
+
+LONG WINAPI on_unhandled_exception(EXCEPTION_POINTERS* e) {
+    if (const HANDLE wake = g_crashWake.load(); wake && !g_crashSeen.exchange(true)) {
+        SetEvent(wake);
+        WaitForSingleObject(g_crashDone, kCrashStopWaitMs);
+    }
+    return g_previousFilter ? g_previousFilter(e) : EXCEPTION_CONTINUE_SEARCH;
+}
+
+// Makes the crash-stop thread and installs the filter, the first time an XInput motor starts (main thread only). A
+// failure only means no stop on a crash: the stop at exit does not need it.
+void arm_crash_stop() {
+    static bool armed = false;
+    if (armed) return;
+    armed = true;
+    const HANDLE wake = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    g_crashDone = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (!wake || !g_crashDone) return;
+    g_crashWake.store(wake);  // before the thread starts: it waits on it
+    const HANDLE thread =
+        CreateThread(nullptr, 64 * 1024, crash_stop_thread, nullptr, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+    if (!thread) {
+        g_crashWake.store(nullptr);
+        return;
+    }
+    CloseHandle(thread);  // it ends with the process (or after a crash stop)
+    g_previousFilter = SetUnhandledExceptionFilter(on_unhandled_exception);
 }
 
 float thumb(SHORT v) { return std::clamp(float(v) / 32767.0f, -1.0f, 1.0f); }
@@ -203,7 +277,9 @@ std::string utf8(const wchar_t* s, size_t len) {
 constexpr DWORD kIoctlHidGetFeature = 0x000B0192;
 constexpr UINT_PTR kServiceTimer = 1;  // the message-only window's timer that checks the pads' writes
 constexpr UINT kServiceTimerMs = 10;   // USER_TIMER_MINIMUM
-constexpr DWORD kExitWaitMs = 50;      // at exit: the longest wait for a write in flight, then for the stop
+constexpr DWORD kExitBudgetMs = 100;   // at exit: the longest every pad's waits may hold the process, all together
+constexpr int kWriteTries = 5;         // a write that fails this many times in a row ends the pad's rumble
+constexpr std::uint64_t kWriteRetryMs = 100;  // the wait after a failed write before the next one
 
 // One overlapped I/O on a pad's file handle: the OS writes into `ov` and `buffer` until it completes, so this stays alive
 // (moved to Backend::retired when the pad goes) until HasOverlappedIoCompleted says so.
@@ -234,6 +310,8 @@ struct HidWriter {
     float low = 0.0f, high = 0.0f;                // what the motors were last sent
     bool motorsOn = false;
     std::uint64_t lastRumbleMs = 0;
+    int failures = 0;             // writes that failed in a row (0 after one that succeeded)
+    std::uint64_t retryAtMs = 0;  // while failures > 0: no write starts before this time
     bool open() const { return file != INVALID_HANDLE_VALUE; }
 };
 
@@ -279,8 +357,7 @@ struct Backend {
     // HID devices whose arrival failed for a reason that may pass (Raw Input not ready with their data yet): tried again
     // when the probe schedule says so. `warned`: those already said once in the log.
     std::vector<HANDLE> retry, warned;
-    bool timerOn = false;   // kServiceTimer is running
-    bool exitHook = false;  // flush_at_exit is registered
+    bool timerOn = false;  // kServiceTimer is running
 };
 
 Backend* g_backend = nullptr;  // created on the first poll, lives for the process (as the window and the DLLs do)
@@ -376,9 +453,27 @@ std::string win_error(DWORD e) {
         case ERROR_GEN_FAILURE: what = "the device did not accept the report"; break;
         case ERROR_INVALID_PARAMETER: what = "the device refused the report"; break;
         case ERROR_INVALID_FUNCTION: what = "the device does not take output reports"; break;
+        case ERROR_BAD_COMMAND: what = "the device does not take the report (it may be gone)"; break;
         default: break;
     }
     return "error " + std::to_string(e) + (*what ? std::string(": ") + what : std::string());
+}
+
+// The write errors after which no write to this handle can succeed: the device or the handle is gone, or the device
+// takes no output report at all. Any other (a Bluetooth pad out of range for a moment, a busy radio, a report the pad
+// did not take this time) is tried again.
+bool write_error_final(DWORD e) {
+    switch (e) {
+        case ERROR_DEVICE_NOT_CONNECTED:
+        case ERROR_DEV_NOT_EXIST:
+        case ERROR_NO_SUCH_DEVICE:
+        case ERROR_FILE_NOT_FOUND:
+        case ERROR_PATH_NOT_FOUND:
+        case ERROR_INVALID_HANDLE:
+        case ERROR_BAD_COMMAND:
+        case ERROR_INVALID_FUNCTION: return true;
+        default: return false;
+    }
 }
 
 // Closes the pad's file handle. An I/O still in flight is cancelled and kept alive in Backend::retired until the OS has
@@ -405,8 +500,29 @@ void fail_writer(Backend& b, HidPad& pad, std::string why) {
     close_writer(b, pad);
 }
 
-std::string write_failed(DWORD e) {
-    return "sending a report to this pad failed (" + win_error(e) + "), so it cannot rumble; plug the pad in again";
+std::string write_failed(DWORD e, int failures) {
+    const std::string times = write_error_final(e) ? std::string() : " " + std::to_string(failures) + " times in a row";
+    return "sending a report to this pad failed" + times + " (" + win_error(e) +
+           "), so it cannot rumble; plug the pad in again";
+}
+
+// A write failed with `e`. An error of write_error_final() ends the pad's rumble at once; any other is given kWriteTries
+// tries in a row, kWriteRetryMs apart. `rumble`: the strengths that failed, sent again unless newer ones wait. Returns
+// whether the pad can still rumble.
+bool write_failed_again(Backend& b, HidPad& pad, DWORD e, std::uint64_t now,
+                        std::optional<std::array<float, 2>> rumble) {
+    HidWriter& w = pad.writer;
+    ++w.failures;
+    if (write_error_final(e) || w.failures >= kWriteTries) {
+        fail_writer(b, pad, write_failed(e, w.failures));
+        return false;
+    }
+    w.retryAtMs = now + kWriteRetryMs;
+    if (rumble) {
+        if (!w.pending) w.pending = rumble;
+        w.motorsOn = true;  // what the motors do is unknown now: a later stop, and the one at exit, are sent anyway
+    }
+    return true;
 }
 
 std::string report_too_long(size_t want, USHORT has) {
@@ -414,16 +530,15 @@ std::string report_too_long(size_t want, USHORT has) {
            " its rumble report needs (a clone that is not quite the original?), so it cannot rumble";
 }
 
-void flush_at_exit();
-
 // Opens the pad for writing (a pad with a driver, when it appears). A failure leaves the pad readable (Raw Input does
 // not need this handle) and says why it cannot rumble.
-void open_writer(Backend& b, HidPad& pad, const std::wstring& path, const HIDP_CAPS& caps) {
+void open_writer(HidPad& pad, const std::wstring& path, const HIDP_CAPS& caps) {
     HidWriter& w = pad.writer;
     w.outputBytes = caps.OutputReportByteLength;
     w.featureBytes = caps.FeatureReportByteLength;
-    HANDLE f = CreateFileW(path.c_str(), GENERIC_READ | GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr,
-                           OPEN_EXISTING, FILE_FLAG_OVERLAPPED, nullptr);
+    // Writing only: the input comes from Raw Input, and the feature reads (IOCTL_HID_GET_FEATURE) need no access right.
+    HANDLE f = CreateFileW(path.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_EXISTING,
+                           FILE_FLAG_OVERLAPPED, nullptr);
     if (f == INVALID_HANDLE_VALUE) {
         const DWORD e = GetLastError();
         w.why = "the engine cannot open this pad for writing (" + win_error(e) + ")";
@@ -447,10 +562,6 @@ void open_writer(Backend& b, HidPad& pad, const std::wstring& path, const HIDP_C
     }
     w.file = f;
     w.io = std::move(io);
-    if (!b.exitHook) {
-        b.exitHook = true;
-        std::atexit(flush_at_exit);
-    }
 }
 
 // Starts one overlapped write (or feature read) of `bytes`. 0: started (or already done; the completion is picked up
@@ -502,12 +613,17 @@ void service_pad(Backend& b, HidPad& pad, std::uint64_t now) {
         if (kind == HidIo::Kind::Request)
             pad.driver->request_done(ok,
                                      ok ? std::span<const std::uint8_t>(io.buffer) : std::span<const std::uint8_t>());
-        // A feature read that fails leaves the driver on its fallback; a write that fails means the motors are lost.
-        if (!ok && !feature && e != ERROR_OPERATION_ABORTED) {
-            fail_writer(b, pad, write_failed(e));
-            return;
+        // A feature read that fails leaves the driver on its fallback; a write that fails is tried again (the driver
+        // sends a set-up step again itself, a rumble goes back to `pending`).
+        if (!feature && ok) w.failures = 0;
+        if (!feature && !ok && e != ERROR_OPERATION_ABORTED) {
+            const std::optional<std::array<float, 2>> sent =
+                kind == HidIo::Kind::Rumble ? std::optional<std::array<float, 2>>(std::array<float, 2>{w.low, w.high})
+                                            : std::nullopt;
+            if (!write_failed_again(b, pad, e, now, sent)) return;
         }
     }
+    if (w.failures > 0 && now < w.retryAtMs) return;  // a failed write: the next one waits a moment
     if (std::optional<HidPadRequest> rq = pad.driver->next_request(now)) {
         const bool feature = rq->kind == HidPadRequest::Kind::GetFeature;
         std::vector<std::uint8_t> bytes = std::move(rq->bytes);
@@ -518,7 +634,7 @@ void service_pad(Backend& b, HidPad& pad, std::uint64_t now) {
         }
         if (const DWORD e = start_io(pad, HidIo::Kind::Request, feature, std::move(bytes))) {
             pad.driver->request_done(false, {});
-            if (!feature) fail_writer(b, pad, write_failed(e));
+            if (!feature) write_failed_again(b, pad, e, now, std::nullopt);
         }
         return;
     }
@@ -532,7 +648,7 @@ void service_pad(Backend& b, HidPad& pad, std::uint64_t now) {
     std::optional<std::vector<std::uint8_t>> sized = fitted(b, pad, pad.driver->rumble_report((*send)[0], (*send)[1]));
     if (!sized) return;
     if (const DWORD e = start_io(pad, HidIo::Kind::Rumble, false, std::move(*sized))) {
-        fail_writer(b, pad, write_failed(e));
+        write_failed_again(b, pad, e, now, send);
         return;
     }
     w.low = (*send)[0];
@@ -542,13 +658,15 @@ void service_pad(Backend& b, HidPad& pad, std::uint64_t now) {
 }
 
 // Whether some pad's writing still needs checking without a poll: an I/O in flight, a rumble waiting, the set-up
-// waiting for a reply or a time-out, motors that need their refresh, or a retired I/O not complete yet.
+// waiting for a reply or a time-out, motors that need their refresh, a failed write to try again, or a retired I/O not
+// complete yet.
 bool needs_service(const Backend& b) {
     if (!b.retired.empty()) return true;
     for (const std::unique_ptr<HidPad>& p : b.pads) {
         const HidWriter& w = p->writer;
         if (!p->driver || !w.open()) continue;
-        if (w.io->busy() || w.pending || !p->driver->setup_done() || (w.motorsOn && p->driver->rumble_refresh_ms() > 0))
+        if (w.io->busy() || w.pending || !p->driver->setup_done() || w.failures > 0 ||
+            (w.motorsOn && p->driver->rumble_refresh_ms() > 0))
             return true;
     }
     return false;
@@ -571,27 +689,49 @@ void service_all(Backend& b) {
     update_timer(b);
 }
 
-// At exit (std::atexit): a pad whose motors run, or whose stop is still waiting, gets the stop, with bounded waits. The
-// engine already asked for the stop when it shut down, but the write in flight may have kept it waiting. No logging:
-// the log may be gone by now.
-void flush_at_exit() {
-    Backend* b = g_backend;
-    if (!b) return;
-    for (const std::unique_ptr<HidPad>& p : b->pads) {
+// At exit: waits, until `deadline`, for every pad's I/O in flight (a set-up step or a rumble); one that completed frees
+// the pad for the next write. Nothing is told to the driver: it is exit.
+void exit_wait(Backend& b, std::uint64_t deadline) {
+    for (const std::unique_ptr<HidPad>& p : b.pads) {
+        HidWriter& w = p->writer;
+        if (!p->driver || !w.open() || !w.io->busy()) continue;
+        const std::uint64_t now = now_ms();
+        if (now < deadline) WaitForSingleObject(w.io->event, DWORD(deadline - now));
+        if (HasOverlappedIoCompleted(&w.io->ov)) w.io->kind = HidIo::Kind::None;
+    }
+}
+
+// At exit (std::atexit), within kExitBudgetMs for every pad together: every write in flight is waited for, a pad whose
+// motors run gets the stop, and then the driver's exit report (the Switch Pro back to its simple report). The engine
+// already asked for the stop when it shut down, but a write in flight may have kept it waiting. A pad whose write does
+// not complete in time is left as it is. No logging: the log may be gone by now.
+void flush_at_exit(Backend& b) {
+    const std::uint64_t deadline = now_ms() + kExitBudgetMs;
+    exit_wait(b, deadline);
+    for (const std::unique_ptr<HidPad>& p : b.pads) {
         HidWriter& w = p->writer;
         // motorsOn: the last strengths sent (or being sent) are not 0. A rumble still waiting is dropped: it is exit.
-        if (!p->driver || !w.open() || !w.motorsOn) continue;
-        if (w.io->busy()) {
-            WaitForSingleObject(w.io->event, kExitWaitMs);
-            if (!HasOverlappedIoCompleted(&w.io->ov)) continue;
-            w.io->kind = HidIo::Kind::None;
-        }
-        if (!p->driver->setup_done()) continue;
+        if (!p->driver || !w.open() || w.io->busy() || !w.motorsOn || !p->driver->setup_done()) continue;
         std::optional<std::vector<std::uint8_t>> stop =
             fit_hid_output_report(p->driver->rumble_report(0.0f, 0.0f), w.outputBytes);
-        if (stop && start_io(*p, HidIo::Kind::Rumble, false, std::move(*stop)) == 0)
-            WaitForSingleObject(w.io->event, kExitWaitMs);
+        if (stop && start_io(*p, HidIo::Kind::Rumble, false, std::move(*stop)) == 0) w.motorsOn = false;
     }
+    exit_wait(b, deadline);
+    for (const std::unique_ptr<HidPad>& p : b.pads) {
+        HidWriter& w = p->writer;
+        if (!p->driver || !w.open() || w.io->busy()) continue;
+        const std::optional<std::vector<std::uint8_t>> report = p->driver->exit_report();
+        if (!report) continue;
+        std::optional<std::vector<std::uint8_t>> sized = fit_hid_output_report(*report, w.outputBytes);
+        if (sized) start_io(*p, HidIo::Kind::Request, false, std::move(*sized));
+    }
+    exit_wait(b, deadline);
+}
+
+// The std::atexit hook, registered when the backend starts: the XInput motors first (no wait), then the HID pads.
+void stop_motors_at_exit() {
+    stop_xinput_motors();
+    if (Backend* b = g_backend) flush_at_exit(*b);
 }
 
 // What on_arrival() made of a device: a pad (Done), not a pad of ours (Skip), or not readable yet (Retry).
@@ -688,7 +828,7 @@ Arrival add_device(Backend& b, HANDLE device) {
     pad->info.type = gamepad_type_from_ids(vendor, name);
     // The serial is a Bluetooth pad's address and many USB pads have none: two such pads of one model share an id.
     pad->info.id = make_gamepad_id(vendor, product, pad->info.name, serial);
-    if (pad->driver) open_writer(b, *pad, path, caps);
+    if (pad->driver) open_writer(*pad, path, caps);
 
     b.slots.add(hid_key(device));
     b.pads.push_back(std::move(pad));
@@ -857,7 +997,8 @@ void start(Backend& b) {
 
 Backend& backend() {
     if (!g_backend) {
-        g_backend = new Backend();  // lives for the process: the window procedure may run until the last message
+        g_backend = new Backend();         // lives for the process: the window procedure may run until the last message
+        std::atexit(stop_motors_at_exit);  // once: g_backend is never reset
         start(*g_backend);
     }
     return *g_backend;
@@ -880,7 +1021,7 @@ void poll_gamepads(Input& in) {
     }
 
     // The probe schedule: XInput's empty user indices, and the HID devices whose arrival is to be tried again.
-    const bool probe = b.probes.tick();
+    const bool probe = b.probes.tick(now_ms());
     if (probe && !b.retry.empty()) {
         const std::vector<HANDLE> again = b.retry;  // on_arrival() edits the list
         for (HANDLE device : again) on_arrival(b, device);
@@ -974,7 +1115,16 @@ bool gamepad_backend_rumble(int slot, float low, float high, float) {
     XINPUT_VIBRATION vib{};
     vib.wLeftMotorSpeed = motor(low);
     vib.wRightMotorSpeed = motor(high);
-    return set_state(DWORD(owner->id), &vib) == ERROR_SUCCESS;
+    const int user = int(owner->id);  // an XInput user index, 0..3
+    if (user < 0 || user >= kMaxGamepads) return false;
+    const bool on = vib.wLeftMotorSpeed != 0 || vib.wRightMotorSpeed != 0;
+    if (on) {  // before the call: a crash right after it still stops the motors
+        g_xinputBuzzing[user].store(true);
+        arm_crash_stop();
+    }
+    const bool ok = set_state(DWORD(user), &vib) == ERROR_SUCCESS;
+    if (ok && !on) g_xinputBuzzing[user].store(false);
+    return ok;
 }
 
 }  // namespace fa

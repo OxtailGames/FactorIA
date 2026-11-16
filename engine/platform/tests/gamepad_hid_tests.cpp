@@ -365,17 +365,43 @@ TEST_CASE("pad slots: a device takes the slot it prefers when free, else the low
 }
 
 TEST_CASE("empty XInput slots are probed at a low rate, and in a short burst after a device notification") {
-    GamepadProbeSchedule s;
-    int probes = 0;
-    CHECK(s.tick());  // the first poll probes
-    for (unsigned i = 1; i < GamepadProbeSchedule::kIdleEvery * 10; ++i) probes += s.tick() ? 1 : 0;
-    CHECK(probes == 9);  // once per kIdleEvery polls, not every poll
+    using S = GamepadProbeSchedule;
+    // Polls at 60 and at 240 frames per second probe as often: the schedule counts milliseconds, not polls.
+    for (std::uint64_t frameMs : {16u, 4u}) {
+        CAPTURE(frameMs);
+        GamepadProbeSchedule s;
+        std::uint64_t now = 1000;
+        CHECK(s.tick(now));  // the first poll probes
+        int probes = 0;
+        const std::uint64_t end = now + S::kIdleMs * 10;
+        for (now += frameMs; now < end; now += frameMs) probes += s.tick(now) ? 1 : 0;
+        CHECK(probes == 9);  // once per kIdleMs (the 10th falls on `end`, not polled)
 
+        s.notify();
+        const std::uint64_t notifiedAt = now;
+        int burst = 0;
+        std::uint64_t lastProbe = 0;
+        for (; now < notifiedAt + S::kBurstMs; now += frameMs)
+            if (s.tick(now)) {
+                ++burst;
+                lastProbe = now;
+            }
+        CHECK(burst == int(S::kBurstMs / S::kBurstEveryMs));  // 6: at the notification and every 250 ms
+        // After the burst the low rate again, counted from the burst's last probe.
+        int after = 0;
+        for (; now < lastProbe + S::kIdleMs; now += frameMs) after += s.tick(now) ? 1 : 0;
+        CHECK(after == 0);
+        CHECK(s.tick(lastProbe + S::kIdleMs + 1));
+    }
+
+    GamepadProbeSchedule s;
+    CHECK(s.tick(5000));
+    CHECK_FALSE(s.tick(5001));
     s.notify();
-    int burst = 0;
-    for (unsigned i = 0; i < GamepadProbeSchedule::kBurstLength; ++i) burst += s.tick() ? 1 : 0;
-    CHECK(burst == int(GamepadProbeSchedule::kBurstLength / GamepadProbeSchedule::kBurstEvery));
-    CHECK(burst >= 4);
-    s.notify();
-    CHECK(s.tick());  // at once after a notification
+    CHECK(s.tick(5002));  // at once after a notification
+    CHECK_FALSE(s.tick(5003));
+    CHECK(s.tick(100));  // a clock that went back: probes, and counts from there
+    CHECK_FALSE(s.tick(101));
+    CHECK(s.tick(100 + S::kIdleMs + 60000));  // a poll long after it was due probes once
+    CHECK_FALSE(s.tick(100 + S::kIdleMs + 60001));
 }

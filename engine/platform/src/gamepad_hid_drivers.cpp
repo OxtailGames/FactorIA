@@ -90,6 +90,14 @@ std::uint32_t playstation_bt_crc(std::uint8_t seed, std::span<const std::uint8_t
     return hid_crc32(reportWithoutCrc, hid_crc32(header));
 }
 
+bool playstation_bt_input_crc_bad(std::span<const std::uint8_t> report) {
+    if (report.size() < kPsBtInputReportSize) return false;
+    const size_t body = kPsBtInputReportSize - 4;
+    std::uint32_t stored = 0;
+    for (size_t i = 0; i < 4; ++i) stored |= std::uint32_t(report[body + i]) << (8 * i);
+    return playstation_bt_crc(kPsInputCrcSeed, report.first(body)) != stored;
+}
+
 std::uint8_t rumble_motor_byte(float strength) {
     if (!(strength > 0.0f)) return 0;  // also NaN
     if (strength >= 1.0f) return 255;
@@ -117,7 +125,7 @@ bool decode_ds4_report(std::span<const std::uint8_t> report, GamepadState& state
         at = 3;
     else
         return false;
-    if (report.size() < at + 9) return false;
+    if (report.size() < at + 9 || (at == 3 && playstation_bt_input_crc_bad(report))) return false;
     const std::uint8_t* p = report.data() + at;
     decode_playstation(p, p[4], p[5], p[6], state);
     set_axis(state, GamepadAxis::LeftTrigger, float(p[7]) / 255.0f);
@@ -155,7 +163,7 @@ bool decode_dualsense_report(std::span<const std::uint8_t> report, HidTransport 
         at = 2;
     else
         return false;
-    if (report.size() < at + 10) return false;
+    if (report.size() < at + 10 || (at == 2 && playstation_bt_input_crc_bad(report))) return false;
     const std::uint8_t* p = report.data() + at;
     decode_playstation(p, p[7], p[8], p[9], state);
     set_axis(state, GamepadAxis::LeftTrigger, float(p[4]) / 255.0f);
@@ -420,6 +428,7 @@ public:
                 if (st.usbCommand != 0)
                     return HidPadRequest{HidPadRequest::Kind::Write, build_switch_usb_command(st.usbCommand)};
                 const std::uint8_t args[1] = {st.arg};
+                if (st.subcommand == kSwitchSubcommandInputMode) modeAsked_ = true;
                 return HidPadRequest{HidPadRequest::Kind::Write,
                                      build_switch_subcommand(counter_++, transport_, st.subcommand, args)};
             }
@@ -443,6 +452,11 @@ public:
         return build_switch_rumble_report(low, high, transport_, counter_++);
     }
     unsigned rumble_refresh_ms() const override { return kSwitchRumbleRefreshMs; }
+    std::optional<std::vector<std::uint8_t>> exit_report() override {
+        if (!modeAsked_) return std::nullopt;  // the pad never left its simple report
+        const std::uint8_t args[1] = {kSwitchInputModeSimple};
+        return build_switch_subcommand(counter_++, transport_, kSwitchSubcommandInputMode, args);
+    }
     HidTransport transport() const override { return transport_; }
 
 private:
@@ -461,6 +475,7 @@ private:
     std::vector<Step> steps_;
     size_t step_ = 0;
     bool sent_ = false, written_ = false, replied_ = false;
+    bool modeAsked_ = false;  // the full report was asked for (exit_report() asks for the simple one back)
     unsigned tries_ = 0;
     std::uint64_t sentAt_ = 0;
     std::uint8_t counter_ = 0;  // the packet counter (low 4 bits) of subcommands and rumble reports alike

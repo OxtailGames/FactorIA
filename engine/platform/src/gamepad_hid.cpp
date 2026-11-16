@@ -275,22 +275,25 @@ std::uint32_t GamepadSlotTable::generation(int slot) const {
     return slot < 0 || slot >= kMaxGamepads ? 0u : generations_[size_t(slot)];
 }
 
-void GamepadProbeSchedule::notify() {
-    burstLeft_ = kBurstLength;
-    burstPos_ = 0;
-}
+void GamepadProbeSchedule::notify() { notified_ = true; }
 
-bool GamepadProbeSchedule::tick() {
-    bool probe = false;
-    if (burstLeft_ > 0) {
-        probe = burstPos_ % kBurstEvery == 0;
-        ++burstPos_;
-        --burstLeft_;
-    } else {
-        probe = polls_ % kIdleEvery == 0;
+bool GamepadProbeSchedule::tick(std::uint64_t nowMs) {
+    if (notified_) {
+        notified_ = false;
+        started_ = true;
+        burstEndMs_ = nowMs + kBurstMs;
+        lastMs_ = nowMs;
+        return true;
     }
-    ++polls_;
-    return probe;
+    if (!started_ || nowMs < lastMs_) {
+        started_ = true;
+        lastMs_ = nowMs;
+        return true;
+    }
+    const std::uint64_t every = nowMs < burstEndMs_ ? kBurstEveryMs : kIdleMs;
+    if (nowMs - lastMs_ < every) return false;
+    lastMs_ = nowMs;
+    return true;
 }
 
 }  // namespace fa

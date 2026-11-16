@@ -167,10 +167,12 @@ when a loop needs it many times.
   ones below it even with the worse match (the user's word is final). The engine logs each pad's GUID and the mapping it chose, and warns about
   lines it cannot read; a database line for a stick driven by buttons or a hat (N64 and Joy-Con entries) is not
   supported and is skipped. On Windows, Xbox pads (XInput) and the other pads (Raw Input and HID: DualShock 4, DualSense
-  and Switch Pro have their full reports read by the engine's own drivers, the analog triggers included; generic pads go
+  and Switch Pro have their full reports read by the engine's own drivers, the DualShock 4's and DualSense's analog
+  triggers included, while the Switch Pro's ZL and ZR are buttons, so their trigger axes read 0 or 1; generic pads go
   through the Windows lines of SDL GameControllerDB) share the slots 0..3: a pad keeps its slot while connected, and a pad
   that appears takes the slot it had last time when that is free, else the lowest free one (an Xbox pad no longer takes its
-  XInput user index). A remapper that shows a PlayStation or Switch pad to games as a virtual Xbox pad (DS4Windows, Steam
+  XInput user index). A pad Windows does not describe yet when it arrives is tried again every 250 ms for 1.5 s, then
+  every 2 s; an Xbox pad is looked for the same way after Windows announces a device, and every 2 s otherwise. A remapper that shows a PlayStation or Switch pad to games as a virtual Xbox pad (DS4Windows, Steam
   Input outside Steam's own games) makes the engine see two pads, the virtual XInput one and the physical HID one, each in
   its slot: turn the remapper off for the game, or have it hide the physical pad (DS4Windows' "Hide DS4 Controller", which
   uses HidHide), so one pad is one slot. On macOS and iOS (GameController) a pad keeps its slot while connected and an
@@ -326,7 +328,11 @@ Vibration option only where it works. This is a different motor from a phone's `
   not count) and a request made in a scene's `onStart` plays. To go on, ask again before it ends.
 - The engine stops every pad when the game pauses (`game.paused = true`, the editor's pause), when the window loses the focus
   or the app is suspended, when a pad is unplugged, on a scene change and on quit, so a pad never keeps shaking. A request made
-  while the game is paused plays.
+  while the game is paused plays. On Windows the process also stops the motors as it exits, after the engine: the XInput
+  motors that were set, and every PlayStation or Switch pad still playing (with at most about 100 ms of waiting for all of
+  them). A crash zeroes the XInput motors too (the crash report goes on as before); a PlayStation or Switch pad keeps
+  shaking after a crash, and so does any pad when the game hangs, is killed or stops in a debugger, until it is switched off
+  or another program sets its motors.
 - Mistakes throw with a hint: a pad outside 0..3, a strength or `seconds` that is not a number, `seconds` outside 0..10.
 - Where it works today, and how:
 
@@ -346,7 +352,11 @@ Vibration option only where it works. This is a different motor from a phone's `
   rule such as `KERNEL=="event*", SUBSYSTEM=="input", TAG+="uaccess"`; the answer is read when the pad is plugged in, so replug the
   pad after changing it. Strengths are not the same motor on every pad: the 0..1 maps to the motor's whole range, and Android
   amplitudes are 1..255 (a tiny strength still runs the motor). A phone or tablet pad may expose no vibrator to Android at all,
-  most often over Bluetooth, and then `canRumble` is `false`.
+  most often over Bluetooth, and then `canRumble` is `false`. On Windows a report the pad does not take is sent again a few
+  times, 100 ms apart, before the pad answers `canRumble: false`; a pad that is gone answers it at once. What the Windows
+  drivers change on the pad: a Switch Pro is put on its full report and put back on its simple one when the game exits; a
+  DualShock 4 or DualSense over Bluetooth stays on its full report until it is switched off or connected again, so an old
+  DirectInput program started meanwhile may not read it (over USB these pads always send their full report).
 - Tests and headless runs: a test pad has no motors unless `game.gamepad(i).connect({ canRumble: true })`. `game.rumbles()` lists
   the requests the game made (strengths already clamped, `seconds` 0 for a stop, at most 256) and `game.rumbleState(pad)` says
   what the motors do now (the seconds left run down with `game.step`).
@@ -379,7 +389,8 @@ say rather than Valve's docs; a `SteamDeck=0` launch option turns it off). A Dec
 pad each time (vendor and product ids, the name and, where the platform has one, a serial or device path), so a game can give a
 player their pad back; `name` is the OS name; `type` is the pad family. A pad that returns takes its old slot when it is free
 (on Linux the slot is the kernel's joystick number). What goes into the id: Windows XInput has no ids, so the id says "an Xbox
-pad in XInput slot N" (it ends with `#xinputN`); Linux adds the kernel serial when the pad has one; macOS, iOS and the web give
+pad in XInput slot N" (it ends with `#xinputN`), while the other Windows pads (HID) give the vendor and product, the name
+and the serial number when the pad has one (a Bluetooth pad's address); Linux adds the kernel serial when the pad has one; macOS, iOS and the web give
 the name (the web also the vendor and product, but no serial); Android adds the InputDevice descriptor. Two pads of one model
 without a serial share an id. Losing the window focus does not disconnect a pad. Pads already plugged in when the first scene
 starts are not announced: read `input.gamepad(i).connected` and `.id` in the first frame. Tests: `game.gamepad(1).connect({

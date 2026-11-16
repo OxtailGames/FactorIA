@@ -26,6 +26,14 @@ std::uint32_t crc_at(const Bytes& r, size_t at) {
            (std::uint32_t(r[at + 3]) << 24);
 }
 
+// A full Bluetooth input report as the pad sends it: the CRC (seed 0xA1) of bytes 0..73 in bytes 74..77 (hid_crc32 is
+// checked against the standard check value below).
+void seal_bt_input(Bytes& r) {
+    const std::uint8_t seed[1] = {kPsInputCrcSeed};
+    const std::uint32_t crc = hid_crc32(std::span<const std::uint8_t>(r.data(), 74), hid_crc32(seed));
+    for (size_t i = 0; i < 4; ++i) r[74 + i] = std::uint8_t((crc >> (8 * i)) & 0xffu);
+}
+
 bool button(const GamepadState& s, GamepadButton b) { return s.buttons[size_t(b)]; }
 float axis(const GamepadState& s, GamepadAxis a) { return s.axes[size_t(a)]; }
 
@@ -155,6 +163,7 @@ TEST_CASE("DualShock 4 input: the USB report 0x01 and the Bluetooth report 0x11"
     bt[7] = 0x87;  // hat 7 (up-left), Triangle
     bt[8] = 0xC2;  // R1, L3, R3
     bt[11] = 128;  // R2 half
+    seal_bt_input(bt);
     GamepadState b;
     REQUIRE(decode_ds4_report(bt, b));
     CHECK(axis(b, GamepadAxis::LeftX) == doctest::Approx(1.0f));
@@ -218,6 +227,62 @@ TEST_CASE("DualShock 4 driver: a report 0x11 means Bluetooth, and is the driver'
 
     GamepadState g;
     CHECK_FALSE(d->read_report(Bytes{0x05, 1, 2}, g));  // not a DualShock 4 report: the generic path's
+}
+
+TEST_CASE("PlayStation Bluetooth input: a report whose CRC is bad is dropped, a good one is read, padded or not") {
+    Bytes ds4 = zeros(78);
+    ds4[0] = 0x11;
+    ds4[1] = 0xC0;
+    ds4[3] = 0xFF;  // LX full right
+    ds4[4] = ds4[5] = ds4[6] = 0x80;
+    ds4[7] = 0x28;  // hat 8 (centred), Cross
+    seal_bt_input(ds4);
+    CHECK_FALSE(playstation_bt_input_crc_bad(ds4));
+    GamepadState good;
+    REQUIRE(decode_ds4_report(ds4, good));
+    CHECK(button(good, GamepadButton::A));
+
+    // Windows pads the buffer to the device's longest input report: the CRC is still at 74.
+    Bytes padded = ds4;
+    padded.resize(547, 0);
+    CHECK_FALSE(playstation_bt_input_crc_bad(padded));
+    GamepadState fromPadded;
+    CHECK(decode_ds4_report(padded, fromPadded));
+
+    // One bit flipped on the radio link: dropped, the state stays what it was.
+    Bytes corrupted = ds4;
+    corrupted[7] ^= 0x40;  // Circle too
+    CHECK(playstation_bt_input_crc_bad(corrupted));
+    GamepadState kept = good;
+    CHECK_FALSE(decode_ds4_report(corrupted, kept));
+    CHECK_FALSE(button(kept, GamepadButton::B));
+    // The driver still owns it (the generic parser never reads a full report), and keeps the state.
+    auto driver = make_hid_pad_driver(kHidVendorSony, kHidProductDualShock4, HidTransport::Bluetooth);
+    GamepadState fed;
+    CHECK(driver->read_report(ds4, fed));
+    CHECK(driver->read_report(corrupted, fed));
+    CHECK(button(fed, GamepadButton::A));
+    CHECK_FALSE(button(fed, GamepadButton::B));
+    Bytes badCrc = ds4;
+    badCrc[77] ^= 0x01;  // the CRC itself damaged
+    CHECK(playstation_bt_input_crc_bad(badCrc));
+
+    Bytes ds5 = zeros(78);
+    ds5[0] = 0x31;
+    ds5[2] = ds5[3] = ds5[4] = ds5[5] = 0x80;
+    ds5[9] = 0x28;  // hat 8, Cross
+    seal_bt_input(ds5);
+    GamepadState five;
+    REQUIRE(decode_dualsense_report(ds5, HidTransport::Bluetooth, five));
+    CHECK(button(five, GamepadButton::A));
+    ds5[5] = 0x00;  // a stick byte damaged
+    GamepadState fiveKept;
+    CHECK_FALSE(decode_dualsense_report(ds5, HidTransport::Bluetooth, fiveKept));
+    CHECK_FALSE(button(fiveKept, GamepadButton::A));
+
+    // Shorter than 78 bytes: there is no CRC to check (and the USB reports never have one).
+    CHECK_FALSE(playstation_bt_input_crc_bad(Bytes(77, 0x55)));
+    CHECK_FALSE(playstation_bt_input_crc_bad({}));
 }
 
 // ---------------------------------------------------------------------------
@@ -297,6 +362,7 @@ TEST_CASE("DualSense input: USB report 0x01 and Bluetooth report 0x31; Bluetooth
     bt[5] = 0x80;
     bt[9] = 0x18;   // hat 8 (centred), Square
     bt[10] = 0x20;  // Options
+    seal_bt_input(bt);
     GamepadState b;
     REQUIRE(decode_dualsense_report(bt, HidTransport::Bluetooth, b));
     CHECK(button(b, GamepadButton::X));
@@ -616,4 +682,40 @@ TEST_CASE("Switch Pro driver: over Bluetooth only the subcommands; failed writes
     // The simple report is the generic path's.
     GamepadState g;
     CHECK_FALSE(d->read_report(Bytes{0x3F, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0}, g));
+}
+
+TEST_CASE("exit reports: the Switch Pro goes back to its simple report once it was asked for the full one") {
+    auto fresh = make_hid_pad_driver(kHidVendorNintendo, kHidProductSwitchPro, HidTransport::Bluetooth);
+    REQUIRE(fresh);
+    CHECK_FALSE(fresh->exit_report().has_value());  // nothing sent yet: nothing to undo
+
+    auto d = make_hid_pad_driver(kHidVendorNintendo, kHidProductSwitchPro, HidTransport::Bluetooth);
+    REQUIRE(d->next_request(0).has_value());  // 0x03 0x30, packet 0
+    d->request_done(true, {});
+    std::optional<std::vector<std::uint8_t>> exit = d->exit_report();
+    REQUIRE(exit.has_value());
+    const std::uint8_t simple[1] = {kSwitchInputModeSimple};
+    CHECK(*exit == build_switch_subcommand(1, HidTransport::Bluetooth, kSwitchSubcommandInputMode, simple));
+    CHECK((*exit)[10] == 0x03);
+    CHECK((*exit)[11] == 0x3F);
+    CHECK(exit->size() == 49);
+    // Over USB the bridge's handshake comes first; the exit report is the same subcommand, 64 bytes.
+    auto usb = make_hid_pad_driver(kHidVendorNintendo, kHidProductSwitchPro, HidTransport::Usb);
+    std::uint64_t now = 0;
+    for (int guard = 0; guard < 40 && !usb->exit_report(); ++guard) {  // 11 polls: 3 tries of 3 steps, then 2
+        if (usb->next_request(now)) usb->request_done(true, {});
+        now += kSwitchReplyTimeoutMs;  // no replies: each step times out, is tried again, then skipped
+    }
+    std::optional<std::vector<std::uint8_t>> usbExit = usb->exit_report();
+    REQUIRE(usbExit.has_value());
+    CHECK(usbExit->size() == 64);
+    CHECK((*usbExit)[11] == kSwitchInputModeSimple);
+
+    // The PlayStation pads have nothing to send: over Bluetooth they stay on their full report until switched off.
+    auto ds4 = make_hid_pad_driver(kHidVendorSony, kHidProductDualShock4, HidTransport::Bluetooth);
+    REQUIRE(ds4->next_request(0).has_value());
+    ds4->request_done(true, {});
+    CHECK_FALSE(ds4->exit_report().has_value());
+    auto ds5 = make_hid_pad_driver(kHidVendorSony, kHidProductDualSense, HidTransport::Bluetooth);
+    CHECK_FALSE(ds5->exit_report().has_value());
 }
