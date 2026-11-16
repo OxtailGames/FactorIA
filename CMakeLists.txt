@@ -186,8 +186,9 @@ add_subdirectory(tools/feedback-server)
 # ---- ThreadSanitizer: the tests that run threads (FA_SANITIZE=thread; label `tsan`) -------------------------------------
 # The whole suite under TSan takes hours and most of it is single-threaded, so the CI job linux-tsan (and
 # `ctest --preset linux-tsan -L tsan` locally) runs only: the job system and the background reads (core), the jobs engine and the
-# background loads (runtime), the audio thread (all of audio) and the MCP server (all of mcp). The full binaries stay registered too.
-# (engine/audio and tools/mcp label their own tests with fa_label_tsan(): a test is only visible in its own directory.)
+# background loads (runtime), the audio thread (all of audio), the MCP server (all of mcp) and the WebSocket clients (the cases "websocket*" of platform). The full
+# binaries stay registered too. (engine/audio, engine/platform and tools/mcp register their own tests: a test is only visible in its
+# own directory.)
 if(FA_SANITIZE_THREAD AND FA_BUILD_TESTS)
     if(TARGET fa_test_core)
         add_test(NAME tsan_core COMMAND fa_test_core "-tc=jobs*,background io*" WORKING_DIRECTORY ${FA_ROOT})

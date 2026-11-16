@@ -269,7 +269,11 @@ reports the `"close"` event as soon as the system has sent the close frame, with
 answers a close is not reported as a failure; `close()` with no code sends 1000, because the system cannot send a close frame
 without a code. Messages: a message longer than `maxMessageBytes` ends the connection with `"error"` and `"close"` 1006 (the
 server is sent 1009), as everywhere, but the system holds the whole message first. Plain `ws://` is only allowed to your own
-computer (App Transport Security, as for `http.fetch`); use `wss://` for any other server.
+computer (App Transport Security, as for `http.fetch`); use `wss://` for any other server. The system sends no pings of its
+own (it only answers the server's), and a redirect answer to the upgrade is not followed: it ends the attempt with an
+`"error"` whose `httpStatus` is the redirect's. On iOS the system suspends a game that goes to the background, and its
+connections usually break with it: the game then gets the `"error"` and `"close"` 1006 events (and `reconnect` takes over,
+if you asked for it), at the latest when it comes back.
 
 Where there is no client (a Linux machine without a libcurl from 7.45), `websocket.supported` is `false` and
 `websocket.unsupportedReason` says why. `websocket.connect` still returns a connection after the usual
@@ -390,5 +394,5 @@ that plain `ws://` client over a POSIX socket is a tool for those tests, and wha
 | `declares no network hosts` for `websocket.connect` | The same section serves both: declare the host of the `wss://` address. |
 | `unavailable` | The platform cannot send requests (Linux without libcurl) or the backend is `none`. Check `platform.has("http")` and let the game carry on offline. |
 | Works on desktop, fails in the web build | `http.fetch`: CORS, the server must allow the page's origin. `websocket`: no CORS, but the browser sends the page's `Origin` and the server must accept it; an `https://` page needs `wss://`; the browser's `WebSocket` cannot send `headers`: put what the server needs in the URL or the first message. |
-| `websocket.supported` is false | This build has no WebSocket client for the platform yet ([section 8](#8-websocket)). |
+| `websocket.supported` is false | This machine has no WebSocket client: Linux without libcurl 7.45 or newer; `websocket.unsupportedReason` says why ([section 8](#8-websocket)). |
 | Works on desktop, fails on Android | The `INTERNET` permission (declare `network.hosts`), or plain `http://` (Android blocks it). |
