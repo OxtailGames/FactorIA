@@ -28,7 +28,9 @@ inline std::string read_all(const stdfs::path& p) {
 }
 
 // Path of `p` below the checkout, with '/' separators.
-inline std::string rel_of(const stdfs::path& p) { return p.lexically_relative(stdfs::path(FA_REPO_ROOT)).generic_string(); }
+inline std::string rel_of(const stdfs::path& p) {
+    return p.lexically_relative(stdfs::path(FA_REPO_ROOT)).generic_string();
+}
 
 inline bool starts_with(const std::string& s, const std::string& prefix) { return s.rfind(prefix, 0) == 0; }
 
@@ -91,7 +93,8 @@ inline unsigned lower_unicode(unsigned cp) {
     if ((cp >= 0xC0 && cp <= 0xDE && cp != 0xD7) || (cp >= 0x391 && cp <= 0x3A9) || (cp >= 0x410 && cp <= 0x42F))
         return cp + 0x20;
     if (cp >= 0x400 && cp <= 0x40F) return cp + 0x50;
-    if (cp >= 0x100 && cp <= 0x17F && cp != 0x130 && cp != 0x131 && cp != 0x178 && cp != 0x138 && cp != 0x149 && cp != 0x17F) {
+    if (cp >= 0x100 && cp <= 0x17F && cp != 0x130 && cp != 0x131 && cp != 0x178 && cp != 0x138 && cp != 0x149 &&
+        cp != 0x17F) {
         const bool oddIsUpper = (cp >= 0x139 && cp <= 0x148) || (cp >= 0x179 && cp <= 0x17E);
         return (cp % 2 == (oddIsUpper ? 1u : 0u)) ? cp + 1 : cp;
     }
@@ -247,6 +250,5 @@ inline bool says_not_embedded(const std::string& paragraph) {
     return paragraph.find("not in the binary") != std::string::npos ||
            paragraph.find("repository only") != std::string::npos || paragraph.find("source docs") != std::string::npos;
 }
-
 
 }  // namespace fa_docs_test

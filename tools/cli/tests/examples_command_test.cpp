@@ -1,4 +1,4 @@
-// project.examples and project.create {example} as an MCP game AI calls them (docs/design/BUILDING.md, "Example games in the
+// project.examples and project.create {example} as an MCP game AI calls them (docs/design/BUILDING_RELEASE.md, "Example games in the
 // release"): the same registrations `factoria mcp` serves with and without a project, a caller that holds the capabilities of an
 // MCP client, and a downloader that serves a release folder, so nothing touches the network.
 #include <doctest.h>

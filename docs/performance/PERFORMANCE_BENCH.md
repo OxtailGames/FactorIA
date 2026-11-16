@@ -37,8 +37,8 @@ pull request that did it, not when an example later goes over its budget. It is 
 Memory of the 2D tile colliders: the cell-to-box index (`boxAt`) holds 4 bytes per cell of every solid-collider Tilemap for as long as the map has a body, and the boxes it points at never shrink (an edit frees a box's slot for the next one, it does not return memory), so a 4096 x 4096 map costs 64 MiB of index. Editing a long run recreates its whole box (a floor cut in two: both halves are new shapes), so a body resting on the far end of it gets an End and a Begin collision event for that frame. The reachability labels of a nav grid cost 5 bytes per span (a label and a flag) and are made only after a search failed.
 
 The 3D contact manifolds (M94.4d: up to four points per box pair with feature ids) and the soft contacts of the stacking
-package (M94.4h: soft step, a Jacobi solve of each manifold, sleeping rules; docs/design/ARCHITECTURE_THREADS.md, "3D contact solver,
-stacking"; repository only, not in the binary) are measured by the scale tests (`engine/physics/tests/test_physics3d_scale.cpp`), which check the result and not
+package (M94.4h: soft step, a Jacobi solve of each manifold, sleeping rules; docs/design/ARCHITECTURE_THREADS.md, "Jobs and
+threads"; repository only, not in the binary) are measured by the scale tests (`engine/physics/tests/test_physics3d_scale.cpp`), which check the result and not
 only the time: a column of 100 boxes (spacing 1.02) stands and falls asleep after 240 steps with a drift of 0 mm, a column
 of 50 after 140 steps, a block of 5 x 5 x 4 boxes after 40, and the walled pit of 1000 spheres, capsules and boxes is asleep
 after about 1600 steps (800 to 1600 in other runs; a Release test; before, none of them did, and the column of 100 collapsed). A step of that sleeping
