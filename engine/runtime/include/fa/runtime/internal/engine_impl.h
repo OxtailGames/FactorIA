@@ -157,7 +157,8 @@ struct Engine::Impl {
         false;  // scripts.user_time_scale() was 0 at the start of the last frame (pad rumble stops on the edge)
     void advance_pad_rumble(double dt);
     bool quit = false;
-    bool inFrame = false;  // between the start and the end of run_frame (commands defer risky work)
+    bool appEnded = false;  // end_app() ran
+    bool inFrame = false;   // between the start and the end of run_frame (commands defer risky work)
     double accumulator = 0.0;
     double interpAlpha =
         1.0;  // render interpolation: how far past the latest fixed step this frame is, 0..1 (1 = real pose)

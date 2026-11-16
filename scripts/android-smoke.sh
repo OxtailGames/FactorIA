@@ -23,8 +23,9 @@
 #   7. no crash   no Java exception, native signal, ANR or engine error; the activity was never destroyed or
 #                 relaunched during the run; the display shows a picture (a black window passes none of this).
 #   8. relaunch   a change of the app's assets paths (`am update-appinfo`, what an overlay or a wallpaper-colour change
-#                 sends) relaunches the activity, which no configChanges value prevents: the old process ends cleanly
-#                 (no native signal) and the system starts the game again in a new process, which renders and has the
+#                 sends) relaunches the activity, which no configChanges value prevents: the old process runs the game's
+#                 end ("player: ended", and the game's quit marker once when FA_SMOKE_QUIT is set), ends cleanly (no
+#                 native signal), and the system starts the game again in a new process, which renders and has the
 #                 window focus.
 #   9. back       optional, only when the environment variable FA_SMOKE_BACK is set to the text the game logs when its
 #                 input.onBack handler consumes the Back button: `input keyevent KEYCODE_BACK` must reach the game
@@ -36,10 +37,16 @@
 #  11. det hash   optional, only when FA_SMOKE_DET_HASH is set: the game also runs tools/cli/tests/determinism_probe.js, whose
 #                 "FA_DET_HASH ..." line (Math, 2D and 3D physics, nav) must carry the hashes of
 #                 tools/cli/tests/determinism_expected.txt, the committed values every desktop CI job compares with (scripts/det-hash-check.sh).
+#  12. quit       optional, only when FA_SMOKE_QUIT (the text the game's game.on("quit") handler logs) and FA_SMOKE_BACK are
+#                 set, and the game lets the second Back through (tools/cli/tests/mobile_probe.js): one more
+#                 KEYCODE_BACK ends the game. The process ends within 20 s and the system does not start it again; it
+#                 logged the quit marker exactly once and "player: ended", without a timeout, a crash or an engine error.
+#                 A force-stop (`am force-stop`, swiping a crashed app away) and a low-memory kill deliver no callback at
+#                 all: nothing can run the game's end then, and this script does not test them.
 #
 # Output (outDir, default build/android-smoke): logcat.txt (whole log), logcat-app.txt (only the app process),
 # logcat-app-relaunched.txt (the process after step 8), screen.png (what the display shows), summary.txt, state.txt on
-# failure. Exit code 0 = the game runs.
+# failure, logcat-app-quit.txt (the process step 12 ended). Exit code 0 = the game runs.
 set -uo pipefail
 
 USAGE="usage: android-smoke.sh <apk> <applicationId> [timeoutSeconds] [outDir]"
@@ -329,6 +336,24 @@ if grep -E ' E factoria *:' "$OUT/logcat-app-relaunched.txt" >"$OUT/errors.txt";
     cat "$OUT/errors.txt"
     fail "relaunch: the engine logged errors after the relaunch (lines above)"
 fi
+# The old process ran the game's end before it exited (engine/platform/src/activity_end_android.cpp): the player's
+# "ended" line, no timeout, and the game's quit handler exactly once.
+check_ended() {  # check_ended <log of the ended process> <step>
+    grep -qF 'player: ended' "$1" ||
+        fail "$2: the process never logged 'player: ended': the game did not end before the process exited ($1)"
+    if grep -F 'did not end within' "$1"; then
+        fail "$2: the game's end ran out of time (line above)"
+    fi
+    if [ -n "${FA_SMOKE_QUIT:-}" ]; then
+        local n
+        n="$(grep -cF -- "$FA_SMOKE_QUIT" "$1")"
+        [ "$n" = 1 ] ||
+            fail "$2: the process logged '$FA_SMOKE_QUIT' $n times, expected once: game.on(\"quit\") did not run exactly once when the activity was destroyed"
+        grep -F -- "$FA_SMOKE_QUIT" "$1" | tee -a "$SUMMARY"
+    fi
+    grep -F 'player: ended' "$1" | tee -a "$SUMMARY"
+}
+[ "$PID" = "$OLD_PID" ] || check_ended "$OUT/logcat-app.txt" "relaunch"
 grep -m 1 -E "Process $OLD_PID exited cleanly" "$OUT/logcat.txt" | tee -a "$SUMMARY"
 "$ADB" exec-out screencap -p >"$OUT/screen-relaunched.png" 2>/dev/null
 has_picture "$OUT/screen-relaunched.png" "relaunch"
@@ -374,4 +399,33 @@ if [ -n "${FA_SMOKE_DET_HASH:-}" ]; then
     [ "${PIPESTATUS[0]}" -eq 0 ] || fail "det hash: the replay hashes of this platform differ from the committed ones (lines above)"
 fi
 
-note "OK: $PKG ran on the emulator (pid $OLD_PID, pid $PID after the relaunch): rendered, audio stream, touch, suspend/resume, configuration change, relaunch, no crash."
+# ---- 12. quit -------------------------------------------------------------------------------------------------------
+# A Back the game does not consume ends it: the engine finishes the activity, Android destroys it, and the game's end runs
+# (game.on("quit"), the storage writes, the audio device) before the process ends.
+ENDED=""
+if [ -n "${FA_SMOKE_QUIT:-}" ] && [ -n "${FA_SMOKE_BACK:-}" ]; then
+    QUIT_PID="$PID"
+    "$ADB" shell input keyevent KEYCODE_BACK
+    quit_gone() { [ "$(app_pid)" != "$QUIT_PID" ]; }
+    wait_until 20 "quit: the process $QUIT_PID ended after a Back the game did not consume" quit_gone ||
+        fail "quit: the app process $QUIT_PID is still running 20s after the second Back: the game did not end"
+    sleep 5
+    NOW_PID="$(app_pid)"
+    [ -z "$NOW_PID" ] || fail "quit: the system started the game again (pid $NOW_PID) after it ended"
+    snapshot_log
+    "$ADB" logcat -d -b all -v threadtime --pid="$QUIT_PID" >"$OUT/logcat-app-quit.txt" 2>/dev/null
+    if grep -E "FATAL EXCEPTION|Fatal signal|FORTIFY|SIGSEGV|SIGABRT|tombstone|OpenGL ES API with no current context" \
+            "$OUT/logcat-app-quit.txt" >"$OUT/crash.txt" ||
+       grep -E "ANR in $PKG|am_crash: \[[0-9]+,[0-9]+,$PKG,|Process $QUIT_PID exited due to signal" "$OUT/logcat.txt" >>"$OUT/crash.txt"; then
+        cat "$OUT/crash.txt"
+        fail "quit: crash markers in the log (lines above)"
+    fi
+    if grep -E ' E factoria *:' "$OUT/logcat-app-quit.txt" >"$OUT/errors.txt"; then
+        cat "$OUT/errors.txt"
+        fail "quit: the engine logged errors while the game ended (lines above)"
+    fi
+    check_ended "$OUT/logcat-app-quit.txt" "quit"
+    ENDED=", quit"
+fi
+
+note "OK: $PKG ran on the emulator (pid $OLD_PID, pid $PID after the relaunch): rendered, audio stream, touch, suspend/resume, configuration change, relaunch$ENDED, no crash."

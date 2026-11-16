@@ -497,6 +497,8 @@ void Impl::reset_for_test_file() {
     storageTextHook.reset();
     testQuitRequested = false;
     quitDeferred = false;
+    quitByGame = false;
+    appEnded = false;
     testSystemLanguages.clear();
     host->background_loads_reset();  // no background load and no warm file of the earlier test file
     generateJobs = 0;          // resetSession (below) rejects the handles of tilemap.generate and cancels their jobs

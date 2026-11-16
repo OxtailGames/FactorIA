@@ -23,6 +23,16 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   A component an instance removed is listed (`removedComponent`), comes back with Revert and is deleted from the prefab file by
   Apply; `name`, `tags` and `active` of EntityInfo can be named as fields; Revert is all or nothing; instances are matched by
   the normalized path of their prefab (case on Windows and macOS). A removed prefab child is still not listed.
+- **Android: the game ends before its process (M98.4):** when the system destroys the activity (a Back no `input.onBack`
+  handler consumed, `game.quit()`, the system closing the app, a relaunch for a theme or wallpaper-colour change), the
+  `game.on("quit")` handlers now run (once, not after `game.quit()`, and they cannot cancel), the analytics request for
+  the events that wait is started (not waited for), the `storage.setAsync` writes still waiting reach the disk, the pads
+  stop and the audio device closes, all on the game's thread while Android's main thread waits at most about 1.5 s; then
+  the process ends at once as before. Fixed on the way: on Android `game.quit()` and a Back nobody consumed did nothing
+  (sokol_app ignores a quit request there); they now finish the activity, and so does a game that cannot start. A
+  force-stop or a kill for memory still delivers no callback. The emulator smoke test checks the end on the relaunch and
+  on a second Back (docs/mobile/MOBILE_ANDROID.md, "Lifecycle").
+
 - **Copy, cut and paste of entities (M98.7c):** the new commands `scene.copy_entities` (entities with their subtrees as one
   self-contained JSON text: components, children, links to prefabs) and `scene.paste_entities` (creates them under an optional
   parent or each under the parent it had, with free ids, `nameSuffix`, and the new ids in the answer) make the clipboard
