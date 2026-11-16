@@ -200,7 +200,9 @@ void Mixer::start_fade(MixVoice& v, float target, float seconds, bool stopAtEnd)
 }
 
 void Mixer::start_volume_ramp(MixVoice& v, float target, float seconds) const {
-    target = std::max(target, 0.0f);
+    if (!(target > 0.0f)) target = 0.0f;  // a negative volume, and a NaN one (std::max would let it through): silence
+    if (seconds > 0.0f && seconds <= kVoiceParamRamp && v.volFrames > 0 && v.volTarget == target)
+        return;  // already on its way there: a restart would only stretch the ramp (doppler asks every frame)
     if (seconds <= 0.0f) {
         v.volume = target;
         v.volFrames = 0;
@@ -559,7 +561,9 @@ void Mixer::set_voice_hrtf(MixVoice& v, const HrtfAim& aim) const {
 void Mixer::set_voice_lowpass(MixVoice& v, float hz, bool ramp) const {
     v.lpSlew = 1.0f - std::exp(-1.0f / (kVoiceLowpassSlew * float(deviceRate_)));
     if (!(hz > 0.0f) || hz >= kLowpassOpen) {
-        if (ramp && v.lpCoef != 0.0f) {  // opens: the coefficient goes to 1, where voice_lowpass takes the filter away
+        // Opens: the coefficient goes to 1, where voice_lowpass takes the filter away. A coefficient that is already 1 (a filter
+        // switched on by a ramp that no block has run yet) is no filter: it is gone at once, or it would never open.
+        if (ramp && v.lpCoef != 0.0f && v.lpCoef < 1.0f) {
             v.lpTarget = 1.0f;
             return;
         }
@@ -584,6 +588,8 @@ void Mixer::set_voice_occ_gain(MixVoice& v, float gain, bool ramp) const {
         v.occFrames = 0;
         return;
     }
+    if (v.occFrames > 0 && v.occTarget == gain)
+        return;  // already on its way there: a restart would only stretch the ramp
     const long frames = std::max(1L, long(std::lround(double(kVoiceParamRamp) * deviceRate_)));
     v.occTarget = gain;
     v.occFrames = frames;

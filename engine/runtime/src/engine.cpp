@@ -563,13 +563,17 @@ void Engine::Impl::advance_pad_rumble(double dt) {
     cut_pad_rumble_on_pause();
 }
 
-// The edge of the game pausing itself. Checked at the start of a frame (a pause a command or the editor made between frames)
-// and again at its end, so a script that pauses and rumbles in the same frame does not buzz for one frame: the hardware layer
-// runs after the frame and never sees that request.
-void Engine::Impl::cut_pad_rumble_on_pause() {
+// The edge of the game pausing itself: true when the game paused since the last check (then every pad is stopped). Checked at
+// the start of a frame (a pause a command or the editor made between frames), after the scripts' onUpdate and after onLateUpdate;
+// run_frame stops the pads once more at its end when the frame had the edge, so a script that pauses and rumbles in the same
+// frame, in either order and in either callback, does not buzz for one frame: the hardware layer runs after the frame and never
+// sees that request.
+bool Engine::Impl::cut_pad_rumble_on_pause() {
     const bool userPaused = scripts.user_time_scale() <= 0.0;
-    if (userPaused && !wasUserPaused) input.stop_all_rumble();
+    const bool edge = userPaused && !wasUserPaused;
+    if (edge) input.stop_all_rumble();
     wasUserPaused = userPaused;
+    return edge;
 }
 
 void Engine::Impl::run_frame(double dt, int fixedSteps) {
@@ -702,7 +706,8 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         ProfSystemScope prof(ProfSystem::ScriptsUpdate);
         scripts.update(float(dt));
     }
-    cut_pad_rumble_on_pause();  // a script that paused this frame: its rumble of the same frame is cut too
+    const bool pausedInUpdate =
+        cut_pad_rumble_on_pause();  // a script that paused this frame: its rumble of the frame is cut too
     {
         ProfSystemScope prof(ProfSystem::Audio);
         audio.update(world, float(dt));
@@ -714,6 +719,9 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         scripts
             .settle_activation();  // panels shown or hidden this frame: onStart / onEnable / onDisable before drawing
     }
+    // Paused in onLateUpdate (after a rumble of onUpdate), or paused in onUpdate and rumbled in onLateUpdate (a behaviour that
+    // runs while paused): the pads stop again, so the hardware layer never sees a request of the frame that paused the game.
+    if (cut_pad_rumble_on_pause() || pausedInUpdate) input.stop_all_rumble();
     {
         ProfSystemScope prof(ProfSystem::Localization);
         apply_localization();  // keys of entities scripts spawned or edited this frame

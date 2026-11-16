@@ -36,7 +36,7 @@
 //   Linux    evdev force feedback, one FF_RUMBLE effect per pad on /dev/input/eventN (needs write access to it).
 //   Android  the vibrators of the pad's InputDevice (getVibratorManager() on API 31+, getVibrator() before).
 //   macOS/iOS  CoreHaptics through GCController.haptics (macOS 11, iOS 14).
-//   web      Gamepad.vibrationActuator in Chrome-based browsers, after a user activation.
+//   web      Gamepad.vibrationActuator in Chrome-based browsers, after a user activation (a click on the page or a key press).
 // The numbers each of those APIs wants are computed by the pure helpers of fa/platform/gamepad_rumble_map.h.
 // Windowed runs only, like poll_gamepads(): headless runs and tests have no hardware and read Input instead.
 //
