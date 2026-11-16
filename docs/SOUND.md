@@ -465,7 +465,8 @@ the side of the listener's right axis the point is on (a point at half the range
 that is silent, for instance with a muted listener, still plays and returns an id, as `audio.play` does without a position).
 A `caption` of a sound that returns 0 for being out of range is not shown, unless you give `captionSeconds`. `volume` is the sound's
 own volume (multiplied by the attenuation), `pan` is replaced by the computed one; `variants`, `pitch`, `bus` and `priority` work as always.
-Position, volume and pan are computed once, when the sound starts: it does not follow the entity that made it. For a source that
+Position, volume and pan are computed once, when the sound starts: it does not follow the entity that made it (only its doppler pitch and
+its occlusion keep following the listener, below). For a source that
 moves, or a looping sound at a place, use an `AudioSource` with `spatial: true` (and `loop: true`): `audio.play` with a `position` and
 `loop: true` throws, because the attenuation would stay frozen at the value of the start (and a sound out of range then would never play).
 In C++ it is `Audio::play_at(world, clip, params, position, range, rolloff, refDistance, rolloffFactor)`, or `play_at(world, clip, params, position, SpatialSound)` for every option (game thread only: it reads the World).
@@ -497,8 +498,8 @@ audio.play("assets/sfx/bell.wav", { position: [40, 0, 0], range: 400, rolloff: "
 
 `rolloff: "curve"` takes the gain from a curve you draw: `AudioSource.rolloffCurve` (or `rolloffCurve` of `audio.play`) is a list of
 `[position, gain]` keys, where `position` is the distance divided by `range` (0 at the listener, 1 at `range`) and `gain` is 0 to 1. It
-is the form of `ParticleEmitter.sizeCurve` (`{"keys": [...], "interp": "smooth"}` eases, at most 16 keys). An empty curve, or one that does
-not parse (the log says why), is the linear curve. `refDistance` and `rolloffFactor` do not apply, and the sound is cut at `range` as for the others.
+is the form of `ParticleEmitter.sizeCurve` (`{"keys": [...], "interp": "smooth"}` eases, at most 16 keys). An empty curve is the linear curve. A curve in `AudioSource.rolloffCurve` that does
+not parse falls back to linear (the log says why); `audio.play` throws for it instead, with the same message. `refDistance` and `rolloffFactor` do not apply, and the sound is cut at `range` as for the others.
 
 ```js
 audio.play("assets/sfx/siren.wav", { position: [40, 0, 0], range: 400, rolloff: "curve", rolloffCurve: [[0, 1], [0.3, 0.8], [1, 0]] });
@@ -513,15 +514,72 @@ the default (0, 0, -1) is forward in 3D (as lights and cameras), use (1, 0, 0) f
 the world `direction` (the same `coneInnerAngle`, `coneOuterAngle` and `coneOuterGain`); without a `direction` the sound is the same in every direction.
 The cone multiplies with the rolloff, and an `AudioSource` follows it as it turns; `audio.play` works it out once, when the sound starts.
 
-### Doppler, occlusion and headphones (not yet)
+### Doppler
 
-These fields exist so scenes and scripts can be written now, but they have no effect until the packages that make them work land:
+A moving source or listener shifts the pitch: it rises as they approach and falls as they separate. `AudioSource.dopplerLevel` turns it on
+(0, the default, is off; 1 is the real shift; up to 10 exaggerates), and `AudioListener.speedOfSound` is the world units per second sound
+travels at (default 343, meters per second in air; a 2D game in pixels sets it to its pixels per meter times 343, or lower for a more audible effect).
+
+- **Velocities are measured, not read.** The velocity of a source and of the listener is the change of its world position between two frames
+  divided by the frame's time, so animated, scripted and physics-driven movement all shift the pitch (`RigidBody` is not read). The first frame
+  of a source gives velocity 0, and so does a jump of more than 4 speeds of sound per second (a teleport, a respawn, another listener): no pitch
+  jump. A sound that is not spatial, or a scene with no listener and no camera, has no doppler.
+- **The shift.** With `u` the direction from the listener to the source and `c` the speed of sound, the real ratio is
+  `(c + listener velocity along u) / (c + source velocity along u)` (each speed along `u` is limited to 0.9 `c`). `dopplerLevel` is the exponent
+  of that ratio (0.5 half the shift in octaves, 2 twice). The factor is limited to 0.25..4 (two octaves each way), follows its target with a
+  time constant of 0.05 s so the pitch glides, and multiplies the voice's `pitch`. With `dopplerLevel` 0 the pitch is exactly the one without doppler.
+- **`audio.play` at a position** takes `velocity` (world units per second, `[x, y, z]`, `{x, y}`) and `dopplerLevel`. The place of a one-shot
+  does not move, so the `velocity` you give is used for the whole life of the sound, and the listener's velocity is the one measured in each frame.
+
+```js
+// a car that drives past at 40 units per second: the pitch drops as it goes by
+audio.play("assets/sfx/engine.wav", { position: [200, 0, 0], velocity: [-40, 0, 0], dopplerLevel: 1, range: 600 });
+```
+
+### Occlusion
+
+A wall between the listener and a source makes the sound quieter and duller. `AudioSource.occlusion` turns it on; the others say how.
+
+| Field | Meaning | Default |
+| --- | --- | --- |
+| `occlusion` | cast a ray from the listener to the source | off |
+| `occlusionMask` | the physics layers (bitmask) whose colliders block | -1 (all) |
+| `occlusionGain` | volume multiplier while blocked | 0.4 |
+| `occlusionLowpass` | low-pass cutoff in Hz while blocked (20000 = no filter) | 1500 |
+
+`audio.play` with a `position` takes the same names (`occlusion`, `occlusionMask`, `occlusionGain`, `occlusionLowpass`).
+
+- **The ray.** It goes from the listener to the source, in the physics world: the 2D colliders (`Collider2D`) and the 3D ones (`Collider3D`) are
+  both checked, so it works in a 2D or a 3D game. It ignores triggers, the source's own entity (and its children) and the listener's. A foreign
+  collider that the listener stands inside does not block (the ray starts inside it). A source that stands inside a foreign collider (a
+  floor or a room volume that is not the source's own entity or its child) is blocked by it, so keep such volumes out of `occlusionMask`. The ray is a straight line, so it does not model sound that goes around a corner.
+- **The budget.** Rays cost time, so they are spread over frames: at most 8 rays per frame in the whole game (`audio.play` at a position uses
+  them too), and each source asks again every 0.1 s. A source that was never measured goes first, and its first answer applies at once (a sound
+  that starts behind a wall starts muffled). With more sources than the budget serves (about 48 at 60 frames per second) each one is checked a
+  little less often than every 0.1 s; nothing is skipped for good.
+- **The result is smooth.** When the answer changes, the volume and the cutoff move to the new state over 0.1 s, so there is no click. The volume
+  is multiplied by `occlusionGain` and the voice goes through its own low-pass (two one-pole stages, 12 dB per octave) that moves from open to
+  `occlusionLowpass`. A voice that is not occluded, or whose `occlusionLowpass` is 20000, is not filtered at all and sounds exactly as before.
+- It needs physics bodies (`sync` runs every fixed step); colliders created in the same frame may be seen one frame later. A game that
+  runs without physics never occludes.
+
+Recipe: a guard that can be heard through a door.
+
+```json
+{ "id": "guard", "components": {
+    "Transform": { "position": [320, 0, 0] },
+    "AudioSource": { "clip": "assets/sfx/humming.wav", "loop": true, "playOnStart": true, "spatial": true, "range": 600,
+                     "occlusion": true, "occlusionMask": 1, "occlusionGain": 0.3, "occlusionLowpass": 800 } } }
+```
+
+Put the walls on layer 0 (mask 1 is layer 0) and the sound dulls behind them and opens when the door is gone (disable its collider).
+
+### Headphones (not yet)
+
+This field exists so scenes and scripts can be written now, but it has no effect until the package that makes it work lands:
 
 | Field | Meaning | Default | Works in |
 | --- | --- | --- | --- |
-| `AudioSource.dopplerLevel` (`audio.play`: `dopplerLevel`, `velocity`) | how much the pitch shifts with the speed of source and listener (0 off, 1 real); velocities will come from the change of world position between frames, not from `RigidBody` | 0 | M98.8b |
-| `AudioListener.speedOfSound` | world units per second sound travels at | 343 | M98.8b |
-| `AudioSource.occlusion`, `occlusionMask`, `occlusionGain`, `occlusionLowpass` (same names in `audio.play`) | a physics ray from the listener to the source that hits a collider of the layers in `occlusionMask` multiplies the volume by `occlusionGain` and low-passes at `occlusionLowpass` Hz | off, -1 (all layers), 0.4, 1500 | M98.8b |
 | `AudioListener.spatialization` (`"pan"` or `"hrtf"`), `headRadius` | placement for headphones with a parametric head model; until then `"hrtf"` sounds as `"pan"` | `"pan"`, 0.0875 | M98.8c |
 
 ## Voice stealing
@@ -567,7 +625,7 @@ game thread and the callback share only bounded single-producer single-consumer 
 each memory ordering is explained where it is used:
 
 - **Commands, game to mixer.** Every `Audio` call that changes what plays becomes a command made on the game thread: a play or a
-  stop, a voice's volume, pitch, pan or bus, a bus volume, effect or ducking, a snapshot, a new bus table, a music transport
+  stop, a voice's volume, pitch, pan, low-pass (occlusion) or bus, a bus volume, effect or ducking, a snapshot, a new bus table, a music transport
   change, the recorder. The commands of one call are committed together, so the mixer applies them in the same block. The ring
   holds 2048. When the callback falls behind, the rest wait on the game side in a staging queue of at most 8192; past that the
   oldest play or voice setting is dropped, then the oldest bus or music setting. Stops, removals, music starts, bus table swaps

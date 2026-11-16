@@ -26,6 +26,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <map>
 #include <memory>
 #include <optional>
@@ -150,13 +151,53 @@ struct SpatialSound {
     float coneInnerAngle = 360.0f;
     float coneOuterAngle = 360.0f;
     float coneOuterGain = 0.0f;
-    Vec3 velocity{0, 0, 0};     // world units per second, for doppler (M98.8b: no effect yet)
-    float dopplerLevel = 0.0f;  // M98.8b: no effect yet
-    bool occlusion = false;     // M98.8b: no effect yet
+    Vec3 velocity{0, 0, 0};     // world units per second of the sound's place, for doppler (kept for the sound's life)
+    float dopplerLevel = 0.0f;  // 0 = off (the default); 1 = the real shift; up to 10
+    bool occlusion = false;  // a ray from the listener to `position` that hits a collider of occlusionMask muffles it
     std::int32_t occlusionMask = -1;
     float occlusionGain = 0.4f;
-    float occlusionLowpass = 1500.0f;
+    float occlusionLowpass = 1500.0f;  // Hz; 20000 = no filter
 };
+
+// ---- Doppler (docs/SOUND.md, "Doppler"). The velocities of an AudioSource and of the listener are the change of their world
+// position between two frames over the frame's dt (never RigidBody): `audio_velocity`. The pitch factor of a sound is
+// audio_doppler_pitch, smoothed over kDopplerSmoothing seconds by Audio::update before it multiplies the voice's pitch.
+constexpr float kDopplerMinPitch =
+    0.25f;  // the pitch factor stays in kDopplerMinPitch..kDopplerMaxPitch (two octaves each way)
+constexpr float kDopplerMaxPitch = 4.0f;
+constexpr float kDopplerJumpSpeeds = 4.0f;  // a move faster than this many speeds of sound is a teleport: velocity 0
+constexpr float kDopplerSmoothing = 0.05f;  // seconds the pitch factor takes to follow its target (63% of the way)
+
+// The velocity (world units per second) of something that moved by `delta` in `dt` seconds. Zero for dt <= 0, and for a jump
+// of more than kDopplerJumpSpeeds * speedOfSound per second (a teleport, a respawn, a scene change), so those give no shift.
+Vec3 audio_velocity(Vec3 delta, float dt, float speedOfSound);
+
+// The pitch factor (kDopplerMinPitch..kDopplerMaxPitch; 1 = none) a listener hears from a source: with u the unit vector from
+// the listener to the source and c the speed of sound, the real shift is (c + listenerVelocity.u) / (c + sourceVelocity.u),
+// each speed along u first limited to 0.9 c. `level` is the exponent of that ratio: 0 (or less) gives exactly 1, 1 the real
+// shift, 2 doubles it in octaves. Exactly 1 too when the two are at the same place or c <= 0.
+float audio_doppler_pitch(Vec3 listenerPos, Vec3 listenerVelocity, Vec3 sourcePos, Vec3 sourceVelocity,
+                          float speedOfSound, float level);
+
+// ---- Occlusion (docs/SOUND.md, "Occlusion"). The audio module cannot cast rays (physics is above it): the engine gives it a
+// probe, and Audio decides when to ask, smooths the answer and applies it. Audio asks at most kAudioOcclusionRaysPerFrame
+// times per update(), a source at most every kAudioOcclusionRecheck seconds (a source never measured first), and the volume
+// and the low-pass move to the answer over kAudioOcclusionSmoothing seconds.
+constexpr int kAudioOcclusionRaysPerFrame = 8;
+constexpr float kAudioOcclusionRecheck = 0.1f;
+constexpr float kAudioOcclusionSmoothing = 0.1f;
+
+// The segment a probe checks: from the listener to the source.
+struct AudioOcclusionRay {
+    Vec3 from;  // the listener's world position
+    Vec3 to;    // the source's world position
+    Entity
+        source;  // the source's entity (its colliders do not block); null for a sound played with audio.play at a position
+    Entity listener;         // the listener's entity (its colliders do not block); null when there is none
+    std::int32_t mask = -1;  // the physics layers that block
+};
+// True when something of `ray.mask` stands between `ray.from` and `ray.to`. Called on the game thread, from update().
+using AudioOcclusionProbe = std::function<bool(World&, const AudioOcclusionRay&)>;
 
 class Audio {
 public:
@@ -190,7 +231,9 @@ public:
     // and takes no voice (a volume of 0 inside the range, or a muted listener, still plays and returns an id, as play() does).
     // `outOfRange`, when given, tells whether the 0 returned is for the range (not a clip that failed or a mixer with no free voice).
     // Game thread only: it reads the World.
-    // The same with every option of SpatialSound (a rolloff curve, a cone; doppler and occlusion are read but do nothing yet).
+    // The same with every option of SpatialSound (a rolloff curve, a cone, doppler and occlusion). A sound with doppler or
+    // occlusion is followed by update() for as long as it plays: its pitch moves with the listener's velocity and the
+    // `velocity` given (its place does not move), and its volume and low-pass follow the occlusion probe.
     VoiceId play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position,
                     const SpatialSound& sound, bool* outOfRange = nullptr);
     VoiceId play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position,
@@ -338,8 +381,11 @@ public:
     void clear_play_log();
     std::uint64_t play_log_dropped() const;
 
-    // Drives AudioSource/AudioListener components, the sound of Video components and scene music.
+    // Drives AudioSource/AudioListener components (doppler and occlusion included), the sound of Video components and scene
+    // music. `dt` is the frame's time: velocities for doppler are position changes over it.
     void update(World& world, float dt);
+    // Who answers the occlusion rays (the engine sets one that casts physics rays). Without a probe nothing is occluded.
+    void set_occlusion_probe(AudioOcclusionProbe probe);
 
     // Headless: mix `seconds` of audio (called by the engine per frame with dt). With a device it mixes nothing and does
     // what service() does.

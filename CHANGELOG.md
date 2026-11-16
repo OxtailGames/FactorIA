@@ -28,6 +28,15 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   occlusion (`occlusion`, `occlusionMask`, `occlusionGain`, `occlusionLowpass`), `AudioListener.speedOfSound`,
   `spatialization` (`pan` | `hrtf`) and `headRadius`, and `velocity`, `dopplerLevel` and the occlusion options of `audio.play`
   (M98.8b doppler and occlusion by physics rays, M98.8c HRTF). With the defaults a sound is bit-for-bit what it was.
+- 3D audio, doppler and occlusion (M98.8b): `AudioSource.dopplerLevel` shifts the pitch with the speed a source and the listener
+  approach or separate at (`AudioListener.speedOfSound`; velocities from the change of world position between frames, a jump
+  of more than 4 speeds of sound per second counts as a teleport and shifts nothing; the factor is clamped to 0.25..4 and glides
+  over about 0.05 s), and `AudioSource.occlusion` casts a physics ray (2D and 3D colliders of `occlusionMask`, triggers and the
+  source's and listener's own entities ignored) from the listener to the source: a blocked path multiplies the volume by
+  `occlusionGain` and low-passes it at `occlusionLowpass`, moving there over 0.1 s. At most 8 rays per frame in the whole
+  game, a source re-measured every 0.1 s. `audio.play({ position, velocity, dopplerLevel, occlusion, ... })` does the same for a
+  one-shot. The mixer has a per-voice low-pass (bit-identical when it is off). `occlusionMask` from a script is now clamped
+  before it becomes a mask. With the defaults a sound is bit-for-bit what it was. See docs/SOUND.md, "Doppler" and "Occlusion".
 - `websocket.connect(url, options)` for game scripts: WebSocket connections to the hosts `factoria.json` `network.hosts` declares (the
   same list, errors and `did you mean` as `http.fetch`), with `on`/`off`/`send`/`close`, text and binary messages, subprotocols,
   headers, and reconnects with exponential backoff and a jitter that is the same on every run. A scene change closes the
