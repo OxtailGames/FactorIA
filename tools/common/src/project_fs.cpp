@@ -71,7 +71,33 @@ std::string rewrite_secret_values(std::string_view text,
 
 constexpr const char* kHiddenSecret = "(hidden)";
 
-[[noreturn]] void fail(const char* code, const std::string& msg, const std::string& hint = {}) {
+// A checkpoint keeps every file of the project, factoria.json included, under its hash.
+bool is_checkpoint_object(const std::string& rel) { return rel.rfind(".factoria/checkpoints/objects/", 0) == 0; }
+
+[[noreturn]] void fail(const char* code, const std::string& msg, const std::string& hint = {});
+
+// The text fs.write or fs.edit is about to store in factoria.json. fs.read shows the secret as "(hidden)", so a file written back
+// from what was read keeps the real one: when the value of "encryptionSecret" in `newText` is exactly "(hidden)" it is replaced by the
+// value in `oldText`, and with none to keep the write is refused (a name or description that says "(hidden)" is just text).
+std::string keep_hidden_secret(const std::string& newText, const std::string& oldText) {
+    bool hidden = false;
+    rewrite_secret_values(newText, [&](const std::string& v) {
+        hidden = hidden || v == kHiddenSecret;
+        return v;
+    });
+    if (!hidden) return newText;
+    std::string secret;
+    rewrite_secret_values(oldText, [&](const std::string& v) { return secret = v; });
+    if (secret.empty())
+        fail("invalid_argument",
+             "factoria.json's storage.encryptionSecret is \"(hidden)\", which is what fs.read shows instead of the "
+             "real secret, "
+             "and the file has no secret to keep.",
+             "Remove the field and run `project.create_storage_secret` for a real one.");
+    return rewrite_secret_values(newText, [&](const std::string& v) { return v == kHiddenSecret ? secret : v; });
+}
+
+[[noreturn]] void fail(const char* code, const std::string& msg, const std::string& hint) {
     throw CommandError(code, msg, hint);
 }
 
@@ -269,7 +295,8 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             long end = arg_int(args, "endLine", 0);
             if (end <= 0) end = LONG_MAX;
             long total = 0;
-            const bool isProject = is_project_file_path(rel_of(root, p));
+            const std::string relPath = rel_of(root, p);
+            const bool isProject = is_project_file_path(relPath) || is_checkpoint_object(relPath);
             std::string content = lines_slice(isProject ? mask_project_secrets(*text) : *text, start, end,
                                               arg_bool(args, "numbered", false), &total);
             return Json::object({{"path", rel_of(root, p)},
@@ -348,18 +375,8 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             std::error_code ec;
             bool existed = stdfs::exists(os(p), ec);
             if (is_project_file_path(r) && content.find(kHiddenSecret) != std::string::npos) {
-                // fs.read shows the secret as "(hidden)": a file written back from what was read keeps the real one.
-                std::string secret;
-                if (auto old = tooling_detail::read_file(p))
-                    rewrite_secret_values(*old, [&](const std::string& v) { return secret = v; });
-                if (secret.empty())
-                    fail("invalid_argument",
-                         "factoria.json's storage.encryptionSecret is \"(hidden)\", which is what fs.read shows "
-                         "instead of the real secret.",
-                         "Remove the field (run `project.create_storage_secret` for a new one), or keep the existing "
-                         "secret by leaving the file's own value.");
-                content = rewrite_secret_values(content,
-                                                [&](const std::string& v) { return v == kHiddenSecret ? secret : v; });
+                auto old = tooling_detail::read_file(p);
+                content = keep_hidden_secret(content, old ? *old : std::string());
             }
             if (stdfs::is_directory(os(p), ec)) fail("invalid_argument", "'" + rel + "' is a directory.");
             if (existed && !arg_bool(args, "overwrite", true))
@@ -435,6 +452,8 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                 if (!all) break;
             }
             out.append(*text, last, std::string::npos);
+            if (is_project_file_path(r) && repl.find(kHiddenSecret) != std::string::npos)
+                out = keep_hidden_secret(out, *text);
             std::string err;
             if (!tooling_detail::write_file(p, out, &err)) fail("failed", err);
             Json res = Json::object({{"path", r}, {"replacements", all ? positions.size() : size_t(1)}});

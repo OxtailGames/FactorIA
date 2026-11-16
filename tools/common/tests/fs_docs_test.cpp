@@ -204,11 +204,40 @@ TEST_CASE("fs: factoria.json is shown without the storage secret, and written ba
         f.reg.call("fs.edit", {{"path", "factoria.json"}, {"find", "\"fixedHz\": 60"}, {"replace", "\"fixedHz\": 30"}})
             .ok);
     CHECK(testing::read_all(f.tmp.path / "factoria.json").find(secret) != std::string::npos);
-    // no secret to keep: writing "(hidden)" is refused instead of storing it as the secret
+    // no secret to keep: "(hidden)" as the VALUE of the secret is refused instead of being stored as the secret ...
     testing::write_all(f.tmp.path / "factoria.json", "{\"name\": \"T\"}");
     auto bad = f.reg.call("fs.write", {{"path", "factoria.json"}, {"content", content}});
     REQUIRE_FALSE(bad.ok);
-    CHECK(bad.error["message"].get<std::string>().find("(hidden)") != std::string::npos);
+    CHECK(bad.error["message"].get<std::string>().find("encryptionSecret") != std::string::npos);
+    CHECK(testing::read_all(f.tmp.path / "factoria.json") == "{\"name\": \"T\"}");
+    auto badEdit = f.reg.call("fs.edit", {{"path", "factoria.json"},
+                                          {"find", "\"name\": \"T\""},
+                                          {"replace", "\"storage\": {\"encryptionSecret\": \"(hidden)\"}"}});
+    REQUIRE_FALSE(badEdit.ok);
+    CHECK(testing::read_all(f.tmp.path / "factoria.json") == "{\"name\": \"T\"}");
+    // ... but the words "(hidden)" in a name or a description are just text
+    auto words =
+        f.reg.call("fs.write", {{"path", "factoria.json"},
+                                {"content", "{\"name\": \"(hidden) tale\", \"description\": \"a (hidden) door\"}"}});
+    CHECK(words.ok);
+    CHECK(testing::read_all(f.tmp.path / "factoria.json").find("a (hidden) door") != std::string::npos);
+    CHECK(
+        f.reg
+            .call("fs.edit", {{"path", "factoria.json"}, {"find", "a (hidden) door"}, {"replace", "a (hidden) window"}})
+            .ok);
+    // a new real secret is kept as written
+    const std::string fresh = "ffffffffffffffffffffffffffffffffffffffff";
+    auto set = f.reg.call("fs.write", {{"path", "factoria.json"},
+                                       {"content", "{\"storage\": {\"encryptionSecret\": \"" + fresh + "\"}}"}});
+    REQUIRE(set.ok);
+    CHECK(testing::read_all(f.tmp.path / "factoria.json") ==
+          "{\"storage\": {\"encryptionSecret\": \"" + fresh + "\"}}");
+    // the copies a checkpoint keeps are masked when read as files
+    testing::write_all(f.tmp.path / ".factoria/checkpoints/objects/ab/abcdef",
+                       "{\"encryptionSecret\": \"" + fresh + "\"}");
+    auto obj = f.reg.call("fs.read", {{"path", ".factoria/checkpoints/objects/ab/abcdef"}});
+    REQUIRE(obj.ok);
+    CHECK(obj.result["content"].get<std::string>().find(fresh) == std::string::npos);
 }
 
 TEST_CASE("fs: search skips binary and .factoria, supports regex") {
