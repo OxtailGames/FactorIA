@@ -1,6 +1,6 @@
-// Windows gamepads through XInput. The DLL is loaded at run time (no import library, no new link dependency): Windows 8+
-// has xinput1_4.dll, older systems xinput9_1_0.dll. Written against the Windows SDK's xinput.h; the pad layout is the
-// Xbox one that XInput reports natively.
+// Windows gamepads through XInput (state and rumble). The DLL is loaded at run time (no import library, no new link
+// dependency): Windows 8+ has xinput1_4.dll, older systems xinput9_1_0.dll. Written against the Windows SDK's xinput.h;
+// the pad layout is the Xbox one that XInput reports natively.
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
 #define NOMINMAX
@@ -18,13 +18,28 @@ namespace fa {
 namespace {
 
 using GetStateFn = DWORD(WINAPI*)(DWORD, XINPUT_STATE*);
+using SetStateFn = DWORD(WINAPI*)(DWORD, XINPUT_VIBRATION*);
 
-GetStateFn load_get_state() {
+struct XInputApi {
+    GetStateFn getState = nullptr;
+    SetStateFn setState = nullptr;  // every XInput DLL has it; nullptr only if the export is somehow missing
+};
+
+XInputApi load_xinput() {
+    XInputApi api;
     for (const char* dll : {"xinput1_4.dll", "xinput9_1_0.dll"})
-        if (HMODULE m = LoadLibraryA(dll))
-            if (auto fn = reinterpret_cast<GetStateFn>(reinterpret_cast<void*>(GetProcAddress(m, "XInputGetState"))))
-                return fn;
-    return nullptr;
+        if (HMODULE m = LoadLibraryA(dll)) {
+            api.getState = reinterpret_cast<GetStateFn>(reinterpret_cast<void*>(GetProcAddress(m, "XInputGetState")));
+            if (!api.getState) continue;
+            api.setState = reinterpret_cast<SetStateFn>(reinterpret_cast<void*>(GetProcAddress(m, "XInputSetState")));
+            return api;
+        }
+    return api;
+}
+
+const XInputApi& xinput() {
+    static const XInputApi api = load_xinput();
+    return api;
 }
 
 float thumb(SHORT v) { return std::clamp(float(v) / 32767.0f, -1.0f, 1.0f); }
@@ -32,7 +47,7 @@ float thumb(SHORT v) { return std::clamp(float(v) / 32767.0f, -1.0f, 1.0f); }
 }  // namespace
 
 void poll_gamepads(Input& in) {
-    static const GetStateFn get_state = load_get_state();
+    const GetStateFn get_state = xinput().getState;
     if (!get_state) return;
     // Asking an empty slot is slow on some drivers, so a slot without a pad is asked once per ~2 s (at 60 fps).
     static bool present[kMaxGamepads] = {};
@@ -81,6 +96,27 @@ void poll_gamepads(Input& in) {
         in.on_gamepad_axis(i, GamepadAxis::LeftTrigger, float(g.bLeftTrigger) / 255.0f);
         in.on_gamepad_axis(i, GamepadAxis::RightTrigger, float(g.bRightTrigger) / 255.0f);
     }
+}
+
+GamepadRumbleSupport gamepad_backend_rumble_support(int slot) {
+    if (slot < 0 || slot >= kMaxGamepads) return {false, "there is no pad in this slot"};
+    if (!xinput().setState)
+        return {false, "this Windows has no XInputSetState (xinput1_4.dll or xinput9_1_0.dll could not be loaded)"};
+    // XInput does not say whether a pad has motors (a wireless adapter's pad may not): it is asked to.
+    return {true, {}};
+}
+
+// XInput motors are 0..65535: the left one is the heavy, low-frequency motor and the right one the light, high-frequency
+// one. XInput has no duration: the motors keep going until they are set to 0, which the engine does when the request's
+// time is up (and at pause, focus loss, scene change and quit).
+bool gamepad_backend_rumble(int slot, float low, float high, float) {
+    const SetStateFn set_state = xinput().setState;
+    if (!set_state || slot < 0 || slot >= kMaxGamepads) return false;
+    auto motor = [](float v) { return WORD(std::clamp(v, 0.0f, 1.0f) * 65535.0f + 0.5f); };
+    XINPUT_VIBRATION vib{};
+    vib.wLeftMotorSpeed = motor(low);
+    vib.wRightMotorSpeed = motor(high);
+    return set_state(DWORD(slot), &vib) == ERROR_SUCCESS;
 }
 
 }  // namespace fa

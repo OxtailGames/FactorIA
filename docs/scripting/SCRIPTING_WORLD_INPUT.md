@@ -307,6 +307,38 @@ editor's game view), so check `window.available` first or offer the option only 
   tests included: `game.screenshot` and `game.renderStats().width` then have the scaled size. The engine saves nothing;
   keep the player's choice with `storage.set`.
 
+### Pad rumble: `input.rumble(pad, low, high, seconds)`
+`input.rumble(0, 0.7, 0.3, 0.2)` shakes the motors of the pad in slot 0 (the slot `input.gamepad(i)` reads): `low` is the heavy,
+low-frequency motor (the left one of an Xbox pad), `high` the light, high-frequency one, each 0..1 (a value outside is clamped),
+for `seconds` above 0 and up to 10 (0.05 to 0.15 is a tap, 0.3 a hit, 1 an explosion). A new call on the same pad replaces the
+one playing; `input.stopRumble(pad)` stops one pad and `input.stopRumble()` all of them. A pad that is not connected or cannot
+rumble ignores the call, so a game need not check; `input.gamepad(i).canRumble` says whether it will do something, to show a
+Vibration option only where it works. This is a different motor from a phone's `input.vibrate()`.
+
+- The time runs on the game's clock, not on the wall clock: the rumble ends when `seconds` of game time passed (a paused game does
+  not count) and a request made in a scene's `onStart` plays. To go on, ask again before it ends.
+- The engine stops every pad when the game pauses (`game.paused = true`, the editor's pause), when the window loses the focus
+  or the app is suspended, when a pad is unplugged, on a scene change and on quit, so a pad never keeps shaking. A request made
+  while the game is paused plays.
+- Mistakes throw with a hint: a pad outside 0..3, a strength or `seconds` that is not a number, `seconds` outside 0..10.
+- Where it works today: Windows (XInput pads: Xbox 360, One, Series and the pads that present themselves as one) and
+  Chrome-based browsers (Xbox and PlayStation pads, through `gamepad.vibrationActuator`; the browser may refuse it until a
+  button was pressed on the pad). Linux, macOS, iOS and Android answer `canRumble: false` for now (M98.5c) and so do Windows pads
+  that are not XInput (DualShock, DualSense, Switch Pro: M98.5b); Firefox and Safari do not offer the browser API.
+- Tests and headless runs: a test pad has no motors unless `game.gamepad(i).connect({ canRumble: true })`. `game.rumbles()` lists
+  the requests the game made (strengths already clamped, `seconds` 0 for a stop, at most 256) and `game.rumbleState(pad)` says
+  what the motors do now (the seconds left run down with `game.step`).
+- For a tool or an AI: the command `game.rumble` (`{pad, low, high, seconds}` or `{pad, stop: true}`; without a pad, all pads)
+  does the same on a running game and answers with every pad's `canRumble` and the reason when it is false.
+```js
+import { Behaviour, input } from "factoria";
+export default class Hurt extends Behaviour {
+  onHit(damage) {
+    input.rumble(0, Math.min(1, damage / 50), 0.4, 0.25);   // a stronger hit shakes the heavy motor more
+  }
+}
+```
+
 ### game.device: pick a quality preset
 `game.device` is `{ formFactor: "desktop" | "phone" | "tablet", gpuBackend, memoryGB, tier: "low" | "medium" | "high", steamDeck, handheld }`.
 `gpuBackend` is `"metal"`, `"d3d11"`, `"glcore"`, or `"gles3"`; `memoryGB` is the machine's physical

@@ -47,6 +47,7 @@
 
 #include "fa/core/json.h"
 #include "fa/core/math.h"
+#include "fa/core/types.h"
 
 namespace fa {
 
@@ -214,6 +215,34 @@ struct GamepadEvent {
     int slot = 0;
     GamepadInfo info;
 };
+
+// Pad rumble. A request asks the two motors of one pad: `low` the heavy, low-frequency one (the left motor of an Xbox
+// pad), `high` the light, high-frequency one (the right motor), each 0..1, for `seconds`. The newest request of a pad
+// replaces the one before it; a pad's rumble ends by itself when its seconds have run down on the ENGINE clock
+// (Input::advance_rumble, once per frame: never the wall clock), and the engine also stops every pad on pause, on focus
+// loss, at a scene change and at quit, so a pad never keeps shaking. Input is the source of truth: a windowed run copies it
+// to the hardware each frame (apply_gamepad_rumble, fa/platform/gamepad.h); headless runs and tests keep it, so they can
+// read what the game asked for (rumble_requests()) and what the motors do now (rumble_state()).
+inline constexpr float kMaxRumbleSeconds = 10.0f;  // one request can last this long: a game that wants more asks again
+struct RumbleRequest {
+    int pad = 0;
+    float low = 0.0f, high = 0.0f;  // 0..1, already clamped
+    float seconds = 0.0f;           // 0 = a stop request
+    bool operator==(const RumbleRequest&) const = default;
+};
+// What the motors of one pad do now. `serial` counts the requests the pad has taken (a stop included), so the code that
+// copies the state to the hardware can tell a renewed request from the same one still playing.
+struct RumbleState {
+    float low = 0.0f, high = 0.0f;
+    float remaining = 0.0f;  // seconds left on the engine clock
+    std::uint32_t serial = 0;
+    bool active() const { return remaining > 0.0f && (low > 0.0f || high > 0.0f); }
+};
+// Checks what a script or a command passed (`who` names it in the message: "input.rumble") and returns the request with
+// the strengths clamped to 0..1 (a curve that overshoots is harmless). Errors, with a hint: a pad that is not a whole
+// number from 0 to kMaxGamepads-1, a strength that is not a number, seconds that are not above 0 and up to
+// kMaxRumbleSeconds. A request that is valid for a pad nobody holds is still valid: it does nothing.
+Result<RumbleRequest> make_rumble_request(std::string_view who, double pad, double low, double high, double seconds);
 
 // What a local player reads (Input::use_player_device): a gamepad, a key scheme, both or neither.
 inline constexpr int kMaxPlayers = kMaxGamepads;
@@ -504,6 +533,28 @@ public:
     const std::vector<float>& vibrations() const { return vibrations_; }
     void clear_vibrations() { vibrations_.clear(); }
 
+    // -------- pad rumble (see RumbleRequest above)
+    // Asks the motors of pad `r.pad`; an out-of-range pad is ignored. The request is logged (rumble_requests(), oldest first,
+    // at most 256: a window clears the log after copying the motors to the hardware) whether or not the pad exists or can
+    // rumble, so a headless run shows what the game asked for. The motors run only on a pad that is connected now.
+    void rumble(const RumbleRequest& r);
+    // Stops the motors of one pad (pad -1: every pad) and logs a request of 0 seconds, what input.stopRumble() does.
+    void stop_rumble(int pad);
+    // The engine's stop (pause, focus loss, scene change, quit): the motors stop and nothing is logged.
+    void stop_all_rumble();
+    // Runs the pads' remaining time down by `dt` seconds (the engine clock); a pad whose time is up stops. The engine calls
+    // it at the START of every frame, so a one-frame request is still seen by the hardware layer once.
+    void advance_rumble(double dt);
+    RumbleState rumble_state(int pad) const;  // all zero for an out-of-range pad or a pad that is not connected
+    const std::vector<RumbleRequest>& rumble_requests() const { return rumbleLog_; }
+    void clear_rumble_requests() { rumbleLog_.clear(); }
+    // Whether the pad in this slot has motors the platform can drive; false for a slot with no pad. The backend tells it
+    // (set_gamepad_rumble_support, from apply_gamepad_rumble); `why` is what it says when the answer is no ("" when yes),
+    // and a test pad says it with game.gamepad(i).connect({canRumble: true}).
+    bool gamepad_can_rumble(int index) const;
+    const std::string& gamepad_rumble_reason(int index) const;  // "" for an out-of-range index
+    void set_gamepad_rumble_support(int index, bool can, std::string why);
+
     // -------- on-screen gamepad (the TouchStick and TouchButton components; fa_ui sets the controls every frame)
     // A TouchControl is a region of the screen that takes the fingers landing in it for the TOUCH PAD: a virtual pad the
     // action bindings read like any connected pad (GamepadA, GamepadLeftStickRight...), so a game reads the same actions
@@ -704,7 +755,10 @@ private:
         bool announced = false;  // a "connected" event went out and no "disconnected" one since
         std::array<bool, size_t(GamepadButton::Count)> buttons{};
         std::array<float, size_t(GamepadAxis::Count)> axes{};
-        PadEdges edges[3];  // per layer (kFrameLayer, kFixedLayer, kLateLayer)
+        PadEdges edges[3];       // per layer (kFrameLayer, kFixedLayer, kLateLayer)
+        bool canRumble = false;  // told by the platform (set_gamepad_rumble_support); survives a disconnect
+        std::string rumbleReason = "no pad has reported rumble support in this slot yet";
+        RumbleState rumble;
     };
     static bool parse_binding(std::string_view name, Binding& out);
     static bool parse_single_binding(std::string_view name, Binding& out);  // no modifiers
@@ -834,6 +888,7 @@ private:
     bool mouseVisible_ = true, mouseLocked_ = false, keyboardShown_ = false, platformKeyboard_ = false;
     bool pasteFromEvents_ = false;  // paste comes from on_paste() only, not from the V key
     std::vector<float> vibrations_;
+    std::vector<RumbleRequest> rumbleLog_;
     Json projectActions_;                             // what the last set_actions() was given (reset_bindings)
     std::map<std::string, KeyScheme> schemes_;        // the built-in schemes and the project's
     ActionTable padDefaults_;                         // per action: the project's pad bindings

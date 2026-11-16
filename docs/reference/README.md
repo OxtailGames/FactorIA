@@ -390,6 +390,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`game.pause`](commands/game.md#gamepause-modifies-state): Pause the simulation (frame() stops simulating; game.step still works).
 - [`game.render_stats`](commands/game.md#gamerender_stats): What the renderer drew in the picture now: draw calls, triangles, lights, shadow casters, texture memory. _Since 0.3.0._
 - [`game.resume`](commands/game.md#gameresume-modifies-state): Resume the simulation after game.pause.
+- [`game.rumble`](commands/game.md#gamerumble-modifies-state): Rumble a gamepad (the heavy and the light motor, 0..1, for some seconds), stop it, or just read what every pad does and whether it can rumble. _Not released yet._
 - [`game.screenshot`](commands/game.md#gamescreenshot-modifies-state): Capture the game view as a PNG and show it: whole, a magnified region, or a filmstrip of frames.
 - [`game.state`](commands/game.md#gamestate): Dump the game state as JSON: entities, physics, script errors, recent warnings, render stats.
 - [`game.state_hash`](commands/game.md#gamestate_hash): One 64-bit hash of the whole simulation state: every entity, component and field, the live particles of every emitter, the clock and the random generator. _Since 0.19.0._
