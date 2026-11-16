@@ -135,7 +135,7 @@ The output is clamped to -1..1; the WAV is 16-bit mono.
 (another take of the noise), `freq` or `note` transposes the patch so its base pitch (the pitch of its first pitched layer)
 becomes that, and `length` / `tail` replace the patch's. Oscillators with a fixed `freq` do not transpose.
 
-### Baking, provenance and staleness
+### Baking, provenance and staleness of a patch
 
 `sfx.render` writes the sound and records it in `assets.json`: provenance origin `original`, license CC0-1.0, and a **recipe**
 (`sfx.render` with its arguments and the patch as an input with its SHA-256). That connects the sound to the rest of the

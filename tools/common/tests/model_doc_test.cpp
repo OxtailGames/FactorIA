@@ -559,7 +559,7 @@ TEST_CASE("model.info: the catalogue lists the sdf shapes with their kind and th
     CHECK(blendOk);
 }
 
-TEST_CASE("docs/MODELING.md: every sdf example is a valid document that builds a closed surface") {
+TEST_CASE("docs/modeling/MODELING_SHAPES.md: every sdf example is a valid document that builds a closed surface") {
     namespace stdfs = std::filesystem;
     const std::string text = read_text(stdfs::path(FA_REPO_ROOT) / "docs" / "modeling" / "MODELING_SHAPES.md");
     int found = 0;
@@ -569,9 +569,9 @@ TEST_CASE("docs/MODELING.md: every sdf example is a valid document that builds a
         const std::string block = text.substr(begin, end - begin);
         if (block.find("\"op\": \"sdf\"") == std::string::npos) continue;
         ++found;
-        auto json = parse_json(block, "MODELING.md");
+        auto json = parse_json(block, "MODELING_SHAPES.md");
         REQUIRE_MESSAGE(json.ok(), (json.ok() ? std::string() : json.error().to_string()));
-        auto doc = parse_model_doc(*json, "MODELING.md");
+        auto doc = parse_model_doc(*json, "MODELING_SHAPES.md");
         REQUIRE_MESSAGE(doc.ok(), (doc.ok() ? std::string() : doc.error().to_string()));
         auto build = evaluate_model(*doc);
         REQUIRE_MESSAGE(build.ok(), (build.ok() ? std::string() : build.error().to_string()));
@@ -643,7 +643,8 @@ TEST_CASE("model.select: tries a query on the mesh a node receives; model.info l
     CHECK(info["measurements"]["closed"] == true);
 }
 
-TEST_CASE("docs/MODELING.md: every example of Selections and edits is a valid document that builds a closed surface "
+TEST_CASE("docs/modeling/MODELING_EDITING.md: every example of Selections and edits is a valid document that builds a "
+          "closed surface "
           "without warnings") {
     namespace stdfs = std::filesystem;
     const std::string text = read_text(stdfs::path(FA_REPO_ROOT) / "docs" / "modeling" / "MODELING_EDITING.md");
@@ -658,9 +659,9 @@ TEST_CASE("docs/MODELING.md: every example of Selections and edits is a valid do
         REQUIRE(end != std::string::npos);
         const std::string block = section.substr(begin, end - begin);
         ++found;
-        auto json = parse_json(block, "MODELING.md");
+        auto json = parse_json(block, "MODELING_EDITING.md");
         REQUIRE_MESSAGE(json.ok(), (json.ok() ? std::string() : json.error().to_string()));
-        auto doc = parse_model_doc(*json, "MODELING.md");
+        auto doc = parse_model_doc(*json, "MODELING_EDITING.md");
         REQUIRE_MESSAGE(doc.ok(), (doc.ok() ? block.substr(0, 80) : doc.error().to_string()));
         auto build = evaluate_model(*doc);
         REQUIRE_MESSAGE(build.ok(), (build.ok() ? std::string() : build.error().to_string()));

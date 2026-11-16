@@ -326,14 +326,22 @@ TEST_CASE(
 TEST_CASE("docs: list, read and search the bundled documentation") {
     auto docs = list_docs();
     REQUIRE_FALSE(docs.empty());
-    bool arch = false, script = false;
+    bool notEmbedded = false, script = false;
     for (auto& d : docs) {
-        arch = arch || d.name == "architecture" || d.name == "building" || d.name == "components";  // not embedded
+        notEmbedded = notEmbedded || d.name == "architecture" || d.name == "building" || d.name == "components";
         script = script || d.name == "scripting";
         CHECK(d.path.rfind("docs/", 0) == 0);
     }
-    CHECK_FALSE(arch);  // docs/design/ and the generated COMPONENTS.md stay out of the binary
+    CHECK_FALSE(notEmbedded);  // docs/design/ and the generated COMPONENTS.md stay out of the binary
     CHECK(script);
+    for (const char* repoOnly : {"architecture", "building"}) {  // each one on its own: a name that is not a doc
+        auto missing = read_doc(repoOnly);
+        CHECK_MESSAGE(!missing.ok(), repoOnly << " is in docs/design/, not embedded");
+        if (missing.ok()) continue;  // the did_you_mean tail: the name, then the real names (no close one to suggest)
+        const std::string& msg = missing.error().message;
+        CHECK_MESSAGE(msg.find(std::string("No document named '") + repoOnly + "'") == 0, repoOnly << ": " << msg);
+        CHECK_MESSAGE(msg.find("Valid: ") != std::string::npos, repoOnly << ": " << msg);
+    }
 
     auto r = read_doc("scripting");
     REQUIRE(r.ok());
@@ -558,7 +566,9 @@ TEST_CASE("docs.read: a section is read by heading, exact title first, several m
 // docs/AI_GUIDE.md starts with "## Index": a short list of every section, read alone with heading "Index" (AGENTS.md and the
 // make-game prompt send agents there first). It must stay small and complete: the guide is an entry page plus pages
 // (docs/ai-guide/), so the headings are those of the whole family and an entry names its page in a trailing `[page]`.
-TEST_CASE("ai-guide: the Index at the top is under 7 KB and lists exactly the ## and ### headings of the guide") {
+constexpr size_t kIndexLimit = 6656;  // the Index is 6386 bytes today; 6.5 KB (an agent reads it first)
+
+TEST_CASE("ai-guide: the Index at the top is under 6.5 KB and lists exactly the ## and ### headings of the guide") {
     std::string text = testing::read_all(stdfs::path(FA_REPO_ROOT) / "docs" / "AI_GUIDE.md");
     text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
     {
@@ -605,10 +615,9 @@ TEST_CASE("ai-guide: the Index at the top is under 7 KB and lists exactly the ##
     }
     REQUIRE_MESSAGE(indexEnd != std::string::npos,
                     "docs/AI_GUIDE.md needs a `## Index` section near the top, followed by the numbered sections.");
-    CHECK_MESSAGE(indexEnd < 7168,
-                  "The start of docs/AI_GUIDE.md up to the end of `## Index` is "
-                      << indexEnd
-                      << " bytes; keep it under 7168 (shorten the notes of the index): an agent reads it first.");
+    CHECK_MESSAGE(indexEnd < kIndexLimit, "The start of docs/AI_GUIDE.md up to the end of `## Index` is "
+                                              << indexEnd << " bytes; keep it under " << kIndexLimit
+                                              << " (shorten the notes of the index): an agent reads it first.");
     std::string problems;
     for (const std::string& h : headings)
         if (!listed.count(h))
@@ -632,7 +641,7 @@ TEST_CASE("ai-guide: the Index at the top is under 7 KB and lists exactly the ##
     CHECK(content.rfind("## Index", 0) == 0);
     CHECK(content.find("## 1. Mental model") == std::string::npos);
     CHECK(content.find("14. Where to read more") != std::string::npos);
-    CHECK(content.size() < 7168);
+    CHECK(content.size() < kIndexLimit);
 }
 
 TEST_CASE("docs.components and docs.commands: the default lists names, name gives one in full, filter narrows, full is "
@@ -863,6 +872,22 @@ TEST_CASE("docs: the menu kit is served from the embedded kit, not copied into M
     REQUIRE_FALSE(bad.ok());
     CHECK(bad.error().message.find("scripts/settings.js") != std::string::npos);  // did you mean
     CHECK_FALSE(read_doc("menu-kitten").ok());
+    // docs.list names the kit's folder and the sum of its files, not an empty path and 0 bytes
+    CommandRegistry listReg;
+    register_docs_commands(listReg);
+    auto listed = listReg.call("docs.list", {{"audience", "gameAi"}});
+    REQUIRE(listed.ok);
+    long expectedBytes = 0;
+    for (const std::string& f : bundled_list("templates/menus/")) expectedBytes += long(bundled_read(f)->size());
+    bool foundKit = false;
+    for (const auto& d : listed.result["docs"])
+        if (d["name"] == "menu-kit") {
+            foundKit = true;
+            CHECK(d["path"] == "templates/menus/");
+            CHECK(d["bytes"].get<long>() == expectedBytes);
+            CHECK(expectedBytes > 0);
+        }
+    CHECK(foundKit);
 
     CommandRegistry reg;
     register_docs_commands(reg);

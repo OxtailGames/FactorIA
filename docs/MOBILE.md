@@ -103,7 +103,7 @@ its last mip level, so the renderer creates all images through `make_image` (`en
 sets `GL_TEXTURE_MAX_LEVEL`. Without it the emulator showed a black window while the log looked healthy; that is why
 the smoke tests also check the screenshot.
 
-## Pages of this doc
+## Pages
 
 - [Android](mobile/MOBILE_ANDROID.md): Android: SDK, build, plugins, signing and release.
 - [iOS](mobile/MOBILE_IOS.md): iOS: build, plugins, signing and TestFlight.

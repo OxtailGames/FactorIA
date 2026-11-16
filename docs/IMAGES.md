@@ -26,7 +26,7 @@ picture by changing the document and baking again; nothing needs a GPU, a window
 `factoria call image.bake '{"path":"assets/art/hero.image.json"}'` draws it, writes `assets/art/hero.png` and returns the
 picture (`$image`). The schema is `schemas/image.schema.json`; `$schema` may point at it for editor completion.
 
-**Pages**
+## Pages
 
 - [Images: effects, baking and commands](images/IMAGES_EFFECTS_COMMANDS.md): Adjustments and effects, baking and staleness, and the commands.
 - [Images: pixel art](images/IMAGES_PIXEL_ART.md): Pixel art drawing, palettes and tools.
