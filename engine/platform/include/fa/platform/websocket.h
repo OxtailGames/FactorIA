@@ -189,8 +189,9 @@ public:
     virtual Result<std::unique_ptr<WebSocket>> connect(WebSocketRequest request) = 0;
 };
 
-// The client of this platform; never null. Until the native clients of M98.2b/c/d land, every platform answers
-// available() == false with "WebSocket client for <platform> lands in M98.2b/c/d".
+// The client of this platform; never null. On Linux it is the libcurl client (make_curl_websocket_client), available
+// when libcurl 7.45 or newer can be loaded. The other platforms answer available() == false with "WebSocket client for
+// <platform> lands in M98.2b/c/d" until their native clients land.
 std::unique_ptr<WebSocketClient> make_system_websocket_client();
 
 // A client that is never available, with this reason (what the platform stubs return).

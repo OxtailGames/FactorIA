@@ -12,8 +12,9 @@
 //
 // Threads follow the pattern of fa/platform/websocket.h, as in websocket_tcp_posix.cpp: one detached thread per connection
 // owns the easy handle and a shared_ptr to the connection's state (Core); the game thread only queues bytes and wakes it
-// through a pipe. Destroying the connection abandons the queue, tells the thread to stop and returns: libcurl's progress
-// callback ends a connection attempt within about a second, a connected thread within one poll() round.
+// through a pipe. Destroying the connection abandons the queue, tells the thread to stop and returns. A connection attempt
+// ends the next time libcurl calls the progress callback; a step of libcurl that does not call it is bounded by the
+// connect timeout. A connected thread stops within one poll() round.
 #if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
 
 #include <fcntl.h>
@@ -183,7 +184,9 @@ private:
     }
 
     // mutex_ held
-    std::size_t pending_bytes() const { return outgoing_.size() - sent_ + session_.pending_output_bytes(); }
+    std::size_t pending_bytes() const {
+        return inflight_.size() - sent_ + outgoing_.size() + session_.pending_output_bytes();
+    }
 
     Result<void> can_send() const {
         const WebSocketState s = state_.load();
@@ -210,7 +213,8 @@ private:
         }
     }
 
-    // Waits until `fd` is ready for `events` (1), the deadline passes (0), or the connection must stop (-1).
+    // Waits until `fd` is ready for `events` (1), the deadline passes (0), the connection must stop (-1), or poll() fails
+    // (-2: the connection is broken).
     int wait_for(int fd, short events, Clock::time_point deadline) {
         for (;;) {
             if (stop_ || abort_ || dead_) return -1;
@@ -218,7 +222,7 @@ private:
             if (left <= 0) return 0;
             pollfd fds[2] = {{fd, events, 0}, {wake_[0], POLLIN, 0}};
             const int n = ::poll(fds, 2, static_cast<int>(std::min<long long>(left, 1000)));
-            if (n < 0 && errno != EINTR) return 0;
+            if (n < 0 && errno != EINTR) return -2;
             if (n > 0 && (fds[1].revents & POLLIN)) drain_wake();
             if (n > 0 && (fds[0].revents & (events | POLLERR | POLLHUP))) return 1;
         }
@@ -325,21 +329,28 @@ private:
         return 1;
     }
 
-    // Writes as much of the queue as the connection takes; false when it is broken.
+    // Writes as much of the output as the connection takes; false when it is broken.
+    // The bytes in flight never move: after CURLE_AGAIN the TLS library retries the record it could not finish and wants
+    // the same buffer again (OpenSSL fails a moved one with SSL_R_BAD_WRITE_RETRY unless the TLS backend set
+    // SSL_MODE_ACCEPT_MOVING_WRITE_BUFFER), so inflight_ is never appended to until all of it is sent; new output waits in
+    // outgoing_ and the two swap. A retry thus passes the same pointer and the same length.
     bool flush(lc::CURL* h) {
         std::lock_guard<std::mutex> lock(mutex_);
-        outgoing_ += session_.take_output();
-        while (sent_ < outgoing_.size()) {
+        if (session_.has_output()) outgoing_ += session_.take_output();
+        for (;;) {
+            if (sent_ == inflight_.size()) {
+                inflight_.clear();
+                sent_ = 0;
+                if (outgoing_.empty()) return true;
+                inflight_.swap(outgoing_);
+            }
             std::size_t n = 0;
-            const lc::CURLcode rc = lc::library().easy_send(h, outgoing_.data() + sent_,
-                                                            std::min(kSendChunk, outgoing_.size() - sent_), &n);
+            const lc::CURLcode rc = lc::library().easy_send(h, inflight_.data() + sent_,
+                                                            std::min(kSendChunk, inflight_.size() - sent_), &n);
             sent_ += n;
             if (rc == lc::kCurlAgain || (rc == lc::kCurlOk && n == 0)) return true;
             if (rc != lc::kCurlOk) return false;
         }
-        outgoing_.clear();
-        sent_ = 0;
-        return true;
     }
 
     bool send_all_blocking(lc::CURL* h, int fd, const std::string& bytes, Clock::time_point deadline) {
@@ -404,7 +415,12 @@ private:
                 continue;
             }
             const int ready = wait_for(fd, POLLIN, deadline);
-            if (ready < 0) return false;
+            if (ready == -1) return false;
+            if (ready == -2) {
+                fail_connect("the connection broke while waiting for the server's answer to the handshake",
+                             "Check the connection; try again.");
+                return false;
+            }
             if (ready == 0) {
                 fail_connect("timed out waiting for the server's answer to the handshake",
                              "Check that the address is a WebSocket server and not a web page.");
@@ -518,7 +534,7 @@ private:
             {
                 std::lock_guard<std::mutex> lock(mutex_);
                 done = session_.done();
-                needWrite = sent_ < outgoing_.size();
+                needWrite = sent_ < inflight_.size() || !outgoing_.empty();
                 waitingForPeer = state_.load() == WebSocketState::Closing && !peerClosed;
                 asked = closeAsked_;
             }
@@ -554,13 +570,21 @@ private:
             }
             if (lost) break;
             if (readThisTurn > 0) continue;  // send the answers (pongs, a close) and look at the state before waiting
-            pollfd fds[2] = {{fd, static_cast<short>(POLLIN | (needWrite ? POLLOUT : 0)), 0}, {wake_[0], POLLIN, 0}};
+            // Once reading has stopped, POLLIN is left out: a socket that stays readable would end every poll() at once (a
+            // busy loop until kCloseWait). A hang-up or an error is reported anyway, and then the line is gone.
+            const bool reading = !peerClosed && !failed;
+            const short want = static_cast<short>((reading ? POLLIN : 0) | (needWrite ? POLLOUT : 0));
+            pollfd fds[2] = {{fd, want, 0}, {wake_[0], POLLIN, 0}};
             const int n = ::poll(fds, 2, 500);
             if (n < 0 && errno != EINTR) {
                 lost = true;
                 break;
             }
             if (n > 0 && (fds[1].revents & POLLIN)) drain_wake();
+            if (n > 0 && !reading && (fds[0].revents & (POLLERR | POLLHUP | POLLNVAL))) {
+                lost = true;
+                break;
+            }
         }
         if (stop_ ||
             dead_) {  // destroyed, or the queue ended: say goodbye if that takes no waiting, report nothing more
@@ -593,10 +617,11 @@ private:
     std::shared_ptr<WebSocketEventQueue> queue_ =
         std::make_shared<WebSocketEventQueue>(WebSocketEventQueue::limit_for(request_.maxMessageBytes));
     mutable std::mutex
-        mutex_;  // guards session_, outgoing_, sent_, closeAsked_ and the transitions out of Connecting and Open
+        mutex_;  // guards session_, inflight_, outgoing_, sent_, closeAsked_ and the transitions out of Connecting and Open
     ws::Session session_;
-    std::string outgoing_;
-    std::size_t sent_ = 0;
+    std::string inflight_;  // being written: never changed until sent_ reaches its end (see flush)
+    std::string outgoing_;  // queued behind inflight_
+    std::size_t sent_ = 0;  // bytes of inflight_ written
     std::atomic<WebSocketState> state_{WebSocketState::Connecting};
     std::atomic<bool> stop_{false}, abort_{false};
     bool dead_ = false;  // the queue ended under the thread (push answered false); only the thread reads and writes it
