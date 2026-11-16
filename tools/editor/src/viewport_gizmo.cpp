@@ -211,6 +211,32 @@ CommandResult Editor::write_group_drag(Vec3 primaryValue, Vec3 groupWorld, float
     return last;
 }
 
+// True when the selected entities are not all in the primary's space (screen or world). Measuring every selected entity
+// every frame is too much for a big selection, so the answer is kept for the same selection and undo position for
+// half a second.
+bool Editor::gizmo_mixed_space(Entity primary) {
+    World& w = world();
+    const std::uint64_t stamp = std::uint64_t(undo_depth()) * 1000003u + std::uint64_t(redo_depth());
+    GizmoSpaceCache& c = gizmoSpaceCache_;
+    if (c.at >= 0.0 && time_ >= c.at && time_ - c.at < 0.5 && c.stamp == stamp && c.primary == w.id_of(primary) &&
+        c.ids == selection_peek().ids())
+        return c.mixed;
+    c.ids = selection_peek().ids();
+    c.primary = w.id_of(primary);
+    c.stamp = stamp;
+    c.at = time_;
+    c.mixed = false;
+    const bool primarySpace = bounds_of(primary).screenSpace;
+    for (const std::string& mid : c.ids) {
+        const Entity me = w.find_by_id(mid);
+        if (!me.is_null() && w.alive(me) && bounds_of(me).screenSpace != primarySpace) {
+            c.mixed = true;
+            break;
+        }
+    }
+    return c.mixed;
+}
+
 bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) {
     gizmoShapes_.clear();
     gizmoHover_ = {};
@@ -239,16 +265,8 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
     // A screen-space (HUD) entity moves in design pixels and a world one in world units: one delta cannot mean both, so a group
     // that mixes them gets no handles (the Inspector still edits them together).
     bool mixedSpace = false;
-    if (editing && gizmoMode_ != GizmoMode::Select && tr && !groupOff && selection_peek().size() > 1) {
-        const bool primarySpace = bounds_of(sel).screenSpace;
-        for (const std::string& mid : selection_peek().ids()) {
-            const Entity me = w.find_by_id(mid);
-            if (!me.is_null() && w.alive(me) && bounds_of(me).screenSpace != primarySpace) {
-                mixedSpace = true;
-                break;
-            }
-        }
-    }
+    if (editing && gizmoMode_ != GizmoMode::Select && tr && !groupOff && selection_peek().size() > 1)
+        mixedSpace = gizmo_mixed_space(sel);
     if (mixedSpace && !gizmoMixedSpace_)
         notify(
             "The selection mixes screen-space (HUD) and world entities, so it has no handles. Select one kind to use "

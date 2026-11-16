@@ -6,6 +6,10 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Editor polish (M98):** pasting a copied entity whose `$prefab` path has a segment of only dots and spaces (`.. `, `...`) is
+  refused, as `..` is (Windows ignores trailing dots and spaces); the Inspector's "Undo put the scene back" note no longer appears
+  after a scene load or when the undo list was trimmed; in a number that differs between selected entities, leaving the box after
+  typing (Tab, a click outside) writes the typed value to all of them, as Enter does.
 - **WebSocket on Linux (libcurl), Windows and the tcp client, polish:** when a game does not read its messages and the engine ends the connection
   (`"close"` 1008), `readyState` is `"closed"` as soon as that `"close"` event can be read, as it already was for every other
   end (before, a read right then could still say `"open"` for a moment). On Windows, a close frame from the server whose status
