@@ -15,6 +15,8 @@
 //   - Its mapping: SDL_GAMECONTROLLERCONFIG, then the project's gamecontrollerdb.txt, then the built-in Windows lines
 //     (builtin_windows_gamepad_database), then a default built from its own layout (default_hid_gamepad_mapping).
 //   - Its slot (GamepadSlotTable): XInput pads and HID pads share the engine's pad indices 0..kMaxGamepads-1.
+//   - Its driver (HidPadDriver, make_hid_pad_driver): the DualShock 4, DualSense and Switch Pro have their full reports
+//     decoded and their motors driven by their own protocol (gamepad_hid_drivers.h); every other pad has none.
 #pragma once
 
 #include <array>
@@ -127,25 +129,62 @@ std::string_view embedded_windows_gamepad_database_text();
 // the HID path skips it and the pad never appears twice.
 bool hid_path_is_xinput(std::string_view devicePath);
 
-// What canRumble says for a HID pad that has no driver of its own (HidPadDriver) yet.
+// What canRumble says for a HID pad that has no driver of its own (HidPadDriver): a generic HID pad has no output report
+// whose meaning is known, so nothing can be sent to its motors.
 inline constexpr const char* kHidRumbleWhy =
-    "this pad is read as a generic HID pad, whose motors FactorIA does not drive on Windows yet: rumble for the "
-    "DualShock 4, DualSense and Switch Pro is coming (planned as M98.5b2); Xbox pads (XInput) can rumble";
+    "this pad gives no rumble the engine can drive: on Windows the engine drives the motors of Xbox pads (XInput), the "
+    "DualShock 4, the DualSense and the Switch Pro, and reads every other pad as a generic HID pad, without rumble";
 
-// A pad whose own reports the generic path does not read well or whose motors need its own output reports (M98.5b2:
-// DualShock 4, DualSense, Switch Pro). Chosen by vendor and product id when the pad appears; gamepad_win32.cpp gives it
-// every input report before the generic parser and asks it whether the pad can rumble.
+// How a HID pad is connected. Its reports differ: a PlayStation pad over Bluetooth wraps them in another report id and
+// ends its output reports with a CRC.
+enum class HidTransport : std::uint8_t { Usb, Bluetooth };
+// From the device path Windows gives the HID interface: Bluetooth when it names the Bluetooth HID service, classic
+// ({00001124-0000-1000-8000-00805f9b34fb}) or Low Energy ({00001812-...}), any case; USB otherwise.
+HidTransport hid_transport_from_path(std::string_view devicePath);
+
+// Something a driver asks the OS glue to do on the pad's own file handle (gamepad_win32.cpp), one at a time and in order.
+struct HidPadRequest {
+    enum class Kind : std::uint8_t {
+        Write,       // send `bytes` as an output report (the report id first)
+        GetFeature,  // read the feature report whose id is bytes[0]; bytes.size() is the size the driver expects
+    };
+    Kind kind = Kind::Write;
+    std::vector<std::uint8_t> bytes;
+};
+
+// A pad whose full reports the generic path cannot read (vendor-defined bytes) and whose motors need the pad's own output
+// reports: the DualShock 4, the DualSense and the Switch Pro (gamepad_hid_drivers.h has their byte layouts). Chosen by
+// vendor and product id when the pad appears. gamepad_win32.cpp gives it every input report before the generic parser,
+// sends what next_request() asks for (the set-up), then the rumble reports, and asks it whether the pad can rumble.
 class HidPadDriver {
 public:
     virtual ~HidPadDriver() = default;
     // One input report as the OS hands it over (the report id first; 0 when the device numbers none). True: this driver
-    // read it into `state`, which is what the pad reports from then on. False: the generic parser reads it.
+    // owns the report (it read it into `state`, which is what the pad reports from then on, or it was a reply that carries
+    // no input). False: the generic parser reads it (a pad's simple report, before the set-up switched on the full one).
     virtual bool read_report(std::span<const std::uint8_t> report, GamepadState& state) = 0;
-    // Whether the pad's motors can be driven, and if not why.
+    // Whether the pad's motors can be driven, and if not why. The drivers answer yes: what can still fail (opening the
+    // device for writing, a write) is the glue's to say.
     virtual GamepadRumbleSupport rumble_support() const = 0;
+    // The set-up, one step at a time: what to send now (nothing: done, or waiting for a reply). `nowMs` is a monotonic
+    // clock in milliseconds, which only times out a reply that does not come (a step is tried again, then skipped).
+    virtual std::optional<HidPadRequest> next_request(std::uint64_t /*nowMs*/) { return std::nullopt; }
+    // The request next_request() gave last is done: `ok` false when the OS failed it; `reply` is a feature report's bytes.
+    virtual void request_done(bool /*ok*/, std::span<const std::uint8_t> /*reply*/) {}
+    // True once the set-up is over (rumble reports wait for it).
+    virtual bool setup_done() const { return true; }
+    // The output report that sets the motors to `low` (the heavy, low-frequency motor) and `high` (the light one), each
+    // 0..1; both 0 stop them. Advances the driver's packet counter, so call it only for a report that is sent.
+    virtual std::vector<std::uint8_t> rumble_report(float low, float high) = 0;
+    // Above 0: the pad stops its motors by itself unless the report comes again within about this many milliseconds, so
+    // the glue repeats it while the motors are on (the Switch Pro). 0: the motors keep the last strengths until told.
+    virtual unsigned rumble_refresh_ms() const { return 0; }
+    // What the driver believes the connection is (it corrects the guess from the path when a report says otherwise).
+    virtual HidTransport transport() const = 0;
 };
-// The driver of a pad, or nullptr: the generic path (today, for every pad).
-std::unique_ptr<HidPadDriver> make_hid_pad_driver(std::uint16_t vendor, std::uint16_t product);
+// The driver of a pad, or nullptr (the generic path): DualShock 4 (054c:05c4, 054c:09cc, the wireless adapter 054c:0ba0),
+// DualSense (054c:0ce6) and DualSense Edge (054c:0df2), Switch Pro (057e:2009).
+std::unique_ptr<HidPadDriver> make_hid_pad_driver(std::uint16_t vendor, std::uint16_t product, HidTransport transport);
 
 // Which engine pad index each device holds. XInput user indices and HID devices share the kMaxGamepads indices: a device
 // keeps its index while it stays connected, and a device that appears takes a free one (the one it would like when that

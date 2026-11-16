@@ -3,7 +3,9 @@
 // (Input::on_gamepad_*), so they stay deterministic.
 //
 // Backends:
-//   Windows  XInput (xinput1_4.dll, loaded at run time: Xbox-style pads, 4 slots).
+//   Windows  XInput (xinput1_4.dll, loaded at run time: Xbox-style pads) next to Raw Input and HID (hid.dll, loaded at
+//            run time: every other pad, parsed through its own descriptor; the DualShock 4, DualSense and Switch Pro
+//            through the engine's drivers, fa/platform/gamepad_hid_drivers.h). Both share the 4 slots.
 //   Linux    the kernel joystick API (/dev/input/js0..3). The raw button and axis numbers differ from pad to pad, so
 //            each pad is looked up by its ids (bus, vendor, product, version) in SDL GameControllerDB mapping lines
 //            (fa/platform/gamepad_mapping.h), best source first: the SDL_GAMECONTROLLERCONFIG environment variable
@@ -17,8 +19,7 @@
 //            Xbox, PlayStation, Switch Pro and Steam Deck pads. Like everywhere, a pad is hidden until a button is pressed.
 // Rumble. Input holds what the game asked for and what the motors should do now (Input::rumble, fa/platform/input.h);
 // apply_gamepad_rumble() below copies it to the hardware once per frame through two small hooks that each platform
-// backend defines in its gamepad_<platform> file, so a new backend (Windows HID pads) adds
-// code to ITS file and touches nothing shared:
+// backend defines in its gamepad_<platform> file, so a new backend adds code to ITS file and touches nothing shared:
 //   gamepad_backend_rumble_support(slot)  can the pad in `slot` rumble, and if not, why (a sentence that says what to do
 //                                         or which backend will add it). Asked every frame for each connected pad: cheap.
 //   gamepad_backend_rumble(slot, low, high, seconds)  starts the motors (each 0..1) for `seconds`, replacing what played;
@@ -26,9 +27,9 @@
 //                                         with an explicit stop, so a backend whose hardware has no duration (XInput) just
 //                                         sets the motors, and one that has (the web, evdev effects) may pass `seconds` on
 //                                         as a safety net. Returns false when the hardware refused (logged once).
-// Today: Windows XInput, Linux evdev force feedback (gamepad_linux.cpp), Android vibrators (gamepad_android.cpp), Apple
-// CoreHaptics (gamepad_apple.mm) and Chrome-based browsers can rumble; a pad a backend cannot drive (a Windows pad that is
-// not XInput, a Linux pad with no FF_RUMBLE or no write access to its event node...) answers "no" with its reason. The
+// Today: Windows XInput and the HID drivers (DualShock 4, DualSense, Switch Pro output reports), Linux evdev force feedback (gamepad_linux.cpp), Android vibrators (gamepad_android.cpp), Apple
+// CoreHaptics (gamepad_apple.mm) and Chrome-based browsers can rumble; a pad a backend cannot drive (a generic Windows HID
+// pad, a Linux pad with no FF_RUMBLE or no write access to its event node...) answers "no" with its reason. The
 // numbers each of those APIs wants are computed by the pure helpers of fa/platform/gamepad_rumble_map.h.
 // Windowed runs only, like poll_gamepads(): headless runs and tests have no hardware and read Input instead.
 //
