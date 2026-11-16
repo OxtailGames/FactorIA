@@ -467,7 +467,7 @@ public:
     bool copy_pressed() const;        // Ctrl+C / Cmd+C went down this frame
     bool cut_pressed() const;         // Ctrl+X / Cmd+X went down this frame
     bool select_all_pressed() const;  // Ctrl+A / Cmd+A went down this frame
-    // The modifier that makes the arrows and Backspace / Delete work by word: Alt on macOS, Ctrl elsewhere (either side).
+    // The modifier that makes the arrows and Backspace / Delete work by word: Alt on macOS and iOS (and on a web page opened on an Apple device), Ctrl elsewhere (either side).
     // Shift (extend the selection) is modifier_down(modifier::Shift); Home / End and the arrows are plain key_pressed().
     bool word_modifier_down() const;
     bool command_chord_down() const;  // Ctrl or Cmd (either side) is held

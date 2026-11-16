@@ -1,5 +1,4 @@
-// TextField editing: the keys, the clipboard, the pointer and the per-frame layout (scroll, IME caret rectangle). The
-// model
+// TextField editing: the keys, the clipboard, the pointer and the per-frame layout (scroll, IME caret rectangle). The model
 // itself is text_edit.h; the geometry is fa/scene/text_field_view.h, shared with the renderer.
 #include <algorithm>
 
@@ -67,7 +66,8 @@ void UiSystem::field_store(Entity e, TextField& tf, std::int32_t caret, std::int
     tf.caretIndex = caret;
     tf.selectionStart = anchor;
     tf.selectionEnd = caret;
-    fieldMemo_ = FieldMemo{e, tf.text, caret, anchor, caret};
+    // What the UI last wrote to the FOCUSED field: a commit into another field (the focus has just moved) must not point it back.
+    if (fieldMemo_.e == e || !fieldMemo_.e) fieldMemo_ = FieldMemo{e, tf.text, caret, anchor, caret};
 }
 
 void UiSystem::field_focus(World& w, Entity e) {
@@ -141,12 +141,11 @@ void UiSystem::field_pointer(World& w, Entity e, TextField& tf, Input& in, Vec2 
     if (!pressed && !down) return;
     const std::optional<Rect> px = ui_own_rect(w, e, design), units = ui_layout_rect(w, e, design);
     if (!px || !units) return;
-    // A click on the field the composition began in commits it (typed once); one that moves the focus here leaves
-    // it to the
+    // A click on the field the composition began in commits it (typed once); one that moves the focus here leaves it to the
     // focus change, which commits it into the field it began in.
     if (pressed && in.composing() && imeField_ == e) {
         field_commit_composition(w, e, in);
-        ime_cancel();
+        if (imeOn_) ime_cancel();
     }
     const float k = ui_scale_clamped(w.ui_scale());
     const TextFieldMeasure m = field_measure(tf, measure);
@@ -198,7 +197,12 @@ void UiSystem::field_commit_composition(World& w, Entity e, Input& in) {
 }
 
 void UiSystem::field_frame(World& w, Entity e, TextField& tf, Input& in, Vec2 design, const VisualMeasure& measure) {
-    {  // a script may have written the text, caret or selection since the last frame: read, fixed, written back
+    // A script may have written the text, caret or selection since the last frame: then they are read, fixed and written back.
+    // Nothing changed (the usual frame) costs a comparison, not a copy of the text.
+    const bool untouched = fieldMemo_.e == e && tf.caretIndex == fieldMemo_.caret &&
+                           tf.selectionStart == fieldMemo_.selStart && tf.selectionEnd == fieldMemo_.selEnd &&
+                           tf.text == fieldMemo_.text;
+    if (!untouched) {
         std::int32_t caret = 0, anchor = 0;
         field_sync(e, tf, caret, anchor);
         field_store(e, tf, caret, anchor);

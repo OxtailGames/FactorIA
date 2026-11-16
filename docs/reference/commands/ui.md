@@ -74,7 +74,11 @@ Migrate a scene saved before 0.30: set Transform.position x and y to 0 on the la
 
 Capabilities: read, state
 
-Before 0.30 a Panel or ScrollList wrote where it placed a child into the child's Transform.position, and a saved scene kept it. Now the layout keeps its own offset and Transform.position of a laid-out child is the author's nudge from the slot (0 = in the slot), so such a child sits that far from where it was. This runs a layout pass and sets x and y of the position to 0 on every laid-out child whose position equals its layout offset (within half a pixel), so the picture stays what the old engine drew. It changes the open scene only: save it afterwards (scene.save). Returns {count, ids}. A nudge you made on purpose that happens to equal the slot offset is reset too; the log names each such child the first time a layout sees it. Example: ui.reset_layout_positions {}
+Before 0.30 a Panel or ScrollList wrote where it placed a child into the child's Transform.position, and a saved scene kept it. Now the layout keeps its own offset and Transform.position of a laid-out child is the author's nudge from the slot (0 = in the slot), so such a child sits that far from where it was. This runs a layout pass and sets x and y of the position to 0 on every laid-out child whose position equals its layout offset (within half a pixel), so the picture stays what the old engine drew. It changes the open scene only: save it afterwards (scene.save); in the editor it is one undo step. Returns {count, ids, dryRun}. The test is a guess. A nudge you made on purpose that happens to equal the slot offset is reset too (the log names each such child the first time a layout sees it), and a child of a ScrollList is compared with the offset it has at the list's current scroll, so a list scrolled since the scene was loaded can hide a baked position: run this right after loading the scene. With `dryRun` true nothing is written: look at the ids first. Example: ui.reset_layout_positions {"dryRun":true}
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `dryRun` | boolean | no | true = only list the entities that would be reset (count and ids), change nothing. Default false. |
 
 ## `ui.set_mirror_rtl` (modifies state)
 

@@ -13,6 +13,7 @@
 #include "fa/runtime/test_files.h"
 #include "fa/scene/serialize.h"
 #include "fa/scene/state_hash.h"
+#include "fa/scene/ui_rect.h"
 #include "fa/services/platform_commands.h"
 
 namespace fa {
@@ -396,19 +397,21 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "`parent` null or \"\" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is "
          "on "
          "screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the "
-         "entity moves with the new parent. Exception: into a parent that lays its children out (a Panel with a "
-         "`layout`, "
-         "a ScrollList) a widget (or a screen-space Text, Sprite or Shape2D) goes to its slot: its Transform.position "
-         "becomes [0, 0] (rotation and scale are kept), as the layout would have put it. Moving under the SAME parent "
-         "(a new `index`) changes only the order. The entity becomes the LAST child of its new parent unless `index` "
-         "says "
-         "where: 0 = first; it counts the new parent's other children, so moving within the same parent works (index 0 "
-         "on the "
-         "last child makes it first); an index below 0 or above the number of other children is refused, and `index` "
-         "needs a "
-         "parent (top-level order is creation order). Scene files keep the order. A parent that is the "
-         "entity itself or one of its children is refused (a cycle), and so is an entity being destroyed this frame or "
-         "a new parent being destroyed. Example: scene.set_parent {\"id\":\"coin_3\",\"parent\":\"chest\"}",
+         "entity moves with the new parent. Into a parent that lays its children out (a Panel with a `layout`, a "
+         "ScrollList) a widget's Transform.position becomes [0, 0] and the result says `positionReset` true. The "
+         "entity becomes the LAST child unless `index` says where; moving under the SAME parent changes only the "
+         "order. A cycle is refused. Example: scene.set_parent "
+         "{\"id\":\"coin_3\",\"parent\":\"chest\"}" FA_COMMAND_DETAILS
+         "The exception (with `keepWorldTransform` true, into a DIFFERENT parent that lays its children out) applies "
+         "to "
+         "a widget and to a screen-space Text, Sprite or Shape2D: the position goes to its slot, as the layout would "
+         "have put it, rotation and scale are kept. That decision looks only at the child's component type and space "
+         "(ui_layout_places): the layout skips an inactive child, and a Text with no text or a Sprite with no size, "
+         "which therefore also get position [0, 0] without being placed. `index` counts the new parent's other "
+         "children (0 = first; index 0 on the last child makes it first); an index below 0 or above the number of "
+         "other children is refused, and `index` needs a parent (top-level order is creation order). Scene files keep "
+         "the order. A parent that is the entity itself or one of its children is refused (a cycle), and so is an "
+         "entity being destroyed this frame or a new parent being destroyed.",
          parse_schema(R"({"type":"object","required":["id"],"properties":{
                "id":{"type":"string","description":"Entity id (or name) to move."},
                "parent":{"type":["string","null"],"description":"New parent's id (or name); null or empty = top level."},
@@ -444,10 +447,13 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                                        "scene.get_entity on the parent lists its children in order.");
                 index = a["index"].get<int>();
             }
-            I.world.set_parent(e, parent, a.value("keepWorldTransform", true), index);
+            const bool keepWorld = a.value("keepWorldTransform", true);
+            const Entity before = I.world.parent(e);
+            I.world.set_parent(e, parent, keepWorld, index);
             Entity now = I.world.parent(e);
             Json out =
                 Json::object({{"id", I.world.id_of(e)}, {"parent", now ? Json(I.world.id_of(now)) : Json(nullptr)}});
+            if (keepWorld && now != before && ui_layout_places(I.world, now, e)) out["positionReset"] = true;
             if (now) {
                 const auto& sib = I.world.children(now);
                 out["index"] = std::find(sib.begin(), sib.end(), e) - sib.begin();
@@ -1210,25 +1216,27 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add(
         {"ui.reset_layout_positions",
          "Migrate a scene saved before 0.30: set Transform.position x and y to 0 on the laid-out children whose "
-         "position holds "
-         "the old layout result.",
+         "position holds the old layout result.",
          "Before 0.30 a Panel or ScrollList wrote where it placed a child into the child's Transform.position, and a "
-         "saved "
-         "scene kept it. Now the layout keeps its own offset and Transform.position of a laid-out child is the "
-         "author's nudge "
-         "from the slot (0 = in the slot), so such a child sits that far from where it was. This runs a layout pass "
-         "and sets "
-         "x and y of the position to 0 on every laid-out child whose position equals its layout offset (within half a "
-         "pixel), "
-         "so the picture stays what the old engine drew. It changes the open scene only: save it afterwards "
-         "(scene.save). "
-         "Returns {count, ids}. A nudge you made on purpose that happens to equal the slot offset is reset too; "
-         "the log names each such child the first time a layout sees it. Example: ui.reset_layout_positions {}",
-         parse_schema(R"({"type":"object","properties":{}})"), false, "ui"},
-        [&I](const Json&) {
+         "saved scene kept it. Now the layout keeps its own offset and Transform.position of a laid-out child is the "
+         "author's nudge from the slot (0 = in the slot), so such a child sits that far from where it was. This runs a "
+         "layout pass and sets x and y of the position to 0 on every laid-out child whose position equals its layout "
+         "offset (within half a pixel), so the picture stays what the old engine drew. It changes the open scene only: "
+         "save it afterwards (scene.save); in the editor it is one undo step. Returns {count, ids, dryRun}. The test "
+         "is "
+         "a guess. A nudge you made on purpose that happens to equal the slot offset is reset too (the log names each "
+         "such child the first time a layout sees it), and a child of a ScrollList is compared with the offset it has "
+         "at the list's current scroll, so a list scrolled since the scene was loaded can hide a baked position: run "
+         "this right after loading the scene. With `dryRun` true nothing is written: look at the ids first. Example: "
+         "ui.reset_layout_positions {\"dryRun\":true}",
+         parse_schema(R"({"type":"object","properties":{
+               "dryRun":{"type":"boolean","default":false,"description":"true = only list the entities that would be reset (count and ids), change nothing."}}})"),
+         false, "ui"},
+        [&I](const Json& a) {
+            const bool dryRun = a.value("dryRun", false);
             I.ui.layout(I.world, I.design_size(), I.measure(), false);
-            const std::vector<std::string> ids = I.ui.reset_baked_positions(I.world);
-            return Json::object({{"count", ids.size()}, {"ids", ids}});
+            const std::vector<std::string> ids = I.ui.reset_baked_positions(I.world, dryRun);
+            return Json::object({{"count", ids.size()}, {"ids", ids}, {"dryRun", dryRun}});
         });
 
     I.commands.add(

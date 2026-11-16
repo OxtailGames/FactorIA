@@ -215,7 +215,9 @@ Part of [MENUS.md](../MENUS.md): What each part of the kit does and what to chan
   Home / End go to the ends; Backspace and Delete remove the selection, else the character (or the word) before / after the
   caret, and repeat; Ctrl/Cmd+A selects all; Ctrl/Cmd+C copies the selection (nothing happens without one), Ctrl/Cmd+X cuts
   it, Ctrl/Cmd+V pastes at the caret over the selection. A paste drops newlines and control characters, stops at `maxLength`
-  (never inside an emoji sequence) and sends `ui.change` once; the letter of the chord is not typed. A press with the mouse
+  (never inside an emoji sequence) and sends `ui.change` once; the letter of the chord is not typed. `ui.change` carries the whole
+  text at that moment, and a frame can send two (a click that commits an input method's composition, then characters typed in the
+  same frame): the last one is the text the field has now. A press with the mouse
   or a finger puts the caret there, a drag selects, a double click selects the word under the pointer, a triple click all of
   it. Up / Down still move the focus. The caret never stops inside a base character and its combining marks, an emoji
   sequence or a flag. A scripted write is honoured at once, key or no key: `caretIndex` moves the caret, `selectionStart` /

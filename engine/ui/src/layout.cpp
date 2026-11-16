@@ -434,15 +434,17 @@ std::optional<Rect> ui_screen_rect(const World& w, Entity e, Vec2 designSize, co
     return Rect{r->x * k, r->y * k, r->w * k, r->h * k};
 }
 
-std::vector<std::string> UiSystem::reset_baked_positions(World& w) {
+std::vector<std::string> UiSystem::reset_baked_positions(World& w, bool dryRun) {
     std::vector<std::string> ids;
     for (const Entity e : w.ui_layout_offset_entities()) {
         const Vec2 off = w.ui_layout_offset(e);
         const Transform* t = std::as_const(w).get<Transform>(e);
         if (!t || !baked_position(*t, off)) continue;
-        Transform* wt = w.get<Transform>(e);
-        wt->position.x = 0.0f;
-        wt->position.y = 0.0f;
+        if (!dryRun) {
+            Transform* wt = w.get<Transform>(e);
+            wt->position.x = 0.0f;
+            wt->position.y = 0.0f;
+        }
         ids.push_back(w.info(e).id);
     }
     std::sort(ids.begin(), ids.end());
@@ -501,9 +503,8 @@ void UiSystem::layout(World& w, Vec2 design, const VisualMeasure& m, bool warn) 
         for (Entity e : candidates) w.get<Panel>(e)->usingFallback = true;
     }
     scrollToFocus_ = false;
-    for (const Entity e :
-         w.ui_layout_offset_entities())  // what no container placed this frame is in its own place again
-        if (!placed_.count(e.bits())) w.set_ui_layout_offset(e, {0, 0});
+    // What no container placed this frame is in its own place again (in place: no list of the entities is built).
+    w.clear_ui_layout_offsets_except([this](Entity e) { return placed_.count(e.bits()) != 0; });
     for (const auto& [depth, e] : containers) {  // a scissor cannot turn: a turned ScrollList clips to its bounding box
         if (!warn || !w.get<ScrollList>(e)) continue;
         if (ui_transform(w, e, design).axis_aligned()) {

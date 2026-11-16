@@ -213,3 +213,114 @@ TEST_CASE(
     CHECK(std::fabs(b.h - hitB.h) <= 2.0f);
     CHECK(hitB.w == doctest::Approx(10.0f));  // 20 x 10 turned a quarter
 }
+
+namespace {
+
+// The centre of the red pixels of the image (a Shape2D drawn in pure red), as pixel coordinates.
+Vec2 red_centre_of(const Image& img) {
+    double sx = 0, sy = 0, n = 0;
+    for (int y = 0; y < img.height; ++y)
+        for (int x = 0; x < img.width; ++x) {
+            const Color c = img.pixel(x, y);
+            if (c.r > 0.7f && c.b < 0.3f) sx += x + 0.5, sy += y + 0.5, n += 1;
+        }
+    REQUIRE(n > 0);
+    return Vec2{float(sx / n), float(sy / n)};
+}
+
+// A Panel (not drawn: the card is its quad) with a red screen-space Shape2D child.
+Entity red_card(World& w, Vec2 panelAnchor, Vec2 panelPivot, Vec3 panelPos, Vec2 childAnchor, Vec3 childPos) {
+    Entity e = make(w, "card", panelPos);
+    Panel& p = w.add<Panel>(e);
+    p.size = {100, 20};
+    p.pivot = panelPivot;
+    p.anchor = panelAnchor;
+    p.color = Color{0, 0, 0, 0};
+    Entity c = make(w, "red", childPos);
+    w.set_parent(c, e);
+    Shape2D& s = w.add<Shape2D>(c);
+    s.shape = ShapeType::Rectangle;
+    s.size = {8, 8};
+    s.color = Color{1, 0, 0, 1};
+    s.anchor = childAnchor;
+    s.layer = 50;
+    s.space = RenderSpace::Screen;
+    return e;
+}
+
+}  // namespace
+
+TEST_CASE("ui transform: a child whose anchor is not its Panel's turns about the Panel's origin, not its own anchor") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    w.add<Camera>(make(w, "cam")).clearColor = Color::black();
+    const Entity card = red_card(w, {0.5f, 0.5f}, {0.5f, 0.5f}, {20, 10, 0}, {0.5f, 0.25f}, {30, 0, 0});
+    w.get<Transform>(card)->rotation = {0, 0, 90};
+    const Image img = g.render(w);
+    const Vec2 design{float(img.width), float(img.height)};
+    // In layout space the red square is at (W/2 + 20 + 30, H/4 + 10), the Panel's origin at (W/2 + 20, H/2 + 10): the offset
+    // (30, -H/4) turns a quarter clockwise to (H/4, 30).
+    const Vec2 c = red_centre_of(img);
+    CHECK(c.x == doctest::Approx(design.x * 0.5f + 20.0f + design.y * 0.25f).epsilon(0.02));
+    CHECK(c.y == doctest::Approx(design.y * 0.5f + 10.0f + 30.0f).epsilon(0.02));
+}
+
+TEST_CASE("ui transform: a Panel pivoted at its corner turns about its origin and its child follows") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    w.add<Camera>(make(w, "cam")).clearColor = Color::black();
+    // pivot [0, 1]: the rectangle hangs right and down from the origin (W/4 + 20, H/2 + 10); the child is 30 right, 10 below it.
+    const Entity card = red_card(w, {0.25f, 0.5f}, {0.0f, 1.0f}, {20, 10, 0}, {0.25f, 0.5f}, {30, 10, 0});
+    w.get<Transform>(card)->rotation = {0, 0, 90};
+    const Image img = g.render(w);
+    const Vec2 design{float(img.width), float(img.height)};
+    const Vec2 c = red_centre_of(img);
+    // A quarter turn clockwise about the origin takes (30, 10) to (-10, 30), inside the turned rectangle.
+    CHECK(c.x == doctest::Approx(design.x * 0.25f + 20.0f - 10.0f).epsilon(0.02));
+    CHECK(c.y == doctest::Approx(design.y * 0.5f + 10.0f + 30.0f).epsilon(0.02));
+    CHECK(point_in_quad(c, *ui_quad(w, card, design)));
+}
+
+TEST_CASE("ui transform: under ui.mirrorRtl the turned card is its own mirror image, child included") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    w.add<Camera>(make(w, "cam")).clearColor = Color::black();
+    w.set_rtl(true);  // ui_mirror_rtl is on by default
+    const Entity card = red_card(w, {0.25f, 0.5f}, {0.5f, 0.5f}, {20, 10, 0}, {0.25f, 0.5f}, {30, 0, 0});
+    w.get<Transform>(card)->rotation = {0, 0, 90};
+    const Image img = g.render(w);
+    const Vec2 design{float(img.width), float(img.height)};
+    REQUIRE(ui_mirrored(w, card));
+    // The left-to-right card puts the square at (W/4 + 20, H/2 + 10 + 30); mirrored, x becomes W - x.
+    const Vec2 c = red_centre_of(img);
+    CHECK(c.x == doctest::Approx(design.x - (design.x * 0.25f + 20.0f)).epsilon(0.02));
+    CHECK(c.y == doctest::Approx(design.y * 0.5f + 10.0f + 30.0f).epsilon(0.02));
+    CHECK(point_in_quad(c, *ui_quad(w, card, design)));
+}
+
+TEST_CASE("ui transform: a plain group (no widget) that scales still scales its child's offset and keeps its anchor") {
+    Gfx& g = gfx();
+    REQUIRE(g.ok);
+    World w;
+    w.add<Camera>(make(w, "cam")).clearColor = Color::black();
+    const Entity group = make(w, "group", {0, 0, 0});
+    w.get<Transform>(group)->scale = {2, 2, 1};
+    Entity c = make(w, "red", {10, 0, 0});
+    w.set_parent(c, group);
+    Shape2D& s = w.add<Shape2D>(c);
+    s.shape = ShapeType::Rectangle;
+    s.size = {8, 8};
+    s.color = Color{1, 0, 0, 1};
+    s.anchor = {0.5f, 0.5f};
+    s.layer = 50;
+    s.space = RenderSpace::Screen;
+    const Image img = g.render(w);
+    const Vec2 design{float(img.width), float(img.height)};
+    // Not the widget map: the group's scale multiplies the child's own offset (10 -> 20) and the anchor stays at the centre.
+    const Vec2 p = red_centre_of(img);
+    CHECK(p.x == doctest::Approx(design.x * 0.5f + 20.0f).epsilon(0.02));
+    CHECK(p.y == doctest::Approx(design.y * 0.5f).epsilon(0.02));
+}

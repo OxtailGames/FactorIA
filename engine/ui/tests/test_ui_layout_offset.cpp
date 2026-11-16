@@ -243,6 +243,9 @@ TEST_CASE("ui layout offset: a scene saved before 0.30 (positions baked by the l
     const Entity a = u.w.find_by_id("a"), b = u.w.find_by_id("b");
     u.frame(3);
     CHECK(u.rect(a).x == doctest::Approx(120));  // the slot (110) plus the baked position (10)
+    const Vec3 baked = position(u, a);
+    CHECK(u.ui.reset_baked_positions(u.w, true) == std::vector<std::string>{"a", "b"});  // a dry run only lists them
+    CHECK(position(u, a) == baked);
     const std::vector<std::string> ids = u.ui.reset_baked_positions(u.w);
     CHECK(ids == std::vector<std::string>{"a", "b"});
     CHECK(position(u, a) == Vec3{0, 0, 0});
