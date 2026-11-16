@@ -97,9 +97,13 @@ game as its own asset, plus one manifest. The pieces and where they live:
   deflated where that is smaller, with the DOS date 1980-01-01 and no extra fields, so the same files give the same zip and
   the same hash. A folder or file that cannot be read fails the command and names it; nothing is packed from half a folder.
 - The Linux leg of the `package` job of `.github/workflows/release.yml` runs that command with the `factoria` it just
-  packed (so it also runs on a pull request that changes the workflow or the packer: a change under `examples/` alone does not
-  start it, since that would build every package for each example edit; the doctest "every example of examples/ packs" of
-  `examples_test.cpp` packs them all in the regular CI run instead). It packs twice and compares the manifests,
+  packed (so it also runs on a pull request that changes the workflow, `examples/examples.json` or the packer, that is
+  `examples.cpp`, `examples_download.cpp`, `examples_names.h` and `export_zip.cpp`: a change to the files of an example
+  alone does not start it, since that would build every package for each example edit). The doctest "every example of
+  examples/ packs" of `examples_test.cpp` runs in the regular CI run instead: it packs `block-push` and `ember-descent` whole
+  and, for every example, checks what the packer refuses without deflating (the list of files, the entry names, every file
+  readable, the size and entry-count limits of the zip writer), so it stays cheap under a sanitizer and next to the
+  `example_*` tests that write in `examples/`. It packs twice and compares the manifests,
   checks every zip against the manifest with `sha256sum`, `stat` and `unzip -t` (tools that share no code with the
   packer), validates the unpacked `block-push`, and uploads the files as the artifact `FactorIA-examples`; the `publish`
   job attaches them to the release with the packages.
@@ -147,10 +151,13 @@ game as its own asset, plus one manifest. The pieces and where they live:
   empty. No move replaces: each is a rename that fails when the name is taken (Linux `renameat2` with `RENAME_NOREPLACE`, macOS
   `renamex_np` with `RENAME_EXCL`, Windows `MoveFileExW` without replace), so a file another process puts in the folder
   meanwhile stays and the call stops with "is not empty any more"; a file system without those (an old kernel, some network
-  shares) gets a look at the name and a plain rename, with a window of microseconds. Across file systems (`EXDEV`, or
+  shares) gets a look at the name and a plain rename, with a window of microseconds. The rename lives in
+  `examples_place_posix.cpp` and `examples_place_win32.cpp`; it asks the operating system itself, so the emulation of Windows'
+  file rules on other systems (`fs::windows_rules`, which only knows files opened through `fs::ReadStream`) does not apply to
+  it: a test that needs a sharing violation injects the rename (`RenameFn`). Across file systems (`EXDEV`, or
   `ERROR_NOT_SAME_DEVICE`, 17, on Windows) an entry is copied and the source deleted, and a copy that fails is taken away only
   when this call made it. The renames wait up to 500 tries about 10 ms apart (about five seconds) while Windows reports a
-  sharing violation (a scanner looking at the new files), and `ctx.cancel` stops the call between files. A zip that did not verify and unpack is never kept in the cache.
+  sharing violation (a scanner looking at the new files), and `ctx.cancel` stops the call between files and during that wait: the error is then "Creating the project was cancelled", also when the one rename of a new folder was the call that waited. A zip that did not verify and unpack is never kept in the cache.
   `project.package_examples` applies the same name rules, so a release never holds a zip that no one can unpack. Tests inject a `SetupContext` (a fake downloader, a home
   folder, a version: `set_examples_context`), so nothing touches the network. `project.examples` needs the `network`
   capability, and so does `project.create` with `example` (the handler checks it): an MCP client has it, the read-only one

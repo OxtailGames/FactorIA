@@ -4,8 +4,10 @@
 
 #include <algorithm>
 #include <filesystem>
+#include <fstream>
 #include <set>
 
+#include "examples_names.h"
 #include "export_zip.h"
 #include "fa/core/command.h"
 #include "fa/core/hash.h"
@@ -357,17 +359,27 @@ TEST_CASE("examples packaging: the real examples/ folder") {
 }
 
 TEST_CASE("examples packaging: every example of examples/ packs (what the release job packs)") {
-    // The `package` job of release.yml runs on a pull request only when the workflow or the packer changes, so a new file in an example
-    // that the packer refuses (a Windows device name, a name over 240 bytes, an unreadable file) would show up in the release run of the
-    // tag. This test, which every change under examples/ runs, packs them all.
+    // The `package` job of release.yml runs on a pull request only when the workflow, examples/examples.json or the packer changes, so a
+    // new file in an example that the packer refuses (a Windows device name, a name over 240 bytes, an unreadable file) would show up
+    // in the release run of the tag. This test, which every change under examples/ runs, checks them all. Deflating all of them
+    // (about 70 MB in 1700 files, twice for the hash) is what made it slow and heavy under a sanitizer, so two small examples are
+    // packed whole (the zip, its hash, the manifest) and every example gets what the packer refuses without deflating: the list of
+    // files, the names project.create accepts, every file readable, and the limits of a zip the writer holds.
     const stdfs::path root = stdfs::path(FA_REPO_ROOT) / "examples";
-    TempDir out;
-    auto m = package_examples(root, out.path, "0.30.0");
-    REQUIRE_MESSAGE(m.ok(), (m.ok() ? std::string() : m.error().to_string()));
     auto text = read_all(root / kExamplesSourceFile);
     auto src = parse_examples_source(text, "examples/examples.json");
     REQUIRE(src.ok());
-    CHECK(m->examples.size() == src->size());
+
+    const std::vector<std::string> packed = {"block-push", "ember-descent"};
+    for (const std::string& name : packed)
+        REQUIRE_MESSAGE(
+            src->end() != std::find_if(src->begin(), src->end(), [&](const ExampleInfo& e) { return e.name == name; }),
+            name);
+    TempDir out;
+    auto m = package_examples(root, out.path, "0.30.0",
+                              packed);  // also checks that every folder has an entry and the other way round
+    REQUIRE_MESSAGE(m.ok(), (m.ok() ? std::string() : m.error().to_string()));
+    CHECK(m->examples.size() == packed.size());
     for (const ExampleInfo& e : m->examples) {
         INFO("example " << e.name);
         CHECK(verify_example_file(e, out.path / e.file).ok());
@@ -375,6 +387,32 @@ TEST_CASE("examples packaging: every example of examples/ packs (what the releas
         REQUIRE(names.ok());
         CHECK(std::find(names->begin(), names->end(), "factoria.json") != names->end());
         for (const std::string& n : *names) CHECK_MESSAGE(n.rfind(".factoria/", 0) != 0, n);
+    }
+
+    for (const ExampleInfo& e : *src) {
+        INFO("example " << e.name);
+        const stdfs::path dir = root / fs::path_from_utf8(e.name);
+        auto files = example_zip_files(dir);
+        REQUIRE_MESSAGE(files.ok(), (files.ok() ? std::string() : files.error().to_string()));
+        CHECK(std::find(files->begin(), files->end(), "factoria.json") != files->end());
+        CHECK(files->size() < 0xFFFF);  // the zip writer holds at most 65535 entries
+        std::vector<ExampleEntryName> names;
+        for (const std::string& rel : *files) {
+            names.push_back({rel, false});
+            CHECK_MESSAGE(rel.rfind(".factoria/", 0) != 0, rel);
+        }
+        if (auto bad = find_unsafe_example_entry(names))
+            FAIL_CHECK("\"" << bad->name << "\" cannot be packed: " << bad->reason);
+        std::uint64_t total = 0;
+        for (const std::string& rel : *files) {
+            std::ifstream in(fs::os_path(dir / fs::path_from_utf8(rel)), std::ios::binary);
+            CHECK_MESSAGE(bool(in), "cannot read " << rel);
+            std::error_code ec;
+            const std::uint64_t size = stdfs::file_size(fs::os_path(dir / fs::path_from_utf8(rel)), ec);
+            CHECK_MESSAGE(!ec, "cannot measure " << rel);
+            total += size + 30 + rel.size();
+        }
+        CHECK_MESSAGE(total < (1ull << 31), "an example this big no longer fits a release zip comfortably");
     }
 }
 
