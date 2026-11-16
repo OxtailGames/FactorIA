@@ -6,6 +6,17 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Copy, cut and paste of entities (M98.7c):** the new commands `scene.copy_entities` (entities with their subtrees as one
+  self-contained JSON text: components, children, links to prefabs) and `scene.paste_entities` (creates them under an optional
+  parent or each under the parent it had, with free ids, `nameSuffix`, and the new ids in the answer) make the clipboard
+  scriptable, across scenes and projects. An Entity field that names an entity of the copied set names the copy; one that names an
+  entity outside it is kept when the target exists in the destination and cleared otherwise (listed in `cleared`). A text that is
+  not a copy (not JSON, another format or version) gives an error with the JSON pointer and the fix. In the editor, Ctrl/Cmd+C, X
+  and V in the Hierarchy and the Viewport (and Edit > Copy, Cut, Paste, Duplicate, and the row menu) use the system clipboard;
+  Paste goes next to the primary and selects the copies with the copy of the primary last; Cut and Paste are one Undo step each.
+  Duplicate now goes through the same code, so references inside the duplicated set follow the copies (before, they were not
+  remapped), and the copies keep their prefab links. On macOS the system menu shows no key for Copy, Cut and Paste (it would
+  take Cmd+C from the other panels).
 - **Several entities selected (M98.7b):** in the editor, Ctrl/Cmd+click toggles and Shift+click selects a range in the
   Hierarchy, and Ctrl/Cmd+click, Shift+click and a marquee on empty space select in the Viewport. Every selected entity is
   outlined; the gizmo moves, rotates and scales all of them about the primary as one Undo step; Delete, Duplicate and
