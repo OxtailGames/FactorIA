@@ -9,9 +9,11 @@
 // free one), an unplugged pad frees its own. Each pad has a stable id (GamepadInfo) built from the browser's Gamepad.id.
 // Rumble: Gamepad.vibrationActuator.playEffect("dual-rumble", ...) where the browser has it (Chrome and Edge; Firefox and
 // Safari do not, so canRumble is false there). Everything is checked with typeof before use: a missing actuator, a
-// missing effect type or a refused promise (the browser wants a button pressed on the pad first) never throws. While the
-// page has had no user activation (navigator.userActivation) a pad answers canRumble: false with that reason, so the
-// engine starts the rumble that is still running as soon as the player pressed a button, instead of losing it.
+// missing effect type or a refused promise (the browser wants a user activation first) never throws. While the page has
+// had none (navigator.userActivation: a click on the page or a key press; in some Chrome versions a button of the pad does not
+// count) a pad answers canRumble: false with that reason, so the engine starts the rumble that is still running as soon as the
+// player clicked or pressed a key, instead of losing it. The browser's pad list is asked for once per frame by poll_gamepads(),
+// and again by the rumble hooks when it is older than 2 ms (poll_gamepads() is not called while the page has no focus).
 #include <emscripten.h>
 #include <emscripten/html5.h>
 
@@ -31,10 +33,14 @@ EM_JS(void, fa_web_pad_new_frame, (), {
 EM_JS(int, fa_web_pad_rumble_kind, (int index), {
     // 1: Gamepad.vibrationActuator takes "dual-rumble"; 2: it does, but the browser will not play it before the page has
     // had a user activation; 0: it does not.
+    // The list of this frame: poll_gamepads() drops it at the start of each frame, but it is not called while the page has no
+    // focus, and the rumble hooks still run then (the stop of a pad): a list older than 2 ms is asked for again.
     let pads = Module["faPadList"];
-    if (!pads) {
+    const now = typeof performance !== "undefined" ? performance.now() : 0;
+    if (!pads || now - (Module["faPadListAt"] || 0) > 2) {
         pads = typeof navigator.getGamepads === "function" ? navigator.getGamepads() : null;
         Module["faPadList"] = pads;
+        Module["faPadListAt"] = now;
     }
     const pad = pads ? pads[index] : null;
     const act = pad ? pad.vibrationActuator : null;
@@ -45,10 +51,14 @@ EM_JS(int, fa_web_pad_rumble_kind, (int index), {
     return 1;
 });
 EM_JS(int, fa_web_pad_rumble, (int index, double strong, double weak, int ms), {
+    // The list of this frame: poll_gamepads() drops it at the start of each frame, but it is not called while the page has no
+    // focus, and the rumble hooks still run then (the stop of a pad): a list older than 2 ms is asked for again.
     let pads = Module["faPadList"];
-    if (!pads) {
+    const now = typeof performance !== "undefined" ? performance.now() : 0;
+    if (!pads || now - (Module["faPadListAt"] || 0) > 2) {
         pads = typeof navigator.getGamepads === "function" ? navigator.getGamepads() : null;
         Module["faPadList"] = pads;
+        Module["faPadListAt"] = now;
     }
     const pad = pads ? pads[index] : null;
     const act = pad ? pad.vibrationActuator : null;
@@ -212,9 +222,10 @@ GamepadRumbleSupport gamepad_backend_rumble_support(int slot) {
     const int kind = fa_web_pad_rumble_kind(g_slotOf[slot]);
     if (kind == 1) return {true, {}};
     if (kind == 2)
-        return {false,
-                "the browser lets a pad rumble only after the player pressed a button on the pad or clicked the page: "
-                "press one, and a rumble still running starts then"};
+        return {
+            false,
+            "the browser lets a pad rumble only after the player clicked the page or pressed a key (a button of the "
+            "pad may not count): do one of them, and a rumble still running starts then"};
     return {false,
             "this browser or this pad has no rumble (Gamepad.vibrationActuator): Chrome and Edge rumble Xbox and "
             "PlayStation pads, Firefox and Safari do not"};

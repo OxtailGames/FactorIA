@@ -331,8 +331,8 @@ right in the frame a pad connects and in its `gamepadConnected` handler). This i
   `onStart` plays. To go on, ask again before it ends.
 - The engine stops every pad when the game pauses itself (`game.paused = true` or `time.scale` 0, and the editor's pause), when
   the window loses the focus or the app is suspended, when a pad is unplugged, on a scene change and on quit, so a pad never
-  keeps shaking. A request made in the same frame that pauses the game is stopped before it reaches the pad (no buzz of one
-  frame); one made while the game stays paused (a click in a pause menu) plays, and ends with its `seconds`. On Windows the
+  keeps shaking. A request made in the same frame that pauses the game (in `onUpdate` or `onLateUpdate`, in either order) is stopped
+  before it reaches the pad (no buzz of one frame); one made while the game stays paused (a click in a pause menu) plays, and ends with its `seconds`. On Windows the
   process also stops the motors as it exits, after the engine: the XInput motors that were set, and every PlayStation or
   Switch pad still playing (with at most about 100 ms of waiting for all of them). After an unhandled exception (an access
   violation...) the XInput motors are zeroed too (the crash report goes on as before). After that exception a PlayStation
@@ -352,7 +352,7 @@ right in the frame a pad connects and in its `gamepadConnected` handler). This i
   | Linux | pads whose kernel driver offers force feedback (`FF_RUMBLE`: Xbox, DualShock 4, DualSense, Switch Pro with the usual drivers) | evdev: one rumble effect per pad on `/dev/input/eventN` | write access to that node |
   | macOS, iOS | pads GameController gives haptics (Xbox One/Series, DualShock 4, DualSense) | CoreHaptics: `low` on the left handle, `high` on the right, one engine plays the stronger when the pad has no handles | macOS 11, iOS 14 |
   | Android | pads whose `InputDevice` has vibrators | API 31+: `getVibratorManager()` (one vibrator plays the stronger of `low` and `high`, two play `low` on the first and `high` on the second); API 26 to 30: `getVibrator()` | nothing beyond the `VIBRATE` permission the player already has |
-  | Chrome-based browsers | Xbox and PlayStation pads | `gamepad.vibrationActuator` | a button pressed on the pad or a click on the page first (until then `canRumble` is `false` with that reason, and a rumble still running starts once it is `true`) |
+  | Chrome-based browsers | Xbox and PlayStation pads | `gamepad.vibrationActuator` | a click on the page or a key press first (a button of the pad may not count in some Chrome versions; until then `canRumble` is `false` with that reason, and a rumble still running starts once it is `true`) |
 
   Everything else answers `canRumble: false` with the reason: other Windows pads (generic HID pads: "this pad gives no rumble the
   engine can drive"), a Windows pad another program holds exclusively or that stopped taking reports (the reason says which;
@@ -360,7 +360,8 @@ right in the frame a pad connects and in its `gamepadConnected` handler). This i
   cannot be opened for writing: add the user to the `input` group (`sudo usermod -aG input $USER`, log in again) or add a udev
   rule such as `KERNEL=="event*", SUBSYSTEM=="input", TAG+="uaccess"`; a refused open is tried again every few seconds (udev may
   set the permissions a moment after the pad appears), and a change of the rules reaches a pad that is already plugged in
-  after `udevadm trigger` or a replug. Strengths are not the same motor on every pad: the 0..1 maps to the motor's whole range, and Android
+  after `udevadm trigger` or a replug; a pad for which the kernel lists no event device at all (or whose node vanished) is looked
+  for ten times, about 30 s, and then answers with that reason until it is plugged in again. Strengths are not the same motor on every pad: the 0..1 maps to the motor's whole range, and Android
   amplitudes are 1..255 (a tiny strength still runs the motor). A phone or tablet pad may expose no vibrator to Android at all,
   most often over Bluetooth, and then `canRumble` is `false`. On Windows a report the pad does not take is sent again a few
   times, 100 ms apart, before the pad answers `canRumble: false`; a pad that is gone answers it at once. What the Windows

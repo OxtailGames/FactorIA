@@ -142,6 +142,91 @@ export default class Rumbler extends Behaviour {
     e.shutdown();
 }
 
+TEST_CASE("pad rumble: a pause and a rumble of one frame cancel out in onLateUpdate too, in either order") {
+    RumbleProject p;
+    p.write("scripts/late_rumble.js", R"JS(
+import { Behaviour, input, time } from "factoria";
+export default class LateRumble extends Behaviour {
+  runWhilePaused = true;            // its onLateUpdate runs in the frame that paused the game, after onUpdate did
+  fired = false;
+  onUpdate() {
+    if (this.fired) return;
+    this.fired = true;
+    time.scale = 0;                 // paused in onUpdate...
+  }
+  onLateUpdate() {
+    if (this.fired && !this.sent) {
+      this.sent = true;
+      input.rumble(0, 1, 1, 5);     // ...and the rumble comes after it, in the same frame
+    }
+  }
+}
+)JS");
+    p.write("scripts/late_pause.js", R"JS(
+import { Behaviour, input, time } from "factoria";
+export default class LatePause extends Behaviour {
+  fired = false;
+  onUpdate() {
+    if (this.fired) return;
+    this.fired = true;
+    input.rumble(0, 1, 1, 5);       // rumbled in onUpdate...
+  }
+  onLateUpdate() {
+    if (this.fired && !this.paused) {
+      this.paused = true;
+      time.scale = 0;               // ...and paused after it, in the same frame
+    }
+  }
+}
+)JS");
+    p.write("scripts/late_control.js", R"JS(
+import { Behaviour, input } from "factoria";
+export default class LateControl extends Behaviour {
+  sent = false;
+  onLateUpdate() {
+    if (this.sent) return;
+    this.sent = true;
+    input.rumble(0, 1, 1, 5);       // no pause: this one must play
+  }
+}
+)JS");
+    p.write("late_control.scene.json",
+            R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
+        {"id":"p","components":{"Transform":{},"Script":{"path":"scripts/late_control.js"}}}]})");
+    p.write("late_rumble.scene.json",
+            R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
+        {"id":"p","components":{"Transform":{},"Script":{"path":"scripts/late_rumble.js"}}}]})");
+    p.write("late_pause.scene.json",
+            R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
+        {"id":"p","components":{"Transform":{},"Script":{"path":"scripts/late_pause.js"}}}]})");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    Input& in = e.input();
+    {
+        std::string loadErr;
+        REQUIRE_MESSAGE(e.load_scene("late_control.scene.json", &loadErr), loadErr);
+        in.on_gamepad_connected(0, true);
+        bool played = false;
+        for (int i = 0; i < 4; ++i) {
+            e.step(1);
+            played = played || in.rumble_state(0).active();
+        }
+        CHECK(played);  // the control: onLateUpdate's request is there when the frame ends
+    }
+    for (const char* scene : {"late_rumble.scene.json", "late_pause.scene.json"}) {
+        std::string loadErr;
+        REQUIRE_MESSAGE(e.load_scene(scene, &loadErr), loadErr);
+        in.on_gamepad_connected(0, true);
+        for (int i = 0; i < 4; ++i) {
+            e.step(1);
+            INFO(scene << ", after frame " << i);
+            CHECK_FALSE(in.rumble_state(0).active());  // not even at the end of the frame that asked
+        }
+    }
+    e.shutdown();
+}
+
 TEST_CASE("pad rumble: game.paused stops it once; the game's own requests while paused play on") {
     RumbleProject p;
     p.write("tests/pause.test.js", R"JS(

@@ -60,7 +60,13 @@ struct Rumble {
     // the probe is repeated every few seconds until it succeeds or the pad goes, so the answer does not stay "no" until a replug.
     bool retry = false;
     std::chrono::steady_clock::time_point retryAt;  // the main thread's real clock: a probe schedule, not simulation
+    // Probes that found no event device (a pad whose path never appears is given up after kMaxNoNodeProbes).
+    int noNodeTries = 0;
 };
+
+// How many times a pad with no event device listed in sysfs is looked at (3 s apart: half a minute for udev and the kernel to
+// publish it) before the answer stays "no" until the pad is plugged in again.
+constexpr int kMaxNoNodeProbes = 10;
 
 // ioctl that restarts when a signal interrupts it (the profiler, SIGCHLD...).
 template <class Req, class Arg>
@@ -210,16 +216,19 @@ void probe_rumble(int index, Slot& s) {
     r.retry = false;
     const std::string node = event_node(index);
     if (node.empty()) {
-        r.retry = true;
+        r.retry = ++r.noNodeTries < kMaxNoNodeProbes;
         r.retryAt = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         r.why = "the kernel does not list an event device (/dev/input/eventN) for this pad under /sys/class/input/js" +
                 std::to_string(index) + "/device, and rumble goes through it";
+        if (!r.retry) r.why += " (looked for it for half a minute: plug the pad in again)";
         return;
     }
     const int fd = open(node.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) {
         const int err = errno;
-        r.retry = err == EACCES || err == EPERM || err == ENOENT;
+        // a refused open may be udev still setting the permissions (EACCES) and is asked again for as long as the pad stays;
+        // a node that is not there (ENOENT) is a pad whose device vanished: given up like a path sysfs never shows
+        r.retry = err == EACCES || err == EPERM || (err == ENOENT && ++r.noNodeTries < kMaxNoNodeProbes);
         r.retryAt = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         r.why = "cannot open " + node + " for writing (" + std::strerror(err) + ")";
         if (err == EACCES || err == EPERM)
