@@ -2607,11 +2607,13 @@ void register_builtin_components(TypeRegistry& r) {
                "from RigidBody), so scripted and animated movement shifts too; the first frame and a teleport give "
                "velocity 0.")
         .range(0, 10)
-        .field("occlusion", &AudioSource::occlusion,
-               "Spatial only: true = a physics ray from the listener to the source that hits a collider of "
-               "`occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. At most 8 rays per "
-               "frame "
-               "in the whole game, each source asked every 0.1 s; the change is smoothed over 0.1 s.")
+        .field(
+            "occlusion", &AudioSource::occlusion,
+            "Spatial only: true = a physics ray from the listener to the source that hits a collider of "
+            "`occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. Each source is asked "
+            "every 0.1 s, but at most 8 rays per frame go out in the whole game: with more sources than that the "
+            "ones not asked yet come first, then the one asked longest ago, so none is left out for good. The "
+            "change is smoothed over 0.1 s and the mixer ramps the volume and the low-pass to it (no click).")
         .field("occlusionMask", &AudioSource::occlusionMask,
                "Spatial only: the physics layers (bitmask, -1 = all) whose colliders block the sound when `occlusion` "
                "is on. The source's own colliders, the listener's and triggers are ignored.")
@@ -2735,8 +2737,9 @@ void register_builtin_components(TypeRegistry& r) {
             "How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for "
             "speakers. hrtf: a head model for headphones (time and level differences between the ears and "
             "the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono "
-            "first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output "
-            "with two or more channels (a mono device keeps pan). See docs/sound/SOUND_SPATIAL.md, Headphones.")
+            "first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and a stereo "
+            "output (a mono device and a surround one, 5.1 and more, keep pan). A change between pan and hrtf "
+            "crossfades over 4 ms. See docs/sound/SOUND_SPATIAL.md, Headphones.")
         .field(
             "headRadius", &AudioListener::headRadius,
             "hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; "
@@ -2745,10 +2748,12 @@ void register_builtin_components(TypeRegistry& r) {
             "than 0.12 m at speedOfSound 343 (the ratio headRadius / speedOfSound is what counts) is clamped, with "
             "a warning that says how to fix it.")
         .range(0.001f, 100000)
-        .field("speedOfSound", &AudioListener::speedOfSound,
-               "Doppler only: the world units per second a sound travels at (default 343, meters per second in air). "
-               "A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source "
-               "is its dopplerLevel as the exponent of the pitch ratio this speed gives.")
+        .field(
+            "speedOfSound", &AudioListener::speedOfSound,
+            "Doppler only: the world units per second a sound travels at (default 343, meters per second in air). "
+            "A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source "
+            "is its dopplerLevel as the exponent of the pitch ratio this speed gives. With hrtf it is also the speed "
+            "the head model divides headRadius by to get the time between the ears.")
         .range(1, 10000000);
 
     // --------------------------------------------------------------- UI ---

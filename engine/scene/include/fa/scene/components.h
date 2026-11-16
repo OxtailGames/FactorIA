@@ -1375,7 +1375,7 @@ struct AudioSource {
     // Occlusion by physics rays.
     bool occlusion = false;  // a ray from the listener to the source that hits a collider of occlusionMask muffles it
     std::int32_t occlusionMask = -1;   // physics layers that block the sound (bitmask, -1 = all)
-    float occlusionGain = 0.4f;        // volume multiplier of a blocked path
+    float occlusionGain = 0.4f;        // volume multiplier of a blocked path (ramped in about 20 ms, no click)
     float occlusionLowpass = 1500.0f;  // low-pass cutoff in Hz of a blocked path (20000 = none)
     std::int32_t priority = 128;  // 0..255: voice stealing with every voice taken (higher wins; equal: the louder wins)
 };
@@ -1425,7 +1425,8 @@ struct AudioListener {
     AudioSpatialization spatialization = AudioSpatialization::Pan;  // Hrtf: headphones (a parametric head model)
     float headRadius =
         0.0875f;  // Hrtf: radius of the listener's head in world units (sets the time difference between the ears)
-    float speedOfSound = 343.0f;  // Doppler: world units per second the sound travels at
+    float speedOfSound =
+        343.0f;  // world units per second the sound travels at: the doppler shift, and the hrtf ear delay (headRadius / this)
 };
 
 // ------------------------------------------------------------- scripting ---

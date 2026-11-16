@@ -4,8 +4,11 @@
 // difference and the shadow of high frequencies, front/back symmetry, a source that moves, and that "pan" is what it always was.
 #include <doctest.h>
 
+#include <algorithm>
 #include <cmath>
+#include <filesystem>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -406,4 +409,144 @@ TEST_CASE("hrtf: mixing under the head model allocates nothing") {
     AllocCounter::Scope scope;
     fx.run(1.0);
     CHECK_MESSAGE(scope.count() == 0, "the mixer allocated " << scope.count() << " times while mixing 60 steps");
+}
+
+namespace {
+// The warnings the audio category logs while `body` runs.
+std::vector<std::string> audio_warnings_during(const std::function<void()>& body) {
+    struct Lines {
+        std::mutex mu;
+        std::vector<std::string> warnings;
+    };
+    auto lines = std::make_shared<Lines>();
+    const int sink = add_log_sink([lines](const LogEntry& e) {
+        if (e.level != LogLevel::Warn || e.category != "audio") return;
+        std::lock_guard<std::mutex> lk(lines->mu);
+        lines->warnings.push_back(e.message);
+    });
+    body();
+    remove_log_sink(sink);
+    std::lock_guard<std::mutex> lk(lines->mu);
+    return lines->warnings;
+}
+
+bool all_finite(const Recording& rec) {
+    return std::all_of(rec.l.begin(), rec.l.end(), [](float v) { return std::isfinite(v); }) &&
+           std::all_of(rec.r.begin(), rec.r.end(), [](float v) { return std::isfinite(v); });
+}
+
+// The biggest step between two frames of one channel.
+float biggest_step(const std::vector<float>& x, std::size_t from = 0) {
+    float step = 0.0f;
+    for (std::size_t i = std::max<std::size_t>(from, 1); i < x.size(); ++i)
+        step = std::max(step, std::fabs(x[i] - x[i - 1]));
+    return step;
+}
+}  // namespace
+
+TEST_CASE("hrtf: a position or a head that is not a number never reaches the sound") {
+    const float inf = std::numeric_limits<float>::infinity(), nan = std::numeric_limits<float>::quiet_NaN();
+    Fixture fx;
+    write_clips(fx.dir);
+    Scene sc(true, nan, nan);  // a head and a speed of sound that are not numbers
+    Entity src = sc.source("sounds/tone.wav", {inf, 0, 0}, true, 100000.0f);
+    fx.audio.start_recording();
+    const std::vector<std::string> warnings = audio_warnings_during([&] {
+        for (int i = 0; i < 12; ++i) tick(fx, sc);  // a source at infinity
+        sc.world.get<Transform>(src)->position = {nan, 0, 0};
+        for (int i = 0; i < 12; ++i) tick(fx, sc);  // at a place that is no place
+        sc.world.get<Transform>(sc.listener)->position = {inf, inf, inf};
+        for (int i = 0; i < 12; ++i) tick(fx, sc);  // and the listener too
+        sc.world.get<Transform>(sc.listener)->position = {0, 0, 0};
+        sc.world.get<Transform>(src)->position = {30, 0, 0};
+        sc.world.get<AudioListener>(sc.listener)->headRadius = 0.0875f;
+        sc.world.get<AudioListener>(sc.listener)->speedOfSound = 343.0f;
+        for (int i = 0; i < 24; ++i) tick(fx, sc);  // everything back to normal
+    });
+    const Recording rec = fx.finish();
+    CHECK(all_finite(rec));
+    // the voice was not poisoned: the sound is there once the numbers are back, to the right (the source is at +X)
+    const std::size_t from = rec.frames() - 4410;
+    REQUIRE(rec.frames() > 8820);
+    CHECK(rms(rec.r, from, rec.frames()) > 0.05);
+    CHECK(rms(rec.r, from, rec.frames()) > rms(rec.l, from, rec.frames()));
+    // the head that is not a number is told once, not at every frame
+    int headWarnings = 0;
+    for (const std::string& w : warnings)
+        if (w.find("headRadius") != std::string::npos) ++headWarnings;
+    CHECK(headWarnings <= 2);  // the NaN head, and no more until it changes (the normal head is not told)
+    CHECK(headWarnings >= 1);
+}
+
+TEST_CASE("hrtf: switching between pan and hrtf while a voice plays makes no click") {
+    Fixture fx;
+    write_clips(fx.dir);
+    Scene sc(false);
+    sc.source("sounds/tone.wav", {30, 0, 0}, true, 100.0f);
+    for (int i = 0; i < 6; ++i) tick(fx, sc);
+    const VoiceId v = fx.audio.active_voices()[0]["id"].get<VoiceId>();
+    fx.audio.start_recording();
+    for (int i = 0; i < 6; ++i) tick(fx, sc);
+    sc.world.get<AudioListener>(sc.listener)->spatialization = AudioSpatialization::Hrtf;
+    for (int i = 0; i < 12; ++i) tick(fx, sc);
+    CHECK(AudioTestAccess::voice_hrtf(fx.audio, v));
+    sc.world.get<AudioListener>(sc.listener)->spatialization = AudioSpatialization::Pan;
+    for (int i = 0; i < 12; ++i) tick(fx, sc);
+    CHECK_FALSE(AudioTestAccess::voice_hrtf(fx.audio, v));
+    const Recording rec = fx.finish();
+    REQUIRE(rec.peak() > 0.1f);
+    // a 300 Hz tone of amplitude 0.5 changes by at most 0.04 between two frames; a start from an empty delay line or a jump from the
+    // pan to the head's level would step by far more
+    CHECK(biggest_step(rec.l) < 0.05f);
+    CHECK(biggest_step(rec.r) < 0.05f);
+}
+
+TEST_CASE("hrtf: a voice that starts under the head model has no step at its first frames") {
+    Fixture fx;
+    write_clips(fx.dir);
+    Scene sc;
+    fx.audio.start_recording();
+    sc.source("sounds/tone.wav", {30, 0, 0}, true, 100.0f);
+    for (int i = 0; i < 6; ++i) tick(fx, sc);
+    const Recording rec = fx.finish();
+    REQUIRE(rec.peak() > 0.1f);
+    CHECK(biggest_step(rec.l) < 0.05f);
+    CHECK(biggest_step(rec.r) < 0.05f);
+}
+
+TEST_CASE("hrtf: an output of more than two channels keeps the pan, as a mono one does") {
+    Fixture fx;
+    AudioTestAccess::set_device_channels(fx.audio, 6);  // 5.1
+    Scene sc;
+    sc.source("sounds/sine.wav", {30, 0, 0}, true, 100.0f);
+    for (int i = 0; i < 3; ++i) tick(fx, sc);
+    const Json voices = fx.audio.active_voices();
+    REQUIRE(voices.size() == 1);
+    CHECK_FALSE(AudioTestAccess::voice_hrtf(fx.audio, voices[0]["id"].get<VoiceId>()));
+    CHECK(voices[0]["pan"].get<float>() == doctest::Approx(0.6f));
+}
+
+TEST_CASE("hrtf: at 192 kHz the largest head's time difference is not cut short") {
+    Fixture fx;
+    write_clips(fx.dir);
+    constexpr int kDeviceRate = 192000;
+    AudioTestAccess::use_manual_device(fx.audio, kDeviceRate);
+    Scene sc(true, kHrtfMaxHeadRadius, 343.0f);
+    sc.source("sounds/pulse.wav", {1, 0, 0}, false);
+    std::vector<float> l, r, block(512 * 2);
+    for (int i = 0; i < 24; ++i) {
+        fx.audio.update(sc.world, kDt);
+        for (int b = 0; b < 6; ++b) {  // 3072 frames, a little under a frame of 1/60 s
+            AudioTestAccess::render(fx.audio, block.data(), 512, 2);
+            for (int k = 0; k < 512; ++k) {
+                l.push_back(block[std::size_t(2 * k)]);
+                r.push_back(block[std::size_t(2 * k + 1)]);
+            }
+        }
+    }
+    const double itd = centroid(l) - centroid(r);
+    const double expected = double(audio_hrtf_itd(1.0f, kHrtfMaxHeadRadius / 343.0f)) * kDeviceRate;
+    CHECK(expected >
+          150.0);  // about 173 frames: a delay line sized in frames of 44.1 kHz (about 40 at most) would cut it short
+    CHECK(itd == doctest::Approx(expected).epsilon(0.05));
 }

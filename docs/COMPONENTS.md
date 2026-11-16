@@ -673,7 +673,7 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 | `coneOuterGain` | float | `0.0` | Spatial only: volume multiplier outside the outer cone, 0 (silent, default) to 1 (no effect). Range 0.0..1.0. (not released yet, on main after 0.29.1) |
 | `coneAxis` | vec3 | `[0.0,0.0,-1.0]` | Spatial only: the direction the cone points in the entity's local space. Default (0, 0, -1) is forward in 3D (as lights and cameras); in a 2D game, where sprites face +X, use (1, 0, 0). A zero vector turns the cone off. (not released yet, on main after 0.29.1) |
 | `dopplerLevel` | float | `0.0` | Spatial only: how much the pitch shifts with the speed the source and the listener approach or separate at (the AudioListener's speedOfSound). 0 (default) = off, 1 = the real shift, more exaggerates (it is the exponent of the real pitch ratio). The pitch factor is limited to 0.25..4 and glides over about 0.05 s. Velocities come from the change of each one's world position between frames (not from RigidBody), so scripted and animated movement shifts too; the first frame and a teleport give velocity 0. Range 0.0..10.0. (not released yet, on main after 0.29.1) |
-| `occlusion` | bool | `false` | Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. At most 8 rays per frame in the whole game, each source asked every 0.1 s; the change is smoothed over 0.1 s. (not released yet, on main after 0.29.1) |
+| `occlusion` | bool | `false` | Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. Each source is asked every 0.1 s, but at most 8 rays per frame go out in the whole game: with more sources than that the ones not asked yet come first, then the one asked longest ago, so none is left out for good. The change is smoothed over 0.1 s and the mixer ramps the volume and the low-pass to it (no click). (not released yet, on main after 0.29.1) |
 | `occlusionMask` | int | `-1` | Spatial only: the physics layers (bitmask, -1 = all) whose colliders block the sound when `occlusion` is on. The source's own colliders, the listener's and triggers are ignored. (not released yet, on main after 0.29.1) |
 | `occlusionGain` | float | `0.4` | Spatial only: volume multiplier while the path is blocked, 0 to 1 (default 0.4). Range 0.0..1.0. (not released yet, on main after 0.29.1) |
 | `occlusionLowpass` | float | `1500.0` | Spatial only: low-pass cutoff in Hz while the path is blocked (default 1500; 20000 = no filtering): a wall makes a sound dull. The voice gets its own 12 dB/octave low-pass. Range 20.0..20000.0. (not released yet, on main after 0.29.1) |
@@ -717,9 +717,9 @@ The 'ears' for spatial audio, usually on the camera or player. If no listener ex
 |---|---|---|---|
 | `volume` | float | `1.0` | Master volume multiplier for everything this listener hears. Range 0.0..4.0. |
 | `zoom` | float | `1.0` | Scales how far positional sounds are heard: a spatial AudioSource is silent at `range * zoom` from the listener (gain = 1 - distance / (range * zoom), and the pan spans the same distance), so 2 doubles the reach and 0.5 halves it. A game with a zoomable 2D camera sets it from the camera's orthoSize each frame. When the camera is the listener (no AudioListener component) the zoom is 1. Range 0.01..100.0. (since 0.3.0) |
-| `spatialization` | enum: pan \| hrtf | `"pan"` | How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/SOUND.md, Headphones. (not released yet, on main after 0.29.1) |
+| `spatialization` | enum: pan \| hrtf | `"pan"` | How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and a stereo output (a mono device and a surround one, 5.1 and more, keep pan). A change between pan and hrtf crossfades over 4 ms. See docs/sound/SOUND_SPATIAL.md, Headphones. (not released yet, on main after 0.29.1) |
 | `headRadius` | float | `0.0875` | hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; scale it with the world in a game that does not use meters). It sets the time difference between the ears (Woodworth: about 0.66 ms at 90 degrees for the default). A head smaller than 0.03 m or larger than 0.12 m at speedOfSound 343 (the ratio headRadius / speedOfSound is what counts) is clamped, with a warning that says how to fix it. Range 0.001..100000.0. (not released yet, on main after 0.29.1) |
-| `speedOfSound` | float | `343.0` | Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives. Range 1.0..10000000.0. (not released yet, on main after 0.29.1) |
+| `speedOfSound` | float | `343.0` | Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives. With hrtf it is also the speed the head model divides headRadius by to get the time between the ears. Range 1.0..10000000.0. (not released yet, on main after 0.29.1) |
 
 ## UI
 
@@ -3140,7 +3140,7 @@ Check an audio document and say what its chain renders to; with no arguments, li
 
 Capabilities: read
 
-An audio document (`*.audio.json`, docs/SOUND.md "Audio documents") is a non-destructive chain over a sound: a WAV/OGG, an .sfx.json patch or another audio document, then steps (trim, fade, normalize, gain, pitch, stretch, speed, eq, filter, compressor, distortion, bitcrush, reverb, delay, reverse, layer, loop, granular). With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns its steps, where it bakes to and whether that sound is fresh or stale, and (unless render is false) renders it in memory: seconds, loudness, peak, brightness (centroidHz), the loop points of a loop step and the length and peak after each step. With no argument it returns the catalog of step types with every field, its range, default and doc string. Example: {"path":"assets/audio/door.audio.json"}
+An audio document (`*.audio.json`, docs/sound/SOUND_DOCUMENTS.md "Audio documents") is a non-destructive chain over a sound: a WAV/OGG, an .sfx.json patch or another audio document, then steps (trim, fade, normalize, gain, pitch, stretch, speed, eq, filter, compressor, distortion, bitcrush, reverb, delay, reverse, layer, loop, granular). With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns its steps, where it bakes to and whether that sound is fresh or stale, and (unless render is false) renders it in memory: seconds, loudness, peak, brightness (centroidHz), the loop points of a loop step and the length and peak after each step. With no argument it returns the catalog of step types with every field, its range, default and doc string. Example: {"path":"assets/audio/door.audio.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6570,15 +6570,14 @@ Create a new game project from a template.
 
 Capabilities: read, writeProject
 
-Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. With `example` instead of `template` the project is a copy of an example game of the installed version (project.examples lists them): its zip is downloaded from the GitHub release (needs the network capability and the internet the first time; it is kept in FactorIA's cache folder), checked against the release's size and SHA-256, and unpacked into a hidden folder that is renamed to `dir` at the end, so a failure leaves nothing. Examples: {"dir":"my-game","template":"2d-platformer","name":"My Game"} and {"dir":"block-push","example":"block-push"}.
+Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. Example: {"dir":"my-game","template":"2d-platformer","name":"My Game"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `dir` | string | yes | Target folder (created; must be empty or new). With a project open, a caller that may not write anywhere (an agent, an MCP client) gives a folder inside the project, relative to it; the command line may name any folder. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
-| `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default 2d-empty; not together with `example`. |
-| `example` | string | no | Start from this example game of the installed version instead of a template (names: project.examples). Downloads it the first time. Not together with `template`. |
-| `name` | string | no | Display name (default: folder name; an example keeps its own unless given). |
-| `id` | string | no | Reverse-DNS id, e.g. com.example.mygame (an example keeps its own unless given). |
+| `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default "2d-empty". |
+| `name` | string | no | Display name (default: folder name). |
+| `id` | string | no | Reverse-DNS id, e.g. com.example.mygame. |
 
 ### `project.create_storage_secret` (modifies state)
 
@@ -6593,16 +6592,6 @@ Writes "storage": {"encryptionSecret": <64 random hex characters>} into factoria
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `replace` | boolean | no | Make a new secret even when the project has one. Every save written with {encrypt: true} so far stops opening: use it only when the secret leaked and the saves can be lost. Default false. |
-
-### `project.examples` (modifies state)
-
-Not released yet (on main after 0.29.1).
-
-List the example games of the installed FactorIA version: what each shows and the docs to read first.
-
-Capabilities: read, network
-
-The download of FactorIA carries no example games; every release publishes them as assets. This downloads examples-manifest.json of the release of the INSTALLED version (a few KB), keeps a copy in <FACTORIA_HOME or ~/.factoria>/cache/examples/<version>/ and returns, per example, `name`, `title`, `shows` (what it shows), `readFirst` (docs to read before opening it: `docs.read` them), `size` (bytes to download) and `downloaded` (its zip is already in the cache). `stale` is true, and `staleReason` says why, when the network failed and the copy of an earlier call is returned: the list may then be older than the release. With no network and no copy it fails and says what to do. Create a project from one with project.create {example}. Example: {}.
 
 ### `project.export` (modifies state)
 
@@ -6686,7 +6675,7 @@ Zip every example game of examples/ and write examples-manifest.json, the files 
 
 Capabilities: read, writeAnywhere
 
-For the engine's release (docs/design/BUILDING.md, "Example games in the release"). Reads `examples`/examples.json (the title, what each example shows and the docs to read first), checks that every project folder has an entry and every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/ and every other hidden folder, node_modules/, a top-level build/, .DS_Store, Thumbs.db, desktop.ini, *.actual.png, *.fa-tmp and the secrets and local settings .env, ai.local.json, *.key, *.keystore, *.jks, *.p12 and *.pem; a link is never followed; the same files give the same bytes) and examples-manifest.json beside them (format, engineVersion, and per example name, title, shows, readFirst, file, size and sha256). Replaces files of the same names in `out`. Returns the manifest. Run it from a checkout of the repository: a download has no examples/. Example: {"examples":"examples","out":"dist/examples"}.
+For the engine's release (docs/design/BUILDING_RELEASE.md, "Example games in the release"). Reads `examples`/examples.json (the title, what each example shows and the docs to read first), checks that every project folder has an entry and every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/, other hidden folders, node_modules/ and build/: the same files give the same bytes) and examples-manifest.json beside them (format, engineVersion, and per example name, title, shows, readFirst, file, size and sha256). Replaces files of the same names in `out`. Returns the manifest. Run it from a checkout of the repository: a download has no examples/. Example: {"examples":"examples","out":"dist/examples"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -10170,7 +10159,7 @@ declare module "factoria" {
      */
     readonly connected: boolean;
     /**
-     * The family of the pad: "xbox", "playstation", "nintendo", "steamdeck" or "generic" (also for a pad that is not connected). Found from its vendor id and name where the platform tells (Windows: XInput pads are xbox, the other pads from their vendor id and name; Linux and macOS/iOS: from the ids or names; Android always "generic"). Use input.buttonName() to get the label, not this.
+     * The family of the pad: "xbox", "playstation", "nintendo", "steamdeck" or "generic" (also for a pad that is not connected). Found from its vendor id and name where the platform tells (Windows: XInput pads are xbox; Linux and macOS/iOS: from the ids or names; Android always "generic"). Use input.buttonName() to get the label, not this.
      * @since 0.1.6
      */
     readonly type: GamepadType;
@@ -11940,7 +11929,7 @@ declare module "factoria" {
      */
     on(event: "suspend" | "resume" | "focus" | "blur" | "dayChanged", fn: (today: { readonly iso: string }) => void): () => void;
     /**
-     * Listens for a pad being plugged in or out (or paired or lost over Bluetooth). fn gets { slot, id, name, type }: slot is the number input.gamepad(slot) answers for (0 to 3), id is the same for the same physical pad every time (the vendor and product ids, the name and, where the platform has one, a serial number, GUID or device path: use it to give a player their pad back), name is what the OS calls it and type is "xbox", "playstation", "nintendo", "steamdeck" or "generic". A pad that comes back takes the slot it had when that is free (Windows, macOS, iOS, Android and the web; on Linux the kernel's joystick number is the slot). What each platform can put in the id: Windows XInput has no ids, so an XInput pad is "an Xbox pad in XInput slot N" (its id ends with "#xinputN"), while the other Windows pads (HID) give the vendor and product, the name and the serial number when the pad has one (a Bluetooth pad's address); Linux adds the kernel's serial (uniq) when the pad has one; macOS and iOS (GameController) and the web (Gamepad.id, no serial: browsers hide it) give the name and, on the web, the vendor and product; Android adds the InputDevice descriptor. Two pads of one model without a serial share an id. Losing the window focus does not disconnect a pad that is still plugged in. Pads already plugged in when the first scene starts are not announced: read input.gamepad(i).connected and .id at the start. Listeners end with the scene, like world.on. Example: game.on("gamepadConnected", (pad) => hud.toast(`${pad.name} is player ${pad.slot + 1}`));
+     * Listens for a pad being plugged in or out (or paired or lost over Bluetooth). fn gets { slot, id, name, type }: slot is the number input.gamepad(slot) answers for (0 to 3), id is the same for the same physical pad every time (the vendor and product ids, the name and, where the platform has one, a serial number, GUID or device path: use it to give a player their pad back), name is what the OS calls it and type is "xbox", "playstation", "nintendo", "steamdeck" or "generic". A pad that comes back takes the slot it had when that is free (Windows, macOS, iOS, Android and the web; on Linux the kernel's joystick number is the slot). What each platform can put in the id: Windows XInput has no ids, so an XInput pad is "an Xbox pad in XInput slot N" (its id ends with "#xinputN"); Linux adds the kernel's serial (uniq) when the pad has one; macOS and iOS (GameController) and the web (Gamepad.id, no serial: browsers hide it) give the name and, on the web, the vendor and product; Android adds the InputDevice descriptor. Two pads of one model without a serial share an id. Losing the window focus does not disconnect a pad that is still plugged in. Pads already plugged in when the first scene starts are not announced: read input.gamepad(i).connected and .id at the start. Listeners end with the scene, like world.on. Example: game.on("gamepadConnected", (pad) => hud.toast(`${pad.name} is player ${pad.slot + 1}`));
      * @since 0.3.0
      */
     on(event: "gamepadConnected" | "gamepadDisconnected", fn: (pad: { readonly slot: number; readonly id: string; readonly name: string; readonly type: GamepadType }) => void): () => void;
@@ -17693,7 +17682,7 @@ declare module "factoria" {
      */
     dopplerLevel: number;
     /**
-     * Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. At most 8 rays per frame in the whole game, each source asked every 0.1 s; the change is smoothed over 0.1 s.
+     * Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. Each source is asked every 0.1 s, but at most 8 rays per frame go out in the whole game: with more sources than that the ones not asked yet come first, then the one asked longest ago, so none is left out for good. The change is smoothed over 0.1 s and the mixer ramps the volume and the low-pass to it (no click).
      * @since unreleased
      */
     occlusion: boolean;
@@ -17847,7 +17836,7 @@ declare module "factoria" {
      */
     zoom: number;
     /**
-     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/SOUND.md, Headphones.
+     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and a stereo output (a mono device and a surround one, 5.1 and more, keep pan). A change between pan and hrtf crossfades over 4 ms. See docs/sound/SOUND_SPATIAL.md, Headphones.
      * @since unreleased
      */
     spatialization: "pan" | "hrtf";
@@ -17857,7 +17846,7 @@ declare module "factoria" {
      */
     headRadius: number;
     /**
-     * Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives.
+     * Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives. With hrtf it is also the speed the head model divides headRadius by to get the time between the ears.
      * @since unreleased
      */
     speedOfSound: number;

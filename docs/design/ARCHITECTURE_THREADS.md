@@ -287,7 +287,10 @@ run every engine on the main thread. A second `Engine::init` of the same engine 
     summed in layer order afterwards, so the samples are identical. A noise oscillator draws from a stream keyed by
     `(seed, layer, oscillator)` rather than `Chunk::rng()`, so the sound does not change with how layers are grouped.
     The device callback never waits for a job and starts none; the mixer of live voices and `song_preview` stay on their
-    own thread.
+    own thread. On that thread nothing allocates and nothing locks: a voice's volume, its occlusion gain and its
+    low-pass cutoff move to what the game thread sent over a ramp of a fixed number of frames (about 20 ms, 5 ms), and a
+    switch between the pan and the head model (hrtf) is a 4 ms crossfade, all counted in frames of the device, never in
+    time read from a clock.
   - What this does not promise: the same results are checked on one machine across thread settings. Floating point can
     still differ in the last digit between CPU architectures, as it did before jobs.
 

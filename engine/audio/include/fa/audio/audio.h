@@ -141,6 +141,8 @@ float audio_cone_gain(Vec3 axis, Vec3 toListener, float innerAngle, float outerA
 
 // Everything about a sound from a place that Audio::play_at takes beyond the clip and the position (audio.play's options with a
 // `position`). The defaults are the plain linear, omnidirectional sound of an AudioSource with spatial = true.
+// A sound with doppler, occlusion or (under an hrtf listener) the head model is followed by Audio::update while it plays; at
+// most 256 such sounds are followed at once, the next ones keep what they started with (the log says so once).
 struct SpatialSound {
     float range = 800.0f;
     AudioRolloff rolloff = AudioRolloff::Linear;
@@ -197,8 +199,9 @@ float audio_hrtf_itd(float lateral, float headTime);
 
 // ---- Occlusion (docs/sound/SOUND_SPATIAL.md, "Occlusion"). The audio module cannot cast rays (physics is above it): the engine gives it a
 // probe, and Audio decides when to ask, smooths the answer and applies it. Audio asks at most kAudioOcclusionRaysPerFrame
-// times per update(), a source at most every kAudioOcclusionRecheck seconds (a source never measured first), and the volume
-// and the low-pass move to the answer over kAudioOcclusionSmoothing seconds.
+// times per update(), a source at most every kAudioOcclusionRecheck seconds (a source never measured first, then the one asked
+// longest ago, so none waits for good), and the volume and the low-pass move to the answer over kAudioOcclusionSmoothing
+// seconds (the mixer then ramps the voice to each step in about 20 ms).
 constexpr int kAudioOcclusionRaysPerFrame = 8;
 constexpr float kAudioOcclusionRecheck = 0.1f;
 constexpr float kAudioOcclusionSmoothing = 0.1f;
