@@ -174,6 +174,13 @@ build directory. The console shows, with paths relative to the checkout:
 `--examples` adds a Release build of `factoria` in `<build dir>-release` and `ctest -L example`; `--test --examples` is
 the full check before a push, `--examples-only` skips the Debug part.
 
+At most three jobs build or test at once on one machine, counting every checkout and worktree of the user
+(`FA_AGENT_MAX_JOBS`, default 3): twelve agents building side by side once left a 10-core Mac unusable until it was
+restarted. A job past the limit waits for a free slot and `--wait` shows `RUNNING (waiting for a build slot ...)` with
+the build dirs that hold them. A slot is a directory in `~/.cache/factoria/agent-build-slots` (`FA_AGENT_SLOTS_DIR`)
+naming its job; one whose job no longer runs (killed, machine restarted) is taken over. The default `-j` is the job's
+share of the cores (CPU count / `FA_AGENT_MAX_JOBS`, 2 to 8). `--jobs` and `--ctest-jobs` still override it.
+
 **The Debug tree is compiled with `-O1 -g1`** instead of CMake's `-g` (`FA_AGENT_DEBUG_FLAGS`, read when the directory
 is first configured). Assertions stay on and a crash still names functions and lines. Measured on a MacBook Air M5,
 all 64 tests passing either way:

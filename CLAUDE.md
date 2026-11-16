@@ -36,8 +36,12 @@ ctest --test-dir build/dev --output-on-failure
   [-Target fa_test_core] [-Tests core | -Test] [-Examples]`.
 - GPU code without a display: headless EGL works with Mesa (llvmpipe). Windowed code: `xvfb-run -a -s "-screen 0
   1280x720x24" <cmd>`.
-- Each agent uses its OWN build dir (`build/agent-<name>`) and builds with `-j8` (at most three agents building at
-  once; fewer jobs under 16 hardware threads). ccache (docs/design/BUILDING.md): with GCC/Clang every checkout and worktree
+- Each agent uses its OWN build dir (`build/agent-<name>`). At most THREE agents build or test at once on the machine,
+  never more, even when the user asks for speed: "as fast as possible" means as fast as the computer stays usable
+  (twelve at once froze the user's Mac and it had to be restarted). `scripts/agent-build.sh` enforces it (a fourth job
+  waits for a slot, `FA_AGENT_MAX_JOBS`) and picks each job's `-j` from the CPU count; the orchestrator still launches
+  at most three building workers and queues the rest, starting one as each ends (reviewers and researchers that only
+  read do not count). ccache (docs/design/BUILDING.md): with GCC/Clang every checkout and worktree
   shares one cache; with MSVC each checkout keeps its own. Run the final full `ctest` while no other build runs: some
   tests are timing-sensitive.
 - Other platforms locally: `scripts/ci-local.sh linux windows` runs the Linux job and a Windows build (MinGW-w64 +
