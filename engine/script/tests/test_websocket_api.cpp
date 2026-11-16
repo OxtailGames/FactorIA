@@ -65,6 +65,8 @@ test("open, a text and a binary message, send, close", () => {
   expect(ws.send(new DataView(raw, 2, 3))).toBe(true);           // a DataView sends the bytes it shows
   expect(ws.send(new Uint16Array(raw, 2, 2))).toBe(true);        // so does a typed array with an offset
   game.websocket.send(0, new DataView(raw, 5, 2));
+  game.step();
+  expect(log[log.length - 1]).toBe("bin:5,6");                    // the game sees the bytes the DataView shows, not the whole buffer
   const got = game.websocket.connections()[0].received;
   expect(got.length).toBe(5);
   expect(Array.from(new Uint8Array(got[3]))).toEqual([2, 3, 4]);

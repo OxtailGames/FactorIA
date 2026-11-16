@@ -55,7 +55,9 @@ public:
     // The game let go of the connection: nothing it reports is delivered, and the thread ends without being waited for.
     void release();
 
-    WebSocketState state() const { return state_.load(); }
+    // Closed as soon as the queue holds its last event (a queue that overflowed holds [Error, Close 1008] before the thread
+    // has turned state_ into Closed): when the game reads the Close event, state() is Closed.
+    WebSocketState state() const { return queue_->ended() ? WebSocketState::Closed : state_.load(); }
     Result<void> send_text(std::string_view text);
     Result<void> send_binary(const void* data, std::size_t size);
     Result<void> close(int code, std::string_view reason);

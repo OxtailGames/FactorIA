@@ -577,7 +577,8 @@ TEST_CASE("websocket client: close() while the handshake waits is Closing, then 
     REQUIRE(server.connections() == 1);
     CHECK(ws->state() == WebSocketState::Connecting);
     CHECK(ws->close(1000, "").ok());
-    CHECK(ws->state() == WebSocketState::Closing);
+    // Closing, or already Closed: a loaded machine may end the attempt before this line runs (WinHTTP, tcp).
+    CHECK((ws->state() == WebSocketState::Closing || ws->state() == WebSocketState::Closed));
     auto events = collect_until_close(*ws);
     REQUIRE(events.size() == 2);
     CHECK(events[0].type == WebSocketEvent::Type::Error);

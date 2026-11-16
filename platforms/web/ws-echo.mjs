@@ -13,7 +13,10 @@ if (!port) { console.error('usage: node ws-echo.mjs <port>'); process.exit(2); }
 
 function frame(opcode, payload) {
   const n = payload.length;
-  const head = n < 126 ? Buffer.from([0x80 | opcode, n]) : Buffer.from([0x80 | opcode, 126, n >> 8, n & 255]);
+  let head;
+  if (n < 126) head = Buffer.from([0x80 | opcode, n]);
+  else if (n < 65536) head = Buffer.from([0x80 | opcode, 126, n >> 8, n & 255]);
+  else { head = Buffer.alloc(10); head[0] = 0x80 | opcode; head[1] = 127; head.writeBigUInt64BE(BigInt(n), 2); }
   return Buffer.concat([head, payload]);
 }
 

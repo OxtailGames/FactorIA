@@ -26,7 +26,7 @@
 // milliseconds at most: it never joins a thread that may sit in a blocking call, never waits for the network or a DNS lookup.
 //
 // Windows. WinHTTP keeps part of the protocol to itself, so its client differs from the tcp one in what the tests can see:
-// it answers pings by itself and sends keep-alive frames of its own on an open connection (every 30 s, set explicitly), a
+// it answers pings by itself and sends keep-alive frames of its own on an open connection (every 30 s, which the client asks for), a
 // wrong Sec-WebSocket-Accept may fail inside WinHttpWebSocketCompleteUpgrade with a message that does not name the header,
 // and connect() refuses a header value that is not ASCII (WinHTTP sends header values as 8-bit text). A connection destroyed
 // while a send is in flight (WinHTTP allows one at a time) sends 1001 once that send has gone out; a send still stuck after
@@ -134,7 +134,8 @@ private:
 };
 
 // How long a closing handshake waits for the server's close frame before the connection is dropped (Close 1006, wasClean
-// false). One value for every client that does its own waiting (the tcp client, the Android one); a system stack keeps its own.
+// false). One value for every client that does its own waiting (the tcp client, the Android one, and the WinHTTP one for its
+// close wait and a send stuck at destruction); the other system stacks keep their own.
 inline constexpr double kWebSocketCloseWaitSec = 5.0;
 
 // What connect() needs. The address is absolute ws:// or wss://, already checked against the game's declared hosts.
@@ -172,9 +173,10 @@ public:
     // the peer answers, or after kWebSocketCloseWaitSec without an answer (Error, then Close 1006, wasClean false). Closing
     // twice, or a closed connection, is not an error.
     //
-    // Closing while the connection is still Connecting abandons the attempt: state() is Closing at once, and Closed when
-    // poll() delivers its Error and Close 1006 (wasClean false). The Error says close() was called before the connection
-    // opened.
+    // Closing while the connection is still Connecting abandons the attempt: state() is Closing at once (a client may
+    // already have ended the attempt by then, and say Closed), and Closed from the moment its Error and Close 1006
+    // (wasClean false) are in the queue, so before poll() delivers them. The Error says close() was called before the
+    // connection opened.
     //
     // macOS and iOS (NSURLSession) differ in one place: the system reports the close as soon as it has sent the close frame, so
     // the Close event comes at once with the code and reason asked for and wasClean true, without waiting for the server's
