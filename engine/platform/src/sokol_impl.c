@@ -25,6 +25,7 @@
 // declarations keep their names.
 #if defined(__linux__) && !defined(__ANDROID__)
 #include <X11/Xlib.h>
+#include <string.h>
 
 #include "ime_linux.h"
 static int fa_x11_pending(Display* display) {
@@ -32,6 +33,15 @@ static int fa_x11_pending(Display* display) {
     return XPending(display);
 }
 static int fa_x11_next_event(Display* display, XEvent* event) {
+    // sokol_app reads XPending's count once and then that many events. The input method may take some of them meanwhile
+    // (XFilterEvent and XOpenIM wait for their server's answers with XIfEvent), and XNextEvent on an empty queue would
+    // block until the next X event, the game not drawing: what is missing becomes an event sokol_app skips (its switch
+    // has no case for NoExpose), and the backend does not see it.
+    if (XPending(display) == 0) {
+        memset(event, 0, sizeof *event);
+        event->type = NoExpose;
+        return 0;
+    }
     const int r = XNextEvent(display, event);
     fa_ime_x11_event(event);
     return r;
@@ -526,6 +536,7 @@ static EM_BOOL fa_emsc_focus_cb(int type, const EmscriptenFocusEvent* e, void* u
 
 static EM_BOOL fa_emsc_blur_cb(int type, const EmscriptenFocusEvent* e, void* user_data) {
     if (fa_ime_web_ignore_focus(e->id)) return true;
+    fa_ime_web_blur();
     return _sapp_emsc_blur_cb(type, e, user_data);
 }
 

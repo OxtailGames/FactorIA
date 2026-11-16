@@ -121,11 +121,14 @@ EM_JS(void, fa_web_text_init, (), {
                 if (st.composing) { selection(); send(2); }  // the caret inside the composition, now that the value has it
                 return;
             }
-            if (type === "insertFromPaste" || type === "insertFromDrop") {
-                // sokol_app delivers the paste event of the window itself
-            } else if (type.indexOf("delete") === 0 || el.value.length < MARK.length) {
+            // Only typing and Backspace go to the field: a cut, an undo or a redo of the <input> itself (its menu, Ctrl+Z)
+            // does not, and sokol_app delivers the paste event of the window itself. A browser without inputType: the value.
+            const typed = type === "insertText" || (type === "" && el.value.length >= MARK.length);
+            const erased = type === "deleteContentBackward" || type === "deleteWordBackward" ||
+                           (type === "" && el.value.length < MARK.length);
+            if (erased) {
                 if (!st.hardKey) st.queue.push(-2);  // a real Backspace key reaches sokol_app by itself
-            } else if (performance.now() - st.pressAt > 100) {  // else sokol_app already got this character from keypress
+            } else if (typed && performance.now() - st.pressAt > 100) {  // else sokol_app got it from keypress already
                 push(typeof ev.data === "string" ? ev.data : el.value.split(MARK).join(""));
             }
             st.reset();
@@ -271,6 +274,8 @@ extern "C" int fa_ime_web_key(int kind, int keyCode, int sappKey) {
 extern "C" int fa_ime_web_ignore_focus(const char* targetId) {
     return (targetId && std::strcmp(targetId, "fa-text-input") == 0) || fa_web_text_moving() ? 1 : 0;
 }
+
+extern "C" void fa_ime_web_blur(void) { g_session.focus_lost(); }
 
 namespace fa {
 
