@@ -8353,7 +8353,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -8407,7 +8407,7 @@ declare module "factoria" {
      */
     mirror: boolean;
     /**
-     * How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout moves its Transform.position so it lands in its slot.
+     * How children are placed, every frame: none = they keep their own positions; row / column = one after the other along that axis; grid = `columns` per row, every cell as large as the largest child. Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout moves its Transform.position so it lands in its slot. A child's Transform.scale multiplies the room its slot takes (a row makes room for a child at scale 2); its rotation.z does not: the slot stays and the child turns in place around its pivot. A turned or scaled Panel lays its children out as if it were not and then turns and scales them with it (since 0.30.0).
      * @since 0.1.6
      */
     layout: "none" | "row" | "column" | "grid";
@@ -8499,7 +8499,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -8688,7 +8688,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -8858,7 +8858,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -9239,7 +9239,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -9429,7 +9429,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.1.6
      */
     get pivot(): Vec2;
@@ -9528,7 +9528,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.2.0
      */
     get pivot(): Vec2;
@@ -9627,7 +9627,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.2.0
      */
     get pivot(): Vec2;
@@ -9771,7 +9771,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.2.0
      */
     get pivot(): Vec2;
@@ -9887,7 +9887,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.3.0
      */
     get pivot(): Vec2;
@@ -10059,7 +10059,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.3.0
      */
     get pivot(): Vec2;
@@ -10153,7 +10153,7 @@ declare module "factoria" {
     get size(): Vec2;
     set size(value: Vec2Like);
     /**
-     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children.
+     * Which point of the widget sits on the position: [0.5, 0.5] = its centre (default), [0, 1] = top-left corner, [1, 0] = bottom-right. Same meaning as Shape2D.pivot in screen space: +Y is down on screen but pivot [0, 1] is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with pivot [0.5, 0] puts the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen (docs/MENUS.md, "Anchors and pivots"). Layout does not care about the pivot of its children. It is also the point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).
      * @since 0.3.0
      */
     get pivot(): Vec2;

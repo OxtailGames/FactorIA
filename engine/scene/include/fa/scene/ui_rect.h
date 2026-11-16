@@ -1,6 +1,20 @@
 // Where a UI widget (Panel, Button, Toggle, Slider, TextField, ScrollList) is on the screen: the ONE definition behind
 // layout, hit-testing, clipping (fa_ui), drawing (fa_render) and editor picking (bounds.h). Screen space: design pixels,
-// origin top-left, +Y down. ponytail: rotation and scale of UI entities are ignored; only the world translation counts.
+// origin top-left, +Y down.
+//
+// Rotation and scale (since 0.30.0): the Transform of a widget, and of every entity above it, rotates (rotation.z, degrees,
+// positive = clockwise on the screen, the way a screen-space Text turns) and scales (scale.x, scale.y) what is drawn and hit
+// around that entity's own origin: its position plus its anchor point, which is where its pivot sits. Three things follow:
+//  * Space. Layout works in LAYOUT SPACE: the plane where every position is the sum of the local positions up the parents and no
+//    rotation or scale is applied. ui_layout_rect is a widget's rectangle there, in its own frame (before its own rotation and
+//    scale): what the widget draws into, what its own layout, Slider track and TextField caret use.
+//  * What a parent's layout sees. The slot stays where it is when a child rotates (it turns in place around its pivot, like CSS
+//    `transform`, Unity's RectTransform.rotation and Godot's Control.rotation); a child's scale grows or shrinks the slot
+//    (ui_footprint_rect), so a row makes room for a child at scale 2 (CSS `zoom`; Unity and Godot leave the slot alone).
+//  * What is drawn and hit. ui_transform maps layout space to the screen; ui_quad is the widget's oriented rectangle there
+//    and ui_rect its bounding box. A ScrollList's scissor is always that bounding box (a scissor cannot turn): a rotated
+//    ScrollList warns once, but a pointer outside its turned rectangle still hits nothing.
+// An unrotated, unscaled tree takes the same path as before: nothing changes bit for bit.
 //
 // The interface scale (World::ui_scale(), `ui.scale`, k): a screen-space widget is authored and laid out in UI UNITS, a
 // virtual screen of designSize / k with the safe insets divided by k, and drawn k times as big. So k multiplies its size,
@@ -9,6 +23,7 @@
 // ui_layout_rect is in UI units and is what layout, ScrollList and Slider arithmetic read.
 #pragma once
 
+#include <array>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -78,6 +93,17 @@ inline Rect ui_mirror_in(const Rect& outer, const Rect& inner) {
 bool safe_area_profile(std::string_view name, Vec2 designSize, EdgeInsets& out);
 const std::vector<std::string>& safe_area_profile_names();
 
+// A 2D affine map: x' = a x + c y + tx, y' = b x + d y + ty.
+struct UiAffine {
+    float a = 1, b = 0, c = 0, d = 1, tx = 0, ty = 0;
+    bool is_identity() const { return a == 1 && b == 0 && c == 0 && d == 1 && tx == 0 && ty == 0; }
+    Vec2 apply(Vec2 p) const { return {a * p.x + c * p.y + tx, b * p.x + d * p.y + ty}; }
+    // The map undone; nullopt when it flattens the plane (a scale of 0).
+    std::optional<UiAffine> inverse() const;
+    // True when a rectangle stays a rectangle with sides parallel to the axes (no turn, or a quarter turn).
+    bool axis_aligned() const;
+};
+
 // The widget's rectangle in UI UNITS (the virtual screen of designSize / k, see above): x, y = top-left, +Y down, from the
 // world translation T of the entity:
 //   {T.x + A.x - pivot.x * size.x,  T.y + A.y - (1 - pivot.y) * size.y,  size.x, size.y}
@@ -85,7 +111,41 @@ const std::vector<std::string>& safe_area_profile_names();
 // target size). nullopt when `e` is no widget. At k = 1 it is the same as ui_rect.
 std::optional<Rect> ui_layout_rect(const World& w, Entity e, Vec2 designSize);
 
-// The widget's rectangle on the screen, in design pixels: ui_layout_rect scaled by k from the screen's origin
+// The widget's own-frame rectangle in layout space, scaled by k from the screen's origin ({k * x, k * y, k * w, k * h}): what
+// ui_rect was before widgets could turn. nullopt when `e` is no widget. With no rotation or scale above `e` it is ui_rect.
+std::optional<Rect> ui_own_rect(const World& w, Entity e, Vec2 designSize);
+
+// The rectangle a widget takes in its parent's layout, in UI units: ui_layout_rect scaled about the pivot by the widget's own
+// scale (its absolute value) and not turned. Equal to ui_layout_rect at scale 1. nullopt when `e` is no widget.
+std::optional<Rect> ui_footprint_rect(const World& w, Entity e, Vec2 designSize);
+
+// What world_matrix(e) is for layout: with no rotation or scale from `e` up, world_matrix(e); else the translation of
+// layout space and `e`'s own scale (its own and its parents' rotation, and its parents' scale, left out). Used for the
+// footprint of a screen-space Text, Sprite or Shape2D that a layout places.
+Mat4 ui_layout_matrix(const World& w, Entity e);
+
+// The map from layout space to the screen, both in UI units, of everything drawn for `e`: its own scale and rotation about its
+// origin, then each ancestor's about its own. Identity when no entity from `e` up has rotation.z or scale.x/.y other than 0 / 1.
+UiAffine ui_transform(const World& w, Entity e, Vec2 designSize);
+
+// The widget's rectangle as drawn: its own-frame corners (top-left, top-right, bottom-right, bottom-left) through
+// ui_transform, in screen pixels. nullopt when `e` is no widget.
+std::optional<std::array<Vec2, 4>> ui_quad(const World& w, Entity e, Vec2 designSize);
+
+// True when the screen point `p` (pixels) is inside the widget's oriented rectangle, borders included. Same as
+// ui_rect(w, e, d)->contains(p) when nothing turns; false for a flattened (scale 0) or non-widget `e`.
+bool ui_contains(const World& w, Entity e, Vec2 designSize, Vec2 p);
+
+// `p` (screen pixels) in the widget's own frame, in pixels: relative to the same origin as ui_own_rect, so
+// `p - ui_own_rect->min()` is the point inside the widget. `p` itself when nothing turns or the map cannot be undone.
+Vec2 ui_local_point(const World& w, Entity e, Vec2 designSize, Vec2 p);
+
+// A point of the widget's own frame (screen pixels, the origin of ui_own_rect) as it is drawn, in screen pixels. The inverse of
+// ui_local_point.
+Vec2 ui_world_point(const World& w, Entity e, Vec2 designSize, Vec2 p);
+
+// The widget's rectangle on the screen, in design pixels: the bounding box of ui_quad (what a click, the clip and the
+// navigation look at). With no rotation or scale it is ui_layout_rect scaled by k from the screen's origin
 // ({k * x, k * y, k * w, k * h}). nullopt when `e` is no widget.
 std::optional<Rect> ui_rect(const World& w, Entity e, Vec2 designSize);
 
@@ -94,9 +154,13 @@ Vec2 ui_layout_screen(const World& w, Vec2 designSize);
 // The safe insets in UI units (the insets divided by k).
 EdgeInsets ui_layout_insets(const World& w);
 
-// The intersection of the screen rectangles (ui_rect) of every ScrollList ANCESTOR of `e` (not `e` itself): what is drawn and
-// hit-tested of `e`. nullopt when it has none. The result may be empty (w or h <= 0) when the rectangles do not overlap.
+// The intersection of the screen rectangles (ui_rect: bounding boxes) of every ScrollList ANCESTOR of `e` (not `e` itself): what is
+// drawn of `e`. nullopt when it has none. The result may be empty (w or h <= 0) when the rectangles do not overlap.
 std::optional<Rect> ui_clip_rect(const World& w, Entity e, Vec2 designSize);
+
+// True when the screen point `p` is inside the oriented rectangle of every ScrollList ANCESTOR of `e` (true when it has none):
+// what is hit-tested of `e`. Exact for a turned list, where ui_clip_rect (the scissor) is its bounding box.
+bool ui_clip_contains(const World& w, Entity e, Vec2 designSize, Vec2 p);
 
 // Intersection of two rectangles; w and h are 0 when they do not overlap.
 Rect ui_intersect(const Rect& a, const Rect& b);

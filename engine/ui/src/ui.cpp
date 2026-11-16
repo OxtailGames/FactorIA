@@ -77,7 +77,7 @@ std::vector<Item> controls(const World& w, Vec2 design, Entity modal) {
             inScope = false;
             for (Entity a = e; a && !inScope; a = w.parent(a)) inScope = a == modal;
         }
-        out.push_back({e, k, *ui_rect(w, e, design), c->layer, c->interactable && inScope, inScope});
+        out.push_back(ui_detail::widget_item(w, e, k, design, c->layer, c->interactable && inScope, inScope));
     }
     return out;
 }
@@ -184,9 +184,7 @@ Entity ui_widget_at(const World& w, Vec2 design, Vec2 p, Entity ignore) {
         if (const TouchStick* ts = w.get<TouchStick>(e); ts && !ts->shown) continue;
         if (const TouchButton* tb = w.get<TouchButton>(e); tb && !tb->shown) continue;
         const Rect r = *ui_rect(w, e, design);
-        if (!(r.w > 0) || !(r.h > 0) || !r.contains(p)) continue;
-        const std::optional<Rect> clip = ui_clip_rect(w, e, design);
-        if (clip && !clip->contains(p)) continue;
+        if (!(r.w > 0) || !(r.h > 0) || !ui_contains(w, e, design, p) || !ui_clip_contains(w, e, design, p)) continue;
         if (!best || box.layer >= bestLayer) {
             best = e;
             bestLayer = box.layer;
@@ -353,6 +351,7 @@ void UiSystem::reset() {
     imeCaretValid_ = false;
     autoSizes_.clear();
     warnedFit_.clear();
+    warnedClip_.clear();
     scriptTooltips_.clear();
     worldTooltip_ = false;
     tooltipRest_ = 0.0f;
@@ -376,7 +375,8 @@ void UiSystem::update_chart_hover(World& w, Vec2 design, Vec2 mouse) {
     if (top && w.has<Chart>(top)) {
         const Chart& c = *w.get<Chart>(top);
         const float k = ui_scale_clamped(w.ui_scale());  // the chart is laid out in UI units, the pointer is in pixels
-        sample = chart_sample_at(c, chart_series(c), *ui_layout_rect(w, top, design), mouse / k);
+        const Vec2 local = ui_local_point(w, top, design, mouse);  // a turned chart: the pointer in its own frame
+        sample = chart_sample_at(c, chart_series(c), *ui_layout_rect(w, top, design), local / k);
         if (sample) chart = top;
     }
     const std::int32_t series = sample ? sample->series : -1, index = sample ? sample->index : -1;
@@ -630,8 +630,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         for (std::size_t i = 0; i < items.size(); ++i) {  // creation order, so on equal layers the later entity wins
             const Item& it = items[i];
             if (it.world != worldTier || !it.interactable || !item_contains(it, it.at)) continue;
-            const std::optional<Rect> clip = it.surface ? std::nullopt : ui_clip_rect(w, it.e, design);
-            if (clip && !clip->contains(mouse)) continue;
+            if (!it.surface && !ui_clip_contains(w, it.e, design, mouse)) continue;
             if (dragImage_) {  // the drag image is not a target
                 bool onImage = false;
                 for (Entity a = it.e; a && !onImage; a = w.parent(a)) onImage = a == dragImage_;
@@ -688,9 +687,12 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
             const Item* it = find(press_);
             const float k =
                 ui_scale_clamped(w.ui_scale());  // the track is laid out in UI units, the pointer is in pixels
-            const Rect unitRect{it->rect.x / k, it->rect.y / k, it->rect.w / k, it->rect.h / k};
+            // A turned slider: the pointer in the slider's own frame, against its own (unturned) rectangle.
+            const Rect unitRect = it->oriented ? *ui_layout_rect(w, press_, design)
+                                               : Rect{it->rect.x / k, it->rect.y / k, it->rect.w / k, it->rect.h / k};
+            const float px = it->oriented ? ui_local_point(w, press_, design, mouse).x : mouse.x;
             const bool mirrored = ui_mirrored(w, press_);
-            const float t = ui_slider_fraction(ui_slider_track(*s, unitRect, mirrored), mouse.x / k, mirrored);
+            const float t = ui_slider_fraction(ui_slider_track(*s, unitRect, mirrored), px / k, mirrored);
             const float v = snap_slider(*s, s->min + t * (std::max(s->min, s->max) - s->min));
             if (v != s->value) {
                 s->value = v;
@@ -732,10 +734,9 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         Entity targetEntity;
         int targetDepth = -1;
         w.each<ScrollList>([&](Entity e, ScrollList& s) {
-            if (!w.active_in_hierarchy(e) || !ui_rect(w, e, design)->contains(mouse)) return;
+            if (!w.active_in_hierarchy(e) || !ui_contains(w, e, design, mouse)) return;
             if (modal && !within(w, e, modal)) return;
-            const std::optional<Rect> clip = ui_clip_rect(w, e, design);
-            if (clip && !clip->contains(mouse)) return;
+            if (!ui_clip_contains(w, e, design, mouse)) return;
             const int depth = depth_of(w, e);
             if (depth >= targetDepth) {
                 target = &s;
@@ -870,7 +871,7 @@ Json UiSystem::state(const World& w, Vec2 design, const VisualMeasure& measure) 
         const UiKind k = ui_kind(w, e);
         if (k == UiKind::None || !w.active_in_hierarchy(e)) continue;
         const UiControl* c = control_of(w, e);
-        items.push_back({e, k, *ui_rect(w, e, design), 0, c && c->interactable});
+        items.push_back(ui_detail::widget_item(w, e, k, design, 0, c && c->interactable, true));
     }
     for (Item& it : ui_detail::interactable_items(w, design, measure, kNullEntity, project_, &lastPointer_,
                                                   mask_at(&lastPointer_))) {

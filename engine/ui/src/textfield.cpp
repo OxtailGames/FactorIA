@@ -139,7 +139,7 @@ void UiSystem::field_arrow(World&, Entity e, TextField& tf, Input& in, bool left
 void UiSystem::field_pointer(World& w, Entity e, TextField& tf, Input& in, Vec2 design, Vec2 mouse, bool pressed,
                              bool down, const VisualMeasure& measure) {
     if (!pressed && !down) return;
-    const std::optional<Rect> px = ui_rect(w, e, design), units = ui_layout_rect(w, e, design);
+    const std::optional<Rect> px = ui_own_rect(w, e, design), units = ui_layout_rect(w, e, design);
     if (!px || !units) return;
     // A click on the field the composition began in commits it (typed once); one that moves the focus here leaves
     // it to the
@@ -151,7 +151,8 @@ void UiSystem::field_pointer(World& w, Entity e, TextField& tf, Input& in, Vec2 
     const float k = ui_scale_clamped(w.ui_scale());
     const TextFieldMeasure m = field_measure(tf, measure);
     const Rect local{0, 0, units->w, units->h};
-    const float x = (mouse.x - px->x) / k;
+    const float x =
+        (ui_local_point(w, e, design, mouse).x - px->x) / k;  // a turned field: the pointer in its own frame
     const std::int32_t index = text_field_index_at(tf, local, m, x);
     std::int32_t caret = 0, anchor = 0;
     field_sync(e, tf, caret, anchor);
@@ -204,13 +205,21 @@ void UiSystem::field_frame(World& w, Entity e, TextField& tf, Input& in, Vec2 de
     }
     tf.compositionCaret = in.composing() ? in.composition_caret() : 0;
     tf.compositionSelection = in.composing() ? in.composition_selection_length() : 0;
-    const std::optional<Rect> px = ui_rect(w, e, design), units = ui_layout_rect(w, e, design);
+    const std::optional<Rect> px = ui_own_rect(w, e, design), units = ui_layout_rect(w, e, design);
     if (!px || !units) return;
     const TextFieldView v = text_field_view(tf, Rect{0, 0, units->w, units->h}, field_measure(tf, measure));
     tf.scrollX = v.scroll;
     const float k = ui_scale_clamped(w.ui_scale());
     const float x = std::clamp(v.caretX, v.inner.x, v.inner.x + v.inner.w);
     imeCaret_ = Rect{px->x + x * k, px->y + v.lineY * k, kTextFieldCaretWidth * k, v.lineH * k};
+    if (!ui_transform(w, e, design).is_identity()) {  // a turned field: the bounding box of the caret bar as drawn
+        const Vec2 c0 = ui_world_point(w, e, design, {imeCaret_.x, imeCaret_.y});
+        const Vec2 c1 = ui_world_point(w, e, design, {imeCaret_.x + imeCaret_.w, imeCaret_.y + imeCaret_.h});
+        const Vec2 c2 = ui_world_point(w, e, design, {imeCaret_.x + imeCaret_.w, imeCaret_.y});
+        const Vec2 c3 = ui_world_point(w, e, design, {imeCaret_.x, imeCaret_.y + imeCaret_.h});
+        const float x0 = std::min({c0.x, c1.x, c2.x, c3.x}), y0 = std::min({c0.y, c1.y, c2.y, c3.y});
+        imeCaret_ = Rect{x0, y0, std::max({c0.x, c1.x, c2.x, c3.x}) - x0, std::max({c0.y, c1.y, c2.y, c3.y}) - y0};
+    }
     imeCaretValid_ = true;
 }
 

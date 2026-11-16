@@ -79,6 +79,36 @@ anchor Y (down)            pivot Y (up)
 `factoria validate` warns about a widget of a scene that lies completely outside the design size, which is what a wrong
 pivot Y usually does: the warning names the widget, the rectangle it covers and the fix.
 
+## Rotating and scaling a widget
+
+`Transform.rotation.z` (degrees, clockwise on the screen, the way a screen-space Text turns) and `Transform.scale` (x, y) of a
+widget, and of every entity above it, turn and scale what is drawn around the widget's own origin: its `position` plus its
+anchor point, which is where its pivot sits. What is drawn is also what is hit: a point in the corner of the bounding box that
+the turned widget does not cover hits nothing, and hovering, clicking, the wheel, drag and drop, the tooltip, a modal panel's
+"inside", a Slider's knob and a TextField's click-to-caret all use the turned rectangle. `ui.rectOf(widget)` is the
+bounding box of the turned rectangle. Gamepad and keyboard navigation pick the neighbour by the centres of those boxes (the
+"in the beam" test is on the boxes, so a widget turned by 45 degrees counts a little wider than it is).
+
+How a parent's layout (`Panel.layout`, a ScrollList) sees a turned or scaled child:
+
+- **Scale makes room.** A child at `scale 2` takes twice the width and height in its slot, around its pivot, so a row or column
+  makes room for it and a `fit` panel grows. (Unity's layout groups and Godot's containers ignore scale; CSS `zoom` does not.
+  FactorIA follows the CSS one, so what you see is what the layout counted.)
+- **Rotation keeps the slot.** A turned child stays in its slot and turns in place around its pivot, over its neighbours if it
+  is long (CSS `transform: rotate`, Unity's `RectTransform.rotation` and Godot's `Control.rotation` do the same). The slot is
+  the unturned, scaled rectangle.
+- **A turned or scaled parent** lays its children out as if it were not, and then turns and scales them with it, each around the
+  parent's origin: a rotated Panel is a rigid card.
+- A screen-space Text, Sprite or Shape2D that is a child of a layout counts the same way: its own scale makes room, its own
+  rotation does not. Drawn, it turns and scales with the parent like a widget child: about the parent's origin (its position
+  plus its anchor point), with the child's own `anchor` and position taken in the same layout space (give the child the
+  anchor of the Panel to place it relative to the card). Not under `ui.mirrorRtl`, where a visual child keeps the old pivot.
+
+One limit: a ScrollList clips with a scissor rectangle, which cannot turn. A ScrollList that is turned (itself or a parent) by an angle that is not
+a multiple of 90 degrees clips what it draws to the rectangle that bounds the turned list, so rows can show in
+its corners; the engine says so once in the log (`ScrollList 'id' is turned ...`). The pointer is not affected: it still hits
+only the turned list. Quarter turns and scales keep the rectangle axis-aligned and clip exactly.
+
 ## Pressing the focused widget in a test
 
 `game.tap("ui_submit")` presses the focused widget, like Enter, Space or the pad's A: it holds the action for one frame,
