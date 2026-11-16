@@ -13,6 +13,9 @@
 #if defined(__APPLE__)
 #include "ime_apple.h"
 #endif
+#if defined(_WIN32)
+#include "ime_win32.h"
+#endif
 #include "mobile_impl.h"
 #include "sokol_window.h"
 #include "sokol_gfx.h"
@@ -176,6 +179,9 @@ void on_init() {
     ime_apple_attach(
         g.desc.input);  // macOS and iOS: the input method composes into this Input while a TextField has the focus
 #endif
+#if defined(_WIN32)
+    ime_win32_attach(g.desc.input);  // Windows: the same, through IMM32 on sokol_app's window
+#endif
     if (const AppIconImage& dock = g.desc.dockIcon;
         dock.width > 0 && dock.height > 0 && dock.rgba.size() == std::size_t(dock.width) * std::size_t(dock.height) * 4)
         fa_sapp_set_dock_icon(dock.rgba.data(), dock.width, dock.height);  // macOS only; NSApp exists from here on
@@ -207,6 +213,9 @@ int exit_code() { return g.desc.exit_code ? g.desc.exit_code() : 0; }
 void on_cleanup() {
 #if defined(__APPLE__)
     ime_apple_attach(nullptr);
+#endif
+#if defined(_WIN32)
+    ime_win32_attach(nullptr);
 #endif
     if (g.desc.cleanup) g.desc.cleanup();
     g.active = false;
