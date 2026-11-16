@@ -47,7 +47,8 @@ throw CommandError("not_found", "Entity 'enemy_9' not found.", "Use scene.list_e
 
 - `docs/*.md` is embedded in the binary. Update it in the same change as any user-facing behaviour.
 - Generated references (components, commands) need no edit.
-- Every ```` ```js ```` block of `docs/` is parsed as a module and its `world.`, `ui.`, `tween.`... names are checked against the generated typings (`tools/common/tests/docs_js_test.cpp`). Write code that parses; a block that is only a piece of a script (a class method without its class, a `return` outside a function) opens with ```` ```js fragment ````, which skips the parse but not the name check. Keep the marker rare. A wrong name is a doc bug: fix the doc, never the API.
+- Every ```` ```js ```` block of `docs/` is parsed as a module and its `world.`, `ui.`, `tween.`... names are checked against the generated typings (`tools/common/tests/docs_js_test.cpp`). Write code that parses; a block that is only a piece of a script (a class method without its class, a `return` outside a function) opens with ```` ```js fragment ````, which skips the parse but not the name check; a block that shows a wrong name on purpose opens with ```` ```js names-skip ````, which keeps the parse and skips the name check. Keep both markers rare. A wrong name is a doc bug: fix the doc, never the API.
+- No heading may repeat inside one doc, at any level (two anchors with the same text: a link or `docs.read` picks the first); `docs_links_test.cpp` fails on it. Give the second one a distinguishing word.
 - `docs/AI_GUIDE.md` is the workflow for game-making AIs. `templates/common/AGENTS.md` is the short guide that `factoria new` writes into each project, so keep the two consistent.
 
 ### Rules from `CLAUDE.md`
