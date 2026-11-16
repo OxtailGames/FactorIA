@@ -781,6 +781,107 @@ void Editor::at_section_L(AtScript& at) {
             select_id("");
             reload_scene_from_disk();
         });
+
+        // L3. The structural edits are Command entries too: Duplicate, Delete (of a multi-selection), Paste and a drag-reparent are
+        // each ONE step that undoes and redoes with the same ids, and none of them stores a copy of the scene.
+        struct Structural {
+            Json before, after;
+            size_t depth = 0;
+        };
+        auto st = std::make_shared<Structural>();
+        auto sorted = [this] {
+            Json j = snapshot_scene(world());
+            std::vector<Json> ents(j["entities"].begin(), j["entities"].end());
+            std::sort(ents.begin(), ents.end(), [](const Json& a, const Json& b) { return a["id"] < b["id"]; });
+            j["entities"] = Json(ents);
+            return j;
+        };
+        auto only_commands = [this](size_t from) {
+            for (size_t i = from; i < undo_.size(); ++i)
+                if (undo_[i].kind != UndoEntry::Kind::Command) return false;
+            return true;
+        };
+        step(2, [this, project_file, st, sorted] {
+            stop();
+            select_id("");
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            toasts_.clear();
+            undo_.clear();
+            redo_.clear();
+            st->before = sorted();
+            st->depth = undo_depth();
+        });
+        step(2, [this, st, sorted, only_commands] {  // Duplicate
+            select_ids({"coin_1", "coin_2"}, "coin_1");
+            hierarchy_duplicate_selection();
+            st->after = sorted();
+            at_check(undo_depth() == st->depth + 1 && st->after != st->before,
+                     "(L3) Duplicate of two entities is ONE step");
+            at_check(only_commands(st->depth), "(L3) ...a Command step, not a snapshot");
+            undo();
+            at_check(sorted() == st->before && undo_depth() == st->depth && redo_depth() == 1,
+                     "(L3) Undo of a Duplicate removes both copies");
+            redo();
+            at_check(sorted() == st->after && undo_depth() == st->depth + 1 && redo_depth() == 0,
+                     "(L3) Redo of a Duplicate brings back the same ids");
+            undo();
+        });
+        step(2, [this, st, sorted, only_commands] {  // Delete of a multi-selection
+            at_check(sorted() == st->before, "(L3) the scene is as it was before the Duplicate");
+            select_ids({"coin_1", "player"}, "coin_1");
+            hierarchy_destroy_selection();
+            st->after = sorted();
+            at_check(undo_depth() == st->depth + 1 && world().find_by_id("coin_1").is_null() &&
+                         world().find_by_id("player").is_null(),
+                     "(L3) Delete of two entities is ONE step");
+            at_check(only_commands(st->depth), "(L3) ...a Command step, not a snapshot");
+            undo();
+            at_check(sorted() == st->before && !world().find_by_id("player").is_null(),
+                     "(L3) Undo of a Delete gives back both entities, as they were");
+            redo();
+            at_check(sorted() == st->after && redo_depth() == 0, "(L3) Redo of a Delete deletes them again");
+            undo();
+        });
+        step(2, [this, st, sorted, only_commands] {  // Cut and Paste
+            select_ids({"coin_2"}, "coin_2");
+            at_check(entity_copy(), "(L3) Copy puts the selection on the clipboard");
+            entity_paste();
+            st->after = sorted();
+            at_check(undo_depth() == st->depth + 1 && st->after != st->before, "(L3) Paste is ONE step");
+            at_check(only_commands(st->depth), "(L3) ...a Command step, not a snapshot");
+            undo();
+            at_check(sorted() == st->before, "(L3) Undo of a Paste removes what it made");
+            redo();
+            at_check(sorted() == st->after, "(L3) Redo of a Paste makes the same ids again");
+            undo();
+            at_check(sorted() == st->before && undo_depth() == st->depth, "(L3) ...and Undo again");
+            entity_cut();
+            at_check(undo_depth() == st->depth + 1 && world().find_by_id("coin_2").is_null() &&
+                         only_commands(st->depth),
+                     "(L3) Cut is ONE Command step");
+            undo();
+            at_check(sorted() == st->before, "(L3) Undo of a Cut brings the entity back");
+        });
+        step(2, [this, st, sorted, only_commands] {  // drag-reparent
+            const Vec3 local = world().get<Transform>(world().find_by_id("coin_3"))->position;
+            hierarchy_reparent("coin_3", "platform_1");
+            st->after = sorted();
+            World& w = world();
+            at_check(w.parent(w.find_by_id("coin_3")) == w.find_by_id("platform_1") && undo_depth() == st->depth + 1,
+                     "(L3) a drag-reparent is ONE step");
+            at_check(only_commands(st->depth), "(L3) ...a Command step, not a snapshot");
+            undo();
+            at_check(sorted() == st->before && w.get<Transform>(w.find_by_id("coin_3"))->position == local,
+                     "(L3) Undo of a reparent gives back the parent and the exact local position");
+            redo();
+            at_check(sorted() == st->after, "(L3) Redo reparents again");
+            undo();
+            at_check(only_commands(0) && undo_depth() == st->depth,
+                     "(L3) no snapshot was stored by any of these edits");
+            toasts_.clear();
+            select_id("");
+        });
     }
 }
 
