@@ -10,7 +10,7 @@
 namespace fa {
 
 struct ExampleEntryName {
-    std::string name;       // as stored in the zip: forward slashes, a folder ends in '/'
+    std::string name;  // as stored in the zip: forward slashes, a folder ends in '/'
     bool directory = false;
 };
 
