@@ -1616,6 +1616,14 @@ void Editor::build_ui() {
         if ((ctrl && ImGui::IsKeyPressed(ImGuiKey_Y, false)) ||
             (ctrl && io.KeyShift && ImGui::IsKeyPressed(ImGuiKey_Z, false)))
             redo();
+        // Copy, Cut and Paste of entities, while the Hierarchy or the Viewport has the keyboard (the other panels keep these keys).
+        // The native menu on macOS binds none of them (it would take the key from the Animation panel too), so the key is
+        // always seen here, with Cmd as io.KeyCtrl.
+        if (io.KeyCtrl && !io.KeyShift && !io.KeyAlt && entity_clipboard_keys_active()) {
+            if (ImGui::IsKeyPressed(ImGuiKey_C, false)) entity_copy();
+            if (ImGui::IsKeyPressed(ImGuiKey_X, false)) entity_cut();
+            if (ImGui::IsKeyPressed(ImGuiKey_V, false)) entity_paste();
+        }
         if (ImGui::IsKeyPressed(ImGuiKey_F5, false)) {
             if (play_ == PlayState::Edit)
                 play();

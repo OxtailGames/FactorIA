@@ -118,6 +118,31 @@ menu::MainMenu Editor::build_main_menu(bool native) {
     redoItem.yieldsToText = true;
     edit.push_back(std::move(redoItem));
     edit.push_back(menu::separator());
+    // Copy, Cut, Paste and Duplicate of entities. The native macOS menu shows no key for the first three (it would take Cmd+C
+    // from the other panels); the keys work in the Hierarchy and the Viewport.
+    const bool haveSelection = editing && !selection_peek().empty();
+    const std::string clipTip =
+        native ? "Shortcut: Cmd+C, Cmd+X and Cmd+V while the Hierarchy or the Viewport has the keyboard. "
+               : std::string();
+    Item copyItem = menu::action("Copy", [this] { entity_copy(); }, haveSelection);
+    if (!native) copyItem.shortcut = "Ctrl+C";
+    edit.push_back(with(std::move(copyItem), "menu:copy",
+                        clipTip + "Puts the selected entities, with their children, on the clipboard as text. Paste "
+                                  "them in this scene, another scene or another editor."));
+    Item cutItem = menu::action("Cut", [this] { entity_cut(); }, haveSelection);
+    if (!native) cutItem.shortcut = "Ctrl+X";
+    edit.push_back(
+        with(std::move(cutItem), "menu:cut", "Copy, then delete the selected entities (Undo brings them back)."));
+    Item pasteItem = menu::action("Paste", [this] { entity_paste(); }, editing && clipboard_has_text());
+    if (!native) pasteItem.shortcut = "Ctrl+V";
+    edit.push_back(
+        with(std::move(pasteItem), "menu:paste",
+             "Creates the entities on the clipboard next to the selected one (under its parent), selects them, "
+             "one undo step. A reference to an entity this scene does not have is cleared."));
+    edit.push_back(with(menu::action(
+                            "Duplicate", [this] { hierarchy_duplicate_selection(); }, haveSelection),
+                        "menu:duplicate", "A copy of every selected entity, with its children, next to the original."));
+    edit.push_back(menu::separator());
     const int lastRun = ai_last_revertable_run();
     edit.push_back(
         with(menu::action(
