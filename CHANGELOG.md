@@ -6,6 +6,15 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Windows gamepads beyond XInput (M98.5b1):** DualShock 4, DualSense, Switch Pro and generic USB/Bluetooth pads are read on
+  Windows through Raw Input and HID (`hid.dll`, loaded at run time), next to XInput for Xbox pads. Each report is parsed
+  through the pad's own descriptor (buttons, axes scaled by their logical range, the hat) in DirectInput's numbering, so the
+  Windows lines of SDL GameControllerDB, now embedded in the Windows build only, map them; `SDL_GAMECONTROLLERCONFIG` and
+  the project's `gamecontrollerdb.txt` come first, and a pad nothing lists gets a default layout read from the pad. XInput
+  and HID pads share the slots 0..3 (a pad keeps its slot while connected, a gap is filled first); plugging comes from the
+  OS's device notifications, and XInput's empty slots are asked every 2 s and right after a notification instead of on a
+  fixed timer only. HID pads answer `canRumble: false` with a reason saying their rumble is coming (M98.5b2). Not yet tried
+  with a physical pad.
 - **Several entities selected (M98.7b):** in the editor, Ctrl/Cmd+click toggles and Shift+click selects a range in the
   Hierarchy, and Ctrl/Cmd+click, Shift+click and a marquee on empty space select in the Viewport. Every selected entity is
   outlined; the gizmo moves, rotates and scales all of them about the primary as one Undo step; Delete, Duplicate and

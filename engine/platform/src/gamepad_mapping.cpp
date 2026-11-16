@@ -495,12 +495,21 @@ const GamepadMapping& fallback_gamepad_mapping() {
     return m;
 }
 
+std::optional<GamepadMapping> find_gamepad_mapping(std::span<const GamepadMapping> envLines,
+                                                   std::span<const GamepadMapping> fileLines, const GamepadIdentity& id,
+                                                   const GamepadMappingDb& builtin,
+                                                   std::vector<std::string>* problems) {
+    if (const GamepadMapping* m = pick(envLines, id)) return *m;
+    if (const GamepadMapping* m = pick(fileLines, id)) return *m;
+    return builtin.find(id, problems);
+}
+
 GamepadMapping select_gamepad_mapping(std::span<const GamepadMapping> envLines,
                                       std::span<const GamepadMapping> fileLines, const GamepadIdentity& id,
                                       std::vector<std::string>* problems) {
-    if (const GamepadMapping* m = pick(envLines, id)) return *m;
-    if (const GamepadMapping* m = pick(fileLines, id)) return *m;
-    if (std::optional<GamepadMapping> m = builtin_gamepad_database().find(id, problems)) return std::move(*m);
+    if (std::optional<GamepadMapping> m =
+            find_gamepad_mapping(envLines, fileLines, id, builtin_gamepad_database(), problems))
+        return std::move(*m);
     return fallback_gamepad_mapping();
 }
 

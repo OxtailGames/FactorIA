@@ -5,6 +5,7 @@
 
 # The embedded gamepad database is compared and parsed as-is: LF on every checkout, so the binary is the same everywhere.
 external/sdl_gamecontrollerdb/gamecontrollerdb_linux.txt text eol=lf
+external/sdl_gamecontrollerdb/gamecontrollerdb_windows.txt text eol=lf
 
 # The Windows fake CLI of the AI tests runs through cmd.exe: CRLF on every checkout.
 tools/ai/tests/fixtures/*.cmd text eol=crlf
