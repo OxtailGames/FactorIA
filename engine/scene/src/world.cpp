@@ -647,7 +647,8 @@ Mat4 World::drawn_matrix(Entity e, bool blended) const {
     for (std::size_t k = n; k-- > 0;) {
         const auto* t = static_cast<const Transform*>(impl_->transformPool->get(chain[k]));
         Mat4 local;
-        if (const Transform* bp = ip ? ip->pose_of(chain[k]) : nullptr) t = bp;  // the blend between the last two fixed steps
+        if (const Transform* bp = ip ? ip->pose_of(chain[k]) : nullptr)
+            t = bp;  // the blend between the last two fixed steps
         if (const FeelPose* p = feel_.pose_of(chain[k]))
             local = Mat4::trs(t->position + p->position, t->rotation + p->rotation,
                               {t->scale.x * p->scale.x, t->scale.y * p->scale.y, t->scale.z * p->scale.z});

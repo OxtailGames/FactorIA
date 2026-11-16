@@ -44,18 +44,19 @@ struct InterpRecord {
     bool hasPose = false;    // `pose` is what to draw this frame
     bool teleport = false;   // World::interp_teleport was called: the next step end snaps
     Transform prev;          // local pose before the latest fixed step
-    Transform last;          // local pose the latest fixed step (or a snap) left: what the Transform must still be to blend
-    Transform pose;          // the blend, rotation in euler degrees
+    Transform last;  // local pose the latest fixed step (or a snap) left: what the Transform must still be to blend
+    Transform pose;  // the blend, rotation in euler degrees
 };
 
 class InterpState {
 public:
-    bool enabled = false;        // factoria.json render.interpolation: the default of entities whose component says "inherit"
-    float snapDistance = 0.0f;   // factoria.json render.interpolationSnapDistance: a step that moved farther snaps; 0 = off
-    std::vector<InterpRecord> records;     // dense: one per interpolated entity
-    std::vector<std::uint32_t> slots;      // Entity::index -> position in `records` + 1 (0 = none); 4 bytes per entity slot
-    std::uint32_t stamp = 0;               // counts the update walks
-    std::size_t poseCount = 0;   // records with hasPose: 0 = drawn_matrix has nothing to blend
+    bool enabled = false;  // factoria.json render.interpolation: the default of entities whose component says "inherit"
+    float snapDistance =
+        0.0f;  // factoria.json render.interpolationSnapDistance: a step that moved farther snaps; 0 = off
+    std::vector<InterpRecord> records;  // dense: one per interpolated entity
+    std::vector<std::uint32_t> slots;  // Entity::index -> position in `records` + 1 (0 = none); 4 bytes per entity slot
+    std::uint32_t stamp = 0;           // counts the update walks
+    std::size_t poseCount = 0;         // records with hasPose: 0 = drawn_matrix has nothing to blend
 
     // The blended local pose of `e` for this frame, or null (not interpolated, not moving, snapped).
     const Transform* pose_of(Entity e) const {
@@ -63,8 +64,8 @@ public:
         const InterpRecord& r = records[slots[e.index] - 1];
         return r.hasPose && r.bits == e.bits() ? &r.pose : nullptr;
     }
-    void clear_poses();   // no blending (a paused game, alpha 1)
-    void clear_scene();   // World::clear(): forget every record, keep the settings
+    void clear_poses();  // no blending (a paused game, alpha 1)
+    void clear_scene();  // World::clear(): forget every record, keep the settings
 };
 
 // alpha for a frame: the part of the fixed step the frame is past the latest step, in [0, 1].

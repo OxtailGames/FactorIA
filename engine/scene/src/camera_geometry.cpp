@@ -174,8 +174,10 @@ void CameraSet::refresh(World& world, const CameraTarget& size) {
         }
     }
     cameras_.clear();
-    for (const Entity e : entities) cameras_.push_back(camera_geometry(world, e, size, warnedViewport_, nullptr, false, false));
-    if (cameras_.empty()) cameras_.push_back(camera_geometry(world, kNullEntity, size, warnedViewport_, nullptr, false, false));
+    for (const Entity e : entities)
+        cameras_.push_back(camera_geometry(world, e, size, warnedViewport_, nullptr, false, false));
+    if (cameras_.empty())
+        cameras_.push_back(camera_geometry(world, kNullEntity, size, warnedViewport_, nullptr, false, false));
 }
 
 Vec2 CameraSet::world_to_screen(Vec3 p, Entity camera) const {

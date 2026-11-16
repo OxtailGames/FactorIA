@@ -77,7 +77,8 @@ TEST_CASE("render.interpolation: a 2D body at constant speed is drawn in between
         if (f >= 3) {
             // Speed 300 px/s: 5 px per step; the draw is `(1 - alpha)` of a step behind the real pose.
             CHECK(drawn == doctest::Approx(real - 5.0 * (1.0 - alpha)).epsilon(0.001));
-            CHECK(drawn - lastDrawn == doctest::Approx(300.0 * dt).epsilon(0.02));  // smooth: every frame moves the same
+            CHECK(drawn - lastDrawn ==
+                  doctest::Approx(300.0 * dt).epsilon(0.02));  // smooth: every frame moves the same
             ++checked;
         }
         CHECK(w.world_matrix(ball).translation().x == doctest::Approx(real));  // the simulation sees the real pose

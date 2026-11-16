@@ -65,8 +65,7 @@ Rect sanitize_camera_viewport(const Rect& viewport, std::string& warned);
 // scripts, picking and UI hit tests use (fa/scene/interpolation.h).
 // `warnedViewport` is the caller's "bad viewport already logged" memory.
 CameraGeometry camera_geometry(World& world, Entity camera, const CameraTarget& target, std::string& warnedViewport,
-                               const Vec2* viewSize = nullptr, bool renderTarget = false,
-                               bool blended = true);
+                               const Vec2* viewSize = nullptr, bool renderTarget = false, bool blended = true);
 
 // Picks, for a query, among `cameras` (the ones a frame draws, in draw order): `camera` when it is one of them; else (a
 // `screenPoint` given, in target pixels) the topmost whose viewport contains the point; else the first. Null when `cameras` is empty.
