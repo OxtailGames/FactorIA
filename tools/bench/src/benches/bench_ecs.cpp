@@ -356,8 +356,6 @@ Bench hierarchy_active() {
     return b;
 }
 
-}  // namespace
-
 // Render interpolation (fa/scene/interpolation.h) with every one of 20000 entities interpolated: a frame of one fixed step (the
 // pass before the step, the pass after it, the pass before drawing) and the drawn matrix of each entity.
 Bench interpolation_frame() {
@@ -390,6 +388,8 @@ Bench interpolation_frame() {
     };
     return b;
 }
+
+}  // namespace
 
 void add_ecs_benches(std::vector<Bench>& out) {
     out.push_back(ecs_each());

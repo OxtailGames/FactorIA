@@ -2,7 +2,10 @@
 #include <doctest.h>
 
 #include <cmath>
+#include <string>
+#include <tuple>
 
+#include "fa/scene/camera_geometry.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/interpolation.h"
 #include "fa/scene/world.h"
@@ -44,24 +47,37 @@ TEST_CASE("interp_alpha: the part of a step the frame is past, clamped to 0..1")
     CHECK(interp_alpha(0.5, 0.0) == doctest::Approx(1.0));
 }
 
-TEST_CASE("interp_blend: position and scale lerp, rotation takes the short way round") {
+TEST_CASE("interp_blend: position and scale lerp, rotation blends, past half a turn per step it snaps") {
     Transform a, b;
     a.position = {0, 10, 0};
     b.position = {10, 20, 4};
     a.scale = {1, 1, 1};
     b.scale = {3, 5, 1};
-    a.rotation = {0, 0, 350};
-    b.rotation = {0, 0, 10};
+    a.rotation = {0, 0, 170};
+    b.rotation = {0, 0, 190};
     const Transform m = interp_blend(a, b, 0.25f);
     CHECK(m.position.x == doctest::Approx(2.5f));
     CHECK(m.position.y == doctest::Approx(12.5f));
     CHECK(m.position.z == doctest::Approx(1.0f));
     CHECK(m.scale.x == doctest::Approx(1.5f));
     CHECK(m.scale.y == doctest::Approx(2.0f));
-    CHECK(m.rotation.z == doctest::Approx(-5.0f).epsilon(0.01));  // 350 -> 10 passes through 0, not through 180
+    CHECK(m.rotation.z == doctest::Approx(175.0f));  // the 2D case blends the angle itself
+    CHECK(m.rotation.x == 0.0f);
     // A rotation that did not change is kept exactly.
     b.rotation = a.rotation;
-    CHECK(interp_blend(a, b, 0.3f).rotation.z == 350.0f);
+    CHECK(interp_blend(a, b, 0.3f).rotation.z == 170.0f);
+    // A 3D turn blends the quaternions.
+    a.rotation = {0, 0, 0};
+    b.rotation = {0, 90, 0};
+    CHECK(interp_blend(a, b, 0.5f).rotation.y == doctest::Approx(45.0f).epsilon(0.01));
+    // More than 180 degrees on an axis in one step (a fast spin, a wrap from 359 to 1) cannot be told from a short turn the
+    // other way: the blend keeps the latest rotation.
+    a.rotation = {0, 0, 0};
+    b.rotation = {0, 0, 400};
+    CHECK(interp_blend(a, b, 0.5f).rotation.z == 400.0f);
+    a.rotation = {0, 0, 350};
+    b.rotation = {0, 0, 10};
+    CHECK(interp_blend(a, b, 0.5f).rotation.z == 10.0f);
 }
 
 TEST_CASE("interpolation: the drawn pose is between the last two steps, the Transform stays the real one") {
@@ -205,4 +221,54 @@ TEST_CASE("interpolation: a scene clear forgets the records, a destroyed entity'
     f.w.clear();
     CHECK(f.w.interp().records.empty());
     CHECK(f.w.interp().enabled);  // a setting, not a scene's
+}
+
+TEST_CASE("interpolation: scripts, UI and picking see the real camera pose whatever alpha is") {
+    struct Answer {
+        Vec3 world;
+        Vec2 screen;
+        float geometryX, drawnGeometryX;
+    };
+    auto answers = [](double alpha) {
+        Fixture f;
+        Entity cam = f.w.create("cam", "cam");
+        f.w.add<Camera>(cam).orthoSize = 90.0f;
+        f.frame(0, 1.0);
+        interp_begin_step(f.w);
+        f.w.get<Transform>(cam)->position.x += 40.0f;
+        interp_update(f.w, alpha, true);
+        interp_update(f.w, alpha, false);
+        const OrthoView v = ortho_view(f.w, Vec2{320, 180}, kNullEntity, nullptr);  // what scripts and UI hit tests use
+        std::string warned;
+        CameraTarget target;
+        target.width = 320;
+        target.height = 180;
+        const CameraGeometry real = camera_geometry(f.w, cam, target, warned, nullptr, false, false);
+        const CameraGeometry drawn = camera_geometry(f.w, cam, target, warned);
+        return Answer{v.to_world({100, 50}), v.to_screen({12, 34, 0}), real.position.x, drawn.position.x};
+    };
+    const Answer half = answers(0.5), full = answers(1.0);
+    CHECK(half.world.x == full.world.x);
+    CHECK(half.world.y == full.world.y);
+    CHECK(half.screen.x == full.screen.x);
+    CHECK(half.screen.y == full.screen.y);
+    CHECK(half.geometryX == doctest::Approx(40.0f));
+    CHECK(full.geometryX == doctest::Approx(40.0f));
+    CHECK(half.drawnGeometryX == doctest::Approx(20.0f));  // drawing is what blends
+}
+
+TEST_CASE("interpolation: the records are dense, one per interpolated entity, and a dead one is dropped") {
+    Fixture f;
+    Entity a = f.w.create("a", "a"), b = f.w.create("b", "b");
+    f.frame(1, 0.5);
+    CHECK(f.w.interp().records.size() == 3);
+    f.w.destroy(f.box);
+    f.w.flush();
+    f.frame(0, 0.5);
+    CHECK(f.w.interp().records.size() == 2);
+    CHECK(f.w.interp().slots.size() >= 3);
+    f.w.get<Transform>(b)->position.x += 1.0f;
+    (void)a;
+    f.frame(0, 0.5);
+    CHECK(f.w.interp().records.size() == 2);
 }

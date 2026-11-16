@@ -36,11 +36,11 @@ namespace fa {
 
 class World;
 
-// One interpolated entity, indexed by Entity::index in InterpState::records.
+// One interpolated entity. InterpState::records is a dense list (one record per interpolated entity, no more), found from
+// the entity through InterpState::slots.
 struct InterpRecord {
     std::uint64_t bits = 0;  // Entity::bits() it belongs to
-    bool used = false;       // the record holds an entity
-    bool seen = false;       // scratch of interp_update: the walk met the entity
+    std::uint32_t seen = 0;  // InterpState::stamp of the last walk that met the entity (a record not met is dropped)
     bool hasPose = false;    // `pose` is what to draw this frame
     bool teleport = false;   // World::interp_teleport was called: the next step end snaps
     Transform prev;          // local pose before the latest fixed step
@@ -52,13 +52,15 @@ class InterpState {
 public:
     bool enabled = false;        // factoria.json render.interpolation: the default of entities whose component says "inherit"
     float snapDistance = 0.0f;   // factoria.json render.interpolationSnapDistance: a step that moved farther snaps; 0 = off
-    std::vector<InterpRecord> records;
+    std::vector<InterpRecord> records;     // dense: one per interpolated entity
+    std::vector<std::uint32_t> slots;      // Entity::index -> position in `records` + 1 (0 = none); 4 bytes per entity slot
+    std::uint32_t stamp = 0;               // counts the update walks
     std::size_t poseCount = 0;   // records with hasPose: 0 = drawn_matrix has nothing to blend
 
     // The blended local pose of `e` for this frame, or null (not interpolated, not moving, snapped).
     const Transform* pose_of(Entity e) const {
-        if (poseCount == 0 || e.index >= records.size()) return nullptr;
-        const InterpRecord& r = records[e.index];
+        if (poseCount == 0 || e.index >= slots.size() || slots[e.index] == 0) return nullptr;
+        const InterpRecord& r = records[slots[e.index] - 1];
         return r.hasPose && r.bits == e.bits() ? &r.pose : nullptr;
     }
     void clear_poses();   // no blending (a paused game, alpha 1)
@@ -73,7 +75,9 @@ inline double interp_alpha(double accumulator, double fixedDt) {
 }
 
 // The blend of two local poses at `alpha` (position and scale lerp, rotation slerp of the quaternions; a rotation that did not
-// change is kept as it is, bit for bit).
+// change is kept as it is, bit for bit; a pure z rotation, the 2D case, blends the angle itself). A rotation that turned more than
+// 180 degrees on some axis in one step cannot be told from a shorter turn the other way, so it is NOT blended: the blended pose
+// has the latest rotation.
 Transform interp_blend(const Transform& a, const Transform& b, float alpha);
 
 // Called by the engine. begin_step: before each fixed step, the pose now is the "before" pose. update: after the steps of a

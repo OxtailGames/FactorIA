@@ -691,6 +691,7 @@ int run_headless(const EngineConfig& configIn, const HeadlessRunOptions& options
         if (auto it = replay.find(f); it != replay.end()) apply_replay_entry(I, it->second, replayProblems, f);
         const double cpu0 = process_cpu_seconds();
         if (std::size_t(f) < timing.size()) {
+            I.interpAlpha = 1.0;  // a recorded run draws the real pose, like Engine::step
             I.run_frame(timing[f].first, timing[f].second);
         } else {
             engine.step(1);

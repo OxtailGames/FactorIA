@@ -254,7 +254,9 @@ public:
     // of the chain: what is DRAWN. Equal to world_matrix() while no such effect runs. Only drawing uses it; picking,
     // bounds, physics, audio and scripts read world_matrix() / the Transform, which an effect never changes.
     // With render interpolation (interpolation.h) each entity of the chain is also blended between its last two fixed steps.
-    Mat4 drawn_matrix(Entity e) const;
+    // blended = false leaves the render interpolation out (the game feel poses stay): what scripts, picking and UI hit tests
+    // build their camera views from, so an answer never depends on how far past the last step the frame is.
+    Mat4 drawn_matrix(Entity e, bool blended = true) const;
     void set_world_position(Entity e, Vec3 p);  // converts into the parent's space
     // How many writes dropped a cached world matrix or active-in-hierarchy answer that was valid (see world_matrix);
     // the entries below it that go with it are not counted one by one. It never goes down; reading through a const
