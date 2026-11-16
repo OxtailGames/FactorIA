@@ -103,7 +103,7 @@ game as its own asset, plus one manifest. The pieces and where they live:
   examples/ packs" of `examples_test.cpp` runs in the regular CI run instead: it packs `block-push` and `ember-descent` whole
   and, for every example, checks what the packer refuses without deflating (the list of files, the entry names, every file
   readable, the size and entry-count limits of the zip writer), so it stays cheap under a sanitizer and next to the
-  `example_*` tests that write in `examples/`. It packs twice and compares the manifests,
+  `example_*` tests that write in `examples/`. The release job packs twice and compares the manifests,
   checks every zip against the manifest with `sha256sum`, `stat` and `unzip -t` (tools that share no code with the
   packer), validates the unpacked `block-push`, and uploads the files as the artifact `FactorIA-examples`; the `publish`
   job attaches them to the release with the packages.
