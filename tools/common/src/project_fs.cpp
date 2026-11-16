@@ -71,8 +71,12 @@ std::string rewrite_secret_values(std::string_view text,
 
 constexpr const char* kHiddenSecret = "(hidden)";
 
-// A checkpoint keeps every file of the project, factoria.json included, under its hash.
-bool is_checkpoint_object(const std::string& rel) { return rel.rfind(".factoria/checkpoints/objects/", 0) == 0; }
+// A checkpoint keeps every file of the project, factoria.json included, under its hash. Compared without case, like
+// is_project_file_path: on macOS and Windows ".Factoria/Checkpoints/Objects/..." opens the same file.
+bool is_checkpoint_object(std::string_view rel) {
+    if (rel.size() >= 2 && rel.substr(0, 2) == "./") rel.remove_prefix(2);
+    return to_lower(std::string(rel)).rfind(".factoria/checkpoints/objects/", 0) == 0;
+}
 
 [[noreturn]] void fail(const char* code, const std::string& msg, const std::string& hint = {});
 
@@ -527,7 +531,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                 auto text = tooling_detail::read_file(p);
                 if (!text || is_binary(*text)) continue;
                 ++filesScanned;
-                if (is_project_file_path(rel)) *text = mask_project_secrets(*text);
+                if (is_project_file_path(rel) || is_checkpoint_object(rel)) *text = mask_project_secrets(*text);
                 std::istringstream in(*text);
                 std::string line;
                 long n = 0;
