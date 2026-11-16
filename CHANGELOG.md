@@ -33,6 +33,13 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   iOS and Android in M98.5c, Windows pads that are not XInput in M98.5b). Tests record the requests (`game.rumbles()`,
   `game.rumbleState(pad)`, `connect({ canRumble: true })`) and the command `game.rumble` drives a running game. See
   docs/scripting/SCRIPTING_WORLD_INPUT.md, "Pad rumble".
+- **Pad rumble on Linux, Android and Apple (M98.5c):** `input.rumble` now drives the motors on Linux (evdev force feedback:
+  one `FF_RUMBLE` effect per pad on `/dev/input/eventN`, which must be writable: the reason names the `input` group and the
+  udev rule when it is not), on Android (the pad's `InputDevice` vibrators: `getVibratorManager()` on API 31+, `getVibrator()`
+  before; two vibrators get low and high apart, one the stronger of the two) and on macOS and iOS (GameController haptics with
+  CoreHaptics: low on the left handle, high on the right). The numbers each API wants are pure, unit-tested helpers
+  (`fa/platform/gamepad_rumble_map.h`); the three backends are untested on hardware. The AI guide's feedback example no longer
+  uses "No gamepad rumble".
 - **Render interpolation (M98.3):** `"render": { "interpolation": true }` in `factoria.json` (default `false`, so nothing
   changes for a game that does not ask) draws entities at the pose between the last two fixed steps, so a 60 Hz simulation
   looks smooth at 120-144 Hz. Only the drawing is blended (position, scale, rotation by slerp; children, cameras and physics
