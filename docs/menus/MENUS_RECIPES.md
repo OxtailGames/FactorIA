@@ -144,6 +144,7 @@ down, so pressing it again while it is still held presses nothing. Use `tap` for
 hold; after a `press`, `release` it before the next one.
 
 ```js
+import { game } from "factoria:test";
 ui.focus("play_button");
 game.tap("ui_submit");          // one click on Play
 game.press("ui_submit");        // clicks the focused widget once, now held...

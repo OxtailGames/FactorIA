@@ -137,6 +137,7 @@ the press is released over the same widget; a Slider follows the pointer while p
   to click (`game.input` with `mouse.position`) or which widget has the focus.
 - Tests: drive a menu with pad taps and assert on events and values, no mouse needed:
   ```js
+  import { game } from "factoria:test";
   game.loadJson(menuScene); game.step(1);
   const pad = game.gamepad();
   pad.tap("DpadDown"); pad.tap("DpadRight");   // focus the slider below, +1 step

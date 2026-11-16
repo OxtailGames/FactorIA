@@ -123,7 +123,7 @@ the art is SVG parts, the motion is data.
    `groundMask: 1`, `groundReach`, `groundOffset` and `groundRest`, so the engine aims the foot at the floor under the marker
    the walk clip moves and keeps the swing lift. The script switches the snapping off in the air:
 
-```js
+```js fragment
 onFixedUpdate(dt) {
   const grounded = this.entity.isGrounded();
   const speed = Math.abs(this.body.velocity.x);
