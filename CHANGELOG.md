@@ -6,6 +6,12 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Example games in the release, first part (M97.5a):** every release will publish each example game (`block-push`,
+  `lantern-keep`, `kindlewatch`, ...) as its own zip, plus `examples-manifest.json` with each example's title, what it
+  shows, the docs to read first, and the size and SHA-256 of its zip. The new command `project.package_examples` makes
+  them from the repository's `examples/` (the same files give the same zip), and the engine can now read the manifest,
+  build the download address of a release's file from the installed version and check a download against its hash.
+  Getting an example from the editor comes in the next parts.
 - **Editor undo as commands, first half (M98.7e1):** an edit of a field or a component (Inspector fields, rename, the active box,
   Transform gizmo drags, adding and removing a component) no longer stores a copy of the whole scene on the undo stack: it stores
   the command and its inverse, built from the scene before the edit, so 100 edits cost less than one snapshot of a big scene.
@@ -49,10 +55,12 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   through the pad's own descriptor (buttons, axes scaled by their logical range, the hat) in DirectInput's numbering, so the
   Windows lines of SDL GameControllerDB, now embedded in the Windows build only, map them; `SDL_GAMECONTROLLERCONFIG` and
   the project's `gamecontrollerdb.txt` come first, and a pad nothing lists gets a default layout read from the pad. XInput
-  and HID pads share the slots 0..3 (a pad keeps its slot while connected, a gap is filled first); plugging comes from the
+  and HID pads share the slots 0..3: a pad keeps its slot while connected, and a pad that appears takes the slot it had last
+  time when that is free, else the lowest free one, so an Xbox pad no longer takes its XInput user index. A remapper that
+  shows a PlayStation or Switch pad as a virtual Xbox pad (DS4Windows, Steam Input) makes two pads, the virtual and the
+  physical one: turn it off for the game or have it hide the physical pad. Plugging comes from the
   OS's device notifications, and XInput's empty slots are asked every 2 s and right after a notification instead of on a
-  fixed timer only. HID pads answer `canRumble: false` with a reason saying their rumble is coming (M98.5b2). Not yet tried
-  with a physical pad.
+  fixed timer only. Their rumble came with M98.5b2 (below). Not yet tried with a physical pad.
 - **A UI layout that does not write `Transform.position` (M98.6f), a behaviour change:** a Panel or ScrollList used to move
   its children by adding the layout's delta into `Transform.position` every frame (so a saved scene held the layout's
   result). It now keeps the placement apart (`World::ui_layout_offset`, not saved, not in an undo snapshot) and the child's
@@ -64,6 +72,15 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   example scene needed it). A widget moved into a laid-out Panel or ScrollList with `scene.set_parent` (keepWorld) goes to its
   slot, position 0, as before; reordering under the same parent changes only the order. 6e's turned-parent drawing now applies only under a turned or scaled widget, so a plain scaled
   group of HUD visuals keeps its old placement (docs/menus/MENUS_RECIPES.md, "Where a laid-out child is").
+  fixed timer only. Generic HID pads answer `canRumble: false` with a reason. Not yet tried with a physical pad.
+- **Windows rumble and full reports for PlayStation and Switch pads (M98.5b2):** the DualShock 4, DualSense (and Edge) and
+  Switch Pro, over USB or Bluetooth, now rumble on Windows (`canRumble: true`): the engine's own drivers send each pad's
+  output report through its HID device (non-blocking, one write in flight per pad, the latest request wins), with the
+  Switch Pro's handshake and HD rumble. The drivers also switch each pad to its full input report, so a Bluetooth DualShock 4
+  or DualSense reports its analog triggers and a Switch Pro its full sticks. A pad another program holds exclusively, or
+  that stops taking reports, answers `canRumble: false` with a reason saying what to do; a pad that vanishes mid-write
+  leaks nothing, and the motors stop when the game quits. `hid.dll` and `xinput1_4.dll` load from System32 only, and a pad
+  whose details Windows cannot give yet at its arrival is retried (warned once). Not yet tried with a physical pad.
 - **Several entities selected (M98.7b):** in the editor, Ctrl/Cmd+click toggles and Shift+click selects a range in the
   Hierarchy, and Ctrl/Cmd+click, Shift+click and a marquee on empty space select in the Viewport. Every selected entity is
   outlined; the gizmo moves, rotates and scales all of them about the primary as one Undo step; Delete, Duplicate and

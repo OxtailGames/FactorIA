@@ -130,7 +130,7 @@ point) or `smooth`. Before the first point the lane holds the first value, after
 | `filter` | 40 to 20000 Hz | a low-pass cutoff | a low-pass cutoff |
 | `macro.<name>` | -1 to 1 | the macro of the track's instrument patch, read when each note starts | not available |
 
-Built-in macros are `attack`, `brightness`, `weight`, `tail`, `pitch`, `grit` (docs/SOUND.md "Macros"); a macro lane sets the
+Built-in macros are `attack`, `brightness`, `weight`, `tail`, `pitch`, `grit` (docs/sound/SOUND_PATCHES.md "Macros"); a macro lane sets the
 macro for the notes that start while it is there, in steps of 0.05.
 
 ## Instruments

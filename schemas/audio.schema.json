@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://factoria.dev/schemas/audio.schema.json",
   "title": "FactorIA audio document (*.audio.json)",
-  "description": "A non-destructive chain of steps over a sound: a WAV or OGG, a sound patch (`*.sfx.json`) or another audio document. `audio.render` applies the steps offline, `audio.bake` writes the result next to the document as a WAV or OGG; the same bytes on every platform. Errors name the file and the JSON pointer; docs/SOUND.md, \"Audio documents\", explains the format and `audio.info {}` lists the steps.",
+  "description": "A non-destructive chain of steps over a sound: a WAV or OGG, a sound patch (`*.sfx.json`) or another audio document. `audio.render` applies the steps offline, `audio.bake` writes the result next to the document as a WAV or OGG; the same bytes on every platform. Errors name the file and the JSON pointer; docs/sound/SOUND_DOCUMENTS.md, \"Audio documents\", explains the format and `audio.info {}` lists the steps.",
   "type": "object",
   "required": [
     "format",

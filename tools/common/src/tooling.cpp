@@ -39,6 +39,7 @@ void register_tooling_commands(CommandRegistry& registry, const std::string& pro
     register_play_auto_commands(registry, projectDir);
     register_script_trace_commands(registry, projectDir);
     register_checkpoint_commands(registry, projectDir);
+    register_examples_commands(registry);
     register_platform_setup_commands(registry, projectDir);
     register_setup_commands(registry);
     register_update_commands(registry);

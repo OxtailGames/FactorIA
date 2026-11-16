@@ -1,0 +1,71 @@
+{
+  "format": "factoria.examples-source/1",
+  "examples": [
+    {
+      "name": "block-push",
+      "title": "Block Push",
+      "shows": "A Sokoban puzzle: level data as text, tile rules, undo, a project tool that checks the levels, and headless tests.",
+      "readFirst": ["docs/GETTING_STARTED.md", "docs/SCRIPTING.md"]
+    },
+    {
+      "name": "burrow-brigade",
+      "title": "Burrow Brigade",
+      "shows": "A couch co-op mining game for up to four players: digging, lamp light, saves, Steam, shipping and four languages.",
+      "readFirst": ["docs/SCRIPTING.md", "docs/PLATFORM.md", "docs/PUBLISHING.md"]
+    },
+    {
+      "name": "clockwork-courier",
+      "title": "Clockwork Courier",
+      "shows": "A mobile-first 3D courier game: six levels, guard dogs, physics props, music, store services, touch comfort and accessibility.",
+      "readFirst": ["docs/MOBILE.md", "docs/NAVIGATION.md", "docs/PUBLISHING.md"]
+    },
+    {
+      "name": "ember-descent",
+      "title": "Ember Descent",
+      "shows": "A roguelike whose dungeon floors grow at run time from one sample level with the level generator, one seed per dungeon.",
+      "readFirst": ["docs/ai-guide/AI_GUIDE_TILEMAPS.md", "docs/SCRIPTING.md"]
+    },
+    {
+      "name": "gem-roller",
+      "title": "Gem Roller",
+      "shows": "A 3D arcade game: moving platforms, checkpoints, a gem model baked from a recipe, a custom shader material and a timer.",
+      "readFirst": ["docs/MODELING.md", "docs/SHADERS.md"]
+    },
+    {
+      "name": "kindlewatch",
+      "title": "Kindlewatch",
+      "shows": "A small complete 3D game whose every picture, model, character, sound and song was made with the engine's own commands.",
+      "readFirst": ["docs/MODELING.md", "docs/ANIMATION.md", "docs/MUSIC.md"]
+    },
+    {
+      "name": "lantern-keep",
+      "title": "Lantern Keep",
+      "shows": "A 2D platformer in six levels: a lantern that lights the dark, parallax, saves, store services, accessibility and four languages.",
+      "readFirst": ["docs/SCRIPTING.md", "docs/LOCALIZATION.md", "docs/PUBLISHING.md"]
+    },
+    {
+      "name": "larkspur-lodge",
+      "title": "Larkspur Lodge",
+      "shows": "A 3D narrative adventure: rooms, clues, keys and doors, an item catalogue checked against its strings, and store shipping.",
+      "readFirst": ["docs/SCRIPTING.md", "docs/LOCALIZATION.md", "docs/PUBLISHING.md"]
+    },
+    {
+      "name": "neon-swarm",
+      "title": "Neon Swarm",
+      "shows": "A twin-stick arena shooter: the neon glow comes from camera bloom and additive shapes, with an adaptive score and an animation drawn with code.",
+      "readFirst": ["docs/EFFECTS.md", "docs/PARTICLES.md"]
+    },
+    {
+      "name": "sky-hopper",
+      "title": "Sky Hopper",
+      "shows": "A 2D platformer: variable jump height, coyote time, jump buffering, vector art made with commands and a generated level.",
+      "readFirst": ["docs/GAME_FEEL.md", "docs/VECTOR.md"]
+    },
+    {
+      "name": "tidewater-market",
+      "title": "Tidewater Market",
+      "shows": "A mouse-driven isometric management game: building roads, houses and workshops, goods that move, data tables and undo.",
+      "readFirst": ["docs/SCRIPTING.md", "docs/MENUS.md"]
+    }
+  ]
+}

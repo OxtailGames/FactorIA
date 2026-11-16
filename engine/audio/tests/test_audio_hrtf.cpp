@@ -1,4 +1,4 @@
-// HRTF for headphones (docs/SOUND.md, "Headphones"): AudioListener.spatialization "hrtf" places a spatial sound with the parametric
+// HRTF for headphones (docs/sound/SOUND_SPATIAL.md, "Headphones"): AudioListener.spatialization "hrtf" places a spatial sound with the parametric
 // head model of the mixer (a delay and a head-shadow filter per ear) instead of the pan. These tests measure what comes out of the
 // mixer on the null device (the headless recorder): the time difference between the ears against Woodworth's formula, the level
 // difference and the shadow of high frequencies, front/back symmetry, a source that moves, and that "pan" is what it always was.
@@ -37,7 +37,8 @@ struct Scene {
         al.headRadius = headRadius;
         al.speedOfSound = speedOfSound;
     }
-    Entity source(const std::string& clip, Vec3 pos, bool loop, float range = 100000.0f, const std::string& id = "src") {
+    Entity source(const std::string& clip, Vec3 pos, bool loop, float range = 100000.0f,
+                  const std::string& id = "src") {
         Entity s = world.create(id, id);
         AudioSource& src = world.add<AudioSource>(s);
         src.clip = clip;
@@ -79,8 +80,8 @@ void write_clips(const std::filesystem::path& dir) {
 
 // The listener hears `clip` from `pos` (the listener at the origin looks down -Z, its right is +X) for `seconds`. Every call has
 // an Audio of its own: a World at the address of the last one would keep the sources of that one.
-Recording hear(const std::string& clip, Vec3 pos, bool loop, double seconds, const std::function<void(Scene&)>& setup = {},
-               bool hrtf = true) {
+Recording hear(const std::string& clip, Vec3 pos, bool loop, double seconds,
+               const std::function<void(Scene&)>& setup = {}, bool hrtf = true) {
     Fixture fx;
     write_clips(fx.dir);
     Scene sc(hrtf);
@@ -121,7 +122,7 @@ TEST_CASE("hrtf: Woodworth's time difference and the head time") {
     CHECK(audio_hrtf_itd(1.0f, a) == doctest::Approx(a * (kPiF * 0.5f + 1.0f)));
     CHECK(audio_hrtf_itd(-1.0f, a) == doctest::Approx(-a * (kPiF * 0.5f + 1.0f)));
     CHECK(audio_hrtf_itd(0.5f, a) == doctest::Approx(a * (kPiF / 6.0f + 0.5f)));  // 30 degrees from the median plane
-    CHECK(audio_hrtf_itd(7.0f, a) == audio_hrtf_itd(1.0f, a));                   // clamped, never NaN
+    CHECK(audio_hrtf_itd(7.0f, a) == audio_hrtf_itd(1.0f, a));                    // clamped, never NaN
     // the head time: radius over speed of sound, clamped to the heads the model takes
     bool clamped = true;
     CHECK(audio_hrtf_head_time(0.0875f, 343.0f, &clamped) == doctest::Approx(a));
@@ -161,9 +162,8 @@ TEST_CASE("hrtf: the time difference follows the angle and the head radius") {
     CHECK(std::fabs(itd_frames(ahead)) < 0.3);
     CHECK(ahead.peak_l() == doctest::Approx(ahead.peak_r()).epsilon(0.02));
     // a bigger head: a longer difference
-    const Recording big = hear("sounds/pulse.wav", {3, 0, 0}, false, 0.4, [](Scene& sc) {
-        sc.world.get<AudioListener>(sc.listener)->headRadius = 0.115f;
-    });
+    const Recording big = hear("sounds/pulse.wav", {3, 0, 0}, false, 0.4,
+                               [](Scene& sc) { sc.world.get<AudioListener>(sc.listener)->headRadius = 0.115f; });
     CHECK(itd_frames(big) == doctest::Approx(woodworth_frames(1.0f, 0.115f)).epsilon(0.03));
     // the same head in a world of pixels: headRadius and speedOfSound in those units give the same time
     const Recording pixels = hear("sounds/pulse.wav", {300, 0, 0}, false, 0.4, [](Scene& sc) {
@@ -177,7 +177,8 @@ TEST_CASE("hrtf: the time difference follows the angle and the head radius") {
 TEST_CASE("hrtf: the time difference is the same in front and behind") {
     const Recording front = hear("sounds/pulse.wav", {2.5f, 0, -2.5f}, false, 0.4);
     const Recording back = hear("sounds/pulse.wav", {2.5f, 0, 2.5f}, false, 0.4);
-    const Recording above = hear("sounds/pulse.wav", {2.5f, 2.5f, 0}, false, 0.4);  // the same angle from the median plane
+    const Recording above =
+        hear("sounds/pulse.wav", {2.5f, 2.5f, 0}, false, 0.4);  // the same angle from the median plane
     const double expected = woodworth_frames(std::sqrt(0.5f));
     CHECK(itd_frames(front) == doctest::Approx(expected).epsilon(0.03));
     CHECK(std::fabs(itd_frames(back) - itd_frames(front)) < 0.4);
@@ -230,7 +231,8 @@ TEST_CASE("hrtf: a source that sweeps from one side to the other makes no click"
     const Recording rec = fx.finish();
     // a 300 Hz sine of amplitude 0.5 moves by at most 0.0214 per frame; the delay of an ear changing by at most 3% adds a little
     float biggestL = 0.0f, biggestR = 0.0f;
-    for (std::size_t i = 2000; i < rec.frames(); ++i) {  // the first 2000 frames are the sound starting (a shelf boosts its onset)
+    for (std::size_t i = 2000; i < rec.frames();
+         ++i) {  // the first 2000 frames are the sound starting (a shelf boosts its onset)
         biggestL = std::max(biggestL, std::fabs(rec.l[i] - rec.l[i - 1]));
         biggestR = std::max(biggestR, std::fabs(rec.r[i] - rec.r[i - 1]));
     }
@@ -396,7 +398,8 @@ TEST_CASE("hrtf: mixing under the head model allocates nothing") {
     Fixture fx;
     write_sine_wav(fx.dir / "sounds/tone.wav", 1.0, 700.0, 0.4);
     Scene sc;
-    for (int i = 0; i < 6; ++i) sc.source("sounds/tone.wav", {float(i) - 2.5f, float(i % 3), -3}, true, 100.0f, "s" + std::to_string(i));
+    for (int i = 0; i < 6; ++i)
+        sc.source("sounds/tone.wav", {float(i) - 2.5f, float(i % 3), -3}, true, 100.0f, "s" + std::to_string(i));
     tick(fx, sc);
     REQUIRE(fx.audio.active_voices().size() == 6);
     fx.run(0.2);  // warm-up

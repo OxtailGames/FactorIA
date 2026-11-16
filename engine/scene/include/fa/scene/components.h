@@ -1344,7 +1344,7 @@ struct NavLink3D {
 enum class AudioRolloff : std::int32_t { Linear, Inverse, Exponential, Curve };
 
 // How an AudioListener places a spatial sound for the ears: Pan (the classic left/right pan and volume) or Hrtf (headphones; the
-// parametric head model of docs/SOUND.md, "Headphones").
+// parametric head model of docs/sound/SOUND_SPATIAL.md, "Headphones").
 enum class AudioSpatialization : std::int32_t { Pan, Hrtf };
 
 struct AudioSource {

@@ -12,7 +12,7 @@
 // mixed, with its effects and volume, and then summed into its parent. All of it runs in the same mixer on the null device,
 // so the result is deterministic.
 //
-// Threads (docs/SOUND.md, "The audio callback"): every call below is thread-safe and answers from the game side's own record
+// Threads (docs/sound/SOUND_MIXER.md, "The audio callback"): every call below is thread-safe and answers from the game side's own record
 // of what it asked for. The device's callback never waits for it: the calls send commands through bounded lock-free queues,
 // the callback applies them at the start of its next block, and it takes no lock and allocates nothing. With a device the
 // commands of one call reach the mixer together; on the null device each is applied at once, so a headless run stays
@@ -159,7 +159,7 @@ struct SpatialSound {
     float occlusionLowpass = 1500.0f;  // Hz; 20000 = no filter
 };
 
-// ---- Doppler (docs/SOUND.md, "Doppler"). The velocities of an AudioSource and of the listener are the change of their world
+// ---- Doppler (docs/sound/SOUND_SPATIAL.md, "Doppler"). The velocities of an AudioSource and of the listener are the change of their world
 // position between two frames over the frame's dt (never RigidBody): `audio_velocity`. The pitch factor of a sound is
 // audio_doppler_pitch, smoothed over kDopplerSmoothing seconds by Audio::update before it multiplies the voice's pitch.
 constexpr float kDopplerMinPitch =
@@ -179,7 +179,7 @@ Vec3 audio_velocity(Vec3 delta, float dt, float speedOfSound);
 float audio_doppler_pitch(Vec3 listenerPos, Vec3 listenerVelocity, Vec3 sourcePos, Vec3 sourceVelocity,
                           float speedOfSound, float level);
 
-// ---- HRTF for headphones (docs/SOUND.md, "Headphones"): an AudioListener with spatialization "hrtf" places a spatial sound with a
+// ---- HRTF for headphones (docs/sound/SOUND_SPATIAL.md, "Headphones"): an AudioListener with spatialization "hrtf" places a spatial sound with a
 // parametric head model instead of the pan (a delay and a head-shadow filter per ear; no measured data). The head is the listener's
 // headRadius over its speedOfSound, in seconds ("head time"); the model takes heads of kHrtfMinHeadRadius to kHrtfMaxHeadRadius meters
 // (at a speed of sound of 343 m/s): outside it the head time is clamped and Audio warns once.
@@ -195,7 +195,7 @@ float audio_hrtf_head_time(float headRadius, float speedOfSound, bool* clamped =
 // front, behind, above or below), and a head time a / c. Positive when the right ear hears it first.
 float audio_hrtf_itd(float lateral, float headTime);
 
-// ---- Occlusion (docs/SOUND.md, "Occlusion"). The audio module cannot cast rays (physics is above it): the engine gives it a
+// ---- Occlusion (docs/sound/SOUND_SPATIAL.md, "Occlusion"). The audio module cannot cast rays (physics is above it): the engine gives it a
 // probe, and Audio decides when to ask, smooths the answer and applies it. Audio asks at most kAudioOcclusionRaysPerFrame
 // times per update(), a source at most every kAudioOcclusionRecheck seconds (a source never measured first), and the volume
 // and the low-pass move to the answer over kAudioOcclusionSmoothing seconds.

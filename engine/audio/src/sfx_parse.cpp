@@ -767,7 +767,8 @@ Result<SfxPatch> parse_sfx(const Json& json, std::string_view fileView, std::vec
     if (auto it = json.find("macros"); it != json.end()) {
         if (!it->is_object())
             p.err("/macros", "macros must be an object, got " + describe_json_value(*it),
-                  "Write {\"brightness\": 0.3}: macro name to a value from -1 to 1 (docs/SOUND.md, \"Macros\").");
+                  "Write {\"brightness\": 0.3}: macro name to a value from -1 to 1 (docs/sound/SOUND_PATCHES.md, "
+                  "\"Macros\").");
         else {
             patch.macros = *it;
             p.macros(*it, patch.macroDefs);

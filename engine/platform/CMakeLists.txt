@@ -3,8 +3,10 @@
 fa_add_module(platform
     DEPS fa_core fa_ext_sokol)
 
-# SDL_GameControllerDB (Linux lines) is baked into the binary as text; gamepad_mapping.cpp indexes it on first use
-# (namespace fa::gamepad_db, header embedded_gamepad_db.h). Compiled on every OS so the tests cover it everywhere.
+# SDL_GameControllerDB (Linux lines) is baked into the binary as text; src/gamepad_mapping_db.cpp indexes it on first
+# use (namespace fa::gamepad_db, header embedded_gamepad_db.h). Compiled on every OS so the tests cover it everywhere;
+# only that file references it, and only gamepad_linux.cpp and the tests reference that file, so the static link of
+# another platform's player leaves both out.
 fa_embed_files(fa_platform fa::gamepad_db embedded_gamepad_db
     FILES ${FA_ROOT}/external/sdl_gamecontrollerdb/gamecontrollerdb_linux.txt
     BASE ${FA_ROOT}/external/sdl_gamecontrollerdb)

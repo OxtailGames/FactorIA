@@ -1,4 +1,4 @@
-// project.validate: the audio documents (*.audio.json, docs/SOUND.md "Audio documents") of the project.
+// project.validate: the audio documents (*.audio.json, docs/sound/SOUND_DOCUMENTS.md "Audio documents") of the project.
 #include "assets_internal.h"
 #include "fa/tooling/audio_doc.h"
 #include "fa/tooling/validate.h"
@@ -20,11 +20,10 @@ void check_audio_documents(const std::string& projectDir, std::vector<Validation
                 }
                 if (issues.empty()) issues.push_back({"", status.reason, status.hint});
                 for (const AudioDocIssue& issue : issues)
-                    errors.push_back(
-                        {rel, issue.pointer, issue.message,
-                         issue.hint.empty()
-                             ? "Fix the document (docs/SOUND.md \"Audio documents\", schemas/audio.schema.json)."
-                             : issue.hint});
+                    errors.push_back({rel, issue.pointer, issue.message,
+                                      issue.hint.empty() ? "Fix the document (docs/sound/SOUND_DOCUMENTS.md \"Audio "
+                                                           "documents\", schemas/audio.schema.json)."
+                                                         : issue.hint});
                 break;
             }
             case AudioBakeState::Missing:

@@ -665,7 +665,7 @@ declare module "factoria" {
      */
     readonly name: string;
     /**
-     * True when this pad has motors the platform can drive now, so input.rumble(pad, ...) shakes it; false for a slot with no pad and for a platform or pad without rumble. Windows (XInput pads), Linux (pads with kernel force feedback, when /dev/input/eventN is writable), macOS and iOS (pads with GameController haptics), Android (pads whose InputDevice has vibrators) and Chrome-based browsers (Xbox and PlayStation pads) can today; Firefox and Safari never; Windows pads that are not XInput (DualShock, DualSense, Switch Pro) come later. Games need not check it: input.rumble on a pad that cannot rumble does nothing. Check it to show a Vibration option only where it works. A test pad answers false unless game.gamepad(i).connect({ canRumble: true }).
+     * True when this pad has motors the platform can drive now, so input.rumble(pad, ...) shakes it; false for a slot with no pad and for a platform or pad without rumble. Windows (XInput pads, and the DualShock 4, DualSense and Switch Pro over USB or Bluetooth), Linux (pads with kernel force feedback, when /dev/input/eventN is writable), macOS and iOS (pads with GameController haptics), Android (pads whose InputDevice has vibrators) and Chrome-based browsers (Xbox and PlayStation pads) can today; Firefox and Safari never, nor other Windows HID pads; a Windows pad another program holds exclusively (DS4Windows, HidHide) or that stopped taking reports answers false too. Games need not check it: input.rumble on a pad that cannot rumble does nothing. Check it to show a Vibration option only where it works. A test pad answers false unless game.gamepad(i).connect({ canRumble: true }).
      * @since unreleased
      */
     readonly canRumble: boolean;
@@ -8327,7 +8327,7 @@ declare module "factoria" {
      */
     zoom: number;
     /**
-     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/SOUND.md, Headphones.
+     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/sound/SOUND_SPATIAL.md, Headphones.
      * @since unreleased
      */
     spatialization: "pan" | "hrtf";
