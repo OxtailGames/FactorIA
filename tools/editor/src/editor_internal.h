@@ -1788,6 +1788,9 @@ std::string pick_folder(const std::string& title, const std::string& start);
 // Same for one existing file of the given kinds (`filterName` "Images", `extensions` {"png", "jpg"}, no dot).
 std::string pick_file(const std::string& title, const std::string& start, const std::string& filterName,
                       const std::vector<std::string>& extensions);
+// The size of the system clipboard the editor asks sokol_app for: a longer text is cut by sokol, so a copy of entities that
+// does not fit is refused (entity_copy).
+inline constexpr std::size_t kClipboardBytes = std::size_t(1) << 20;
 // The picture on the system clipboard as PNG bytes; empty when there is none (or no tool to read it on Linux).
 std::vector<std::uint8_t> clipboard_image_png();
 // Whether the system clipboard holds text (what Ctrl+V pastes into a text box).

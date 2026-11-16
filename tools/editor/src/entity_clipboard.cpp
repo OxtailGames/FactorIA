@@ -46,7 +46,19 @@ bool Editor::entity_copy() {
         notify("Could not copy: " + command_error_text(r.error), 2);
         return false;
     }
-    sapp_set_clipboard_string(r.result.value("text", std::string()).c_str());
+    const std::string text = r.result.value("text", std::string());
+    if (text.size() + 1 >=
+        kClipboardBytes) {  // sokol_app would cut the text, and a Cut would delete what no paste can bring back
+        notify("Could not copy: the copy of " + count_text(r.result.value("count", std::size_t(0))) + " is " +
+                   std::to_string(text.size() / 1024) + " KB of text and the clipboard holds " +
+                   std::to_string(kClipboardBytes / 1024 - 1) +
+                   " KB at most. Copy fewer entities, or use scene.copy_entities from a script or the MCP tools. "
+                   "Nothing was "
+                   "cut.",
+               2);
+        return false;
+    }
+    sapp_set_clipboard_string(text.c_str());
     return true;
 }
 
@@ -102,11 +114,11 @@ void Editor::hierarchy_duplicate_selection() {
     }
     // Each copy goes next to its original, named "<name> copy"; an Entity field inside the set names the copy.
     std::string err;
-    const CommandResult r = edit_command("hier:duplicate:" + std::to_string(uiFrame_), "scene.paste_entities",
-                                         Json::object({{"text", copied.result.value("text", std::string())},
-                                                       {"keepParents", true},
-                                                       {"nameSuffix", " copy"}}),
-                                         &err);
+    const CommandResult r = edit_command(
+        "hier:duplicate:" + std::to_string(uiFrame_), "scene.paste_entities",
+        Json::object(
+            {{"text", copied.result.value("text", std::string())}, {"keepParents", true}, {"nameSuffix", " copy"}}),
+        &err);
     if (!r.ok) {
         notify("Could not duplicate the entity: " + err, 2);
         return;

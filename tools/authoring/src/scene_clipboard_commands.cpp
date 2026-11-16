@@ -14,6 +14,7 @@
 #include <unordered_map>
 
 #include "authoring_internal.h"
+#include "fa/core/fs.h"
 #include "fa/core/strings.h"
 #include "fa/scene/serialize.h"
 
@@ -40,9 +41,9 @@ void count_tree(const World& w, Entity e, std::size_t& n) {
 }
 
 bool all_digits(const std::string& s, std::size_t from) {
-    return from < s.size() &&
-           std::all_of(s.begin() + static_cast<std::ptrdiff_t>(from), s.end(),
-                       [](unsigned char c) { return std::isdigit(c) != 0; });
+    return from < s.size() && std::all_of(
+                                  s.begin() + static_cast<std::ptrdiff_t>(from), s.end(),
+                                  [](unsigned char c) { return std::isdigit(c) != 0; });
 }
 
 // ------------------------------------------------------------------------------------------ scene.copy_entities
@@ -85,7 +86,8 @@ Json copy_entities(Engine::Impl& I, const Json& a) {
     Json payload = Json::object({{"format", kEntitiesFormat}, {"entities", std::move(entries)}});
     if (a.contains("primary") && !a["primary"].is_null()) {
         if (!a["primary"].is_string())
-            bad_arg("/primary: 'primary' must be an entity id (or name) string.", "Use scene.list_entities to find ids.");
+            bad_arg("/primary: 'primary' must be an entity id (or name) string.",
+                    "Use scene.list_entities to find ids.");
         const Entity p = need_entity(W, Json::object({{"id", a["primary"]}}));
         bool inside = false;  // it is one of the copied entities, or below one
         for (Entity x = p; !x.is_null() && !inside; x = W.parent(x))
@@ -97,7 +99,7 @@ Json copy_entities(Engine::Impl& I, const Json& a) {
         payload["primary"] = W.id_of(p);
     }
     Json out = Json::object();
-    out["text"] = payload.dump();
+    out["text"] = payload.dump(-1, ' ', false, Json::error_handler_t::replace);  // bad UTF-8 in a name does not throw
     out["count"] = count;
     out["roots"] = std::move(rootIds);
     return out;
@@ -107,13 +109,37 @@ Json copy_entities(Engine::Impl& I, const Json& a) {
 // One entity of the text, wherever it sits in the tree.
 struct PayloadEntity {
     Json* json = nullptr;
-    std::string pointer;  // where it is in the text, for error messages
+    std::string pointer;   // where it is in the text, for error messages
     std::size_t root = 0;  // which entry of "entities" it belongs to
 };
 
-void collect_payload(Json& entity, const std::string& pointer, std::size_t root, std::vector<PayloadEntity>& out) {
+constexpr int kMaxPayloadDepth = 64;  // levels of children in a pasted text
+
+// A "$prefab" mark names the prefab file an instance came from; one that leaves the project is refused.
+void check_prefab_mark(const Json& entity, const std::string& pointer) {
+    if (!entity.contains("$prefab") || !entity["$prefab"].is_string()) return;
+    const std::string path = entity["$prefab"].get<std::string>();
+    if (path.empty()) return;
+    auto norm = fs::normalize_checked(path);
+    if (fs::is_absolute(path) || !norm.ok() || path.find("..") != std::string::npos)
+        bad_arg(pointer + "/$prefab: '" + path + "' is not a project-relative prefab path.",
+                "A copied text holds the entities inline and links an instance to its prefab with a path such as "
+                "prefabs/enemy.prefab.json inside this project. Copy the entities again with scene.copy_entities.");
+}
+
+void collect_payload(Json& entity, const std::string& pointer, std::size_t root, int depth,
+                     std::vector<PayloadEntity>& out) {
     if (!entity.is_object())
         bad_arg(pointer + ": an entity must be a JSON object.", "Copy the entities again with scene.copy_entities.");
+    if (depth > kMaxPayloadDepth)
+        bad_arg(pointer + ": the entities are nested more than " + std::to_string(kMaxPayloadDepth) + " levels deep.",
+                "A copied text is as deep as the entities were: copy fewer levels with scene.copy_entities.");
+    if (entity.contains("prefab"))
+        bad_arg(pointer +
+                    "/prefab: a copied text holds the entities inline and has no 'prefab' key (it would load a file).",
+                "Spawn a prefab with scene.spawn {\"prefab\": path}, or copy the entities again with "
+                "scene.copy_entities.");
+    check_prefab_mark(entity, pointer);
     out.push_back({&entity, pointer, root});
     if (!entity.contains("children")) return;
     Json& kids = entity["children"];
@@ -121,7 +147,7 @@ void collect_payload(Json& entity, const std::string& pointer, std::size_t root,
         bad_arg(pointer + "/children: 'children' must be an array of entities.",
                 "Copy the entities again with scene.copy_entities.");
     for (std::size_t i = 0; i < kids.size(); ++i)
-        collect_payload(kids[i], pointer + "/children/" + std::to_string(i), root, out);
+        collect_payload(kids[i], pointer + "/children/" + std::to_string(i), root, depth + 1, out);
 }
 
 bool is_auto_id(const std::string& id) { return id.size() >= 2 && id[0] == 'e' && all_digits(id, 1); }
@@ -195,7 +221,16 @@ Json paste_entities(Engine::Impl& I, const Json& a) {
     if (text.find_first_not_of(" \t\r\n") == std::string::npos)
         bad_arg("/text: the text is empty, so there is nothing to paste.", hintCopy);
     auto parsed = parse_json(text, "clipboard text");
-    if (!parsed.ok()) bad_arg("/text: this is not an entity clipboard: " + parsed.error().message, hintCopy);
+    if (!parsed.ok()) {
+        const std::size_t first = text.find_first_not_of(" \t\r\n");
+        if (text.compare(first, std::string("{\"format\":\"").size() + std::string(kEntitiesFormatPrefix).size(),
+                         std::string("{\"format\":\"") + kEntitiesFormatPrefix) == 0)
+            bad_arg("/text: the text starts like an entity clipboard but is not valid JSON: it looks cut short (" +
+                        parsed.error().message + ").",
+                    "Something cut the text (a clipboard or a message has a size limit): copy fewer entities, or pass "
+                    "the whole text of scene.copy_entities.");
+        bad_arg("/text: this is not an entity clipboard: " + parsed.error().message, hintCopy);
+    }
     Json payload = std::move(parsed.value());
     if (!payload.is_object() || !payload.contains("format") || !payload["format"].is_string())
         bad_arg("/format: this JSON is not an entity clipboard: it has no \"format\" key (expected \"" +
@@ -229,23 +264,8 @@ Json paste_entities(Engine::Impl& I, const Json& a) {
             bad_arg(ptr + "/parent: 'parent' must be an entity id string.", hintCopy);
         rootParent.push_back(entry.value("parent", std::string()));
         rootJson.push_back(&entry["entity"]);
-        collect_payload(entry["entity"], ptr + "/entity", i, all);
+        collect_payload(entry["entity"], ptr + "/entity", i, 0, all);
     }
-    std::string primaryOld;  // id (in the text) of the entity the copy marked as primary
-    if (payload.contains("primary")) {
-        if (!payload["primary"].is_string())
-            bad_arg("/primary: 'primary' must be an entity id string.", hintCopy);
-        primaryOld = payload["primary"].get<std::string>();
-    }
-    // Which pasted root holds the primary: found now, while the ids in the text are still the old ones.
-    std::size_t primaryRoot = entries.size();
-    if (!primaryOld.empty())
-        for (const PayloadEntity& pe : all)
-            if (pe.json->value("id", std::string()) == primaryOld) {
-                primaryRoot = pe.root;
-                break;
-            }
-
     // ---- new ids
     std::set<std::string> oldIds;
     for (const PayloadEntity& pe : all) {
@@ -255,6 +275,19 @@ Json paste_entities(Engine::Impl& I, const Json& a) {
             bad_arg(pe.pointer + "/id: 'id' must be a non-empty string.", hintCopy);
         oldIds.insert(j["id"].get<std::string>());
     }
+    std::string primaryOld;  // id (in the text) of the entity the copy marked as primary
+    if (payload.contains("primary")) {
+        if (!payload["primary"].is_string()) bad_arg("/primary: 'primary' must be an entity id string.", hintCopy);
+        primaryOld = payload["primary"].get<std::string>();
+    }
+    // Which pasted root holds the primary: found now, while the ids in the text are still the old ones (and checked).
+    std::size_t primaryRoot = entries.size();
+    if (!primaryOld.empty())
+        for (const PayloadEntity& pe : all)
+            if (pe.json->value("id", std::string()) == primaryOld) {
+                primaryRoot = pe.root;
+                break;
+            }
     // An id that is free in the destination stays; the others get a new one that no entity of the text wants either.
     std::set<std::string> keeping;
     for (const std::string& id : oldIds)
@@ -306,33 +339,52 @@ Json paste_entities(Engine::Impl& I, const Json& a) {
     }
 
     // ---- the entities
+    if (!suffix.empty())
+        for (std::size_t i = 0; i < rootJson.size(); ++i)
+            if (rootJson[i]->contains("name") && !(*rootJson[i])["name"].is_string())
+                bad_arg("/entities/" + std::to_string(i) + "/entity/name: 'name' must be a string.", hintCopy);
     LoadReport report;
     std::vector<Entity> created;
     Json newRoots = Json::array();
-    for (std::size_t i = 0; i < rootJson.size(); ++i) {
-        Json& spec = *rootJson[i];
-        if (!suffix.empty()) {
-            const std::string name = spec.value("name", std::string());
-            spec["name"] = (name.empty() ? std::string("Entity") : name) + suffix;
+    // Every entity of the text got an id that was free here, so whatever exists under those ids was made by this paste: one
+    // clean-up for the error path and for an exception, even from the middle of a load.
+    auto rollback = [&] {
+        for (const PayloadEntity& pe : all) {
+            const Entity e = W.find_by_id((*pe.json)["id"].get<std::string>());
+            if (!e.is_null() && W.alive(e)) W.destroy(e);
         }
-        Entity where = parent;
-        if (keepParents && !rootParent[i].empty()) where = W.find_by_id(rootParent[i]);
-        LoadReport one;
-        const Entity e =
-            entity_from_json(W, spec, where, one, "scene.paste_entities", "/entities/" + std::to_string(i) + "/entity");
-        for (Entity c : one.created) created.push_back(c);
-        for (LoadMessage& m : one.messages) report.messages.push_back(std::move(m));
-        if (e.is_null() || !W.alive(e)) {
-            report.messages.push_back({LoadMessage::Severity::Error, "scene.paste_entities",
-                                       "/entities/" + std::to_string(i), "The entity could not be created.", {}});
-            break;
+        W.flush();
+    };
+    try {
+        for (std::size_t i = 0; i < rootJson.size(); ++i) {
+            Json& spec = *rootJson[i];
+            if (!suffix.empty()) {
+                const std::string name = spec.value("name", std::string());
+                spec["name"] = (name.empty() ? std::string("Entity") : name) + suffix;
+            }
+            Entity where = parent;
+            if (keepParents && !rootParent[i].empty()) where = W.find_by_id(rootParent[i]);
+            LoadReport one;
+            const Entity e = entity_from_json(W, spec, where, one, "scene.paste_entities",
+                                              "/entities/" + std::to_string(i) + "/entity");
+            for (Entity c : one.created) created.push_back(c);
+            for (LoadMessage& m : one.messages) report.messages.push_back(std::move(m));
+            if (e.is_null() || !W.alive(e)) {
+                report.messages.push_back({LoadMessage::Severity::Error,
+                                           "scene.paste_entities",
+                                           "/entities/" + std::to_string(i),
+                                           "The entity could not be created.",
+                                           {}});
+                break;
+            }
+            newRoots.push_back(W.id_of(e));
         }
-        newRoots.push_back(W.id_of(e));
+    } catch (...) {
+        rollback();
+        throw;
     }
     if (report.error_count() > 0) {
-        for (Entity c : created)
-            if (W.alive(c)) W.destroy(c);
-        W.flush();
+        rollback();
         throw CommandError("invalid_argument", "Paste failed, nothing was created:\n" + report.summary(),
                            "The text came from another version or was edited: copy the entities again with "
                            "scene.copy_entities; api.components describes every component.");
@@ -364,8 +416,10 @@ void register_scene_clipboard_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add(
         {"scene.copy_entities", "Write entities of the running world, with their subtrees, as one JSON text.",
          "Returns {text, count, roots}: `text` is self-contained (components, children, links to prefabs), so it can "
-         "be kept, sent, or given to scene.paste_entities in this scene, another scene or another editor. `ids` are ids "
-         "or names; an entity whose ancestor is also listed is copied with that ancestor, once. `count` is every entity "
+         "be kept, sent, or given to scene.paste_entities in this scene, another scene or another editor. `ids` are "
+         "ids "
+         "or names; an entity whose ancestor is also listed is copied with that ancestor, once. `count` is every "
+         "entity "
          "in the text, `roots` the ids that head it. The world is not changed. Example: scene.copy_entities "
          "{\"ids\":[\"player\",\"coin_3\"]}" FA_COMMAND_DETAILS
          "The text is {\"format\":\"factoria.entities/1\",\"entities\":[{\"parent\":\"<id the root had>\"?,"
@@ -383,19 +437,26 @@ void register_scene_clipboard_commands(Engine& engine, Engine::Impl& I) {
     I.commands.add(
         {"scene.paste_entities", "Create the entities of a scene.copy_entities text in the running world.",
          "`text` is what scene.copy_entities returned, from this scene or another. Every pasted entity gets an id that "
-         "is free here (the copied id when it is free, else the next number: coin_3 -> coin_4). Entity fields that name "
+         "is free here (the copied id when it is free, else the next number: coin_3 -> coin_4). Entity fields that "
+         "name "
          "an entity of the copied set name its new copy; a field that names an entity outside the set keeps it when "
          "this scene has an entity with that id and is cleared when it has not (listed in `cleared`). The pasted roots "
          "go under `parent` (null or \"\" = top level), or with keepParents under the parent each had when copied "
          "(top level when that parent is gone); without either, at the top level. Returns {ids, count, cleared, "
-         "primary?, messages?}: `ids` are the new roots in the order of the text; `primary` is the pasted root that is or "
-         "holds the copy of the entity scene.copy_entities got as `primary`. Nothing is created when anything is wrong. "
-         "Example: scene.paste_entities {\"text\":\"<what scene.copy_entities returned>\",\"parent\":\"level\"}"
-         FA_COMMAND_DETAILS
+         "primary?, messages?}: `ids` are the new roots in the order of the text; `primary` is the pasted root that is "
+         "or "
+         "holds the copy of the entity scene.copy_entities got as `primary`. Nothing is created when anything is "
+         "wrong. "
+         "Example: scene.paste_entities {\"text\":\"<what scene.copy_entities "
+         "returned>\",\"parent\":\"level\"}" FA_COMMAND_DETAILS
          "`nameSuffix` is appended to the name of every pasted root (an unnamed one becomes \"Entity\" + suffix): "
          "nameSuffix \" copy\" with keepParents is a duplicate. `parent` and keepParents together are refused. A text "
          "that is not an entity clipboard (not JSON, another `format`, another version) is an error that names the "
-         "JSON pointer of the problem. `cleared` entries are {entity, component, field, target}.",
+         "JSON pointer of the problem; a text with a \"prefab\" key, a `$prefab` path outside the project or more than "
+         "64 levels "
+         "of children is refused. Only Entity fields are remapped: an id inside a Json field (Script.props, for "
+         "example) is "
+         "copied as it is. `cleared` entries are {entity, component, field, target}.",
          parse_schema(R"({"type":"object","required":["text"],"properties":{
                "text":{"type":"string","description":"The text scene.copy_entities returned (the system clipboard in the editor)."},
                "parent":{"type":["string","null"],"description":"Id of the entity the pasted roots go under; null or \"\" = top level. Not with keepParents."},
