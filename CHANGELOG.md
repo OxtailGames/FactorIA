@@ -32,7 +32,10 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 - `websocket.connect` works on macOS and iOS (`NSURLSessionWebSocketTask`: system certificates and proxy, subprotocols, headers, text
   and binary messages, close codes, the HTTP status of a refused upgrade), tested against the loopback server; a close is
   reported as soon as the system has sent it (docs/NETWORKING.md, "On macOS and iOS").
-- The web player opens WebSockets with the browser's own `WebSocket` (`websocket.supported` is true there): messages, subprotocols, the engine's connect timeout and close timer, and `error` messages that name what to check, since the browser gives no reason; `headers` is an error on the web (the browser cannot send any). `ws.send` and `game.websocket.send` also take a `DataView`.
+- The web player opens WebSockets with the browser's own `WebSocket` (`websocket.supported` is true there): messages,
+  subprotocols, the engine's connect timeout and close timer, and `error` messages that name what to check, since the
+  browser gives no reason; `headers` is an error on the web (the browser cannot send any). `ws.send` and
+  `game.websocket.send` also take a `DataView`.
 - `factoria validate` warns about a script that calls `websocket.connect` in a game with no `network` hosts, as it does for
   `http.fetch`.
 - `TextField` has `caretIndex`, `selectionStart`, `selectionEnd` and a runtime `composition`, and scripts read
