@@ -2137,6 +2137,7 @@
     "StorageAPI.clear": "0.1.0",
     "StorageAPI.corrupt": "0.2.0",
     "StorageAPI.get": "0.1.0",
+    "StorageAPI.isEncrypted": "unreleased",
     "StorageAPI.keys": "0.1.0",
     "StorageAPI.remove": "0.1.0",
     "StorageAPI.set": "0.1.0",

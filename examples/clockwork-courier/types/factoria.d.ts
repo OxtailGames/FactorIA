@@ -2993,11 +2993,11 @@ declare module "factoria" {
    */
   export interface StorageAPI {
     /**
-     * The value stored under `key`, or `fallback`. A value written with `{encrypt: true}` is opened at the first use of storage and returned like any other; one that fails authentication (edited, damaged, or written with another secret) is kept aside as a damaged file, storage.corrupt is true and the value is missing.
+     * The value stored under `key`, or `fallback`. A value written with `{encrypt: true}` is opened at the first use of storage and returned like any other; one that fails authentication (edited, damaged, or written with another secret) is kept aside as a damaged file, storage.corrupt is true and the value is missing. A plain file is read as it is by default, so a game can turn encryption on later; but then a player can replace a sealed file with a hand-written plain one. `{encrypted: true}` refuses that: a value that was read from a plain file is treated like one that failed authentication (the file is kept aside, storage.corrupt is true, a warning names the key) and `fallback` is returned. Use it for a key the game has always sealed, or once every player's save is sealed (storage.isEncrypted tells which are). A value the game itself stored in plain in this run is not the subject of the check: it is simply not returned. Throws on an unknown option.
      */
-    get<T = any>(key: string, fallback?: T): T;
+    get<T = any>(key: string, fallback?: T, options?: { encrypted?: boolean }): T;
     /**
-     * Stores `value` under `key` and writes that key's file now (atomically: temporary file, then rename), so a save costs the size of its own key only. `{compress: true}` stores the value zlib-compressed (smaller on disk, for big saves; storage.get returns the same value either way). `{encrypt: true}` seals the file with ChaCha20-Poly1305 under a key derived from the project's secret (factoria.json storage.encryptionSecret, created once with the command project.create_storage_secret), so a player cannot read or edit it with a text or hex editor without the game noticing; it combines with compress (compressed first, then sealed). It is tamper evidence, not secrecy: the secret ships with the game (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). Each call decides for its key: a set without encrypt writes the key in plain again. Throws, changing nothing, when encrypt is asked and the project has no secret (the error names the command). The write blocks the frame; use setAsync for a big value. Throws on an empty key or an unknown option.
+     * Stores `value` under `key` and writes that key's file now (atomically: temporary file, then rename), so a save costs the size of its own key only. `{compress: true}` stores the value zlib-compressed (smaller on disk, for big saves; storage.get returns the same value either way). `{encrypt: true}` seals the file with ChaCha20-Poly1305 under a key derived from the project's secret (factoria.json storage.encryptionSecret, created once with the command project.create_storage_secret), so a player cannot read it, and cannot change a byte of it without the sealed value failing to open; it combines with compress (compressed first, then sealed). It makes a CHANGED sealed file refuse to load; it does not stop a player from replacing the file with a plain one unless the game reads the key with storage.get(key, fallback, {encrypted: true}). It is tamper evidence, not secrecy: the secret ships with the game (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). Each call decides for its key: a set without encrypt writes the key in plain again. Throws, changing nothing, when encrypt is asked and the project has no secret (the error names the command). The write blocks the frame; use setAsync for a big value. Throws on an empty key or an unknown option.
      */
     set(key: string, value: Json, options?: { compress?: boolean, encrypt?: boolean }): void;
     /**
@@ -3005,6 +3005,11 @@ declare module "factoria" {
      * @since 0.3.0
      */
     setAsync(key: string, value: Json, options?: { compress?: boolean, encrypt?: boolean }): Promise<number>;
+    /**
+     * true when the value under `key` is stored sealed ({encrypt: true}), false when it is plain, undefined when the key is not stored. It does not move or change anything, so a game can show "this save is not protected" or decide what to do with a plain value before it trusts it (storage.get(key, fallback, {encrypted: true}) refuses it instead).
+     * @since unreleased
+     */
+    isEncrypted(key: string): boolean | undefined;
     /**
      * Bytes the key's file takes (the compressed size for a compressed value, the sealed size for an encrypted one); 0 when the key is not stored. Waits for pending setAsync writes.
      * @since 0.3.0

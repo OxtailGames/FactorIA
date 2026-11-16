@@ -413,7 +413,8 @@ std::string read_whole_file(const std::filesystem::path& file, bool& ok) {
 }
 
 // Keeps a damaged file under a name nothing else uses, and says so. Returns false when it could not be kept.
-bool keep_damaged(const std::filesystem::path& file, const std::string& text, const std::string& what) {
+bool keep_damaged(const std::filesystem::path& file, const std::string& text, const std::string& what,
+                  const std::string& why = "does not parse (damaged by a crash or a bad edit?)") {
     const std::filesystem::path keep = corrupt_keep_path();
     std::error_code ec;
     fs::replace_file(file, keep, ec);
@@ -421,15 +422,14 @@ bool keep_damaged(const std::filesystem::path& file, const std::string& text, co
         auto w = fs::write_bytes(keep.generic_string(), text.data(), text.size());
         if (!w) {
             log(LogLevel::Warn, "script",
-                what + " does not parse and could not be kept as " + keep.string() + ": " + w.error().message +
+                what + " " + why + " and could not be kept as " + keep.string() + ": " + w.error().message +
                     ". The next save will replace it; copy it by hand now if it matters.");
             return false;
         }
     }
     fs::user_dir_changed();
     log(LogLevel::Warn, "script",
-        what + " does not parse (damaged by a crash or a bad edit?); it was kept as " + keep.filename().string() +
-            " in " + fs::user_dir().string() +
+        what + " " + why + "; it was kept as " + keep.filename().string() + " in " + fs::user_dir().string() +
             " and the game starts without it. A script can check storage.corrupt at start to tell the player.");
     return true;
 }
@@ -441,23 +441,24 @@ storage_files::KeyMaterial Impl::storage_material() const {
     return m;
 }
 
-void Impl::storage_write(const std::string& key, bool compress, bool encrypt) {
+void Impl::storage_write(const std::string& key, bool compress, bool encrypt, std::string* encodeError) {
     const std::string valueText = storage[key].dump(-1, ' ', false, Json::error_handler_t::replace);
     crypto::Key sealKey{};
+    auto fail = [&](const std::string& what, const Error& e) {
+        if (encodeError)
+            *encodeError = what + ": " + e.message + (e.hint.empty() ? "" : ". " + e.hint);
+        else
+            log(LogLevel::Warn, "script", what + ": " + e.message);
+    };
     if (encrypt) {
         auto k = storage_files::derive_key(storage_material(), key);
-        if (!k) {
-            log(LogLevel::Warn, "script", "cannot encrypt storage key '" + key + "': " + k.error().message);
-            return;
-        }
+        if (!k) return fail("cannot encrypt storage key '" + key + "'", k.error());
         sealKey = k.value();
+        crypto::secure_zero(k.value());
     }
     auto encoded = storage_files::encode(key, valueText, compress, encrypt ? &sealKey : nullptr);
     crypto::secure_zero(sealKey);
-    if (!encoded) {
-        log(LogLevel::Warn, "script", "cannot encode storage key '" + key + "': " + encoded.error().message);
-        return;
-    }
+    if (!encoded) return fail("cannot encode storage key '" + key + "'", encoded.error());
     const std::string& text = encoded.value();
     const std::filesystem::path file = storage_files::dir() / storage_files::file_name(key);
     auto r = fs::write_bytes(file.generic_string(), text.data(), text.size());  // temporary file, then rename: atomic
@@ -519,7 +520,7 @@ void Impl::load_storage() {
             keep_damaged(file, text, "the storage file " + file.filename().string() + " (" + problem + ")");
             continue;
         }
-        storageMeta[d.key] = {d.compressed, static_cast<std::int64_t>(text.size()), d.encrypted};
+        storageMeta[d.key] = {d.compressed, static_cast<std::int64_t>(text.size()), d.encrypted, true};
         storage[d.key] = std::move(d.value);
     }
     // An older storage.json (every key in one file) is split into key files, then set aside: keys that already have a
@@ -4308,12 +4309,49 @@ NATIVE(
     return JS_UNDEFINED;
 }
 
-NATIVE(storageGet) {
+NATIVE(storageGet) {  // (key, requireEncrypted?)
     SETUP;
     I->load_storage();
     std::string key = arg_str(ctx, argc, argv, 0);
     if (!I->storage.contains(key)) return JS_UNDEFINED;
+    if (arg_bool(ctx, argc, argv, 1, false)) {
+        // {encrypted: true}: a value that is not sealed is not trusted. One read from a plain file is damaged like a file that
+        // fails authentication (someone replaced the sealed file with a hand-written one, or the save predates encryption);
+        // one the game itself set in plain this session is simply not what the caller asked for.
+        auto m = I->storageMeta.find(key);
+        const bool sealed = m != I->storageMeta.end() && m->second.encrypted;
+        if (!sealed) {
+            if (m != I->storageMeta.end() && m->second.fromDisk) {
+                I->storageCorrupt = true;
+                const std::filesystem::path file = storage_files::dir() / storage_files::file_name(key);
+                bool ok = false;
+                const std::string text = read_whole_file(file, ok);
+                if (ok)
+                    keep_damaged(
+                        file, text, "the storage file " + file.filename().string(),
+                        "is not encrypted, but the game asked for an encrypted value of '" + key +
+                            "' (storage.get(key, fallback, {encrypted: true})): a player replaced the sealed file "
+                            "with a plain one, or the save was written before encryption was turned on");
+                else
+                    log(LogLevel::Warn, "script",
+                        "storage key '" + key +
+                            "' is not encrypted, but the game asked for an encrypted value; it is ignored");
+                I->storage.erase(key);
+                I->storageMeta.erase(key);
+            }
+            return JS_UNDEFINED;
+        }
+    }
     return I->from_json(I->storage[key]);
+}
+NATIVE(storageIsEncrypted) {  // (key) -> true / false, undefined when the key is not stored
+    SETUP;
+    I->load_storage();
+    I->storage_drain();
+    const std::string key = arg_str(ctx, argc, argv, 0);
+    if (!I->storage.contains(key)) return JS_UNDEFINED;
+    auto m = I->storageMeta.find(key);
+    return JS_NewBool(ctx, m != I->storageMeta.end() && m->second.encrypted);
 }
 NATIVE(storageSet) {  // (key, value, compress?, encrypt?)
     SETUP;
@@ -4332,7 +4370,14 @@ NATIVE(storageSet) {  // (key, value, compress?, encrypt?)
     I->storage_drain();  // an earlier setAsync of this key must not land after this write
     I->storage[key] = I->to_json(argc > 1 ? argv[1] : JS_NULL);
     I->storageMeta[key] = {compress, -1, encrypt};
-    if (I->storageMode == StorageMode::Persistent) I->storage_write(key, compress, encrypt);
+    if (I->storageMode == StorageMode::Persistent) {
+        std::string encodeError;
+        I->storage_write(key, compress, encrypt, &encodeError);
+        if (!encodeError.empty())
+            return throw_err(ctx, "storage.set(key, value" + std::string(encrypt ? ", {encrypt: true}" : "") +
+                                      "): the value of '" + key +
+                                      "' was kept in memory but not written: " + encodeError);
+    }
     return JS_UNDEFINED;
 }
 NATIVE(storageSetAsync) {  // (key, value, compress?, encrypt?) -> job id; the answer comes back through storageDeliver
@@ -4348,7 +4393,7 @@ NATIVE(storageSetAsync) {  // (key, value, compress?, encrypt?) -> job id; the a
         if (!k)
             return throw_err(ctx, "storage.setAsync(key, value, {encrypt: true}): " + k.error().message + ". " +
                                       k.error().hint);
-        job.sealKey = k.value();
+        job.sealKey = storage_files::KeyBox(new crypto::Key(k.value()));
         crypto::secure_zero(k.value());
     }
     I->storage[key] = I->to_json(argc > 1 ? argv[1] : JS_NULL);  // reads see it at once; the file follows
@@ -5421,7 +5466,8 @@ const Reg kRegs[] = {
     R(renderScaleGet, 0),
     R(renderStatsNow, 0),
     R(renderScaleSet, 1),
-    R(storageGet, 1),
+    R(storageGet, 2),
+    R(storageIsEncrypted, 1),
     R(storageSet, 4),
     R(storageSetAsync, 4),
     R(storageSize, 1),

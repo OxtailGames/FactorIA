@@ -17,7 +17,7 @@ key (`"slots.busy"`) while the game may not be saved (a cut-scene, a loading scr
 under the title. A cloud answer that arrives after the scene changed draws nothing (the screen compares `scene.generation`).
 
 ```js
-const slots = new Slots({ version: 2, encrypt: true, upgrade: migrate, describe: (d) => ({ chapter: d.level, playTime: d.seconds }) });
+const slots = new Slots({ version: 2, encrypt: true, requireEncrypted: true, upgrade: migrate, describe: (d) => ({ chapter: d.level, playTime: d.seconds }) });
 const screen = new SlotScreen(menus, {
   slots,
   launch: (data) => startFrom(data),                              // load
@@ -33,7 +33,7 @@ When a slot is read, `upgrade(data, fromVersion)` gets the data and the version 
 before this field are version 0) and returns `{ ok: true, data }` in the newest layout, or `{ ok: false, message, hint }` to damage the
 slot. Raise `version` by one whenever the layout of `data` changes and let `upgrade` step an old save forward
 (`if (from < 1) ...; if (from < 2) ...`); it is called on every read, also for data already at `version`, and must leave that as it is.
-A record from a NEWER build (higher version than this one) is not guessed at: the slot is `damaged` with "update the game". The record
+A record from a NEWER build (higher version than this one), or with a `version` that is not a whole number, is not guessed at: the slot is `damaged` ("update the game" for the first). The record
 the screen and `peek` return shows the version the data has now.
 
 **Encryption.** `encrypt: true` writes every slot with `storage.set(key, text, { encrypt: true })`: the file is sealed, so a text
@@ -41,7 +41,11 @@ editor shows nothing and an edited or damaged slot is refused instead of loaded 
 is `true` and the slot looks empty). It needs the project's secret: run `factoria call project.create_storage_secret` once and commit
 `factoria.json` (without it, the first `write` throws an Error that names that command). The secret ships with the game, so this is
 tamper-evidence against casual editing, not secrecy or anti-cheat: read "Encrypted saves" in `docs/scripting/SCRIPTING_UI_SCENES.md`
-before relying on it. A slot saved before `encrypt` was turned on is still read and is sealed when it is written next. The counter and
+before relying on it. A slot saved before `encrypt` was turned on is still read and is sealed when it is written next, and that is also
+what a player gets by deleting a sealed slot file and writing a plain one by hand: it loads. `requireEncrypted: true` (needs `encrypt`)
+closes that: a slot that is not sealed is `damaged` ("this slot is not encrypted ...", the player can delete it) and the kit reads
+the others with `storage.get(key, null, { encrypted: true })`. Turn it on for a new game, or once your players' slots are sealed (a
+game that shipped plain saves would show all of them as damaged). The counter and
 last-slot keys and the cloud copies stay plain text (the cloud copy that wins a sync is sealed when it is stored locally). Slots are
 sealed per storage key, so a cloud copy moves between a player's devices of the same game.
 

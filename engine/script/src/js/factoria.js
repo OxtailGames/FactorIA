@@ -2310,7 +2310,22 @@
     return [options.compress === true, options.encrypt === true];
   }
   const storage = {
-    get(key, fallback) { const v = N.storageGet(key); return v === undefined ? fallback : v; },
+    get(key, fallback, options) {
+      let encrypted = false;
+      if (options !== undefined && options !== null) {
+        if (!isObj(options)) throw new Error(`storage.get(key, fallback, options): the options must be an object like { encrypted: true }, but got ${inspect(options)}`);
+        for (const k of Object.keys(options)) {
+          if (k === "encrypted") continue;
+          const sug = closest(k, ["encrypted"]);
+          throw new Error(`storage.get(key, fallback, options): unknown option '${k}'${sug ? `; did you mean '${sug}'?` : ""} The only option is encrypted.`);
+        }
+        if (options.encrypted !== undefined && typeof options.encrypted !== "boolean") throw new Error(`storage.get(key, fallback, options): encrypted must be true or false, but got ${inspect(options.encrypted)}`);
+        encrypted = options.encrypted === true;
+      }
+      const v = N.storageGet(key, encrypted);
+      return v === undefined ? fallback : v;
+    },
+    isEncrypted(key) { return N.storageIsEncrypted(key); },
     set(key, value, options) {
       const [compress, encrypt] = storageOptions("storage.set(key, value, options)", options);
       N.storageSet(key, plain(value), compress, encrypt);

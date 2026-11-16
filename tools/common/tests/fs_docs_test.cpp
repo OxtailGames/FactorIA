@@ -165,6 +165,52 @@ TEST_CASE("fs: list read write edit delete") {
     CHECK_FALSE(stdfs::exists(f.tmp.path / "scripts"));
 }
 
+TEST_CASE("fs: factoria.json is shown without the storage secret, and written back with it") {
+    FsFixture f;
+    const std::string secret = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+    const std::string text = "{\n  \"name\": \"T\",\n  \"storage\": {\n    \"encryptionSecret\": \"" + secret +
+                             "\"\n  },\n  \"fixedHz\": 60\n}\n";
+    testing::write_all(f.tmp.path / "factoria.json", text);
+    CHECK(mask_project_secrets("{\"storage\":{\"encryptionSecret\" :\t\"abc\\\"def\"}}") ==
+          "{\"storage\":{\"encryptionSecret\" :\t\"(hidden)\"}}");
+    CHECK(mask_project_secrets("{\"encryptionSecret\": \"cut-off-by-a-4000-byte-head") ==
+          "{\"encryptionSecret\": \"(hidden)");
+    CHECK(mask_project_secrets("{\"a\": 1}") == "{\"a\": 1}");
+    auto read = f.reg.call("fs.read", {{"path", "factoria.json"}});
+    REQUIRE(read.ok);
+    const std::string content = read.result["content"].get<std::string>();
+    CHECK(content.find(secret) == std::string::npos);
+    CHECK(content.find("\"encryptionSecret\": \"(hidden)\"") != std::string::npos);
+    CHECK(content.find("\"fixedHz\": 60") != std::string::npos);
+    CHECK(read.result["totalLines"] == 7);  // line numbers agree with the file
+    auto sliced = f.reg.call("fs.read", {{"path", "./factoria.json"}, {"startLine", 4}, {"endLine", 4}});
+    REQUIRE(sliced.ok);
+    CHECK(sliced.result["content"].get<std::string>().find(secret) == std::string::npos);
+    auto found = f.reg.call("fs.search", {{"query", "encryptionSecret"}});
+    REQUIRE(found.ok);
+    REQUIRE(found.result["count"] == 1);
+    CHECK(found.result["matches"][0]["text"].get<std::string>().find(secret) == std::string::npos);
+    CHECK(f.reg.call("fs.search", {{"query", secret.substr(0, 20)}}).result["count"] == 0);
+    // what the client read is what it writes back: the real secret stays
+    auto write = f.reg.call("fs.write", {{"path", "factoria.json"}, {"content", content}});
+    REQUIRE(write.ok);
+    CHECK(testing::read_all(f.tmp.path / "factoria.json") == text);
+    // fs.edit works on the real text; a find that copies the hidden line says why it does not match
+    auto edit = f.reg.call(
+        "fs.edit", {{"path", "factoria.json"}, {"find", "\"encryptionSecret\": \"(hidden)\""}, {"replace", "x"}});
+    REQUIRE_FALSE(edit.ok);
+    CHECK(edit.error["hint"].get<std::string>().find("(hidden)") != std::string::npos);
+    CHECK(
+        f.reg.call("fs.edit", {{"path", "factoria.json"}, {"find", "\"fixedHz\": 60"}, {"replace", "\"fixedHz\": 30"}})
+            .ok);
+    CHECK(testing::read_all(f.tmp.path / "factoria.json").find(secret) != std::string::npos);
+    // no secret to keep: writing "(hidden)" is refused instead of storing it as the secret
+    testing::write_all(f.tmp.path / "factoria.json", "{\"name\": \"T\"}");
+    auto bad = f.reg.call("fs.write", {{"path", "factoria.json"}, {"content", content}});
+    REQUIRE_FALSE(bad.ok);
+    CHECK(bad.error["message"].get<std::string>().find("(hidden)") != std::string::npos);
+}
+
 TEST_CASE("fs: search skips binary and .factoria, supports regex") {
     FsFixture f;
     auto r = f.reg.call("fs.search", {{"query", "needle"}});

@@ -216,7 +216,9 @@ Result<McpResourceContent> default_mcp_read_resource(const std::string& projectD
         if (!in) return make_error("File '" + rel + "' does not exist in the project.", "Create it first.");
         std::ostringstream ss;
         ss << in.rdbuf();
-        return McpResourceContent{std::string(uri), mime_for(rel), ss.str()};
+        // factoria.json holds the secret that seals the game's saves: a model gets it as "(hidden)", like fs_read shows it.
+        return McpResourceContent{std::string(uri), mime_for(rel),
+                                  rel == "factoria.json" ? mask_project_secrets(ss.str()) : ss.str()};
     }
     return make_error("Unknown resource '" + std::string(uri) + "'.",
                       "Use resources/list; URIs start with factoria://docs/ or factoria://project/.");

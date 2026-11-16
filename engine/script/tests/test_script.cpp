@@ -900,6 +900,45 @@ TEST_CASE("storage: a value that fails authentication is kept aside like a damag
     CHECK(ev_ok(h, "storage.get('slot1').gold") == 1);
 }
 
+TEST_CASE("storage: get with {encrypted: true} refuses a plain file where a sealed one was, and keeps it aside") {
+    TestHost h("encrequire", encrypted_settings());
+    REQUIRE(h.start());
+    const auto dir = h.root / "save" / "storage";
+    ev_ok(h, "storage.set('slot1', {gold: 10}, {encrypt: true}); storage.set('slot2', {gold: 20}, {encrypt: true});"
+             "storage.set('old', {gold: 5});");
+    // a player deletes the sealed file of slot1 and writes the plain format by hand
+    std::filesystem::remove(dir / "slot1.json");
+    std::ofstream(dir / "slot1.json", std::ios::binary) << "{\"key\": \"slot1\", \"value\": {\"gold\": 999999}}\n";
+    h.scripts.set_storage_mode(StorageMode::Persistent);
+    CHECK(ev_ok(h, "storage.corrupt") == false);
+    // by default a plain file is read (a game can turn encryption on later), and storage.isEncrypted tells them apart
+    CHECK(ev_ok(h, "storage.isEncrypted('slot1')") == false);
+    CHECK(ev_ok(h, "storage.isEncrypted('slot2')") == true);
+    CHECK(ev_ok(h, "storage.isEncrypted('nothing')").is_null());
+    CHECK(ev_ok(h, "storage.get('slot1').gold") == 999999);
+    // {encrypted: true} does not trust it: it is kept aside like a damaged file and the fallback is returned
+    CHECK(ev_ok(h, "storage.get('slot2', null, {encrypted: true}).gold") == 20);
+    CHECK(ev_ok(h, "storage.get('slot1', 'fallback', {encrypted: true})") == "fallback");
+    CHECK(ev_ok(h, "storage.corrupt") == true);
+    CHECK(!std::filesystem::exists(dir / "slot1.json"));
+    CHECK(std::filesystem::exists(h.root / "save" / "storage.corrupt.json"));
+    CHECK(slurp_file(h.root / "save" / "storage.corrupt.json").find("999999") !=
+          std::string::npos);  // kept for the player
+    CHECK(ev_ok(h, "storage.get('slot1')").is_null());
+    CHECK(ev_ok(h, "storage.get('old', null, {encrypted: true})")
+              .is_null());  // a plain file from before encryption: refused too
+    // what the game stores plain in this run is not returned either, and nothing is kept aside for it
+    ev_ok(h, "storage.set('mem', 1)");
+    CHECK(ev_ok(h, "storage.get('mem', 'fb', {encrypted: true})") == "fb");
+    CHECK(ev_ok(h, "storage.get('mem')") == 1);
+    // the next sealed save of the key works
+    ev_ok(h, "storage.set('slot1', {gold: 1}, {encrypt: true})");
+    CHECK(ev_ok(h, "storage.get('slot1', null, {encrypted: true}).gold") == 1);
+    // options teach
+    CHECK(ev_err(h, "storage.get('a', 0, {encrpyted: true})").find("did you mean 'encrypted'") != std::string::npos);
+    CHECK(ev_err(h, "storage.get('a', 0, {encrypted: 1})").find("true or false") != std::string::npos);
+}
+
 TEST_CASE("storage: the wrong secret, another game id, another key or a plain edit do not open an encrypted value") {
     TestHost h("encwrong", encrypted_settings());
     REQUIRE(h.start());

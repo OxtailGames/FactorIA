@@ -316,11 +316,15 @@ struct ScriptSystem::Impl {
         bool compressed = false;
         std::int64_t bytes = -1;
         bool encrypted = false;
+        bool fromDisk =
+            false;  // the value was read from a file at the load (and not written since): storage.get(.., {encrypted: true}) judges it
     };
     std::map<std::string, StorageMeta> storageMeta;
     storage_files::Writer storageWriter;  // storage.setAsync
     int nextStorageJob = 1;
-    void storage_write(const std::string& key, bool compress, bool encrypt = false);  // writes one key's file now
+    // Writes one key's file now. A key that cannot be derived or a value that cannot be encoded is not written: the text goes to
+    // `*encodeError` when it is given (storage.set throws it), to the log otherwise.
+    void storage_write(const std::string& key, bool compress, bool encrypt = false, std::string* encodeError = nullptr);
     storage_files::KeyMaterial storage_material() const;  // the project's encryption secret and game id (the host's)
     void storage_remove_file(const std::string& key);
     Json storage_report();                                      // storage.list: the keys in memory and on disk

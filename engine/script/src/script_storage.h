@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <deque>
 #include <filesystem>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -53,6 +54,15 @@ struct Decoded {
 // cannot decrypt, like a listing of damaged files that does not care); a file that fails authentication is "damaged".
 bool decode(const std::string& text, Decoded& out, std::string& problem, const KeyMaterial* material = nullptr);
 
+// A key that is zeroed when it is released, and that a Job can move around without copying the bytes.
+struct KeyDeleter {
+    void operator()(crypto::Key* k) const {
+        crypto::secure_zero(*k);
+        delete k;
+    }
+};
+using KeyBox = std::unique_ptr<crypto::Key, KeyDeleter>;
+
 // One write that setAsync asked for.
 struct Job {
     int id = 0;
@@ -60,8 +70,9 @@ struct Job {
     std::string valueText;  // the value as compact JSON, made on the main thread
     bool compress = false;
     bool encrypt = false;
-    crypto::Key sealKey{};  // when `encrypt`: derived on the main thread (derive_key); zeroed once the job has run
-    bool persist = false;   // false: nothing goes to disk (memory storage); the job only measures its size
+    KeyBox
+        sealKey;  // when `encrypt`: derived on the main thread (derive_key); one heap copy that moves with the job and is zeroed once it has run
+    bool persist = false;  // false: nothing goes to disk (memory storage); the job only measures its size
     std::filesystem::path file;
     // result
     bool ok = true;

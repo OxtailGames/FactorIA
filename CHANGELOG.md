@@ -11,10 +11,14 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   (`factoria.json` `storage.encryptionSecret`, created once with the new command `project.create_storage_secret`; a project
   without it gets a teaching error, and `project.info` / `game.project` show the secret as `"(hidden)"`). `storage.get` opens
   a sealed value transparently; one that fails authentication is kept aside like a damaged file (`storage.corrupt`). It is
-  tamper-evidence, not secrecy: the secret ships with the game (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves").
+  tamper-evidence, not secrecy: the secret ships with the game (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). A plain
+  file is still read by default (a game can turn encryption on later), so a player could replace a sealed file with a hand-written
+  one: `storage.get(key, fallback, {encrypted: true})` refuses it (kept aside, `storage.corrupt`), and `storage.isEncrypted(key)`
+  tells which values are sealed. The secret is shown as `"(hidden)"` by `fs.read` / `fs.search` of `factoria.json`, the MCP
+  resource and the AI prompt, so a model never sees it.
   `storage.list` reports `encrypted` per key. The Slots kit writes a `version` in every record (option `version`), calls
   `upgrade(data, fromVersion)` with it (bare saves and old records are version 0), refuses a record from a newer version, and has
-  an `encrypt` option; its tests and the CLI fixture copies are updated.
+  an `encrypt` option and a `requireEncrypted` one (a slot that is not sealed is damaged); its tests and the CLI fixture copies are updated.
 
 - **Render interpolation (M98.3):** `"render": { "interpolation": true }` in `factoria.json` (default `false`, so nothing
   changes for a game that does not ask) draws entities at the pose between the last two fixed steps, so a 60 Hz simulation
