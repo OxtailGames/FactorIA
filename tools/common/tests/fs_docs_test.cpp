@@ -1127,3 +1127,19 @@ TEST_CASE("fs: factoria.json with CRLF line endings keeps its real secret and it
     CHECK(written.find(secret) != std::string::npos);
     CHECK(written.find("(hidden)") == std::string::npos);
 }
+
+TEST_CASE("fs: an empty storage.encryptionSecret is not hidden, so the file can still be edited") {
+    FsFixture f;
+    const std::string text = "{\n  \"name\": \"T\",\n  \"storage\": {\"encryptionSecret\": \"\"}\n}\n";
+    testing::write_all(f.tmp.path / "factoria.json", text);
+    CHECK(mask_project_secrets("{\"encryptionSecret\": \"\"}") == "{\"encryptionSecret\": \"\"}");
+    auto read = f.reg.call("fs.read", {{"path", "factoria.json"}});
+    REQUIRE(read.ok);
+    CHECK(read.result["content"].get<std::string>().find("(hidden)") == std::string::npos);
+    auto edit =
+        f.reg.call("fs.edit", {{"path", "factoria.json"}, {"find", "\"name\": \"T\""}, {"replace", "\"name\": \"U\""}});
+    REQUIRE(edit.ok);
+    std::string expected = text;
+    expected.replace(expected.find("\"T\""), 3, "\"U\"");
+    CHECK(testing::read_all(f.tmp.path / "factoria.json") == expected);
+}

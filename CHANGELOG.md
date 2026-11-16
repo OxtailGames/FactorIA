@@ -185,7 +185,8 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   is refused for that file. `seal_blob(key, aad, {})` compiles (it was ambiguous between the byte and the text overload), and
   the Windows error of `random_bytes` prints its status in hex; on Android `random_bytes` uses `arc4random_buf`. The docs say
   that `storage.get(.., {encrypted: true})` keeps a plain file aside in the frame, that a write that cannot replace its file
-  (open in another program on Windows) leaves the old file and reports an error, and that `project.create_storage_secret`
+  (open in another program on Windows) leaves the old file (`storage.set` logs a warning and keeps the value in memory,
+  `storage.setAsync` rejects), and that `project.create_storage_secret`
   writes `factoria.json` in the engine's layout.
 ### Added
 

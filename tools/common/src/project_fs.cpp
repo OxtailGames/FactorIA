@@ -176,7 +176,8 @@ Json int_prop(const char* desc, long def) {
 }  // namespace
 
 std::string mask_project_secrets(std::string_view text) {
-    return rewrite_secret_values(text, [](const std::string&) { return std::string(kHiddenSecret); });
+    // An empty value is not a secret (the engine reads it as none): left as it is, so an edit of that file still works.
+    return rewrite_secret_values(text, [](const std::string& v) { return v.empty() ? v : std::string(kHiddenSecret); });
 }
 
 bool is_project_file_path(std::string_view rel) {
