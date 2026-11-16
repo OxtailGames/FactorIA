@@ -222,6 +222,31 @@ struct PrefabDiffOptions {
     // How the children added under the root are written (skipSpawned, prefabs, ...); null = the defaults.
     const EntityJsonOptions* childOptions = nullptr;
 };
+// One thing that differs, in the list form of PrefabDiff::entry (what an editor shows and reverts one by one).
+struct PrefabChange {
+    enum class Kind {
+        Field,      // one serialized field of a component, or name / tags / active (component "EntityInfo")
+        Component,  // a component the prefab does not have
+        Child       // a child added under the instance root
+    };
+    Kind kind = Kind::Field;
+    Entity entity;  // the entity of the world that differs (for Child: the added child)
+    // Where the prefab's counterpart of `entity` stands in the prefab file: the child indexes from the file's root entity
+    // down ({} = the root). Valid when `nodeInFile`; false inside a prefab that the prefab itself instances, where no
+    // node of the file stands for the entity (the change can be shown and reverted, not applied to the file).
+    std::vector<std::size_t> nodePath;
+    bool nodeInFile = true;
+    // The root's Transform.position: where this instance stands, not part of the prefab (prefab.save leaves it out too).
+    bool placement = false;
+    std::string component;
+    std::string field;  // a JSON pointer inside the component: "/position", "/name"; empty for Component and Child
+    Json value;         // the entity's value (Component: the whole component as a scene file writes it; Child: null)
+    Json prefabValue;   // the prefab's value, with the ids of this world's entities (null: none, or not a Field)
+    // `value` as the PREFAB FILE would hold it: an Entity field names the prefab's own id of its target. When `fileError`
+    // is not empty the change cannot be written to the file (a reference to an entity outside the prefab).
+    Json fileValue;
+    std::string fileError;
+};
 struct PrefabDiff {
     // false: the {prefab, differences} form cannot say how the entity differs (a child or component of the prefab removed,
     // a child added under a descendant, a descendant that no override key can name, an id changed, the prefab does not load
@@ -235,7 +260,13 @@ struct PrefabDiff {
     // How many things differ: fields, name/tags/active values, components and children added. 0 = the entity is the
     // prefab's content (apart from its id).
     std::size_t changes = 0;
+    // The same differences one by one, in the order of a walk of the tree (empty when not expressible).
+    std::vector<PrefabChange> list;
 };
+// The root of the prefab instance `e` belongs to: `e` itself, or the entity above it that a prefab made `e` part of
+// (EntityInfo::prefab / fromPrefab); kNullEntity when `e` is not in an instance (a child added under an instance is not:
+// it is listed by the instance's diff as an added child).
+Entity prefab_instance_root(const World& world, Entity e);
 PrefabDiff diff_entity_with_prefab(const World& world, Entity entity, std::string_view prefabPath,
                                    const PrefabDiffOptions& opts = {});
 // Creates an entity (and children) from entity JSON. Errors go to `report`. References to entities inside the JSON (its
