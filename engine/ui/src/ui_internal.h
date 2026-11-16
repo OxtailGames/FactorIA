@@ -35,9 +35,11 @@ struct Item {
     bool interactable = true;
     bool inScope = true;  // false: outside the modal Panel that scopes the input (listed as not interactable)
     // Interactable only:
+    bool oriented =
+        false;  // a built-in widget whose Transform turns or scales it (or a parent's): `quad` is its hit area
     bool custom = false;
     bool world = false;          // projected through a camera (else in screen space, like a built-in widget)
-    std::array<Vec2, 4> quad{};  // the hit area on the screen, a convex quad
+    std::array<Vec2, 4> quad{};  // the hit area on the screen, a convex quad (an Interactable, or `oriented`)
     Vec2 trackA{}, trackB{};     // slider: the screen points of the minimum and the maximum end of the track
     bool surface = false;  // seen on a page (a render target shown on a mesh): `quad` and `at` are in the page's pixels
     Vec2 at{};             // the pointer in the space of `quad`: the mouse, or where it lands on the page
@@ -57,6 +59,10 @@ bool is_custom(const World& w, Entity e);
 
 // The value of an Interactable slider for the pointer at `p`: the fraction of the track the pointer's projection onto it covers.
 float track_fraction(const Item& it, Vec2 p);
+
+// A built-in widget as an item: `rect` is its bounding box on the screen (ui_rect), and a turned or scaled one also has its
+// oriented quad, so a point in a corner of the box that the widget does not cover hits nothing.
+Item widget_item(const World& w, Entity e, UiKind kind, Vec2 design, int layer, bool interactable, bool inScope);
 
 // Snaps `v` into [lo, max(lo, hi)] on the grid `step` from lo (0 = no grid), like a Slider.
 float snap_value(float v, float lo, float hi, float step);

@@ -213,7 +213,16 @@ std::vector<Item> interactable_items(const World& w, Vec2 design, const VisualMe
 }
 
 bool item_contains(const Item& it, Vec2 p) {
-    return it.custom ? it.rect.contains(p) && point_in_quad(p, it.quad) : it.rect.contains(p);
+    return it.custom || it.oriented ? it.rect.contains(p) && point_in_quad(p, it.quad) : it.rect.contains(p);
+}
+
+Item widget_item(const World& w, Entity e, UiKind kind, Vec2 design, int layer, bool interactable, bool inScope) {
+    Item it{e, kind, *ui_rect(w, e, design), layer, interactable, inScope};
+    if (!ui_transform(w, e, design).is_identity()) {
+        it.oriented = true;
+        it.quad = *ui_quad(w, e, design);
+    }
+    return it;
 }
 
 float track_fraction(const Item& it, Vec2 p) {

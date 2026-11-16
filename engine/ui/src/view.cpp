@@ -12,8 +12,9 @@ namespace {
 // (outside that range while a drag leaves the view); dx, dy: how far it moved since the last event of this press; wheel: the
 // wheel steps of a "wheel" event (positive = away from the player, like input.mouse.wheel).
 void send_view_event(World& w, Entity view, const char* phase, Vec2 pointer, Vec2 delta, float wheel, Vec2 design) {
-    const Rect r = *ui_rect(w, view, design);
-    const float u = r.w > 0 ? (pointer.x - r.x) / r.w : 0.0f, v = r.h > 0 ? (pointer.y - r.y) / r.h : 0.0f;
+    const Rect r = *ui_own_rect(w, view, design);
+    const Vec2 at = ui_local_point(w, view, design, pointer);  // a turned view: the pointer in its own frame
+    const float u = r.w > 0 ? (at.x - r.x) / r.w : 0.0f, v = r.h > 0 ? (at.y - r.y) / r.h : 0.0f;
     w.events().game.push_back(GameEvent{"ui.viewPointer",
                                         Json::object({{"id", w.id_of(view)},
                                                       {"phase", phase},

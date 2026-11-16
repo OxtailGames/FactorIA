@@ -67,7 +67,11 @@ TypeBuilder<T>& ui_box_fields(TypeBuilder<T>& b) {
             "is still the visual top-left. So the pivot counts Y UP while `anchor` counts Y DOWN: anchor [0.5, 1] with "
             "pivot [0.5, 0] puts "
             "the widget's bottom edge on the bottom of the screen, and with pivot [0.5, 1] it hangs below the screen "
-            "(docs/MENUS.md, \"Anchors and pivots\"). Layout does not care about the pivot of its children.")
+            "(docs/MENUS.md, \"Anchors and pivots\"). Layout does not care about the pivot of its children. It is also "
+            "the "
+            "point the Transform's rotation.z (degrees, clockwise on screen) and scale.x / .y turn and scale the "
+            "widget around: drawing, hovering, clicking, dragging, the TextField caret and navigation follow the "
+            "turned rectangle, and a scale also changes the room a parent's layout gives it (since 0.30.0).")
         .field(
             "anchor", static_cast<Vec2 T::*>(&UiBox::anchor),
             "Screen point the position is relative to, as a fraction of the screen: [0, 0] top-left (default), [1, 0] "
@@ -2756,7 +2760,10 @@ void register_builtin_components(TypeRegistry& r) {
                 "the other along that axis; grid = `columns` per row, every cell as large as the largest child. "
                 "Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in "
                 "screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout "
-                "moves its Transform.position so it lands in its slot.")
+                "moves its Transform.position so it lands in its slot. A child's Transform.scale multiplies the "
+                "room its slot takes (a row makes room for a child at scale 2); its rotation.z does not: the slot "
+                "stays and the child turns in place around its pivot. A turned or scaled Panel lays its children out "
+                "as if it were not and then turns and scales them with it (since 0.30.0).")
             .field("spacing", &Panel::spacing,
                    "Gap in UI units between children (a grid uses it on both axes; `ui.scale` multiplies it).")
             .range(0, 10000)
