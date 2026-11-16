@@ -4,7 +4,7 @@ A game can get slower or heavier without anyone noticing. FactorIA measures what
 goes past a budget you committed. The engine does this for its own examples in CI; a game does it with the same three
 commands.
 
-## Pages of this doc
+## Pages
 
 - [Budgets by area](performance/PERFORMANCE_AREAS.md): What each budget covers: 2D lights, render interpolation, path finding, startup, loading, script budgets, background loading.
 - [Profiler and job threads](performance/PERFORMANCE_PROFILING.md): Finding what is slow: the profiler and the job threads.

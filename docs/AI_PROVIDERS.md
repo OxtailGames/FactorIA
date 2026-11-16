@@ -17,7 +17,7 @@ role (see [Roles](ai-providers/AI_PROVIDERS_CONFIG.md#roles)) and can mix them.
 > endpoint, see [CLI agents in the editor](#cli-agents-in-the-editor)); it never
 > reads, stores or forwards subscription credentials or tokens.
 
-**Pages**
+## Pages
 
 - [AI providers: configuration, roles and reviews](ai-providers/AI_PROVIDERS_CONFIG.md): The config file, roles and reviews.
 - [AI providers: the built-in agent and its settings](ai-providers/AI_PROVIDERS_AGENT.md): Agent behaviour, conversations, asset providers, permission mode, the AI settings window and asset sources.

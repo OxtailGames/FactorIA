@@ -33,7 +33,7 @@ deleted ([Replacing an earlier export](exporting/EXPORTING_CONTENTS.md#replacing
 (what is on disk, so a release export lists `game.pak`, not the files in it), `nextSteps`, `warnings`. A game with AI-made assets also
 gets `AI_CONTENT_DISCLOSURE.md` ([AI content disclosure](exporting/EXPORTING_CONTENTS.md#ai-content-disclosure)).
 
-## Pages of this doc
+## Pages
 
 - [What is shipped and what each export needs](exporting/EXPORTING_CONTENTS.md): What is shipped, replacing an export, license notices, AI disclosure and what each export needs.
 - [Setting up and platform settings](exporting/EXPORTING_SETUP.md): Setting up this computer and the platform settings of factoria.json.

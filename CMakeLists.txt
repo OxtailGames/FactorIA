@@ -121,7 +121,7 @@ endif()
 #  * -fmath-errno (Clang; GCC has it already): sin, cos, atan2... stay calls into the C library. Without it Clang folds them with
 #    its own arithmetic and merges sin(x) with cos(x) into one sincos call (macOS: __sincosf_stret), which rounds differently
 #    from the two calls, so the same source gave different physics at -O0 and -O3.
-# Nothing uses -ffast-math. docs/AI_GUIDE.md ("Physics and platforms") says what this does and does not give.
+# Nothing uses -ffast-math. docs/ai-guide/AI_GUIDE_CHECKS.md ("Physics and platforms") says what this does and does not give.
 # One genex per language: the Visual Studio generators only accept $<COMPILE_LANGUAGE:> with a single language.
 set(_fa_fp_langs C CXX)
 if(APPLE)

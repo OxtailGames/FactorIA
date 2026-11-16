@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Docs tests (M97.4):** a doctest (`docs_names_test.cpp`) reads every command, component and `Component.field` the docs name in
+  backticks and checks it against the engine's registries, and checks the few sizes a doc states (the MCP result and description
+  caps, the 60 KB page budget) against the constants that set them; the docs it found wrong now say `scene.spawn` (not
+  `scene.add_entity`). `docs.list` gives the menu kit the path `templates/menus/` and the sum of its bytes (it was `""` and 0) and
+  the MCP server lists it as the resource `factoria://docs/menu-kit`; `docs.read` refuses a menu-kit file that holds NUL bytes (it is
+  binary). The page lists of the split docs share one `## Pages` heading, the four sound pages have summaries that say what each
+  answers, and `docs.write_reference` writes the tools table of the AI guide to `<out>/ai-guide/AI_GUIDE_TOOLS.md` (before the
+  split: `<out>/AI_GUIDE.md`).
 - **Example games, last polish (M98):** `project.create {example}` into an existing empty folder never replaces a file or folder that
   another process puts there meanwhile (the moves use a no-replace rename on Linux, macOS and Windows; before, a plain rename could
   overwrite it) and stops with "is not empty any more"; when a move fails and something it had put in the folder cannot be taken
