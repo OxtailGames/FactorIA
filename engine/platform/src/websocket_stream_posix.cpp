@@ -57,7 +57,7 @@ void StreamCore::release() {
 }
 
 Result<void> StreamCore::can_send() const {
-    const WebSocketState s = state_.load();
+    const WebSocketState s = state();
     if (s == WebSocketState::Connecting)
         return make_error("the connection is not open yet", "Wait for the \"open\" event before sending.");
     if (s != WebSocketState::Open) return make_error("the connection is closing or closed", "Connect again to send.");
@@ -89,7 +89,7 @@ Result<void> StreamCore::close(int code, std::string_view reason) {
     bool wasConnecting = false;
     {
         std::lock_guard<std::mutex> lock(mutex_);
-        const WebSocketState s = state_.load();
+        const WebSocketState s = state();
         if (s == WebSocketState::Closing || s == WebSocketState::Closed) return {};
         if (s == WebSocketState::Connecting) {
             // Closing at once; the thread ends the attempt with Error and Close 1006, and then it is Closed.

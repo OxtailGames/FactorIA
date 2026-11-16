@@ -87,6 +87,11 @@ every race of the run and fails the test with its exit code.
   (`tsan_platform_websocket`). Both are part of `CI result` and run
   when the change touches anything but docs. Each runs `sudo sysctl vm.mmap_rnd_bits=28` before the tests: the runner's kernel
   randomizes mappings with more bits than the sanitizers' shadow memory layout supports, and the programs would not start.
+- **The curl WebSocket tests on Linux:** `engine/platform/tests/websocket_curl_tests.cpp` loads libcurl (7.45 or newer) at
+  run time. On desktop Linux a machine where it cannot be loaded fails those cases with the reason, so that a CI image that
+  lost libcurl does not pass by skipping them; `FA_ALLOW_NO_CURL=1` in the environment turns that into a skip, for a local
+  machine without libcurl. On the other systems (macOS runs them with the system's libcurl) a libcurl that cannot be
+  loaded skips the cases with a message.
 - **Suppressions policy:** `tools/ci/sanitizers/` (`asan.supp`, `lsan.supp`, `tsan.supp`, and `ubsan_ignorelist.txt`). A finding
   in our own code (engine, tools, player, tests) is fixed, never listed, with the doctest case that catches it. A finding inside
   `external/`, which is never edited, may be suppressed by file pattern, one entry each with the reason above it

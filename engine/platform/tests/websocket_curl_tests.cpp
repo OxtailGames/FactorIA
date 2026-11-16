@@ -14,10 +14,12 @@
 
 #include <poll.h>
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <iterator>
 #include <string>
 #include <thread>
 #include <utility>
@@ -46,7 +48,7 @@ std::unique_ptr<WebSocketClient> curl_client() {
         auto ws = client->connect(r);
         REQUIRE_FALSE(ws.ok());
         CHECK_FALSE(ws.error().hint.empty());
-#if defined(__linux__)
+#if defined(__linux__) && !defined(__ANDROID__)
         const char* allow = std::getenv("FA_ALLOW_NO_CURL");
         CHECK_MESSAGE(allow != nullptr && allow[0] != '\0' && allow[0] != '0',
                       "libcurl cannot be loaded on this Linux machine (" << client->unavailable_reason()
@@ -510,7 +512,9 @@ TEST_CASE("websocket curl: close() while connecting, the handshake timeout, and 
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         CHECK(ws->close(1000, "").ok());
-        auto events = collect_until_close(*ws, 20000);
+        // The Close may already have arrived while the 300 ms ran (a network that refuses at once): do not wait 20 s more.
+        const bool closed = !early.empty() && early.back().type == WebSocketEvent::Type::Close;
+        auto events = closed ? std::vector<WebSocketEvent>{} : collect_until_close(*ws, 20000);
         early.insert(early.end(), std::make_move_iterator(events.begin()), std::make_move_iterator(events.end()));
         REQUIRE(early.size() >= 2);
         CHECK(early[early.size() - 2].type == WebSocketEvent::Type::Error);
@@ -552,6 +556,27 @@ TEST_CASE("websocket curl: close() while connecting, the handshake timeout, and 
     CHECK_FALSE(client->connect(r).ok());
 }
 
+TEST_CASE("websocket curl: a queue that overflows reads Closed as soon as the Close event can be read") {
+    auto client = curl_client();
+    if (!client) return;
+    fa::test::WsTestServer server;
+    REQUIRE(server.ok());
+    // 48 MB of messages that the game does not read: over the 32 MB the queue holds.
+    auto ws = open(*client, server.url("/flood?n=1000000&count=48"));
+    const auto end = Clock::now() + std::chrono::seconds(30);
+    while (ws->state() != WebSocketState::Closed && Clock::now() < end)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    CHECK(ws->state() == WebSocketState::Closed);
+    CHECK_FALSE(ws->send_text("late").ok());
+    std::vector<WebSocketEvent> events;
+    ws->poll(events);
+    REQUIRE(events.size() == 2);
+    CHECK(events[0].type == WebSocketEvent::Type::Error);
+    CHECK(events[1].type == WebSocketEvent::Type::Close);
+    CHECK(events[1].code == 1008);
+    CHECK(ws->state() == WebSocketState::Closed);
+}
+
 TEST_CASE("websocket curl: a burst of sends to a server that reads slowly arrives whole and in order") {
     // The client's writes stall (CURLE_AGAIN) while more messages queue behind them; the bytes being written must not move
     // or change meanwhile (a TLS library retries the same buffer), and nothing may be lost or reordered.
@@ -568,13 +593,16 @@ TEST_CASE("websocket curl: a burst of sends to a server that reads slowly arrive
     REQUIRE(events.size() == 1);
     REQUIRE(events[0].type == WebSocketEvent::Type::Open);
     std::string message(kSize, '\0');
+    std::size_t maxBuffered = 0;
     for (int i = 0; i < kCount; ++i) {
         for (std::size_t k = 0; k < kSize; ++k) message[k] = burst_byte(i, k);
         REQUIRE(ws->send_binary(message.data(), message.size()).ok());
+        maxBuffered = std::max<std::size_t>(maxBuffered, static_cast<std::size_t>(ws->buffered_amount()));
     }
-    // The server takes 8 KB a millisecond at most, so most of the burst is still waiting: the writes did stall (CURLE_AGAIN),
-    // which is what this case is about.
-    CHECK(ws->buffered_amount() > 0);
+    // The server takes 8 KB a millisecond at most, so while the burst is queued some of it is waiting: the writes did stall
+    // (CURLE_AGAIN), which is what this case is about. The largest value seen inside the loop does not depend on how fast
+    // the transfer thread drains the queue after the last send.
+    CHECK(maxBuffered > 0);
     events = collect_until_close(*ws);
     REQUIRE(events.size() == 2);
     CHECK(events[0].type == WebSocketEvent::Type::Text);

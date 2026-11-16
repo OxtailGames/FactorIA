@@ -696,9 +696,14 @@ private:
             delete holder;  // no handle, no HANDLE_CLOSING
             return false;
         }
-        // From here the Holder belongs to the WebSocket handle. If setting the callback fails, the Holder is not deleted
-        // here: the handle inherited the session's callback (the same function), which gets its HANDLE_CLOSING when
-        // drive() closes it and deletes the Holder there; deleting it now would be a second delete.
+        // From here the Holder belongs to the WebSocket handle: WinHttpWebSocketCompleteUpgrade associates its pContext
+        // with the new handle (the request keeps its own Holder). The callback is another matter. WinHttpSetStatusCallback
+        // says "a callback function can be set on any handle and is inherited by derived handles", so the new handle
+        // should have the request's callback (the same function) already, and the call below only makes sure. If it
+        // fails, the Holder is not deleted here: with the callback inherited, the handle gets its HANDLE_CLOSING when
+        // drive() closes it and the callback deletes the Holder there, so deleting it now would be a second delete. If
+        // the handle had not inherited it, it would get no HANDLE_CLOSING and the Holder would leak (a few bytes and a
+        // reference to the Core, once per failed connection), never be deleted twice.
         if (WinHttpSetStatusCallback(socket, winhttp_status_callback, WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS, 0) ==
             WINHTTP_INVALID_STATUS_CALLBACK) {
             code = GetLastError();
@@ -729,13 +734,19 @@ private:
                 lock.lock();
                 if (rc != NO_ERROR) {
                     // The server's close frame arrived but WinHTTP cannot say what is in it (an empty close frame is
-                    // NO_ERROR with status 1005): report a failure, not a clean 1005.
+                    // NO_ERROR with status 1005): report a failure, not a clean 1005. The server still gets its answer,
+                    // a close frame without a status (1005), so that it does not see the connection drop (1006): the
+                    // loop goes on to the part that sends what is owed.
+                    if (!closeFrameSent_) {
+                        echoOwed_ = true;
+                        echoCode_ = kEmptyCloseStatus;
+                    }
                     if (!finished_)
                         fail_locked("the server closed the connection, but Windows could not read its close status "
                                     "(Windows error " +
                                         std::to_string(rc) + ")",
                                     "Check the server; try again.");
-                    return;
+                    continue;
                 }
                 const int peerCode = status;
                 std::string peerReason(reason, std::min<std::size_t>(reasonBytes, sizeof(reason)));
