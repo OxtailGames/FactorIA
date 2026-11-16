@@ -1,5 +1,7 @@
 // Project dialog (open / new from template), validation report, docs viewer, toasts and the update popup.
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <filesystem>
 
@@ -15,23 +17,21 @@ namespace stdfs = std::filesystem;
 static void scan_projects(std::vector<std::string>& out) {
     out.clear();
     std::error_code ec;
-    std::vector<stdfs::path> roots = {stdfs::current_path(ec)};
-    if (std::string h = home_dir(); !h.empty()) roots.push_back(stdfs::path(h) / "FactorIA" / "examples");
-    for (const auto& root : roots) {
-        if (!stdfs::exists(root / kProjectFileName, ec)) {
-            // examples/* one level down
-            for (auto sub : {root, root / "examples"}) {
-                if (!stdfs::is_directory(sub, ec)) continue;
-                int n = 0;
-                for (auto& d : stdfs::directory_iterator(sub, ec)) {
-                    if (++n > 200) break;
-                    if (d.is_directory(ec) && stdfs::exists(d.path() / kProjectFileName, ec))
-                        out.push_back(d.path().string());
-                }
+    // The current folder: itself a project, or holding projects (here or in an examples/ folder of a clone of the
+    // repository). The downloaded examples are in the Examples tab, not in a folder this scans.
+    const stdfs::path root = stdfs::current_path(ec);
+    if (!stdfs::exists(root / kProjectFileName, ec)) {
+        for (auto sub : {root, root / "examples"}) {
+            if (!stdfs::is_directory(sub, ec)) continue;
+            int n = 0;
+            for (auto& d : stdfs::directory_iterator(sub, ec)) {
+                if (++n > 200) break;
+                if (d.is_directory(ec) && stdfs::exists(d.path() / kProjectFileName, ec))
+                    out.push_back(d.path().string());
             }
-        } else {
-            out.push_back(root.string());
         }
+    } else {
+        out.push_back(root.string());
     }
     std::sort(out.begin(), out.end());
     out.erase(std::unique(out.begin(), out.end()), out.end());
@@ -59,10 +59,220 @@ static std::string delete_project_folder(const std::string& dir) {
     return {};
 }
 
+// ---- the Examples tab (examples_browser.h) -----------------------------------------------------------------------------------
+
+SetupContext Editor::make_examples_context() { return examples_context(); }
+
+void Editor::close_examples_tab() {
+    examples_.close();
+    dlgExampleSel_.clear();
+    dlgExampleNameKey_.clear();
+    dlgExampleNameEdited_ = false;
+    dlgExampleError_.clear();
+}
+
+void Editor::poll_examples_tab() {
+    examples_.poll();
+    if (auto done = examples_.take_created()) {
+        if (done->ok) {
+            dlgExampleError_.clear();
+            dlgError_.clear();
+            open_project(done->dir);  // as New project does
+        } else if (done->cancelled) {
+            dlgExampleError_ = "Cancelled: no project was created.";
+        } else {
+            dlgExampleError_ = done->error + (done->hint.empty() ? "" : "\n" + done->hint);
+        }
+    }
+}
+
+void Editor::draw_examples_tab() {
+    constexpr float kWidth = 596.0f;  // the content width of the window (620 minus its padding)
+    const ImVec4 red(1, 0.45f, 0.4f, 1), green(0.45f, 0.85f, 0.5f, 1);
+    examples_.show(make_examples_context());  // the saved list now, the refresh on a worker thread
+    const bool loading = examples_.loading();
+    const bool creating = examples_.creating();
+    const std::optional<ExamplesList>& list = examples_.list();
+
+    ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + kWidth);
+    // What the list is and where it came from.
+    bool retry = false;
+    if (list && !examples_.error().empty()) {
+        ImGui::TextColored(red, "%s", examples_.error().c_str());
+        retry = true;
+    }
+    if (list) {
+        if (loading)
+            ImGui::TextDisabled("Example games of FactorIA %s: the saved list, checking for the current one...",
+                                list->manifest.engineVersion.c_str());
+        else if (!list->stale)
+            ImGui::TextDisabled("Example games of FactorIA %s. A game is downloaded when you create a project from it.",
+                                list->manifest.engineVersion.c_str());
+        if (!loading && list->stale) {
+            ImGui::TextColored(ImVec4(1, 0.8f, 0.35f, 1), "Showing the saved list: %s", list->staleReason.c_str());
+            at_track("examples:stale");
+            retry = true;
+        }
+    } else if (loading) {
+        ImGui::TextDisabled("Loading the list of example games...");
+        at_track("examples:loading");
+    } else if (!examples_.error().empty()) {
+        ImGui::TextColored(red, "%s", examples_.error().c_str());
+        at_track("examples:error");
+        if (!examples_.hint().empty()) ImGui::TextWrapped("%s", examples_.hint().c_str());
+        retry = true;
+    }
+    ImGui::PopTextWrapPos();
+    if (retry) {
+        ImGui::BeginDisabled(loading);
+        if (ImGui::Button("Retry")) examples_.refresh(make_examples_context());
+        at_track("examples:retry", !loading);
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("Download the list of example games again.");
+    }
+
+    // The games.
+    const float listH = std::clamp(ImGui::GetMainViewport()->Size.y * 0.22f, 130.0f, 220.0f);
+    if (list) {
+        if (!dlgExampleSel_.empty() && !list->manifest.find(dlgExampleSel_).ok()) dlgExampleSel_.clear();
+        if (ImGui::BeginChild("##examples", ImVec2(kWidth, listH), ImGuiChildFlags_Borders)) {
+            for (const ExampleInfo& ex : list->manifest.examples) {
+                const bool downloaded =
+                    std::find(list->downloaded.begin(), list->downloaded.end(), ex.name) != list->downloaded.end();
+                ImGui::PushID(ex.name.c_str());
+                // The text on top of the row's highlight: the highlight (a Selectable over the group's rectangle) is drawn
+                // first, in the channel behind.
+                ImDrawList* dl = ImGui::GetWindowDrawList();
+                dl->ChannelsSplit(2);
+                dl->ChannelsSetCurrent(1);
+                const float x0 = ImGui::GetCursorPosX();
+                const float w = ImGui::GetContentRegionAvail().x;
+                ImGui::BeginGroup();
+                ImGui::TextUnformatted(ex.title.c_str());
+                const std::string size = example_size_text(ex.size);
+                const char* mark = "downloaded";
+                const float rw =
+                    ImGui::CalcTextSize(size.c_str()).x + (downloaded ? ImGui::CalcTextSize(mark).x + 12 : 0);
+                ImGui::SameLine(x0 + std::max(w - rw - 4.0f, 100.0f));
+                if (downloaded) {
+                    ImGui::TextColored(green, "%s", mark);
+                    ImGui::SameLine();
+                }
+                ImGui::TextDisabled("%s", size.c_str());
+                ImGui::PushTextWrapPos(0.0f);
+                ImGui::TextWrapped("%s", ex.shows.c_str());
+                const std::string readFirst = example_read_first_text(ex.readFirst);
+                if (!readFirst.empty()) ImGui::TextDisabled("Read first: %s", readFirst.c_str());
+                ImGui::PopTextWrapPos();
+                ImGui::EndGroup();
+                const ImVec2 mn = ImGui::GetItemRectMin(), mx = ImGui::GetItemRectMax();
+                ImGui::SetCursorScreenPos(mn);
+                dl->ChannelsSetCurrent(0);
+                if (ImGui::Selectable("##row", dlgExampleSel_ == ex.name, 0, ImVec2(0, mx.y - mn.y))) {
+                    dlgExampleSel_ = ex.name;
+                    dlgExampleNameEdited_ = false;
+                    dlgExampleNameKey_.clear();
+                    dlgExampleError_.clear();
+                }
+                at_track("examples:row:" + ex.name);
+                dl->ChannelsMerge();
+                if (ImGui::BeginItemTooltip()) {
+                    ImGui::Text("%s", ex.title.c_str());
+                    for (const std::string& d : ex.readFirst) ImGui::BulletText("%s", d.c_str());
+                    ImGui::EndTooltip();
+                }
+                ImGui::PopID();
+                ImGui::Spacing();
+            }
+        }
+        ImGui::EndChild();
+    } else {
+        ImGui::Dummy(ImVec2(kWidth, 4));
+    }
+
+    // Create: the folder like New project's (<Folder>/<Name>, Folder shared with it), then the download on a worker thread.
+    const ExampleInfo* picked = nullptr;
+    if (list)
+        for (const ExampleInfo& ex : list->manifest.examples)
+            if (ex.name == dlgExampleSel_) picked = &ex;
+    if (picked) {
+        const std::string key = picked->name + "|" + dlgNewParent_;
+        if (key != dlgExampleNameKey_) {
+            dlgExampleNameKey_ = key;
+            if (!dlgExampleNameEdited_)
+                dlgExampleName_ = example_folder_name(picked->name, fs::path_from_utf8(dlgNewParent_));
+        }
+        ImGui::BeginDisabled(creating);
+        ImGui::SetNextItemWidth(220);
+        if (ImGui::InputText("Name##example", &dlgExampleName_)) dlgExampleNameEdited_ = true;
+        at_track("examples:name");
+        ImGui::SetNextItemWidth(-150);
+        if (ImGui::InputText("Folder##example", &dlgNewParent_)) dlgExampleNameKey_.clear();
+        ImGui::SetItemTooltip("The project is created in <folder>/<name>");
+        ImGui::SameLine();
+        if (ImGui::Button("Browse...##example", ImVec2(80, 0))) {
+            std::string p = pick_folder("Folder for the new project", dlgNewParent_);
+            if (!p.empty()) dlgNewParent_ = p;
+        }
+        ImGui::EndDisabled();
+        const std::string problem = example_target_problem(dlgNewParent_, dlgExampleName_);
+        if (!problem.empty()) {
+            ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + kWidth);
+            ImGui::TextColored(red, "%s", problem.c_str());
+            ImGui::PopTextWrapPos();
+        }
+        ImGui::BeginDisabled(creating || !problem.empty());
+        if (ImGui::Button("Create project##example")) {
+            dlgExampleError_.clear();
+            const std::string target =
+                fs::path_to_utf8(fs::path_from_utf8(dlgNewParent_) / fs::path_from_utf8(dlgExampleName_));
+            ScaffoldOptions so;
+            so.name = dlgExampleName_;
+            examples_.create(make_examples_context(), picked->name, target, so);
+        }
+        at_track("examples:create", !creating && problem.empty());
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip(
+            "Downloads %s (%s; nothing if it was downloaded before), checks it and creates the project in "
+            "<folder>/<name>, then opens it.",
+            picked->title.c_str(), example_size_text(picked->size).c_str());
+    } else if (list) {
+        ImGui::TextDisabled("Pick a game to create a project from it.");
+    }
+    if (creating) {
+        const int dots = int(std::fmod(time_ * 3.0, 4.0));
+        ImGui::Text("%s the project from %s%.*s", examples_.cancelling() ? "Cancelling" : "Creating",
+                    examples_.creating_example().c_str(), dots, "...");
+        const double fraction = examples_.fraction();
+        char overlay[16] = {};
+        if (fraction >= 0.0) std::snprintf(overlay, sizeof overlay, "%d%%", int(fraction * 100.0 + 0.5));
+        ImGui::ProgressBar(fraction >= 0.0 ? float(fraction) : float(-1.0 * ImGui::GetTime()), ImVec2(kWidth, 0),
+                           fraction >= 0.0 ? overlay : "working...");
+        at_track("examples:progress");
+        const std::string line = examples_.progress_line();
+        if (!line.empty()) ImGui::TextDisabled("%s", line.c_str());
+        ImGui::BeginDisabled(examples_.cancelling());
+        if (ImGui::Button("Cancel##example")) examples_.cancel_create();
+        at_track("examples:cancel", !examples_.cancelling());
+        ImGui::EndDisabled();
+        ImGui::SetItemTooltip("Stops the download; nothing is created.");
+    }
+    if (!dlgExampleError_.empty()) {
+        ImGui::PushTextWrapPos(ImGui::GetCursorPosX() + kWidth);
+        ImGui::TextColored(red, "%s", dlgExampleError_.c_str());
+        at_track("examples:create-error");
+        ImGui::PopTextWrapPos();
+    }
+}
+
 void Editor::draw_project_dialog() {
     const bool forced = !engine_;
-    if (!showProjectDialog_ && !forced) return;
+    if (!showProjectDialog_ && !forced) {
+        close_examples_tab();  // a refresh or a create still running is cancelled and its result ignored
+        return;
+    }
     if (forced) showProjectDialog_ = true;
+    poll_examples_tab();
     if (!dlgScanned_) {
         dlgScanned_ = true;
         scan_projects(detectedProjects_);
@@ -92,102 +302,121 @@ void Editor::draw_project_dialog() {
         ImGui::TextWrapped("No project is open. Open an existing FactorIA project folder (it contains factoria.json) "
                            "or create a new one from a template.");
     if (!dlgError_.empty()) ImGui::TextColored(ImVec4(1, 0.45f, 0.4f, 1), "%s", dlgError_.c_str());
-    ImGui::SeparatorText("Open project");
-    ImGui::SetNextItemWidth(-264);
-    ImGui::InputTextWithHint("##openpath", "/path/to/project", &dlgOpenPath_);
-    ImGui::SameLine();
-    bool openNow = false;
-    if (ImGui::Button("Browse...##open", ImVec2(80, 0))) {
-        std::string p = pick_folder("Open a FactorIA project (the folder with factoria.json)", dlgOpenPath_);
-        if (!p.empty()) {
-            dlgOpenPath_ = p;
-            openNow = true;
-        }
+    bool projectsTab = false;
+    const bool tabs = ImGui::BeginTabBar("##projtabs");
+    if (tabs) {
+        projectsTab = ImGui::BeginTabItem("Projects");
+        at_track("project:tab-projects");
     }
-    ImGui::SameLine();
-    if (ImGui::Button("Open", ImVec2(80, 0)) || openNow) {
-        std::string dir = dlgOpenPath_;
-        std::error_code ec;
-        if (!stdfs::exists(stdfs::path(dir) / kProjectFileName, ec)) {
-            std::string root = find_project_root(dir);
-            if (!root.empty()) dir = root;
-        }
-        if (!stdfs::exists(stdfs::path(dir) / kProjectFileName, ec))
-            dlgError_ = "No " + std::string(kProjectFileName) + " in '" + dir +
-                        "'. Pick the project's root folder, or create a new project below.";
-        else {
-            dlgError_.clear();
-            open_project(dir);
-        }
-    }
-    ImGui::SameLine();
-    {
-        std::error_code ec;
-        const bool isOpen = engine_ && stdfs::equivalent(dlgOpenPath_, projectDir_, ec);
-        ImGui::BeginDisabled(isOpen || !stdfs::exists(stdfs::path(dlgOpenPath_) / kProjectFileName, ec));
-        if (ImGui::Button("Delete...", ImVec2(80, 0))) dlgDelete_ = dlgOpenPath_;
-        at_track("project:delete");
-        ImGui::EndDisabled();
-        ImGui::SetItemTooltip(isOpen ? "This project is open: open another one first to delete it."
-                                     : "Delete the selected project from disk (asks first).");
-    }
-    if (!recentProjects_.empty() || !detectedProjects_.empty()) {
-        ImGui::BeginChild("##proj_list", ImVec2(0, 96), ImGuiChildFlags_Borders);
-        // The folder name; the full path in the tooltip.
-        auto project_row = [&](const std::string& r) {
-            ImGui::PushID(r.c_str());
-            if (ImGui::Selectable(stdfs::path(r).filename().string().c_str(), dlgOpenPath_ == r,
-                                  ImGuiSelectableFlags_AllowDoubleClick)) {
-                dlgOpenPath_ = r;
-                if (ImGui::IsMouseDoubleClicked(0)) open_project(r);
+    if (projectsTab) {
+        ImGui::SeparatorText("Open project");
+        ImGui::SetNextItemWidth(-264);
+        ImGui::InputTextWithHint("##openpath", "/path/to/project", &dlgOpenPath_);
+        ImGui::SameLine();
+        bool openNow = false;
+        if (ImGui::Button("Browse...##open", ImVec2(80, 0))) {
+            std::string p = pick_folder("Open a FactorIA project (the folder with factoria.json)", dlgOpenPath_);
+            if (!p.empty()) {
+                dlgOpenPath_ = p;
+                openNow = true;
             }
-            ImGui::SetItemTooltip("%s", r.c_str());
-            ImGui::PopID();
-        };
-        for (const auto& r : recentProjects_) project_row(r);
-        for (const auto& r : detectedProjects_)
-            if (std::find(recentProjects_.begin(), recentProjects_.end(), r) == recentProjects_.end()) project_row(r);
-        ImGui::EndChild();
-    }
-    ImGui::SeparatorText("New project from template");
-    static std::vector<TemplateInfo> templates = list_templates();
-    if (templates.empty())
-        ImGui::TextDisabled("No templates found.");
-    else {
-        dlgTemplate_ = std::clamp(dlgTemplate_, 0, int(templates.size()) - 1);
-        ImGui::SetNextItemWidth(220);
-        if (ImGui::BeginCombo("Template", templates[size_t(dlgTemplate_)].name.c_str())) {
-            for (int i = 0; i < int(templates.size()); ++i)
-                if (ImGui::Selectable(templates[size_t(i)].name.c_str(), i == dlgTemplate_)) dlgTemplate_ = i;
-            ImGui::EndCombo();
         }
         ImGui::SameLine();
-        ImGui::TextDisabled("%s", templates[size_t(dlgTemplate_)].description.c_str());
-    }
-    ImGui::SetNextItemWidth(220);
-    ImGui::InputText("Name", &dlgNewName_);
-    ImGui::SetNextItemWidth(-150);
-    ImGui::InputText("Folder", &dlgNewParent_);
-    ImGui::SetItemTooltip("The project is created in <folder>/<name>");
-    ImGui::SameLine();
-    if (ImGui::Button("Browse...##new", ImVec2(80, 0))) {
-        std::string p = pick_folder("Folder for the new project", dlgNewParent_);
-        if (!p.empty()) dlgNewParent_ = p;
-    }
-    ImGui::BeginDisabled(templates.empty() || dlgNewName_.empty());
-    if (ImGui::Button("Create project")) {
-        stdfs::path target = stdfs::path(dlgNewParent_) / dlgNewName_;
-        ScaffoldOptions so;
-        so.name = dlgNewName_;
-        auto r = create_project(target.string(), templates[size_t(dlgTemplate_)].name, so);
-        if (!r)
-            dlgError_ = r.error().to_string();
-        else {
-            dlgError_.clear();
-            open_project(r->dir);
+        if (ImGui::Button("Open", ImVec2(80, 0)) || openNow) {
+            std::string dir = dlgOpenPath_;
+            std::error_code ec;
+            if (!stdfs::exists(stdfs::path(dir) / kProjectFileName, ec)) {
+                std::string root = find_project_root(dir);
+                if (!root.empty()) dir = root;
+            }
+            if (!stdfs::exists(stdfs::path(dir) / kProjectFileName, ec))
+                dlgError_ = "No " + std::string(kProjectFileName) + " in '" + dir +
+                            "'. Pick the project's root folder, or create a new project below.";
+            else {
+                dlgError_.clear();
+                open_project(dir);
+            }
         }
+        ImGui::SameLine();
+        {
+            std::error_code ec;
+            const bool isOpen = engine_ && stdfs::equivalent(dlgOpenPath_, projectDir_, ec);
+            ImGui::BeginDisabled(isOpen || !stdfs::exists(stdfs::path(dlgOpenPath_) / kProjectFileName, ec));
+            if (ImGui::Button("Delete...", ImVec2(80, 0))) dlgDelete_ = dlgOpenPath_;
+            at_track("project:delete");
+            ImGui::EndDisabled();
+            ImGui::SetItemTooltip(isOpen ? "This project is open: open another one first to delete it."
+                                         : "Delete the selected project from disk (asks first).");
+        }
+        if (!recentProjects_.empty() || !detectedProjects_.empty()) {
+            ImGui::BeginChild("##proj_list", ImVec2(0, 96), ImGuiChildFlags_Borders);
+            // The folder name; the full path in the tooltip.
+            auto project_row = [&](const std::string& r) {
+                ImGui::PushID(r.c_str());
+                if (ImGui::Selectable(stdfs::path(r).filename().string().c_str(), dlgOpenPath_ == r,
+                                      ImGuiSelectableFlags_AllowDoubleClick)) {
+                    dlgOpenPath_ = r;
+                    if (ImGui::IsMouseDoubleClicked(0)) open_project(r);
+                }
+                ImGui::SetItemTooltip("%s", r.c_str());
+                ImGui::PopID();
+            };
+            for (const auto& r : recentProjects_) project_row(r);
+            for (const auto& r : detectedProjects_)
+                if (std::find(recentProjects_.begin(), recentProjects_.end(), r) == recentProjects_.end())
+                    project_row(r);
+            ImGui::EndChild();
+        }
+        ImGui::SeparatorText("New project from template");
+        static std::vector<TemplateInfo> templates = list_templates();
+        if (templates.empty())
+            ImGui::TextDisabled("No templates found.");
+        else {
+            dlgTemplate_ = std::clamp(dlgTemplate_, 0, int(templates.size()) - 1);
+            ImGui::SetNextItemWidth(220);
+            if (ImGui::BeginCombo("Template", templates[size_t(dlgTemplate_)].name.c_str())) {
+                for (int i = 0; i < int(templates.size()); ++i)
+                    if (ImGui::Selectable(templates[size_t(i)].name.c_str(), i == dlgTemplate_)) dlgTemplate_ = i;
+                ImGui::EndCombo();
+            }
+            ImGui::SameLine();
+            ImGui::TextDisabled("%s", templates[size_t(dlgTemplate_)].description.c_str());
+        }
+        ImGui::SetNextItemWidth(220);
+        ImGui::InputText("Name", &dlgNewName_);
+        ImGui::SetNextItemWidth(-150);
+        ImGui::InputText("Folder", &dlgNewParent_);
+        ImGui::SetItemTooltip("The project is created in <folder>/<name>");
+        ImGui::SameLine();
+        if (ImGui::Button("Browse...##new", ImVec2(80, 0))) {
+            std::string p = pick_folder("Folder for the new project", dlgNewParent_);
+            if (!p.empty()) dlgNewParent_ = p;
+        }
+        ImGui::BeginDisabled(templates.empty() || dlgNewName_.empty());
+        if (ImGui::Button("Create project")) {
+            stdfs::path target = stdfs::path(dlgNewParent_) / dlgNewName_;
+            ScaffoldOptions so;
+            so.name = dlgNewName_;
+            auto r = create_project(target.string(), templates[size_t(dlgTemplate_)].name, so);
+            if (!r)
+                dlgError_ = r.error().to_string();
+            else {
+                dlgError_.clear();
+                open_project(r->dir);
+            }
+        }
+        ImGui::EndDisabled();
+        ImGui::EndTabItem();
     }
-    ImGui::EndDisabled();
+    if (tabs) {
+        const bool examplesTab = ImGui::BeginTabItem("Examples");
+        at_track("project:tab-examples");
+        if (examplesTab) {
+            draw_examples_tab();
+            ImGui::EndTabItem();
+        }
+        ImGui::EndTabBar();
+    }
     if (!forced && ImGui::Button("Close")) open = false;
 
     if (!dlgDelete_.empty() && !ImGui::IsPopupOpen("Delete project?")) ImGui::OpenPopup("Delete project?");

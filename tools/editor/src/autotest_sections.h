@@ -75,6 +75,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"S3", "Play > Let the AI Play: the Play sessions list marks the AI's sessions, Attach last play session picks the one you played, a real play.auto run on a worker thread ends with its session listed and opened, Cancel writes none"},
     {"R4", "Review window: a sheet made by a command is offered in a toast and opens on its button, 3 and the arrows select, Compare shows 1 and 2 side by side, Enter and the confirmation pick through review.pick (the other files move to the drop folder), History shows the pick and opens the sheet read-only, the Level generator's Sheet of seeds makes a sheet in a child factoria whose pick sets the seed"},
     {"P4", "Prefab overrides in the Inspector: an overridden field is marked and counted, Revert to prefab and Apply to prefab from the field's menu, Undo, the other instance follows an apply, Apply all asks first, a removed component named and given back, Apply greyed out while the game plays"},
+    {"X2", "Start window, Examples tab (a fake release): offline with no saved copy the error and Retry, the list, the saved list shown at once and dropped when the window closes mid-refresh, a failed refresh marked stale, a bad hash is an error that leaves nothing, Cancel, Create makes and opens the project"},
 };
 // clang-format on
 

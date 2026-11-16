@@ -27,6 +27,28 @@ Project...). Type a path or press **Browse...** for the system's folder dialog (
 starts at your Documents folder. Recent projects, and projects found in the current folder,
 are listed by name under the path; hover one to see its path.
 
+### The Examples tab
+
+The dialog's second tab lists the **example games** of the version you have installed: title, what the game shows, the size of
+its download, a green "downloaded" mark when its zip is already in the cache, and the docs to read first (hover a row for their
+paths). The download carries no examples, so the list comes from the GitHub release of your version, through the same functions as
+`project.examples` and `project.create {example}` (docs/CLI.md).
+
+- **Opening the tab** shows the saved copy of the list at once (it only reads the disk) and refreshes it on a worker thread, so a
+  slow or missing connection never freezes the window. A refresh that fails keeps the saved list and says why in a banner with
+  **Retry**; with no saved copy (first run, offline) the tab shows the error, what to do and **Retry**. Closing the dialog cancels
+  a refresh still running and ignores whatever it brings; the list is read again the next time the tab opens. The tab is never
+  loaded while you stay on the Projects tab.
+- **Create**: click a row, then give the **Name** (the new folder, proposed from the example's name: `block-push`, or
+  `block-push-2` when that folder is not empty) and the **Folder** (the same one New project uses, Documents at first), and press
+  **Create project**. The project is made in `<folder>/<name>` on a worker thread with a progress line and **Cancel** (which stops
+  the download and leaves nothing); the download is checked against the release's size and SHA-256 before it is unpacked, and a
+  failure shows its message and hint under the button and leaves no folder behind. On success the project opens, as it does from
+  New project. A folder that exists and is not empty is refused before anything is downloaded.
+
+The projects of the Projects tab no longer include a `~/FactorIA/examples` folder (no package creates one): a clone of the
+repository still lists its `examples/` when the editor starts in it.
+
 The recent list (up to 8, most recent first) lives in `~/.factoria/editor_recent.json`, outside the engine's install
 folder, so it survives updates and reinstalls. The editor reads it once when it starts, even when it starts straight on
 a project (`factoria editor <dir>`, the restart after an update). Every time a project opens, the editor re-reads the

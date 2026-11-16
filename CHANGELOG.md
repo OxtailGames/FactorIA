@@ -10,6 +10,11 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   (`"close"` 1008), `readyState` is `"closed"` as soon as that `"close"` event can be read, as it already was for every other
   end (before, a read right then could still say `"open"` for a moment). On Windows, a close frame from the server whose status
   Windows cannot read is answered with an empty close frame instead of dropping the connection.
+- **Examples tab in the start window (M97.5c):** the Open or create a project window has an Examples tab that lists the example
+  games of your version (what each shows, its size, whether it is downloaded, the docs to read first) and creates a project from
+  one in a folder you choose, with progress and Cancel; the list is read from a saved copy at once and refreshed in the background,
+  and a stale list or an offline first run says why and offers Retry. It replaces the scan of `~/FactorIA/examples`, a folder the
+  download never had.
 - **Example games you can get with a command (M97.5b):** `project.examples` lists the example games of the version you have
   installed (name, title, what each shows, what to read first, download size) and `project.create {example, dir}` makes a project
   from one: it downloads the example's zip from that version's GitHub release, checks its size and SHA-256 against the release's
