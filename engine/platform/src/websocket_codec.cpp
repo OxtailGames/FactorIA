@@ -144,8 +144,10 @@ std::string close_payload(int code, std::string_view reason) {
 }
 
 // ------------------------------------------------------------------------------------------------------ handshake ---
+std::string Url::host_in_brackets() const { return host.find(':') != std::string::npos ? "[" + host + "]" : host; }
+
 std::string Url::host_header() const {
-    std::string h = host.find(':') != std::string::npos ? "[" + host + "]" : host;
+    std::string h = host_in_brackets();
     if (port != (secure ? 443 : 80)) h += ":" + std::to_string(port);
     return h;
 }

@@ -1,5 +1,5 @@
-// A WebSocket server for the tests of the clients (fa/platform/websocket.h), on the loopback address only (127.0.0.1, an
-// ephemeral port): it never accepts a connection from another machine. It is built on the codec of
+// A WebSocket server for the tests of the clients (fa/platform/websocket.h), on the loopback address only (127.0.0.1, or ::1
+// when asked; an ephemeral port): it never accepts a connection from another machine. It is built on the codec of
 // fa/platform/websocket_codec.h, one thread per connection, on POSIX sockets or Winsock. It ends by itself: every thread
 // waits for its socket with poll() (select() on Windows) at most 100 ms at a time and looks at stop_ in between, so the
 // destructor only sets stop_ and joins them (no connection to itself to wake an accept(), which a busy machine can refuse or
@@ -69,26 +69,30 @@ public:
     static constexpr Socket kBad = -1;
 #endif
 
-    WsTestServer() {
+    // `ipv6`: listen on ::1 instead of 127.0.0.1. ok() is false when the machine has no IPv6 loopback (some containers).
+    explicit WsTestServer(bool ipv6 = false) : ipv6_(ipv6) {
 #ifdef _WIN32
         WSADATA data;
         wsaStarted_ = WSAStartup(MAKEWORD(2, 2), &data) == 0;
         if (!wsaStarted_) return;
 #endif
-        listener_ = ::socket(AF_INET, SOCK_STREAM, 0);
+        listener_ = ::socket(ipv6 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
         if (listener_ == kBad) return;
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);  // loopback only
-        addr.sin_port = 0;
-        if (::bind(listener_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 || ::listen(listener_, 16) != 0) {
+        sockaddr_in addr4{};
+        sockaddr_in6 addr6{};
+        addr4.sin_family = AF_INET;
+        addr4.sin_addr.s_addr = htonl(INADDR_LOOPBACK);  // loopback only
+        addr6.sin6_family = AF_INET6;
+        addr6.sin6_addr = in6addr_loopback;
+        sockaddr* addr = ipv6 ? reinterpret_cast<sockaddr*>(&addr6) : reinterpret_cast<sockaddr*>(&addr4);
+        socklen_t length = ipv6 ? static_cast<socklen_t>(sizeof(addr6)) : static_cast<socklen_t>(sizeof(addr4));
+        if (::bind(listener_, addr, length) != 0 || ::listen(listener_, 16) != 0 ||
+            ::getsockname(listener_, addr, &length) != 0) {
             close_socket(listener_);
             listener_ = kBad;
             return;
         }
-        socklen_t length = sizeof(addr);
-        ::getsockname(listener_, reinterpret_cast<sockaddr*>(&addr), &length);
-        port_ = ntohs(addr.sin_port);
+        port_ = ntohs(ipv6 ? addr6.sin6_port : addr4.sin_port);
         thread_ = std::thread([this] { accept_loop(); });
     }
     ~WsTestServer() {
@@ -111,7 +115,8 @@ public:
 
     bool ok() const { return port_ != 0; }
     int port() const { return port_; }
-    std::string url(const std::string& path, const std::string& host = "127.0.0.1") const {
+    std::string url(const std::string& path) const { return url(path, ipv6_ ? "[::1]" : "127.0.0.1"); }
+    std::string url(const std::string& path, const std::string& host) const {
         return "ws://" + host + ":" + std::to_string(port_) + path;
     }
 
@@ -399,6 +404,7 @@ private:
         std::shared_ptr<std::atomic<bool>> done;  // set by the thread as its last step: joining it then is quick
     };
 
+    bool ipv6_ = false;
     Socket listener_ = kBad;
     int port_ = 0;
 #ifdef _WIN32
