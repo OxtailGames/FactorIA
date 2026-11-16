@@ -57,10 +57,10 @@ void Session::reset() {
     delivered_.reset();
 }
 
-void Session::attach(Input* input) {
-    if (input == input_) return;
+void Session::attach(Input* target) {
+    if (target == input_) return;
     if (input_ && input_->composing()) input_->on_composition_cancel();
-    input_ = input;
+    input_ = target;
     reset();
 }
 
@@ -74,6 +74,8 @@ void Session::set_enabled(bool on) {
     if (!on) {
         if (input_ && input_->composing()) input_->on_composition_cancel();
         if (osComposing_) dropping_ = true;  // ime_win32.cpp cancels it; what the IME still says about it is dropped
+    } else {
+        dropping_ = false;
     }
     enabled_ = on;
 }
@@ -85,7 +87,7 @@ void Session::start() {
 
 void Session::composition(const Composition& c) {
     const bool deliver = active() && !dropping_;
-    if ((c.flags & kGcsResultStr) != 0) {
+    if ((c.flags & kGcsResultStr) != 0 && !c.result.empty()) {
         // Windows sends a result again as WM_IME_CHAR (and that as WM_CHAR) when the window passes the message on; this
         // backend does not, but an IME may post them itself: they are swallowed, also for a dropped composition.
         echo_ = c.result;
@@ -109,8 +111,15 @@ void Session::end() {
 }
 
 void Session::cancel() {
-    if (input_ && input_->composing()) input_->on_composition_cancel();
-    if (input_) dropping_ = true;
+    if (!input_) return;
+    const bool open = osComposing_ || input_->composing();
+    if (input_->composing()) input_->on_composition_cancel();
+    if (open) dropping_ = true;
+}
+
+void Session::focus_lost() {
+    swallowed_.reset();
+    delivered_.reset();
 }
 
 bool Session::take_char(char16_t unit) {

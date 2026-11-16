@@ -102,7 +102,9 @@ void associate(bool on) {
 }
 
 // The candidate window under the caret. The composition window is not shown, but some IMEs place their candidates from
-// its position, others from the candidate form (CFS_CANDIDATEPOS, or CFS_EXCLUDE: keep out of the caret's rectangle).
+// its position, others from candidate form 0. That form holds one style, so it gets the one the keyboard's language reads
+// (as Chromium does): Chinese IMEs take CFS_CANDIDATEPOS (the list's top-left corner, under the caret), the others
+// CFS_EXCLUDE (a point and the caret's rectangle the list keeps out of).
 void apply_caret() {
     if (!g_hwnd || !g_session.active() || !g_haveCaret) return;
     // Framebuffer pixels are client pixels unless sokol_app scales the framebuffer (AppDesc::highDpi off).
@@ -122,22 +124,21 @@ void apply_caret() {
     comp.ptCurrentPos.x = x;
     comp.ptCurrentPos.y = y;
     ImmSetCompositionWindow(himc, &comp);
-    CANDIDATEFORM pos{};
-    pos.dwIndex = 0;
-    pos.dwStyle = CFS_CANDIDATEPOS;
-    pos.ptCurrentPos.x = x;
-    pos.ptCurrentPos.y = y + h;
-    ImmSetCandidateWindow(himc, &pos);
-    CANDIDATEFORM exclude{};
-    exclude.dwIndex = 0;
-    exclude.dwStyle = CFS_EXCLUDE;
-    exclude.ptCurrentPos.x = x;
-    exclude.ptCurrentPos.y = y + h;
-    exclude.rcArea.left = x;
-    exclude.rcArea.top = y;
-    exclude.rcArea.right = x + w;
-    exclude.rcArea.bottom = y + h;
-    ImmSetCandidateWindow(himc, &exclude);
+    const auto lang = static_cast<unsigned>(reinterpret_cast<UINT_PTR>(GetKeyboardLayout(0)) & 0xFFFFu);
+    CANDIDATEFORM cand{};
+    cand.dwIndex = 0;
+    cand.ptCurrentPos.x = x;
+    cand.ptCurrentPos.y = y + h;
+    if (PRIMARYLANGID(lang) == LANG_CHINESE) {
+        cand.dwStyle = CFS_CANDIDATEPOS;
+    } else {
+        cand.dwStyle = CFS_EXCLUDE;
+        cand.rcArea.left = x;
+        cand.rcArea.top = y;
+        cand.rcArea.right = x + w;
+        cand.rcArea.bottom = y + h;
+    }
+    ImmSetCandidateWindow(himc, &cand);
     ImmReleaseContext(g_hwnd, himc);
 }
 
@@ -153,17 +154,21 @@ void cancel_os() {
 void on_composition(HWND hwnd, LPARAM lp) {
     imm::Composition c;
     c.flags = static_cast<std::uint32_t>(lp);
-    if (HIMC himc = ImmGetContext(hwnd)) {
-        if ((c.flags & imm::kGcsResultStr) != 0) c.result = read_string(himc, GCS_RESULTSTR);
-        if (imm::wants_comp(c.flags)) {
-            c.comp = read_string(himc, GCS_COMPSTR);
-            c.attrs = read_array<std::uint8_t>(himc, GCS_COMPATTR);
-            c.clauses = read_array<std::uint32_t>(himc, GCS_COMPCLAUSE);
-            if ((c.flags & imm::kGcsCursorPos) != 0)
-                c.cursor = ImmGetCompositionStringW(himc, GCS_CURSORPOS, nullptr, 0);
-        }
-        ImmReleaseContext(hwnd, himc);
+    HIMC himc = ImmGetContext(hwnd);
+    if (!himc) {
+        // Nothing to read: an empty result would commit nothing, an empty pre-edit string would end the composition.
+        // Keep what Input shows until the next message.
+        FA_WARN("platform", "IME: WM_IME_COMPOSITION (flags {:#x}) without an input context: ignored", c.flags);
+        return;
     }
+    if ((c.flags & imm::kGcsResultStr) != 0) c.result = read_string(himc, GCS_RESULTSTR);
+    if (imm::wants_comp(c.flags)) {
+        c.comp = read_string(himc, GCS_COMPSTR);
+        c.attrs = read_array<std::uint8_t>(himc, GCS_COMPATTR);
+        c.clauses = read_array<std::uint32_t>(himc, GCS_COMPCLAUSE);
+        if ((c.flags & imm::kGcsCursorPos) != 0) c.cursor = ImmGetCompositionStringW(himc, GCS_CURSORPOS, nullptr, 0);
+    }
+    ImmReleaseContext(hwnd, himc);
     g_session.composition(c);
 }
 
@@ -171,7 +176,18 @@ void unhook();
 
 LRESULT CALLBACK ime_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     const WNDPROC original = g_original;
-    if (hwnd == g_hwnd && g_session.input() != nullptr) {
+    if (msg == WM_NCDESTROY && hwnd == g_chainHwnd) {
+        // The window goes, attached or not (app.cpp may not have detached, or another hook kept ime_wndproc in the chain
+        // after a detach): forget it without calling the Input, and leave no procedure of a dead window behind.
+        if (hwnd == g_hwnd) {
+            g_session.forget();
+            g_haveCaret = false;
+        }
+        unhook();
+        g_original = nullptr;
+        g_chainHwnd = nullptr;
+        g_hwnd = nullptr;
+    } else if (hwnd == g_hwnd && g_session.input() != nullptr) {
         switch (msg) {
             case WM_IME_SETCONTEXT:
                 lp = static_cast<LPARAM>(static_cast<ULONG_PTR>(lp) &
@@ -196,11 +212,7 @@ LRESULT CALLBACK ime_wndproc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             case WM_SYSKEYUP:
                 if (g_session.key_up(scan_code(lp))) return DefWindowProcW(hwnd, msg, wp, lp);
                 break;
-            case WM_NCDESTROY:  // the window goes before app.cpp detached: forget it without calling the Input
-                g_session.forget();
-                g_haveCaret = false;
-                unhook();
-                break;
+            case WM_KILLFOCUS: g_session.focus_lost(); break;
             default: break;
         }
     }

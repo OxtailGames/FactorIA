@@ -68,11 +68,12 @@ class Session {
 public:
     // Which Input the composition goes to (nullptr: none, nothing is delivered). Changing it cancels the composition the
     // old one had open and forgets the state.
-    void attach(Input* input);
+    void attach(Input* target);
     // No Input any more, without calling the old one (the window is being destroyed and it may be gone).
     void forget();
     Input* input() const { return input_; }
-    // A text field has the focus. Turning it off ends Input's composition (cancelled) and drops the rest of the OS's one.
+    // A text field has the focus. Turning it off ends Input's composition (cancelled) and drops the rest of the OS's one;
+    // turning it on ends any dropping (a new field: what the IME says now is about it).
     void set_enabled(bool on);
     bool enabled() const { return enabled_; }
     bool active() const { return input_ != nullptr && enabled_; }
@@ -83,13 +84,18 @@ public:
     void start();
     // WM_IME_COMPOSITION: the result first (Windows sends GCS_RESULTSTR | GCS_COMPSTR together when one composition ends
     // and the next begins: Korean), then the pre-edit string. An empty pre-edit string ends the composition (cancelled).
+    // An empty result (the context could not be read) commits nothing: the composition stays as it was.
     void composition(const Composition& c);
     // WM_IME_ENDCOMPOSITION. A composition still open in Input ends without typing (cancelled).
     void end();
-    // ime_cancel(): Input's composition ends (cancelled) and every message of the OS's one is dropped from now on, until
-    // the next WM_IME_STARTCOMPOSITION or key down (an IME that ignores the cancel keeps its text: what it sends after the
-    // player types again is about the field that has the focus now). ime_win32.cpp tells the IME right after.
+    // ime_cancel(): Input's composition ends (cancelled) and, when one was open (in Input or the OS), every message of the
+    // OS's one is dropped from now on, until the next WM_IME_STARTCOMPOSITION, key down or set_enabled(true) (an IME that
+    // ignores the cancel keeps its text: what it sends after the player types again is about the field that has the focus
+    // now). With none open nothing is dropped: every click in a field cancels, and a result that comes with no key before
+    // it (the IME pad, the touch keyboard) still types. ime_win32.cpp tells the IME right after.
     void cancel();
+    // WM_KILLFOCUS: the keys held now get their key up elsewhere; what the session knew about them is forgotten.
+    void focus_lost();
 
     // WM_CHAR and WM_IME_CHAR, one UTF-16 unit each: true = swallow, the unit repeats (in order) the result a commit already
     // delivered. A unit that does not match ends the repeat: it and the rest are typed as usual.

@@ -278,6 +278,63 @@ TEST_CASE("Windows IME: a key down after a cancel ends the dropping") {
     CHECK(in.composition_text() == U"かあ");
 }
 
+TEST_CASE("Windows IME: ime_cancel with no composition open drops nothing") {
+    // Every click in a field calls ime_cancel(): a result that comes later with no key before it (the IME pad, the touch
+    // keyboard) still types.
+    Input in;
+    Session s;
+    s.attach(&in);
+    s.set_enabled(true);
+    s.cancel();
+    CHECK_FALSE(s.dropping());
+    s.composition(result(u"字"));
+    CHECK(in.text_input() == U"字");
+    // Input composing while the OS had already ended its composition counts as open.
+    s.composition(comp(u"か", 1));
+    CHECK(in.composing());
+    s.cancel();
+    CHECK(s.dropping());
+    // Turning it on again (a field takes the focus) ends the dropping too.
+    s.set_enabled(false);
+    s.set_enabled(true);
+    CHECK_FALSE(s.dropping());
+    s.composition(result(u"文"));
+    CHECK(in.text_input() == U"字文");
+    // Not attached: nothing to cancel, nothing dropped.
+    Session none;
+    none.cancel();
+    CHECK_FALSE(none.dropping());
+}
+
+TEST_CASE("Windows IME: a result the context could not give commits nothing") {
+    Input in;
+    Session s;
+    s.attach(&in);
+    s.set_enabled(true);
+    s.start();
+    s.composition(comp(u"にほん", 3));
+    s.composition(result(u""));  // GCS_RESULTSTR, but the string read empty
+    CHECK(in.composing());
+    CHECK(in.composition_text() == U"にほん");
+    CHECK(in.text_input().empty());
+    CHECK_FALSE(s.take_char(u'x'));  // no repeat armed
+}
+
+TEST_CASE("Windows IME: losing the focus forgets the keys held") {
+    Input in;
+    Session s;
+    s.attach(&in);
+    s.set_enabled(true);
+    CHECK(s.key_down(kVkProcessKey, kScA));  // the IME took it; its up would be swallowed
+    s.focus_lost();                          // the up goes to another window
+    CHECK_FALSE(s.key_down(kVkA, kScA));     // back: a key the IME did not take
+    CHECK_FALSE(s.key_up(kScA));             // its up is the game's
+    CHECK_FALSE(s.key_down(kVkShift, kScShift));
+    s.focus_lost();
+    CHECK(s.key_down(kVkProcessKey, kScShift));  // the down before the focus went no longer counts as delivered
+    CHECK(s.key_up(kScShift));
+}
+
 TEST_CASE("Windows IME: turning it off ends the composition and leaves the keys alone") {
     Input in;
     Session s;
