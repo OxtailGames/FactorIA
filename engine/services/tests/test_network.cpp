@@ -430,3 +430,38 @@ TEST_CASE("analytics and remoteConfig sections: the endpoint must be https and i
             .ok());
     CHECK_FALSE(parse_remote_config(Json::parse(R"({"url":"https://nope.example.com/cfg.json"})"), net).ok());
 }
+
+// ------------------------------------------------------------------------------------------------- the ws URL ----
+TEST_CASE("network: WebSocket addresses follow the host list of http.fetch") {
+    NetworkPolicy p = policy(R"(["api.example.com","*.cdn.example.com","localhost","127.0.0.1"])");
+    auto ok = check_ws_url("WSS://API.Example.com/chat?room=1#frag", p);
+    REQUIRE_MESSAGE(ok.ok(), (ok.ok() ? std::string() : ok.error().to_string()));
+    CHECK(ok->scheme == "wss");
+    CHECK(ok->host == "api.example.com");
+    CHECK(ok->url == "wss://api.example.com/chat?room=1");
+    CHECK(check_ws_url("wss://api.example.com", p)->url == "wss://api.example.com/");
+    CHECK(check_ws_url("wss://api.example.com:8443/", p)->port == 8443);
+    CHECK(check_ws_url("wss://a.cdn.example.com/x", p).ok());
+    CHECK(check_ws_url("ws://localhost:8080/x", p).ok());  // loopback may use ws
+    CHECK(check_ws_url("ws://127.0.0.1:8080/x", p).ok());
+
+    auto message = [&](const char* url, const NetworkPolicy& policy) {
+        auto r = check_ws_url(url, policy);
+        REQUIRE_FALSE(r.ok());
+        return r.error().message + " | " + r.error().hint;
+    };
+    CHECK(has(message("ws://api.example.com/x", p), "plain ws://"));
+    CHECK(has(message("ws://api.example.com/x", p), "wss://api.example.com"));
+    CHECK(has(message("wss://other.example.com/x", p), "not declared"));
+    CHECK(has(message("wss://api.example.co/x", p), "Did you mean"));
+    CHECK(has(message("wss://cdn.example.com/x", p), "not declared"));
+    CHECK(has(message("wss://api.example.com/x", NetworkPolicy{}), "declares no network hosts"));
+    CHECK(has(message("wss://api.example.com/x", NetworkPolicy{}), "websocket.connect"));
+    CHECK(has(message("https://api.example.com/x", p), "only speaks wss"));  // not an address of this protocol
+    CHECK(has(message("api.example.com/x", p), "not absolute"));
+    CHECK(has(message("wss://user:pw@api.example.com/x", p), "user name or password"));
+    CHECK(has(message("wss://api.example.com:0/x", p), "port"));
+    CHECK(has(message("wss://api.example.com/a b", p), "space"));
+    // http.fetch does not take a ws address, and the other way round.
+    CHECK_FALSE(check_http_url("wss://api.example.com/x", p).ok());
+}
