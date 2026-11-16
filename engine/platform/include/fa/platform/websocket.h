@@ -158,6 +158,11 @@ public:
     // unsent data. The text must be valid UTF-8.
     virtual Result<void> send_text(std::string_view text) = 0;
     virtual Result<void> send_binary(const void* data, std::size_t size) = 0;
+    // macOS and iOS (NSURLSession) differ in one place: the system reports the close as soon as it has sent the close frame, so
+    // the Close event comes at once with the code and reason asked for and wasClean true, without waiting for the server's
+    // answer and without the kWebSocketCloseWaitSec wait; and no code (0) is sent as 1000, because the system cannot send a
+    // close frame without one.
+    //
     // Closing while the connection is still Connecting abandons the attempt: state() is Closing at once, and Closed when
     // poll() delivers its Error and Close 1006 (wasClean false). The Error says close() was called before the connection
     // opened.
