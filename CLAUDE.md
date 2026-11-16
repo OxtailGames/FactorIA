@@ -21,7 +21,7 @@ ctest --test-dir build/dev --output-on-failure
 
 - The example games' tests (`example_*`, ctest label `example`) run the whole engine for minutes, so they are DISABLED
   in a Debug build and run on a Release one: `ctest -L example` in a Release build dir (`FA_EXAMPLE_TESTS`,
-  docs/design/BUILDING.md). `scripts/test-all.sh` does both: Debug build of every target + the Debug suite, then a Release
+  docs/design/BUILDING_TESTS.md, "Running tests"). `scripts/test-all.sh` does both: Debug build of every target + the Debug suite, then a Release
   build of `factoria` + `ctest -L example` (`--debug-only` / `--examples-only` for one half). Script time limits (60 s
   per test, 5 s eval, 2 s callbacks) count CPU time, so a loaded machine does not fail them.
 - One module's tests: `cmake --build build/dev --target fa_test_core`.
@@ -44,7 +44,7 @@ ctest --test-dir build/dev --output-on-failure
   (twelve at once froze the user's Mac and it had to be restarted). `scripts/agent-build.sh` enforces it (a fourth job
   waits for a slot, `FA_AGENT_MAX_JOBS`) and picks each job's `-j` from the CPU count; the orchestrator still launches
   at most three building workers and queues the rest, starting one as each ends (reviewers and researchers that only
-  read do not count). ccache (docs/design/BUILDING.md): with GCC/Clang every checkout and worktree
+  read do not count). ccache (docs/design/BUILDING.md, "Troubleshooting"): with GCC/Clang every checkout and worktree
   shares one cache; with MSVC each checkout keeps its own. Run the final full `ctest` while no other build runs: some
   tests are timing-sensitive.
 - Other platforms locally: `scripts/ci-local.sh linux windows` runs the Linux job and a Windows build (MinGW-w64 +

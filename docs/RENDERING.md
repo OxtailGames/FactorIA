@@ -124,7 +124,7 @@ What the mask covers, and what it leaves alone:
   overlays (`debug.line`, selection boxes) are not entities and are never filtered.
 - Cost: nothing when both lists are empty. With a list the camera checks each entity's tags and its ancestors once per frame.
 
-### A page of a book: world-space entities
+### A page of a book: world-space entities, in a script
 
 A target camera does not draw screen-space UI (`Panel`, `Button` and the other widgets, and any item with `space: "screen"`):
 those belong to the screen. What a page is made of are ordinary world-space entities: `Sprite`, `Text`, `Shape2D`, children of

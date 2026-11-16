@@ -62,7 +62,9 @@ entity, instead of walking the parent chain on every call (`engine/scene/src/wor
 documented fields. From it we derive: JSON load/save, `scene.set_component`, script
 property access, JSON Schemas, Markdown docs and TypeScript declarations.
 
-Versions: `tools/common/api_since.json` says which release added each component, field (`Component.field`), command
+### Versions
+
+`tools/common/api_since.json` says which release added each component, field (`Component.field`), command
 and script export, and the generated reference prints it. A new component, field, command or script export needs an
 `"unreleased"` entry there (not in the registration call); the `"script"` section is keyed by the name of each export of
 `engine/script/src/js/api.json` (`tween`, `NavAPI`; the object `nav` is of type `NavAPI`, so the version of
@@ -82,7 +84,9 @@ rewrites the tools table of docs/AI_GUIDE.md section 4, the block between `<!-- 
 a purpose; a guide without the markers gives a `warnings` entry in the result and is left alone); plus
 `factoria api --dts --project examples/<name>` for the committed typings).
 
-Deprecations: an API that gets a better replacement is deprecated for two minor versions and then removed, never changed
+### Deprecations
+
+An API that gets a better replacement is deprecated for two minor versions and then removed, never changed
 silently. The one source of truth is the `"deprecated"` section of `tools/common/api_since.json`, keyed like the sections
 above: `"commands"` (`scene.old`), `"components"` (`Sprite` or `Sprite.oldField`) and `"script"` (`oldExport`,
 `NavAPI.oldMember`, `test:` prefix as in the since marks). To deprecate something, keep it working, add the entry (the

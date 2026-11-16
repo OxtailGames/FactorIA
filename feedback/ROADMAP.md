@@ -1262,6 +1262,8 @@ entry of `examples/*` opens each milestone.
 - M97.4 (M) Doc tests: every JS block parses and uses only existing script API (checked against the typings); every
   command, component and field a doc names exists; counts and sizes come from their source; every doc is reachable
   from the README; a translation records the English commit it follows and is flagged when the original moves on.
+  DONE for links, citations, reachability, the "not in the binary" notes, duplicate headings and translation hashes (97.4c); the
+  JS blocks, the names a doc mentions and the counts are 97.4a and 97.4b.
 - M97.5 (M) Example games a user can get: the download carries none (only a clone of the repository has `examples/`),
   yet 12 embedded docs cite `examples/...` paths and the editor's start window scans `~/FactorIA/examples`, a folder no
   package creates. Each release publishes every example as its own zip (the project without `.factoria/`) with its

@@ -1,5 +1,5 @@
 // The fake platform backend: a deterministic, in-memory store for headless runs, `factoria test` and development
-// (docs/PLATFORM.md, "The fake backend"). It offers every service, keeps everything in memory (nothing reaches a
+// (docs/platform/PLATFORM_API.md, "The fake store, and testing with it"). It offers every service, keeps everything in memory (nothing reaches a
 // real store, nothing is written to disk) and never reads the clock: the same requests always give the same answers.
 //
 // Test hooks: respond() scripts the next answers of a method (a cancelled purchase, a network error), emit() sends an

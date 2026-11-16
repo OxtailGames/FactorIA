@@ -1428,7 +1428,7 @@ NATIVE(setUiMirrorRtl) {  // (on: boolean)
     if (argc < 1 || !JS_IsBool(argv[0]))
         return throw_err(ctx, std::format("ui.mirrorRtl = {}: expected true or false (true mirrors the screen-space UI "
                                           "in a right-to-left language, "
-                                          "docs/LOCALIZATION.md, \"Right to left\").",
+                                          "docs/LOCALIZATION.md, \"Right-to-left text\").",
                                           arg_str(ctx, argc, argv, 0)));
     W.set_ui_mirror_rtl(JS_ToBool(ctx, argv[0]) != 0);
     return JS_UNDEFINED;

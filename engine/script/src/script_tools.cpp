@@ -174,7 +174,7 @@ void Impl::reload_tools() {
             // narrows it (a game script that called the tool is bounded by the scope that call was made in). The mode covers the
             // jobs this call pumps itself while the tool is running (an async tool continues there). run_jobs runs EVERY pending
             // job in that mode, so a game promise continuation or event listener that is pending then also runs with the caller's
-            // set (docs/SCRIPTING.md, "Command capabilities"); a job pumped after the call returns runs in the mode of whoever
+            // set (docs/scripting/SCRIPTING_RENDER_SERVICES.md, "What fa.call can do from a game"); a job pumped after the call returns runs in the mode of whoever
             // pumps it. Game code the tool triggers directly (game.step, a behaviour callback) is back to Game.
             CapModeScope callerSet(*this, CapMode::Caller);
             const std::string toolFile = it->second.file;

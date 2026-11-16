@@ -541,7 +541,8 @@ static Result<SignWindowsReport> sign_windows_impl(const SignWindowsOptions& opt
                        "`testCertificate` needs Windows (it makes the certificate with PowerShell and keeps it in the "
                        "Windows certificate store); this computer is " +
                        host,
-                   "Make a code-signing .pfx yourself (docs/EXPORTING.md, \"Trying the package on your PC\") and pass "
+                   "Make a code-signing .pfx yourself (docs/exporting/EXPORTING_STORES.md, \"Try it on a PC without "
+                   "the Store\") and pass "
                    "it as `pfx` with the password in " +
                        std::string(kPasswordVar) + ", or run sign.windows on the PC that will install the package.");
 
@@ -970,7 +971,8 @@ void register_sign_windows_command(CommandRegistry& registry, const std::string&
         "Publisher in your user certificate store, signs with it and saves the public part as "
         "<slug>-windows-test-certificate.cer: trust it once (Import-Certificate ... -CertStoreLocation "
         "Cert:\\LocalMachine\\TrustedPeople as Administrator) and `Add-AppxPackage -Path <the .msix>` "
-        "installs the game (docs/EXPORTING.md, \"Trying the package on your PC\"). The tool: signtool.exe on "
+        "installs the game (docs/exporting/EXPORTING_STORES.md, \"Try it on a PC without the Store\"). The tool: "
+        "signtool.exe on "
         "Windows (FACTORIA_SIGNTOOL, else the newest Windows SDK, else PATH); osslsigncode on macOS and "
         "Linux (FACTORIA_OSSLSIGNCODE, else PATH; 2.9 or newer). Digest SHA-256 and an RFC 3161 time stamp "
         "(`timestampUrl`, default http://timestamp.digicert.com). `dryRun: true` checks everything and "

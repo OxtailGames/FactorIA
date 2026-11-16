@@ -3,7 +3,7 @@
 // They do not inherit the editor's whole environment: it holds signing passwords (FACTORIA_WINDOWS_PFX_PASSWORD,
 // FACTORIA_APPLE_APP_PASSWORD, FACTORIA_ANDROID_*_PASSWORD...) and the API keys of every provider, and a program that follows a
 // prompt (a hook, an agent's shell) could print them. Each gets fa::base_child_env() (PATH, HOME, locale, temp folders...) plus
-// what it needs to work, plus what the user listed in "inheritEnv" of ai.json. docs/AI_PROVIDERS.md, "Environment of the programs".
+// what it needs to work, plus what the user listed in "inheritEnv" of ai.json. docs/ai-providers/AI_PROVIDERS_CONFIG.md, "Environment of the programs the AI starts".
 #pragma once
 
 #include <string>

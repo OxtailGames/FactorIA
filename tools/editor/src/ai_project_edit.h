@@ -1,4 +1,4 @@
-// The non-UI half of the AI settings window's per-project editing (docs/EDITOR.md, "AI settings"; docs/AI_PROVIDERS.md, "Per
+// The non-UI half of the AI settings window's per-project editing (docs/ai-providers/AI_PROVIDERS_AGENT.md, "The AI settings window"; docs/AI_PROVIDERS.md, "Per
 // project"): where a row's value comes from, what the Roles and Assets tabs would write to <project>/.factoria/ai/settings.json,
 // and what "Save as my defaults" writes to ai.json. The window itself is in ai_settings.cpp and ai_project_ui.cpp.
 #pragma once

@@ -84,7 +84,7 @@ if ($ExamplesOnly) { $Examples = $true }
 if ($WindowTestsOnly) { $Test = $true; $Examples = $false }
 
 # Release build of the CLI and `ctest -L example`: the example games run the whole engine for minutes, so they are tests of
-# an optimized build (FA_EXAMPLE_TESTS, docs/design/BUILDING.md).
+# an optimized build (FA_EXAMPLE_TESTS, docs/design/BUILDING_TESTS.md, "Running tests").
 function Invoke-ExampleTests {
     $relDir = "$BuildDir-release"
     New-Item -ItemType Directory -Force -Path $relDir | Out-Null

@@ -46,7 +46,7 @@ An open entry that fails the check is not a gap. It gets the status `rejected`, 
   you tick **closed**, with the status and a `*` marker; hover the status for who decided and why. Its window shows the reason.
 - A person who disagrees reopens it (status `open`): the entry then carries `claimCheck: "dismissed"` and the engine never rejects it again.
 - Do not confuse it with `shared.status: "rejected"`: that one says the feedback SERVER refused the text of a report (privacy or format
-  check, docs/design/FEEDBACK_SHARING.md). A report the engine developers refused is `shared.status: "declined"`.
+  check, docs/design/FEEDBACK_SHARING.md, repository only, not in the binary). A report the engine developers refused is `shared.status: "declined"`.
 - Delete: `feedback.delete` (CLI `factoria feedback discard <id>`; the editor's Delete button asks first). It removes a closed entry (from the
   file or the archive) or an open entry the engine developers refused. An open entry that is somebody's question for the engine
   developers is refused with the reason. Ids are never reused (`nextId` in both files), and what was already sent stays with the

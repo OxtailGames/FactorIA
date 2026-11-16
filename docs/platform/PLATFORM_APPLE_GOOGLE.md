@@ -157,7 +157,7 @@ Play Games has no stats and no presence: `platform.has("stats")` and `platform.h
 answers those calls `unavailable`. Keep the numbers you need in `cloud.save` or on a leaderboard. Without a project id,
 `platform.has("achievements")`, `"leaderboards"` and `"cloudSave"` are false too, and `platform.signIn()` answers signed out.
 
-### Setup, in one command
+### Setup, for a second platform
 
 ```bash
 factoria call platform.add_backend '{"backend": "googleplay", "playGamesId": "123456789012"}'
@@ -200,7 +200,7 @@ Billing, Play Games and Play Integrity from Google's Maven repository, and merge
 The plugin's manifest removes Play Games' automatic initializer: the plugin starts the SDK itself, and only when a project id is
 set.
 
-### What each call does
+### What each store call does
 
 Google answers with its own ids: the engine maps the catalog ids to the `ids.googleplay` (else `id`) of each entry, and back.
 

@@ -3915,7 +3915,7 @@
   };
 
   // ---- nav: path finding on the baked NavMesh3D (docs/NAVIGATION.md) ----
-  // A grid kept natively (nav.createGrid) and flow fields over it (nav.flowField); docs/NAVIGATION.md, "Reusable grids".
+  // A grid kept natively (nav.createGrid) and flow fields over it (nav.flowField); docs/NAVIGATION.md, "Reusable grids and flow fields".
   const navCellArgs = (label, a, b) => {
     let c = a, r = b;
     if (b === undefined && a && typeof a === "object") { if (Array.isArray(a)) { c = a[0]; r = a[1]; } else { c = a.col; r = a.row; } }
@@ -4977,7 +4977,7 @@
     // current language; `key` is "" for plain text; `source` is "audio:<clip path>" or "ui". The Captions component draws the
     // newest Captions.maxLines of them. Assert with expect(game.captions().map((c) => c.text)).toEqual([...]).
     captions() { return N.captionList(); },
-    // The fake store, for tests (docs/PLATFORM.md, "Testing"): script its answers, send it events, look at what it holds.
+    // The fake store, for tests (docs/platform/PLATFORM_API.md, "The fake store, and testing with it"): script its answers, send it events, look at what it holds.
     // They run the platform.* commands, so MCP clients and tests share one implementation.
     platform: {
       // respond(method, answer, times = 1): the next answer(s) to `method`: { error: "network", message?, hint? } rejects,

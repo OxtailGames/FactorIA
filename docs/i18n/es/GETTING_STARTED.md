@@ -1,3 +1,4 @@
+<!-- follows docs/GETTING_STARTED.md sha256:unknown behind -->
 # Primeros pasos con FactorIA
 
 [English](../../GETTING_STARTED.md) | **Español**
