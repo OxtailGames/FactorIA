@@ -257,6 +257,7 @@ public:
     UiSystem* ui() override;
     CommandRegistry& commands() override;
     Json project_settings() const override;
+    void storage_key_material(std::string& secret, std::string& gameId) const override;
     Vec2 design_size() const override;
     double fixed_dt() const override;
     Clipboard* clipboard() override;  // the system's in a game window, an in-memory one everywhere else

@@ -2,6 +2,7 @@
 // retention and object GC, the skipped folders, and the commands.
 #include <doctest.h>
 
+#include <algorithm>
 #include <chrono>
 #include <filesystem>
 
@@ -305,6 +306,38 @@ TEST_CASE("checkpoint.read: text inline, binary as base64 or into a file, errors
     CHECK(big.error["hint"].get<std::string>().find("out") != std::string::npos);
     CHECK(reg.call("checkpoint.read", Json::object({{"id", id2}, {"path", "big.txt"}, {"out", "copy.txt"}})).ok);
     CHECK(read_all(p.dir.path / "copy.txt").size() == 300 * 1024);
+}
+
+TEST_CASE("checkpoint.read: factoria.json shows the storage secret as (hidden), cannot be copied with out, and restore "
+          "brings it back") {
+    Project p;
+    const std::string secret = "a1b2c3d4e5f60718293a4b5c6d7e8f90a1b2c3d4e5f60718293a4b5c6d7e8f90";
+    const std::string file =
+        "{\n  \"name\": \"T\",\n  \"storage\": {\n    \"encryptionSecret\": \"" + secret + "\"\n  }\n}\n";
+    write_all(p.dir.path / "factoria.json", file);
+    CommandRegistry reg;
+    register_tooling_commands(reg, p.dir.str());
+    const std::string id = reg.call("checkpoint.create", Json::object({{"label", "s"}})).result["id"];
+    // the checkpoint really holds the file with the real secret
+    auto files = checkpoint_files(p.dir.str(), id);
+    REQUIRE(files.ok());
+    CHECK(std::find(files.value().begin(), files.value().end(), "factoria.json") != files.value().end());
+    CHECK(checkpoint_read(p.dir.str(), id, "factoria.json").value() == file);
+    // the command hides it
+    auto r = reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "factoria.json"}}));
+    REQUIRE(r.ok);
+    const std::string text = r.result["text"];
+    CHECK(text.find(secret) == std::string::npos);
+    CHECK(text.find("\"encryptionSecret\": \"(hidden)\"") != std::string::npos);
+    CHECK(text.find("\"name\": \"T\"") != std::string::npos);
+    // a copy to another file would show it to fs.read: refused, and the hint names the way to get the real file back
+    auto o = reg.call("checkpoint.read", Json::object({{"id", id}, {"path", "factoria.json"}, {"out", "old/f.json"}}));
+    REQUIRE_FALSE(o.ok);
+    CHECK(o.error["hint"].get<std::string>().find("checkpoint.restore") != std::string::npos);
+    CHECK_FALSE(stdfs::exists(p.dir.path / "old/f.json"));
+    write_all(p.dir.path / "factoria.json", "{}\n");
+    REQUIRE(reg.call("checkpoint.restore", Json::object({{"id", id}, {"paths", Json::array({"factoria.json"})}})).ok);
+    CHECK(read_all(p.dir.path / "factoria.json") == file);
 }
 
 TEST_CASE("checkpoint.restore with paths touches only the listed files") {

@@ -142,6 +142,9 @@ struct ProjectSettings {
     std::vector<std::string> plugin_platforms(const PluginSettings& plugin) const;
 
     Json to_json() const;
+    // to_json() with storage.encryptionSecret replaced by "(hidden)": what project.info and `game.project` show, so the secret never
+    // reaches a log, an AI client or a script that prints the settings. The running engine reads the secret itself.
+    Json to_json_redacted() const;
 };
 
 // Loads <dir>/factoria.json (lenient, with defaults). Errors name the field.

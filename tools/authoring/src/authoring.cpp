@@ -12,6 +12,9 @@ namespace {
 void register_authoring_commands(Engine& engine) {
     Engine::Impl& impl = engine.runtime_impl();
 
+    // project settings
+    register_project_secret_commands(engine, impl);  // project.create_storage_secret
+
     // scenes, prefabs
     register_scene_file_commands(engine, impl);
 
