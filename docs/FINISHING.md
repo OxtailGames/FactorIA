@@ -116,7 +116,7 @@ a key inside the game can be extracted.) Everything below is the game's part, an
 (plus `lastSlot`, a number). Keep the layout in one table, bump `VERSION` when you change it, and write one
 `migrateN` per old version that turns version N into N+1. `parse` reads any version and always returns the newest:
 
-```js
+```js fragment
 // scripts/saves.js
 export const VERSION = 2;
 const version = raw.version === undefined ? 1 : raw.version;           // a file from before `version` existed is 1
@@ -275,7 +275,7 @@ achievements, 4 stats, 7 leaderboards and 2 products.
 - **Best effort, in a queue.** A store that is down, a player who is not signed in or a failed call never stops the game.
   Lantern Keep sends everything from one script fed by the game's events, one request after the other:
 
-```js
+```js fragment
 // scripts/store_stats.js
 unlock(id) {
   if (platform.has("achievements")) this.run(() => platform.achievements.unlock(id));

@@ -127,7 +127,7 @@ To burst an emitter that already exists, call `particles.burst(entity, 24)` or `
 
 The coin reacts to the player's overlap through a trigger. The player tells the coin to collect itself:
 
-```js
+```js fragment
 // scripts/player.js (the player's onTriggerEnter)
 onTriggerEnter(other) {
   if (other.hasTag("coin")) other.send("collect");
