@@ -1,5 +1,5 @@
-// EndHandshake: see fa/platform/end_handshake.h.
-#include "fa/platform/end_handshake.h"
+// EndHandshake: see end_handshake.h.
+#include "end_handshake.h"
 
 #include <exception>
 

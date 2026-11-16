@@ -408,7 +408,10 @@ On Android, `quit` is raised once when the system destroys the game's activity: 
 consumed, the system closing the app, or a relaunch for a theme or wallpaper-colour change (the game then starts again
 from its first scene, in a new process). It **cannot be cancelled** either, and it is not raised after `game.quit()`.
 The process ends right after the handlers and the `storage.setAsync` writes still waiting, within about 1.5 s (the
-analytics request for the events that wait is started, not waited for): keep the handler short, and save with `storage.set` or `storage.setAsync`. A force-stop or
+analytics request for the events that wait is started, not waited for): keep the handler short, and save with `storage.set` or `storage.setAsync`.
+The code after `await storage.setAsync(...)` runs (and the writes it starts, up to 16 in a row), the code after any other `await` does not. The
+surface is gone, so the handler loads no scene or asset and draws nothing. The example above (`e.cancel()`, then `game.quit()` once a
+flush ends) does nothing on the web and on Android: cancelling is not possible there, so save inside the handler. A force-stop or
 a kill for memory in the background raises nothing (docs/mobile/MOBILE_ANDROID.md, "Lifecycle").
 
 **Which signals each platform raises:**
