@@ -6,9 +6,10 @@
 //
 // The characters are the part the NDK cannot tell: AKeyEvent has no "unicode char". The glue asks the Java side
 // (KeyEvent.getUnicodeChar, through JNI) only for the keys that can type (may_type below) and hands the answer in.
-// Limits, on purpose: an IME that composes (CJK, emoji, a keyboard that commits whole words) sends text, not key events,
-// and a NativeActivity cannot receive it; the characters are those of the key's own layout (Latin letters, digits,
-// punctuation). Documented in docs/MOBILE.md.
+// Limits, on purpose: an IME that composes (CJK, emoji, a keyboard that commits whole words) sends text, not key events;
+// while a TextField has the focus the IME backend receives it (ime_android.cpp, through an InputConnection), and
+// otherwise the characters are those of the key's own layout (Latin letters, digits, punctuation). Documented in
+// docs/TEXT.md ("What composes where").
 #pragma once
 
 #include <cstdint>

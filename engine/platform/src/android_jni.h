@@ -1,6 +1,6 @@
 // JNI helpers shared by the Android files of fa_platform (gamepad_android.cpp, mobile_android.cpp). Private to fa_platform.
-// The VM is reached through the activity sokol_app keeps (sapp_android_get_native_activity()); no Java class of ours
-// is needed, only the framework's.
+// The VM is reached through the activity sokol_app keeps (sapp_android_get_native_activity()). The framework's classes are
+// enough for these files; the one Java class of the engine, factoria.engine.Ime, is ime_android.cpp's.
 #pragma once
 
 #include <android/native_activity.h>
