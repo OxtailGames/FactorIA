@@ -1119,6 +1119,18 @@ void localize_created(Impl* I, const std::vector<Entity>& created) {
         for (Entity e : created) localize_entity(I->host->world(), e, *L);
 }
 
+// The warnings of a load that succeeded: a deprecation (taken from the once-per-process table, so it must not be lost) goes to the
+// "deprecated" category, any other to "script".
+void log_load_warnings(const LoadReport& report) {
+    for (const auto& m : report.messages) {
+        if (m.severity != LoadMessage::Severity::Warning) continue;
+        if (m.message.rfind("Deprecated: ", 0) == 0)
+            fa::log(LogLevel::Warn, "deprecated", m.to_string());
+        else
+            fa::log(LogLevel::Warn, "script", m.to_string());
+    }
+}
+
 NATIVE(spawn) {
     SETUP;
     Json j = I->to_json(argc > 0 ? argv[0] : JS_UNDEFINED);
@@ -1136,8 +1148,7 @@ NATIVE(spawn) {
     if (!report.ok() || e.is_null()) {
         return throw_err(ctx, "world.spawn failed:\n" + report.summary());
     }
-    for (const auto& m : report.messages)
-        if (m.severity == LoadMessage::Severity::Warning) fa::log(LogLevel::Warn, "script", m.to_string());
+    log_load_warnings(report);
     for (Entity c : report.created) label_info(W, c).scriptSpawned = true;  // scene.save leaves these out
     for (const DeferredRef& d : report.deferred) I->waitingRefs.push_back({d, 0});
     I->resolve_waiting_refs(false);    // this spawn may be the knob an earlier slider is waiting for
@@ -1162,6 +1173,7 @@ NATIVE(spawnPrefab) {
     Entity e = instantiate_prefab(W, path, parent, report, overrides, index);
     if (!report.ok() || e.is_null())
         return throw_err(ctx, "world.spawnPrefab('" + path + "') failed:\n" + report.summary());
+    log_load_warnings(report);  // a deprecated component or field of the prefab says so (once per process)
     for (Entity c : report.created) label_info(W, c).scriptSpawned = true;  // scene.save leaves these out
     I->construct_for(report.created);
     localize_created(I, report.created);

@@ -5253,8 +5253,9 @@
   // Deprecated script API (docs/design/ARCHITECTURE_CORE.md, "Versions"): `targets` is [{ key, test, path }] from the engine (the "script" part of the
   // deprecated section of api_since.json, mapped to where each export or member lives); empty in nearly every run, so nothing is wrapped.
   // A function or class is wrapped in a Proxy that asks the engine for the warning on its first call (the engine logs it once per key
-  // per process); a plain value gets an accessor that warns on its first read or write. Nothing here runs in a hot loop: a call to a
-  // deprecated function costs one flag test after the first.
+  // per process); a plain value gets an accessor that warns on its first read or write and then puts the data property back with the
+  // value it holds and the attributes it had (a constant stays non-writable: its accessor has no setter). Nothing here runs in a hot
+  // loop: a call to a deprecated function costs one flag test after the first.
   function applyDeprecations(targets) {
     for (const t of targets) {
       let owner = t.test ? testApi : factoria;
@@ -5275,8 +5276,13 @@
           }) });
         } else if ("value" in desc) {
           let v = desc.value;
-          Object.defineProperty(owner, last, { configurable: true, enumerable: desc.enumerable,
-            get() { warn(); return v; }, set(x) { warn(); v = x; } });
+          // After the first warning the property is a data property again (the same attributes, the current value), so a
+          // deprecated value costs nothing afterwards and a constant never becomes writable.
+          const restore = () => Object.defineProperty(owner, last,
+            { value: v, writable: desc.writable, enumerable: desc.enumerable, configurable: desc.configurable });
+          const accessor = { configurable: true, enumerable: desc.enumerable, get() { warn(); restore(); return v; } };
+          if (desc.writable) accessor.set = (x) => { warn(); v = x; restore(); };
+          Object.defineProperty(owner, last, accessor);
         }
       } catch (e) { /* frozen or exotic object: the typings and the reference still say it is deprecated */ }
     }

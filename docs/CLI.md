@@ -308,7 +308,9 @@ your `factoria --version` is older than a mark, that item is missing in your ins
 
 A deprecated component, field, command or script export (it still works and has a replacement, or a reason for none) is
 marked the same way: a `Deprecated since 0.30.0 - use `x`. Removed in 0.32.0.` line, `@deprecated` in the typings and a
-`deprecated` object in `--json`; using it logs one warning that names the replacement. It is removed two minor versions
+`deprecated` object in `--json` (also in `factoria commands <name>`); using it logs one warning that names the replacement,
+once per process, from a command call, a scene or prefab load, a component patch or a script call (a field a script assigns
+through a component view does not warn). It is removed two minor versions
 after the one that deprecated it (docs/design/ARCHITECTURE_CORE.md, "Versions").
 
 The repository keeps the same reference as browsable Markdown: `docs/reference/` (an index plus one page per component
