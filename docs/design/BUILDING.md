@@ -257,6 +257,9 @@ The build uses the preset `linux-sniper`, which is `linux-release` plus:
   sniper runtime (and not on every desktop either).
 - `CMAKE_DISABLE_FIND_PACKAGE_CURL=ON`: no `libcurl` (the SDK has only the GnuTLS flavour, whose `libcurl-gnutls.so.4`
   other distributions do not have). The AI features call the `curl` program, as on Windows (`fa_ai`, `tools/ai/src/http.cpp`).
+  The game's `http.fetch` and `websocket` are not affected: they never link libcurl but load it at run time
+  (`libcurl.so.4`, then `libcurl-gnutls.so.4`, the runtime's flavour; `engine/platform/src/curl_library.cpp`), and the
+  WebSocket client needs only libcurl 7.45 or newer, not one built with WebSocket support.
 - `FA_BUILD_TESTS=OFF`. The `linux` job of CI runs the tests with a normal build.
 
 The steps (default `all`; each one starts the right container with Docker, or Podman if there is no Docker, and mounts

@@ -3,7 +3,7 @@
 //
 //   Windows    WinHTTP's WebSocket API                 (M98.2b)
 //   macOS/iOS  NSURLSessionWebSocketTask               (M98.2b)
-//   Linux      libcurl's WebSocket support, dlopen'ed  (M98.2c); missing = not available
+//   Linux      libcurl (dlopen'ed) as the transport and fa/platform/websocket_codec.h; missing = not available
 //   Android    a socket stream through JNI with fa/platform/websocket_codec.h (M98.2c)
 //   web        the browser's WebSocket                 (M98.2d)
 //   memory     MemoryWebSocketClient below: no network, a script of a server that a test drives (headless runs and tests)
@@ -194,8 +194,9 @@ public:
     virtual Result<std::unique_ptr<WebSocket>> connect(WebSocketRequest request) = 0;
 };
 
-// The client of this platform; never null. Until the native clients of M98.2b/c/d land, every platform answers
-// available() == false with "WebSocket client for <platform> lands in M98.2b/c/d".
+// The client of this platform; never null. On Linux it is the libcurl client (make_curl_websocket_client), available
+// when libcurl 7.45 or newer can be loaded. The other platforms answer available() == false with "WebSocket client for
+// <platform> lands in M98.2b/c/d" until their native clients land.
 std::unique_ptr<WebSocketClient> make_system_websocket_client();
 
 // A client that is never available, with this reason (what the platform stubs return).
@@ -205,7 +206,9 @@ std::unique_ptr<WebSocketClient> make_unavailable_websocket_client(std::string n
 // Plain ws:// over a POSIX socket and fa/platform/websocket_codec.h, one reader thread per connection. No TLS: wss:// is
 // an error that says so. It is what the tests of the codec and the test server run against; a player does not use it.
 std::unique_ptr<WebSocketClient> make_tcp_websocket_client();
-// libcurl's WebSocket support, loaded with dlopen (Linux's client, written by M98.2c). Until then: unavailable.
+// Linux's client: libcurl, loaded with dlopen, opens the connection (proxy, TCP, TLS) and fa/platform/websocket_codec.h speaks
+// the protocol over curl_easy_send/curl_easy_recv, so any libcurl from 7.45 works, with or without its own WebSocket support.
+// Unavailable (with the reason) where libcurl is missing or older. macOS builds it too, so its tests run there.
 std::unique_ptr<WebSocketClient> make_curl_websocket_client();
 #endif
 

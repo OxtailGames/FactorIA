@@ -250,7 +250,7 @@ platform, and this table says what works today:
 | Tests, headless runs, `factoria call`, the MCP server | a scripted in-memory server (`game.websocket`) | yes, nothing touches the network |
 | Windows | WinHTTP's WebSocket API | not yet (M98.2b) |
 | macOS, iOS | `NSURLSessionWebSocketTask` | yes (system certificates and proxy; see "On macOS and iOS" below) |
-| Linux | libcurl's WebSocket support, loaded when first needed (like `http.fetch`) | not yet (M98.2c); without `libcurl.so.4` it stays unavailable |
+| Linux | libcurl, loaded when first needed (like `http.fetch`), opens the connection (the proxy of the environment, TCP, TLS with the system's certificates); the engine's own WebSocket protocol code does the rest | yes, with any libcurl from 7.45 (with or without its own WebSocket support). Without `libcurl.so.4` (or the Steam Runtime's `libcurl-gnutls.so.4`) `websocket.supported` is false and `websocket.unsupportedReason` says why |
 | Android | a socket stream with the engine's own WebSocket protocol code, through JNI | not yet (M98.2c) |
 | Web | the browser's `WebSocket` | yes (see below) |
 

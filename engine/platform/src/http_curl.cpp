@@ -1,13 +1,11 @@
-// libcurl loaded at run time (fa/platform/http.h). Nothing is linked: the Linux player and the Steam Runtime keep working on a
-// machine without libcurl, where the client reports itself unavailable. The few pieces of curl.h used here are declared below
-// (the option numbers and the C ABI are stable since 7.x). Each request runs on its own short-lived thread with its own easy
-// handle; the library is initialised once.
+// libcurl loaded at run time (fa/platform/http.h, curl_library.h). Nothing is linked: the Linux player and the Steam Runtime
+// keep working on a machine without libcurl, where the client reports itself unavailable. Each request runs on its own
+// short-lived thread with its own easy handle; the library is loaded and initialised once (shared with websocket_curl.cpp).
 //
 // Compiled on every POSIX platform; Linux uses it, macOS exercises it in the tests (its own client is NSURLSession).
 #if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
 
 #include "fa/core/engine_version.h"
-#include <dlfcn.h>
 
 #include <algorithm>
 #include <cctype>
@@ -16,87 +14,17 @@
 #include <system_error>
 #include <thread>
 
+#include "curl_library.h"
 #include "fa/platform/http.h"
 
 namespace fa {
 
 namespace {
 
-using CURL = void;
-struct curl_slist;
-using CURLcode = int;
+using namespace fa::libcurl;
+using Curl = fa::libcurl::Library;
 
-// The CURLOPT_ numbers: type base (LONG 0, OBJECTPOINT 10000, FUNCTIONPOINT 20000, OFF_T 30000) plus the option's number.
-constexpr int kOptWriteData = 10001, kOptUrl = 10002, kOptErrorBuffer = 10010, kOptPostFields = 10015,
-              kOptUserAgent = 10018, kOptHttpHeader = 10023, kOptHeaderData = 10029, kOptCustomRequest = 10036,
-              kOptWriteFunction = 20011, kOptHeaderFunction = 20079, kOptNoBody = 44, kOptPost = 47,
-              kOptFollowLocation = 52, kOptPostFieldSize = 60, kOptMaxRedirs = 68, kOptNoSignal = 99,
-              kOptTimeoutMs = 155, kOptConnectTimeoutMs = 156, kOptAcceptEncoding = 10102, kOptProtocols = 181,
-              kOptRedirProtocols = 182, kOptProtocolsStr = 10318, kOptRedirProtocolsStr = 10319;
-constexpr int kInfoResponseCode = 0x200000 + 2;
-constexpr int kCurlOk = 0, kCurlUnsupportedProtocol = 1, kCurlCouldntResolveHost = 6, kCurlCouldntConnect = 7,
-              kCurlTimedOut = 28, kCurlSslConnectError = 35, kCurlTooManyRedirects = 47, kCurlUnknownOption = 48,
-              kCurlSslPeerCertificate = 51, kCurlSslCertProblem = 58, kCurlSslCipher = 59,
-              kCurlPeerFailedVerification = 60, kCurlSslCacertBadfile = 77, kCurlSslIssuerError = 83;
-constexpr long kProtoHttp = 1, kProtoHttps = 2;
-
-struct Curl {
-    void* lib = nullptr;
-    int (*global_init)(long) = nullptr;
-    CURL* (*easy_init)() = nullptr;
-    void (*easy_cleanup)(CURL*) = nullptr;
-    CURLcode (*easy_setopt)(CURL*, int, ...) = nullptr;
-    CURLcode (*easy_perform)(CURL*) = nullptr;
-    CURLcode (*easy_getinfo)(CURL*, int, ...) = nullptr;
-    const char* (*easy_strerror)(CURLcode) = nullptr;
-    curl_slist* (*slist_append)(curl_slist*, const char*) = nullptr;
-    void (*slist_free_all)(curl_slist*) = nullptr;
-    std::string reason;  // why there is no library
-    bool ok() const { return lib != nullptr; }
-};
-
-const Curl& curl() {
-    static const Curl c = [] {
-        Curl k;
-        const char* names[] = {
-#if defined(__APPLE__)
-            "libcurl.4.dylib",
-            "libcurl.dylib",
-#else
-            "libcurl.so.4",
-            "libcurl-gnutls.so.4",
-            "libcurl-nss.so.4",
-            "libcurl.so",
-#endif
-        };
-        for (const char* name : names)
-            if ((k.lib = dlopen(name, RTLD_NOW | RTLD_LOCAL))) break;
-        if (!k.lib) {
-            k.reason = "libcurl is not installed on this computer";
-            return k;
-        }
-        auto sym = [&](const char* name) { return dlsym(k.lib, name); };
-        k.global_init = reinterpret_cast<int (*)(long)>(sym("curl_global_init"));
-        k.easy_init = reinterpret_cast<CURL* (*)()>(sym("curl_easy_init"));
-        k.easy_cleanup = reinterpret_cast<void (*)(CURL*)>(sym("curl_easy_cleanup"));
-        k.easy_setopt = reinterpret_cast<CURLcode (*)(CURL*, int, ...)>(sym("curl_easy_setopt"));
-        k.easy_perform = reinterpret_cast<CURLcode (*)(CURL*)>(sym("curl_easy_perform"));
-        k.easy_getinfo = reinterpret_cast<CURLcode (*)(CURL*, int, ...)>(sym("curl_easy_getinfo"));
-        k.easy_strerror = reinterpret_cast<const char* (*)(CURLcode)>(sym("curl_easy_strerror"));
-        k.slist_append = reinterpret_cast<curl_slist* (*)(curl_slist*, const char*)>(sym("curl_slist_append"));
-        k.slist_free_all = reinterpret_cast<void (*)(curl_slist*)>(sym("curl_slist_free_all"));
-        if (!k.global_init || !k.easy_init || !k.easy_cleanup || !k.easy_setopt || !k.easy_perform || !k.easy_getinfo ||
-            !k.easy_strerror || !k.slist_append || !k.slist_free_all) {
-            dlclose(k.lib);
-            k = Curl{};
-            k.reason = "the libcurl on this computer lacks functions the engine needs";
-            return k;
-        }
-        k.global_init(3);  // CURL_GLOBAL_DEFAULT: once, before any thread uses curl
-        return k;
-    }();
-    return c;
-}
+const Curl& curl() { return fa::libcurl::library(); }
 
 struct Transfer {
     std::string body;

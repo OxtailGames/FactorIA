@@ -43,6 +43,9 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   subprotocols, the engine's connect timeout and close timer, and `error` messages that name what to check, since the
   browser gives no reason; `headers` is an error on the web (the browser cannot send any). `ws.send` and
   `game.websocket.send` also take a `DataView`.
+- Linux: `websocket.connect` reaches real servers (`ws://` and `wss://`). libcurl, loaded at run time as for `http.fetch`, opens
+  the connection (proxy, TCP, TLS) and the engine's own protocol code does the rest, so any libcurl from 7.45 works; without
+  libcurl `websocket.supported` is false and says why (docs/NETWORKING.md, "WebSocket").
 - `factoria validate` warns about a script that calls `websocket.connect` in a game with no `network` hosts, as it does for
   `http.fetch`.
 - `TextField` has `caretIndex`, `selectionStart`, `selectionEnd` and a runtime `composition`, and scripts read
