@@ -33,15 +33,6 @@ void emit(World& w, const char* name, Entity source, Json value = nullptr) {
     w.events().game.push_back(GameEvent{name, std::move(data), source});
 }
 
-// ------------------------------------------------------------------------------------------------------------ utf-8 --
-void pop_code_point(std::string& s) {
-    while (!s.empty()) {
-        const unsigned char c = static_cast<unsigned char>(s.back());
-        s.pop_back();
-        if ((c & 0xC0) != 0x80) break;
-    }
-}
-
 // ----------------------------------------------------------------------------------------------------------- slider --
 float snap_slider(const Slider& s, float v) { return ui_detail::snap_value(v, s.min, s.max, s.step); }
 float snap_slider(const Interactable& s, float v) { return ui_detail::snap_value(v, s.min, s.max, s.step); }
@@ -332,6 +323,8 @@ bool UiSystem::submit_text(World& w, const std::string& text) {
     }
     if (clean != tf->text) {
         tf->text = clean;
+        const std::int32_t n = std::int32_t(std::min<std::size_t>(utf8_length(clean), 1000000));
+        field_store(platformField_, *tf, n, n);
         caretStart_ = clock_;
         emit(w, "ui.change", platformField_, Json(tf->text));
     }
@@ -353,7 +346,11 @@ void UiSystem::reset() {
     pointerOn_ = pointerDown_ = pointerPrevDown_ = pointerOverUi_ = wheelConsumed_ = false;
     scrollToFocus_ = false;
     for (Repeat& r : nav_) r = Repeat{};
-    backspace_ = Repeat{};
+    backspace_ = delete_ = Repeat{};
+    fieldMemo_ = FieldMemo{};
+    clickField_ = kNullEntity;
+    clickCount_ = 0;
+    imeCaretValid_ = false;
     autoSizes_.clear();
     warnedFit_.clear();
     scriptTooltips_.clear();
@@ -419,6 +416,7 @@ bool UiSystem::set_focus(World& w, Entity e) {
     focus_ = e;
     caretStart_ = clock_;
     if (e) {
+        field_focus(w, e);
         set_focused_flag(w, e, true);
         scrollToFocus_ = true;
         emit(w, "ui.focus", e);
@@ -518,8 +516,10 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
             !focus_ || navWoke)
             continue;
         const UiKind kind = ui_kind(w, focus_);
-        if (d >= Left && kind == UiKind::TextField)
-            continue;  // ponytail: no caret movement, the caret stays at the end
+        if (d >= Left && kind == UiKind::TextField) {  // the caret moves (a held key repeats); Up / Down move the focus
+            field_arrow(w, focus_, *w.get<TextField>(focus_), in, d == Left);
+            continue;
+        }
         if (Interactable* ia = kind == UiKind::None ? w.get<Interactable>(focus_) : nullptr;
             ia && ia->kind == InteractableKind::Slider) {
             // A custom slider: the keys along its axis change the value (right / up raise it), the others move the focus.
@@ -612,38 +612,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
 
     if (focus_) {
         if (TextField* tf = w.get<TextField>(focus_)) {
-            bool changed = false;
-            // A Ctrl or Cmd chord (Ctrl+V) is a command, not typing; Ctrl+Alt is AltGr, which does type.
-            const bool chord = (in.key_down(Key::LeftControl) || in.key_down(Key::RightControl) ||
-                                in.key_down(Key::LeftSuper) || in.key_down(Key::RightSuper)) &&
-                               !in.key_down(Key::LeftAlt) && !in.key_down(Key::RightAlt);
-            for (const char32_t c : chord ? std::u32string() : in.text_input()) {
-                if (c < 32 || c == 127 || c > 0x10FFFF || (c >= 0xD800 && c <= 0xDFFF)) continue;
-                if (tf->maxLength > 0 && utf8_length(tf->text) >= std::size_t(tf->maxLength)) break;
-                utf8_append(tf->text, c);
-                changed = true;
-            }
-            if (clipboard_ && in.paste_pressed()) {
-                // Pastes at the end (the field has no caret yet): newlines and other control characters are dropped, and
-                // maxLength counts code points like typing does.
-                const std::string pasted = clipboard_->get();
-                for (std::size_t i = 0; i < pasted.size();) {
-                    const char32_t c = utf8_next(pasted, i);
-                    if (c < 32 || c == 127 || (c >= 0x80 && c < 0xA0)) continue;
-                    if (tf->maxLength > 0 && utf8_length(tf->text) >= std::size_t(tf->maxLength)) break;
-                    utf8_append(tf->text, c);
-                    changed = true;
-                }
-            }
-            if (clipboard_ && in.copy_pressed()) clipboard_->set(tf->text);
-            if (backspace_.tick(in.key_pressed(Key::Backspace), in.key_down(Key::Backspace), dt) && !tf->text.empty()) {
-                pop_code_point(tf->text);
-                changed = true;
-            }
-            if (changed) {
-                caretStart_ = clock_;
-                emit(w, "ui.change", focus_, Json(tf->text));
-            }
+            field_keys(w, focus_, *tf, in, dt);
             if (in.key_pressed(Key::Enter)) emit(w, "ui.submit", focus_, Json(tf->text));
         }
     }
@@ -698,6 +667,10 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         set_focus(w, hover_);
         if (is_custom(w, hover_)) emit(w, "ui.press", hover_);
     }
+    // A press on a TextField puts the caret there (a double click selects a word, a triple click all), a drag selects.
+    if (focus_ && press_ == focus_ && (ptrPressed || ptrDown))
+        if (TextField* tf = w.get<TextField>(focus_))
+            field_pointer(w, focus_, *tf, in, design, mouse, ptrPressed, ptrDown, measure);
     update_drag(w, design, mouse, ptrDown, ptrPressed, ptrReleased, measure, navCancel);
     if (press_) {
         if (Interactable* ia = is_custom(w, press_) ? w.get<Interactable>(press_) : nullptr;
@@ -804,6 +777,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     }
 
     // ---- runtime flags the renderer and scripts read
+    imeCaretValid_ = false;
     for (const Item& it : items) {
         if (it.custom) {
             Interactable* ia = w.get<Interactable>(it.e);
@@ -820,8 +794,10 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
             tf->caret = it.e == focus_ && std::fmod(clock_ - caretStart_, 1.0f) < 0.5f;
             tf->clamp_indices();
             tf->composition.clear();  // the IME's pre-edit string belongs to the focused field only
+            tf->compositionCaret = tf->compositionSelection = 0;
             if (it.e == focus_ && in.composing())
                 for (const char32_t c : in.composition_text()) utf8_append(tf->composition, c);
+            if (it.e == focus_) field_frame(w, it.e, *tf, in, design, measure);
         }
     }
     // An Interactable that is not among the items this frame (inactive, or hidden from the camera at the pointer by
@@ -860,21 +836,19 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     // Text input mode: a focused TextField takes the typed keys, so game actions bound to letters read as up meanwhile.
     in.set_ui_text_input(focus_ && w.get<TextField>(focus_));
 
-    // ---- the IME (candidate window, composition): on while a TextField has the focus, and told where the caret is. The field's
-    // right part stands in for the caret until the editing model (M98.6b) knows its exact place.
+    // ---- the IME (candidate window, composition): on while a TextField has the focus, and told where its caret is (the
+    // caret's bar, inside the composition while the player composes).
     const bool imeWanted = focus_ && w.get<TextField>(focus_);
     if (imeWanted != imeOn_) {
         imeOn_ = imeWanted;
         ime_set_enabled(imeWanted);
     }
-    if (imeWanted)
-        if (const std::optional<Rect> fr = ui_rect(w, focus_, design)) {
-            const Vec2 a =
-                designToWindow_ ? designToWindow_({fr->x + fr->w - 2.0f, fr->y}) : Vec2{fr->x + fr->w - 2.0f, fr->y};
-            const Vec2 b =
-                designToWindow_ ? designToWindow_({fr->x + fr->w, fr->y + fr->h}) : Vec2{fr->x + fr->w, fr->y + fr->h};
-            ime_set_caret_rect({a.x, a.y, b.x - a.x, b.y - a.y});
-        }
+    if (imeWanted && imeCaretValid_) {
+        const Rect& c = imeCaret_;
+        const Vec2 a = designToWindow_ ? designToWindow_({c.x, c.y}) : Vec2{c.x, c.y};
+        const Vec2 b = designToWindow_ ? designToWindow_({c.x + c.w, c.y + c.h}) : Vec2{c.x + c.w, c.y + c.h};
+        ime_set_caret_rect({a.x, a.y, b.x - a.x, b.y - a.y});
+    }
 
     // ---- the phone's keyboard follows a TextField's focus: up when one gets it, down when it goes. Only the changes
     // count, so a script's input.showKeyboard() in between still works. A pad player gets the game's on-screen keyboard

@@ -3051,19 +3051,26 @@ void register_builtin_components(TypeRegistry& r) {
     {
         auto field = r.add<TextField>(
             "TextField",
-            "Single-line text input. While focused it appends the typed characters (Input text), Backspace removes "
-            "the last one (it repeats while held) and Enter submits. There is no caret movement yet: the caret stays "
-            "at "
-            "the end (caretIndex, selectionStart, selectionEnd and composition are the contract the editing model "
-            "fills, "
-            "M98.6). Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. "
-            "Left / right do nothing in a TextField and Space types a space (ui_submit is ignored).",
+            "Single-line text input with a caret, a selection, the clipboard and IME composition. While focused it "
+            "takes "
+            "the typed characters at the caret (replacing the selection); Left / Right move the caret (with Ctrl, or "
+            "Alt on macOS, a word at a time; with Shift they extend the selection), Home / End go to the ends, "
+            "Backspace and Delete remove the selection or the character (they repeat while held), Ctrl+A (Cmd+A on "
+            "macOS) selects all, Ctrl+C / X / V (Cmd on macOS) copy, cut and paste, and Enter submits. A click places "
+            "the caret, a drag selects, a double click selects a word, a triple click all of it. Focusing a field puts "
+            "the caret at the end of its text. The caret never stops inside a base character plus its combining marks "
+            "or an emoji sequence. Text composed with an input method shows at the caret, underlined, and is typed "
+            "when the player commits it. Events: ui.change {id, value} on every edit (one per frame), ui.submit "
+            "{id, value} on Enter. Space types a space (ui_submit is ignored); Up / Down move the focus.",
             "UI");
         ui_control_fields(field)
             .field("text", &TextField::text, "The text, UTF-8. Scripts may write it; no event is sent for a write.")
             .field("placeholder", &TextField::placeholder, "Hint drawn at half alpha while `text` is empty.")
             .field("maxLength", &TextField::maxLength, "Longest text, in characters (code points). 0 = unlimited.")
             .range(0, 1000000)
+            .field("password", &TextField::password,
+                   "Draws every character (and the composition) as '*'; Copy and Cut do nothing. `text` still holds "
+                   "what was typed.")
             .field("caret", &TextField::caret,
                    "Runtime: the caret is in the visible half of its blink (a 1 second cycle of the UI's own unscaled "
                    "clock; it "
@@ -3072,17 +3079,18 @@ void register_builtin_components(TypeRegistry& r) {
             .read_only()
             .field(
                 "caretIndex", &TextField::caretIndex,
-                "Where the caret is, in code points from the start of `text` (0 = before the first character). Clamped "
-                "to 0..length of `text` every frame. The editing model that moves it with the arrows, Home / End and "
-                "clicks is M98.6b; until then caretIndex does NOT follow the caret (typing still appends at the end) "
-                "and "
-                "only holds what a scene or script wrote, clamped.")
+                "Where the caret is, in code points from the start of `text` (0 = before the first character). It "
+                "follows "
+                "the player's edits and clicks, and a script may write it to move the caret. Clamped to 0..length of "
+                "`text` every frame. A script that changes `text` without touching the caret, selection or caretIndex "
+                "puts the caret at the end.")
             .range(0, 1000000)
             .field(
                 "selectionStart", &TextField::selectionStart,
                 "Start of the selected text, in code points. selectionStart == selectionEnd means nothing is selected. "
-                "Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd). "
-                "Clamped to 0..length of `text` every frame.")
+                "Either may be the larger one (the selection's anchor is selectionStart, its moving end selectionEnd, "
+                "the caret). A script selects a range by writing both (caretIndex follows selectionEnd when it is not "
+                "written). Clamped to 0..length of `text` every frame.")
             .range(0, 1000000)
             .field(
                 "selectionEnd", &TextField::selectionEnd,
@@ -3093,6 +3101,20 @@ void register_builtin_components(TypeRegistry& r) {
                 "composition", &TextField::composition,
                 "Runtime: the text an input method (IME) is composing in this field, UTF-8, \"\" when none. It is not "
                 "part of `text` until the player commits it. Only the focused field has one.")
+            .runtime_only()
+            .read_only()
+            .field("compositionCaret", &TextField::compositionCaret,
+                   "Runtime: the input method's caret inside `composition`, in code points (0 = at its start).")
+            .runtime_only()
+            .read_only()
+            .field("compositionSelection", &TextField::compositionSelection,
+                   "Runtime: how many code points from compositionCaret the input method is converting (the clause "
+                   "drawn highlighted); 0 = none.")
+            .runtime_only()
+            .read_only()
+            .field("scrollX", &TextField::scrollX,
+                   "Runtime: how many UI units the text is scrolled to the left so that the caret stays visible in a "
+                   "field narrower than its text.")
             .runtime_only()
             .read_only();
     }
