@@ -241,14 +241,13 @@ ws.send(JSON.stringify({ type: "join", name: "Ann" }));  // false until the conn
 
 ### Which platforms can connect now
 
-**Not every platform has its WebSocket client yet.** The shared part is done and tested (the address checks, the script API,
-reconnects, the protocol code, the test server); the clients that the platforms use arrive in this milestone, one per
-platform, and this table says what works today:
+**Every player has its WebSocket client.** The shared part (the address checks, the script API, reconnects, the
+protocol code, the test server) is the same everywhere; this table says what each platform connects with:
 
 | Platform | Client | Works now |
 |---|---|---|
 | Tests, headless runs, `factoria call`, the MCP server | a scripted in-memory server (`game.websocket`) | yes, nothing touches the network |
-| Windows | WinHTTP's WebSocket API | not yet (M98.2b) |
+| Windows | WinHTTP's WebSocket API, with the system's certificates and proxy (like `http.fetch`) | yes |
 | macOS, iOS | `NSURLSessionWebSocketTask` | yes (system certificates and proxy; see "On macOS and iOS" below) |
 | Linux | libcurl, loaded when first needed (like `http.fetch`), opens the connection (the proxy of the environment, TCP, TLS with the system's certificates); the engine's own WebSocket protocol code does the rest | yes, with any libcurl from 7.45 (with or without its own WebSocket support). Without `libcurl.so.4` (or the Steam Runtime's `libcurl-gnutls.so.4`) `websocket.supported` is false and `websocket.unsupportedReason` says why |
 | Android | the engine's own WebSocket protocol code over a socket: `wss://` through Java's `SSLSocket` (JNI; the system's certificates, and the certificate must name the host), `ws://` (localhost only) over a plain socket | yes; built by CI, not yet run on a device. It needs the `INTERNET` permission, which the export adds when `network.hosts` is declared; without it the connection fails with an error that says so. Destroying an open `wss://` connection (a scene change) closes the socket without a close frame, so the server sees 1006 |
@@ -272,11 +271,21 @@ without a code. Messages: a message longer than `maxMessageBytes` ends the conne
 server is sent 1009), as everywhere, but the system holds the whole message first. Plain `ws://` is only allowed to your own
 computer (App Transport Security, as for `http.fetch`); use `wss://` for any other server.
 
-Where there is no client, `websocket.supported` is `false` and `websocket.unsupportedReason` says why
-(`WebSocket client for <platform> lands in M98.2b/c/d`). `websocket.connect` still returns a connection after the usual
+Where there is no client (a Linux machine without a libcurl from 7.45), `websocket.supported` is `false` and
+`websocket.unsupportedReason` says why. `websocket.connect` still returns a connection after the usual
 address checks: it fails at the next frame with an `"error"` event and a `"close"` event with code 1006, and does not
 reconnect, so a game written today runs everywhere and simply stays offline. Check `websocket.supported` to show an
 "online play not available" message instead.
+
+On Windows, WinHTTP does part of the protocol itself, which shows in a few places:
+
+- It answers the server's pings, and sends keep-alive frames of its own every 30 seconds while a connection is open.
+- A server whose handshake answer has a wrong `Sec-WebSocket-Accept` may fail with a message that does not name the
+  header.
+- A header value that is not plain ASCII is refused by `websocket.connect` (WinHTTP would send it as 8-bit text, not as
+  the UTF-8 the game wrote): percent-encode it (`encodeURIComponent`) or send it in the first message instead.
+- A connection destroyed (a scene change) while it is in the middle of sending a message closes with code 1001 once
+  that message has gone out. A server that stops reading gets no close frame: after 5 seconds the connection is cut.
 
 ### Addresses and options
 
