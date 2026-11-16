@@ -6,7 +6,7 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
-- **WebSocket on Linux (libcurl) and Windows, polish:** when a game does not read its messages and the engine ends the connection
+- **WebSocket on Linux (libcurl), Windows and the tcp client, polish:** when a game does not read its messages and the engine ends the connection
   (`"close"` 1008), `readyState` is `"closed"` as soon as that `"close"` event can be read, as it already was for every other
   end (before, a read right then could still say `"open"` for a moment). On Windows, a close frame from the server whose status
   Windows cannot read is answered with an empty close frame instead of dropping the connection.
