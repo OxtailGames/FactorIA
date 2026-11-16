@@ -174,18 +174,20 @@ std::vector<std::string> Editor::marquee_hits(Vec2 a, Vec2 b) {
     const Entity cam = r->camera_at(Vec2{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f});
     const CameraMask mask = CameraMask::of(w, cam);
     // The projection and the way it looks are the camera's own (split screen can mix an orthographic and a perspective one).
-    const Camera* camData = cam.is_null() ? nullptr : w.get<Camera>(cam);
-    const bool ortho = camData ? camData->projection == Projection::Orthographic : primary_is_ortho();
+    const Camera* cam_data = cam.is_null() ? nullptr : w.get<Camera>(cam);
+    const bool ortho = cam_data ? cam_data->projection == Projection::Orthographic : primary_is_ortho();
     const Vec2 designSize{float(r->target_width()), float(r->target_height())};
     const VisualMeasure measure = visual_measure();
     // The camera's position and the way it looks, from its matrix (a viewport counted in design pixels, or the Expand
     // scale mode, would tilt a ray through a screen point). Without a camera entity: the ray through the screen centre.
     Vec3 eye, forward;
-    if (camData) {
+    if (cam_data) {
         const Mat4 cm = w.world_matrix(cam);
         eye = cm.transform_point(Vec3{0, 0, 0});
         forward = normalize(cm.transform_dir(Vec3{0, 0, -1}));
     } else {
+        // Practically unreachable: no camera draws here, yet primary_is_ortho() found a primary perspective camera (an
+        // inactive one, say). The eye and direction then come from the ray through the screen centre.
         r->screen_ray(Vec2{designSize.x * 0.5f, designSize.y * 0.5f}, eye, forward, cam);
     }
     for (Entity e : w.entities()) {

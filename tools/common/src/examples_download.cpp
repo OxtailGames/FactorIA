@@ -2,7 +2,6 @@
 // of one zip, its safe unpacking and the project created from it. docs/design/BUILDING_RELEASE.md, "Example games in the release".
 #include <algorithm>
 #include <atomic>
-#include <cerrno>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -24,15 +23,7 @@
 #include "util.h"
 
 #if defined(_WIN32)
-#ifndef NOMINMAX
-#define NOMINMAX
-#endif
-#include <windows.h>
 #include <process.h>
-#elif defined(__linux__)
-#include <fcntl.h>
-#include <sys/syscall.h>
-#include <unistd.h>
 #else
 #include <unistd.h>
 #endif
@@ -532,41 +523,6 @@ bool is_name_taken(const std::error_code& ec) {
 #endif
 }
 
-void rename_no_replace(const stdfs::path& from, const stdfs::path& to, std::error_code& ec) {
-#if defined(_WIN32)
-    ec.clear();
-    if (!MoveFileExW(from.c_str(), to.c_str(), 0)) ec.assign(int(GetLastError()), std::system_category());
-#else
-    int rc = -1;
-    int err = ENOSYS;
-#if defined(__APPLE__)
-    rc = renamex_np(from.c_str(), to.c_str(), RENAME_EXCL);
-    err = errno;
-#elif defined(__linux__) && defined(SYS_renameat2)
-    rc = int(::syscall(SYS_renameat2, AT_FDCWD, from.c_str(), AT_FDCWD, to.c_str(), 1u /* RENAME_NOREPLACE */));
-    err = errno;
-#endif
-    if (rc == 0) {
-        ec.clear();
-        return;
-    }
-    bool unsupported = err == ENOSYS || err == EINVAL || err == EPERM || err == EOPNOTSUPP;
-#if defined(__APPLE__)
-    unsupported = unsupported || err == ENOTSUP;
-#endif
-    if (!unsupported) {
-        ec.assign(err, std::generic_category());
-        return;
-    }
-    std::error_code probe;
-    if (stdfs::exists(stdfs::symlink_status(to, probe))) {
-        ec = std::make_error_code(std::errc::file_exists);
-        return;
-    }
-    stdfs::rename(from, to, ec);
-#endif
-}
-
 namespace {
 
 // A rename that waits while Windows says somebody holds a file (an antivirus or the indexer, which look at what has just been written:
@@ -602,7 +558,7 @@ void move_entry(const stdfs::path& from, const stdfs::path& to, std::error_code&
         if (!ec) stdfs::copy(fs::os_path(from), fs::os_path(to), stdfs::copy_options::recursive, ec);
     } else {
         stdfs::copy_file(fs::os_path(from), fs::os_path(to), stdfs::copy_options::none, ec);
-        ours = ec != std::errc::file_exists;
+        ours = !is_name_taken(ec);
     }
     if (ec) {
         if (ours) {
@@ -652,8 +608,11 @@ Result<void> place_project(const stdfs::path& staging, const stdfs::path& dir, b
         "Close what has the folder or its files open (an editor, a terminal, an antivirus scan) and try again.";
     if (!dirExists) {
         rename_waiting(staging, dir, ec, cancel, rename);
-        if (ec)
+        if (ec) {
+            // A cancel during the wait for a sharing violation ends rename_waiting with that error: it is still a cancel.
+            if (is_cancelled(cancel)) return cancelled_error("Creating the project");
             return make_error("Cannot move the unpacked example to " + where + ": " + ec.message() + ".", closeHint);
+        }
         return {};
     }
     std::vector<stdfs::path> names;

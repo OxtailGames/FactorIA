@@ -89,6 +89,21 @@ const char* kGizmo3dScene = R"({
     { "id": "gem", "components": { "Transform": { "rotation": [10, 20, 0] }, "MeshRenderer": { "mesh": "cube", "color": [0.9, 0.5, 0.2, 1] } } }
   ]
 })";
+// Section M4: the marquee over 3D meshes, under a perspective camera that draws the left half of the design area (a viewport
+// counted in design pixels). "front" and "far" are in front of the camera, "behind" is behind it, "straddle" is a thin bar through the
+// camera plane (its corners in front of the camera project inside any rectangle around the centre, the others cannot be projected).
+const char* kMarquee3dScene = R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "camera", "components": { "Transform": { "position": [0, 0, 6] },
+        "Camera": { "projection": "perspective", "fov": 60, "primary": true, "viewport": [0, 0, 0.5, 1], "viewportSpace": "design" } } },
+    { "id": "sun", "components": { "Transform": { "position": [0, 5, 0], "rotation": [-50, 30, 0] }, "Light": { "intensity": 0.8 } } },
+    { "id": "front", "components": { "Transform": { "position": [0, 0, 0] }, "MeshRenderer": { "mesh": "cube" } } },
+    { "id": "far", "components": { "Transform": { "position": [0, 0, -20] }, "MeshRenderer": { "mesh": "cube" } } },
+    { "id": "behind", "components": { "Transform": { "position": [0, 0, 10] }, "MeshRenderer": { "mesh": "cube" } } },
+    { "id": "straddle", "components": { "Transform": { "position": [0, 0, 6], "scale": [0.01, 0.01, 3] }, "MeshRenderer": { "mesh": "cube" } } }
+  ]
+})";
 const char* kGizmoHudScene = R"({
   "format": "factoria.scene/1",
   "entities": [
@@ -2051,6 +2066,39 @@ void Editor::at_section_M4(AtScript& at) {
             undo();
             at_check(!world().find_by_id("coin_1").is_null() && !world().find_by_id("coin_2").is_null(),
                      "Undo brings both back");
+            select_id("");
+        });
+
+        // 7. A marquee over 3D meshes: a perspective camera drawing half of the design area; a mesh whole in front of the
+        // camera is picked, one behind it or across its plane is not.
+        step(2, [this, project_file] {
+            write_file(project_file(scenePath_), kMarquee3dScene);
+            reload_scene_from_disk();
+            select_id("");
+        });
+        step(4, [this] {
+            Renderer* r = engine_->renderer();
+            const Vec2 design{float(r->target_width()), float(r->target_height())};
+            auto sorted = [](std::vector<std::string> v) {
+                std::sort(v.begin(), v.end());
+                return v;
+            };
+            // The left half (the camera's viewport) holds every mesh that is in front; the marquee's centre is in it.
+            const std::vector<std::string> half = sorted(marquee_hits(Vec2{0, 0}, Vec2{design.x * 0.5f, design.y}));
+            at_check(
+                half == std::vector<std::string>({"far", "front"}),
+                "a marquee over a perspective camera's viewport picks the meshes in front of the camera, not the one "
+                "behind it nor the one across its plane");
+            // A small rectangle on the camera's axis covers "far" (a few pixels wide at that distance) but not the nearer
+            // "front", whose outline is far larger.
+            const Vec2 c = r->world_to_screen(Vec3{0, 0, -20}, world().find_by_id("camera"));
+            const std::vector<std::string> small = marquee_hits(Vec2{c.x - 40, c.y - 40}, Vec2{c.x + 40, c.y + 40});
+            at_check(small == std::vector<std::string>({"far"}),
+                     "a small marquee on the far cube picks it and not the nearer cube it does not wholly cover");
+        });
+        step(2, [this, project_file] {  // back to the fixture the next sections expect
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
             select_id("");
         });
     }

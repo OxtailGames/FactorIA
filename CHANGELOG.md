@@ -25,9 +25,10 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   another process puts there meanwhile (the moves use a no-replace rename on Linux, macOS and Windows; before, a plain rename could
   overwrite it) and stops with "is not empty any more"; when a move fails and something it had put in the folder cannot be taken
   out again (a file open elsewhere), the error names it instead of saying the folder was left empty; a copy across file systems
-  checks Windows' "not the same device" error by its raw value too. A doctest packs every example of `examples/`, so a file the
-  packer refuses shows in the pull request that adds it and not in the release run (the release workflow still starts only for
-  a change of itself or the packer).
+  checks Windows' "not the same device" error by its raw value too. A doctest checks every example of `examples/` (the files the packer lists, their names, that each can be read, and the limits of the
+  zip; two small examples are packed whole), so a file the packer refuses shows in the pull request that adds it and not in the
+  release run (the release workflow still starts only for a change of itself, `examples/examples.json` or the packer). A cancel while
+  a new folder's move waits for a sharing violation says "cancelled", not a move error.
 - **Last polish (M98):** `Audio::close_device()` now runs the commands still waiting for the device before it returns, so a
   later command cannot overtake an older one (only `shutdown()` is expected after it). Android: the answer of a slot whose pad
   is gone is kept until the stop of a rumble that was playing has reached the vibrator, also when the slot is asked again first.
