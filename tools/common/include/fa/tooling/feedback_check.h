@@ -37,7 +37,7 @@ struct ClaimMatch {
     std::string phrase;        // the words of the report that name it ("one-way")
     std::string where;         // title | missing | suggestion
     std::string doc;           // its doc string ("" when only the published name is known)
-    std::string documentedIn;  // "docs/COMPONENTS.md:384 (Collider2D)", "" when no page was found
+    std::string documentedIn;  // "docs/reference/components/physics.md (Collider2D)", "" when no page was found
     Json to_json() const;
 };
 

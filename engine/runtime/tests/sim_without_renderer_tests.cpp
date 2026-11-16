@@ -1,5 +1,5 @@
 // SpriteAnimator and ParticleEmitter advance in the fixed simulation step, whatever the renderer
-// (docs/ARCHITECTURE.md, "Animation"): a run with graphics=false moves them like a run that draws, and the world
+// (docs/design/ARCHITECTURE.md, "Animation"): a run with graphics=false moves them like a run that draws, and the world
 // state is the same frame by frame.
 #include <doctest.h>
 

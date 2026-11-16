@@ -50,6 +50,7 @@ class TextMeasurer;
 class CameraSet;
 class UiSystem;
 class Clipboard;
+class WebSocketClient;
 class PlatformServices;
 class I18n;
 
@@ -120,6 +121,9 @@ public:
     // The clipboard `clipboard.*` reads and writes (the system's in a game window, an in-memory one in headless runs and tests).
     // nullptr: none, and clipboard.supports is false.
     virtual Clipboard* clipboard() { return nullptr; }
+    // The WebSocket client behind `websocket.connect` in scripts (the system's in a game window, a memory one in headless runs
+    // and tests: fa/platform/websocket.h). nullptr: none, and websocket.supported is false.
+    virtual WebSocketClient* websocket_client() { return nullptr; }
     // The store services behind `platform.*` in scripts (fa/services/platform.h); nullptr when the host has none, and
     // `platform` then reports the "none" backend.
     virtual PlatformServices* platform_services() { return nullptr; }
@@ -499,6 +503,8 @@ public:
     // Contents of types/factoria.d.ts. `since` (optional) maps (section, key) to the version that added the thing:
     // section "components" with "Component" or "Component.field", section "script" with a key of script_api_keys()
     // ("0.1.3", "unreleased", or "" for nothing to say); non-empty answers become a JSDoc @since tag.
+    // Section "deprecated" with the key "script:<key>" or "components:<key>" gives the text of a JSDoc @deprecated tag ("" when the
+    // thing is not deprecated).
     using SinceFn = std::function<std::string(const std::string& section, const std::string& key)>;
     std::string typescript_declarations(const SinceFn& since = {}) const;
     // Every key the "script" section of tools/common/api_since.json needs, sorted: the name of each export of the

@@ -19,6 +19,7 @@
 
 #include "fa_script_js.h"
 #include "fa/audio/audio.h"
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -1285,6 +1286,17 @@ bool ScriptSystem::Impl::init(ScriptHost& h, std::string* error) {
     factoria = JsVal(ctx, JS_GetPropertyStr(ctx, hooks.get(), "factoria"));
     testApi = JsVal(ctx, JS_GetPropertyStr(ctx, hooks.get(), "test"));
 
+    // Deprecated script API: the prelude wraps what the table lists (nothing in a run without the tooling's table).
+    if (!Deprecations::global().keys(kDeprecatedScript).empty()) {
+        Json targets = deprecation_targets();
+        if (!targets.empty()) {
+            JSValue arg = from_json(targets);
+            JSValue r = call_method("deprecated script API", "", hooks.get(), "applyDeprecations", {arg});
+            JS_FreeValue(ctx, r);
+            JS_FreeValue(ctx, arg);
+        }
+    }
+
     // Global conveniences.
     JSValue global = JS_GetGlobalObject(ctx);
     JS_DefinePropertyValueStr(ctx, global, "factoria", JS_DupValue(ctx, factoria.get()),
@@ -1366,6 +1378,7 @@ void ScriptSystem::Impl::shutdown() {
             wfcJobIds);  // the JS handles that would cancel the tilemap.generate jobs die with the context
     if (host) host->drop_script_background_loads();  // so do the handles of its background loads
     wfcJobIds.clear();
+    websockets.clear();  // the connections end with the context that held their handlers
     if (host) host->commands().set_before_call({});
     if (host && observerId >= 0) host->world().remove_observer(observerId);
     observerId = -1;
@@ -1459,6 +1472,87 @@ Json platform_answer_json(const PlatformAnswer& a) {
     return j;
 }
 
+// WebSocket events, once per frame: what each connection queued since the last frame goes to the `websocketDeliver` hook of the
+// prelude, which fires the handlers. A frame hands over at most 256 events and 8 MB of messages; the rest waits in the
+// connection's pending list, and a connection is polled again only when its list is empty, so a game that is slow to
+// consume leaves the rest in the connection's own queue, which is capped (fa/platform/websocket.h).
+void ScriptSystem::Impl::deliver_websockets() {
+    if (websockets.empty()) return;
+    constexpr std::size_t kMaxEvents = 256, kMaxBytes = 8u * 1024 * 1024;
+    std::vector<WebSocketEvent> fresh;
+    for (auto& [id, entry] : websockets) {
+        if (!entry.pending.empty()) continue;
+        fresh.clear();
+        entry.ws->poll(fresh);
+        for (WebSocketEvent& e : fresh) entry.pending.push_back(std::move(e));
+    }
+    JSValue list = JS_NewArray(ctx);
+    std::uint32_t count = 0;
+    std::size_t bytes = 0;
+    for (auto it = websockets.begin(); it != websockets.end();) {
+        WebSocketEntry& entry = it->second;
+        bool ended = false;
+        while (!entry.pending.empty() && count < kMaxEvents &&
+               (bytes == 0 || bytes + entry.pending.front().data.size() <= kMaxBytes)) {
+            WebSocketEvent e = std::move(entry.pending.front());
+            entry.pending.pop_front();
+            bytes += e.data.size();
+            JSValue o = JS_NewObject(ctx);
+            JS_SetPropertyStr(ctx, o, "id", JS_NewInt32(ctx, it->first));
+            switch (e.type) {
+                case WebSocketEvent::Type::Open:
+                    JS_SetPropertyStr(ctx, o, "type", JS_NewString(ctx, "open"));
+                    JS_SetPropertyStr(ctx, o, "subprotocol",
+                                      JS_NewStringLen(ctx, e.subprotocol.data(), e.subprotocol.size()));
+                    break;
+                case WebSocketEvent::Type::Text:
+                    JS_SetPropertyStr(ctx, o, "type", JS_NewString(ctx, "text"));
+                    JS_SetPropertyStr(ctx, o, "data", JS_NewStringLen(ctx, e.data.data(), e.data.size()));
+                    break;
+                case WebSocketEvent::Type::Binary: {
+                    static const std::uint8_t kNone = 0;  // an empty ArrayBuffer still needs a pointer
+                    JS_SetPropertyStr(ctx, o, "type", JS_NewString(ctx, "binary"));
+                    JS_SetPropertyStr(
+                        ctx, o, "data",
+                        JS_NewArrayBufferCopy(
+                            ctx, e.data.empty() ? &kNone : reinterpret_cast<const std::uint8_t*>(e.data.data()),
+                            e.data.size()));
+                    break;
+                }
+                case WebSocketEvent::Type::Error:
+                    JS_SetPropertyStr(ctx, o, "type", JS_NewString(ctx, "error"));
+                    JS_SetPropertyStr(ctx, o, "message", JS_NewStringLen(ctx, e.error.data(), e.error.size()));
+                    JS_SetPropertyStr(ctx, o, "hint", JS_NewStringLen(ctx, e.hint.data(), e.hint.size()));
+                    JS_SetPropertyStr(ctx, o, "httpStatus", JS_NewInt32(ctx, e.httpStatus));
+                    break;
+                case WebSocketEvent::Type::Close:
+                    JS_SetPropertyStr(ctx, o, "type", JS_NewString(ctx, "close"));
+                    JS_SetPropertyStr(ctx, o, "code", JS_NewInt32(ctx, e.code));
+                    JS_SetPropertyStr(ctx, o, "reason", JS_NewStringLen(ctx, e.reason.data(), e.reason.size()));
+                    JS_SetPropertyStr(ctx, o, "wasClean", JS_NewBool(ctx, e.wasClean));
+                    ended = true;
+                    break;
+            }
+            JS_SetPropertyUint32(ctx, list, count++, o);
+            if (ended) break;
+        }
+        if (ended)
+            it = websockets.erase(it);  // nothing follows a Close
+        else
+            ++it;
+    }
+    if (count == 0) {
+        JS_FreeValue(ctx, list);
+        return;
+    }
+    JSValue fn = JS_GetPropertyStr(ctx, hooks.get(), "websocketDeliver");
+    JSValue r = call("websocket events", "", fn, hooks.get(), {list});
+    JS_FreeValue(ctx, r);
+    JS_FreeValue(ctx, fn);
+    JS_FreeValue(ctx, list);
+    run_jobs();
+}
+
 void ScriptSystem::dispatch_platform() {
     Impl& I = *impl_;
     if (!I.initialized || !I.host) return;
@@ -1498,6 +1592,7 @@ void ScriptSystem::dispatch_platform() {
         JS_FreeValue(I.ctx, budget);
         I.run_jobs();
     }
+    I.deliver_websockets();
     PlatformServices* services = I.host->platform_services();
     if (!services) return;
     const std::vector<PlatformAnswer> answers = services->take_answers();

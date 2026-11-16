@@ -42,7 +42,7 @@ List the engine documentation available offline.
 
 Capabilities: read
 
-Start here. Returns {docs:[{name, title, summary, audience[], path, bytes}]}: `summary` is one sentence on what the page is for, `audience` says who it is for (gameAi: the AI making a game, user: the person using the engine, engineDev: working on the engine itself), `bytes` its size. Pick by summary and read only what the task needs with docs.read (by `heading`). The document 'ai-guide' explains how to build games with FactorIA. Example: {"audience":"gameAi"}.
+Start here. Returns {docs:[{name, title, summary, audience[], path, bytes, family?}]}: `family` is only on a page of a big doc that is split (the name of its entry page: read the entry page first, it indexes its pages); `summary` is one sentence on what the page is for, `audience` says who it is for (gameAi: the AI making a game, user: the person using the engine, engineDev: working on the engine itself), `bytes` its size. Pick by summary and read only what the task needs with docs.read (by `heading`). The document 'ai-guide' explains how to build games with FactorIA. Example: {"audience":"gameAi"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -54,7 +54,7 @@ Read a documentation page (Markdown), a section or a line range; long pages come
 
 Capabilities: read
 
-Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and `next`, the exact call that continues. Read one section by heading: {"name":"ai-guide","heading":"Platformer character"} (case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with startLine/maxLines. Names: see docs.list (e.g. ai-guide, architecture, scripting, components, licenses). To find where something is, docs.search returns sections with their line numbers.
+Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and `next`, the exact call that continues. Read one section by heading: {"name":"ai-guide","heading":"Platformer character"} (case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with startLine/maxLines. Names: see docs.list (e.g. ai-guide, scripting, licenses). The menu kit's files are `menu-kit/<file>` (the name "menu-kit" lists them). The component and command references are not pages: use docs.components and docs.commands. To find where something is, docs.search returns sections with their line numbers. A big doc is split: its entry page (the name you know) indexes its pages, and a read of it without `heading` carries `pages` ([{name,title,bytes,path}]; a cut read lists them in `contents` too). A `heading` that is not in the entry page but is a heading of one of its pages is served from that page: the result then has `page` (its name; `name` is the page too, so `next` continues there), `requestedName` and a `note`. A heading on two pages is an error that lists both; read the page by name.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -70,7 +70,7 @@ Search the documentation by keywords.
 
 Capabilities: read
 
-Case-insensitive; every word counts, headings weigh more. Returns best sections with a snippet. Example: {"query":"input actions"}
+Case-insensitive; every word counts, headings weigh more. Returns best sections with a snippet; `doc` names the page that holds it (`family` too when that is a page of a split doc: read it with docs.read {name:doc}). Example: {"query":"input actions"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

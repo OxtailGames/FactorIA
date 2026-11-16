@@ -39,7 +39,7 @@ Checked against the code of this repository:
 - **Store plugins bring the store's data collection.** Steam, Apple (StoreKit, Game Center, iCloud) and Google Play
   (Billing, Play Games Services) process purchases, achievements, leaderboards and cloud saves in the store's own
   services under the store's privacy policy ([PLATFORM.md](PLATFORM.md); what to answer in the store forms:
-  [MOBILE.md](MOBILE.md#store-privacy-forms)).
+  [MOBILE.md](mobile/MOBILE_PRIVACY.md#store-privacy-forms)).
 
 Anything else the game does (an ads or analytics SDK, accounts, what your server does with the requests `http.fetch`
 sends) is yours to declare. A game that declares `"network"` hosts must say so in its privacy policy: see "A game that
@@ -54,7 +54,7 @@ website works; a PDF or a page behind a login does not. Link the same URL in eve
 credits or settings screen). As of 2026-10: Google Play asks for the URL on every app, the App Store asks for it for
 every app, the Microsoft Store asks for it in Partner Center ([PUBLISHING.md](PUBLISHING.md)), and Steam and Epic want
 one when the game collects data. Keep the policy true: it must match the store privacy forms
-([MOBILE.md](MOBILE.md#store-privacy-forms)).
+([MOBILE.md](mobile/MOBILE_PRIVACY.md#store-privacy-forms)).
 
 ### Template: a game that collects nothing
 
@@ -186,7 +186,7 @@ Contact: [CONTACT EMAIL]
       leftover placeholders (`[GAME NAME]`, `[DATE]`, ...).
 - [ ] The same URL is in the store forms (Google Play, App Store, Microsoft Store; Steam and Epic when the game collects
       data) and inside the game.
-- [ ] The store privacy forms say the same as the policy ([MOBILE.md](MOBILE.md#store-privacy-forms)).
+- [ ] The store privacy forms say the same as the policy ([MOBILE.md](mobile/MOBILE_PRIVACY.md#store-privacy-forms)).
 - [ ] Accounts, if any: players can delete their account from inside the app.
 - [ ] Children: I decided whether the game is for them, set the age rating and target audience to match, and asked a
       lawyer if it is.
