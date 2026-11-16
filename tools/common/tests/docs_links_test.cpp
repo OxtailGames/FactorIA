@@ -643,17 +643,20 @@ TEST_CASE("docs: no heading repeats inside one doc (its anchor would be ambiguou
 namespace {
 
 // The first 16 hex digits of the SHA-256 of a file without its CRs: the same on a CRLF checkout.
-// The line that names the version ("Version x.y", the pattern of readme_version_test.cpp) is left out: every version
-// bump edits it, and it would make the hash of README.md stale in each release.
-std::string content_hash_of(std::string t) {
+// For README.md (`readme` true) the version number of the line that starts with "Version x.y" (the pattern of
+// readme_version_test.cpp) is left out, and only the number: every version bump edits it, and it would make the hash
+// stale in each release, while the rest of that line is real Status text.
+std::string content_hash_of(std::string t, bool readme) {
     t.erase(std::remove(t.begin(), t.end(), '\r'), t.end());
-    static const std::regex versionLine(R"((^|\n)Version \d+\.\d+\b[^\n]*)");
-    t = std::regex_replace(t, versionLine, "$1");
+    if (readme) {
+        static const std::regex versionNumber(R"((^|\n)Version \d+\.\d+\b)");
+        t = std::regex_replace(t, versionNumber, "$1Version");
+    }
     fa::Sha256 h;
     h.update(t);
     return h.finish_hex().substr(0, 16);
 }
-std::string content_hash(const stdfs::path& p) { return content_hash_of(read_all(p)); }
+std::string content_hash(const stdfs::path& p) { return content_hash_of(read_all(p), p.filename() == "README.md"); }
 
 }  // namespace
 
@@ -744,9 +747,14 @@ TEST_CASE("docs: the content hash of a translation's original ignores CRs") {
     stdfs::remove_all(tmp, ec);
 }
 
-TEST_CASE("docs: the hash of a README ignores the line that names the version") {
-    CHECK(content_hash_of("# T\n\nVersion 0.29, alpha.\nbody\n") ==
-          content_hash_of("# T\n\nVersion 0.30, beta.\nbody\n"));
-    CHECK(content_hash_of("# T\n\nVersion 0.29\nbody\n") != content_hash_of("# T\n\nVersion 0.29\nbody2\n"));
-    CHECK(content_hash_of("a\nVersion 1.2\n") == content_hash_of("a\r\nVersion 3.4\r\n"));
+TEST_CASE("docs: the hash of README.md ignores the version number, and only that") {
+    CHECK(content_hash_of("# T\n\nVersion 0.29, alpha.\nbody\n", true) ==
+          content_hash_of("# T\n\nVersion 0.30, alpha.\nbody\n", true));
+    CHECK(content_hash_of("# T\n\nVersion 0.29, alpha.\nbody\n", true) !=
+          content_hash_of("# T\n\nVersion 0.29, beta.\nbody\n", true));
+    CHECK(content_hash_of("# T\n\nVersion 0.29\nbody\n", true) !=
+          content_hash_of("# T\n\nVersion 0.29\nbody2\n", true));
+    CHECK(content_hash_of("a\nVersion 1.2\n", true) == content_hash_of("a\r\nVersion 3.4\r\n", true));
+    // any other document keeps the number
+    CHECK(content_hash_of("a\nVersion 1.2\n", false) != content_hash_of("a\nVersion 3.4\n", false));
 }

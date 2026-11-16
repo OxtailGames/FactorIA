@@ -19,7 +19,7 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   source comments, the error texts and the scripts names a section that exists (60 pointed at renamed or missing ones and were
   corrected); every doc is reachable from README.md; an embedded doc that names a doc outside the binary says so; and no heading
   repeats inside a doc (five did: renamed). A translation records the English text it follows with a hash on its first line, and a
-  test flags one whose English original changed (the line of README.md that starts with "Version x.y" is left out of the hash, so
+  test flags one whose English original changed (for README.md only, the number of its line that starts with "Version x.y" is left out of the hash, so
   a version bump does not make README.es.md stale; docs/design/ARCHITECTURE.md, "Testing").
   The js blocks too: every ```` ```js ```` block of `docs/` (the design docs too) is parsed with the engine's QuickJS
   and its `root.member` names (`world.`, `ui.`, `tween.`, `Vec2.`...) are checked against the generated script typings

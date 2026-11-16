@@ -85,9 +85,8 @@ std::vector<Block> js_blocks_of(const std::string& rel, const std::string& text)
             std::string t = lines[j];
             const size_t nb = t.find_first_not_of(" \t");
             if (nb != std::string::npos && t[nb] == '`') {
-                const size_t run = t.find_first_not_of('`', nb) == std::string::npos
-                                       ? t.size() - nb
-                                       : t.find_first_not_of('`', nb) - nb;
+                const size_t end = t.find_first_not_of('`', nb);
+                const size_t run = (end == std::string::npos ? t.size() : end) - nb;
                 // a closing fence is at least as long as the opening one and may carry trailing spaces or tabs
                 if (run >= fence.size() && t.find_first_not_of(" \t", nb + run) == std::string::npos) break;
             }
@@ -670,6 +669,10 @@ TEST_CASE("docs js: the scanner finds blocks, fragments and API names") {
     CHECK(skip[0].code == "ui.layot();\n");
     CHECK_FALSE(skip[1].skipNames);
     CHECK(skip[1].code == "b();\n");
+    // a closing fence is as long as the opening one or longer: a shorter fence inside the block is code
+    const auto longer = js_blocks_of("docs/X.md", "````js\na();\n```\nb();\n`````\nafter\n");
+    REQUIRE(longer.size() == 1);
+    CHECK(longer[0].code == "a();\n```\nb();\n");
     CHECK(strip_text("a // x.y\nb(\"w.q\") /* z.z */").find('.') == std::string::npos);
 
     Typings ty;
