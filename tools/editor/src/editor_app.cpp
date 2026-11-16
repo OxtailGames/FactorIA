@@ -1025,10 +1025,14 @@ std::optional<CommandResult> Editor::run_queued(const std::string& name, const J
 
     const CommandInfo* info = engine_->commands().info(name);
     const bool mutating = info && !info->readOnly && command_edits_scene(name, args);
-    if (mutating && play_ == PlayState::Edit) begin_edit("ai:" + name + ":" + std::to_string(uiFrame_));
-    CommandResult r = engine_->commands().call(name, args);
-    if (mutating && r.ok && play_ == PlayState::Edit) dirty_ = true;
-    after_command(name, args, r);
+    CommandResult r;
+    if (mutating && play_ == PlayState::Edit) {
+        // A command with an inverse is a Command step, any other one a snapshot; a refused call leaves no step (edit_command).
+        r = edit_command("ai:" + name + ":" + std::to_string(uiFrame_), name, args, nullptr, false, false);
+    } else {
+        r = engine_->commands().call(name, args);
+        after_command(name, args, r);
+    }
     if (!queue_.current_tag().empty())
         ai_note_command(queue_.current_tag(), name, args, r);  // which chat's run changed what
     // A sheet the AI (or an MCP client) made for the person: offered in the Review window, without taking the focus. Any command that
