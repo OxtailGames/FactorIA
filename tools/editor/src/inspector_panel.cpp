@@ -274,9 +274,9 @@ void Editor::inspector_prefab_header(Entity e) {
         tooltip(
             "Write these values into the prefab file (prefab.apply). The other instances of the prefab in this scene "
             "get them too, except where they override the same thing.");
-    if (inspApplyAsk_ && !playing) {
-        ImGui::OpenPopup("Apply to prefab?##insp");
-        inspApplyAsk_ = false;
+    if (inspApplyAsk_) {
+        if (!playing) ImGui::OpenPopup("Apply to prefab?##insp");
+        inspApplyAsk_ = false;  // a question asked while the game ran is not asked after Stop
     }
     ImGui::SetNextWindowPos(ImGui::GetMainViewport()->GetCenter(), ImGuiCond_Appearing, ImVec2(0.5f, 0.5f));
     if (ImGui::BeginPopupModal("Apply to prefab?##insp", nullptr, ImGuiWindowFlags_AlwaysAutoResize)) {
