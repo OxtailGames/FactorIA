@@ -581,15 +581,18 @@ void World::set_parent(Entity child, Entity parent, bool keepWorldTransform, int
     }
     d.dirty_world(child);
     d.dirty_active(child);
+    // The layout's placement belongs to the old parent: drop it now, so world_position is not stale until the next
+    // layout pass (a new Panel parent gives the child a new offset on that pass). With keepWorldTransform the world
+    // matrix computed above held the placement too, so the whole of it goes into the local position below (the
+    // author's offset from the new parent) and the offset must not be counted twice, even when the parent did not
+    // change.
+    if (keepWorldTransform || oldParent != parent) set_ui_layout_offset(child, {0.0f, 0.0f});
 
     if (keepWorldTransform) {
         Mat4 parentWorld = parent.is_null() ? Mat4::identity() : world_matrix(parent);
         Mat4 local = parentWorld.inverse() * oldWorld;
         auto* t = static_cast<Transform*>(d.transformPool->get(child));
         decompose(local, t->position, t->rotation, t->scale);
-        const Vec2 off = ui_layout_offset(child);  // the world matrix held the layout's placement too
-        t->position.x -= off.x;
-        t->position.y -= off.y;
     }
 }
 

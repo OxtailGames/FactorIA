@@ -131,7 +131,9 @@ entity, instead of walking the parent chain on every call (`engine/scene/src/wor
   built (`world_matrix`, `drawn_matrix`). `set_ui_layout_offset` drops the entity's entry like a Transform write does, and the
   layout runs on the main thread before the render gather, so jobs never see it change. `Transform.position` of a laid-out
   child is the author's offset from the slot. Code that adds raw positions up the parents (`ui_layout_translation`, `ui_rect.h`)
-  uses `position + offset`; `set_world_position` and `set_parent(keepWorld)` subtract it.
+  uses `position + offset`; `set_world_position` subtracts it. `set_parent` drops the offset when the parent changes (the placement belonged to the old parent;
+  the next layout pass gives a new Panel parent's child a new one), and with `keepWorld` the child keeps its world place: the whole
+  placement moves into `Transform.position`, which under a new Panel then nudges the child from its slot.
 - **Rules for code**: read through a `const World&` (or `std::as_const(world).get<Transform>(e)`): a read through a mutable
   `World` counts as a write and throws the cache away for nothing (`resolve_obj` in the script bridge, the UI and render
   passes already read through const). A `Transform&` or `EntityInfo&` KEPT from an earlier `get` and written after a

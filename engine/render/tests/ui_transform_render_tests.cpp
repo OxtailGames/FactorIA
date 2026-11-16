@@ -67,8 +67,8 @@ TEST_CASE(
         p.size = {100, 20};
         p.pivot = {0.5f, 0.5f};
         p.anchor = anchor;
-        w.get<Transform>(e)->position = {20, 10,
-                                         0};  // not at the anchor: the turn is about the Panel, not about the anchor
+        // not at the anchor: the turn is about the Panel, not about the anchor
+        w.get<Transform>(e)->position = {20, 10, 0};
         p.color =
             Color{0, 0, 0, 0};  // not drawn: the widgets are drawn over the screen-space visuals, the card is its quad
         Entity c = make(w, "child", {30, 0, 0});  // to the right of the Panel's centre: an asymmetric case
@@ -152,8 +152,8 @@ TEST_CASE(
             if (c.r > 0.7f && c.b < 0.3f) sx += x + 0.5, sy += y + 0.5, n += 1;
         }
     REQUIRE(n > 0);
-    // In layout space the shape is at the anchor + (20 + 30 + 20, 10). The inner Panel (at +30) turns its +20 into +20 down;
-    // then the outer turn (about its centre, at +20, +10) takes (30, 20) to (-20, 30).
+    // In layout space the shape is at the anchor + (20 + 30 + 20, 10). The inner Panel (at +30) turns its +20 into
+    // +20 down; then the outer turn (about its centre, at +20, +10) takes (30, 20) to (-20, 30).
     CHECK(float(sx / n) == doctest::Approx(design.x * 0.5f + 20.0f - 20.0f).epsilon(0.02));
     CHECK(float(sy / n) == doctest::Approx(design.y * 0.5f + 10.0f + 30.0f).epsilon(0.02));
 }
