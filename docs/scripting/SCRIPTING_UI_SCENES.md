@@ -393,8 +393,8 @@ stuck screens and slow frames, but not a level that needs a plan: write the hook
 On a desktop window, the close button, Cmd+Q (macOS) and Alt+F4 (Windows) raise `quit` before the window closes. The
 handler gets an event with `cancel()` and `cancelled`; call `event.cancel()` to keep the game running (ask "Quit
 without saving?" and call `game.quit()` when the player agrees). Without a handler, or when no handler cancels, the
-window closes. `game.quit()` closes the window without raising `quit` again, so a handler may call it. Phones never
-raise it (the OS closes the app on its own terms), and a headless run only sees it when a test calls `game.closeWindow()`.
+window closes. `game.quit()` closes the window without raising `quit` again, so a handler may call it. iOS never
+raises it (the OS closes the app on its own terms), and a headless run only sees it when a test calls `game.closeWindow()`.
 Cancelling is not guaranteed on every platform: a window the OS is shutting down can close anyway.
 
 On the web, `quit` is raised when the page is going away (`pagehide`: the tab closing, a reload, leaving the site) and it
@@ -402,13 +402,21 @@ On the web, `quit` is raised when the page is going away (`pagehide`: the tab cl
 inside it is copied to the browser's IndexedDB at once, after the handlers have run. The browser may still drop the
 page before the copy finishes (a crash, a killed tab), so a game that cannot lose progress also saves on a timer.
 
+On Android, `quit` is raised once when the system destroys the game's activity: a Back no `input.onBack` handler
+consumed, the system closing the app, or a relaunch for a theme or wallpaper-colour change (the game then starts again
+from its first scene, in a new process). It **cannot be cancelled** either, and it is not raised after `game.quit()`.
+The process ends right after the handlers and the `storage.setAsync` writes still waiting, within about 1.5 s (the
+analytics request for the events that wait is started, not waited for): keep the handler short, and save with `storage.set` or `storage.setAsync`. A force-stop or
+a kill for memory in the background raises nothing (docs/mobile/MOBILE_ANDROID.md, "Lifecycle").
+
 **Which signals each platform raises:**
 
 | | `blur` / `focus` | `suspend` / `resume` | `quit` |
 |---|---|---|---|
 | Windows, macOS, Linux | the window loses or gains focus, or is minimised and restored | never | the close button, Cmd+Q, Alt+F4; can be cancelled |
 | Web | the page loses or gains focus (`window` blur and focus) | the tab is hidden or shown again (`visibilitychange`: a tab switch, a minimised window, a phone's app switcher) | the page is closing (`pagehide`); cannot be cancelled |
-| Android, iOS | a system dialog over the app | the app goes to the background and comes back | never |
+| Android | a system dialog over the app | the app goes to the background and comes back | the activity is destroyed (Back not consumed, the system closing or relaunching the app); cannot be cancelled |
+| iOS | a system dialog over the app | the app goes to the background and comes back | never |
 
 The web's `suspend` is also raised when the browser takes the WebGL context away. A hidden tab raises `suspend` once
 however many events the browser sends, and `resume` only after a `suspend`.
