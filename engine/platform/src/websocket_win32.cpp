@@ -67,10 +67,13 @@ constexpr auto kCloseWait =
     std::chrono::duration_cast<Clock::duration>(std::chrono::duration<double>(kWebSocketCloseWaitSec));
 // WINHTTP_WEB_SOCKET_EMPTY_CLOSE_STATUS: a close frame with no code (and then no reason).
 constexpr USHORT kEmptyCloseStatus = 1005;
-// The interval of WinHTTP's keep-alive frames on an open connection, in milliseconds: WinHTTP's own default, set explicitly
-// so that a machine's registry value (HKLM\SOFTWARE\Microsoft\WebSocket\KeepaliveInterval) does not change it. WinHTTP
-// refuses less than 15000.
+// The interval of WinHTTP's keep-alive frames on an open connection, in milliseconds: WinHTTP's own default, asked for
+// explicitly so that a machine's registry value (HKLM\SOFTWARE\Microsoft\WebSocket\KeepaliveInterval) need not change it.
+// WinHTTP refuses less than 15000. Whether a given Windows version honours the option on these handles is not checked: where
+// it does not, its own default (the same 30 s) or the registry value applies.
 constexpr DWORD kKeepAliveMs = 30000;
+// What the asynchronous WinHttpWebSocket* calls may answer besides NO_ERROR: the completion follows as a callback.
+constexpr DWORD kIoPending = ERROR_IO_PENDING;
 // One WinHttpWebSocketReceive fills at most this much; a longer message arrives as fragments.
 constexpr std::size_t kReceiveChunk = 64 * 1024;
 // The most WinHttpWebSocketSend takes in one message (its length is a DWORD).
@@ -175,12 +178,13 @@ std::string timed_out_text(const ws::Url& url, double timeoutSec) {
     const int tenths = static_cast<int>(std::min(std::max(timeoutSec, 0.0), 100000.0) * 10.0 + 0.5);
     std::string seconds = std::to_string(tenths / 10);
     if (tenths % 10 != 0) seconds += "." + std::to_string(tenths % 10);
-    return "timed out connecting to " + url.host + ":" + std::to_string(url.port) + " after " + seconds + " s";
+    return "timed out connecting to " + url.host_in_brackets() + ":" + std::to_string(url.port) + " after " + seconds +
+           " s";
 }
 
 // What a failed WinHTTP call while connecting means for the game.
 Failure connect_failure(DWORD code, const ws::Url& url, double timeoutSec) {
-    const std::string where = url.host + ":" + std::to_string(url.port);
+    const std::string where = url.host_in_brackets() + ":" + std::to_string(url.port);  // "[::1]:9000", not "::1:9000"
     switch (code) {
         case ERROR_WINHTTP_TIMEOUT:
             return {timed_out_text(url, timeoutSec),
@@ -257,7 +261,9 @@ public:
         wake_.notify_all();
     }
 
-    WebSocketState state() const { return state_.load(); }
+    // Closed as soon as the queue holds its last event: a queue that overflowed holds [Error, Close 1008] before
+    // deliver_locked has set state_.
+    WebSocketState state() const { return queue_->ended() ? WebSocketState::Closed : state_.load(); }
 
     Result<void> send(bool binary, const void* data, std::size_t size) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -508,15 +514,17 @@ private:
                               upgrade(request, socket, subprotocol, code, failure, httpStatus);
         std::lock_guard<std::mutex> lock(mutex_);
         if (stop_) return false;  // destroyed: nothing to report
+        // The timeout first: a close() that came after the deadline passed (wait_connect stops at the first of them) must
+        // not hide that the attempt had timed out.
+        if (timedOut_) {
+            fail_locked(timed_out_text(url_, options_.connectTimeoutSec),
+                        "Check the connection, or raise the timeout option of websocket.connect.");
+            return false;
+        }
         if (abort_) {
             fail_locked("the connection was closed before it was open",
                         "close() was called before the connection opened; wait for the 'open' event, or ignore this "
                         "error.");
-            return false;
-        }
-        if (timedOut_) {
-            fail_locked(timed_out_text(url_, options_.connectTimeoutSec),
-                        "Check the connection, or raise the timeout option of websocket.connect.");
             return false;
         }
         if (!upgraded) {
@@ -601,8 +609,9 @@ private:
             code = GetLastError();
             return false;
         }
-        // The keep-alive interval, on the request so the WebSocket handle starts with it; where WinHTTP takes it only on
-        // the WebSocket handle, upgrade() sets it there.
+        // The keep-alive interval, asked for on the request so the WebSocket handle may start with it; where WinHTTP takes
+        // it only on the WebSocket handle, upgrade() asks there. WinHTTP may accept the option and ignore it: the keep-alive
+        // is then WinHTTP's own default.
         keepAliveSet_ = set_dword(request, WINHTTP_OPTION_WEB_SOCKET_KEEPALIVE_INTERVAL, kKeepAliveMs);
 
         std::wstring headers;
@@ -687,13 +696,15 @@ private:
             delete holder;  // no handle, no HANDLE_CLOSING
             return false;
         }
-        // From here the Holder belongs to the WebSocket handle.
+        // From here the Holder belongs to the WebSocket handle. If setting the callback fails, the Holder is not deleted
+        // here: the handle inherited the session's callback (the same function), which gets its HANDLE_CLOSING when
+        // drive() closes it and deletes the Holder there; deleting it now would be a second delete.
         if (WinHttpSetStatusCallback(socket, winhttp_status_callback, WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS, 0) ==
             WINHTTP_INVALID_STATUS_CALLBACK) {
             code = GetLastError();
             return false;
         }
-        // Where neither handle takes it, WinHTTP keeps its default, which is kKeepAliveMs too.
+        // Where neither handle takes it, WinHTTP keeps its default (30 s, like kKeepAliveMs).
         if (!keepAliveSet_) set_dword(socket, WINHTTP_OPTION_WEB_SOCKET_KEEPALIVE_INTERVAL, kKeepAliveMs);
         WinHttpCloseHandle(request);  // the WebSocket handle lives on without it
         request = nullptr;
@@ -716,13 +727,19 @@ private:
                 const DWORD rc =
                     WinHttpWebSocketQueryCloseStatus(socket, &status, reason, sizeof(reason), &reasonBytes);
                 lock.lock();
-                int peerCode = ws::close_code::kNoStatus;
-                std::string peerReason;
-                if (rc == NO_ERROR) {
-                    peerCode = status;
-                    peerReason.assign(reason, std::min<std::size_t>(reasonBytes, sizeof(reason)));
-                    if (!is_valid_utf8(peerReason)) peerReason.clear();
+                if (rc != NO_ERROR) {
+                    // The server's close frame arrived but WinHTTP cannot say what is in it (an empty close frame is
+                    // NO_ERROR with status 1005): report a failure, not a clean 1005.
+                    if (!finished_)
+                        fail_locked("the server closed the connection, but Windows could not read its close status "
+                                    "(Windows error " +
+                                        std::to_string(rc) + ")",
+                                    "Check the server; try again.");
+                    return;
                 }
+                const int peerCode = status;
+                std::string peerReason(reason, std::min<std::size_t>(reasonBytes, sizeof(reason)));
+                if (!is_valid_utf8(peerReason)) peerReason.clear();
                 // Our close went out first: this is its answer, and the handshake is done. Else WinHttpWebSocketClose
                 // answers with the server's code.
                 if (!closeFrameSent_) {
@@ -753,9 +770,9 @@ private:
                     lock.unlock();
                     const DWORD rc = WinHttpWebSocketClose(socket, code, nullptr, 0);
                     lock.lock();
-                    // NO_ERROR: the close handshake goes on, CLOSE_COMPLETE follows. Any other answer means the
-                    // connection is gone; the game has its Close event already.
-                    if (rc != NO_ERROR) return;
+                    // NO_ERROR or ERROR_IO_PENDING: the close handshake goes on, CLOSE_COMPLETE follows. Any other
+                    // answer means the connection is gone; the game has its Close event already.
+                    if (rc != NO_ERROR && rc != kIoPending) return;
                     continue;
                 }
                 if (goodbyeOwed && !busy) {
@@ -781,7 +798,7 @@ private:
                     WinHttpWebSocketReceive(socket, receiveBuffer_.data(), static_cast<DWORD>(receiveBuffer_.size()),
                                             &receiveBytesOut_, &receiveTypeOut_);
                 lock.lock();
-                if (rc != NO_ERROR) {
+                if (rc != NO_ERROR && rc != kIoPending) {  // the asynchronous API may answer either
                     recvPending_ = false;
                     if (!finished_) lost_locked(rc, "");
                     return;
@@ -801,7 +818,7 @@ private:
                 lock.unlock();
                 const DWORD rc = WinHttpWebSocketSend(socket, type, data, bytes);
                 lock.lock();
-                if (rc != NO_ERROR) {
+                if (rc != NO_ERROR && rc != kIoPending) {
                     sendPending_ = false;
                     if (!finished_) lost_locked(rc, " while sending");
                     return;
@@ -838,7 +855,7 @@ private:
         lock.unlock();
         const DWORD rc = WinHttpWebSocketShutdown(socket, code, reason, reasonBytes);
         lock.lock();
-        if (rc == static_cast<DWORD>(ERROR_IO_PENDING)) return true;  // SHUTDOWN_COMPLETE follows
+        if (rc == kIoPending) return true;  // SHUTDOWN_COMPLETE follows
         shutdownPending_ = false;
         if (rc == NO_ERROR) return true;  // done already
         if (!finished_) lost_locked(rc, " while closing");
