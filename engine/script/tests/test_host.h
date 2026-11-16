@@ -10,6 +10,7 @@
 #include "fa/physics/physics.h"
 #include "fa/platform/clipboard.h"
 #include "fa/platform/input.h"
+#include "fa/platform/websocket.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/localize.h"
 #include "fa/scene/serialize.h"
@@ -92,6 +93,9 @@ struct TestHost : ScriptHost {
     Clipboard* clipboard() override { return &clip; }
     Renderer* renderer() override { return nullptr; }
     PlatformServices* platform_services() override { return &platformServices; }
+    MemoryWebSocketClient websockets;              // websocket.connect in tests: a scripted server, game.websocket
+    WebSocketClient* websocketOverride = nullptr;  // a test that wants another client (an unavailable one)
+    WebSocketClient* websocket_client() override { return websocketOverride ? websocketOverride : &websockets; }
     const I18n* i18n() override { return &loc; }
     std::string set_language(std::string_view language) override {  // what Engine::switch_language does
         const std::string previous = loc.language();

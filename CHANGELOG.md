@@ -12,17 +12,43 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   bodies included): Transform, physics and scripts see the real pose. The new `Interpolation` component sets it per entity
   (`on` / `off` / `inherit`), a new entity, a Transform written outside the fixed step and `entity.teleport()` are drawn
   without smearing, and `render.interpolationSnapDistance` treats a long step as a jump. `game.step`, headless runs, replays
-  and a paused game draw the real pose. See docs/RENDERING.md, "Render interpolation".
+  and a paused game draw the real pose. Scripts, UI hit tests and picking read the real camera pose, so `screenToWorld` does not
+  depend on the frame time; a rotation that turns more than 180 degrees in one step is not blended. See docs/RENDERING.md, "Render interpolation".
+### Added
+
+- `websocket.connect(url, options)` for game scripts: WebSocket connections to the hosts `factoria.json` `network.hosts` declares (the
+  same list, errors and `did you mean` as `http.fetch`), with `on`/`off`/`send`/`close`, text and binary messages, subprotocols,
+  headers, and reconnects with exponential backoff and a jitter that is the same on every run. A scene change closes the
+  connections without events. This is the shared part: the interface (`fa/platform/websocket.h`), an RFC 6455 codec
+  (`fa/platform/websocket_codec.h`), a loopback test server, a scripted in-memory server for tests and headless runs
+  (`game.websocket`), and the script API. The clients of the platforms (WinHTTP, `NSURLSessionWebSocketTask`, libcurl, Android,
+  the browser) come in the same milestone; until then `websocket.supported` is false outside tests and a connection fails with an
+  `"error"` and a `"close"` event (docs/NETWORKING.md, "WebSocket").
+- `factoria validate` warns about a script that calls `websocket.connect` in a game with no `network` hosts, as it does for
+  `http.fetch`.
 - `TextField` has `caretIndex`, `selectionStart`, `selectionEnd` and a runtime `composition`, and scripts read
   `input.composing` / `input.compositionText`: the shared interface for text editing and IME composition (M98.6). Nothing
   moves the caret yet.
+- macOS and iOS: a focused `TextField` composes natively. Japanese, Chinese and Korean input methods show their pre-edit
+  text as a composition, put the candidate window under the caret and type only the committed text, once; dead keys
+  (Option-E) show their pending accent. The keys the input method did not use, and all keys while no field has the focus,
+  reach the game as before. The editor's Play mode does not compose yet. See [docs/TEXT.md](docs/TEXT.md), "Typing text".
 - **Docs (M97.3a):** the docs are laid out for reading cheaply. `docs/COMPONENTS.md` (1.8 MB) is no longer inside the
   binary: `docs.read components` answers with a pointer to `docs.components`, which serves one component at a time (the
   file stays in the repository for GitHub readers). `docs/MENUS.md` no longer prints the files of the menu kit (257 KB
   to 85 KB): `docs.read menu-kit` lists them and `docs.read menu-kit/scripts/settings.js` reads one, straight from the
   kit `project.add_menu_kit` copies. `ARCHITECTURE.md` and `BUILDING.md` moved to `docs/design/` and are not in the
   binary (the engine developers read the repository). README.md and README.es.md are organised by audience and link
-  every doc; a test keeps it so.
+  every doc; a test keeps it so. A doc over the budget becomes an entry page (`docs/<NAME>.md`, with an index) plus pages
+  (`docs/<name>/<NAME>_<PART>.md`): `docs.read` serves a `heading` that moved to a page from it (`page`, `requestedName`,
+  `note`), the entry page lists its pages (`pages`, `contents`), `docs.list` and `docs.search` carry `family`, and a test checks
+  that names are unique and every page is linked from its entry page (docs/design/ARCHITECTURE.md, "Docs").
+- **Docs (M97.3d):** `EXPORTING.md` (190 KB), `PLATFORM.md` (121 KB), `MOBILE.md` (78 KB) and `PERFORMANCE.md` (71 KB) are
+  split into an entry page and pages (`docs/exporting/`, `docs/platform/`, `docs/mobile/`, `docs/performance/`, every one
+  under 45 KB); every heading kept its text, so `docs.read exporting --heading "Android"` still finds it.
+- **Docs (M97.3c):** `docs/SCRIPTING.md` (186 KB), `docs/EDITOR.md` (154 KB) and `docs/MENUS.md` (86 KB) are entry pages
+  with pages in `docs/scripting/`, `docs/editor/` and `docs/menus/`, each under 55 KB; every heading keeps its text, so
+  `docs.read scripting --heading Input` and the old references still find it.
 - A deprecation policy for commands, component fields and the script API: the `deprecated` section of
   `tools/common/api_since.json` (empty for now) says since when and what replaces each one. A deprecated command, a scene or
   prefab with a deprecated component or field, and a call of a deprecated script function log one warning that names the

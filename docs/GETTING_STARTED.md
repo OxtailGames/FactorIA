@@ -75,7 +75,7 @@ built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC need
 5. Export (`factoria export`) works from the download for desktop and mobile. Android needs the JDK 17 and the
    Android SDK (no NDK, no CMake, no separate Gradle): the `mobile/` folder next to `factoria` holds the engine's Android
    runtime, so the export only packages it and builds the APK itself (`factoria export --platform android`). iOS (on a Mac, with Xcode and CMake) uses the iOS libraries of the macOS
-   package the same way. No engine source is involved; see [EXPORTING.md](EXPORTING.md#mobile-exports-prebuilt-or-source)
+   package the same way. No engine source is involved; see [EXPORTING.md](exporting/EXPORTING_MOBILE.md#mobile-exports-prebuilt-or-source)
    and [MOBILE.md](MOBILE.md). Build from source if you want to change the engine itself.
 
 #### Updates
@@ -89,7 +89,7 @@ every version newer than yours, and the editor waits for your answer:
 - **Not now** keeps your version. The editor asks again the next time it opens.
 
 Files you copy over the installation yourself (without the updater) are noticed too: the running editor offers a
-**Restart** notice at the bottom of its window ([EDITOR.md, Updates](EDITOR.md#updates)), and a `factoria mcp` that your AI
+**Restart** notice at the bottom of its window ([EDITOR.md, Updates](editor/EDITOR_SETUP.md#updates)), and a `factoria mcp` that your AI
 client started restarts itself in place (Linux and macOS) or asks you to reconnect it with `/mcp` (Windows)
 ([MCP.md, After an update](MCP.md#after-an-update)). You do not need to restart the client yourself, except when it
 says that its `.mcp.json` changed after it started.

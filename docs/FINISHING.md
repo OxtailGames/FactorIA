@@ -300,11 +300,11 @@ run(fn) { this.chain = this.chain.then(() => fn()).catch(() => {}); return this.
   runtime from `game.notices()`. Put your team, music and font credits in the string table (`credits.*`), not in the script.
 - **License notices.** Every export writes `FACTORIA_NOTICES.txt` where the platform ships it; keep it in what you
   distribute. `factoria docs licenses` prints the same list. Your own third-party assets (fonts, music, sprites) need their
-  licenses honoured: put their credits on the credits screen and keep their license files ([EXPORTING.md](EXPORTING.md#license-notices)).
+  licenses honoured: put their credits on the credits screen and keep their license files ([EXPORTING.md](exporting/EXPORTING_CONTENTS.md#license-notices)).
 - **AI content disclosure.** Stores ask whether the game has AI-generated content. Record where every asset came from
   (`assets.set_provenance` for files you did not generate through the engine), and `assets.disclosure` answers
   from the records; the export writes the same text as `AI_CONTENT_DISCLOSURE.md` next to the game
-  ([EXPORTING.md](EXPORTING.md#ai-content-disclosure), [ASSETS.md](ASSETS.md)). Fix the "assets without provenance" list
+  ([EXPORTING.md](exporting/EXPORTING_CONTENTS.md#ai-content-disclosure), [ASSETS.md](ASSETS.md)). Fix the "assets without provenance" list
   before you export.
 - **`log.txt` and crash reports.** Every desktop run writes `log.txt` in the save folder (rewritten at each start); a
   crash writes a report to `crashes/` next to it, and the next start logs one line naming it. Nothing is sent anywhere. Tell

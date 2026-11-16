@@ -249,7 +249,7 @@ Play .. Stop with the same recorder (docs/EDITOR.md, "Play sessions").
 ## Let the game play itself
 
 `play.auto` (MCP `play_auto`, `factoria call play.auto`) plays the game with a bot, headless, for a number of GAME seconds, and writes a
-session in the format of the editor's play sessions ([EDITOR.md](EDITOR.md#play-sessions)) with `"source": "auto"`. `play.report` reads it
+session in the format of the editor's play sessions ([EDITOR.md](editor/EDITOR_REVIEW.md#play-sessions)) with `"source": "auto"`. `play.report` reads it
 unchanged and `play.sessions` lists it with its ending and score. Use it after a change to see that the game still starts, plays and
 ends, or to find where it gets stuck, with nobody at the keyboard.
 
@@ -273,7 +273,7 @@ factoria call --project games/x play.report '{}'
 | `bot` | `auto` (default: the hook if `scripts/autoplay.js` exists, else the explorer), `hook` (an error without the file) or `explorer` (ignore the hook). |
 | `screenshots` | `false` takes no pictures. |
 
-The hook is the game's own `scripts/autoplay.js` ([SCRIPTING.md](SCRIPTING.md#the-bot-gameautoplay)); without one a generic explorer presses
+The hook is the game's own `scripts/autoplay.js` ([SCRIPTING.md](scripting/SCRIPTING_UI_SCENES.md#the-bot-gameautoplay)); without one a generic explorer presses
 the declared input actions in patterns drawn from `seed`. Draw from `bot.rng` (not `Math.random`, which would move the
 game's own stream) and never read the clock: time is game time (fixed steps), and the real
 clock only stops a run that takes far longer than any normal one (`aborted` after 800 real seconds, a safety net that no normal run reaches).

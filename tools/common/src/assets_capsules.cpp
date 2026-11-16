@@ -428,7 +428,7 @@ Json draw_capsules(const std::string& projectDir, const Json& a) {
                                                                logo.present}})});
             if (!as.verified)
                 entries.back().second["sizeNote"] = "unverified: the store does not publish this size openly (see "
-                                                    "docs/EXPORTING.md#store-page-material)";
+                                                    "docs/exporting/EXPORTING_STORES.md#store-page-material)";
         }
         for (auto& [path, e] : entries) written.push_back(std::move(e));
     }
@@ -460,7 +460,8 @@ void register_draw_capsules_command(CommandRegistry& registry, const std::string
         "{scale}) around `focus` to every image size the `stores` ask for and writes "
         "store/capsules/<store>/<name>_<w>x<h>.png (folders are created, files replaced). Stores: steam, "
         "epic, gog, microsoft, googleplay, appstore, itch (default: all). The sizes are in one table "
-        "(docs/EXPORTING.md#store-page-material, as of 2026-10); assets with the same size in one store are "
+        "(docs/exporting/EXPORTING_STORES.md#store-page-material, as of 2026-10); assets with the same size in one "
+        "store are "
         "one file.\n"
         "The `logo` is placed by the rule of each asset: capsules and covers get it centred (Microsoft: in "
         "the upper part, the bottom third is overlaid; Steam library capsule: low), heroes, page backgrounds "

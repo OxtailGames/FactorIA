@@ -201,7 +201,7 @@ commercial, as long as the copyright notice and the license travel with the engi
 - **Your games are yours.** The files `factoria new` puts in a project are [MIT-0](templates/LICENSE) (no notice
   needed). An exported game contains the FactorIA runtime, so `factoria export` writes `FACTORIA_NOTICES.txt` with the
   licenses of the engine and the third-party code inside it; keep it in what you ship
-  ([docs/EXPORTING.md](docs/EXPORTING.md#license-notices)).
+  ([docs/EXPORTING.md](docs/exporting/EXPORTING_CONTENTS.md#license-notices)).
 - **Third-party code** in `external/` keeps its own license ([external/VERSIONS.md](external/VERSIONS.md) lists each
   one): mostly MIT, zlib or public domain, and also Apache-2.0 (Basis Universal, SheenBidi, Manifold), BSL-1.0
   (Clipper2) and BSD-3-Clause (V-HACD, and the encoder extras of Basis Universal). `factoria docs licenses` prints every
