@@ -190,7 +190,7 @@ EM_JS(void, fa_web_text_state, (int want, int ime), {
     const pw = st.want && !st.ime && st.touch;
     if ((el.type === "password") !== pw) {
         el.type = pw ? "password" : "text";
-        el.setAttribute("autocomplete", pw ? "new-password" : "off");
+        el.setAttribute("autocomplete", "off");  // not "new-password": Safari would offer "Use strong password" over the game
         st.reset();
     }
     st.place();

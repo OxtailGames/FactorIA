@@ -383,7 +383,7 @@ CommandResult CommandRegistry::call_inner(std::string_view name, const Json& arg
     if (const CapabilitySet missing = entry.info.capabilities.missing_from(caller_capabilities()); !missing.empty())
         return capability_denied(entry.info, missing);
 
-    // A deprecated command still runs; the first call in the process says what replaces it (docs/design/ARCHITECTURE_CORE.md, "Versions").
+    // A deprecated command still runs; the first call in the process says what replaces it (docs/design/ARCHITECTURE_CORE.md, "Deprecations").
     if (Deprecations::global().may_contain(kDeprecatedCommands, entry.info.name))
         warn_deprecated(kDeprecatedCommands, entry.info.name);
 

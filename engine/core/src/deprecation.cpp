@@ -124,7 +124,8 @@ void Deprecations::set(const Json& section) {
     warned_.clear();
     for (int k = 0; k < 4; ++k)
         for (int w = 0; w < kBloomWords; ++w) bloom_[k][w].store(bloom[k][w], std::memory_order_relaxed);
-    empty_.store(!any, std::memory_order_relaxed);
+    // Release: a reader that sees the table as not empty (acquire) also sees the Bloom words written above.
+    empty_.store(!any, std::memory_order_release);
 }
 
 void Deprecations::clear() { set(Json::object()); }

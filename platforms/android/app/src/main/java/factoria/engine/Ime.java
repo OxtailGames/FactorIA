@@ -139,7 +139,9 @@ public final class Ime {
         if (view == null && !failed) {
             ImeView v = new ImeView(activity);
             // A window that gets the focus back (the app returns from the background) must not open the keyboard by
-            // itself because a text editor has the focus in it: the engine shows it when a field asks.
+            // itself because a text editor has the focus in it: the engine shows it when a field asks. This replaces the
+            // whole soft input mode, STATE bits included: a manifest's android:windowSoftInputMode="stateHidden" is
+            // gone (the adjust bits are kept), and so is stateAlwaysVisible.
             Window window = activity.getWindow();
             int adjust = window.getAttributes().softInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST;
             window.setSoftInputMode(adjust | WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED);

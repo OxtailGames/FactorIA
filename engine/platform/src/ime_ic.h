@@ -81,7 +81,8 @@ public:
     // The game thread (mobile_native_event): the keys one key event became (AndroidKeys::take), queued behind what the
     // input method sent before them. An input method that commits a word and then sends a digit as a key event gets
     // "word1", never "1word". All or nothing: false when the queue has no room for them, and then only the key releases
-    // among them are kept (up to kReleaseReserve past the cap), so that no key stays held in Input.
+    // among them and a Back are kept (up to kReleaseReserve past the cap), so that no key stays held in Input and the Back
+    // button still works.
     bool push_keys(const std::vector<AndroidKeys::Item>& items);
 
     // ---- the game thread

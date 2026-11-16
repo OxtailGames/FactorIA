@@ -60,14 +60,20 @@ bool Session::push_keys(const std::vector<AndroidKeys::Item>& items) {
     if (items.empty()) return true;
     std::lock_guard<std::mutex> lock(mutex_);
     if (queue_.size() + items.size() > kMaxQueued) {
-        // No room: the keys are dropped, but not the key releases: a press that got through without its release would
-        // leave the key held in Input. They have a reserve of their own, past the cap.
+        // No room: the keys are dropped, but not the key releases (a press that got through without its release would
+        // leave the key held in Input) and not a Back (the player's way out of a screen). They have a reserve of their
+        // own, past the cap.
         for (const AndroidKeys::Item& it : items) {
-            if (it.kind != AndroidKeys::Item::Kind::Key || it.down || queue_.size() >= kMaxQueued + kReleaseReserve)
-                continue;
+            if (queue_.size() >= kMaxQueued + kReleaseReserve) break;
             Event e;
-            e.kind = Event::Kind::Key;
-            e.key = it.key;
+            if (it.kind == AndroidKeys::Item::Kind::Back) {
+                e.kind = Event::Kind::Back;
+            } else if (it.kind == AndroidKeys::Item::Kind::Key && !it.down) {
+                e.kind = Event::Kind::Key;
+                e.key = it.key;
+            } else {
+                continue;
+            }
             queue_.push_back(std::move(e));
         }
         return false;
