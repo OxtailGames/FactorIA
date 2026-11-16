@@ -215,7 +215,7 @@ bool Loader::apply_component(Entity e, const TypeInfo& type, const Json& fieldsI
         return false;
     }
     // A deprecated component or field still loads; the first load in the process says what replaces it (docs/design/ARCHITECTURE_CORE.md,
-    // "Versions"). The table is empty in an exported game, and in a tool it names few components: `deprecatedType` (a lock-free Bloom
+    // "Deprecations"). The table is empty in an exported game, and in a tool it names few components: `deprecatedType` (a lock-free Bloom
     // filter by component name) keeps every other component from building keys or taking the table's lock.
     const bool deprecatedType = Deprecations::global().may_contain_component(type.name);
     if (deprecatedType)
@@ -755,6 +755,12 @@ Result<void> patch_component(World& world, Entity e, const TypeInfo& type, const
         loader.apply_component(e, type, fields, "", false);
     }
 
+    // The report is not returned: a deprecation warning (it was taken from the once-per-process table) goes to the log here, or
+    // scene.set_component and a script's entity.add / entity.set would use it up without saying anything. Also when another
+    // field of the patch fails: the warning is not asked for again.
+    for (const LoadMessage& m : report.messages)
+        if (m.severity == LoadMessage::Severity::Warning && m.message.rfind("Deprecated: ", 0) == 0)
+            log(LogLevel::Warn, "deprecated", m.to_string());
     if (report.error_count() > 0) {
         if (backup)
             type.copy_assign(world.get(e, type), backup->get());  // all-or-nothing
@@ -770,11 +776,6 @@ Result<void> patch_component(World& world, Entity e, const TypeInfo& type, const
         }
         return make_error(type.name + ": " + msg, hint);
     }
-    // The report is not returned: a deprecation warning (it was taken from the once-per-process table) goes to the log here, or
-    // scene.set_component and a script's entity.add / entity.set would use it up without saying anything.
-    for (const LoadMessage& m : report.messages)
-        if (m.severity == LoadMessage::Severity::Warning && m.message.rfind("Deprecated: ", 0) == 0)
-            log(LogLevel::Warn, "deprecated", m.message);
     return {};
 }
 
