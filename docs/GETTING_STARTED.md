@@ -89,7 +89,7 @@ every version newer than yours, and the editor waits for your answer:
 - **Not now** keeps your version. The editor asks again the next time it opens.
 
 Files you copy over the installation yourself (without the updater) are noticed too: the running editor offers a
-**Restart** notice at the bottom of its window ([EDITOR.md, Updates](EDITOR.md#updates)), and a `factoria mcp` that your AI
+**Restart** notice at the bottom of its window ([EDITOR.md, Updates](editor/EDITOR_SETUP.md#updates)), and a `factoria mcp` that your AI
 client started restarts itself in place (Linux and macOS) or asks you to reconnect it with `/mcp` (Windows)
 ([MCP.md, After an update](MCP.md#after-an-update)). You do not need to restart the client yourself, except when it
 says that its `.mcp.json` changed after it started.

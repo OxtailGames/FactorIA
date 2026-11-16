@@ -38,6 +38,9 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 - **Docs (M97.3d):** `EXPORTING.md` (190 KB), `PLATFORM.md` (121 KB), `MOBILE.md` (78 KB) and `PERFORMANCE.md` (71 KB) are
   split into an entry page and pages (`docs/exporting/`, `docs/platform/`, `docs/mobile/`, `docs/performance/`, every one
   under 45 KB); every heading kept its text, so `docs.read exporting --heading "Android"` still finds it.
+- **Docs (M97.3c):** `docs/SCRIPTING.md` (186 KB), `docs/EDITOR.md` (154 KB) and `docs/MENUS.md` (86 KB) are entry pages
+  with pages in `docs/scripting/`, `docs/editor/` and `docs/menus/`, each under 55 KB; every heading keeps its text, so
+  `docs.read scripting --heading Input` and the old references still find it.
 - A deprecation policy for commands, component fields and the script API: the `deprecated` section of
   `tools/common/api_since.json` (empty for now) says since when and what replaces each one. A deprecated command, a scene or
   prefab with a deprecated component or field, and a call of a deprecated script function log one warning that names the
