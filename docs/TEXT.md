@@ -440,8 +440,8 @@ them (`color`, `padding`). Text uses `font`, `fontSize`, `textColor` and, before
 A `TextField` takes the characters in `input.text`, Backspace (it repeats while held) and Enter (`ui.submit`). Where those
 come from depends on the device, and the game does not change for any of them:
 
-- **Desktop.** The operating system's text input: composed text (shift, dead keys, IME) arrives as typed. On **macOS** a
-  focused `TextField` also composes natively (below).
+- **Desktop.** The operating system's text input: composed text (shift, dead keys, IME) arrives as typed. On **macOS** and
+  **Windows** a focused `TextField` also composes natively (below).
 - **Phones and tablets.** The `TextField` raises the system keyboard when it gets the focus and hides it when it loses it
   (the UI does this by itself: [MOBILE.md](mobile/MOBILE_DEVICE.md#the-on-screen-keyboard)). iOS delivers composed text; Android
   delivers what each key types in its layout.
@@ -468,7 +468,8 @@ the commit goes to `input.text` once. With no `TextField` focused the IME is off
 |---|---|---|
 | macOS | yes | the game's view takes marked text (`NSTextInputClient`) while a field has the focus: the candidate window sits under the caret, a dead key shows its pending accent as a composition |
 | iOS | yes | the keyboard's marked text in the hidden text field, on-screen and hardware keyboards; the candidate bar follows the field |
-| Windows, Linux, Android, web | not yet | composed text arrives as typed text, when it is finished |
+| Windows | yes | the input method (IMM32, which the Windows text services also serve) composes into the game's window while a field has the focus: its own composition window stays hidden (the field draws the composition), its candidate list sits under the caret. A dead key types its accented letter once it is finished, as before |
+| Linux, Android, web | not yet | composed text arrives as typed text, when it is finished |
 
 On macOS and iOS:
 
@@ -486,6 +487,42 @@ On macOS and iOS:
   back after every change. If the keyboard (autocorrect) ever replaces it, the composition is cancelled, the field starts over
   and one log line says so.
 - Not attached when the game runs inside the editor: the editor's own windows and its Play mode take their text as before.
+
+On Windows:
+
+- With no `TextField` focused the game's window has no input context: the IME is off for it (its mode indicator shows it
+  disabled) and every key is the game's, so WASD stays WASD with a Japanese IME in hiragana mode.
+- A key the IME took (Windows reports it as `VK_PROCESSKEY`: a letter it composes, Space that converts, Enter that confirms,
+  Backspace or Escape inside a composition) does not reach the game, and neither does its release. Every other key reaches
+  it as before; a key whose press reached the game always gets its release (Shift that switches a Chinese IME's mode).
+- The clause the IME is converting (the one it marks as the target) is the composition's selection; without one the caret
+  is the IME's cursor. Code points, as on macOS.
+- The commit types once: the characters Windows could send again for it (`WM_IME_CHAR`, `WM_CHAR`) are not typed.
+- A composition the IME ends without a result (Escape, Backspace on its last character) types nothing. When the field
+  ends one itself (it types what was built, then cancels the IME's: `ime_cancel`) the IME's composition is dropped
+  (`CPS_CANCEL`), and nothing the IME still sends about it is used: no later commit, and no `WM_IME_CHAR` / `WM_CHAR` of
+  its text. When the window loses the focus the IME decides: the Microsoft IMEs commit what was built, which types.
+- A field that turns the IME off (`ime_set_enabled(false)`: no field focused, a password field) drops the IME's
+  composition the same way and takes the window's input context away.
+- Not attached inside the editor either.
+
+To check it by hand on Windows 10 or 11 (Settings > Time & language > Language & region: add Japanese, Chinese
+(Simplified) and Korean; Win+Space switches), in a game with a `TextField`:
+
+- **Microsoft IME, Japanese** (hiragana mode): type `nihongo`, the kana show in the field with the caret at their end and
+  no IME window of their own; Space converts (日本語, the converted clause selected) and Space again opens the candidate
+  list under the caret; `kyouhaiitenki` then Space, Left/Right move between clauses; Enter types the text once and does not
+  submit the field, a second Enter submits. Escape, or Backspace down to nothing, types nothing.
+- **Microsoft Pinyin**: `zhongwen`, a digit or Space picks a candidate (typed once); Shift switches to English and back
+  without the game keeping Shift held; full-width punctuation (。) types once.
+- **Microsoft IME, Korean** (2-set): `gksrmf` composes 한 then 글, each syllable typed when the next begins; Space after it
+  types one space.
+- Emoji and CJK Extension B: the emoji panel (Win+.) and a rare kanji such as 𠮟 (U+20B9F, among the candidates of
+  `shikaru`) type one character each.
+- Mid-composition: click inside the field, and click into another field: what was built is typed once into the first
+  field and nothing more of it appears anywhere; Alt+Tab away and back.
+- A password field: the IME stays off (letters type as letters).
+- No field focused, IME on: WASD and Space play the game and no composition appears.
 
 ## Limits
 
