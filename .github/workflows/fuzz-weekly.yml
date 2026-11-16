@@ -4,7 +4,7 @@
 #
 # This workflow never commits and never opens an issue. What it leaves:
 #   - the artifact `fuzz-crashes-<target>`: every input that crashed, hung or ran out of memory (crash-*, timeout-*, oom-*,
-#     leak-*). The job then fails, which is the notification. Take one into the corpus as docs/design/BUILDING.md says.
+#     leak-*). The job then fails, which is the notification. Take one into the corpus as docs/design/BUILDING_TESTS.md, "Fuzzing", says.
 #   - the artifact `fuzz-corpus-<target>`: the corpus after the run, minimized with `-merge=1` (only inputs that add coverage).
 #     It is also kept in the Actions cache so next week starts from it. To adopt new seeds, download it and copy a few small
 #     files into tools/fuzz/corpus/<target>/ in a pull request.

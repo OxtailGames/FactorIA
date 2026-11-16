@@ -355,7 +355,7 @@ public:
     void ai_settings_load(const ai::AiConfig& cfg, bool keepAssets = false, bool keepTools = false);
     Result<ai::AssetSettings> ai_settings_build(const ai::AiConfig& cfg) const;
     bool ai_settings_dirty(const ai::AiConfig& cfg) const;
-    // The AI settings of the open project (ai_project_ui.cpp; docs/EDITOR.md "AI settings", docs/AI_PROVIDERS.md "Per project"): with a
+    // The AI settings of the open project (ai_project_ui.cpp; docs/ai-providers/AI_PROVIDERS_AGENT.md "The AI settings window", docs/AI_PROVIDERS.md "Per project"): with a
     // project open the window edits <project>/.factoria/ai/settings.json (ai::resolve_ai_config_over says where each value comes
     // from, ai_project_edit.h what to write); without one it edits ai.json. The editor is the only writer that records trust.
     struct AiProjectUi {

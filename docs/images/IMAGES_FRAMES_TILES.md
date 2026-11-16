@@ -249,7 +249,7 @@ than variations repeats an earlier one, and the result warns with the tiles affe
 Tile `s * variations + v` of the sheet is variation `v` of slot `s`, row by row, left to right: the numbering of the `Tilemap`
 autotile rules (docs/AI_GUIDE.md, section 9.8).
 
-### Commands
+### Frame and tile commands
 
 - `image.tileset.build {path, mode, tileWidth, tileHeight, parts, ...}`: creates the document (or adds the layer to an existing
   one, or updates it), sets the canvas to the sheet and `tile` to the tile size, bakes the PNG and writes the rules file

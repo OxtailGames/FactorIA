@@ -107,7 +107,7 @@ applied when the game starts again and the tab shows them").
 The engine part: `storage` (JSON values, one file per key in `<save folder>/storage/`) saves each key through a temporary file and a
 rename, so a crash during a save leaves the previous file intact. A storage file that does not parse is **kept** as
 `storage.corrupt.json` (then `storage.corrupt.2.json`...) with a warning, `storage.corrupt` is `true` and the game starts
-without that key (the others load); the kept file is never overwritten ([SCRIPTING.md](SCRIPTING.md), "storage"). That protects the file as
+without that key (the others load); the kept file is never overwritten ([SCRIPTING_UI_SCENES.md](scripting/SCRIPTING_UI_SCENES.md), "scene / game / storage"). That protects the file as
 a whole. (The engine also has the encryption primitive for save files, ChaCha20-Poly1305 with a tamper check, in C++ since M98.1a; the
 save slots that expose it to scripts come with M98.1b. It keeps players from editing a save in a text editor, it is not copy protection:
 a key inside the game can be extracted.) Everything below is the game's part, and Lantern Keep's recipe for it is `scripts/saves.js`:

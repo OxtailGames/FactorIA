@@ -37,7 +37,7 @@ Notes:
 
 ### F.1 Feedback from every installation (users who share)
 
-Users who choose to share send a generic copy of each entry to the feedback server (docs/ENGINE_FEEDBACK.md, "Sharing"; design in docs/design/FEEDBACK_SHARING.md). This is the routine for the engine developer, from the first day to a release.
+Users who choose to share send a generic copy of each entry to the feedback server (docs/ENGINE_FEEDBACK.md, "Sharing with the engine developer"; design in docs/design/FEEDBACK_SHARING.md). This is the routine for the engine developer, from the first day to a release.
 
 **Once: deploy the server.** You need Node.js 20 or newer and a free Cloudflare account.
 

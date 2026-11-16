@@ -203,6 +203,17 @@ becomes the engine roadmap.
 - Examples: each has `example_<name>_validate` and `example_<name>_test` ctest tests, and some also an autoplay and a
   perf budget (label `example`; they run in Release builds, see docs/design/BUILDING.md).
 - Determinism: the maths of the simulation and the replay hashes, below.
+- Docs: `tools/common/tests/docs_*_test.cpp` check the docs from the checkout, with no git and no network: every relative
+  link and anchor resolves, every citation `X.md, "Section"` names a heading (or a bold-lead label) that exists, every doc is
+  reachable from README.md, an embedded doc that names a doc outside the binary says so, and no heading repeats in a doc.
+  A citation of an entry page is accepted for an embedded doc when one of its pages holds the
+  section, because `docs.read` searches the family; it is not accepted for `docs/design/`, which `docs.read` cannot serve.
+- Translations: the first line of a translation is `<!-- follows <english path> sha256:<16 hex> -->`, where the hash is the
+  first 16 hex digits of the SHA-256 of the English file with its carriage returns removed (a hash needs no history, which
+  a shallow CI checkout or a source tarball does not have, and gives the same value on a CRLF checkout). A test flags a
+  translation whose English original has another hash. To update one, translate the change and write the new hash (the
+  test prints it). A translation that is still behind ends the line with ` behind` (`sha256:unknown behind` when it never
+  followed a known version) and says so in a visible notice at its top.
 
 ### Determinism of the maths
 

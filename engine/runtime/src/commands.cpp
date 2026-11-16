@@ -1353,7 +1353,8 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add(
         {"ui.set_mirror_rtl", "Turn the mirroring of the screen-space UI in a right-to-left language on or off.",
-         "The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, \"Right to left\"). On (the default, "
+         "The same as `ui.mirrorRtl = value` in a script (docs/LOCALIZATION.md, \"Right-to-left text\"). On (the "
+         "default, "
          "or the "
          "\"ui\": {\"mirrorRtl\"} of factoria.json) and with i18n.direction \"rtl\", the screen-space widgets and the "
          "Text, Sprite "

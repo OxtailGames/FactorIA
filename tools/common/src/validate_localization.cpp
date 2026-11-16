@@ -283,7 +283,7 @@ void check_select_forms(Reporter& out, const TableFile& t) {
                           : form == "m" ? "masculine"
                                         : "neuter") +
                          " name: those names show the \"other\" form.",
-                     "Add \"" + form + "\" next to the other forms (docs/LOCALIZATION.md, \"Gender\").");
+                     "Add \"" + form + "\" next to the other forms (docs/LOCALIZATION.md, \"Gender and agreement\").");
         }
     }
 }

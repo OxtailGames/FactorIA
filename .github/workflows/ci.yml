@@ -1646,7 +1646,7 @@ jobs:
       - name: Say that the fuzz run found something
         if: steps.fuzz.outputs.status == '1'
         run: |
-          echo "::warning title=Fuzzing found a crash::The random fuzz run failed. It does not block this pull request, but the input is a real bug: download the artifact fuzz-crashes, reproduce it with build/fuzz/tools/fuzz/fa_fuzz_<target> <file>, fix it and add the input to tools/fuzz/corpus/<target>/ (docs/design/BUILDING_TESTS.md, Fuzzing)."
+          echo "::warning title=Fuzzing found a crash::The random fuzz run failed. It does not block this pull request, but the input is a real bug: download the artifact fuzz-crashes, reproduce it with build/fuzz/tools/fuzz/fa_fuzz_<target> <file>, fix it and add the input to tools/fuzz/corpus/<target>/ (docs/design/BUILDING_TESTS.md, "Fuzzing")."
           {
             echo "### Fuzzing found something"
             echo
