@@ -1,7 +1,8 @@
 // Gamepad mappings: the raw numbers a device reports (button 3, axis 5, hat 0) -> FactorIA's Xbox-style pad.
 //
-// The Linux joystick API gives each pad's buttons and axes NUMBERS whose meaning depends on the pad (an Xbox pad's
-// button 2 is X, a DualShock's button 2 is Triangle), so Linux needs a table per pad. The table format is the de-facto
+// The Linux joystick API, and a Windows HID pad's report (numbered the way DirectInput numbers it, gamepad_hid.h), give
+// each pad's buttons and axes NUMBERS whose meaning depends on the pad (an Xbox pad's button 2 is X, a DualShock's button
+// 2 is Triangle), so both need a table per pad. The table format is the de-facto
 // standard one of SDL's GameControllerDB (https://github.com/mdqinc/SDL_GameControllerDB), so lines found there, or
 // printed by SDL tools, work as they are:
 //
@@ -33,7 +34,11 @@
 //      binary) plus a few hand-written lines for the kernel drivers of the DualShock 4, DualSense and Switch Pro,
 //   4. the Xbox (xpad) layout.
 //
-// Everything here is platform-neutral so every OS unit-tests it; only gamepad_linux.cpp talks to the kernel.
+// Windows HID pads take the same steps with the Windows lines of SDL_GameControllerDB and a default built from the pad's
+// own report descriptor instead of the xpad layout (fa/platform/gamepad_hid.h).
+//
+// Everything here is platform-neutral so every OS unit-tests it; only gamepad_linux.cpp and gamepad_win32.cpp talk to
+// the OS.
 #pragma once
 
 #include <array>
@@ -139,6 +144,14 @@ GamepadMapping select_gamepad_mapping(std::span<const GamepadMapping> envLines,
                                       std::span<const GamepadMapping> fileLines, const GamepadIdentity& id,
                                       std::vector<std::string>* problems = nullptr);
 
+class GamepadMappingDb;
+// The same order against any built-in database (Windows passes builtin_windows_gamepad_database(), gamepad_hid.h), without
+// the fallback: empty when no list and no database line matches, and the caller picks its own default.
+std::optional<GamepadMapping> find_gamepad_mapping(std::span<const GamepadMapping> envLines,
+                                                   std::span<const GamepadMapping> fileLines, const GamepadIdentity& id,
+                                                   const GamepadMappingDb& builtin,
+                                                   std::vector<std::string>* problems = nullptr);
+
 // The user's mapping file, project-relative (fa::fs): <project>/gamecontrollerdb.txt, in the SDL GameControllerDB
 // format. A game author ships it for the pads the players report; a player can drop one next to the game.
 inline constexpr const char* kGamepadUserDbFile = "gamecontrollerdb.txt";
@@ -149,7 +162,7 @@ class GamepadMappingDb {
 public:
     // Indexes the lines of `text`, which must outlive the database (it is kept by reference). Blank lines, `#` comments
     // and lines whose GUID is not 32 hex digits or carries no vendor/product ids (SDL's name-made GUIDs, "xinput") can
-    // never match a Linux pad and are skipped. Lines for another platform are NOT filtered: pass Linux lines.
+    // never match a pad and are skipped. Lines for another platform are NOT filtered: pass one platform's lines.
     // `origin` names the text in messages and must outlive the database too. Later lines win ties.
     void add_text(std::string_view text, std::string_view origin);
     size_t size() const { return entries_.size(); }  // indexed lines
