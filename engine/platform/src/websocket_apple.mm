@@ -24,6 +24,7 @@
 #import <Network/Network.h>
 
 #include <algorithm>
+#include <cerrno>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
