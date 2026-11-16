@@ -46,25 +46,12 @@ void apply_gamepad_rumble(Input& in) {
     sync.apply(in, sink);
 }
 
-#if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
-// Backends that cannot drive the motors yet answer here, with the reason a game (or an AI) reads. A backend that gains
-// rumble moves its pair of hooks into its own gamepad_<platform> file and removes its branch from this #if.
-#if defined(__linux__)
-#define FA_RUMBLE_WHY                                                                                                  \
-    "pad rumble is not implemented on Linux yet (it needs the kernel's force-feedback interface, planned as M98.5c)"
-#elif defined(__ANDROID__)
-#define FA_RUMBLE_WHY "pad rumble is not implemented on Android yet (planned as M98.5c)"
-#elif defined(__APPLE__)
-#define FA_RUMBLE_WHY "pad rumble is not implemented on macOS and iOS yet (planned as M98.5c)"
-#else
-#define FA_RUMBLE_WHY "this platform has no gamepad backend, so no pad can rumble"
-#endif
-GamepadRumbleSupport gamepad_backend_rumble_support(int) { return {false, FA_RUMBLE_WHY}; }
-bool gamepad_backend_rumble(int, float, float, float) { return false; }
-#undef FA_RUMBLE_WHY
-#endif
-
 #if !defined(_WIN32) && !defined(__linux__) && !defined(__APPLE__) && !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
+// A platform with no pad code: no pad is ever connected, so none can rumble.
+GamepadRumbleSupport gamepad_backend_rumble_support(int) {
+    return {false, "this platform has no gamepad backend, so no pad can rumble"};
+}
+bool gamepad_backend_rumble(int, float, float, float) { return false; }
 void poll_gamepads(Input&) {}
 #endif
 
