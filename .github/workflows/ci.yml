@@ -1000,7 +1000,7 @@ jobs:
     needs: changes
     if: needs.changes.outputs.mobile == 'true'
     runs-on: macos-latest
-    timeout-minutes: 60
+    timeout-minutes: 75
     permissions:
       contents: read
       actions: read  # gh run download: the app of ios-build, from this same run
@@ -1009,12 +1009,15 @@ jobs:
 
       # Not `needs: ios-build`, which would only start the boot after the build. So that a build that ends without an app
       # (a failure, or a cancel when GitHub found no macOS runner for it: 2026-11-04) does not leave this loop spinning
-      # until the step's 20 minutes run out, it asks for the build job's conclusion on every turn and stops at the first
+      # until the step's time limit runs out, it asks for the build job's conclusion on every turn and stops at the first
       # one that is not "success".
       # --boot also builds the touch UI test meanwhile (1-4 minutes on this busy runner); `wait` lets it finish before
       # the smoke test, which then only runs it.
+      # 40 minutes: the build takes 11-14 and may first wait for a macOS runner, the account's few are shared with the
+      # Release workflow's macOS jobs when a pull request changes release.yml (PR 223: 7 and 16 minutes in the queue, the
+      # old 20-minute limit ran out twice before the app existed).
       - name: Boot the simulator and build the touch UI test while ios-build builds the app, then download the app
-        timeout-minutes: 20
+        timeout-minutes: 40
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
