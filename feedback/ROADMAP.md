@@ -1289,7 +1289,11 @@ entry of `examples/*` opens each milestone.
     logic (jobs with a generation: a result after the dialog closed or after another refresh is ignored; size, read-first and
     folder-name helpers with doctests), a stale list shows its reason and Retry, offline with no copy the teaching error and Retry.
     The `~/FactorIA/examples` scan is gone (the current-folder detection stays). Autotest section X2 drives it against a fake
-    release (also at 1024x642). docs/EDITOR.md "The Examples tab".
+    release (at 1024x642 too when run with `FA_EDITOR_AUTOTEST_SIZE=1024x642`). docs/EDITOR.md "The Examples tab".
+  - M97.5d — DONE (READMEs and docs): every example's README opens with what it shows and what to read first (from
+    `examples.json`); the docs a user gets keep the recipe in the doc itself and name an `examples/<name>` only as optional
+    ("if you got it with `project.create {example}`"); a test of `fs_docs_test.cpp` fails an embedded doc whose paragraph
+    cites `examples/<name>` without `project.create`.
 
 ## M98. What games expect and the engine lacks (L; 9 packages) — outside review, 2026-11-09
 

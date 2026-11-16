@@ -153,7 +153,7 @@ controls. What matters for the document:
 
 ## An adaptive score, step by step
 
-Neon Swarm (`examples/neon-swarm`) plays `assets/music/score.song.json`: a bassline and a pad that always play, a drum layer that comes in when a wave is on and an arpeggio when the
+The Neon Swarm example plays `assets/music/score.song.json` (`examples/neon-swarm`, if you got it with `project.create {example: "neon-swarm"}`): a bassline and a pad that always play, a drum layer that comes in when a wave is on and an arpeggio when the
 field is crowded. The song, made with the commands above:
 
 ```

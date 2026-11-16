@@ -100,10 +100,10 @@ target that is hit flashes in the script that deals the damage: `enemy.flash({ c
 
 ## Example 2: a pickup (coin sparkle)
 
-Sky Hopper (`examples/sky-hopper`) plays this when the hero takes a coin. A pickup has no wind-up: the coin itself is the
+The Sky Hopper example plays this when the hero takes a coin. A pickup has no wind-up: the coin itself is the
 anticipation (it is there, then it is not), so the budget goes to the impact and a clean recovery. The module is
-`examples/sky-hopper/assets/src/anim/coin_sparkle.anim.js` (a ring that opens behind the hero, five four-point glints in front
-and a soft glow added on top); the bake and the look:
+`assets/src/anim/coin_sparkle.anim.js` (a ring that opens behind the hero, five four-point glints in front
+and a soft glow added on top; the example has it as `examples/sky-hopper/assets/src/anim/coin_sparkle.anim.js`, if you got it with `project.create {example: "sky-hopper"}`); the bake and the look:
 
 ```
 assets.animate_svg {"path":"assets/fx/coin_sparkle.png","source":"assets/src/anim/coin_sparkle.anim.js","frames":8,"fps":16,"loop":false,"frameWidth":96,"padding":2,"layers":["back","front","light"],"ramp":["#5a3a05","#c98a14","#f2c94c","#fff6c8"]}

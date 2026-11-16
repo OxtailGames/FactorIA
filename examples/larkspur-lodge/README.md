@@ -1,5 +1,9 @@
 # Larkspur Lodge
 
+**What it shows:** A 3D narrative adventure: rooms, clues, keys and doors, an item catalogue checked against its strings, and store shipping.
+
+**Read first:** `docs/SCRIPTING.md`, `docs/LOCALIZATION.md`, `docs/PUBLISHING.md` (`docs.read`, or `factoria docs read <name>`).
+
 A 3D narrative adventure (the fifth FactorIA reference game). You play the porter of a mountain lodge on a stormy night:
 you walk the rooms, look at things, pick up keys and clues, and open doors. It is built with the public engine only (no
 engine change); the aim is a game ready for the Mac App Store, the Microsoft Store, the iPad and the Steam Deck.

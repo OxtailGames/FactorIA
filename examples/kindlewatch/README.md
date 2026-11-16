@@ -1,5 +1,9 @@
 # Kindlewatch
 
+**What it shows:** A small complete 3D game whose every picture, model, character, sound and song was made with the engine's own commands.
+
+**Read first:** `docs/MODELING.md`, `docs/ANIMATION.md`, `docs/MUSIC.md` (`docs.read`, or `factoria docs read <name>`).
+
 The M60 reference game of FactorIA: a small, complete 3D game whose every picture, model, character, sound and song was
 made with the engine's own commands (M51-M59). No asset provider was called and no file was imported. It exists to
 measure what a game-making AI reaches with those tools, against the reference games that used providers, and to record

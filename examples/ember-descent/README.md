@@ -1,5 +1,9 @@
 # Ember Descent
 
+**What it shows:** A roguelike whose dungeon floors grow at run time from one sample level with the level generator, one seed per dungeon.
+
+**Read first:** `docs/ai-guide/AI_GUIDE_TILEMAPS.md`, `docs/SCRIPTING.md` (`docs.read`, or `factoria docs read <name>`).
+
 A four-floor roguelike made with FactorIA to show the level generator. Walk down through four dungeon floors, pick up
 coins, step around the spikes and reach the stairs. Every floor is a new level that `tilemap.generate` (Wave Function
 Collapse) grows at run time from the one drawn in `levels/sample.json`, so the dungeon looks hand-made and is different on
