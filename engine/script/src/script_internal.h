@@ -192,6 +192,7 @@ struct ScriptSystem::Impl {
         std::chrono::steady_clock::time_point wallDeadline;
     };
     static constexpr double kWallCapFactor = 8.0;
+    double wallCapFactor = kWallCapFactor;  // ScriptSystem::set_wall_cap_factor (tests)
     bool timedOutWall = false;  // the frame that ran out hit the wall-clock cap (the CPU limit was not reached)
     std::vector<GuardFrame> guards;
     bool timedOut = false;
@@ -419,6 +420,7 @@ struct ScriptSystem::Impl {
     // The debugger is being terminated (the user pressed Stop): an interrupted script was stopped, not slow.
     bool debug_session_ended() const;
     void run_jobs();
+    bool deliver_storage_done();  // the finished storage.setAsync writes reach the scripts; true when there were some
 
     // ================= modules
     std::string normalize_module(const std::string& base, const std::string& spec, std::string* err);

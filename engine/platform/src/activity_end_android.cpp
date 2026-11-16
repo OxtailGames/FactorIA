@@ -16,7 +16,7 @@
 #include <chrono>
 
 #include "activity_end.h"
-#include "fa/platform/end_handshake.h"
+#include "end_handshake.h"
 
 namespace fa {
 namespace {

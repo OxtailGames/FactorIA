@@ -405,6 +405,10 @@ public:
     // The longest a callback (onUpdate, an event handler, ...) may run before it is stopped as an endless loop: 2 seconds
     // by default, tests make it small. Time spent paused in the debugger does not count.
     void set_callback_limit(double seconds);
+    // The hard cap on the clock for a callback blocked for good is this many times the limit (8 by default; never below 1).
+    // The CPU limit is what stops a busy loop; a test of it makes the cap huge so that a machine too loaded to give the
+    // script its CPU time (a CI VM) still gets the CPU message, not the clock one.
+    void set_wall_cap_factor(double factor);
     // The scripts run in an exported player (`factoria_player`, the mobile and web players): call before init(). Development
     // runs (`factoria test` / `run` / `mcp`, the editor) are the default. The difference: a development run gives `Entity`,
     // the namespaces of "factoria" (`input`, `world`, ...) and the `expect` matchers a read check (reading a member they do

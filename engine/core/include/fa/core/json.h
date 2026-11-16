@@ -23,6 +23,19 @@
 #include <string_view>
 
 #include "fa/core/math.h"
+
+// Around engine code that hands a Json::json_pointer to contains(), at() or operator[]: nlohmann's key-type overloads of
+// those ask whether a std::string and a json_pointer compare, which instantiates its deprecated operator==(string,
+// json_pointer) when std::equal_to<void> comes from the Android NDK's libc++, and the warning is reported at the call
+// (so the Android build with -Werror stops). Only the engine (it ships in the Android player) needs this; tools do not.
+#if defined(__clang__)
+#define FA_JSON_POINTER_CALLS_BEGIN                                                                                    \
+    _Pragma("clang diagnostic push") _Pragma("clang diagnostic ignored \"-Wdeprecated-declarations\"")
+#define FA_JSON_POINTER_CALLS_END _Pragma("clang diagnostic pop")
+#else
+#define FA_JSON_POINTER_CALLS_BEGIN
+#define FA_JSON_POINTER_CALLS_END
+#endif
 #include "fa/core/types.h"
 
 namespace fa {
