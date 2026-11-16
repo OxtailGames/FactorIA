@@ -3,6 +3,7 @@
 
 #include <filesystem>
 #include <fstream>
+#include <set>
 
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
@@ -420,6 +421,77 @@ TEST_CASE("scene.paste_entities: hostile or hand-edited texts are refused with a
     // A $prefab inside the project is kept.
     const CommandResult ok = s.paste(entry(R"({"id":"ok2","$prefab":"prefabs/pair.prefab.json"})"));
     CHECK_MESSAGE(ok.ok, Session::error_text(ok));
+    // `..` is refused as a path segment, never as part of a name.
+    const CommandResult up = s.paste(entry(R"({"id":"ok3","$prefab":"prefabs/../prefabs/pair.prefab.json"})"));
+    CHECK_FALSE(up.ok);
+    const CommandResult dots = s.paste(entry(R"({"id":"ok4","$prefab":"prefabs/a..b.prefab.json"})"));
+    CHECK_MESSAGE(!contains(Session::error_text(dots), "is not a project-relative prefab path"),
+                  Session::error_text(dots));
+}
+
+TEST_CASE("scene.paste_entities: a text with CRLF line ends (a Windows clipboard) pastes like the same text with LF") {
+    Session s;
+    const Json parsed = Json::parse(s.copy({"squad", "link"}));
+    std::string crlf;
+    for (const char c : parsed.dump(2)) {
+        if (c == '\n') crlf += '\r';
+        crlf += c;
+    }
+    REQUIRE(crlf.find("\r\n") != std::string::npos);
+    const CommandResult p = s.paste(crlf);
+    REQUIRE_MESSAGE(p.ok, Session::error_text(p));
+    CHECK(p.result["ids"].size() == 2);
+    CHECK(p.result["count"] == 3);
+}
+
+TEST_CASE("scene.paste_entities: a renumbered id never takes the id another entity of the text keeps") {
+    Session s;
+    // The text holds squad, squad_2 and squad_3; the scene has "squad" only, so squad_2 and squad_3 keep their ids and
+    // squad goes to the next number that nothing wants: squad_4.
+    Json payload = Json::parse(s.copy({"squad"}));
+    const Json entry = payload["entities"][0];
+    for (const char* id : {"squad_2", "squad_3"}) {
+        Json more = entry;
+        more["entity"]["id"] = id;
+        more["entity"]["children"][0]["id"] = std::string(id) + "_gunner";
+        payload["entities"].push_back(more);
+    }
+    const CommandResult p = s.paste(payload.dump());
+    REQUIRE_MESSAGE(p.ok, Session::error_text(p));
+    CHECK(p.result["ids"] == Json::array({"squad_4", "squad_2", "squad_3"}));
+    // A second paste of the same text: all three are taken, and nothing collides.
+    const CommandResult q = s.paste(payload.dump());
+    REQUIRE_MESSAGE(q.ok, Session::error_text(q));
+    std::set<std::string> seen;
+    for (const Json& id : q.result["ids"]) CHECK(seen.insert(id.get<std::string>()).second);
+    CHECK(seen.size() == 3);
+}
+
+TEST_CASE("scene.paste_entities: keepParents with a parent that is not in this scene puts the root at the top level") {
+    Session s;
+    Json payload = Json::parse(s.copy({"pair_b"}));  // pair_b was under holder
+    payload["entities"][0]["parent"] = "gone";
+    const CommandResult p = s.paste(payload.dump(), Json::object({{"keepParents", true}}));
+    REQUIRE_MESSAGE(p.ok, Session::error_text(p));
+    CHECK(s.world().parent(s.find(p.result["ids"][0].get<std::string>())).is_null());
+}
+
+TEST_CASE("scene.paste_entities: what the editor's Duplicate sends remaps references between selected siblings") {
+    Session s;
+    // pair_a points at its sibling pair_b; both are selected, so one text holds both roots, each under holder.
+    const CommandResult p =
+        s.paste(s.copy({"pair_a", "pair_b"}), Json::object({{"keepParents", true}, {"nameSuffix", " copy"}}));
+    REQUIRE_MESSAGE(p.ok, Session::error_text(p));
+    REQUIRE(p.result["ids"].size() == 2);
+    const std::string a = p.result["ids"][0].get<std::string>();
+    const std::string b = p.result["ids"][1].get<std::string>();
+    CHECK(s.joint_target(a) == b);  // the copy of pair_a names the copy of pair_b, not the original
+    CHECK(s.joint_target("pair_a") == "pair_b");
+    CHECK(s.world().id_of(s.world().parent(s.find(a))) == "holder");
+    CHECK(s.world().info(s.find(a)).name == "A copy");
+    // The copy of pair_c (a child of the copy of pair_a) names the copy of pair_a.
+    const std::string c = s.world().id_of(s.world().children(s.find(a))[0]);
+    CHECK(s.joint_target(c) == a);
 }
 
 TEST_CASE("scene.copy_entities: a name that is not valid UTF-8 does not make the copy throw") {

@@ -272,20 +272,6 @@ std::string tree_label(std::string_view name, std::string_view id) {
     return std::string(name) + "  (" + std::string(id) + ")";
 }
 
-static void strip_ids(Json& entity) {
-    if (!entity.is_object()) return;
-    entity.erase("id");
-    if (entity.contains("children") && entity["children"].is_array())
-        for (Json& c : entity["children"]) strip_ids(c);
-}
-
-Json duplicate_spec(Json entityJson) {
-    const std::string name = entityJson.value("name", std::string());
-    strip_ids(entityJson);
-    entityJson["name"] = (name.empty() ? std::string("Entity") : name) + " copy";
-    return entityJson;
-}
-
 // ---------------------------------------------------------------------------------------------- prefab overrides
 namespace {
 std::string json_text(const Json& j, const char* key) {

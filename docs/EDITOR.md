@@ -147,8 +147,15 @@ in all (the oldest steps go first). A step is one of three kinds:
   entities is the order they were created in (it is the order of `entities[]` in the scene file, and it decides which of
   two top-level entities that tie in layer or depth is drawn first), and commands can only create an entity last. So
   deleting a top-level entity that has other top-level entities after it is a snapshot step; deleting the last one, or a
-  child at any depth, is a command step. A multi-selection delete is one step of one kind: a snapshot as soon as one of its
-  entities needs it. Moving an entity under another parent and back keeps its place, so a reparent is always a command step.
+  child at any depth, is a command step. A subtree deeper than 64 levels is a snapshot step too (Undo pastes the entity
+  back, and a paste refuses text nested deeper). A multi-selection delete is one step of one kind: a snapshot as soon as one of
+  its entities needs it. Moving an entity under another parent and back keeps its place, so a reparent is always a command
+  step; one that changes nothing (to the parent and place the entity already has) is no step at all.
+  Known limits: (1) an entity that Undo brings back goes to the end of the component pools, so two entities that tie in
+  drawing order (same Sprite layer and y) can swap which one is drawn first in the edit view until the next Play or reload; the
+  scene file keeps its order. (2) Several commands under ONE key (the Console's lines of one frame, one AI call) are one step
+  when the first of them takes a snapshot, but two steps when a command step comes first and a snapshot step after it: undo
+  them one after the other. Only the Hierarchy picks the kind for a whole selection.
 - **Snapshot steps** hold the whole scene. What is left takes one because its change is too large or is not a scene edit
   through a command with an inverse: deleting a top-level entity that is not the last one (see above); `scene.import_ascii` (the Level generator's Keep) and `scene.ascii_edit`, which
   replace many entities at once; `script.eval` (the Console's `>` line), whose effect cannot be known; `prefab.revert` and
@@ -321,6 +328,8 @@ nothing selected Copy and Cut do nothing.
   entities become the selection, and the copy of the entity that was the primary when you copied is the new primary. Every pasted
   entity gets an id free in the scene: its old id when that is free (pasting into another scene), else the next number
   (`coin_3` becomes `coin_4`). If the clipboard holds text that is not copied entities, the editor says so and changes nothing.
+  After a **Cut** the selection is empty, so a Paste goes to the top level (not to where the cut entities were): select an
+  entity first to paste next to it, or Undo the Cut.
 - **Cut** is Copy and then Delete, as ONE Undo step: Undo brings the entities back, and the text stays on the clipboard until
   you copy something else.
 - **Duplicate** is a Copy and a Paste in one go: each copy goes under the same parent as its original, named "<name> copy",

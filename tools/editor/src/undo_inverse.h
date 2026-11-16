@@ -21,12 +21,19 @@ namespace fa::editor {
 struct UndoPlan {
     std::vector<UndoCommand> forward;  // run in this order by redo
     std::vector<UndoCommand> inverse;  // run in this order by undo
+    // The call changes nothing the scene keeps (a scene.set_parent to the place the entity already has): it runs, and
+    // Editor::edit_command records no step and marks nothing dirty.
+    bool noop = false;
 };
 
 // The plan of the call `name(args)` on the scene as it is now; nullopt when the command has no builder or its arguments
 // do not describe an edit the builder understands (an unknown entity or component, a field that is not there): the caller
 // then takes a snapshot, and the command itself reports what is wrong.
 std::optional<UndoPlan> plan_undo(const World& world, const std::string& name, const Json& args);
+
+// True when plan_undo gives a plan for the call, without building it: a destroy only checks what makes a plan impossible
+// (Hierarchy delete asks it for every selected entity before the commands run).
+bool has_undo_plan(const World& world, const std::string& name, const Json& args);
 
 // True when `name` has a builder (some of its calls may still give no plan).
 bool has_undo_builder(const std::string& name);

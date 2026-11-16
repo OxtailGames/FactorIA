@@ -115,13 +115,25 @@ struct PayloadEntity {
 
 constexpr int kMaxPayloadDepth = 64;  // levels of children in a pasted text
 
+// True when `..` is a whole segment of the path ("a/../b", "..\\x"), not just part of a name ("a..b.prefab.json").
+bool has_dotdot_segment(const std::string& path) {
+    std::size_t start = 0;
+    while (start <= path.size()) {
+        std::size_t end = path.find_first_of("/\\", start);
+        if (end == std::string::npos) end = path.size();
+        if (path.compare(start, end - start, "..") == 0) return true;
+        start = end + 1;
+    }
+    return false;
+}
+
 // A "$prefab" mark names the prefab file an instance came from; one that leaves the project is refused.
 void check_prefab_mark(const Json& entity, const std::string& pointer) {
     if (!entity.contains("$prefab") || !entity["$prefab"].is_string()) return;
     const std::string path = entity["$prefab"].get<std::string>();
     if (path.empty()) return;
     auto norm = fs::normalize_checked(path);
-    if (fs::is_absolute(path) || !norm.ok() || path.find("..") != std::string::npos)
+    if (fs::is_absolute(path) || !norm.ok() || has_dotdot_segment(path))
         bad_arg(pointer + "/$prefab: '" + path + "' is not a project-relative prefab path.",
                 "A copied text holds the entities inline and links an instance to its prefab with a path such as "
                 "prefabs/enemy.prefab.json inside this project. Copy the entities again with scene.copy_entities.");
@@ -393,6 +405,7 @@ Json paste_entities(Engine::Impl& I, const Json& a) {
         const Entity owner = W.find_by_id(p.owner);
         const Entity target = W.find_by_id(p.target);
         if (owner.is_null() || target.is_null()) continue;
+        if (p.field->readOnly) continue;  // the loader refuses a read-only field too: the engine maintains it
         if (void* obj = W.get(owner, *p.type)) *static_cast<Entity*>(p.field->ptr(obj)) = target;
     }
 
@@ -444,19 +457,15 @@ void register_scene_clipboard_commands(Engine& engine, Engine::Impl& I) {
          "go under `parent` (null or \"\" = top level), or with keepParents under the parent each had when copied "
          "(top level when that parent is gone); without either, at the top level. Returns {ids, count, cleared, "
          "primary?, messages?}: `ids` are the new roots in the order of the text; `primary` is the pasted root that is "
-         "or "
-         "holds the copy of the entity scene.copy_entities got as `primary`. Nothing is created when anything is "
-         "wrong. "
-         "Example: scene.paste_entities {\"text\":\"<what scene.copy_entities "
+         "or holds the copy of the entity scene.copy_entities got as `primary`. Nothing is created when anything is "
+         "wrong. Example: scene.paste_entities {\"text\":\"<what scene.copy_entities "
          "returned>\",\"parent\":\"level\"}" FA_COMMAND_DETAILS
          "`nameSuffix` is appended to the name of every pasted root (an unnamed one becomes \"Entity\" + suffix): "
          "nameSuffix \" copy\" with keepParents is a duplicate. `parent` and keepParents together are refused. A text "
          "that is not an entity clipboard (not JSON, another `format`, another version) is an error that names the "
          "JSON pointer of the problem; a text with a \"prefab\" key, a `$prefab` path outside the project or more than "
-         "64 levels "
-         "of children is refused. Only Entity fields are remapped: an id inside a Json field (Script.props, for "
-         "example) is "
-         "copied as it is. `cleared` entries are {entity, component, field, target}.",
+         "64 levels of children is refused. Only Entity fields are remapped: an id inside a Json field (Script.props, "
+         "for example) is copied as it is. `cleared` entries are {entity, component, field, target}.",
          parse_schema(R"({"type":"object","required":["text"],"properties":{
                "text":{"type":"string","description":"The text scene.copy_entities returned (the system clipboard in the editor)."},
                "parent":{"type":["string","null"],"description":"Id of the entity the pasted roots go under; null or \"\" = top level. Not with keepParents."},
