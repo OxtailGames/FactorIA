@@ -561,7 +561,8 @@ TEST_CASE("websocket curl: a queue that overflows reads Closed as soon as the Cl
     if (!client) return;
     fa::test::WsTestServer server;
     REQUIRE(server.ok());
-    // 48 MB of messages that the game does not read: over the 32 MB the queue holds.
+    // 48 MB of messages that the game does not read: over the 32 MB the queue holds (WebSocketEventQueue::limit_for:
+    // max(32 MB, 2 * maxMessageBytes), 4 MB by default), so the 33rd 1 MB message overflows. Raise both if that limit grows.
     auto ws = open(*client, server.url("/flood?n=1000000&count=48"));
     const auto end = Clock::now() + std::chrono::seconds(30);
     while (ws->state() != WebSocketState::Closed && Clock::now() < end)
