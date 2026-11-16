@@ -153,7 +153,7 @@ should pick a profile (next section); `factoria mcp --read-only` also gives a sm
 ### Tool profiles
 
 `factoria mcp --tools <profile>` chooses what `tools/list` offers (the same core set and group rules as the built-in agent's
-catalog, [AI_PROVIDERS.md](AI_PROVIDERS.md#tool-groups-and-the-catalog); `fa/tooling/tool_groups.h`):
+catalog, [AI_PROVIDERS.md](ai-providers/AI_PROVIDERS_AGENT.md#tool-groups-and-the-catalog); `fa/tooling/tool_groups.h`):
 
 | Profile | `tools/list` | Size (0.23, `2d-empty`, about) | Pick it when |
 |---|---|---|---|
