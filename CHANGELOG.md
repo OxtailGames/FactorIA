@@ -13,6 +13,10 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   text as a composition, put the candidate window under the caret and type only the committed text, once; dead keys
   (Option-E) show their pending accent. The keys the input method did not use, and all keys while no field has the focus,
   reach the game as before. The editor's Play mode does not compose yet. See [docs/TEXT.md](docs/TEXT.md), "Typing text".
+- Windows: a focused `TextField` composes natively too (IMM32 on the game's window). The Microsoft Japanese, Pinyin and
+  Korean IMEs show their pre-edit text in the field with the converted clause selected, their candidate list sits under the
+  caret, and the commit types once. A key the IME takes (Enter that confirms, Backspace inside a composition) is not also a
+  game key. While no field has the focus the window has no input context, so the IME leaves game keys alone.
 - **Docs (M97.3a):** the docs are laid out for reading cheaply. `docs/COMPONENTS.md` (1.8 MB) is no longer inside the
   binary: `docs.read components` answers with a pointer to `docs.components`, which serves one component at a time (the
   file stays in the repository for GitHub readers). `docs/MENUS.md` no longer prints the files of the menu kit (257 KB
