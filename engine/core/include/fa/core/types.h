@@ -1,6 +1,6 @@
 // FactorIA core types shared by every module.
 //
-// Conventions (see docs/ARCHITECTURE.md):
+// Conventions (see docs/design/ARCHITECTURE.md):
 //   * namespace `fa`, snake_case functions, PascalCase types, camelCase JSON keys.
 //   * Fallible operations return fa::Result<T>; errors carry a human/AI readable
 //     message AND a hint telling the caller how to fix the problem.

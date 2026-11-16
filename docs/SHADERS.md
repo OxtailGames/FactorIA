@@ -14,7 +14,7 @@ The loop for an AI (or a person):
    `factoria run --headless --frames 60 --screenshot-at 59` (MCP `game_screenshot`).
 4. `factoria validate` checks and compiles every material for every platform.
 
-`MeshRenderer.material` and `MeshRenderer.materialParams` are in [COMPONENTS.md](COMPONENTS.md); the file format is
+`MeshRenderer.material` and `MeshRenderer.materialParams` are in `docs.components`; the file format is
 `schemas/material.schema.json`.
 
 ## The material file
@@ -176,7 +176,7 @@ Every error says where, what is wrong and how to fix it.
   where `factoria setup shaders` installs it (about 11 MB) for a factoria built from source or when the copy next to
   `factoria` is gone; `factoria setup` says which one is used. On Windows, Windows Defender may quarantine
   `sokol-shdc.exe` as a false positive (`Trojan:Win32/Bearfoos.B!ml`): restore it from Windows Security > Protection
-  history, run `factoria setup shaders`, or point `SOKOL_SHDC` at a copy you trust ([EXPORTING.md](EXPORTING.md#setting-up-this-computer)).
+  history, run `factoria setup shaders`, or point `SOKOL_SHDC` at a copy you trust ([EXPORTING.md](exporting/EXPORTING_SETUP.md#setting-up-this-computer)).
   Without it, `factoria validate` checks the material files and warns that snippets were not compiled.
 - **Running** (`factoria run`, MCP sessions) compiles the material for this computer's graphics API the first time it is
   drawn and caches the result in `.factoria/shader-cache`, so an unchanged material starts no process.

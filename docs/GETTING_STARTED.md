@@ -75,7 +75,7 @@ built into `factoria`, and on Windows the C++ runtime is too, so a fresh PC need
 5. Export (`factoria export`) works from the download for desktop and mobile. Android needs the JDK 17 and the
    Android SDK (no NDK, no CMake, no separate Gradle): the `mobile/` folder next to `factoria` holds the engine's Android
    runtime, so the export only packages it and builds the APK itself (`factoria export --platform android`). iOS (on a Mac, with Xcode and CMake) uses the iOS libraries of the macOS
-   package the same way. No engine source is involved; see [EXPORTING.md](EXPORTING.md#mobile-exports-prebuilt-or-source)
+   package the same way. No engine source is involved; see [EXPORTING.md](exporting/EXPORTING_MOBILE.md#mobile-exports-prebuilt-or-source)
    and [MOBILE.md](MOBILE.md). Build from source if you want to change the engine itself.
 
 #### Updates
@@ -89,7 +89,7 @@ every version newer than yours, and the editor waits for your answer:
 - **Not now** keeps your version. The editor asks again the next time it opens.
 
 Files you copy over the installation yourself (without the updater) are noticed too: the running editor offers a
-**Restart** notice at the bottom of its window ([EDITOR.md, Updates](EDITOR.md#updates)), and a `factoria mcp` that your AI
+**Restart** notice at the bottom of its window ([EDITOR.md, Updates](editor/EDITOR_SETUP.md#updates)), and a `factoria mcp` that your AI
 client started restarts itself in place (Linux and macOS) or asks you to reconnect it with `/mcp` (Windows)
 ([MCP.md, After an update](MCP.md#after-an-update)). You do not need to restart the client yourself, except when it
 says that its `.mcp.json` changed after it started.
@@ -189,7 +189,7 @@ If the machine runs out of memory, limit the number of parallel jobs: `cmake --b
 - **`cl.exe not found`**: use *Developer PowerShell for VS 2022*.
 - **`running scripts is disabled on this system`**: run the script with `-ExecutionPolicy Bypass`.
 
-More details in `docs/BUILDING.md`.
+More details in `docs/design/BUILDING.md`.
 
 ## 2. Create your first game
 
@@ -441,11 +441,11 @@ Keys and fixed values (`category`, `severity`) are in English, as in the example
 
 - `factoria help <command>` shows the help and examples for each command. `docs/CLI.md` describes all commands and options.
 - `docs/AI_GUIDE.md` (in English): the complete guide for an AI that builds a game. If you are an AI, read it before touching a game. It is also available with `factoria docs read ai-guide`.
-- `docs/ARCHITECTURE.md`: design, modules and conventions.
+- `docs/design/ARCHITECTURE.md`: design, modules and conventions.
 - `docs/SCRIPTING.md`: the JavaScript API: behaviors, tools and tests.
 - `docs/EXTENDING.md`: how to add project tools and engine commands.
 - `docs/MCP.md`, `docs/AI_PROVIDERS.md` and `docs/ENGINE_FEEDBACK.md`: connecting AI and recording what the engine is missing.
-- `docs/BUILDING.md`: requirements and builds per platform.
+- `docs/design/BUILDING.md`: requirements and builds per platform.
 - `docs/EXPORTING.md` and `docs/MOBILE.md`: exporting games and building them for mobile.
 - `docs/FIRST_GAME_WITH_AI.md` (`factoria docs read first-game-with-ai`): a first session with the AI in the editor, round by round, for a person.
 - `docs/MAKE_BY_HAND.md` (`factoria docs read make-by-hand`): write a small game yourself (scene, script, test, export) to see what the AI does for you.

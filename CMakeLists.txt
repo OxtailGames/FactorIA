@@ -65,10 +65,10 @@ option(FA_BUILD_TESTS  "Build unit tests"                                   ON)
 option(FA_BUILD_TOOLS  "Build the factoria CLI, MCP server, AI hub, editor" ${FA_DESKTOP})
 option(FA_BUILD_EDITOR "Build the visual editor (requires FA_BUILD_TOOLS)"   ${FA_DESKTOP})
 option(FA_WARNINGS_AS_ERRORS "Treat engine warnings as errors"              OFF)
-# The CI jobs that measure the player (scripts/player-size.sh, docs/BUILDING.md "Player size budgets") turn it on: the player's
+# The CI jobs that measure the player (scripts/player-size.sh, docs/design/BUILDING.md "Player size budgets") turn it on: the player's
 # link writes a map next to it and the list of the archives it links, so the report says what each library adds.
 option(FA_PLAYER_LINK_MAP "Write the player's link map and the list of archives it links (player size report)" OFF)
-# ctest runs every test with the "Windows file rules" emulation of fa::fs (docs/BUILDING.md, "Windows file rules in tests"):
+# ctest runs every test with the "Windows file rules" emulation of fa::fs (docs/design/BUILDING.md, "Windows file rules in tests"):
 # macOS and Linux then find the file bugs that only Windows had (a replace of a file another thread has open, a file time
 # that moves in 15.6 ms steps). OFF registers the tests without it; one run: `FA_FS_WINDOWS_RULES=0 ctest ...`.
 option(FA_TEST_WINDOWS_FILE_RULES "Run the tests with the Windows file rules emulation (not on Windows)" ON)
@@ -135,7 +135,7 @@ foreach(_lang ${_fa_fp_langs})
     endif()
 endforeach()
 
-# ---- sanitizers (FA_SANITIZE; docs/BUILDING.md, "Sanitizers") --------------------------------------------------------
+# ---- sanitizers (FA_SANITIZE; docs/design/BUILDING.md, "Sanitizers") --------------------------------------------------------
 # Before the first add_subdirectory: the flags reach every target, external/ included.
 include(FactoriaSanitize)
 
@@ -175,7 +175,7 @@ if(FA_BUILD_TOOLS)
     add_subdirectory(tools/bench)   # fa_bench     microbenchmarks with a baseline per machine kind (docs/PERFORMANCE.md)
 endif()
 
-# Fuzz targets: ctests that replay their corpus, or libFuzzer programs with FA_FUZZ (docs/BUILDING.md, "Fuzzing").
+# Fuzz targets: ctests that replay their corpus, or libFuzzer programs with FA_FUZZ (docs/design/BUILDING.md, "Fuzzing").
 if(FA_DESKTOP AND (FA_BUILD_TESTS OR FA_FUZZ))
     add_subdirectory(tools/fuzz)
 endif()

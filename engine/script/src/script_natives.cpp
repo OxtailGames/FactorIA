@@ -14,6 +14,7 @@
 
 #include "fa/audio/audio.h"
 #include "fa/audio/sfx.h"
+#include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/image.h"
 #include "fa/core/log.h"
@@ -24,6 +25,8 @@
 #include "fa/platform/clipboard.h"
 #include "fa/platform/input.h"
 #include "fa/platform/system_language.h"
+#include "fa/platform/websocket.h"
+#include "fa/platform/websocket_codec.h"
 #include "fa/physics/physics.h"
 #include "fa/render/renderer.h"
 #include "fa/render/text_measure.h"
@@ -674,6 +677,15 @@ NATIVE(watchdogCuts) {
     for (size_t i = first; i < first + shown; ++i) text += (text.empty() ? "" : "; ") + I->cuts[i].to_string();
     if (const size_t more = I->cuts.size() - first - shown; more > 0) text += std::format(" ... and {} more", more);
     return JS_NewString(ctx, text.c_str());
+}
+
+// deprecated(key): the warning for a deprecated script export or member (the "script" part of the deprecated section of
+// api_since.json); the prelude calls it on the first use of each one, the table gives it once per key per process.
+NATIVE(deprecated) {
+    (void)thisv;
+    CStr key(ctx, argc > 0 ? argv[0] : JS_UNDEFINED);
+    fa::warn_deprecated(fa::kDeprecatedScript, key.view());
+    return JS_UNDEFINED;
 }
 
 NATIVE(logSeq) {
@@ -4465,6 +4477,272 @@ NATIVE(platformInfo) {  // {backend, services, player: {id, name, signedIn}, pen
                                       {"pending", 0}}));
 }
 
+// ---- WebSocket (fa/platform/websocket.h; the `websocket` object of the prelude) ---------------------------------------
+namespace {
+
+JSValue ws_error_object(Impl* I, std::string message, std::string hint, const char* code = "invalid") {
+    return I->from_json(
+        Json::object({{"error", Json::object({{"code", code}, {"message", message}, {"hint", hint}})}}));
+}
+
+// The bytes of an ArrayBuffer or a typed array (or DataView). false: it is neither.
+bool js_bytes(JSContext* ctx, JSValueConst v, std::string& out) {
+    std::size_t off = 0, len = 0, per = 0;
+    JSValue buf = JS_GetTypedArrayBuffer(ctx, v, &off, &len, &per);
+    if (!JS_IsException(buf)) {
+        std::size_t size = 0;
+        const std::uint8_t* data = JS_GetArrayBuffer(ctx, &size, buf);
+        bool ok = false;
+        if (data && off + len <= size) {
+            out.assign(reinterpret_cast<const char*>(data) + off, len);
+            ok = true;
+        } else if (!data) {
+            JS_FreeValue(ctx, JS_GetException(ctx));
+        }
+        JS_FreeValue(ctx, buf);
+        return ok;
+    }
+    JS_FreeValue(ctx, JS_GetException(ctx));
+    std::size_t size = 0;
+    const std::uint8_t* data = JS_GetArrayBuffer(ctx, &size, v);
+    if (!data) {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+        return false;
+    }
+    out.assign(reinterpret_cast<const char*>(data), size);
+    return true;
+}
+
+JSValue js_buffer(JSContext* ctx, const std::string& bytes) {
+    static const std::uint8_t kNone = 0;  // JS_NewArrayBufferCopy of nothing still needs a pointer
+    return JS_NewArrayBufferCopy(ctx, bytes.empty() ? &kNone : reinterpret_cast<const std::uint8_t*>(bytes.data()),
+                                 bytes.size());
+}
+
+}  // namespace
+
+NATIVE(wsInfo) {  // () -> {supported, backend, reason}
+    SETUP;
+    WebSocketClient* c = I->host->websocket_client();
+    return I->from_json(
+        Json::object({{"supported", c && c->available()},
+                      {"backend", c ? c->name() : std::string("none")},
+                      {"reason", c ? c->unavailable_reason() : std::string("this run has no WebSocket client")}}));
+}
+
+NATIVE(
+    wsOpen) {  // (url, {protocols, headers, timeout, maxMessageBytes}) -> {id} | {unavailable: reason} | {mistake: {message, hint}}
+    SETUP;
+    auto mistake = [&](std::string message, std::string hint) {
+        return I->from_json(Json::object({{"mistake", Json::object({{"message", message}, {"hint", hint}})}}));
+    };
+    WebSocketClient* client = I->host->websocket_client();
+    if (!client) return mistake("this run has no WebSocket client", "");
+    const NetworkPolicy none;
+    PlatformServices* services = I->host->platform_services();
+    auto checked = check_ws_url(arg_str(ctx, argc, argv, 0), services ? services->network() : none);
+    if (!checked.ok()) return mistake(checked.error().message, checked.error().hint);
+    if (!client->available()) return I->from_json(Json::object({{"unavailable", client->unavailable_reason()}}));
+    if (I->websockets.size() >= Impl::kMaxWebSockets)
+        return mistake("there are already " + std::to_string(Impl::kMaxWebSockets) + " WebSocket connections open",
+                       "Close the ones you no longer use with ws.close(); a scene change closes them all.");
+    const Json options = argc > 1 ? I->to_json(argv[1]) : Json::object();
+    WebSocketRequest request;
+    request.url = checked.value().url;
+    if (options.is_object()) {
+        if (auto it = options.find("protocols"); it != options.end() && it->is_array())
+            for (const Json& p : *it)
+                if (p.is_string()) request.subprotocols.push_back(p.get<std::string>());
+        if (auto it = options.find("headers"); it != options.end() && it->is_object())
+            for (auto h = it->begin(); h != it->end(); ++h)
+                if (h.value().is_string()) request.headers.emplace_back(h.key(), h.value().get<std::string>());
+        if (auto it = options.find("timeout"); it != options.end() && it->is_number())
+            request.connectTimeoutSec = std::clamp(it->get<double>(), 0.5, 120.0);
+        if (auto it = options.find("maxMessageBytes"); it != options.end() && it->is_number())
+            request.maxMessageBytes = static_cast<std::size_t>(std::clamp(it->get<double>(), 1.0, 64.0 * 1024 * 1024));
+    }
+    // The handshake's rules for the headers and subprotocols, the same whatever the platform's client: a mistake throws here.
+    if (auto url = ws::parse_url(request.url); url.ok()) {
+        const std::uint8_t zeros[16] = {};
+        if (auto head = ws::build_client_request(url.value(), ws::make_client_key(zeros), request.subprotocols,
+                                                 request.headers);
+            !head.ok())
+            return mistake(head.error().message, head.error().hint);
+    }
+    auto connection = client->connect(std::move(request));
+    if (!connection.ok()) return mistake(connection.error().message, connection.error().hint);
+    const int id = I->nextWebSocketId++;
+    I->websockets[id].ws = std::move(connection.value());
+    return I->from_json(Json::object({{"id", id}}));
+}
+
+NATIVE(wsSend) {  // (id, binary, data, byteLength) -> true | {error: {code, message, hint}}
+    SETUP;
+    auto it = I->websockets.find(static_cast<int>(arg_num(ctx, argc, argv, 0, 0)));
+    if (it == I->websockets.end())
+        return ws_error_object(I, "the connection is closed", "Connect again to send.", "state");
+    WebSocket& ws = *it->second.ws;
+    if (ws.state() != WebSocketState::Open)
+        return ws_error_object(I, std::string("the connection is ") + websocket_state_name(ws.state()),
+                               "Send after the \"open\" event, and not after close().", "state");
+    Result<void> sent;
+    if (arg_bool(ctx, argc, argv, 1)) {
+        std::string bytes;
+        if (arg_num(ctx, argc, argv, 3, 0) > 0 && !js_bytes(ctx, argv[2], bytes))
+            return ws_error_object(I, "the data is not an ArrayBuffer or a typed array", "");
+        sent = ws.send_binary(bytes.data(), bytes.size());
+    } else {
+        sent = ws.send_text(arg_str(ctx, argc, argv, 2));
+    }
+    if (!sent.ok()) return ws_error_object(I, sent.error().message, sent.error().hint);
+    return JS_TRUE;
+}
+
+NATIVE(wsClose) {  // (id, code, reason) -> true | {error}
+    SETUP;
+    auto it = I->websockets.find(static_cast<int>(arg_num(ctx, argc, argv, 0, 0)));
+    if (it == I->websockets.end()) return JS_TRUE;
+    const double code = arg_num(ctx, argc, argv, 1, 1000);
+    const std::string reason = arg_str(ctx, argc, argv, 2);
+    if (!(code >= 0 && code <= 65535) || !ws::close_code_app_may_send(static_cast<int>(code)))
+        return ws_error_object(I, "the close code " + Json(code).dump() + " cannot be used",
+                               "Use 1000 (normal) or a code from 3000 to 4999 that your server defines.");
+    if (reason.size() > ws::kMaxCloseReasonBytes)
+        return ws_error_object(I,
+                               "the close reason is " + std::to_string(reason.size()) + " bytes; the most is " +
+                                   std::to_string(ws::kMaxCloseReasonBytes),
+                               "Shorten the reason.");
+    if (auto closed = it->second.ws->close(static_cast<int>(code), reason); !closed.ok())
+        return ws_error_object(I, closed.error().message, closed.error().hint);
+    return JS_TRUE;
+}
+
+NATIVE(wsBuffered) {  // (id) -> bytes accepted by send and not yet handed to the network
+    SETUP;
+    auto it = I->websockets.find(static_cast<int>(arg_num(ctx, argc, argv, 0, 0)));
+    return JS_NewFloat64(ctx, it == I->websockets.end() ? 0.0 : static_cast<double>(it->second.ws->buffered_amount()));
+}
+
+NATIVE(wsRelease) {  // (id): drops the connection at once (no event follows); 0 or no argument: every connection
+    SETUP;
+    const int id = static_cast<int>(arg_num(ctx, argc, argv, 0, 0));
+    if (id <= 0) {
+        I->websockets.clear();
+        if (arg_bool(ctx, argc, argv, 1))  // a new test file: the scripted servers of the memory client go too
+            if (auto* memory = dynamic_cast<MemoryWebSocketClient*>(I->host->websocket_client())) {
+                memory->clear();
+                memory->set_auto_accept(true);
+                memory->refuse_next(0);
+            }
+    } else {
+        I->websockets.erase(id);
+    }
+    return JS_UNDEFINED;
+}
+
+// The scripted server of the memory client (game.websocket in tests). op: "list", "accept", "refuse", "send", "close", "drop",
+// "autoAccept", "refuseNext", "autoCloseReply", "reset".
+NATIVE(wsTest) {  // (op, a, b, c, d) -> a result | {error: {message, hint}}
+    SETUP;
+    auto* memory = dynamic_cast<MemoryWebSocketClient*>(I->host->websocket_client());
+    if (!memory)
+        return ws_error_object(
+            I, "game.websocket works with the memory WebSocket client, which tests and headless runs use",
+            "This run talks to a real network client; use a test run (factoria test).");
+    const std::string op = arg_str(ctx, argc, argv, 0);
+    auto peer_of = [&](int arg, JSValue& failure) -> MemoryWebSocketClient::Peer* {
+        const double index = arg_num(ctx, argc, argv, arg, -1);
+        MemoryWebSocketClient::Peer* peer = index >= 0 && index < static_cast<double>(memory->peer_count())
+                                                ? memory->peer(static_cast<std::size_t>(index))
+                                                : nullptr;
+        if (!peer)
+            failure =
+                ws_error_object(I,
+                                "there is no connection number " + Json(index).dump() + " (the game made " +
+                                    std::to_string(memory->peer_count()) + ")",
+                                "Numbers start at 0, in the order of websocket.connect calls (reconnects count).");
+        return peer;
+    };
+    if (op == "list") {
+        JSValue list = JS_NewArray(ctx);
+        for (std::size_t i = 0; i < memory->peer_count(); ++i) {
+            MemoryWebSocketClient::Peer* p = memory->peer(i);
+            JSValue o = JS_NewObject(ctx);
+            JS_SetPropertyStr(ctx, o, "index", JS_NewFloat64(ctx, static_cast<double>(i)));
+            JS_SetPropertyStr(ctx, o, "url", JS_NewStringLen(ctx, p->url.data(), p->url.size()));
+            Json protocols = Json::array(), headers = Json::object();
+            for (const std::string& s : p->subprotocols) protocols.push_back(s);
+            for (const auto& [k, v] : p->headers) headers[k] = v;
+            JS_SetPropertyStr(ctx, o, "protocols", I->from_json(protocols));
+            JS_SetPropertyStr(ctx, o, "headers", I->from_json(headers));
+            JS_SetPropertyStr(ctx, o, "open", JS_NewBool(ctx, p->open));
+            JS_SetPropertyStr(ctx, o, "closed", JS_NewBool(ctx, p->closed));
+            JS_SetPropertyStr(ctx, o, "closedByGame", JS_NewBool(ctx, p->clientClosed));
+            JS_SetPropertyStr(ctx, o, "closeCode", JS_NewInt32(ctx, p->clientCloseCode));
+            JS_SetPropertyStr(ctx, o, "closeReason",
+                              JS_NewStringLen(ctx, p->clientCloseReason.data(), p->clientCloseReason.size()));
+            JSValue received = JS_NewArray(ctx);
+            std::uint32_t n = 0;
+            for (const auto& r : p->received)
+                JS_SetPropertyUint32(ctx, received, n++,
+                                     r.binary ? js_buffer(ctx, r.data)
+                                              : JS_NewStringLen(ctx, r.data.data(), r.data.size()));
+            JS_SetPropertyStr(ctx, o, "received", received);
+            JS_SetPropertyUint32(ctx, list, static_cast<std::uint32_t>(i), o);
+        }
+        return list;
+    }
+    if (op == "autoAccept") {
+        memory->set_auto_accept(arg_bool(ctx, argc, argv, 1, true));
+        return JS_TRUE;
+    }
+    if (op == "refuseNext") {
+        memory->refuse_next(static_cast<int>(std::clamp(arg_num(ctx, argc, argv, 1, 1), 0.0, 1000.0)),
+                            argc > 2 && !JS_IsUndefined(argv[2]) ? arg_str(ctx, argc, argv, 2)
+                                                                 : "could not connect to the server");
+        return JS_TRUE;
+    }
+    if (op == "reset") {
+        memory->clear();
+        memory->set_auto_accept(true);
+        memory->refuse_next(0);
+        return JS_TRUE;
+    }
+    JSValue failure = JS_UNDEFINED;
+    MemoryWebSocketClient::Peer* peer = peer_of(1, failure);
+    if (!peer) return failure;
+    if (op == "accept") {
+        const std::string protocol = arg_str(ctx, argc, argv, 2);
+        if (!peer->accept(protocol))
+            return ws_error_object(I, "the connection cannot be accepted now",
+                                   "It was already accepted, closed, or the game did not offer the subprotocol \"" +
+                                       protocol + "\".");
+    } else if (op == "refuse") {
+        peer->refuse(argc > 2 && !JS_IsUndefined(argv[2]) ? arg_str(ctx, argc, argv, 2)
+                                                          : "the server refused the connection",
+                     static_cast<int>(std::clamp(arg_num(ctx, argc, argv, 3, 0), 0.0, 999.0)));
+    } else if (op == "send") {
+        if (arg_bool(ctx, argc, argv, 2)) {
+            std::string bytes;
+            if (arg_num(ctx, argc, argv, 4, 0) > 0 && !js_bytes(ctx, argv[3], bytes))
+                return ws_error_object(I, "the data is not an ArrayBuffer or a typed array", "");
+            peer->send_binary(std::move(bytes));
+        } else {
+            peer->send_text(arg_str(ctx, argc, argv, 3));
+        }
+    } else if (op == "close") {
+        peer->close(static_cast<int>(std::clamp(arg_num(ctx, argc, argv, 2, 1000), 0.0, 65535.0)),
+                    arg_str(ctx, argc, argv, 3));
+    } else if (op == "drop") {
+        peer->drop(argc > 2 && !JS_IsUndefined(argv[2]) ? arg_str(ctx, argc, argv, 2) : "the connection was lost");
+    } else if (op == "autoCloseReply") {
+        peer->autoCloseReply = arg_bool(ctx, argc, argv, 2, true);
+    } else {
+        return ws_error_object(I, "unknown websocket test operation \"" + op + "\"", "");
+    }
+    return JS_TRUE;
+}
+
 // ---- i18n (fa/core/i18n.h; the `i18n` object of the prelude) -------------------------------------------------------------
 NATIVE(i18nInfo) {  // {enabled, language, defaultLanguage, languages, names, systemLanguages}
     SETUP;
@@ -4828,6 +5106,7 @@ const Reg kRegs[] = {
     R(nowMs, 0),
     R(sourceCaret, 3),
     R(logSeq, 0),
+    R(deprecated, 1),
     R(logErrors, 1),
     R(forgetLoggedErrors, 0),
     R(watchdogCuts, 1),
@@ -5095,6 +5374,13 @@ const Reg kRegs[] = {
     R(pluginList, 0),
     R(pluginCall, 3),
     R(platformStart, 2),
+    R(wsInfo, 0),
+    R(wsOpen, 2),
+    R(wsSend, 4),
+    R(wsClose, 3),
+    R(wsBuffered, 1),
+    R(wsRelease, 2),
+    R(wsTest, 5),
     R(platformInfo, 0),
     R(i18nInfo, 0),
     R(i18nT, 2),

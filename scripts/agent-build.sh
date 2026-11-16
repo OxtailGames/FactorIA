@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build (and test) a Ninja Debug tree from any shell, printing only what matters: the Linux and macOS twin of
-# scripts/agent-build.ps1, made for AI agents. See docs/BUILDING.md, "Linux and macOS, short output".
+# scripts/agent-build.ps1, made for AI agents. See docs/design/BUILDING.md, "Linux and macOS, short output".
 #
 #   scripts/agent-build.sh <build dir> [--target t1,t2] [--test | --tests REGEX] [--examples | --examples-only]
 #                                      [--jobs N] [--ctest-jobs N] [--wait-s N]
@@ -376,7 +376,7 @@ debug_part() {
 }
 
 # Release build of the CLI and `ctest -L example`: the example games run the whole engine for minutes, so they are
-# tests of an optimized build (FA_EXAMPLE_TESTS, docs/BUILDING.md).
+# tests of an optimized build (FA_EXAMPLE_TESTS, docs/design/BUILDING.md).
 example_part() {
     local rel="$BUILD_DIR-release"
     configure "$rel" Release || return 1

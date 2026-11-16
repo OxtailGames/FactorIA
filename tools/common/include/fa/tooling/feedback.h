@@ -1,5 +1,5 @@
 // ENGINE_FEEDBACK.json: the loop through which game-making AIs tell engine
-// developers what the engine lacked (spec: docs/ARCHITECTURE.md, schema:
+// developers what the engine lacked (spec: docs/design/ARCHITECTURE.md, schema:
 // schemas/engine-feedback.schema.json).
 //
 //   add_feedback_entry   append an entry; a similar OPEN entry (same category,

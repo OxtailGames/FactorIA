@@ -1,5 +1,5 @@
 // Job system: one process-wide pool of worker threads that engine code hands small pieces of work to
-// (docs/ARCHITECTURE.md, "Jobs and threads"; docs/PERFORMANCE.md, "Job threads").
+// (docs/design/ARCHITECTURE.md, "Jobs and threads"; docs/PERFORMANCE.md, "Job threads").
 //
 // The Engine starts the pool in init() and joins it in shutdown() (jobs::start / jobs::stop, reference counted). Before
 // the pool starts, after it stops, and in inline mode every job runs at once on the thread that submits it, so code

@@ -113,6 +113,20 @@ TEST_CASE("validate: a script that calls http.fetch in a game with no declared h
     for (const auto& w : r.warnings) CHECK_FALSE(has(w.message, "calls http.fetch"));
 }
 
+TEST_CASE("validate: a script that calls websocket.connect in a game with no declared hosts is warned about") {
+    NetProject p(nullptr);
+    testing::write_all(p.dir + "/scripts/live.js", "import { websocket } from \"factoria\";\nexport function join() { "
+                                                   "return websocket.connect(\"wss://game.example.com/room\"); }\n");
+    ValidationReport r = p.validate();
+    std::size_t warned = 0;
+    for (const auto& w : r.warnings)
+        if (has(w.message, "calls websocket.connect, but factoria.json declares no \"network\" hosts")) {
+            ++warned;
+            CHECK(has(w.hint, "docs/NETWORKING.md"));
+        }
+    CHECK(warned == 1);
+}
+
 TEST_CASE("validate: analytics and remoteConfig need https URLs whose host is in network.hosts") {
     auto with = [](const char* extra) {
         NetProject p(R"({"hosts": ["stats.example.com"], "purpose": "Stats."})");

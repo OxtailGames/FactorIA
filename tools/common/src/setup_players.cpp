@@ -269,19 +269,20 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
         if (!release)
             return in.fail(
                 "no_release",
-                make_error("This factoria (" + version + ") has no release " + tag +
-                               " on GitHub (a development build ahead of the last release), so there are no players to "
-                               "download for it.",
-                           "Build the player on the other OS (see docs/BUILDING.md) and pass it with `factoria export "
-                           "--player <path>`, or use a factoria downloaded from https://github.com/" +
-                               std::string(kSetupReleaseRepo) + "/releases."));
+                make_error(
+                    "This factoria (" + version + ") has no release " + tag +
+                        " on GitHub (a development build ahead of the last release), so there are no players to "
+                        "download for it.",
+                    "Build the player on the other OS (see docs/design/BUILDING.md) and pass it with `factoria export "
+                    "--player <path>`, or use a factoria downloaded from https://github.com/" +
+                        std::string(kSetupReleaseRepo) + "/releases."));
         fellBack = true;
         const std::string note = "This factoria (" + version + ") is a development build with no release " + tag +
                                  ": the players come from the newest release, " + release->tag +
                                  ". Their build fingerprint will not match this factoria's, so an export that uses "
                                  "them needs allowPlayerMismatch (--allow-player-mismatch)"
                                  " until you build the players from this checkout (`factoria setup webplayer` for the "
-                                 "web; docs/BUILDING.md for the others).";
+                                 "web; docs/design/BUILDING.md for the others).";
         ctx.say(note);
         in.report.warnings.push_back(note);
     } else {
@@ -381,12 +382,12 @@ SetupResult players_install(const SetupContext& ctx, const SetupInstallOptions& 
             if (!web_complete(src))
                 return in.fail(
                     "failed",
-                    make_error("The package " + name +
-                                   " has no web/factoria_player.js and web/factoria_player.wasm inside.",
-                               "Report this: the release " + release->tag +
-                                   " is broken, or too old to carry the web player (use a newer FactorIA, or build the "
-                                   "web player yourself, see docs/BUILDING.md, and pass it with `factoria export "
-                                   "--platform web --player <folder>`)."));
+                    make_error(
+                        "The package " + name + " has no web/factoria_player.js and web/factoria_player.wasm inside.",
+                        "Report this: the release " + release->tag +
+                            " is broken, or too old to carry the web player (use a newer FactorIA, or build the "
+                            "web player yourself, see docs/design/BUILDING.md, and pass it with `factoria export "
+                            "--platform web --player <folder>`)."));
             if (auto f = replace_dir(src, root / "web")) return in.fail(*f);
             SetupStep s;
             s.id = "web";
