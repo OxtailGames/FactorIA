@@ -276,3 +276,77 @@ TEST_CASE("prefab instances: an instance added as a child of an instance stays a
     CHECK(host["children"][0]["components"]["Sprite"]["layer"] == 8);
     CHECK(host["children"][0]["prefab"] == "prefabs/panel.prefab.json");
 }
+
+TEST_CASE("prefab instances: PrefabDiff::list names every difference one by one, with the prefab's own value") {
+    TempProject p;
+    write_panel();
+    World w;
+    load(w, R"({"format":"factoria.scene/1","entities":[{"id":"a","prefab":"prefabs/panel.prefab.json"}]})");
+    Entity a = w.find_by_id("a");
+    Entity title = w.find_by_id("title");
+    Entity ok = w.find_by_id("ok");
+    CHECK(prefab_instance_root(w, a) == a);
+    CHECK(prefab_instance_root(w, title) == a);
+    CHECK(prefab_instance_root(w, ok) == a);
+    CHECK(diff_entity_with_prefab(w, a, "prefabs/panel.prefab.json").list.empty());
+
+    w.get<Sprite>(a)->layer = 9;
+    w.get<Transform>(a)->position = Vec3{3, 4, 0};
+    w.get<Text>(title)->text = "Edited";
+    w.info(ok).name = "Done";
+    w.add<Shape2D>(ok).layer = 4;
+    Entity extra = w.create("extra");
+    w.set_parent(extra, a);
+    CHECK(prefab_instance_root(w, extra).is_null());  // added under the instance: not a part of the prefab
+
+    PrefabDiffOptions opts;
+    opts.useMarks = true;
+    const PrefabDiff d = diff_entity_with_prefab(w, a, "prefabs/panel.prefab.json", opts);
+    REQUIRE(d.expressible);
+    CHECK(d.changes == d.list.size());
+    REQUIRE(d.list.size() == 6);
+    auto find = [&](Entity e, const char* component, const char* field) -> const PrefabChange* {
+        for (const PrefabChange& c : d.list)
+            if (c.entity == e && c.component == component && c.field == field) return &c;
+        return nullptr;
+    };
+    const PrefabChange* layer = find(a, "Sprite", "/layer");
+    REQUIRE(layer);
+    CHECK(layer->value == 9);
+    CHECK(layer->prefabValue == 1);
+    CHECK(layer->fileValue == 9);
+    CHECK(layer->nodePath.empty());
+    CHECK_FALSE(layer->placement);
+    const PrefabChange* pos = find(a, "Transform", "/position");
+    REQUIRE(pos);
+    CHECK(pos->placement);
+    const PrefabChange* text = find(title, "Text", "/text");
+    REQUIRE(text);
+    CHECK(text->prefabValue == "Hello");
+    CHECK(text->nodePath == std::vector<std::size_t>{0});
+    const PrefabChange* name = find(ok, "EntityInfo", "/name");
+    REQUIRE(name);
+    CHECK(name->prefabValue == "Ok");
+    CHECK(name->nodePath == std::vector<std::size_t>{1, 0});
+    bool sawComponent = false, sawChild = false;
+    for (const PrefabChange& c : d.list) {
+        if (c.kind == PrefabChange::Kind::Component) {
+            sawComponent = true;
+            CHECK(c.component == "Shape2D");
+            CHECK(c.entity == ok);
+        }
+        if (c.kind == PrefabChange::Kind::Child) {
+            sawChild = true;
+            CHECK(c.entity == extra);
+        }
+    }
+    CHECK(sawComponent);
+    CHECK(sawChild);
+
+    // What a prefab cannot say lists nothing.
+    w.destroy(title);
+    w.flush();
+    const PrefabDiff gone = diff_entity_with_prefab(w, a, "prefabs/panel.prefab.json", opts);
+    CHECK_FALSE(gone.expressible);
+    CHECK(gone.list.empty());
+}

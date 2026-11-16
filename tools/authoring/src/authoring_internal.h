@@ -10,6 +10,11 @@ namespace fa {
 
 void register_scene_file_commands(Engine& engine,
                                   Engine::Impl& impl);  // scene_file_commands.cpp: prefab.save, scene.format
+void register_prefab_override_commands(
+    Engine& engine,
+    Engine::Impl& impl);  // prefab_override_commands.cpp: prefab.overrides, prefab.revert, prefab.apply
+// scene_file_commands.cpp: the entity JSON prefab.apply writes for a child added under an instance (see there).
+Json prefab_child_json(const World& w, Entity child, std::vector<std::string>& notes);
 void register_ascii_level_commands(Engine& engine,
                                    Engine::Impl& impl);  // level_commands.cpp: scene.import_ascii, scene.ascii_edit
 
