@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Example games, last polish (M98):** `project.create {example}` into an existing empty folder never replaces a file or folder that
+  another process puts there meanwhile (the moves use a no-replace rename on Linux, macOS and Windows; before, a plain rename could
+  overwrite it) and stops with "is not empty any more"; when a move fails and something it had put in the folder cannot be taken
+  out again (a file open elsewhere), the error names it instead of saying the folder was left empty; a copy across file systems
+  checks Windows' "not the same device" error by its raw value too. A doctest packs every example of `examples/`, so a file the
+  packer refuses shows in the pull request that adds it and not in the release run (the release workflow still starts only for
+  a change of itself or the packer).
 - **Android end and build, polish (M98):** in a `game.on("quit")` handler on Android the code after `await storage.setAsync(...)`
   now runs (the end delivers each finished write, runs what it wakes, up to 16 writes in a row); before, only the write itself
   was waited for. The end closes only the audio device (it no longer waits for the music's decodes or releases the clips).

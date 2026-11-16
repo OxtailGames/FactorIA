@@ -346,6 +346,28 @@ TEST_CASE("examples packaging: the real examples/ folder") {
     CHECK(std::is_sorted(names->begin(), names->end()));
 }
 
+TEST_CASE("examples packaging: every example of examples/ packs (what the release job packs)") {
+    // The `package` job of release.yml runs on a pull request only when the workflow or the packer changes, so a new file in an example
+    // that the packer refuses (a Windows device name, a name over 240 bytes, an unreadable file) would show up in the release run of the
+    // tag. This test, which every change under examples/ runs, packs them all.
+    const stdfs::path root = stdfs::path(FA_REPO_ROOT) / "examples";
+    TempDir out;
+    auto m = package_examples(root, out.path, "0.30.0");
+    REQUIRE_MESSAGE(m.ok(), (m.ok() ? std::string() : m.error().to_string()));
+    auto text = read_all(root / kExamplesSourceFile);
+    auto src = parse_examples_source(text, "examples/examples.json");
+    REQUIRE(src.ok());
+    CHECK(m->examples.size() == src->size());
+    for (const ExampleInfo& e : m->examples) {
+        INFO("example " << e.name);
+        CHECK(verify_example_file(e, out.path / e.file).ok());
+        auto names = export_detail::zip_entry_names(out.path / e.file);
+        REQUIRE(names.ok());
+        CHECK(std::find(names->begin(), names->end(), "factoria.json") != names->end());
+        for (const std::string& n : *names) CHECK_MESSAGE(n.rfind(".factoria/", 0) != 0, n);
+    }
+}
+
 TEST_CASE("examples: the command project.package_examples") {
     TempDir d, out;
     make_examples(d);
