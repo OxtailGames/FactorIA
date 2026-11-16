@@ -179,6 +179,10 @@ public:
     // Above 0: the pad stops its motors by itself unless the report comes again within about this many milliseconds, so
     // the glue repeats it while the motors are on (the Switch Pro). 0: the motors keep the last strengths until told.
     virtual unsigned rumble_refresh_ms() const { return 0; }
+    // The output report that undoes the set-up, sent at exit after the motors' stop (the Switch Pro: back to its simple
+    // report). Advances the packet counter like rumble_report(). Nothing: nothing to undo, or nothing can undo it (a
+    // DualShock 4 or DualSense over Bluetooth stays on its full report until it is switched off or reconnected).
+    virtual std::optional<std::vector<std::uint8_t>> exit_report() { return std::nullopt; }
     // What the driver believes the connection is (it corrects the guess from the path when a report says otherwise).
     virtual HidTransport transport() const = 0;
 };
@@ -218,20 +222,24 @@ private:
 };
 
 // When to ask the XInput slots that hold no pad. XInputGetState on an empty slot is slow (it asks the driver), so instead
-// of 4 calls every frame the empty slots are probed once every kIdleEvery polls, and after a device notification (a pad
-// came or went: WM_INPUT_DEVICE_CHANGE) every kBurstEvery polls for kBurstLength polls, because XInput may take a pad a
-// moment after its device appears. Slots that hold a pad are read every poll (that is how XInput reports state).
+// of 4 calls every frame the empty slots are probed every kIdleMs, and after a device notification (a pad came or went:
+// WM_INPUT_DEVICE_CHANGE) at once and then every kBurstEveryMs for kBurstMs, because XInput may take a pad a moment after
+// its device appears. Slots that hold a pad are read every poll (that is how XInput reports state). The time is what the
+// caller passes, a monotonic clock in milliseconds (gamepad_win32.cpp gives GetTickCount64, the tests give made-up times),
+// so the rate does not follow the frame rate. A poll later than due probes once, not once per interval it missed.
 class GamepadProbeSchedule {
 public:
-    static constexpr unsigned kIdleEvery = 120;   // ~2 s at 60 frames per second
-    static constexpr unsigned kBurstEvery = 15;   // ~0.25 s
-    static constexpr unsigned kBurstLength = 90;  // ~1.5 s: 6 probes
-    void notify();                                // a device came or went
-    bool tick();  // one poll: true when the empty slots are to be probed now (the first poll always is)
+    static constexpr std::uint64_t kIdleMs = 2000;
+    static constexpr std::uint64_t kBurstEveryMs = 250;
+    static constexpr std::uint64_t kBurstMs = 1500;  // 6 probes: at the notification, then 250, 500 ... 1250 ms after
+    void notify();                                   // a device came or went: the next tick() probes and starts a burst
+    // One poll at `nowMs`: true when the empty slots are to be probed now. The first poll probes, and so does one whose
+    // time is earlier than the last probe's (a clock that went back), which the intervals then count from.
+    bool tick(std::uint64_t nowMs);
 
 private:
-    unsigned polls_ = 0;
-    unsigned burstLeft_ = 0, burstPos_ = 0;
+    bool started_ = false, notified_ = false;
+    std::uint64_t lastMs_ = 0, burstEndMs_ = 0;
 };
 
 }  // namespace fa

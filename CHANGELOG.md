@@ -98,8 +98,8 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   time when that is free, else the lowest free one, so an Xbox pad no longer takes its XInput user index. A remapper that
   shows a PlayStation or Switch pad as a virtual Xbox pad (DS4Windows, Steam Input) makes two pads, the virtual and the
   physical one: turn it off for the game or have it hide the physical pad. Plugging comes from the
-  OS's device notifications, and XInput's empty slots are asked every 2 s and right after a notification instead of on a
-  fixed timer only. Their rumble came with M98.5b2 (below). Not yet tried with a physical pad.
+  OS's device notifications, and XInput's empty slots are asked every 2 s, and every 250 ms for 1.5 s after a device
+  notification, instead of on a fixed timer only (a time schedule, the same at any frame rate). Their rumble came with M98.5b2 (below). Not yet tried with a physical pad.
 - **A UI layout that does not write `Transform.position` (M98.6f), a behaviour change:** a Panel or ScrollList used to move
   its children by adding the layout's delta into `Transform.position` every frame (so a saved scene held the layout's
   result). It now keeps the placement apart (`World::ui_layout_offset`, not saved, not in an undo snapshot) and the child's
@@ -111,14 +111,18 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   example scene needed it). A widget moved into a laid-out Panel or ScrollList with `scene.set_parent` (keepWorld) goes to its
   slot, position 0, as before; reordering under the same parent changes only the order. 6e's turned-parent drawing now applies only under a turned or scaled widget, so a plain scaled
   group of HUD visuals keeps its old placement (docs/menus/MENUS_RECIPES.md, "Where a laid-out child is").
-  fixed timer only. Generic HID pads answer `canRumble: false` with a reason. Not yet tried with a physical pad.
 - **Windows rumble and full reports for PlayStation and Switch pads (M98.5b2):** the DualShock 4, DualSense (and Edge) and
   Switch Pro, over USB or Bluetooth, now rumble on Windows (`canRumble: true`): the engine's own drivers send each pad's
   output report through its HID device (non-blocking, one write in flight per pad, the latest request wins), with the
   Switch Pro's handshake and HD rumble. The drivers also switch each pad to its full input report, so a Bluetooth DualShock 4
-  or DualSense reports its analog triggers and a Switch Pro its full sticks. A pad another program holds exclusively, or
-  that stops taking reports, answers `canRumble: false` with a reason saying what to do; a pad that vanishes mid-write
-  leaks nothing, and the motors stop when the game quits. `hid.dll` and `xinput1_4.dll` load from System32 only, and a pad
+  or DualSense reports its analog triggers and a Switch Pro its full sticks (its ZL and ZR stay digital). A Bluetooth
+  DualShock 4 or DualSense stays on that full report until it is switched off or reconnected; a Switch Pro is put back on
+  its simple report at exit. A Bluetooth PlayStation report whose CRC is wrong is dropped. A pad another program holds
+  exclusively, or that stops taking reports (a write that fails is tried again up to five times, 100 ms apart, unless the
+  device is gone), answers `canRumble: false` with a reason saying what to do; a pad that vanishes mid-write leaks
+  nothing. The motors stop when the game quits: at exit the process waits at most about 100 ms for every pad's last
+  write, then sends the stop. A crash zeroes the XInput motors (an unhandled-exception filter chained to the crash
+  reporter); the HID pads are not touched after a crash. `hid.dll` and `xinput1_4.dll` load from System32 only, and a pad
   whose details Windows cannot give yet at its arrival is retried (warned once). Not yet tried with a physical pad.
 - **Several entities selected (M98.7b):** in the editor, Ctrl/Cmd+click toggles and Shift+click selects a range in the
   Hierarchy, and Ctrl/Cmd+click, Shift+click and a marquee on empty space select in the Viewport. Every selected entity is
