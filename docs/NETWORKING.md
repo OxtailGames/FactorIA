@@ -241,7 +241,7 @@ ws.send(JSON.stringify({ type: "join", name: "Ann" }));  // false until the conn
 
 ### Which platforms can connect now
 
-**This build has no WebSocket client for a real network yet.** The shared part is done and tested (the address checks, the
+**Linux is the only platform with a WebSocket client for a real network so far.** The shared part is done and tested (the address checks, the
 script API, reconnects, the protocol code, the test server); the clients that the platforms use arrive in this milestone,
 one per platform, and this table says what works today:
 
@@ -250,7 +250,7 @@ one per platform, and this table says what works today:
 | Tests, headless runs, `factoria call`, the MCP server | a scripted in-memory server (`game.websocket`) | yes, nothing touches the network |
 | Windows | WinHTTP's WebSocket API | not yet (M98.2b) |
 | macOS, iOS | `NSURLSessionWebSocketTask` | not yet (M98.2b) |
-| Linux | libcurl's WebSocket support, loaded when first needed (like `http.fetch`) | not yet (M98.2c); without `libcurl.so.4` it stays unavailable |
+| Linux | libcurl, loaded when first needed (like `http.fetch`), opens the connection (the proxy of the environment, TCP, TLS with the system's certificates); the engine's own WebSocket protocol code does the rest | yes, with any libcurl from 7.45 (with or without its own WebSocket support). Without `libcurl.so.4` (or the Steam Runtime's `libcurl-gnutls.so.4`) `websocket.supported` is false and `websocket.unsupportedReason` says why |
 | Android | a socket stream with the engine's own WebSocket protocol code, through JNI | not yet (M98.2c) |
 | Web | the browser's `WebSocket` | not yet (M98.2d) |
 
