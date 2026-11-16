@@ -1,6 +1,6 @@
 // The commands an exported game's player has, and the check that the scripts of a game call only those
-// (`factoria export` stops on a script that does not, `factoria validate` warns; docs/EXPORTING.md, "What is shipped and
-// what is not"). Private to fa_tooling.
+// (`factoria export` stops on a script that does not, `factoria validate` warns; docs/exporting/EXPORTING_CONTENTS.md, "What is shipped (and
+// what is not)"). Private to fa_tooling.
 #pragma once
 
 #include <map>

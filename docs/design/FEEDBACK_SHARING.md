@@ -324,7 +324,7 @@ Reads `feedback-admin.json` (`{endpoint, adminToken}`).
   ctest when Node is found), deploy scripts, privacy page, README.
 - M46.2 (L) Client: schema fields, sanitizer, user settings and outbox, sending through fa/platform's HTTP client with an
   injectable transport for tests, the commands and CLI above, GitHub device flow, the embedded fixed list and
-  `feedback.check_fixed`, docs/ENGINE_FEEDBACK.md "Sharing".
+  `feedback.check_fixed`, docs/ENGINE_FEEDBACK.md "Sharing with the engine developer".
 - M46.3 (L, after M46.2) Editor and AI: consent dialog, settings, ask-mode confirmation, panel column, new-entry form,
   `ai.review_feedback`; AI_GUIDE.md section 3, templates/common/AGENTS.md (write `share` in engine terms, check the docs
   first, a good and a bad example).

@@ -115,7 +115,7 @@ PerfBudgets perf_budgets_from_json(const Json& j, std::vector<std::string>* prob
 // One row per cap that is set (baseline = limit = the cap); `exceeded` when the measurement is over it.
 // maxStartupMs is a timing row; it is skipped when the sample has no startupMs.
 std::vector<PerfCheckRow> perf_budget_rows(const PerfSample& measured, const PerfBudgets& budgets);
-// The sentence that teaches how to bring a game's start-up time down (docs/AI_GUIDE.md, "Keep startup low"), for a perf.check
+// The sentence that teaches how to bring a game's start-up time down (docs/ai-guide/AI_GUIDE_CHECKS.md, "Start-up"), for a perf.check
 // message when a startup row is over its limit.
 std::string perf_startup_advice();
 

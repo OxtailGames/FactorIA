@@ -482,7 +482,7 @@ void Editor::at_section_P3(AtScript& at) {
 
 void Editor::at_section_O3(AtScript& at) {
     AT_SCRIPT_LOCALS(at)
-    // The Animation panel's 3D mode (docs/EDITOR.md, "Animation panel, 3D clips"): a generated walk opens on the rigged model, a bone is picked in the list and
+    // The Animation panel's 3D mode (docs/editor/EDITOR_ANIMATION.md, "3D bone clips"): a generated walk opens on the rigged model, a bone is picked in the list and
     // in the view, the rotation gizmo is dragged (ONE key, one undo step) and an IK handle too, a key is moved and deleted in the dopesheet, Mirror pose keys
     // the other side, the filmstrip and the weights come back as pictures, a clip is generated from the panel and Undo/Redo walk every step through the
     // editor's stack. Every wait counts frames or state.

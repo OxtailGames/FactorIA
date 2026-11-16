@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# What a game costs an AI with no context (docs/AI_COSTS.md, "Measuring it"; ROADMAP M100.1).
+# What a game costs an AI with no context (docs/AI_COSTS.md, "Measuring what a game costs an AI with no context"; ROADMAP M100.1).
 #
 # Starts an AI CLI non-interactively in an EMPTY folder outside the repository, with only the installed `factoria` on the
 # PATH, gives it a fixed brief, records the whole transcript, then reports through `factoria call agent.cost` (tokens and
@@ -64,7 +64,7 @@ while [ $# -gt 0 ]; do
     esac
 done
 
-# What the measured AI may run (docs/AI_COSTS.md, "What the measured AI may do"). `factoria call` is allowed ONLY as
+# What the measured AI may run (docs/AI_COSTS.md, "Measuring what a game costs an AI with no context"). `factoria call` is allowed ONLY as
 # `factoria call <family>.<command>` with the command name right after `call` (no flag, no quote before it, so no --batch,
 # --json, -p...), for the families a game developer needs and that stay offline. A deny rule wins over an allow rule and is
 # the second line; the first is the allow-list, and behind both the throw-away HOME and the engine copy.

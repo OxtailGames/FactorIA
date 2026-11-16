@@ -1,4 +1,4 @@
-// Bevel: the faces next to a sharp edge are pulled back from it and a strip of rows takes its place (docs/MODELING.md, "bevel").
+// Bevel: the faces next to a sharp edge are pulled back from it and a strip of rows takes its place (docs/modeling/MODELING_SHAPES.md, "Modifiers").
 //
 // Method. The surface is welded (Soup). Around each vertex the triangle corners are grouped by walking across the edges that are NOT
 // bevelled: a group is one smooth patch of the surface at that vertex. A group touched by two bevelled edges gets a new vertex at the point

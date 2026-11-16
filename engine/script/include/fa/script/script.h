@@ -355,7 +355,7 @@ struct TestCaseResult {
     std::vector<TestLogLine> logs;  // script output produced while this test ran (also by behaviours)
 };
 
-// A callback, test, eval or module load the script watchdog stopped (docs/SCRIPTING.md, "Watchdog"). A cut changes what the
+// A callback, test, eval or module load the script watchdog stopped (docs/design/ARCHITECTURE.md, "The watchdog"). A cut changes what the
 // simulation did (the rest of that callback never ran), and it depends on how fast the machine is: a run with a cut is
 // INVALID (a replay hash from it means nothing), so it is reported apart from the ordinary script errors, which a quiet call
 // or a repeated message can hide.

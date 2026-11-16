@@ -411,7 +411,7 @@ includeText?}`. `ai.review` is not read-only: it spends tokens and writes the re
   states that the bot's success says nothing about whether a person finds the game clear or fair.
 * **REVIEW.md.** The reviewers read the `REVIEW.md` of the project first: controls, the goal, what is finished and what
   is a placeholder, and how to reach every scene and state quickly. A game that is easy to test gets a more useful review
-  (`docs/AI_GUIDE.md`, "Keep the game reviewable"). `factoria export` leaves `REVIEW.md` out of the player's build.
+  (`docs/ai-guide/AI_GUIDE_CHECKS.md`, "11.4 REVIEW.md: make the game easy to review"). `factoria export` leaves `REVIEW.md` out of the player's build.
 * **Send to the orchestrator.** A review is only an opinion. In the editor you press **Send to orchestrator** on the
   report to post it into an orchestrator chat as your message (the active chat, or a new one); the orchestrator then
   plans the fixes and delegates them. Nothing is sent unless you press it.

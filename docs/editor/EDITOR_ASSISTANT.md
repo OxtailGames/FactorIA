@@ -208,8 +208,8 @@ without restoring anything, and `checkpoint.restore {id, paths:[...]}` puts back
 
 ## Sharing feedback
 
-The engine developers can read the gaps your game found in the engine (docs/ENGINE_FEEDBACK.md, "Sharing with the engine
-developers"). Nothing leaves the computer until a person chooses, and only here or in the terminal (`factoria feedback
+The engine developer can read the gaps your game found in the engine (docs/ENGINE_FEEDBACK.md, "Sharing with the engine
+developer"). Nothing leaves the computer until a person chooses, and only here or in the terminal (`factoria feedback
 sharing`): no command, MCP tool or script can set the mode, so an AI cannot turn sharing on.
 
 **The consent dialog.** While the mode is unset, the editor asks once: when you open a project that has feedback entries,

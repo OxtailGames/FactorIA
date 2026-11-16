@@ -202,7 +202,7 @@ std::optional<EfficiencyRefusal> check_efficiency_report(const std::string& proj
 std::optional<EfficiencyRefusal> efficiency_input_from_json(const Json& args, EfficiencyInput& out);
 
 // ---- Sharing and the developer's ranking ----------------------------------------------------------------------------------
-// What an efficiency entry sends to the engine developer next to its sanitized `share` text (docs/ENGINE_FEEDBACK.md, "Sharing"):
+// What an efficiency entry sends to the engine developer next to its sanitized `share` text (docs/ENGINE_FEEDBACK.md, "Sharing with the engine developer"):
 // {fixType, appliesTo, measured, saving, expectedShare, spans, afterFix?, candidate?}. Numbers and words of the engine's own fixed lists
 // only: the AI's `waste` text, the evidence (session ids, which carry the start time of a run) and the entry's other words never go; the
 // text of the report is the sanitized `share` and nothing else. Null when the entry is not an efficiency entry, its fix type or
@@ -212,7 +212,7 @@ Json efficiency_share_block(const Json& entry);
 // transcript can hold. Null when it is not a usable block.
 Json efficiency_clean_block(const Json& block);
 
-// What a fix costs to make, in hours of work: the rough figure the ranking sets the saving against (docs/ENGINE_FEEDBACK.md, "Ranking").
+// What a fix costs to make, in hours of work: the rough figure the ranking sets the saving against (docs/design/FEEDBACK_SHARING.md, "Ranking").
 // An engine change costs what the roadmap asks of the reports that want it (kEfficiencyRoadmapHours or kEfficiencyRoadmapUsd).
 double efficiency_fix_cost_hours(const std::string& fixType);
 // The exchange the ranking uses to put dollars and hours on one scale: the roadmap bar is $1000 or 20 hours, so an hour is $50.

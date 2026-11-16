@@ -1,4 +1,4 @@
-// Asset candidates (docs/ASSETS.md, "Candidates"): assets.generate_image {count} makes N pictures for one slot and one review sheet,
+// Asset candidates (docs/assets/ASSETS_REVIEW.md, "Candidates for one asset"): assets.generate_image {count} makes N pictures for one slot and one review sheet,
 // assets.pick keeps the one the person chose. The fake provider stands for a real one; the user folder is a scratch folder.
 #include <filesystem>
 #include <fstream>

@@ -132,7 +132,7 @@ struct IosExportSettings {
 };
 
 // export.pack of factoria.json: how a --release export (desktop and web) builds game.pak (fa/core/pack.h,
-// docs/EXPORTING.md, "The game pack"). Edited in factoria.json only: save_export_settings leaves it as it is.
+// docs/exporting/EXPORTING_DESKTOP.md, "Release build"). Edited in factoria.json only: save_export_settings leaves it as it is.
 struct PackExportSettings {
     // File extension (lower case, with the dot: ".json") -> the codec its files are packed with, over the engine's
     // default for that type (fa::pack_default_codec: store for PNG, Ogg and other compressed formats, zstd for fonts

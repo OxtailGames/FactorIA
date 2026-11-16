@@ -150,7 +150,7 @@ inline GoldenResult compare_golden(const Image& img, const std::filesystem::path
         r.diff.maxError > limits.maxPixelError)
         r.verdict = GoldenVerdict::TooDifferent;
     r.message = msg.str();
-    // FA_GOLDEN_REPORT=1: one line per golden with the measured numbers, to choose limits from a backend (docs/design/BUILDING.md).
+    // FA_GOLDEN_REPORT=1: one line per golden with the measured numbers, to choose limits from a backend (docs/design/BUILDING_TESTS.md, "Golden images").
     if (const char* report = std::getenv("FA_GOLDEN_REPORT");
         report && std::string(report) == "1" && r.verdict != GoldenVerdict::Wrote)
         std::fprintf(stderr, "GOLDEN %s mean=%.6f share=%.6f max=%.4f\n", fs::path_to_utf8(golden.filename()).c_str(),

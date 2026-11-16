@@ -323,7 +323,7 @@ carries `e.code`, `e.hint` and, when the command reported structured details, `e
 on the data instead of parsing the message.
 
 #### What `fa.call` can do from a game
-Every `fa.call` runs the command with a **capability set** (`docs/design/ARCHITECTURE_COMMANDS.md`, "Capabilities"); a command that needs
+Every `fa.call` runs the command with a **capability set** (`docs/design/ARCHITECTURE_COMMANDS.md`, "Capabilities"; repository only, not in the binary); a command that needs
 more fails with code `capability_denied`, before its arguments are looked at, and the error says who may do it.
 
 | Who calls | Set |

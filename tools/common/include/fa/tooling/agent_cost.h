@@ -1,4 +1,4 @@
-// What a game costs an AI with no context (docs/AI_COSTS.md, "Measuring it"; scripts/agent-cost.sh): the report over the transcript of one
+// What a game costs an AI with no context (docs/AI_COSTS.md, "Measuring what a game costs an AI with no context"; scripts/agent-cost.sh): the report over the transcript of one
 // run of an AI CLI (Claude Code's `--output-format stream-json`) that was asked for "a platformer with three levels".
 //
 //   agent_cost_report   the numbers: steps, tokens and minutes to the first playable build (the first `play.auto` that reaches the last level),

@@ -461,7 +461,7 @@ std::string hint_for(const std::string& msg) {
         return "The game was made with a newer FactorIA than the player running it. Run `factoria setup players` and "
                "export again, "
                "or build the player from the same checkout as factoria (docs/EXPORTING.md, \"The player must come from "
-               "the same build\"); "
+               "the same build as `factoria`\"); "
                "for the web, `cmake --build --preset web-release` and export: it prefers build/web-release.";
     if (has("cannot read property") || has("null") || has("undefined"))
         return "A value was null/undefined. world.find(id) and entity.get(name) return null when nothing matches; "

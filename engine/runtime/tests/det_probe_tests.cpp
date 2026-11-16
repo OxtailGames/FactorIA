@@ -8,7 +8,7 @@
 // The particle and feel hashes (which scripts cannot reach) are in engine/scene/tests/test_det_replay.cpp.
 //
 // When this fails on ONE platform, that platform's arithmetic differs: the section that differs says where (math = Math.* of the
-// scripts, physics2d = Box2D, physics3d = the 3D solver, nav = the nav bake and search; docs/design/ARCHITECTURE.md "Determinism"). When
+// scripts, physics2d = Box2D, physics3d = the 3D solver, nav = the nav bake and search; docs/design/ARCHITECTURE_THREADS.md "Determinism"). When
 // it fails everywhere the same way, the simulation changed on purpose: copy the printed line into determinism_expected.txt.
 #include <doctest.h>
 
