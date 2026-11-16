@@ -26,6 +26,8 @@ struct AudioTestAccess {
     // The voice's own low-pass (occlusion) in Hz as the game side last sent it (0 = none, -1 = no such voice), and a way to set it
     // directly, as occlusion does.
     static float voice_lowpass(Audio& audio, VoiceId voice);
+    // The gain of a blocked path on a sound played at a place (apart from the voice's volume); -1 for no voice.
+    static float voice_occlusion_gain(Audio& audio, VoiceId voice);
     static void set_voice_lowpass(Audio& audio, VoiceId voice, float hz);
     // The music cache's size limit (default 128 MB).
     static void set_music_cache_budget(Audio& audio, std::size_t bytes);

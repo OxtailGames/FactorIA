@@ -550,8 +550,9 @@ A wall between the listener and a source makes the sound quieter and duller. `Au
 `audio.play` with a `position` takes the same names (`occlusion`, `occlusionMask`, `occlusionGain`, `occlusionLowpass`).
 
 - **The ray.** It goes from the listener to the source, in the physics world: the 2D colliders (`Collider2D`) and the 3D ones (`Collider3D`) are
-  both checked, so it works in a 2D or a 3D game. It ignores triggers, the source's own entity (and its children) and the listener's. A collider
-  that contains the listener or the source does not block. The ray is a straight line, so it does not model sound that goes around a corner.
+  both checked, so it works in a 2D or a 3D game. It ignores triggers, the source's own entity (and its children) and the listener's. A foreign
+  collider that the listener stands inside does not block (the ray starts inside it). A source that stands inside a foreign collider (a
+  floor or a room volume that is not the source's own entity or its child) is blocked by it, so keep such volumes out of `occlusionMask`. The ray is a straight line, so it does not model sound that goes around a corner.
 - **The budget.** Rays cost time, so they are spread over frames: at most 8 rays per frame in the whole game (`audio.play` at a position uses
   them too), and each source asks again every 0.1 s. A source that was never measured goes first, and its first answer applies at once (a sound
   that starts behind a wall starts muffled). With more sources than the budget serves (about 48 at 60 frames per second) each one is checked a

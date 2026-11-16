@@ -1370,9 +1370,9 @@ struct AudioSource {
     float coneOuterAngle = 360.0f;  // outside this cone the volume is coneOuterGain; between the two it blends
     float coneOuterGain = 0.0f;     // volume multiplier outside the outer cone (0..1)
     Vec3 coneAxis{0, 0, -1};        // the cone's direction in the entity's local space (default: forward, -Z)
-    // Doppler (M98.8b: no effect yet). Velocities come from the change of the world position between frames.
+    // Doppler. Velocities come from the change of the world position between frames.
     float dopplerLevel = 0.0f;  // 0 = off; 1 = the real shift; more exaggerates
-    // Occlusion by physics rays (M98.8b: no effect yet).
+    // Occlusion by physics rays.
     bool occlusion = false;  // a ray from the listener to the source that hits a collider of occlusionMask muffles it
     std::int32_t occlusionMask = -1;   // physics layers that block the sound (bitmask, -1 = all)
     float occlusionGain = 0.4f;        // volume multiplier of a blocked path

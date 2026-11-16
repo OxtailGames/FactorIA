@@ -10,8 +10,9 @@
 namespace fa {
 
 // True when a collider of `ray.mask` stands between `ray.from` and `ray.to`. Both the 2D colliders (a segment in x and y) and the 3D
-// ones are checked, so it works in a 2D and a 3D game. Triggers, the colliders of `ray.source` (and its children) and of
-// `ray.listener` (and its children) never block, and neither does a collider that contains the listener's position.
+// ones are checked, so it works in a 2D and a 3D game. Triggers and the colliders of `ray.source` and of
+// `ray.listener` (and their children) never block, and neither does a collider the listener's position is inside. A source inside
+// a collider that is not its own (a floor, a room volume) is blocked by it.
 bool audio_occlusion_blocked(Physics& physics, World& world, const AudioOcclusionRay& ray);
 
 }  // namespace fa

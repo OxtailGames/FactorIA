@@ -24,7 +24,8 @@ struct Rig {
         world.add<Collider2D>(e).size = size;
         return e;
     }
-    bool blocked(Vec3 from, Vec3 to, Entity source = kNullEntity, Entity listener = kNullEntity, std::int32_t mask = -1) {
+    bool blocked(Vec3 from, Vec3 to, Entity source = kNullEntity, Entity listener = kNullEntity,
+                 std::int32_t mask = -1) {
         physics.sync(world);
         AudioOcclusionRay ray;
         ray.from = from;
@@ -42,10 +43,10 @@ TEST_CASE("audio occlusion probe: a 3D collider between the listener and the sou
     Rig r;
     r.wall3("wall", {5, 0, 0});
     CHECK(r.blocked({0, 0, 0}, {10, 0, 0}));
-    CHECK(r.blocked({10, 0, 0}, {0, 0, 0}));        // both ways
-    CHECK_FALSE(r.blocked({0, 0, 0}, {3, 0, 0}));   // the source stops short of the wall
+    CHECK(r.blocked({10, 0, 0}, {0, 0, 0}));          // both ways
+    CHECK_FALSE(r.blocked({0, 0, 0}, {3, 0, 0}));     // the source stops short of the wall
     CHECK_FALSE(r.blocked({0, 0, 30}, {10, 0, 30}));  // passes above the wall (it is 20 high and deep)
-    CHECK_FALSE(r.blocked({0, 0, 0}, {0, 0, 0}));   // no distance, nothing in between
+    CHECK_FALSE(r.blocked({0, 0, 0}, {0, 0, 0}));     // no distance, nothing in between
 }
 
 TEST_CASE("audio occlusion probe: a 2D collider blocks in a 2D game (x and y of the positions)") {
@@ -104,4 +105,14 @@ TEST_CASE("audio occlusion probe: a disabled collider and a removed one let the 
     CHECK(r.blocked({0, 0, 0}, {10, 0, 0}));
     r.world.destroy_immediate(w);
     CHECK_FALSE(r.blocked({0, 0, 0}, {10, 0, 0}));
+}
+
+TEST_CASE(
+    "audio occlusion probe: a foreign collider around the listener lets the sound out, around the source it blocks") {
+    Rig r;
+    r.wall3("room", {0, 0, 0}, {6, 6, 6});  // the listener stands inside it
+    CHECK_FALSE(r.blocked({0, 0, 0}, {2, 0, 0}));
+    Rig s;
+    s.wall3("room", {10, 0, 0}, {6, 6, 6});  // the source stands inside it, and it is not the source's entity
+    CHECK(s.blocked({0, 0, 0}, {10, 0, 0}));
 }
