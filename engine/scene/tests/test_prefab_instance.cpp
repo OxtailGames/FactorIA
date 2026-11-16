@@ -359,6 +359,13 @@ TEST_CASE("prefab instances: PrefabDiff::list names every difference one by one,
     CHECK(removed->nodeInFile);
     CHECK(removed->fileError.empty());
     CHECK(lost.list.size() > 1);  // the other differences are listed too
+    std::size_t lostChildren = 0;
+    for (const PrefabChange& c : lost.list)
+        if (c.kind == PrefabChange::Kind::Child) {
+            ++lostChildren;
+            CHECK(c.entity == extra);  // an added child is listed next to the removed component
+        }
+    CHECK(lostChildren == 1);
 
     // What a prefab cannot say and the list cannot hold either lists nothing: a removed child.
     w.destroy(title);

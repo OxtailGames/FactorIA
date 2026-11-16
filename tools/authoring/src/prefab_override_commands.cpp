@@ -6,6 +6,7 @@
 // for an instance, so what they list is exactly what the scene file would carry.
 #include <algorithm>
 #include <filesystem>
+#include <map>
 #include <set>
 
 #include "authoring_internal.h"
@@ -418,7 +419,21 @@ std::string prefab_key(const std::string& path) {
 #endif
     return key;
 }
-bool same_prefab(const std::string& a, const std::string& b) { return a == b || prefab_key(a) == prefab_key(b); }
+// The keys of the prefab strings seen in one call: a scene has a few prefabs and many instances.
+class PrefabKeys {
+public:
+    explicit PrefabKeys(const std::string& own) : own_(own), ownKey_(prefab_key(own)) {}
+    bool is_own(const std::string& path) {
+        if (path == own_) return true;
+        auto it = keys_.find(path);
+        if (it == keys_.end()) it = keys_.emplace(path, prefab_key(path)).first;
+        return it->second == ownKey_;
+    }
+
+private:
+    std::string own_, ownKey_;
+    std::map<std::string, std::string> keys_;
+};
 
 // Another instance of the prefab as it was before the file changed.
 struct OtherInstance {
@@ -544,10 +559,11 @@ Json prefab_apply(Engine::Impl& I, const Json& a) {
 
     // The other instances, as they are before the file changes: what each of them overrides stays its own.
     std::vector<OtherInstance> others;
+    PrefabKeys keys(inst.path);
     std::size_t nested = 0;
     for (Entity x : w.entities()) {
         const EntityInfo& inf = w.info(x);
-        if (x == inst.root || inf.prefab.empty() || !same_prefab(inf.prefab, inst.path)) continue;
+        if (x == inst.root || inf.prefab.empty() || !keys.is_own(inf.prefab)) continue;
         if (inf.fromPrefab) {
             ++nested;
             continue;

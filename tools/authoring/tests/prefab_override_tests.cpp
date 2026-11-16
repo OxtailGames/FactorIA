@@ -582,3 +582,59 @@ TEST_CASE(
     CHECK(s.world().get<Sprite>(s.find("b"))->layer == 5);  // its own override is kept
 }
 #endif
+
+TEST_CASE("prefab commands: a removed component and an added child together are both listed, reverted and applied") {
+    const auto prepare = [](Session& s) {
+        REQUIRE(s.call("scene.remove_component", Json{{"id", "a"}, {"component", "Sprite"}}).ok);
+        REQUIRE(s.call("scene.spawn", Json{{"id", "extra"}, {"parent", "a"}, {"name", "Extra"}}).ok);
+    };
+    {
+        Session s;
+        prepare(s);
+        const CommandResult listed = s.call("prefab.overrides", Json{{"id", "a"}});
+        REQUIRE_MESSAGE(listed.ok, error_text(listed));
+        CHECK(listed.result["expressible"] == true);
+        CHECK(listed.result["count"] == 2);
+        REQUIRE(listed.result["overrides"].size() == 2);
+        int removed = 0, children = 0;
+        for (const Json& j : listed.result["overrides"]) {
+            if (j["kind"] == "removedComponent") {
+                ++removed;
+                CHECK(j["entity"] == "a");
+                CHECK(j["component"] == "Sprite");
+            } else if (j["kind"] == "child") {
+                ++children;
+                CHECK(j["entity"] == "extra");
+            }
+        }
+        CHECK(removed == 1);
+        CHECK(children == 1);
+
+        const CommandResult r = s.call("prefab.revert", Json{{"id", "a"}});
+        REQUIRE_MESSAGE(r.ok, error_text(r));
+        CHECK(r.result["reverted"].size() == 2);
+        CHECK(s.find("extra").is_null());
+        REQUIRE(s.world().get<Sprite>(s.find("a")) != nullptr);
+        CHECK(s.world().get<Sprite>(s.find("a"))->layer == 1);
+        CHECK(s.call("prefab.overrides", Json{{"id", "a"}}).result["count"] == 0);
+    }
+    {
+        Session s;
+        REQUIRE(s.call("scene.spawn", Json{{"prefab", "prefabs/panel.prefab.json"}, {"id", "c"}}).ok);
+        prepare(s);
+        World& w = s.world();
+        const CommandResult r = s.call("prefab.apply", Json{{"id", "a"}});
+        REQUIRE_MESSAGE(r.ok, error_text(r));
+        CHECK(r.result["applied"].size() == 2);
+        const Json file = s.project.json("prefabs/panel.prefab.json");
+        CHECK_FALSE(file["entity"]["components"].contains("Sprite"));
+        REQUIRE(file["entity"]["children"].size() == 3);
+        CHECK(file["entity"]["children"][2]["name"] == "Extra");
+        CHECK(r.result["updated"].size() == 2);  // b and c
+        REQUIRE(w.children(s.find("c")).size() == 3);
+        CHECK(w.info(w.children(s.find("c"))[2]).name == "Extra");
+        CHECK(w.get<Sprite>(s.find("c")) == nullptr);
+        CHECK(w.get<Sprite>(s.find("b")) == nullptr);
+        CHECK(s.call("prefab.overrides", Json{{"id", "a"}}).result["count"] == 0);
+    }
+}

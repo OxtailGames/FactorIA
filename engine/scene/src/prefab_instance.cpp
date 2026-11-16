@@ -133,11 +133,17 @@ public:
                 overrides[key] = std::move(node);
             }
         }
+        for (Entity x : added_) {  // the children added under the root, after every other entry of the list
+            PrefabChange c;
+            c.kind = PrefabChange::Kind::Child;
+            c.entity = x;
+            list_.push_back(std::move(c));
+        }
         if (removed_ > 0) {  // what a scene file cannot say, but the list holds
-            PrefabDiff gone = inexpressible();
-            gone.listable = true;
-            gone.list = std::move(list_);
-            return gone;
+            out.reason = removedReason_;
+            out.listable = true;
+            out.list = std::move(list_);
+            return out;
         }
         Json entry = Json::object();
         entry["id"] = cw_.info(root).id;
@@ -147,13 +153,7 @@ public:
         if (!overrides.empty()) entry["overrides"] = std::move(overrides);
         if (!added_.empty()) {
             Json kids = Json::array();
-            for (Entity x : added_) {
-                kids.push_back(entity_to_json(cw_, x, childOpts_));
-                PrefabChange c;
-                c.kind = PrefabChange::Kind::Child;
-                c.entity = x;
-                list_.push_back(std::move(c));
-            }
+            for (Entity x : added_) kids.push_back(entity_to_json(cw_, x, childOpts_));
             entry["children"] = std::move(kids);
             changes_ += added_.size();
         }
@@ -282,7 +282,9 @@ private:
 
         for (const TypeInfo* t : bw_.components_of(p.b)) {
             if (t->name == "EntityInfo" || cw_.get(p.c, *t)) continue;
-            fail("the component " + t->name + " of the prefab was removed from '" + ci.id + "'");
+            // Not fail(): a removal does not make the list incomplete, so it must not be the reason of a later failure.
+            if (removedReason_.empty())
+                removedReason_ = "the component " + t->name + " of the prefab was removed from '" + ci.id + "'";
             removed_component(p, *t);
         }
 
@@ -473,8 +475,9 @@ private:
     std::vector<Entity> added_;
     std::vector<Entity> skippedSpawned_;
     std::size_t changes_ = 0;
-    std::size_t removed_ = 0;  // components of the prefab the instance lost
-    std::string reason_;
+    std::size_t removed_ = 0;    // components of the prefab the instance lost
+    std::string reason_;         // why the differences cannot be listed
+    std::string removedReason_;  // why a scene file cannot say them although the list holds them (a removed component)
 };
 
 }  // namespace
