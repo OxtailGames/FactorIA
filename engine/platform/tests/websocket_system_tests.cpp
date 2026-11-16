@@ -1,6 +1,7 @@
-// The system WebSocket client of macOS and iOS (NSURLSessionWebSocketTask, websocket_apple.mm) against the loopback server of
-// ws_test_server.h: the same cases as the tcp client (websocket_tests.cpp) wherever the contract of fa/platform/websocket.h
-// is the same, and the places where NSURLSession differs are said in the comments. Nothing here reaches another machine.
+// The system WebSocket client of macOS and iOS (a Network.framework connection with the engine's codec, websocket_apple.mm)
+// against the loopback server of ws_test_server.h: the same cases as the tcp client (websocket_tests.cpp), plus what only a
+// system connection shows (the server's close frames it receives, a server that never answers the close). Nothing here
+// reaches another machine.
 #if defined(__APPLE__)
 
 #include <doctest.h>
@@ -43,8 +44,8 @@ std::vector<WebSocketEvent> sys_collect_until_close(WebSocket& ws, int maxMs = 3
     return events;
 }
 
-// The close codes the server has read, once it has read one (or after 30 s): NSURLSession reports the Close event when it has
-// sent the frame, which may be before the server reads it.
+// The close codes the server has read, once it has read one (or after 30 s): the server's reader thread may record the frame
+// a moment after its answer reached the client.
 std::vector<int> sys_wait_close_codes(const fa::test::WsTestServer& server) {
     const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(30);
     while (server.client_close_codes().empty() && std::chrono::steady_clock::now() < until)
@@ -150,7 +151,7 @@ TEST_CASE("websocket system: echo, binary, greeting, subprotocol and headers aga
     REQUIRE(server.ok());
     auto client = make_system_websocket_client();
     REQUIRE(client->available());
-    CHECK(client->name() == "nsurlsession");
+    CHECK(client->name() == "network");
 
     {
         auto ws = sys_connect(*client, server.url("/echo"));
@@ -183,7 +184,8 @@ TEST_CASE("websocket system: echo, binary, greeting, subprotocol and headers aga
         CHECK(events.back().code == 1000);
         CHECK(events.back().wasClean);
         CHECK(ws->state() == WebSocketState::Closed);
-        // The system's completion handlers may run just after the close was reported: wait for them, bounded.
+        // The server read the close frame with the code and reason the client sent.
+        CHECK_MESSAGE(sys_wait_close_codes(server) == std::vector<int>{1000}, server.diagnostics());
         const auto settle = std::chrono::steady_clock::now() + std::chrono::seconds(30);
         while (ws->buffered_amount() != 0 && std::chrono::steady_clock::now() < settle)
             std::this_thread::sleep_for(std::chrono::milliseconds(5));
@@ -289,7 +291,7 @@ TEST_CASE("websocket system: fragments, a big message, pings and bad frames") {
         check_failed(*small, events);
         CHECK(events.size() <= 3);  // [Open,] Error, Close: the message itself is never delivered
         for (const WebSocketEvent& e : events) CHECK(e.type != WebSocketEvent::Type::Text);
-        // The server is sent 1009 (the system's own close frame for a message above maximumMessageSize).
+        // The server is sent 1009 (the codec's close frame for a message above the limit).
         bool sawTooBig = false;
         const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(30);
         while (!sawTooBig && std::chrono::steady_clock::now() < until) {
@@ -299,7 +301,7 @@ TEST_CASE("websocket system: fragments, a big message, pings and bad frames") {
         CHECK_MESSAGE(sawTooBig, server.diagnostics());
     }
     {
-        // The system answers the server's ping by itself.
+        // The codec answers the server's ping by itself.
         fa::test::WsTestServer pinger;
         REQUIRE(pinger.ok());
         auto ws = sys_connect(*client, pinger.url("/ping"));
@@ -410,10 +412,9 @@ TEST_CASE("websocket system: close while connecting is Closing, then Error and C
     CHECK(ws->close(1000, "").ok());  // closing twice is not an error
 }
 
-TEST_CASE("websocket system: a close the server does not answer is reported at once (NSURLSession does not wait)") {
-    // The one difference from the tcp client that a game can see (fa/platform/websocket.h, docs/NETWORKING.md): after close()
-    // NSURLSession reports the close as soon as it has sent the frame, so the Close event (the code and reason that were
-    // asked for, wasClean true) does not wait for the server's answer and there is no Error and Close 1006 after 5 s.
+TEST_CASE("websocket system: a close the server never answers ends after the close wait, with Error and Close 1006") {
+    // The contract of fa/platform/websocket.h: the Close event waits for the server's close frame, and after
+    // kWebSocketCloseWaitSec without one the connection is dropped (Error that says so, then Close 1006, wasClean false).
     StuckServer server;
     REQUIRE(server.port() != 0);
     auto client = make_system_websocket_client();
@@ -423,16 +424,15 @@ TEST_CASE("websocket system: a close the server does not answer is reported at o
     CHECK(ws->state() == WebSocketState::Closing);
     const auto start = std::chrono::steady_clock::now();
     auto events = sys_collect_until_close(*ws, 60000);
-    REQUIRE(events.size() == 1);
-    CHECK(events[0].type == WebSocketEvent::Type::Close);
-    CHECK(events[0].code == 3000);
-    CHECK(events[0].reason == "bye");
-    CHECK(events[0].wasClean);
-    CHECK(ws->state() == WebSocketState::Closed);
-    CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(4));
+    const auto waited = std::chrono::steady_clock::now() - start;
+    check_failed(*ws, events);
+    REQUIRE(events.size() == 2);
+    CHECK(events[0].error.find("did not answer the close") != std::string::npos);
+    // Not before the close wait; the upper bound is the safety net of sys_collect_until_close, far above it.
+    CHECK(waited >= std::chrono::milliseconds(static_cast<int>(kWebSocketCloseWaitSec * 1000) - 100));
 }
 
-TEST_CASE("websocket system: close without a code is sent as 1000 (NSURLSession cannot send a frame with no code)") {
+TEST_CASE("websocket system: close without a code sends a close frame with no code") {
     fa::test::WsTestServer server;
     REQUIRE(server.ok());
     auto client = make_system_websocket_client();
@@ -443,11 +443,11 @@ TEST_CASE("websocket system: close without a code is sent as 1000 (NSURLSession 
     REQUIRE_FALSE(events.empty());
     CHECK(events.back().type == WebSocketEvent::Type::Close);
     CHECK(ws->state() == WebSocketState::Closed);
-    CHECK(events.back().code == 1000);
+    CHECK(events.back().code == 1005);  // the server's answer had no code either
     CHECK(events.back().wasClean);
     const auto codes = sys_wait_close_codes(server);
     REQUIRE_MESSAGE(codes.size() == 1, server.diagnostics());
-    CHECK(codes[0] == 1000);
+    CHECK(codes[0] == 1005);  // what the server records for a close frame without a code
 }
 
 TEST_CASE("websocket system: close() refuses a code and a reason it cannot send, and changes nothing") {
@@ -516,7 +516,6 @@ TEST_CASE("websocket system: a client closes with an application code") {
     REQUIRE_FALSE(events.empty());
     CHECK(events.back().code == 4242);
     CHECK(events.back().reason == "custom");
-    // The Close event comes when the frame is sent, not when the server has read it.
     const auto codes = sys_wait_close_codes(server);
     REQUIRE_MESSAGE(codes.size() == 1, server.diagnostics());
     CHECK(codes[0] == 4242);

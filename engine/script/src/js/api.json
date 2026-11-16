@@ -4433,7 +4433,7 @@
       },
       {
        "sig": "readonly backend: string",
-       "doc": "The client in use: \"memory\" (tests, headless), \"winhttp\", \"nsurlsession\", \"curl\", \"socket\", \"browser\" or \"unavailable\"."
+       "doc": "The client in use: \"memory\" (tests, headless), \"winhttp\", \"network\" (macOS, iOS), \"curl\", \"socket\", \"browser\" or \"unavailable\"."
       },
       {
        "sig": "readonly unsupportedReason: string",

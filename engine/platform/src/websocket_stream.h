@@ -1,5 +1,6 @@
 // What the WebSocket clients that own their byte stream share (fa/platform/websocket.h): the plain tcp client
-// (websocket_tcp_posix.cpp) and Android's TLS client over a JNI socket (websocket_android.cpp). Private to fa_platform.
+// (websocket_tcp_posix.cpp), Android's TLS client over a JNI socket (websocket_android.cpp) and the macOS/iOS client over
+// a Network.framework connection (websocket_apple.mm). Private to fa_platform.
 //
 // StreamCore holds everything one connection's threads and the game thread share: the event queue, the fa::ws::Session
 // (handshake, framing, masking, UTF-8, limits), the bytes waiting to be written, the state and the flags that stop the
@@ -38,9 +39,10 @@ inline constexpr std::size_t kMaxHandshakeBytes = 64u * 1024;
 struct Ending {
     int closeCode = ws::close_code::kAbnormal;
     std::string closeReason;
-    bool peerClosed = false;  // the peer's close frame arrived
-    bool failed = false;      // the peer broke the protocol (the codec reported a Failure)
-    bool lost = false;        // the stream broke or timed out without a close frame
+    bool peerClosed = false;     // the peer's close frame arrived
+    bool failed = false;         // the peer broke the protocol (the codec reported a Failure)
+    bool lost = false;           // the stream broke or timed out without a close frame
+    bool closeTimedOut = false;  // with lost: the peer did not answer our close frame within kCloseWait
 };
 
 class StreamCore : public std::enable_shared_from_this<StreamCore> {

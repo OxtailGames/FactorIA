@@ -246,8 +246,13 @@ void StreamCore::finish(const Ending& ending) {
     state_ = WebSocketState::Closed;  // before the Close event: when the game reads it, state() is Closed
     if (stop_ || dead_) return;       // destroyed, or the queue ended: report nothing more
     if (ending.lost && !ending.peerClosed && !ending.failed) {
-        emit(WebSocketEvent::failure("the connection to " + url_.host + " was lost",
-                                     "Check the connection; try again."));
+        if (ending.closeTimedOut)
+            emit(WebSocketEvent::failure("the server did not answer the close within " +
+                                             std::to_string(static_cast<int>(kWebSocketCloseWaitSec)) + " seconds",
+                                         "The connection was dropped; the server may be stuck or slow to read."));
+        else
+            emit(WebSocketEvent::failure("the connection to " + url_.host + " was lost",
+                                         "Check the connection; try again."));
         emit(WebSocketEvent::close(ws::close_code::kAbnormal, "", false));
     } else if (ending.failed) {
         // A failed connection ends with 1006 whatever the codec sent the server (1002, 1007, 1009): the browser's rule.

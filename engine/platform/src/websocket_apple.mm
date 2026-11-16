@@ -1,571 +1,471 @@
-// macOS and iOS: NSURLSessionWebSocketTask (fa/platform/websocket.h, "nsurlsession"). The system brings the certificates, the
-// proxy settings, TLS and the answers to the server's pings (it sends no pings of its own: NSURLSessionWebSocketTask has no
-// keep-alive timer). App Transport Security applies as for
-// http.fetch: plain ws:// is only allowed to loopback.
+// macOS and iOS: Network.framework opens the connection (nw_connection: DNS, TCP and, for wss://, TLS with the system's
+// certificates) and fa/platform/websocket_codec.h speaks the protocol over it, like the tcp client (websocket_tcp_posix.cpp)
+// and Android's (websocket_android.cpp): the handshake, the framing, the answers to the server's pings, the size limit
+// checked as the bytes arrive, and the closing handshake are the engine's own (websocket_stream.h), so a close sends a real
+// close frame with its code and reason and waits up to kWebSocketCloseWaitSec for the server's. Network.framework is not
+// subject to App Transport Security (that is NSURLSession's), so a plain ws:// address works wherever the script layer
+// allows one (localhost).
 //
-// It follows the pattern of fa/platform/websocket.h for every native client. Everything the network does reaches a Core (a
-// shared_ptr: the event queue, the state, the flags) through the delegate of one ephemeral session and the completion blocks
-// of the task; none of them touches the AppleWebSocket that the game holds. Destroying that handle abandons the queue and
-// returns; the session lets go of everything by itself. An Open connection first asks the task to close (1001, which takes
-// no waiting; like every close frame, asked from the session's queue: AppleWebSocket::send_close); a Closing one has sent
-// its own close frame already, so the session only finishes; a Connecting or Closed one is cancelled at once
-// (invalidateAndCancel).
+// NSURLSessionWebSocketTask did this before; on the macOS 26 CI runners it ended the TCP connection with a FIN and no close
+// frame, whatever queue the close was asked from, so a server never learned the code. Nothing here asks the system for a
+// WebSocket: it only moves bytes.
 //
-// What NSURLSession does differently from the tcp client (docs/NETWORKING.md):
-//   - a message is held whole before it is handed over: maximumMessageSize is set to maxMessageBytes (the system then fails
-//     the task) and the size is checked again on arrival; either way the game gets Error then Close 1006.
-//   - after close() the system reports the close as soon as it has sent the frame (didCloseWithCode, with the code and reason
-//     that were asked for), so the Close event does not wait for the server's answer: wasClean is true, and the 5 s wait of
-//     kWebSocketCloseWaitSec (Error, Close 1006) is only a safety net here. A close without a code is sent as 1000.
+// Threads. One thread per connection (StreamCore::start, detached) connects, does the handshake, and then hands the
+// session's output to the network and feeds it what arrives, like the tcp client's poll loop. Network.framework calls back
+// on a serial dispatch queue of the connection; those callbacks touch only the members under ioMutex_ (what arrived, the
+// state, the sends that completed) and wake the thread through cv_, and they hold a weak_ptr to the core, never a strong one,
+// so the connection's handlers keep nothing alive and a callback that runs after the core is gone does nothing. The game's
+// calls take StreamCore's mutex_ and wake() takes ioMutex_ (always in that order; a callback never takes mutex_), so neither
+// side waits for the other while holding the lock it needs. Destroying the game's handle abandons the queue, sets stop_ and
+// wakes the thread, and returns at once: the thread then sends 1001, waits up to kWebSocketCloseWaitSec for the server's
+// answer (the events go nowhere), cancels the connection and waits (bounded) for its cancelled state before it lets go of
+// the core.
 #import <Foundation/Foundation.h>
+#import <Network/Network.h>
 
 #include <algorithm>
-#include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <cstring>
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
+#include <utility>
 
 #include "fa/core/engine_version.h"
 #include "fa/core/strings.h"
 #include "fa/platform/websocket.h"
 #include "fa/platform/websocket_codec.h"
+#include "websocket_stream.h"
 
 namespace fa {
 
 namespace {
 
-// The most the game may have queued and not yet sent (the same as the tcp client): send_* fails above it.
-constexpr std::size_t kMaxBuffered = 16u * 1024 * 1024;
+using ws_stream::Clock;
+using ws_stream::kCloseWait;
+
+// The most bytes handed to one nw_connection_send: one send is in flight at a time, and what it holds still counts in
+// bufferedAmount until the system has taken it.
+constexpr std::size_t kSendChunk = 1024 * 1024;
+// The most one read asks for.
+constexpr std::uint32_t kReadChunk = 64 * 1024;
+// How long the thread waits for the cancelled state once it cancelled the connection (it is detached: nobody waits for it).
+constexpr auto kCancelWait = std::chrono::seconds(2);
+// The longest the thread sleeps between two looks at its deadlines.
+constexpr auto kTurn = std::chrono::milliseconds(500);
 
 std::string to_std(NSString* s) { return s ? std::string([s UTF8String]) : std::string(); }
 
-std::string bytes_of(NSData* data) {
-    if (!data || data.length == 0) return {};
-    return std::string(static_cast<const char*>(data.bytes), data.length);
+// The system's own words for an error ("" for none).
+std::string error_text(nw_error_t error) {
+    if (!error) return {};
+    CFErrorRef cf = nw_error_copy_cf_error(error);
+    if (!cf) return {};
+    NSError* ns = CFBridgingRelease(cf);
+    return to_std(ns.localizedDescription);
 }
 
-// Everything the delegate, the blocks and the game's handle share. Callbacks run on the session's queue, the game's calls on
-// the game thread: the flags are atomic and the transitions out of Connecting and Open go through mutex_.
-class Core {
+// The TLS errors (OSStatus, Security/SecureTransport.h) that mean the server's certificate is not trusted.
+bool is_certificate_error(int code) {
+    switch (code) {
+        case -9807:  // errSSLXCertChainInvalid
+        case -9808:  // errSSLBadCert
+        case -9812:  // errSSLUnknownRootCert
+        case -9813:  // errSSLNoRootCert
+        case -9814:  // errSSLCertExpired
+        case -9815:  // errSSLCertNotYetValid
+        case -9825:  // errSSLPeerBadCert
+        case -9827:  // errSSLPeerCertRevoked
+        case -9828:  // errSSLPeerCertExpired
+        case -9829:  // errSSLPeerCertUnknown
+        case -9843:  // errSSLHostNameMismatch
+        case -67843:  // errSecNotTrusted
+            return true;
+        default: return false;
+    }
+}
+
+class AppleCore final : public ws_stream::StreamCore {
 public:
-    Core(WebSocketRequest request, std::string host)
-        : request_(std::move(request)),
-          host_(std::move(host)),
-          queue_(std::make_shared<WebSocketEventQueue>(WebSocketEventQueue::limit_for(request_.maxMessageBytes))) {}
+    AppleCore(WebSocketRequest request, ws::Url url) : StreamCore(std::move(request), std::move(url)) {}
 
-    const std::shared_ptr<WebSocketEventQueue>& queue() const { return queue_; }
-    // A queue that ended (a Close event, or an overflow, which pushes its own Error and Close 1008) means Closed, even in the
-    // moment before the callback that saw the end has set the state: the game never reads Close and finds the state open.
-    WebSocketState state() const { return queue_->ended() ? WebSocketState::Closed : state_.load(); }
-    std::size_t buffered() const { return buffered_.load(); }
-    void add_buffered(std::size_t n) { buffered_ += n; }
-    void sub_buffered(std::size_t n) { buffered_ -= n; }
+private:
+    // --- what Network.framework's callbacks report (its queue), under ioMutex_ ---------------------------------------
 
-    // The game let go of the connection: what is reported from now on is dropped.
-    void abandon() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        abandoned_ = true;
-        queue_->abandon();
-    }
-
-    // --- the game thread ---------------------------------------------------------------------------------------------
-
-    Result<void> can_send(std::size_t size) const {
-        const WebSocketState s = state();
-        if (s == WebSocketState::Connecting)
-            return make_error("the connection is not open yet", "Wait for the \"open\" event before sending.");
-        if (s != WebSocketState::Open)
-            return make_error("the connection is closing or closed", "Connect again to send.");
-        if (size > request_.maxMessageBytes)
-            return make_error("the message is " + std::to_string(size) + " bytes, above the limit of " +
-                                  std::to_string(request_.maxMessageBytes) + " bytes",
-                              "Send smaller messages, or raise maxMessageBytes in the options of websocket.connect.");
-        if (buffered_.load() > kMaxBuffered)
-            return make_error("more than " + std::to_string(kMaxBuffered / (1024 * 1024)) + " MB wait to be sent",
-                              "Send less, or wait until bufferedAmount drops.");
-        return {};
-    }
-
-    // What close() does to the state; returns false when there is nothing to send (already closing or closed). `connecting`
-    // says the attempt is abandoned: the task is cancelled and its completion reports Error and Close 1006.
-    bool begin_close(bool& connecting) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        connecting = false;
-        const WebSocketState s = state_.load();
-        if (s == WebSocketState::Closing || s == WebSocketState::Closed) return false;
-        if (s == WebSocketState::Connecting) {
-            connecting = true;
-            abortedConnecting_ = true;
+    void on_state(nw_connection_state_t state, nw_error_t error) {
+        {
+            std::lock_guard<std::mutex> lock(ioMutex_);
+            nwState_ = state;
+            if (error) nwError_ = error;
+            stateChanged_ = true;
         }
-        state_ = WebSocketState::Closing;
-        return true;
+        cv_.notify_all();
     }
 
-    // --- the session's queue -----------------------------------------------------------------------------------------
+    void on_received(dispatch_data_t content, nw_content_context_t context, bool complete, nw_error_t error) {
+        {
+            std::lock_guard<std::mutex> lock(ioMutex_);
+            receiving_ = false;
+            if (content) {
+                dispatch_data_apply(content, ^bool(dispatch_data_t, size_t, const void* buffer, size_t size) {
+                    inbox_.append(static_cast<const char*>(buffer), size);
+                    return true;
+                });
+            }
+            // A stream has one context, the final one: complete means the server closed its side (a FIN).
+            if (error || (complete && (!context || nw_content_context_get_is_final(context)))) readEnded_ = true;
+            if (error && !nwError_) nwError_ = error;
+        }
+        cv_.notify_all();
+    }
 
-    // The handshake is done. false: the task must be cancelled (the game gave up, or the queue ended).
-    bool on_open(std::string subprotocol) {
+    void on_sent(nw_error_t error) {
+        {
+            std::lock_guard<std::mutex> lock(ioMutex_);
+            ++sendsDone_;
+            if (error) sendFailed_ = true;
+        }
+        cv_.notify_all();
+    }
+
+    // --- the game thread (StreamCore) --------------------------------------------------------------------------------
+
+    void wake() override {
+        {
+            std::lock_guard<std::mutex> lock(ioMutex_);
+            woken_ = true;
+        }
+        cv_.notify_all();
+    }
+
+    // --- the connection's thread -------------------------------------------------------------------------------------
+
+    std::weak_ptr<AppleCore> weak_self() { return std::static_pointer_cast<AppleCore>(shared_from_this()); }
+
+    // Asks for the next bytes unless a read is outstanding or the stream ended.
+    void arm_receive(nw_connection_t connection) {
+        {
+            std::lock_guard<std::mutex> lock(ioMutex_);
+            if (receiving_ || readEnded_) return;
+            receiving_ = true;
+        }
+        std::weak_ptr<AppleCore> weak = weak_self();
+        nw_connection_receive(connection, 1, kReadChunk,
+                              ^(dispatch_data_t content, nw_content_context_t context, bool complete, nw_error_t error) {
+                                  if (auto self = weak.lock()) self->on_received(content, context, complete, error);
+                              });
+    }
+
+    // Moves the session's output to outgoing_ and, when no send is in flight, hands the next chunk to the network.
+    void flush(nw_connection_t connection) {
+        dispatch_data_t chunk = nil;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            if (finished_ || abandoned_ || abortedConnecting_) return false;
-            state_ = WebSocketState::Open;
-        }
-        return queue_->push(WebSocketEvent::open(std::move(subprotocol)));
-    }
-
-    // A message arrived whole. false: the task must be cancelled (too big, or the queue ended); the failure is reported here.
-    bool on_message(bool binary, std::string data) {
-        if (data.size() > request_.maxMessageBytes) {
-            fail("a message of " + std::to_string(data.size()) + " bytes is above the limit of " +
-                     std::to_string(request_.maxMessageBytes) + " bytes",
-                 "Raise maxMessageBytes in the options of websocket.connect, or make the server send smaller "
-                 "messages.");
-            return false;
-        }
-        const bool ok =
-            queue_->push(binary ? WebSocketEvent::binary(std::move(data)) : WebSocketEvent::text(std::move(data)));
-        if (!ok) end_unreported();
-        return ok;
-    }
-
-    // The receive loop got an error: the reason is kept for the completion of the task, which ends the connection.
-    void note_error(NSError* error) {
-        std::lock_guard<std::mutex> lock(mutex_);
-        if (!lastError_ && error) lastError_ = error;
-    }
-
-    // The server (or our own close) ended the connection with a close frame.
-    void on_closed(int code, std::string reason) {
-        // 1006 and 1015 never travel in a close frame: the system reports them for a connection that broke (or a TLS
-        // failure), and so it does a message above maximumMessageSize (1009, with the receive error EMSGSIZE). That is a
-        // failure (Error, then Close 1006), not a clean close. A 1009 that a server really sent has no such error behind it.
-        bool failure = code == ws::close_code::kAbnormal || code == ws::close_code::kTlsFailure;
-        if (!failure && code == 1009) {
-            std::lock_guard<std::mutex> lock(mutex_);
-            failure = lastError_ && [lastError_.domain isEqualToString:NSPOSIXErrorDomain] &&
-                      lastError_.code == EMSGSIZE;
-        }
-        if (failure) {
-            on_complete(nil, nil);
-            return;
-        }
-        if (code == 0) code = ws::close_code::kNoStatus;
-        end(WebSocketEvent::close(code, std::move(reason), true), nullptr);
-    }
-
-    // The task completed: with an error (the connection failed or broke) or without one.
-    void on_complete(NSError* error, NSURLResponse* response) {
-        std::string message, hint;
-        int status = 0;
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (finished_) return;
-            if (abortedConnecting_) {
-                message = "the connection was closed before it was open";
-                hint =
-                    "close() was called before the connection opened; wait for the 'open' event, or ignore this error.";
-            } else {
-                if (!error) error = lastError_;
-                describe(error, response, state_.load() == WebSocketState::Connecting, message, hint, status);
+            take_session_output();
+            if (inFlight_ == 0 && sent_ < outgoing_.size()) {
+                inFlight_ = std::min(outgoing_.size() - sent_, kSendChunk);
+                chunk = dispatch_data_create(outgoing_.data() + sent_, inFlight_, nullptr, DISPATCH_DATA_DESTRUCTOR_DEFAULT);
             }
         }
-        fail(std::move(message), std::move(hint), status);
+        if (!chunk) return;
+        std::weak_ptr<AppleCore> weak = weak_self();
+        nw_connection_send(connection, chunk, NW_CONNECTION_DEFAULT_MESSAGE_CONTEXT, true, ^(nw_error_t error) {
+            if (auto self = weak.lock()) self->on_sent(error);
+        });
     }
 
-    // kWebSocketCloseWaitSec passed after close() and the server has not answered: true when the connection was ended.
-    bool on_close_timeout() {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (finished_ || abandoned_) return false;
+    // The send in flight completed: its bytes leave the buffer.
+    void sent_one() {
+        std::lock_guard<std::mutex> lock(mutex_);
+        sent_ += inFlight_;
+        inFlight_ = 0;
+        if (sent_ >= outgoing_.size()) {
+            outgoing_.clear();
+            sent_ = 0;
+        } else if (sent_ >= kSendChunk) {  // a game that keeps sending never lets the buffer empty: trim it
+            outgoing_.erase(0, sent_);
+            sent_ = 0;
         }
-        fail("the server did not answer the close within " + std::to_string(static_cast<int>(kWebSocketCloseWaitSec)) +
-                 " seconds",
-             "The connection was dropped; the server may be stuck.");
+    }
+
+    // One turn: hands what is queued to the network, waits until something happens or `until`, and appends what arrived to
+    // `got`. false: the connection broke (a send or a read failed, the server closed the stream, the connection failed).
+    bool pump(nw_connection_t connection, Clock::time_point until, std::string& got) {
+        flush(connection);
+        int done = 0;
+        bool ended = false, failed = false;
+        {
+            std::unique_lock<std::mutex> lock(ioMutex_);
+            cv_.wait_until(lock, until, [this] {
+                return woken_ || stateChanged_ || !inbox_.empty() || readEnded_ || sendsDone_ > 0 || sendFailed_;
+            });
+            woken_ = false;
+            stateChanged_ = false;
+            got += inbox_;
+            inbox_.clear();
+            done = sendsDone_;
+            sendsDone_ = 0;
+            failed = sendFailed_;
+            ended = readEnded_ || nwState_ == nw_connection_state_failed || nwState_ == nw_connection_state_cancelled;
+        }
+        if (done > 0) sent_one();
+        if (failed || ended) return false;
+        arm_receive(connection);
         return true;
     }
 
-    // connectTimeoutSec passed: true when the connection was still being made and was ended.
-    bool on_connect_timeout() {
-        {
-            std::lock_guard<std::mutex> lock(mutex_);
-            if (finished_ || abandoned_ || state_.load() != WebSocketState::Connecting || abortedConnecting_)
+    // What went wrong while connecting, in words that teach.
+    void describe(nw_error_t error, std::string& message, std::string& hint) const {
+        const std::string where = url_.host_in_brackets() + ":" + std::to_string(url_.port);
+        const std::string text = error_text(error);
+        const int code = error ? nw_error_get_error_code(error) : 0;
+        switch (error ? nw_error_get_error_domain(error) : nw_error_domain_invalid) {
+            case nw_error_domain_dns:
+                message = "could not find the server " + url_.host + (text.empty() ? "" : " (" + text + ")");
+                hint = "Check the address and the connection.";
+                return;
+            case nw_error_domain_tls:
+                message = "the secure connection to " + url_.host + " failed" + (text.empty() ? "" : ": " + text);
+                hint = is_certificate_error(code)
+                           ? "The server's certificate is not trusted by this computer (an expired certificate, a wrong "
+                             "clock, a certificate for another name, or a proxy that rewrites traffic)."
+                           : "The TLS handshake did not complete: check that the port speaks TLS (wss://) and that the "
+                             "server supports a current TLS version.";
+                return;
+            case nw_error_domain_posix:
+                if (code == ETIMEDOUT) {
+                    message = "timed out connecting to " + where;
+                    hint = "Check that the server is running and that the address is right, or raise the timeout of "
+                           "websocket.connect.";
+                } else if (code == ENETDOWN || code == ENETUNREACH || code == EHOSTUNREACH) {
+                    message = "could not reach " + where + " (" + std::strerror(code) + ")";
+                    hint = "Check the connection.";
+                } else {
+                    message = "could not connect to " + where + " (" + std::strerror(code) + ")";
+                    hint = "Check that the server is running and that the address and port are right.";
+                }
+                return;
+            default:
+                message = "could not connect to " + where + (text.empty() ? "" : " (" + text + ")");
+                hint = "Check that the server is running and that the address and port are right.";
+        }
+    }
+
+    // Connecting: until the connection is ready (true), or it failed, timed out or was stopped (false, reported).
+    bool wait_ready(Clock::time_point deadline) {
+        for (;;) {
+            if (stopping()) return false;
+            nw_connection_state_t state;
+            nw_error_t error = nil;
+            {
+                std::unique_lock<std::mutex> lock(ioMutex_);
+                cv_.wait_until(lock, std::min(deadline, Clock::now() + kTurn), [this] { return woken_ || stateChanged_; });
+                woken_ = false;
+                stateChanged_ = false;
+                state = nwState_;
+                error = nwError_;
+            }
+            if (stopping()) return false;
+            if (state == nw_connection_state_ready) return true;
+            // Waiting: the system could not connect now and would try again when the network changes (a refused port, no
+            // route, a name that does not resolve). A game asked to connect now, so that is a failure.
+            if (state == nw_connection_state_failed || state == nw_connection_state_cancelled ||
+                (state == nw_connection_state_waiting && error)) {
+                std::string message, hint;
+                describe(error, message, hint);
+                fail_connect(message, hint);
                 return false;
+            }
+            if (Clock::now() >= deadline) {
+                fail_connect("timed out connecting to " + url_.host_in_brackets() + ":" + std::to_string(url_.port),
+                             "Check that the server is running and that the address is right, or raise the timeout of "
+                             "websocket.connect.");
+                return false;
+            }
         }
-        fail("timed out connecting to " + host_ + " after " +
-                 std::to_string(static_cast<int>(request_.connectTimeoutSec)) + " seconds",
-             "Check that the server is running and that the address is right, or raise the timeout of "
-             "websocket.connect.");
-        return true;
     }
 
-    // Reports a failure: Error, then Close 1006, once.
-    void fail(std::string message, std::string hint, int status = 0) {
-        WebSocketEvent error = WebSocketEvent::failure(std::move(message), std::move(hint), status);
-        end(WebSocketEvent::close(ws::close_code::kAbnormal, "", false), &error);
-    }
-
-private:
-    // The queue ended under the callback (overflow): the state follows, nothing more is reported.
-    void end_unreported() {
-        std::lock_guard<std::mutex> lock(mutex_);
-        finished_ = true;
-        state_ = WebSocketState::Closed;
-    }
-
-    // Ends the connection once: the state first, then the events.
-    void end(WebSocketEvent closeEvent, WebSocketEvent* errorEvent) {
+    // Sends the request and reads the head of the server's answer; false (after reporting) when it fails.
+    bool handshake(nw_connection_t connection, Clock::time_point deadline, std::string& leftover) {
+        std::string key, request;
+        if (!begin_handshake(key, request)) return false;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            if (finished_) return;
-            finished_ = true;
-            state_ = WebSocketState::Closed;  // before the events: when the game reads Close, state() is Closed
+            outgoing_ = std::move(request);  // nothing else is queued before the connection opens
+            sent_ = 0;
         }
-        if (errorEvent) queue_->push(std::move(*errorEvent));
-        queue_->push(std::move(closeEvent));
-    }
-
-    // What went wrong, in words. mutex_ held.
-    void describe(NSError* error, NSURLResponse* response, bool handshake, std::string& message, std::string& hint,
-                  int& status) const {
-        NSHTTPURLResponse* http =
-            [response isKindOfClass:[NSHTTPURLResponse class]] ? static_cast<NSHTTPURLResponse*>(response) : nil;
-        if (http && http.statusCode != 101 && http.statusCode != 0 && handshake) {
-            status = static_cast<int>(http.statusCode);
-            message = "the server refused the WebSocket upgrade with HTTP " + std::to_string(status);
-            switch (status) {
-                case 301:
-                case 302:
-                case 303:
-                case 307:
-                case 308:
-                    hint =
-                        "The server redirects: use the address it redirects to (a WebSocket connection does not follow "
-                        "redirects).";
-                    break;
-                case 400:
-                    hint = "The server did not understand the upgrade: check the path and the subprotocols the server "
-                           "supports.";
-                    break;
-                case 401:
-                case 403:
-                    hint =
-                        "The server wants a login or refuses this game: send a token in the headers option or in the "
-                        "address, and check what the server allows.";
-                    break;
-                case 404: hint = "There is no WebSocket endpoint at this path: check the path of the address."; break;
-                case 426: hint = "The server asks for another protocol version or for TLS: try wss://."; break;
-                default:
-                    hint = status >= 500 ? "The server failed: try again later."
-                                         : "Check the address and what the server expects.";
+        std::string data;
+        arm_receive(connection);
+        for (;;) {
+            if (stopping()) return false;
+            if (Clock::now() >= deadline) {
+                fail_connect("timed out waiting for the server's answer to the handshake",
+                             "Check that the address is a WebSocket server and not a web page.");
+                return false;
             }
-            return;
-        }
-        if (!error) {
-            message = handshake ? "the connection to " + host_ + " could not be opened"
-                                : "the connection to " + host_ + " was lost";
-            hint = "Check the connection; try again.";
-            return;
-        }
-        const NSInteger code = error.code;
-        NSString* domain = error.domain;
-        const bool isUrl = [domain isEqualToString:NSURLErrorDomain];
-        if (isUrl && code == NSURLErrorTimedOut) {
-            message = "timed out connecting to " + host_;
-            hint = "Check that the server is running and that the address is right, or raise the timeout of "
-                   "websocket.connect.";
-        } else if (isUrl && (code == NSURLErrorCannotFindHost || code == NSURLErrorDNSLookupFailed)) {
-            message = "could not find the server " + host_;
-            hint = "Check the address and the connection.";
-        } else if (isUrl && (code == NSURLErrorCannotConnectToHost || code == NSURLErrorNotConnectedToInternet)) {
-            message = "could not connect to " + host_;
-            hint = "Check that the server is running and that the address and port are right.";
-        } else if (isUrl && code == NSURLErrorNetworkConnectionLost) {
-            message = "the connection to " + host_ + " was lost";
-            hint = "Check the connection; try again.";
-        } else if (isUrl && code == NSURLErrorSecureConnectionFailed) {
-            message = "the secure connection to " + host_ + " failed: " + to_std(error.localizedDescription);
-            hint =
-                "The TLS handshake did not complete: check that the port speaks TLS (wss://) and that the server "
-                "supports a current TLS version.";
-        } else if (isUrl && code <= NSURLErrorServerCertificateHasBadDate &&
-                   code >= NSURLErrorClientCertificateRequired) {
-            message = "the secure connection to " + host_ + " failed: " + to_std(error.localizedDescription);
-            hint =
-                "The server's certificate is not trusted by this computer (an expired certificate, a wrong clock, or a "
-                "proxy that rewrites traffic).";
-        } else if (isUrl && code == NSURLErrorAppTransportSecurityRequiresSecureConnection) {
-            message = "the system refuses a plain ws:// connection to " + host_;
-            hint = "Use wss:// (plain ws:// is only allowed for localhost).";
-        } else if ([domain isEqualToString:NSPOSIXErrorDomain] && code == EMSGSIZE) {
-            message = "a message from " + host_ + " is above the limit of " + std::to_string(request_.maxMessageBytes) +
-                      " bytes";
-            hint =
-                "Raise maxMessageBytes in the options of websocket.connect, or make the server send smaller messages.";
-        } else if (isUrl && code == NSURLErrorBadServerResponse && handshake) {
-            message = "the server at " + host_ + " did not answer the WebSocket upgrade correctly";
-            hint = "Check the address and the path: a WebSocket server answers the upgrade with HTTP 101.";
-        } else {
-            message = std::string(handshake ? "could not open the connection to " : "the connection to ") + host_ +
-                      (handshake ? ": " : " failed: ") + to_std(error.localizedDescription);
-            hint = "Check the connection, and that the server is up.";
-        }
-    }
-
-    WebSocketRequest request_;
-    std::string host_;
-    std::shared_ptr<WebSocketEventQueue> queue_;
-    mutable std::mutex mutex_;  // guards the transitions out of Connecting and Open, finished_, abandoned_, lastError_
-    std::atomic<WebSocketState> state_{WebSocketState::Connecting};
-    std::atomic<std::size_t> buffered_{0};
-    bool finished_ = false;
-    bool abandoned_ = false;
-    bool abortedConnecting_ = false;
-    NSError* lastError_ = nil;
-};
-
-}  // namespace
-
-}  // namespace fa
-
-// The delegate of one session. It holds the Core and nothing of the game's handle.
-@interface FaWebSocketDelegate : NSObject <NSURLSessionWebSocketDelegate> {
-@public
-    std::shared_ptr<fa::Core> core;
-}
-@end
-
-@implementation FaWebSocketDelegate
-
-- (void)URLSession:(NSURLSession*)session
-          webSocketTask:(NSURLSessionWebSocketTask*)task
-    didOpenWithProtocol:(NSString*)protocol {
-    if (!core->on_open(protocol ? std::string([protocol UTF8String]) : std::string())) [task cancel];
-}
-
-- (void)URLSession:(NSURLSession*)session
-       webSocketTask:(NSURLSessionWebSocketTask*)task
-    didCloseWithCode:(NSURLSessionWebSocketCloseCode)closeCode
-              reason:(NSData*)reason {
-    core->on_closed(static_cast<int>(closeCode), fa::bytes_of(reason));
-}
-
-// A WebSocket connection does not follow redirects: the redirect answer ends the attempt (Error with its status and a hint).
-- (void)URLSession:(NSURLSession*)session
-                          task:(NSURLSessionTask*)task
-    willPerformHTTPRedirection:(NSHTTPURLResponse*)response
-                    newRequest:(NSURLRequest*)request
-             completionHandler:(void (^)(NSURLRequest* _Nullable))completionHandler {
-    completionHandler(nil);
-}
-
-- (void)URLSession:(NSURLSession*)session task:(NSURLSessionTask*)task didCompleteWithError:(NSError*)error {
-    core->on_complete(error, task.response);
-}
-
-@end
-
-namespace fa {
-
-namespace {
-
-// Asks for the next message; re-arms itself after each one. The block holds the task and the Core, never the game's handle.
-void arm_receive(NSURLSessionWebSocketTask* task, std::shared_ptr<Core> core) {
-    [task receiveMessageWithCompletionHandler:^(NSURLSessionWebSocketMessage* message, NSError* error) {
-        if (error || !message) {
-            core->note_error(error);  // the task's completion (or the close frame) ends the connection
-            return;
-        }
-        bool ok;
-        if (message.type == NSURLSessionWebSocketMessageTypeString) {
-            NSData* utf8 = [message.string dataUsingEncoding:NSUTF8StringEncoding];
-            ok = core->on_message(false, bytes_of(utf8));
-        } else {
-            ok = core->on_message(true, bytes_of(message.data));
-        }
-        if (!ok) {
-            [task cancelWithCloseCode:NSURLSessionWebSocketCloseCodeMessageTooBig reason:nil];
-            return;
-        }
-        arm_receive(task, core);
-    }];
-}
-
-class AppleWebSocket final : public WebSocket {
-public:
-    AppleWebSocket(std::shared_ptr<Core> core, NSURLSession* session, NSURLSessionWebSocketTask* task)
-        : core_(std::move(core)), session_(session), task_(task) {}
-
-    // Three steps (fa/platform/websocket.h): abandon the queue, ask the transport to stop, return.
-    ~AppleWebSocket() override {
-        const WebSocketState s = core_->state();
-        core_->abandon();
-        @autoreleasepool {
-            NSURLSession* session = session_;
-            if (s == WebSocketState::Open || s == WebSocketState::Closing) {
-                // A close frame (1001) that takes no waiting; the session ends when the task does, and in any case after
-                // the close wait. A connection that is Closing has sent its own close frame already: invalidateAndCancel would
-                // drop it, so it only lets the session finish (no second close). Both on the session's queue (send_close).
-                NSURLSessionWebSocketTask* task = task_;
-                const bool open = s == WebSocketState::Open;
-                [session.delegateQueue addOperationWithBlock:^{
-                    if (open) [task cancelWithCloseCode:NSURLSessionWebSocketCloseCodeGoingAway reason:nil];
-                    [session finishTasksAndInvalidate];
-                }];
-                const int64_t waitNs = static_cast<int64_t>(kWebSocketCloseWaitSec * NSEC_PER_SEC);
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, waitNs),
-                               dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-                                   [session invalidateAndCancel];
-                               });
-            } else {
-                [session invalidateAndCancel];
+            const bool ok = pump(connection, std::min(deadline, Clock::now() + kTurn), data);
+            if (stopping()) return false;
+            if (!data.empty()) {
+                const int checked = check_handshake(data, key, leftover);
+                if (checked < 0) return false;
+                if (checked > 0) return true;
+            }
+            if (!ok) {
+                fail_connect("the server closed the connection during the handshake",
+                             "Check the address and the port; the server may need wss://, or ws:// if it has no TLS.");
+                return false;
             }
         }
     }
 
-    WebSocketState state() const override { return core_->state(); }
-
-    Result<void> send_text(std::string_view text) override {
-        if (auto r = core_->can_send(text.size()); !r.ok()) return r;
-        if (!is_valid_utf8(text)) return make_error("the text is not valid UTF-8", "Send other data with send_binary.");
-        @autoreleasepool {
-            NSString* string =
-                [[NSString alloc] initWithBytes:text.data() length:text.size() encoding:NSUTF8StringEncoding];
-            if (!string) return make_error("the text is not valid UTF-8", "Send other data with send_binary.");
-            send(text.size(), [[NSURLSessionWebSocketMessage alloc] initWithString:string]);
-        }
-        return {};
-    }
-
-    Result<void> send_binary(const void* data, std::size_t size) override {
-        if (auto r = core_->can_send(size); !r.ok()) return r;
-        @autoreleasepool {
-            NSData* bytes = [NSData dataWithBytes:data length:size];
-            send(size, [[NSURLSessionWebSocketMessage alloc] initWithData:bytes]);
-        }
-        return {};
-    }
-
-    Result<void> close(int code, std::string_view reason) override {
-        if (auto r = ws::check_close_request(code, reason); !r.ok()) return r;
-        bool connecting = false;
-        if (!core_->begin_close(connecting)) return {};
-        @autoreleasepool {
-            if (connecting) {
-                // The task's completion reports Error and Close 1006; the state is Closing until then.
-                [task_ cancel];
-                return {};
+    // The open connection, until the closing handshake is over, the protocol fails, the stream ends or the connection is
+    // destroyed (the same rules as the tcp client's).
+    void serve(nw_connection_t connection, const std::string& leftover, ws_stream::Ending& ending) {
+        bool failedSeen = false;
+        Clock::time_point failedAt;
+        if (!leftover.empty()) feed(leftover.data(), leftover.size(), ending);
+        while (!stop_ && !dead_) {
+            bool done, needWrite, waitingForPeer;
+            Clock::time_point asked;
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                take_session_output();
+                done = session_.done();
+                needWrite = sent_ < outgoing_.size();
+                waitingForPeer = state_.load() == WebSocketState::Closing && !ending.peerClosed;
+                asked = closeAsked_;
             }
-            NSData* why = reason.empty() ? nil : [NSData dataWithBytes:reason.data() length:reason.size()];
-            // NSURLSession cannot send a close frame without a code (code 0 is a plain cancel that drops the connection
-            // with no frame at all): "no code" is sent as 1000.
-            const int sent = code == 0 ? ws::close_code::kNormal : code;
-            send_close(static_cast<NSURLSessionWebSocketCloseCode>(sent), why);
-            // Safety net: the system reports the close by itself; if it ever does not, the wait of the contract ends it.
-            std::shared_ptr<Core> core = core_;
-            NSURLSessionWebSocketTask* task = task_;
-            const int64_t waitNs = static_cast<int64_t>(kWebSocketCloseWaitSec * NSEC_PER_SEC);
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, waitNs),
-                           dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-                               if (core->on_close_timeout()) [task cancel];
-                           });
+            if (done && !needWrite) break;
+            if (ending.failed && !failedSeen) {
+                failedSeen = true;
+                failedAt = Clock::now();
+            }
+            const auto now = Clock::now();
+            // The server does not answer our close frame, or (after a failure) does not read the one we sent: give up.
+            if (waitingForPeer && !ending.failed && now - asked > kCloseWait) {
+                ending.lost = true;
+                ending.closeTimedOut = true;
+                break;
+            }
+            if (failedSeen && now - failedAt > kCloseWait) {
+                ending.lost = true;
+                break;
+            }
+            Clock::time_point until = now + kTurn;
+            if (waitingForPeer) until = std::min(until, asked + kCloseWait + std::chrono::milliseconds(1));
+            std::string got;
+            const bool ok = pump(connection, until, got);
+            if (!got.empty()) feed(got.data(), got.size(), ending);
+            if (!ok) {
+                ending.lost = true;
+                break;
+            }
         }
-        return {};
     }
 
-    std::size_t buffered_amount() const override { return core_->buffered(); }
-    std::size_t poll(std::vector<WebSocketEvent>& out) override { return core_->queue()->drain(out); }
-
-private:
-    // cancelWithCloseCode from the session's own (serial, background) queue, never from the caller's thread, which for a
-    // game is the main thread. Made on the main thread, the call ended the TCP connection with no close frame on the macOS
-    // 26.7 CI runners (the server never got the code), while the close frames the system sends from its own queue arrived;
-    // https://github.com/dart-lang/http/issues/1814 saw the same call send only a FIN when it moved to the main thread.
-    // The messages sent before were handed to the task already, so they still go first.
-    void send_close(NSURLSessionWebSocketCloseCode code, NSData* reason) {
-        NSURLSessionWebSocketTask* task = task_;
-        [session_.delegateQueue addOperationWithBlock:^{
-            [task cancelWithCloseCode:code reason:reason];
-        }];
+    // Destroyed (stop_) or the queue ended (dead_) while open: send the goodbye (1001 or 1008) and let the closing handshake
+    // finish for up to kCloseWait, so the frame is not cut off by the cancel. Nothing it reads is reported.
+    void say_goodbye(nw_connection_t connection) {
+        queue_goodbye();
+        const auto deadline = Clock::now() + kCloseWait;
+        ws_stream::Ending ignored;
+        while (Clock::now() < deadline) {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                take_session_output();
+                const bool written = sent_ >= outgoing_.size();
+                if (written && (session_.done() || !session_.close_sent())) break;
+            }
+            std::string got;
+            const bool ok = pump(connection, std::min(deadline, Clock::now() + kTurn), got);
+            if (!got.empty()) feed(got.data(), got.size(), ignored);
+            if (!ok) break;
+        }
     }
 
-    void send(std::size_t n, NSURLSessionWebSocketMessage* message) {
-        std::shared_ptr<Core> core = core_;
-        core->add_buffered(n);
-        [task_ sendMessage:message
-            completionHandler:^(NSError* error) {
-                core->sub_buffered(n);
-                if (error) core->note_error(error);
-            }];
+    // Cancels the connection and waits (bounded) for its last callback, the cancelled state.
+    void shut(nw_connection_t connection) {
+        nw_connection_cancel(connection);
+        std::unique_lock<std::mutex> lock(ioMutex_);
+        cv_.wait_for(lock, kCancelWait, [this] { return nwState_ == nw_connection_state_cancelled; });
     }
 
-    std::shared_ptr<Core> core_;
-    NSURLSession* session_;
-    NSURLSessionWebSocketTask* task_;
+    nw_parameters_t make_parameters() const {
+        nw_parameters_configure_protocol_block_t tls = NW_PARAMETERS_DISABLE_PROTOCOL;
+        if (url_.secure) {
+            tls = ^(nw_protocol_options_t options) {
+                sec_protocol_options_t sec = nw_tls_copy_sec_protocol_options(options);
+                // The upgrade is an HTTP/1.1 request: a server that also speaks HTTP/2 must not choose it.
+                sec_protocol_options_add_tls_application_protocol(sec, "http/1.1");
+            };
+        }
+        return nw_parameters_create_secure_tcp(tls, ^(nw_protocol_options_t options) {
+            nw_tcp_options_set_no_delay(options, true);
+        });
+    }
+
+    void run() override {
+        @autoreleasepool {
+            const auto deadline = connect_deadline();
+            nw_endpoint_t endpoint = nw_endpoint_create_host(url_.host.c_str(), std::to_string(url_.port).c_str());
+            nw_connection_t connection = endpoint ? nw_connection_create(endpoint, make_parameters()) : nil;
+            if (!connection) {
+                fail_connect("could not start a connection to " + url_.host_in_brackets(),
+                             "Check the address of websocket.connect.");
+                finish_aborted();
+                return;
+            }
+            dispatch_queue_t queue = dispatch_queue_create("fa.websocket", DISPATCH_QUEUE_SERIAL);
+            nw_connection_set_queue(connection, queue);
+            std::weak_ptr<AppleCore> weak = weak_self();
+            nw_connection_set_state_changed_handler(connection, ^(nw_connection_state_t state, nw_error_t error) {
+                if (auto self = weak.lock()) self->on_state(state, error);
+            });
+            nw_connection_start(connection);
+
+            std::string leftover;
+            if (!wait_ready(deadline) || !handshake(connection, deadline, leftover) || !open_connection()) {
+                finish_aborted();
+                shut(connection);
+                return;
+            }
+            ws_stream::Ending ending;
+            serve(connection, leftover, ending);
+            if (stop_ || dead_) say_goodbye(connection);
+            finish(ending);
+            shut(connection);
+        }
+    }
+
+    std::mutex ioMutex_;           // guards what follows, down to sendFailed_; never held while taking mutex_
+    std::condition_variable cv_;   // with ioMutex_: the thread waits for the network or the game
+    bool woken_ = false;           // the game queued output, closed, or let go
+    bool stateChanged_ = false;    // the state handler ran since the thread last looked
+    nw_connection_state_t nwState_ = nw_connection_state_invalid;
+    nw_error_t nwError_ = nil;     // the first error the connection reported
+    std::string inbox_;            // bytes read and not yet fed
+    bool receiving_ = false;       // a read is outstanding
+    bool readEnded_ = false;       // the server closed its side, or a read failed
+    int sendsDone_ = 0;            // sends that completed since the thread last looked
+    bool sendFailed_ = false;
+    std::size_t inFlight_ = 0;     // the connection's thread only: the bytes of outgoing_ (from sent_) in the send in flight
 };
 
 class AppleWebSocketClient final : public WebSocketClient {
 public:
-    std::string name() const override { return "nsurlsession"; }
+    std::string name() const override { return "network"; }
     bool available() const override { return true; }
 
     Result<std::unique_ptr<WebSocket>> connect(WebSocketRequest request) override {
-        auto parsed = ws::parse_url(request.url);
-        if (!parsed.ok()) return parsed.error();
-        // A header or subprotocol the handshake refuses is an error now, not a failed connection later.
-        const std::uint8_t zeros[16] = {};
-        if (auto head = ws::build_client_request(parsed.value(), ws::make_client_key(zeros), request.subprotocols,
-                                                 request.headers);
-            !head.ok())
-            return head.error();
-
-        @autoreleasepool {
-            NSString* text = [NSString stringWithUTF8String:request.url.c_str()];
-            NSURL* url = text ? [NSURL URLWithString:text] : nil;
-            if (!url)
-                return make_error("the address is not a valid URL: " + request.url, "Write it as wss://host/path.");
-            NSMutableURLRequest* req = [NSMutableURLRequest requestWithURL:url];
-            for (const auto& [name, value] : request.headers) {
-                NSString* n = [NSString stringWithUTF8String:name.c_str()];
-                NSString* v = [NSString stringWithUTF8String:value.c_str()];
-                if (!n || !v)
-                    return make_error("the header \"" + name + "\" is not valid UTF-8",
-                                      "Use plain text for header values.");
-                [req setValue:v forHTTPHeaderField:n];
-            }
-            if (![req valueForHTTPHeaderField:@"User-Agent"])
-                [req setValue:@"FactorIA/" FA_ENGINE_VERSION forHTTPHeaderField:@"User-Agent"];
-            if (!request.subprotocols.empty()) {
-                std::string joined;
-                for (const std::string& p : request.subprotocols) joined += (joined.empty() ? "" : ", ") + p;
-                [req setValue:[NSString stringWithUTF8String:joined.c_str()]
-                    forHTTPHeaderField:@"Sec-WebSocket-Protocol"];
-            }
-
-            NSURLSessionConfiguration* config = [NSURLSessionConfiguration ephemeralSessionConfiguration];
-            // The connect timeout is ours (below): the system's per-request timeout would also end a connection that is
-            // merely idle, which a WebSocket may be for as long as it likes.
-            config.timeoutIntervalForRequest = 7 * 24 * 3600.0;
-            config.waitsForConnectivity = NO;
-
-            auto core = std::make_shared<Core>(request, parsed->host_header());
-            FaWebSocketDelegate* delegate = [[FaWebSocketDelegate alloc] init];
-            delegate->core = core;
-            NSURLSession* session = [NSURLSession sessionWithConfiguration:config delegate:delegate delegateQueue:nil];
-            NSURLSessionWebSocketTask* task = [session webSocketTaskWithRequest:req];
-            task.maximumMessageSize = request.maxMessageBytes > static_cast<std::size_t>(NSIntegerMax)
-                                          ? NSIntegerMax
-                                          : static_cast<NSInteger>(request.maxMessageBytes);
-            arm_receive(task, core);
-            [task resume];
-
-            const double timeout = std::clamp(request.connectTimeoutSec, 0.001, 24.0 * 3600.0);
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(timeout * NSEC_PER_SEC)),
-                           dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
-                               if (core->on_connect_timeout()) [task cancel];
-                           });
-            return std::unique_ptr<WebSocket>(std::make_unique<AppleWebSocket>(core, session, task));
-        }
+        bool hasAgent = false;
+        for (const auto& [name, value] : request.headers) hasAgent = hasAgent || iequals(name, "User-Agent");
+        if (!hasAgent) request.headers.emplace_back("User-Agent", "FactorIA/" FA_ENGINE_VERSION);
+        auto url = ws_stream::check_request(request);
+        if (!url.ok()) return url.error();
+        auto core = std::make_shared<AppleCore>(std::move(request), std::move(url.value()));
+        return std::unique_ptr<WebSocket>(std::make_unique<ws_stream::StreamWebSocket>(std::move(core)));
     }
 };
 
