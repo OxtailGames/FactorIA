@@ -249,6 +249,36 @@ TEST_CASE("UndoStack: push_command pushes, coalesces into a command entry and on
     CHECK(small[0].forward[0].args["v"] == 3);
 }
 
+TEST_CASE("UndoStack: Merge replaces the command with the same target and adds the others") {
+    auto call = [](const std::string& target, int v) {
+        UndoCommand c;
+        c.cmd = "set";
+        c.target = target;
+        c.args = Json::object({{"v", v}});
+        return std::vector<UndoCommand>{c};
+    };
+    UndoStack st;
+    CHECK(st.push_command(call("a", 1), call("a", 0), false, CoalesceMode::Merge));
+    CHECK_FALSE(st.push_command(call("b", 11), call("b", 10), true, CoalesceMode::Merge));
+    CHECK(st.back().forward.size() == 2);
+    // a drag of both: every frame replaces its own entry, nothing grows
+    for (int i = 2; i < 20; ++i) {
+        st.push_command(call("a", i), call("a", -1), true, CoalesceMode::Merge);
+        st.push_command(call("b", 10 + i), call("b", -1), true, CoalesceMode::Merge);
+    }
+    REQUIRE(st.back().forward.size() == 2);
+    REQUIRE(st.back().inverse.size() == 2);
+    CHECK(st.back().forward[0].args["v"] == 19);
+    CHECK(st.back().forward[1].args["v"] == 29);
+    CHECK(st.back().inverse[0].target == "b");  // undo runs in the reverse order
+    CHECK(st.back().inverse[0].args["v"] == 10);
+    CHECK(st.back().inverse[1].args["v"] == 0);
+    CHECK(st.bytes() == st.back().bytes);
+    // no target: it chains
+    CHECK_FALSE(st.push_command(call("", 5), call("", 4), true, CoalesceMode::Merge));
+    CHECK(st.back().forward.size() == 3);
+}
+
 // ---------------------------------------------------------------------------------------- clicks, ranges, the ancestor skip
 namespace {
 // A tree as the Hierarchy shows it (depth first):  root > (kidA > grand), kidB ; other

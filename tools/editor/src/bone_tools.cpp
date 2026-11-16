@@ -336,7 +336,8 @@ bool Editor::bone_tools_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hove
                     std::string err;
                     const CommandResult res = edit_command(
                         bone_.ikKey, "scene.set_component",
-                        field_edit_args(bone_.ikTarget, "Transform", "position", Json::array({v.x, v.y, v.z})), &err);
+                        field_edit_args(bone_.ikTarget, "Transform", "position", Json::array({v.x, v.y, v.z})), &err,
+                        true);  // a snapshot: the solve below turns the bones too, which a command step would not undo
                     if (!res.ok)
                         bone_.error = "Could not move the target: " + err;
                     else
