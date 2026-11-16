@@ -12,6 +12,16 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   them from the repository's `examples/` (the same files give the same zip), and the engine can now read the manifest,
   build the download address of a release's file from the installed version and check a download against its hash.
   Getting an example from the editor comes in the next parts.
+- **Editor undo as commands, second half (M98.7e2):** creating, deleting, duplicating, cutting, pasting and reparenting entities
+  (and a bone chain) now store the command and its inverse instead of a copy of the scene, and so do the Console and the AI
+  panel when their command has an inverse. Undo of a delete pastes the entity back with its subtree under the same ids, parent
+  and sibling index, its outside references and, for a prefab instance, its link and overrides; Redo of a create gives the same
+  ids; Undo of a reparent restores the exact old Transform (a widget nudged inside a layout Panel returns with its nudge).
+  Each editor action is still one step. Deleting a top-level entity that is not the last one still takes a snapshot, so the
+  order of the top-level entities (the file's order, and the tie-break of drawing order) is kept exactly; deleting the last one or
+  a child is a command step. `scene.import_ascii`,
+  `scene.ascii_edit`, `script.eval`, `prefab.revert`/`apply`, `skin.*` and the AI revert still take a snapshot. docs/EDITOR.md,
+  "Undo entries".
 - **Editor undo as commands, first half (M98.7e1):** an edit of a field or a component (Inspector fields, rename, the active box,
   Transform gizmo drags, adding and removing a component) no longer stores a copy of the whole scene on the undo stack: it stores
   the command and its inverse, built from the scene before the edit, so 100 edits cost less than one snapshot of a big scene.

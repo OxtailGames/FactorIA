@@ -14,7 +14,7 @@
 namespace fa::editor {
 
 CommandResult Editor::edit_command(const std::string& key, const std::string& name, const Json& args,
-                                   std::string* error, bool forceSnapshot) {
+                                   std::string* error, bool forceSnapshot, bool record) {
     CommandResult r;
     if (!engine_) {
         r.error = Json::object({{"message", "No project is open."}});
@@ -24,7 +24,7 @@ CommandResult Editor::edit_command(const std::string& key, const std::string& na
     lastEditRecorded_ = false;
     // Record mode (Animation panel): a change of an animatable field of a part of the animated entity becomes a key at the
     // playhead; the scene keeps its rest value.
-    if (play_ == PlayState::Edit && name == "scene.set_component" && anim_recording() &&
+    if (record && play_ == PlayState::Edit && name == "scene.set_component" && anim_recording() &&
         anim_record_edit(key, args, r, error)) {
         lastEditRecorded_ = r.ok;
         return r;
@@ -44,8 +44,12 @@ CommandResult Editor::edit_command(const std::string& key, const std::string& na
             r = engine_->commands().call(name, args);
             after_command(name, args, r);
             if (r.ok) {
-                finish_undo_plan(name, *plan, r.result);
-                push_command_entry(key, std::move(plan->forward), std::move(plan->inverse), CoalesceMode::Merge);
+                if (finish_undo_plan(world(), name, *plan, r.result)) {
+                    push_command_entry(key, std::move(plan->forward), std::move(plan->inverse), CoalesceMode::Merge);
+                } else {  // the result is not what the builder expects: the edit is done and nothing can undo it
+                    dirty_ = true;
+                    notify("This edit cannot be undone: " + name + " gave an unexpected result.", 1);
+                }
             } else if (error) {
                 *error = command_error_text(r.error);
             }
@@ -106,9 +110,14 @@ void Editor::hierarchy_destroy_selection() {
     if (ids.empty()) return;
     const std::string key = "hier:destroy:" + std::to_string(uiFrame_);
     std::string failure;
+    // One step for the whole selection: when any of them has no inverse (a top-level entity before other top-level ones),
+    // all of them take the snapshot, which coalesces under the key.
+    bool snapshot = false;
+    for (const std::string& id : ids)
+        if (!plan_undo(world(), "scene.destroy", Json::object({{"id", id}}))) snapshot = true;
     for (const std::string& id : ids) {
         std::string err;
-        CommandResult r = edit_command(key, "scene.destroy", Json::object({{"id", id}}), &err);
+        CommandResult r = edit_command(key, "scene.destroy", Json::object({{"id", id}}), &err, snapshot);
         if (!r.ok && failure.empty()) failure = err;
     }
     if (!failure.empty()) notify("Could not delete the entity: " + failure, 2);
