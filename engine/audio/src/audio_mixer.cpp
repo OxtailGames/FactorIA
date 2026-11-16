@@ -405,6 +405,91 @@ static inline void voice_lowpass_settle(MixVoice& v) {
     v.lpR2 = flush_denormal(v.lpR2);
 }
 
+// The head model on one frame: the mono sound goes into the voice's delay line, and each ear reads it (a fractional delay, a
+// Catmull-Rom cubic between four frames), filters it with the head shadow and scales it. Only called when v.hrtf.on.
+static inline void hrtf_frame(HrtfVoice& h, float in, float& outL, float& outR) {
+    constexpr std::uint32_t kMask = std::uint32_t(kHrtfLine - 1);
+    constexpr float kLongest = float(kHrtfLine - 6);  // the cubic reads two frames past the delay
+    const std::uint32_t w = h.w++;
+    h.line[w & kMask] = in;
+    float out[2];
+    for (int e = 0; e < 2; ++e) {
+        const float dItd = h.itdT[e] - h.itd[e];
+        h.itd[e] += dItd < -kHrtfDelaySlew ? -kHrtfDelaySlew : (dItd > kHrtfDelaySlew ? kHrtfDelaySlew : dItd);
+        h.alpha[e] += (h.alphaT[e] - h.alpha[e]) * h.smooth;
+        h.gain[e] += (h.gainT[e] - h.gain[e]) * h.smooth;
+        // The delay: one frame for the interpolator, the interaural difference, and the shadow's own low-frequency delay put back
+        // so that the sum of the two is the same whatever alpha is.
+        float d = 1.0f + h.tauSamples * h.alpha[e] + h.itd[e];
+        d = d < 1.0f ? 1.0f : (d > kLongest ? kLongest : d);
+        const std::uint32_t i = std::uint32_t(d);
+        const float t = d - float(i);
+        const float p0 = h.line[(w - (i - 1)) & kMask], p1 = h.line[(w - i) & kMask];
+        const float p2 = h.line[(w - i - 1) & kMask], p3 = h.line[(w - i - 2) & kMask];
+        const float x =
+            p1 + 0.5f * t * (p2 - p0 + t * (2.0f * p0 - 5.0f * p1 + 4.0f * p2 - p3 + t * (3.0f * (p1 - p2) + p3 - p0)));
+        const float ac = h.alpha[e] * h.c1;
+        const float y = (h.c0 + ac) * x + h.z[e];
+        h.z[e] = (h.c0 - ac) * x - h.a1 * y;
+        out[e] = y * h.gain[e];
+    }
+    outL = out[0];
+    outR = out[1];
+}
+
+// A filter fed silence decays towards denormals: settle them at the end of a block.
+static inline void hrtf_settle(MixVoice& v) {
+    if (!v.hrtf.on) return;
+    v.hrtf.z[0] = flush_denormal(v.hrtf.z[0]);
+    v.hrtf.z[1] = flush_denormal(v.hrtf.z[1]);
+}
+
+void Mixer::set_voice_hrtf(MixVoice& v, const HrtfAim& aim) const {
+    HrtfVoice& h = v.hrtf;
+    if (!aim.on) {
+        h.on = false;
+        h.primed = false;
+        return;
+    }
+    const float fs = float(deviceRate_);
+    const float headTime = std::min(std::max(aim.headTime, kHrtfMinHeadTime), kHrtfMaxHeadTime);
+    const float side = std::min(std::max(aim.side, -1.0f), 1.0f);
+    const float front = std::min(std::max(aim.front, -1.0f), 1.0f);
+    // Woodworth: the ear on the far side hears it later, by the whole difference.
+    const float itd = hrtf_itd(side, headTime) * fs;
+    h.itdT[0] = itd > 0.0f ? itd : 0.0f;
+    h.itdT[1] = itd < 0.0f ? -itd : 0.0f;
+    // Head shadow (Brown and Duda): the angle between the sound and each ear's axis, (-sin 100, 0, cos 100) and (sin 100, 0, cos 100)
+    // in (right, up, front).
+    const float sinEar = std::sin(kHrtfEarAzimuth), cosEar = std::cos(kHrtfEarAzimuth);
+    for (int e = 0; e < 2; ++e) {
+        const float cosTheta = (e == 0 ? -sinEar : sinEar) * side + cosEar * front;
+        const float theta = std::acos(std::min(std::max(cosTheta, -1.0f), 1.0f));
+        h.alphaT[e] = 1.0f + kHrtfShadowMin * 0.5f +
+                      (1.0f - kHrtfShadowMin * 0.5f) * std::cos(theta * (3.14159265358979f / kHrtfShadowAngle));
+    }
+    // The far ear is a little quieter at all frequencies: 3 dB at 90 degrees.
+    const float far = std::pow(10.0f, -kHrtfFarEarDb / 20.0f);
+    h.gainT[0] = 1.0f - (1.0f - far) * std::max(side, 0.0f);
+    h.gainT[1] = 1.0f - (1.0f - far) * std::max(-side, 0.0f);
+    // The bilinear transform of (1 + alpha tau s) / (1 + tau s), tau = a / 2c: K = fs a / c.
+    const float k = fs * headTime;
+    h.c0 = 1.0f / (1.0f + k);
+    h.c1 = k / (1.0f + k);
+    h.a1 = (1.0f - k) / (1.0f + k);
+    h.tauSamples = 0.5f * k;
+    h.smooth = 1.0f - std::exp(-1.0f / (kHrtfSmoothing * fs));
+    if (!h.primed) {  // the first aim: start there, not from the defaults
+        for (int e = 0; e < 2; ++e) {
+            h.itd[e] = h.itdT[e];
+            h.alpha[e] = h.alphaT[e];
+            h.gain[e] = h.gainT[e];
+        }
+        h.primed = true;
+    }
+    h.on = true;
+}
+
 void Mixer::set_voice_lowpass(MixVoice& v, float hz) const {
     if (!(hz > 0.0f) || hz >= kLowpassOpen) {
         v.lpCoef = 0.0f;
@@ -424,8 +509,9 @@ void Mixer::mix_pcm(MixVoice& v, float* out, int frames) {
     const std::uint64_t written = p.written();
     const double step = double(p.rate()) / double(deviceRate_);
     const float theta = (v.pan + 1.0f) * (kPi * 0.25f);
-    const float gl = std::min(1.0f, std::cos(theta) * 1.41421356f);
-    const float gr = std::min(1.0f, std::sin(theta) * 1.41421356f);
+    const bool head = v.hrtf.on;  // the head model places the sound: no pan
+    const float gl = head ? 1.0f : std::min(1.0f, std::cos(theta) * 1.41421356f);
+    const float gr = head ? 1.0f : std::min(1.0f, std::sin(theta) * 1.41421356f);
     for (int f = 0; f < frames; ++f) {
         const std::uint64_t i0 = std::uint64_t(v.pos);
         if (i0 + 1 >= written) break;  // the queue ran dry: silence until the game pushes more (not an underrun)
@@ -435,6 +521,7 @@ void Mixer::mix_pcm(MixVoice& v, float* out, int frames) {
         float l = a[0] + (b[0] - a[0]) * t;
         float r = a[1] + (b[1] - a[1]) * t;
         if (v.lpCoef != 0.0f) voice_lowpass(v, l, r);
+        if (head) hrtf_frame(v.hrtf, 0.5f * (l + r), l, r);
         const float g = v.volume * v.fade * v.occGain;
         out[2 * f] += l * gl * g;
         out[2 * f + 1] += r * gr * g;
@@ -447,12 +534,14 @@ void Mixer::mix_pcm(MixVoice& v, float* out, int frames) {
     }
     p.consumed(v.pos);
     voice_lowpass_settle(v);
+    hrtf_settle(v);
 }
 
 void Mixer::mix_stream(MixVoice& v, float* out, int frames, float gl, float gr, int first) {
     StreamRing& s = *v.stream;
     const double step = double(v.pitch) * (double(kRate) / double(deviceRate_));
     const float base = v.clip ? v.clip->gain : 1.0f;
+    const bool head = v.hrtf.on;
     for (int f = first; f < frames; ++f) {
         float l = 0.0f, r = 0.0f;
         int got = s.at(v.pos, l, r);
@@ -476,6 +565,7 @@ void Mixer::mix_stream(MixVoice& v, float* out, int frames, float gl, float gr, 
             break;
         }
         if (v.lpCoef != 0.0f) voice_lowpass(v, l, r);
+        if (head) hrtf_frame(v.hrtf, 0.5f * (l + r), l, r);
         const float g = base * v.volume * v.fade * v.occGain;
         out[2 * f] += l * gl * g;
         out[2 * f + 1] += r * gr * g;
@@ -488,6 +578,7 @@ void Mixer::mix_stream(MixVoice& v, float* out, int frames, float gl, float gr, 
     }
     s.release_before(std::uint64_t(v.pos));
     voice_lowpass_settle(v);
+    hrtf_settle(v);
 }
 
 void Mixer::mix_voices(int frames) {
@@ -509,9 +600,11 @@ void Mixer::mix_voices(int frames) {
         t.used[std::size_t(v.bus)] = 1;
         const Clip& c = *v.clip;
         const float theta = (v.pan + 1.0f) * (kPi * 0.25f);
-        // Equal-power pan law normalised to unity at the centre (gain capped at 1 on the loud side).
-        const float gl = std::min(1.0f, std::cos(theta) * 1.41421356f);
-        const float gr = std::min(1.0f, std::sin(theta) * 1.41421356f);
+        // Equal-power pan law normalised to unity at the centre (gain capped at 1 on the loud side); a voice under the head model
+        // is not panned (its ears have their own gains).
+        const bool head = v.hrtf.on;
+        const float gl = head ? 1.0f : std::min(1.0f, std::cos(theta) * 1.41421356f);
+        const float gr = head ? 1.0f : std::min(1.0f, std::sin(theta) * 1.41421356f);
         int first = 0;
         if (v.delay > 0) {  // a voice that waits for its beat: silent, not advancing
             first = int(std::min<long>(v.delay, frames));
@@ -547,6 +640,7 @@ void Mixer::mix_voices(int frames) {
             float l = d[2 * i0] + (d[2 * i1] - d[2 * i0]) * tt;
             float r = d[2 * i0 + 1] + (d[2 * i1 + 1] - d[2 * i0 + 1]) * tt;
             if (v.lpCoef != 0.0f) voice_lowpass(v, l, r);
+            if (head) hrtf_frame(v.hrtf, 0.5f * (l + r), l, r);
             const float g = base * v.volume * v.fade * v.occGain;
             dst[2 * f] += l * gl * g;
             dst[2 * f + 1] += r * gr * g;
@@ -558,6 +652,7 @@ void Mixer::mix_voices(int frames) {
             }
         }
         voice_lowpass_settle(v);
+        hrtf_settle(v);
     }
 }
 

@@ -18,6 +18,7 @@
 
 #include <array>
 #include <atomic>
+#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -222,6 +223,63 @@ private:
     std::atomic<std::size_t> lost_{0};
 };
 
+// ---- HRTF for headphones (AudioListener.spatialization = "hrtf"; docs/SOUND.md, "Headphones"): the voice's own head model.
+//
+// A parametric model of a spherical head, written for this engine with no measured data (the structure is the one of Brown and
+// Duda, "A structural model for binaural sound synthesis", IEEE Trans. Speech and Audio Processing 6(5), 1998):
+//   - the interaural time difference follows Woodworth's formula for a sphere, ITD = (a / c) (beta + sin beta), with beta the
+//     angle of the sound from the median plane (so a sound in front and its mirror image behind have the same ITD) and a / c the
+//     head's radius over the speed of sound (`headTime`);
+//   - the head shadow of each ear is the one-pole one-zero filter H(s) = (1 + alpha(theta) s / (2 w0)) / (1 + s / (2 w0)), w0 = c / a:
+//     gain 1 at low frequencies and `alpha` at high ones, with alpha(theta) = 1 + amin / 2 + (1 - amin / 2) cos(theta 180 deg /
+//     150 deg), amin = 0.1, theta the angle between the sound and the ear's axis (each ear points 100 degrees from the front);
+//   - a broadband level difference of up to 3 dB between the ears (the filter alone leaves the low frequencies equal).
+// A pure delay per ear (a fractional one, read from a short line of the voice's own) gives the ITD. The filter has a group delay
+// of (a / 2c) (1 - alpha) at low frequencies, which would make the time difference depend on the shadow: the delay of each ear
+// takes it out, so the time difference between the ears at low frequencies is the formula's.
+constexpr std::size_t kHrtfLine =
+    256;  // frames of the delay line of a voice: a power of two, the longest delay (head 0.12 m, 192 kHz) fits
+constexpr float kHrtfMinHeadTime =
+    0.03f / 343.0f;  // a / c of the smallest head the model takes (0.03 m at 343 m/s), seconds
+constexpr float kHrtfMaxHeadTime = 0.12f / 343.0f;  // and of the largest (0.12 m)
+constexpr float kHrtfDelaySlew = 0.03f;  // most the interaural delay moves per frame, in samples (a pitch change of 3%)
+constexpr float kHrtfSmoothing = 0.008f;  // seconds the shadow and the ear gains take to follow their targets (63%)
+constexpr float kHrtfFarEarDb = 3.0f;     // level difference between the ears for a sound at 90 degrees
+constexpr float kHrtfEarAzimuth = 100.0f * 3.14159265358979f / 180.0f;   // each ear's axis, from the front
+constexpr float kHrtfShadowMin = 0.1f;                                   // Brown and Duda's alpha_min
+constexpr float kHrtfShadowAngle = 150.0f * 3.14159265358979f / 180.0f;  // and theta_min
+
+// The Woodworth time difference of a sound whose direction has `lateral` = sin(beta) (+1 = at the right ear): seconds, positive
+// when the right ear hears it first.
+inline float hrtf_itd(float lateral, float headTime) {
+    const float s = lateral < -1.0f ? -1.0f : (lateral > 1.0f ? 1.0f : lateral);
+    return headTime * (std::asin(s) + s);
+}
+
+// Where a sound is in the listener's head frame (what the game side sends): the unit vector from the head to the sound as its
+// right, up and front components, and the head's size. `on` false: the voice is panned (the default).
+struct HrtfAim {
+    bool on = false;
+    float side = 0.0f, up = 0.0f, front = 1.0f;
+    float headTime = 0.0f;  // radius / speed of sound, seconds (clamped by the game side to kHrtfMin/MaxHeadTime)
+    bool operator==(const HrtfAim&) const = default;
+};
+
+// The state of one voice's head model: targets (set by a command) and where the audio is on its way to them.
+struct HrtfVoice {
+    bool on = false, primed = false;
+    float itdT[2] = {0, 0},
+          itd[2] = {0, 0};  // the interaural delay of each ear (0 left, 1 right) in samples: target, current
+    float alphaT[2] = {1, 1}, alpha[2] = {1, 1};
+    float gainT[2] = {1, 1}, gain[2] = {1, 1};
+    float c0 = 1.0f, c1 = 0.0f, a1 = 0.0f;  // the shadow filter: b0 = c0 + alpha c1, b1 = c0 - alpha c1, a1
+    float tauSamples = 0.0f;                // a / 2c in samples (the shadow's time constant)
+    float smooth = 1.0f;                    // per frame, of the one-pole smoothing of alpha and the gains
+    float z[2] = {0, 0};                    // the filters' states
+    std::uint32_t w = 0;                    // frames written to the line
+    float line[kHrtfLine] = {};
+};
+
 // One voice in the mixer.
 struct MixVoice {
     VoiceIdT id = 0;
@@ -248,6 +306,7 @@ struct MixVoice {
     // The gain of a sound played at a place (audio.play with a position) whose path is blocked: apart from `volume`, so a script's
     // set_voice_volume and its fade keep running. 1 = no occlusion (the product is then exactly what it was).
     float occGain = 1.0f;
+    HrtfVoice hrtf;  // the head model (a listener with spatialization "hrtf"): when `on`, `pan` is not used
     bool dead = false;
 };
 
@@ -414,6 +473,8 @@ public:
     void set_lowpass(BusRuntime& fx, float hz, float fadeSeconds) const;
     // The voice's own low-pass at `hz`; 0 or 20000 and above = off (bit-identical to a voice that never had one).
     void set_voice_lowpass(MixVoice& v, float hz) const;
+    // Puts the voice under the head model (aim.on) or back to the pan; the voice's delays and filters move to the new aim smoothly.
+    void set_voice_hrtf(MixVoice& v, const HrtfAim& aim) const;
     void set_reverb(BusRuntime& fx, float mix, float fadeSeconds, std::unique_ptr<Reverb>& spare) const;
     void set_duck(BusRuntime& fx, int by, float amount, float attack, float release) const;
     void publish_music();
