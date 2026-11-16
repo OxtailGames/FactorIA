@@ -62,8 +62,9 @@ SfxVariantParams sfx_variant_params(const SfxVariations& v, int index) {
     return out;
 }
 
-Result<Json> sfx_apply_macro_binds(const Json& patchJson, const SfxPatch& parsed,
-                                   const std::map<std::string, double>& overrides) {
+FA_JSON_POINTER_CALLS_BEGIN  // json_pointer calls: see fa/core/json.h
+    Result<Json> sfx_apply_macro_binds(const Json& patchJson, const SfxPatch& parsed,
+                                       const std::map<std::string, double>& overrides) {
     Json out = patchJson;
     for (const SfxMacroDef& def : parsed.macroDefs) {
         if (def.binds.empty()) continue;
@@ -90,6 +91,7 @@ Result<Json> sfx_apply_macro_binds(const Json& patchJson, const SfxPatch& parsed
     }
     return out;
 }
+FA_JSON_POINTER_CALLS_END
 
 namespace sfx_detail {
 

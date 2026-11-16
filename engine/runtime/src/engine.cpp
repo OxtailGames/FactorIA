@@ -1135,7 +1135,7 @@ void Engine::end_app() {
     I.appEnded = true;
     I.scripts.app_ending();
     I.input.stop_all_rumble();
-    I.audio.shutdown();  // the device stops before the process ends under it; shutdown() later finds it closed
+    I.audio.close_device();  // the device stops before the process ends under it (no wait for the music's decodes)
 }
 
 void Engine::begin_load_trace() {

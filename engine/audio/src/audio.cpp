@@ -1629,6 +1629,18 @@ bool Audio::init(bool device, std::string* error) {
     return true;
 }
 
+void Audio::close_device() {
+    Impl& im = *impl_;
+    Impl::Call call(im);
+    if (!im.inited || !im.device || im.manual) return;
+#if defined(__EMSCRIPTEN__)
+    audio_web_close();
+#else
+    saudio_shutdown();  // joins the audio thread: nothing mixes from here on
+#endif
+    im.device = false;  // shutdown() later finds it closed, and every command runs at once on this thread
+}
+
 void Audio::shutdown() {
     Impl& im = *impl_;
     Impl::Call call(im);

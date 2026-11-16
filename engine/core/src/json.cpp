@@ -591,16 +591,18 @@ std::span<const std::string_view> color_names() {
     return names;
 }
 
+FA_JSON_POINTER_CALLS_BEGIN
 const Json* json_at(const Json& root, std::string_view pointer) {
     if (pointer.empty()) return &root;
     try {
-        Json::json_pointer ptr{std::string(pointer)};
+        const Json::json_pointer ptr{std::string(pointer)};
         if (!root.contains(ptr)) return nullptr;
         return &root.at(ptr);
     } catch (const Json::exception&) {
         return nullptr;
     }
 }
+FA_JSON_POINTER_CALLS_END
 
 void json_merge(Json& target, const Json& patch) {
     if (patch.is_object() && target.is_object()) {

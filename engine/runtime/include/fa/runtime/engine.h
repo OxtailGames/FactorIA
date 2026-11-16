@@ -164,7 +164,8 @@ public:
     void shutdown();
     // The app ends and the process with it, without shutdown() (Android: the system destroyed the activity, whose surface
     // is gone, so nothing may touch the GPU). Raises the scripts' "quit" (ScriptSystem::app_ending), writes the storage
-    // still waiting, stops the pads' rumble (the window layer sends it to the hardware) and closes the audio device. Runs
+    // still waiting, stops the pads' rumble (the window layer sends it to the hardware) and closes the audio device (only the
+    // device: the music and the clips are not released, nothing is waited for). Runs
     // once, on the engine's thread; does nothing before init() or after shutdown().
     void end_app();
 

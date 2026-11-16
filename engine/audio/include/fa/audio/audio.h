@@ -228,6 +228,10 @@ public:
     // True when init opened a real output device (a null device only mixes when advance_null_device is called).
     bool has_device() const;
     void shutdown();
+    // Stops and closes the output device only (the audio thread is joined: nothing mixes from here on), keeping everything
+    // else: the music, the clips and the voices stay as they are and nothing is waited for. For an app whose process ends right after
+    // (Android's end, Engine::end_app); shutdown() still works afterwards. Does nothing without a real device.
+    void close_device();
 
     // Preload (optional; play() loads on demand). Returns false + logs a
     // helpful error if the file is missing or unsupported. When the file is missing but `<clipPath>.qoa` exists (the
