@@ -132,7 +132,9 @@ public:
     // Asked by the progress callback while libcurl connects.
     bool connect_cancelled() const { return stop_.load() || abort_.load(); }
 
-    WebSocketState state() const { return state_.load(); }
+    // Closed as soon as the queue holds its last event (a queue that overflowed holds [Error, Close 1008] before the thread
+    // has turned state_ into Closed): when the game reads the Close event, state() is Closed.
+    WebSocketState state() const { return queue_->ended() ? WebSocketState::Closed : state_.load(); }
 
     Result<void> send_text(std::string_view text) {
         std::lock_guard<std::mutex> lock(mutex_);
@@ -154,7 +156,7 @@ public:
     Result<void> close(int code, std::string_view reason) {
         if (auto r = ws::check_close_request(code, reason); !r.ok()) return r;
         std::lock_guard<std::mutex> lock(mutex_);
-        const WebSocketState s = state_.load();
+        const WebSocketState s = state();
         if (s == WebSocketState::Closing || s == WebSocketState::Closed) return {};
         if (s == WebSocketState::Connecting) {
             // Closing at once; the thread ends the attempt with Error and Close 1006, and then it is Closed.
@@ -191,7 +193,7 @@ private:
     }
 
     Result<void> can_send() const {
-        const WebSocketState s = state_.load();
+        const WebSocketState s = state();
         if (s == WebSocketState::Connecting)
             return make_error("the connection is not open yet", "Wait for the \"open\" event before sending.");
         if (s != WebSocketState::Open)

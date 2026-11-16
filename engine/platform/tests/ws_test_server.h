@@ -317,7 +317,7 @@ private:
         }
         if (route != "/echo" && route != "/greet" && route != "/protocol" && route != "/headers" && route != "/close" &&
             route != "/drop" && route != "/badaccept" && route != "/silent" && route != "/fragments" &&
-            route != "/big" && route != "/badutf8" && route != "/badrsv" && route != "/ping") {
+            route != "/big" && route != "/flood" && route != "/badutf8" && route != "/badrsv" && route != "/ping") {
             write_all(c, ws::build_reject_response(404, "Not Found"));
             return;
         }
@@ -360,6 +360,14 @@ private:
         } else if (route == "/big") {
             const std::size_t n = query.count("n") ? static_cast<std::size_t>(std::atoll(query.at("n").c_str())) : 1000;
             static_cast<void>(session.send_text(std::string(n, 'x')));
+        } else if (route == "/flood") {
+            // `count` text messages of `n` bytes at once, which a client that does not read lets pile up.
+            const std::size_t n = query.count("n") ? static_cast<std::size_t>(std::atoll(query.at("n").c_str())) : 1000;
+            const int count = query.count("count") ? std::atoi(query.at("count").c_str()) : 1;
+            for (int i = 0; i < count; ++i) {
+                static_cast<void>(session.send_text(std::string(n, 'x')));
+                if (!flush()) return;
+            }
         } else if (route == "/badutf8") {
             if (!write_all(c, ws::encode_frame(ws::Opcode::Text, "\xff\xfe", true, nullptr))) return;
         } else if (route == "/badrsv") {
