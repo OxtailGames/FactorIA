@@ -9064,7 +9064,7 @@ declare module "factoria" {
     set disabled(value: ColorLike);
   }
   /**
-   * Single-line text input with a caret, a selection, the clipboard and IME composition. While focused it takes the typed characters at the caret (replacing the selection); Left / Right move the caret (with Ctrl, or Alt on macOS, a word at a time; with Shift they extend the selection), Home / End go to the ends, Backspace and Delete remove the selection or the character (they repeat while held), Ctrl+A (Cmd+A on macOS) selects all, Ctrl+C / X / V (Cmd on macOS) copy, cut and paste, and Enter submits. A click places the caret, a drag selects, a double click selects a word, a triple click all of it. Focusing a field puts the caret at the end of its text. The caret never stops inside a base character plus its combining marks or an emoji sequence. Text composed with an input method shows at the caret, underlined, and is typed when the player commits it. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Space types a space (ui_submit is ignored); Up / Down move the focus.
+   * Single-line text input with a caret, a selection, the clipboard and IME composition. While focused it takes the typed characters at the caret (replacing the selection); Left / Right move the caret (with Ctrl, or Alt on macOS, a word at a time; with Shift they extend the selection), Home / End go to the ends, Backspace and Delete remove the selection or the character (they repeat while held), Ctrl+A (Cmd+A on macOS) selects all, Ctrl+C / X / V (Cmd on macOS) copy, cut and paste, and Enter submits. A click places the caret, a drag selects, a double click selects a word, a triple click all of it. Focusing a field puts the caret at the end of its text. The caret never stops inside a base character plus its combining marks or an emoji sequence. Text composed with an input method shows at the caret, underlined, and is typed when the player commits it (a click in the field, or the focus moving to another field, commits it too). Caret and selection assume left-to-right text for now. A field that loses the focus keeps its last scroll. Events: ui.change {id, value} on every edit (one per frame), ui.submit {id, value} on Enter. Space types a space (ui_submit is ignored); Up / Down move the focus.
    * 
    * Category: UI
    * @since 0.1.6
@@ -9208,7 +9208,7 @@ declare module "factoria" {
      */
     maxLength: number;
     /**
-     * Draws every character (and the composition) as '*'; Copy and Cut do nothing. `text` still holds what was typed.
+     * Draws every character (and the composition) as '*'; Copy and Cut do nothing, the platform's input method is off, and the whole text is one word (word keys go to its ends, a double click selects all). `text` still holds what was typed and scripts can read it, and the composition.
      * @since unreleased
      */
     password: boolean;

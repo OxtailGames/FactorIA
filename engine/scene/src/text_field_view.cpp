@@ -16,11 +16,13 @@ std::size_t byte_of(const std::string& s, std::int32_t cp) {
 
 std::string masked(std::size_t codePoints) { return std::string(codePoints, '*'); }
 
-// Width of the first `bytes` of `s`. The measure of a text that ends in a space may drop it, so a marker is measured too.
+// Width of the first `bytes` of `s`. The measure of a text that ends in a space may drop it, so a marker is measured
+// too.
 struct Advance {
     const TextFieldMeasure& m;
     float marker;
-    explicit Advance(const TextFieldMeasure& measure) : m(measure), marker(measure("|").x) {}
+    Advance(const TextFieldMeasure& measure, float markerWidth) : m(measure), marker(markerWidth) {}
+    explicit Advance(const TextFieldMeasure& measure) : Advance(measure, measure("|").x) {}
     float of(const std::string& s) const { return s.empty() ? 0.0f : m(s + "|").x - marker; }
 };
 
@@ -29,8 +31,9 @@ struct Advance {
 TextFieldView text_field_view(const TextField& tf, const Rect& r, const TextFieldMeasure& measure) {
     TextFieldView v;
     v.inner = Rect{r.x + kTextFieldPad, r.y, std::max(0.0f, r.w - 2.0f * kTextFieldPad), r.h};
-    const Advance adv(measure);
-    const float lineH = measure("|").y;
+    const auto bar = measure("|");  // one measure gives the line height and the marker width
+    const Advance adv(measure, bar.x);
+    const float lineH = bar.y;
     v.lineH = lineH;
     v.lineY = r.y + (r.h - lineH) * 0.5f;
 
@@ -44,6 +47,14 @@ TextFieldView text_field_view(const TextField& tf, const Rect& r, const TextFiel
         v.display = masked(utf8_length(before) + utf8_length(tf.composition) + utf8_length(after));
     } else {
         v.display = before + tf.composition + after;
+    }
+    // A field that is not focused, with nothing selected or composed and never scrolled, needs no measuring of
+    // its text: it
+    // is drawn from its start (a field that scrolled while focused keeps its last scroll through the full path below).
+    if (!tf.focused && !v.composing && tf.selectionStart == tf.selectionEnd && tf.scrollX <= 0.0f) {
+        v.textX = v.inner.x;
+        v.caretX = v.textX;
+        return v;
     }
     // Byte offsets of the parts inside `display` (a mask is one byte per code point).
     const std::size_t compCp = utf8_length(tf.composition), beforeCp = std::size_t(caret);
@@ -86,6 +97,7 @@ TextFieldView text_field_view(const TextField& tf, const Rect& r, const TextFiel
 
 std::int32_t text_field_index_at(const TextField& tf, const Rect& r, const TextFieldMeasure& measure, float x) {
     TextField plain = tf;
+    plain.focused = true;       // the press has focused it, whatever the flag says this frame
     plain.composition.clear();  // a click lands on the text, not on what is being composed
     const TextFieldView v = text_field_view(plain, r, measure);
     const Advance adv(measure);
@@ -106,6 +118,30 @@ std::int32_t text_field_index_at(const TextField& tf, const Rect& r, const TextF
     }
     if (lo > 0 && rel - at(lo - 1) < at(lo) - rel) --lo;
     return lo;
+}
+
+std::int32_t text_field_char_at(const TextField& tf, const Rect& r, const TextFieldMeasure& measure, float x) {
+    TextField plain = tf;
+    plain.focused = true;
+    plain.composition.clear();
+    const TextFieldView v = text_field_view(plain, r, measure);
+    const Advance adv(measure);
+    const std::int32_t n = std::int32_t(std::min<std::size_t>(utf8_length(tf.text), 1000000));
+    const float rel = x - v.textX;
+    auto at = [&](std::int32_t i) {
+        return tf.password ? adv.of(masked(std::size_t(i))) : adv.of(tf.text.substr(0, byte_of(tf.text, i)));
+    };
+    if (rel <= 0.0f || n == 0) return 0;
+    // The first edge past the pointer: the character before it is the one under the pointer.
+    std::int32_t lo = 0, hi = n;
+    while (lo < hi) {
+        const std::int32_t mid = lo + (hi - lo) / 2;
+        if (at(mid) <= rel)
+            lo = mid + 1;
+        else
+            hi = mid;
+    }
+    return std::clamp(lo - 1, 0, n - 1);
 }
 
 }  // namespace fa

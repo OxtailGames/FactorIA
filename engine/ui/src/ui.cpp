@@ -770,7 +770,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     {
         const Entity field = focus_ && w.get<TextField>(focus_) ? focus_ : kNullEntity;
         if (field != imeField_) {
-            if (in.composing()) in.on_composition_cancel();
+            if (in.composing()) field_commit_composition(w, imeField_, in);  // typed into the field it began in
             if (imeField_) ime_cancel();
             imeField_ = field;
         }
@@ -826,6 +826,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
             r.rect = *ui_rect(w, focus_, design);
             r.text = tf->text;
             r.maxLength = tf->maxLength;
+            r.password = tf->password;
             if (textInput_(r))
                 platformField_ = focus_;
             else if (platformField_ == focus_)
@@ -836,9 +837,11 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     // Text input mode: a focused TextField takes the typed keys, so game actions bound to letters read as up meanwhile.
     in.set_ui_text_input(focus_ && w.get<TextField>(focus_));
 
-    // ---- the IME (candidate window, composition): on while a TextField has the focus, and told where its caret is (the
+    // ---- the IME (candidate window, composition): on while a TextField has the focus, and told where its caret
+    // is (the
     // caret's bar, inside the composition while the player composes).
-    const bool imeWanted = focus_ && w.get<TextField>(focus_);
+    const TextField* imeTf = focus_ ? w.get<TextField>(focus_) : nullptr;
+    const bool imeWanted = imeTf && !imeTf->password;  // a password is never composed: the input method stays off
     if (imeWanted != imeOn_) {
         imeOn_ = imeWanted;
         ime_set_enabled(imeWanted);
