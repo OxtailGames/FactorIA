@@ -75,9 +75,8 @@ public:
     bool visited() const { return visited_; }
     bool loading() const { return list_ != nullptr; }
     const std::optional<ExamplesList>& list() const { return data_; }
-    bool shown_from_cache() const {
-        return fromCache_;
-    }                                                    // the list is the saved copy, the refresh has not answered yet
+    // The list is the saved copy, the refresh has not answered yet.
+    bool shown_from_cache() const { return fromCache_; }
     const std::string& error() const { return error_; }  // the refresh failed with no list to show (or was cancelled)
     const std::string& hint() const { return hint_; }
 
