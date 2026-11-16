@@ -6,13 +6,6 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ## Unreleased
 
-- WebSocket on macOS and iOS: the client is now a Network.framework connection (TCP, TLS with the system's certificates)
-  with the engine's own protocol code, as on Linux and Android, instead of `NSURLSessionWebSocketTask`, which on macOS 26
-  closed the TCP connection without sending the close frame. `ws.close()` now sends the code and reason (no code when none
-  is given, instead of 1000) and the `"close"` event waits for the server's answer, or comes after 5 seconds without one
-  as `"error"` and `"close"` 1006, like the other platforms. `websocket.backend` says `"network"` there instead of
-  `"nsurlsession"` (docs/NETWORKING.md, "On macOS and iOS").
-
 ## 0.30.0
 
 FactorIA 0.30.0 (M98) adds what games expect from an engine and FactorIA lacked. Saves can be encrypted, with versioned
@@ -361,13 +354,16 @@ example games with each release, to get from the start window or `project.create
   headers, and reconnects with exponential backoff and a jitter that is the same on every run. A scene change closes the
   connections without events. This is the shared part: the interface (`fa/platform/websocket.h`), an RFC 6455 codec
   (`fa/platform/websocket_codec.h`), a loopback test server, a scripted in-memory server for tests and headless runs
-  (`game.websocket`), and the script API. The clients of the platforms (WinHTTP, `NSURLSessionWebSocketTask`, libcurl, Android,
+  (`game.websocket`), and the script API. The clients of the platforms (WinHTTP, Network.framework, libcurl, Android,
   the browser) are the entries below; where a platform has no client (a Linux machine without a recent enough libcurl),
   `websocket.supported` is false and a connection fails with an `"error"` and a `"close"` event (docs/NETWORKING.md,
   "WebSocket").
-- `websocket.connect` works on macOS and iOS (`NSURLSessionWebSocketTask`: system certificates and proxy, subprotocols, headers, text
-  and binary messages, close codes, the HTTP status of a refused upgrade), tested against the loopback server; a close is
-  reported as soon as the system has sent it (docs/NETWORKING.md, "On macOS and iOS").
+- `websocket.connect` works on macOS and iOS: a Network.framework connection (TCP, TLS with the system's certificates)
+  carries the engine's own protocol code, as on Linux and Android, with subprotocols, headers, text and binary messages,
+  close codes and reasons in both directions, and the HTTP status of a refused upgrade, tested against the loopback server.
+  `NSURLSessionWebSocketTask` was not used: on macOS 26 it closed the TCP connection without sending the close frame. A
+  close waits for the server's answer, or comes after 5 seconds without one as `"error"` and `"close"` 1006
+  (docs/NETWORKING.md, "On macOS and iOS").
 - The web player opens WebSockets with the browser's own `WebSocket` (`websocket.supported` is true there): messages,
   subprotocols, the engine's connect timeout and close timer, and `error` messages that name what to check, since the
   browser gives no reason; `headers` is an error on the web (the browser cannot send any). `ws.send` and

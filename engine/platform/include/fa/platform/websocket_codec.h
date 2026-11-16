@@ -1,7 +1,7 @@
 // RFC 6455 (the WebSocket protocol) as pure functions and one state machine, with no socket, no thread and no clock: bytes
 // go in, frames, messages and bytes come out. Every client that talks WebSocket over a stream it owns uses it (the plain
-// TCP client of the tests, Android's client over a JNI socket) and so does the loopback server of the tests
-// (engine/platform/tests/ws_test_server.h). Clients that the system provides (NSURLSession, WinHTTP, libcurl, the
+// TCP client of the tests, Android's client over a JNI socket, the Apple client over Network.framework) and so does the loopback server of the tests
+// (engine/platform/tests/ws_test_server.h). Clients that the system provides (WinHTTP, libcurl, the
 // browser) do their own framing; WinHTTP's client uses only the handshake checks (check_server_response, with the same
 // messages as the other clients, and build_client_request to refuse a bad header before anything is sent).
 //
