@@ -12,6 +12,7 @@
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
 #include "fa/scene/particle_store.h"
+#include "fa/scene/ui_rect.h"
 
 namespace fa {
 
@@ -581,18 +582,24 @@ void World::set_parent(Entity child, Entity parent, bool keepWorldTransform, int
     }
     d.dirty_world(child);
     d.dirty_active(child);
+    // Only a move to ANOTHER parent changes where the child is. Re-inserting under the same parent (reordering the
+    // children of a Panel, scene.set_parent with an index) leaves the layout offset and the Transform alone: the world
+    // does not change.
+    if (oldParent == parent) return;
     // The layout's placement belongs to the old parent: drop it now, so world_position is not stale until the next
     // layout pass (a new Panel parent gives the child a new offset on that pass). With keepWorldTransform the world
-    // matrix computed above held the placement too, so the whole of it goes into the local position below (the
-    // author's offset from the new parent) and the offset must not be counted twice, even when the parent did not
-    // change.
-    if (keepWorldTransform || oldParent != parent) set_ui_layout_offset(child, {0.0f, 0.0f});
+    // matrix computed above held the placement too, so the whole of it goes into the local position below.
+    set_ui_layout_offset(child, {0.0f, 0.0f});
 
     if (keepWorldTransform) {
         Mat4 parentWorld = parent.is_null() ? Mat4::identity() : world_matrix(parent);
         Mat4 local = parentWorld.inverse() * oldWorld;
         auto* t = static_cast<Transform*>(d.transformPool->get(child));
         decompose(local, t->position, t->rotation, t->scale);
+        // A new parent that lays its children out puts the child in its slot, as it always did (the position it had
+        // relative to the old parent means nothing here): x and y go to 0 (the author's offset from the slot), rotation,
+        // scale and z stay.
+        if (ui_layout_places(*this, parent, child)) t->position.x = t->position.y = 0.0f;
     }
 }
 

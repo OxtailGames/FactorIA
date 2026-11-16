@@ -70,6 +70,10 @@ const char* ui_kind_name(UiKind k);  // "Panel", "Button"... ("" for None)
 UiKind ui_kind(const World& w, Entity e);
 // Its shared geometry and background, nullptr if `e` is no widget.
 const UiBox* ui_box(const World& w, Entity e);
+// Whether the UI layout would give `child` a slot if it were a child of `parent`: `parent` is a Panel with a layout (or a
+// fallbackLayout) or a ScrollList, and `child` has a size the layout can measure (a widget, or a Text, Sprite or Shape2D in
+// screen space). World::set_parent uses it to put a widget moved into a container in its slot.
+bool ui_layout_places(const World& w, Entity parent, Entity child);
 // Button, Toggle, Slider and TextField can be focused, hovered and clicked; Panel and ScrollList cannot.
 inline bool ui_is_control(UiKind k) {
     return k == UiKind::Button || k == UiKind::Toggle || k == UiKind::Slider || k == UiKind::TextField;

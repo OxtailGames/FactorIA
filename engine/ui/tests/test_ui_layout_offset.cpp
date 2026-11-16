@@ -290,8 +290,8 @@ TEST_CASE(
     CHECK(position(u, d.b) == Vec3{0, 0, 0});
 }
 
-TEST_CASE("ui layout offset: set_parent keepWorld into another Panel lands in the slot plus the nudge that keeps the "
-          "world place") {
+TEST_CASE("ui layout offset: set_parent keepWorld into a Panel that lays out lands the child in its slot, rotation and "
+          "scale kept") {
     Ui t;
     const Column c = column(t);
     const Entity q = t.add<Panel>("q", {10, 100}, {200, 100});
@@ -300,20 +300,40 @@ TEST_CASE("ui layout offset: set_parent keepWorld into another Panel lands in th
     qp.padding = {10, 10, 10, 10};
     qp.align = UiAlign::Start;
     t.ui.layout(t.w, t.design, {});
-    const Vec3 before = t.w.world_position(c.b);  // (110, 90)
+    t.w.get<Transform>(c.b)->rotation = {0, 0, 30};
     t.w.set_parent(c.b, q, true);
-    CHECK(t.w.world_position(c.b).x == doctest::Approx(before.x));
-    CHECK(t.w.world_position(c.b).y == doctest::Approx(before.y));
+    // The position it had relative to the old parent means nothing under a parent that places its children: 0 = in the slot.
+    CHECK(position(t, c.b) == Vec3{0, 0, 0});
+    CHECK(t.w.get<Transform>(c.b)->rotation.z == doctest::Approx(30));
     for (int i = 0; i < 3; ++i) t.ui.layout(t.w, t.design, {});
-    // The choice: keepWorld keeps the Transform meaning, so the child's position is its place relative to the new
-    // parent
-    // (110 - 10, 90 - 100) and becomes the nudge from the new slot (q's top-left + padding = (20, 110)).
-    CHECK(position(t, c.b).x == doctest::Approx(100));
-    CHECK(position(t, c.b).y == doctest::Approx(-10));
-    CHECK(t.rect(c.b) == Rect{120, 100, 60, 30});
-    CHECK(t.rect(c.a) == Rect{110, 60, 100, 20});  // a, alone in its Panel, is in its slot
-    // clearing the nudge puts it exactly in the new slot
-    t.w.get<Transform>(c.b)->position = {0, 0, 0};
+    CHECK(*ui_layout_rect(t.w, c.b, t.design) == Rect{20, 110, 60, 30});  // q's top-left + padding
+    CHECK(t.rect(c.a) == Rect{110, 60, 100, 20});                         // a, alone in its Panel, is in its slot
+    // A Panel without a layout does not place its children: the child keeps its world place.
+    Ui u;
+    const Column d = column(u);
+    const Entity none = u.add<Panel>("none", {10, 100}, {200, 100});
+    u.ui.layout(u.w, u.design, {});
+    u.w.set_parent(d.b, none, true);
+    CHECK(position(u, d.b).x == doctest::Approx(100));  // 110 - 10
+    CHECK(position(u, d.b).y == doctest::Approx(-10));  // 90 - 100
+    CHECK(u.w.world_position(d.b).x == doctest::Approx(110));
+}
+
+TEST_CASE("ui layout offset: reordering the children of a Panel with set_parent keepWorld does not nudge anything") {
+    Ui t;
+    const Column c = column(t);
     t.ui.layout(t.w, t.design, {});
-    CHECK(t.rect(c.b) == Rect{20, 110, 60, 30});
+    t.w.set_parent(c.b, c.panel, true, 0);  // b first: the same parent, a new index
+    CHECK(position(t, c.b) == Vec3{0, 0, 0});
+    CHECK(position(t, c.a) == Vec3{0, 0, 0});
+    CHECK(t.w.ui_layout_offset_entities().size() == 2);  // the placement is untouched
+    for (int i = 0; i < 3; ++i) t.ui.layout(t.w, t.design, {});
+    CHECK(position(t, c.b) == Vec3{0, 0, 0});
+    CHECK(t.rect(c.b) == Rect{110, 60, 60, 30});
+    CHECK(t.rect(c.a) == Rect{110, 100, 100, 20});  // 60 + 30 + spacing 10
+    t.w.set_parent(c.a, c.panel, true, 0);          // and back
+    t.ui.layout(t.w, t.design, {});
+    CHECK(position(t, c.a) == Vec3{0, 0, 0});
+    CHECK(t.rect(c.a) == Rect{110, 60, 100, 20});
+    CHECK(t.rect(c.b) == Rect{110, 90, 60, 30});
 }

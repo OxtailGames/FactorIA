@@ -2773,7 +2773,8 @@ void register_builtin_components(TypeRegistry& r) {
                 "screen space); the rest are skipped. A child's own anchor and pivot do not matter: layout puts it in "
                 "its slot every frame without writing its Transform.position, which stays the child's own offset "
                 "from the slot (0 = exactly in it; a script or the inspector can nudge it, and the layout keeps the "
-                "nudge; since 0.30.0). A child's Transform.scale multiplies the "
+                "nudge; since 0.30.0). A widget moved into a laid-out Panel with scene.set_parent goes to its slot "
+                "(position 0, as the layout would put it). A child's Transform.scale multiplies the "
                 "room its slot takes (a row makes room for a child at scale 2); its rotation.z does not: the slot "
                 "stays and the child turns in place around its pivot. A turned or scaled Panel lays its children out "
                 "as if it were not and then turns and scales them with it (since 0.30.0).")

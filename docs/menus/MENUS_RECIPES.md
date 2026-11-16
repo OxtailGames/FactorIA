@@ -96,7 +96,9 @@ the slot, a script or the inspector can nudge it (the layout keeps the nudge, it
 the neighbours), and a scene file holds only that offset. Everything that looks at where the child is (drawing, `ui.rectOf`,
 hit tests, hover, `entity.bounds()`, `entity.worldPosition`, the viewport) sees the placed result; `entity.position` is only the
 offset. Under `ui.mirrorRtl` the offset is mirrored with the rest of the screen (a positive x nudges to the left). Dragging a
-laid-out child in the editor viewport changes that offset. The offset is added in layout space, before the turn and scale of
+laid-out child in the editor viewport changes that offset. Moving a widget into a Panel or ScrollList that lays out (`scene.set_parent`,
+the hierarchy drag, `setParent(parent, true)` in a script) puts it in its slot: its position becomes 0, rotation and scale stay;
+reordering inside the same parent changes only the order. The offset is added in layout space, before the turn and scale of
 the sections below, so a nudge of 10 to the right under a Panel turned a quarter lands 10 below it.
 
 A scene saved by an older version has the layout's placement baked into those positions (the layout used to add its delta to
