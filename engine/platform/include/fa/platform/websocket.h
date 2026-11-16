@@ -4,7 +4,7 @@
 //   Windows    WinHTTP's WebSocket API                 (M98.2b)
 //   macOS/iOS  NSURLSessionWebSocketTask               (M98.2b)
 //   Linux      libcurl (dlopen'ed) as the transport and fa/platform/websocket_codec.h; missing = not available
-//   Android    a socket stream through JNI with fa/platform/websocket_codec.h (M98.2c)
+//   Android    fa/platform/websocket_codec.h over Java's SSLSocket through JNI (wss://), over the tcp client (ws://)
 //   web        the browser's WebSocket                 (M98.2d)
 //   memory     MemoryWebSocketClient below: no network, a script of a server that a test drives (headless runs and tests)
 //   tcp        make_tcp_websocket_client(): plain ws:// over a POSIX socket, for the tests of the codec and the test server
@@ -204,7 +204,8 @@ std::unique_ptr<WebSocketClient> make_unavailable_websocket_client(std::string n
 
 #if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
 // Plain ws:// over a POSIX socket and fa/platform/websocket_codec.h, one reader thread per connection. No TLS: wss:// is
-// an error that says so. It is what the tests of the codec and the test server run against; a player does not use it.
+// an error that says so. It is what the tests of the codec and the test server run against, and what Android's client opens
+// its ws:// addresses with; no other player uses it.
 std::unique_ptr<WebSocketClient> make_tcp_websocket_client();
 // Linux's client: libcurl, loaded with dlopen, opens the connection (proxy, TCP, TLS) and fa/platform/websocket_codec.h speaks
 // the protocol over curl_easy_send/curl_easy_recv, so any libcurl from 7.45 works, with or without its own WebSocket support.

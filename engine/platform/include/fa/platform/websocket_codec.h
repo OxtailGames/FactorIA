@@ -19,6 +19,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <random>
 #include <string>
 #include <string_view>
@@ -145,8 +146,8 @@ struct SessionOptions {
     // A message (all its fragments together) longer than this is a failure with code 1009; a frame that announces more is
     // refused before one byte of it is buffered. It is also the longest message send_text and send_binary accept.
     std::size_t maxMessageBytes = kDefaultMaxMessageBytes;
-    // A client must mask every frame with a fresh unpredictable key. Called once per frame; null = a built-in generator
-    // seeded from std::random_device. A server never masks.
+    // A client must mask every frame with a fresh unpredictable key. Called once per frame; null = std::random_device,
+    // made when the first frame is masked (a server, or a client with this function, never makes one). A server never masks.
     std::function<std::uint32_t()> maskKey;
 };
 
@@ -184,9 +185,10 @@ private:
     void finish_frame(std::vector<Event>& events);
     std::uint32_t next_mask();
 
-    std::random_device random_;
     SessionOptions options_;
-    std::string in_;  // header bytes not parsed yet
+    std::unique_ptr<std::random_device> random_;  // made by next_mask() for a client without options_.maskKey
+    std::uint64_t fallback_ = 0;                  // the keys when this system has no std::random_device
+    std::string in_;                              // header bytes not parsed yet
     std::string out_;
     std::string message_;  // the data message being joined
     std::string control_;  // the control frame being read

@@ -3,7 +3,9 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <cstdlib>
+#include <exception>
 #include <iterator>
 #include <string>
 
@@ -383,7 +385,22 @@ std::string build_reject_response(int status, std::string_view reason) {
 Session::Session(SessionOptions options) : options_(std::move(options)) {}
 
 std::uint32_t Session::next_mask() {
-    return options_.maskKey ? options_.maskKey() : static_cast<std::uint32_t>(random_());
+    if (options_.maskKey) return options_.maskKey();
+    if (fallback_ == 0) {
+        try {
+            if (!random_) random_ = std::make_unique<std::random_device>();
+            return static_cast<std::uint32_t>((*random_)());
+        } catch (const std::exception&) {
+            // No entropy source (std::system_error): the keys come from a splitmix64 sequence seeded from the clock and
+            // this session's address. Masking keeps proxies from reading frames as HTTP; it is not encryption.
+            const auto t = static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
+            fallback_ = (t ^ static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(this))) | 1;
+        }
+    }
+    std::uint64_t z = (fallback_ += 0x9E3779B97F4A7C15ull);
+    z = (z ^ (z >> 30)) * 0xBF58476D1CE4E5B9ull;
+    z = (z ^ (z >> 27)) * 0x94D049BB133111EBull;
+    return static_cast<std::uint32_t>((z ^ (z >> 31)) >> 32);
 }
 
 void Session::queue(Opcode op, std::string_view payload, bool fin) {

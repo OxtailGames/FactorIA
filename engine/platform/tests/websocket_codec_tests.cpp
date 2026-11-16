@@ -72,6 +72,30 @@ TEST_CASE("ws codec: lengths of 7, 16 and 64 bits use the shortest form") {
     CHECK(encode_frame(Opcode::Binary, b65536, true, nullptr).size() == 10 + 65536);
 }
 
+TEST_CASE("ws codec: a client without a maskKey masks every frame with keys of its own; a server never masks") {
+    SessionOptions o;
+    o.role = Role::Client;
+    Session client(o);
+    std::vector<std::string> keys;
+    for (int i = 0; i < 4; ++i) {
+        REQUIRE(client.send_text("Hello").ok());
+        const std::string frame = client.take_output();
+        REQUIRE(frame.size() == 2 + 4 + 5);
+        CHECK((static_cast<unsigned char>(frame[1]) & 0x80) != 0);  // the mask bit
+        keys.push_back(frame.substr(2, 4));
+        // The receiving side unmasks it back to the text.
+        Session server = make_server();
+        auto events = feed_all(server, frame);
+        REQUIRE(events.size() == 1);
+        CHECK(events[0].data == "Hello");
+    }
+    // Four 32-bit keys from std::random_device: all equal only if the generator is broken.
+    CHECK_FALSE((keys[0] == keys[1] && keys[1] == keys[2] && keys[2] == keys[3]));
+    Session server = make_server();
+    REQUIRE(server.send_text("Hello").ok());
+    CHECK(server.take_output() == bytes({0x81, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f}));
+}
+
 TEST_CASE("ws codec: a session reads the frames of the RFC") {
     Session client = make_client();
     auto events = feed_all(client, bytes({0x81, 0x05, 0x48, 0x65, 0x6c, 0x6c, 0x6f}));
