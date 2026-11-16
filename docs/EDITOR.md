@@ -59,6 +59,9 @@ its own:
 - Shortcuts are the Mac's: Cmd+S saves the scene, Cmd+Z undoes, Cmd+Shift+Z redoes (Ctrl+S, Ctrl+Z and Ctrl+Y on the
   other systems). They work with the menus closed, and while a text box (the AI message, a name in the Inspector) has the
   keyboard they go to the box instead, so Cmd+Z undoes your typing and not the scene.
+- **Copy, Cut and Paste of entities have no key shown in the system menu**: binding Cmd+C there would take the key from
+  the Animation panel and the other panels that use it. The keys work all the same while the Hierarchy or the Viewport has
+  the keyboard (see "Copy, cut, paste and duplicate"); hovering the item says so.
 - A click on a menu item does its work at the start of the next editor frame, never inside the system's menu event.
   Hovering an item shows the same tooltips as the in-window bar. **Open Scene** and **Recent Projects** are read only
   when you open them.
@@ -154,8 +157,8 @@ are in the View menu.
 **Hierarchy.** Roots and children with their names and ids. Click an entity to select it (the viewport outline follows,
 and a click in the viewport scrolls the tree to the entity). Drag an entity onto another to make it a child
 (`scene.set_parent`: it keeps its place on screen) or onto the empty space under the tree to make it a root; a cycle is
-refused with the reason. Right-click: Create empty child, Duplicate (the entity and its children get new ids), Rename,
-Active, Move to the top level, Delete (also the Del key). **+** and the right-click menu of the empty space create a
+refused with the reason. Right-click: Create empty child, Duplicate (the entity and its children get new ids), Copy, Cut,
+Paste (see "Copy, cut, paste and duplicate"), Rename, Active, Move to the top level, Delete (also the Del key). **+** and the right-click menu of the empty space create a
 top-level entity. The search box keeps the entities whose name or id contains every word typed.
 
 **Inspector.** One collapsing header per component of the selected entity (hover the header for the component's
@@ -199,6 +202,7 @@ longer exists), so code that only draws uses `selection_peek()`, which reads wit
   **Duplicate (N)** and **Delete (N)** in the right-click menu, and the Del key, act on the whole selection and are ONE Undo
   step each (the children of a selected entity are copied or deleted with it, once). The copy of the primary becomes the
   primary.
+  Copy, Cut and Paste work on the whole selection too (next section).
 - **Viewport:** a click selects the entity under the cursor; **Ctrl+click** toggles it, **Shift+click** adds it. Dragging
   on empty space draws a **marquee**: it selects the entities whose outline (the picked bounds below) it covers completely and
   replaces the selection; with **Shift** it adds them, with **Ctrl** it toggles each. A plain click on empty space clears the
@@ -219,6 +223,40 @@ longer exists), so code that only draws uses `selection_peek()`, which reads wit
 - **AI Assistant:** "this" and "it" mean the primary; the context names it and lists the ids of the others (the first 20,
   `scene.list_entities` has the rest), and "these" and "them" mean all of them. No command or flag changed: commands still
   take entity ids.
+
+## Copy, cut, paste and duplicate
+
+**Edit > Copy / Cut / Paste / Duplicate** and the Hierarchy row menu act on the selected entities. The keys are **Ctrl+C**,
+**Ctrl+X**, **Ctrl+V** (Cmd on macOS) while the **Hierarchy** or the **Viewport** has the keyboard in Edit mode, and no text box
+does (a text box copies and pastes its own text; the Animation, Image and other panels keep these keys for themselves). With
+nothing selected Copy and Cut do nothing.
+
+- **Copy** puts the selected entities, each with all its children, on the **system clipboard** as JSON text (the command
+  `scene.copy_entities`). An entity whose ancestor is also selected is copied with that ancestor, once. Nothing in the scene
+  changes and no Undo step is recorded. The text holds components, children and the links of prefab instances to their prefabs,
+  and no path of this machine, so it can be pasted into another scene, another project or another editor, kept in a note, or
+  handed to an AI (`scene.paste_entities`).
+- **Paste** (the command `scene.paste_entities`) creates what the clipboard holds **next to the primary**: under the
+  primary's parent, or at the top level when the primary is a root or nothing is selected. It is ONE Undo step. The pasted
+  entities become the selection, and the copy of the entity that was the primary when you copied is the new primary. Every pasted
+  entity gets an id free in the scene: its old id when that is free (pasting into another scene), else the next number
+  (`coin_3` becomes `coin_4`). If the clipboard holds text that is not copied entities, the editor says so and changes nothing.
+- **Cut** is Copy and then Delete, as ONE Undo step: Undo brings the entities back, and the text stays on the clipboard until
+  you copy something else.
+- **Duplicate** is a Copy and a Paste in one go: each copy goes under the same parent as its original, named "<name> copy",
+  with a new id, and the copies become the selection (the copy of the primary stays the primary). It does not touch the
+  clipboard.
+
+**References.** An Entity field (a Joint's `connected`, for example) that names an entity inside the copied set names the
+**copy** after a paste or a Duplicate, so a copied pair stays a pair. A field that names an entity outside the set (a joint to
+a wall that was not copied) keeps naming it when the scene you paste into has an entity with that id (so Duplicate keeps it),
+and is **cleared** when it has not; the editor counts the cleared references in its message, and `scene.paste_entities` lists
+each one in `cleared` (`entity`, `component`, `field`, `target`). Runtime state (velocities, animation time) is not copied, and
+a field an animation drives is copied at its rest value. Only Entity fields are remapped: an entity id written inside a
+Json field (a script's `props`, for example) is copied as it is.
+
+A copy must fit the system clipboard the editor asks for (1 MB of text). A bigger one is refused with a message that says its
+size, and **Cut then deletes nothing**: copy fewer entities, or use `scene.copy_entities` from a script or the MCP tools.
 
 The outline of the selected entity comes from the engine's own geometry (`fa/scene/bounds.h`), the code behind
 `entity.bounds()` in scripts, so what the editor outlines is what a script measures:

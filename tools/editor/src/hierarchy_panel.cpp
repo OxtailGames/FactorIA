@@ -82,40 +82,6 @@ void Editor::hierarchy_spawn(const std::string& parentId, const std::string& nam
     select_id(r.result.value("id", std::string()));
 }
 
-void Editor::hierarchy_duplicate_selection() {
-    const std::vector<std::string> ids = selection_roots();
-    if (ids.empty()) return;
-    World& w = world();
-    const std::string primary = selection_.primary();
-    const std::string key = "hier:duplicate:" + std::to_string(uiFrame_);  // one key: one undo step for every copy
-    std::vector<std::string> copies;
-    std::string primaryCopy;
-    std::string failure;
-    for (const std::string& id : ids) {
-        const Entity e = w.find_by_id(id);
-        if (e.is_null()) continue;
-        EntityJsonOptions o;  // children included, defaults and runtime state left out
-        Json args = Json::object({{"entity", duplicate_spec(entity_to_json(w, e, o))}});
-        if (Entity p = w.parent(e)) args["parent"] = w.id_of(p);
-        std::string err;
-        CommandResult r = edit_command(key, "scene.spawn", args, &err);
-        if (!r.ok) {
-            if (failure.empty()) failure = err;
-            continue;
-        }
-        copies.push_back(r.result.value("id", std::string()));
-        if (id == primary) primaryCopy = copies.back();
-    }
-    if (!failure.empty()) notify("Could not duplicate the entity: " + failure, 2);
-    if (copies.empty()) return;
-    selection_.clear();
-    for (const std::string& c : copies)
-        if (c != primaryCopy) selection_.add(c);
-    if (!primaryCopy.empty()) selection_.add(primaryCopy);  // the copy of the primary stays the primary
-    hierAnchor_ = selection_.primary();
-    hierLastSelected_ = selection_.primary();
-}
-
 void Editor::hierarchy_destroy_selection() {
     const std::vector<std::string> ids = selection_roots();  // a destroyed entity takes its children with it
     if (ids.empty()) return;
@@ -256,6 +222,14 @@ void Editor::draw_hierarchy_node(Entity e, const std::string& filter) {
         const std::string many = selection_.size() > 1 ? " (" + std::to_string(selection_.size()) + ")" : std::string();
         if (ImGui::MenuItem(("Duplicate" + many).c_str())) hierarchy_duplicate_selection();
         at_track("tree:ctx:duplicate");
+        if (ImGui::MenuItem(("Copy" + many).c_str(), menu::shortcut_label("Ctrl+C", menu::kApple).c_str()))
+            entity_copy();
+        at_track("tree:ctx:copy");
+        if (ImGui::MenuItem(("Cut" + many).c_str(), menu::shortcut_label("Ctrl+X", menu::kApple).c_str())) entity_cut();
+        at_track("tree:ctx:cut");
+        if (ImGui::MenuItem("Paste", menu::shortcut_label("Ctrl+V", menu::kApple).c_str(), false, clipboard_has_text()))
+            entity_paste();
+        at_track("tree:ctx:paste");
         if (ImGui::MenuItem("Rename...")) {
             hierRenameId_ = id;
             hierRenameText_ = info.name;
@@ -345,6 +319,7 @@ void Editor::draw_hierarchy_panel() {
     hierRowsPrev_.swap(hierRows_);  // the order a Shift click of the next frame selects over
     if (ImGui::IsMouseReleased(ImGuiMouseButton_Left)) hierClickPending_.clear();
 
+    if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows)) hierFocusFrame_ = uiFrame_;
     // Delete removes the selected entities while the tree has the focus (not while typing in a box).
     if (ImGui::IsWindowFocused(ImGuiFocusedFlags_RootAndChildWindows) && !ImGui::GetIO().WantTextInput &&
         ImGui::IsKeyPressed(ImGuiKey_Delete, false) && !selection_.empty())

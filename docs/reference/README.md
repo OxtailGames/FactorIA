@@ -512,12 +512,14 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`load.status`](commands/scene.md#loadstatus): Show the background loads: progress, items, bytes, errors. _Since 0.19.0._
 - [`prefab.save`](commands/scene.md#prefabsave-modifies-state): Save an entity of the running world, with its children, as a prefab file.
 - [`scene.ascii_edit`](commands/scene.md#sceneascii_edit-modifies-state): Edit the ASCII map of a level file (a scene.import_ascii args file) with operations instead of rewriting rows, then rebuild the level. _Since 0.2.0._
+- [`scene.copy_entities`](commands/scene.md#scenecopy_entities): Write entities of the running world, with their subtrees, as one JSON text. _Not released yet._
 - [`scene.destroy`](commands/scene.md#scenedestroy-modifies-state): Destroy an entity and its children.
 - [`scene.format`](commands/scene.md#sceneformat-modifies-state): Rewrite scene and prefab files in the canonical compact layout, without loading them.
 - [`scene.get_entity`](commands/scene.md#sceneget_entity): Get one entity with every component field (including defaults and runtime values).
 - [`scene.import_ascii`](commands/scene.md#sceneimport_ascii-modifies-state): Build a Tilemap level and the objects standing on it (coins, enemies, spawn points) from ASCII rows and a legend.
 - [`scene.list_entities`](commands/scene.md#scenelist_entities): List entities (id, name, tags, components) with optional filters.
 - [`scene.load`](commands/scene.md#sceneload-modifies-state): Replace the running scene with a scene file.
+- [`scene.paste_entities`](commands/scene.md#scenepaste_entities-modifies-state): Create the entities of a scene.copy_entities text in the running world. _Not released yet._
 - [`scene.place_ascii`](commands/scene.md#sceneplace_ascii-modifies-state): Build a Tilemap level and the objects standing on it into the RUNNING world from ASCII rows and a legend; never writes a file. _Since 0.25.0._
 - [`scene.preload`](commands/scene.md#scenepreload-modifies-state): Read a scene's files in the background, so a later scene.load waits for nothing. _Since 0.19.0._
 - [`scene.reload`](commands/scene.md#scenereload-modifies-state): Reload the current scene from disk (discards runtime changes).

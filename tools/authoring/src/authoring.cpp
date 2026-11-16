@@ -17,6 +17,7 @@ void register_authoring_commands(Engine& engine) {
 
     // scenes, prefabs
     register_scene_file_commands(engine, impl);
+    register_scene_clipboard_commands(engine, impl);  // scene.copy_entities, scene.paste_entities
 
     // animation, rigs
     register_anim_commands(engine, impl);   // anim.create_clip, anim.set_keys, anim.list, anim.check, ...

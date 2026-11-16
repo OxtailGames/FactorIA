@@ -44,6 +44,20 @@ TEST_CASE("Selection: add keeps selection order and the last added is the primar
     CHECK_FALSE(s.contains("z"));
 }
 
+TEST_CASE("Selection: set replaces the ids in order and keeps the primary asked for") {
+    Selection s;
+    s.add("old");
+    s.set({"a", "", "b", "a", "c"}, "b");
+    CHECK(s.ids() == Ids{"a", "b", "c"});
+    CHECK(s.primary() == "b");
+    s.set({"x", "y"}, "not there");  // a primary that is not in the list: the last id
+    CHECK(s.ids() == Ids{"x", "y"});
+    CHECK(s.primary() == "y");
+    s.set({}, "x");
+    CHECK(s.empty());
+    CHECK(s.primary().empty());
+}
+
 TEST_CASE("Selection: toggle adds, removes, and promotes the last remaining id when it removes the primary") {
     Selection s;
     s.toggle("a");
