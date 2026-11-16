@@ -216,7 +216,8 @@ CommandResult Editor::write_group_drag(Vec3 primaryValue, Vec3 groupWorld, float
 // half a second.
 bool Editor::gizmo_mixed_space(Entity primary) {
     World& w = world();
-    const std::uint64_t stamp = std::uint64_t(undo_depth()) * 1000003u + std::uint64_t(redo_depth());
+    const std::uint64_t stamp =
+        (std::uint64_t(undo_depth()) * 1000003u + std::uint64_t(redo_depth())) * 1000003u + std::uint64_t(undo_.lost());
     GizmoSpaceCache& c = gizmoSpaceCache_;
     if (c.at >= 0.0 && time_ >= c.at && time_ - c.at < 0.5 && c.stamp == stamp && c.primary == w.id_of(primary) &&
         c.ids == selection_peek().ids())

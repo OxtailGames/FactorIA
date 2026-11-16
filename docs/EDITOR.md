@@ -331,7 +331,7 @@ primary (the removed row stays the anchor of the next Shift click). Copy and pas
   component from all of them. When one entity refuses an edit, the ones before it keep the change (it is still one Undo
   step) and the message says "Changed k of N entities" (Add Component and the x of a header say it too). In a number that
   differs ("—") typing the primary's own value writes it to all the entities once you press Enter, or leave the box (Tab, a
-  click outside) after changing its text; Esc cancels.
+  click outside) after changing its text; Esc restores the text in the box (a value already written while typing stays).
 - **AI Assistant:** "this" and "it" mean the primary; the context names it and lists the ids of the others (the first 20,
   `scene.list_entities` has the rest), and "these" and "them" mean all of them. No command or flag changed: commands still
   take entity ids.
