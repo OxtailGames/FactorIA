@@ -292,6 +292,11 @@ TEST_CASE("audio: spatial sources pan and attenuate relative to the listener") {
 
     auto measure = [&](Vec3 pos) {
         world.get<Transform>(s)->position = pos;
+        // A move changes the volume over about 20 ms (no click): let it settle before the recording starts.
+        for (int i = 0; i < 4; ++i) {
+            fx.audio.update(world, 1.0f / 60.0f);
+            fx.audio.advance_null_device(1.0 / 60.0);
+        }
         fx.audio.start_recording();
         for (int i = 0; i < 12; ++i) {
             fx.audio.update(world, 1.0f / 60.0f);
@@ -885,6 +890,23 @@ TEST_CASE("audio: AudioSource curve and cone, play_at agrees, defaults unchanged
     // forward is -Z: the listener at +Z of the source is behind it when yaw = 0
     CHECK(cone(0) == doctest::Approx(0.6f * 0.5f));
     CHECK(cone(180) == doctest::Approx(0.6f));
+    // a quarter turn: yaw 90 about Y turns forward (-Z) to -X, yaw 270 to +X (right-handed), so the side a source faces is the side it is loud on
+    auto cone_at = [&](Vec3 pos, float yaw) {
+        return play_source([&](AudioSource& s, Transform& t) {
+            t.position = pos;
+            t.rotation = {0, yaw, 0};
+            s.coneInnerAngle = 60;
+            s.coneOuterAngle = 120;
+            s.coneOuterGain = 0.5f;
+        });
+    };
+    CHECK(cone_at({-40, 0, 0}, 90) == doctest::Approx(0.6f * 0.5f));  // faces -X, away from the listener at the origin
+    CHECK(cone_at({-40, 0, 0}, 270) == doctest::Approx(0.6f));        // faces +X, at the listener
+    CHECK(cone_at({40, 0, 0}, 270) == doctest::Approx(0.6f * 0.5f));  // the mirror image
+    CHECK(cone_at({40, 0, 0}, 90) == doctest::Approx(0.6f));
+    CHECK(cone_at({-40, 0, 0}, 0) ==
+          doctest::Approx(0.6f * 0.5f));  // faces -Z, a right angle to the listener: outside the outer cone
+    CHECK(cone_at({-40, 0, 0}, 180) == doctest::Approx(0.6f * 0.5f));  // faces +Z: the same, both sides are symmetric
     // play_at with a direction
     sound = SpatialSound{};
     sound.range = 100.0f;

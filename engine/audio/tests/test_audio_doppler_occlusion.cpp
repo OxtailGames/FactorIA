@@ -3,8 +3,12 @@
 // the per-voice low-pass of the mixer.
 #include <doctest.h>
 
+#include <algorithm>
 #include <cmath>
 #include <functional>
+#include <map>
+#include <memory>
+#include <mutex>
 #include <set>
 #include <string>
 #include <vector>
@@ -12,6 +16,7 @@
 #include "../src/audio_testing.h"
 #include "audio_test_helpers.h"
 #include "fa/audio/audio.h"
+#include "fa/core/log.h"
 #include "fa/scene/components.h"
 
 using namespace fa;
@@ -465,4 +470,153 @@ TEST_CASE("occlusion and doppler: a fade in progress is not interrupted while th
         CHECK(now <= previous * 1.001f);
         previous = now;
     }
+}
+
+TEST_CASE("occlusion: with more sources than the budget, every one is asked in turn (the unmeasured first, then the "
+          "oldest)") {
+    Fixture fx;
+    Scene sc;
+    int frame = 0;
+    std::map<std::uint64_t, std::vector<int>> askedAt;
+    int most = 0, thisFrame = 0;
+    fx.audio.set_occlusion_probe([&](World&, const AudioOcclusionRay& ray) {
+        ++thisFrame;
+        askedAt[ray.source.bits()].push_back(frame);
+        return false;
+    });
+    const int count =
+        60;  // more than the 48 a budget of 8 serves every 0.1 s at 60 frames per second, and fewer than the 64 voices
+    for (int i = 0; i < count; ++i)
+        sc.source("s" + std::to_string(i), {10.0f + float(i), 0, 0}, [](AudioSource& a) {
+            a.range = 1000.0f;
+            a.occlusion = true;
+        });
+    for (frame = 0; frame < 90; ++frame) {
+        thisFrame = 0;
+        tick(fx, sc);
+        most = std::max(most, thisFrame);
+    }
+    CHECK(most == kAudioOcclusionRaysPerFrame);  // the budget is used up every frame, and not exceeded
+    REQUIRE(askedAt.size() == std::size_t(count));
+    int longest = 0, fewest = 1000;
+    for (const auto& [source, frames] : askedAt) {
+        fewest = std::min(fewest, int(frames.size()));
+        for (std::size_t i = 1; i < frames.size(); ++i) longest = std::max(longest, frames[i] - frames[i - 1]);
+    }
+    CHECK(fewest >= 10);  // 90 frames, one turn in 7 or 8
+    CHECK(longest <=
+          9);  // nobody waits for good: the longest gap is the cycle of the budget, not a source that is passed over
+}
+
+TEST_CASE(
+    "occlusion: sounds played at a place that find the budget used up are asked in the next frame with a budget") {
+    Fixture fx;
+    Scene sc;
+    std::vector<Vec3> asked;
+    fx.audio.set_occlusion_probe([&](World&, const AudioOcclusionRay& ray) {
+        CHECK(ray.source.is_null());
+        asked.push_back(ray.to);
+        return true;
+    });
+    tick(fx, sc);  // refills the budget
+    SpatialSound sound;
+    sound.occlusion = true;
+    sound.range = 1000.0f;
+    const int count = kAudioOcclusionRaysPerFrame + 3;
+    for (int i = 0; i < count; ++i)
+        REQUIRE(fx.audio.play_at(sc.world, "sounds/sine.wav", PlayParams{}, {30.0f + float(i), 0, 0}, sound) != 0);
+    CHECK(asked.size() == std::size_t(kAudioOcclusionRaysPerFrame));  // what the frame had
+    tick(fx, sc);  // this update starts with the budget these plays used up
+    CHECK(asked.size() == std::size_t(kAudioOcclusionRaysPerFrame));
+    tick(fx, sc);
+    CHECK(asked.size() ==
+          std::size_t(count));  // the others are first in line in the one after, before anything is asked twice
+    std::set<float> places;
+    for (const Vec3& at : asked) places.insert(at.x);
+    CHECK(places.size() == std::size_t(count));  // each of them once
+    for (int i = 0; i < 2; ++i) tick(fx, sc);
+    CHECK(asked.size() == std::size_t(count));  // and not again before 0.1 s
+}
+
+TEST_CASE("doppler: a source that is switched off, moved and switched on again has no blip of pitch") {
+    Fixture fx;
+    Scene sc;
+    Entity s = sc.source("src", {500, 0, 0}, [](AudioSource& a) { a.dopplerLevel = 1.0f; });
+    for (int i = 0; i < 10; ++i) tick(fx, sc);
+    CHECK(voice_of(fx.audio)["pitch"].get<float>() == 1.0f);
+    sc.world.set_active(s, false);
+    for (int i = 0; i < 3; ++i) tick(fx, sc);
+    CHECK(voice_of(fx.audio).is_null());
+    sc.move(s, {200, 0, 0});  // 300 units while it was off: over one frame that would be 18000 units per second
+    sc.world.set_active(s, true);
+    float most = 1.0f, least = 1.0f;
+    for (int i = 0; i < 10; ++i) {
+        tick(fx, sc);
+        const Json v = voice_of(fx.audio);
+        if (v.is_null()) continue;
+        most = std::max(most, v["pitch"].get<float>());
+        least = std::min(least, v["pitch"].get<float>());
+    }
+    CHECK(most == 1.0f);
+    CHECK(least == 1.0f);
+}
+
+TEST_CASE("occlusion: the mixer ramps the volume to each step of the answer, with no step in the samples") {
+    Fixture fx;
+    // a constant level: any step in the gain shows as a step in the samples
+    write_file(fx.dir / "sounds/dc.wav", wav_bytes(std::vector<float>(44100, 0.5f), 1, 44100));
+    Scene sc;
+    bool blocked = true;
+    fx.audio.set_occlusion_probe([&](World&, const AudioOcclusionRay&) { return blocked; });
+    sc.source("src", {0, 0, -10}, [](AudioSource& a) {
+        a.clip = "sounds/dc.wav";
+        a.range = 1000.0f;
+        a.occlusion = true;
+        a.occlusionGain = 0.2f;
+        a.occlusionLowpass = 20000.0f;  // the gain only
+    });
+    for (int i = 0; i < 20; ++i) tick(fx, sc);
+    fx.audio.start_recording();
+    for (int i = 0; i < 6; ++i) tick(fx, sc);
+    blocked = false;
+    for (int i = 0; i < 24; ++i) tick(fx, sc);
+    const Recording rec = fx.finish();
+    // the level rose from 0.2 to 1 of its value: the sound did change...
+    const std::size_t n = rec.frames();
+    REQUIRE(n > 3000);
+    CHECK(rec.l[n - 1] > 3.0f * rec.l[0]);
+    // ...and no sample is more than a tiny step from the one before
+    float step = 0.0f;
+    for (std::size_t i = 1; i < n; ++i) step = std::max(step, std::fabs(rec.l[i] - rec.l[i - 1]));
+    CHECK(
+        step <
+        0.003f);  // the gain moves 0.8 in about 0.17 s: less than 0.0001 per sample, and an unramped step of a frame is 0.03
+}
+
+TEST_CASE("occlusion: the 257th sound played at a place that is followed says so, once") {
+    Fixture fx;
+    Scene sc;
+    auto lines = std::make_shared<std::pair<std::mutex, std::vector<std::string>>>();
+    const int sink = add_log_sink([lines](const LogEntry& e) {
+        if (e.level != LogLevel::Warn || e.category != "audio") return;
+        std::lock_guard<std::mutex> lk(lines->first);
+        lines->second.push_back(e.message);
+    });
+    tick(fx, sc);
+    SpatialSound sound;
+    sound.range = 100000.0f;
+    sound.dopplerLevel = 1.0f;  // followed: its pitch moves with the listener
+    // 300 sounds in one frame: each louder than the one before, so that each takes a voice from the quietest of the 64
+    int played = 0;
+    for (int i = 0; i < 300; ++i) {
+        PlayParams p;
+        p.volume = 0.01f + 0.003f * float(i);
+        if (fx.audio.play_at(sc.world, "sounds/sine.wav", p, {30, 0, 0}, sound) != 0) ++played;
+    }
+    remove_log_sink(sink);
+    CHECK(played == 300);
+    std::lock_guard<std::mutex> lk(lines->first);
+    REQUIRE(lines->second.size() == 1);
+    CHECK(lines->second[0].find("256") != std::string::npos);
+    CHECK(lines->second[0].find("hint") != std::string::npos);
 }
