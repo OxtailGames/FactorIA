@@ -7,8 +7,11 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 ## Unreleased
 
 - `TextField` has `caretIndex`, `selectionStart`, `selectionEnd` and a runtime `composition`, and scripts read
-  `input.composing` / `input.compositionText`: the shared interface for text editing and IME composition (M98.6). Nothing
-  moves the caret yet.
+  `input.composing` / `input.compositionText`: the shared interface for text editing and IME composition (M98.6).
+- `TextField` editing: a caret you move with the arrows (by word with Ctrl, Alt on macOS), Home / End, Delete, a selection
+  (Shift, drag, double click, Ctrl/Cmd+A), cut / copy / paste of the selection, a scrolling field, `password`, and the IME
+  composition drawn at the caret with an exact caret rectangle for the candidate window. Ctrl/Cmd+C with nothing selected
+  no longer copies the whole text. New runtime fields `compositionCaret`, `compositionSelection`, `scrollX`.
 
 ## 0.29.1
 

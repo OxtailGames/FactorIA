@@ -1745,7 +1745,14 @@ TEST_CASE("ui textfield: Ctrl+V pastes (no newlines or control characters, maxLe
     CHECK(f.text == "abcdefgh\xC3\xA9");
     t.in.on_key(Key::V, false);
     t.frame();
-    t.in.on_key(Key::C, true);  // copy
+    t.in.on_key(Key::C, true);  // copy: nothing is selected, the clipboard is left alone
+    t.frame();
+    CHECK(clip.get() == "\xC3\xA9");
+    t.in.on_key(Key::C, false);
+    t.in.on_key(Key::A, true);  // select all, then copy
+    t.frame();
+    t.in.on_key(Key::A, false);
+    t.in.on_key(Key::C, true);
     t.frame();
     CHECK(clip.get() == "abcdefgh\xC3\xA9");
     t.in.on_key(Key::C, false);
@@ -2567,8 +2574,9 @@ TEST_CASE("ui textfield: the IME is on while a TextField has the focus and gets 
     CHECK(ime_state().enabled);
     const Rect r = ime_state().caretRect;
     CHECK(r.w > 0);
-    CHECK(r.h == doctest::Approx(60.0f));  // the field's height, in window pixels (design x 2)
-    CHECK(r.y == doctest::Approx(40.0f));
+    CHECK(r.h ==
+          doctest::Approx(2.0f * 24.0f * 1.2f));  // one text line (the approximate measure: 1.2 em), in window pixels
+    CHECK(r.y == doctest::Approx(2.0f * (20.0f + (30.0f - 24.0f * 1.2f) * 0.5f)));  // centred in the field
     t.ui.set_focus(t.w, b);
     t.frame();
     CHECK_FALSE(ime_state().enabled);
