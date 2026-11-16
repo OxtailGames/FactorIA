@@ -5,8 +5,10 @@
 //
 // It follows the pattern of fa/platform/websocket.h for every native client. Everything the network does reaches a Core (a
 // shared_ptr: the event queue, the state, the flags) through the delegate of one ephemeral session and the completion blocks
-// of the task; none of them touches the AppleWebSocket that the game holds. Destroying that handle abandons the queue, asks
-// the task to close (1001, which takes no waiting) and returns; the session lets go of everything by itself.
+// of the task; none of them touches the AppleWebSocket that the game holds. Destroying that handle abandons the queue and
+// returns; the session lets go of everything by itself. An Open connection first asks the task to close (1001, which takes
+// no waiting); a Closing one has sent its own close frame already, so the session only finishes; a Connecting or Closed one
+// is cancelled at once (invalidateAndCancel).
 //
 // What NSURLSession does differently from the tcp client (docs/NETWORKING.md):
 //   - a message is held whole before it is handed over: maximumMessageSize is set to maxMessageBytes (the system then fails
@@ -116,7 +118,8 @@ public:
         if (data.size() > request_.maxMessageBytes) {
             fail("a message of " + std::to_string(data.size()) + " bytes is above the limit of " +
                      std::to_string(request_.maxMessageBytes) + " bytes",
-                 "Raise maxMessageBytes in the options of websocket.connect, or make the server send smaller messages.");
+                 "Raise maxMessageBytes in the options of websocket.connect, or make the server send smaller "
+                 "messages.");
             return false;
         }
         const bool ok =
@@ -133,13 +136,14 @@ public:
 
     // The server (or our own close) ended the connection with a close frame.
     void on_closed(int code, std::string reason) {
-        // 1006 and 1015 never travel in a close frame: the system reports them for a connection that broke (or a TLS failure),
-        // and so it does a message above maximumMessageSize (1009, with the receive error EMSGSIZE). That is a failure
-        // (Error, then Close 1006), not a clean close. A 1009 that a server really sent has no such error behind it.
-        bool failure = code == ws::close_code::kAbnormal || code == 1015;
+        // 1006 and 1015 never travel in a close frame: the system reports them for a connection that broke (or a TLS
+        // failure), and so it does a message above maximumMessageSize (1009, with the receive error EMSGSIZE). That is a
+        // failure (Error, then Close 1006), not a clean close. A 1009 that a server really sent has no such error behind it.
+        bool failure = code == ws::close_code::kAbnormal || code == ws::close_code::kTlsFailure;
         if (!failure && code == 1009) {
             std::lock_guard<std::mutex> lock(mutex_);
-            failure = lastError_ && [lastError_.domain isEqualToString:NSPOSIXErrorDomain] && lastError_.code == EMSGSIZE;
+            failure = lastError_ && [lastError_.domain isEqualToString:NSPOSIXErrorDomain] &&
+                      lastError_.code == EMSGSIZE;
         }
         if (failure) {
             on_complete(nil, nil);
@@ -158,7 +162,8 @@ public:
             if (finished_) return;
             if (abortedConnecting_) {
                 message = "the connection was closed before it was open";
-                hint = "close() was called before the connection opened; wait for the 'open' event, or ignore this error.";
+                hint =
+                    "close() was called before the connection opened; wait for the 'open' event, or ignore this error.";
             } else {
                 if (!error) error = lastError_;
                 describe(error, response, state_.load() == WebSocketState::Connecting, message, hint, status);
@@ -188,7 +193,8 @@ public:
         }
         fail("timed out connecting to " + host_ + " after " +
                  std::to_string(static_cast<int>(request_.connectTimeoutSec)) + " seconds",
-             "Check that the server is running and that the address is right, or raise the timeout of websocket.connect.");
+             "Check that the server is running and that the address is right, or raise the timeout of "
+             "websocket.connect.");
         return true;
     }
 
@@ -232,8 +238,9 @@ private:
                 case 303:
                 case 307:
                 case 308:
-                    hint = "The server redirects: use the address it redirects to (a WebSocket connection does not follow "
-                           "redirects).";
+                    hint =
+                        "The server redirects: use the address it redirects to (a WebSocket connection does not follow "
+                        "redirects).";
                     break;
                 case 400:
                     hint = "The server did not understand the upgrade: check the path and the subprotocols the server "
@@ -241,8 +248,9 @@ private:
                     break;
                 case 401:
                 case 403:
-                    hint = "The server wants a login or refuses this game: send a token in the headers option or in the "
-                           "address, and check what the server allows.";
+                    hint =
+                        "The server wants a login or refuses this game: send a token in the headers option or in the "
+                        "address, and check what the server allows.";
                     break;
                 case 404: hint = "There is no WebSocket endpoint at this path: check the path of the address."; break;
                 case 426: hint = "The server asks for another protocol version or for TLS: try wss://."; break;
@@ -276,19 +284,23 @@ private:
             hint = "Check the connection; try again.";
         } else if (isUrl && code == NSURLErrorSecureConnectionFailed) {
             message = "the secure connection to " + host_ + " failed: " + to_std(error.localizedDescription);
-            hint = "The TLS handshake did not complete: check that the port speaks TLS (wss://) and that the server supports a "
-                   "current TLS version.";
-        } else if (isUrl && code <= NSURLErrorServerCertificateHasBadDate && code >= NSURLErrorClientCertificateRequired) {
+            hint =
+                "The TLS handshake did not complete: check that the port speaks TLS (wss://) and that the server "
+                "supports a current TLS version.";
+        } else if (isUrl && code <= NSURLErrorServerCertificateHasBadDate &&
+                   code >= NSURLErrorClientCertificateRequired) {
             message = "the secure connection to " + host_ + " failed: " + to_std(error.localizedDescription);
-            hint = "The server's certificate is not trusted by this computer (an expired certificate, a wrong clock, or a "
-                   "proxy that rewrites traffic).";
+            hint =
+                "The server's certificate is not trusted by this computer (an expired certificate, a wrong clock, or a "
+                "proxy that rewrites traffic).";
         } else if (isUrl && code == NSURLErrorAppTransportSecurityRequiresSecureConnection) {
             message = "the system refuses a plain ws:// connection to " + host_;
             hint = "Use wss:// (plain ws:// is only allowed for localhost).";
         } else if ([domain isEqualToString:NSPOSIXErrorDomain] && code == EMSGSIZE) {
             message = "a message from " + host_ + " is above the limit of " + std::to_string(request_.maxMessageBytes) +
                       " bytes";
-            hint = "Raise maxMessageBytes in the options of websocket.connect, or make the server send smaller messages.";
+            hint =
+                "Raise maxMessageBytes in the options of websocket.connect, or make the server send smaller messages.";
         } else if (isUrl && code == NSURLErrorBadServerResponse && handshake) {
             message = "the server at " + host_ + " did not answer the WebSocket upgrade correctly";
             hint = "Check the address and the path: a WebSocket server answers the upgrade with HTTP 101.";
@@ -393,9 +405,11 @@ public:
                 // A close frame (1001) that takes no waiting; the session ends when the task does, and in any case after
                 // the close wait. A connection that is Closing has sent its own close frame already: invalidateAndCancel would
                 // drop it, so it only lets the session finish (no second close).
-                if (s == WebSocketState::Open) [task_ cancelWithCloseCode:NSURLSessionWebSocketCloseCodeGoingAway reason:nil];
+                if (s == WebSocketState::Open)
+                    [task_ cancelWithCloseCode:NSURLSessionWebSocketCloseCodeGoingAway reason:nil];
                 [session finishTasksAndInvalidate];
-                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(kWebSocketCloseWaitSec * NSEC_PER_SEC)),
+                const int64_t waitNs = static_cast<int64_t>(kWebSocketCloseWaitSec * NSEC_PER_SEC);
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, waitNs),
                                dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
                                    [session invalidateAndCancel];
                                });
@@ -411,7 +425,8 @@ public:
         if (auto r = core_->can_send(text.size()); !r.ok()) return r;
         if (!is_valid_utf8(text)) return make_error("the text is not valid UTF-8", "Send other data with send_binary.");
         @autoreleasepool {
-            NSString* string = [[NSString alloc] initWithBytes:text.data() length:text.size() encoding:NSUTF8StringEncoding];
+            NSString* string =
+                [[NSString alloc] initWithBytes:text.data() length:text.size() encoding:NSUTF8StringEncoding];
             if (!string) return make_error("the text is not valid UTF-8", "Send other data with send_binary.");
             send(text.size(), [[NSURLSessionWebSocketMessage alloc] initWithString:string]);
         }
@@ -445,7 +460,8 @@ public:
             // Safety net: the system reports the close by itself; if it ever does not, the wait of the contract ends it.
             std::shared_ptr<Core> core = core_;
             NSURLSessionWebSocketTask* task = task_;
-            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, static_cast<int64_t>(kWebSocketCloseWaitSec * NSEC_PER_SEC)),
+            const int64_t waitNs = static_cast<int64_t>(kWebSocketCloseWaitSec * NSEC_PER_SEC);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, waitNs),
                            dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
                                if (core->on_close_timeout()) [task cancel];
                            });
@@ -490,13 +506,15 @@ public:
         @autoreleasepool {
             NSString* text = [NSString stringWithUTF8String:request.url.c_str()];
             NSURL* url = text ? [NSURL URLWithString:text] : nil;
-            if (!url) return make_error("the address is not a valid URL: " + request.url, "Write it as wss://host/path.");
+            if (!url)
+                return make_error("the address is not a valid URL: " + request.url, "Write it as wss://host/path.");
             NSMutableURLRequest* req = [NSMutableURLRequest requestWithURL:url];
             for (const auto& [name, value] : request.headers) {
                 NSString* n = [NSString stringWithUTF8String:name.c_str()];
                 NSString* v = [NSString stringWithUTF8String:value.c_str()];
                 if (!n || !v)
-                    return make_error("the header \"" + name + "\" is not valid UTF-8", "Use plain text for header values.");
+                    return make_error("the header \"" + name + "\" is not valid UTF-8",
+                                      "Use plain text for header values.");
                 [req setValue:v forHTTPHeaderField:n];
             }
             if (![req valueForHTTPHeaderField:@"User-Agent"])
@@ -504,7 +522,8 @@ public:
             if (!request.subprotocols.empty()) {
                 std::string joined;
                 for (const std::string& p : request.subprotocols) joined += (joined.empty() ? "" : ", ") + p;
-                [req setValue:[NSString stringWithUTF8String:joined.c_str()] forHTTPHeaderField:@"Sec-WebSocket-Protocol"];
+                [req setValue:[NSString stringWithUTF8String:joined.c_str()]
+                    forHTTPHeaderField:@"Sec-WebSocket-Protocol"];
             }
 
             NSURLSessionConfiguration* config = [NSURLSessionConfiguration ephemeralSessionConfiguration];

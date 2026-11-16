@@ -6,6 +6,10 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **WebSocket on Linux (libcurl) and Windows, polish:** when a game does not read its messages and the engine ends the connection
+  (`"close"` 1008), `readyState` is `"closed"` as soon as that `"close"` event can be read, as it already was for every other
+  end (before, a read right then could still say `"open"` for a moment). On Windows, a close frame from the server whose status
+  Windows cannot read is answered with an empty close frame instead of dropping the connection.
 - **Example games in the release, first part (M97.5a):** every release will publish each example game (`block-push`,
   `lantern-keep`, `kindlewatch`, ...) as its own zip, plus `examples-manifest.json` with each example's title, what it
   shows, the docs to read first, and the size and SHA-256 of its zip. The new command `project.package_examples` makes

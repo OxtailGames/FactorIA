@@ -44,7 +44,7 @@ const allowedLogs = [];
 for (let i = args.indexOf('--allow-log'); i >= 0; i = args.indexOf('--allow-log')) allowedLogs.push(args.splice(i, 2)[1]);
 const dir = args[0];
 if (!dir || !fs.existsSync(path.join(dir, 'index.html'))) {
-  console.error('usage: node smoke.mjs <export folder with index.html> [--browser path] [--timeout seconds] [--screenshot out.png] [--type text --expect prefix]');
+  console.error('usage: node smoke.mjs <export folder with index.html> [--browser path] [--timeout seconds] [--screenshot out.png] [--type text --expect prefix] [--also text] [--allow-log text]');
   process.exit(2);
 }
 
