@@ -4,6 +4,9 @@
 // (ime_set_enabled, ime_cancel). Plain data in, Input calls out, so the tests cover it on every host
 // (tests/ime_ic_tests.cpp). Private to fa_platform.
 //
+// One sequence: the keys of the activity's input queue (android_keys.h) go through the same queue as the input method's
+// calls, so they reach Input in the order they came (an input method sends some keys as key events, between its commits).
+//
 // Threads: push() is for any thread (Java calls the InputConnection on the app's UI thread, which is not the sokol_app
 // loop thread the game runs on); everything else runs on the game thread, which also feeds Input.
 //
@@ -20,6 +23,7 @@
 #include <string>
 #include <vector>
 
+#include "fa/platform/android_keys.h"
 #include "fa/platform/input.h"
 #include "ime_text.h"
 
@@ -34,13 +38,21 @@ struct Event {
         Delete,   // deleteSurroundingText: `before` presses of Backspace, then `after` presses of Delete
         Action,   // performEditorAction: the keyboard's Enter key
         Close,    // closeConnection: the connection is gone, its composition with it (nothing is typed)
+        // The keys of the activity's input queue (push_keys), in the same sequence: every key, also while the IME is off.
+        Key,   // a key edge (`key`, `down`); `typing`: a press that types a character (the Char that follows it)
+        Char,  // the character a key typed (`codepoint`)
+        Back,  // the Back button
     };
     Kind kind = Kind::Compose;
-    std::int32_t generation = 0;
+    std::int32_t generation = 0;         // the IME's events; keys have none (they are never dropped)
     std::u16string text;                 // Compose, Commit
     int cursor = 1;                      // Compose: setComposingText's newCursorPosition (see compose_caret)
     std::vector<ime_text::Run> clauses;  // Compose: the runs the IME highlights (the clause it converts: emphasized)
     int before = 0, after = 0;           // Delete, in what the IME counts (UTF-16 units or code points: one press each)
+    fa::Key key = fa::Key::Unknown;      // Key
+    bool down = false;                   // Key
+    bool typing = false;                 // Key
+    std::uint32_t codepoint = 0;         // Char
 };
 
 inline constexpr std::size_t kMaxText = 65536;   // UTF-16 units of one event's text; the rest is cut (a paste that big)
@@ -59,6 +71,10 @@ class Session {
 public:
     // Any thread: queues an event for the next feed(). Returns false when the queue is full and the event was dropped.
     bool push(Event e);
+    // The game thread (mobile_native_event): the keys one key event became (AndroidKeys::take), queued behind what the
+    // input method sent before them. An input method that commits a word and then sends a digit as a key event gets
+    // "word1", never "1word". All or nothing: false when the queue has no room for them.
+    bool push_keys(const std::vector<AndroidKeys::Item>& items);
 
     // ---- the game thread
     // A text field has the focus (on) or none has (off). A change starts a new generation, which Java must be told: what
@@ -67,19 +83,24 @@ public:
     std::int32_t set_enabled(bool on);
     bool enabled() const { return enabled_; }
     // ime_cancel(). The UI has already committed what it keeps and cancelled Input's composition. When a composition was
-    // open (fed to Input, or still waiting in the queue) this starts a new generation and returns true: Java restarts the
-    // input with it, and nothing of that composition is delivered any more. With none open it returns false and changes
+    // open (fed to Input, even with its commit already queued behind it; or begun in the queue and not ended there) this
+    // starts a new generation and returns true: Java restarts the input with it, and nothing of that composition is
+    // delivered any more (its queued commit would type it a second time). With none open it returns false and changes
     // nothing (every tap in a field cancels; a commit that came with no composition still types).
     bool cancel();
     std::int32_t generation() const { return generation_; }
     // Whether the IME's composition is open in Input (an update with text was fed and not yet ended).
     bool composing() const { return composing_; }
 
-    // Once per frame, before the game runs: the queued events of the current generation into `input`, in order. Commits
-    // and updates go to on_composition_*; control characters in a commit become keys (a line break is Enter, a tab Tab);
-    // Delete and Action are presses of Backspace / Delete / Enter. A TextField reads one press of a key per frame, so a
-    // key press ends this frame's feed: what comes after it waits for the next frame (deleteSurroundingText(3, 0) is three
-    // frames of Backspace). Nothing is delivered while the IME is off.
+    // Once per frame, before the game runs: the queued keys and the events of the current generation into `input`, in the
+    // order they came. Commits and updates go to on_composition_*; control characters in a commit become keys (a line
+    // break is Enter, a tab Tab); Delete and Action are presses of Backspace / Delete / Enter. Nothing of the input method
+    // is delivered while the IME is off; keys always are.
+    // A TextField takes a frame's text before its keys, reads one press of a key per frame and ignores editing keys while
+    // a composition is open, so a frame never holds what it would read out of order: after a key press (Backspace, Enter,
+    // an arrow: a key that types no character, modifiers aside) text and composition changes wait for the next frame, and
+    // so does a second press from the input method (deleteSurroundingText(3, 0) is three frames of Backspace); a key press
+    // that comes after a composition update of this frame, with the composition still open, waits too.
     void feed(Input& input);
     // Events waiting (queued or behind a key press): for tests.
     std::size_t pending();
@@ -97,6 +118,8 @@ private:
     bool composing_ = false;
     std::u32string compositionText_;  // the last pre-edit string fed (finishComposingText types it)
     bool endInput_ = false;           // set_enabled(false) with a composition open: the next feed() cancels it in Input
+    bool keyPressed_ = false;         // this feed(): a key press was delivered
+    bool composed_ = false;           // this feed(): a composition update was delivered
 };
 
 }  // namespace fa::ime_ic

@@ -181,16 +181,14 @@ bool mobile_native_event(const void* nativeEvent) {
     const std::uint32_t unicode =
         down && AndroidKeys::may_type(code) ? typed_character(code, AKeyEvent_getMetaState(e)) : 0;
     std::lock_guard<std::mutex> lock(g_mutex);
-    return g_keys.on_key(code, down, unicode, repeat);
+    const bool consumed = g_keys.on_key(code, down, unicode, repeat);
+    // Into the IME's sequence, behind what the input method sent before this key (ime_ic.h, "One sequence").
+    ime_android_push_keys(g_keys.take());
+    return consumed;
 }
 
-void mobile_poll(Input& input) {
-    {
-        std::lock_guard<std::mutex> lock(g_mutex);
-        g_keys.feed(input);
-    }
-    ime_android_poll(input);  // what the input method composed and typed (a channel of its own: ime_android.cpp)
-}
+// The keys and what the input method composed and typed, in the order they came (ime_android.cpp).
+void mobile_poll(Input& input) { ime_android_poll(input); }
 
 EdgeInsets mobile_safe_insets() {
     JNIEnv* env = android_thread_env();

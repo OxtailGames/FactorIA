@@ -537,17 +537,22 @@ On Android:
   nothing. While a `TextField` has the focus that view is a text editor and the keyboard composes into its input
   connection; with no field focused, or a password field, it is none, so the keyboard sends keys, as without the IME.
 - Keys still come from the activity's input queue: a hardware keyboard, and the keys a keyboard sends as key events
-  (Backspace on an empty composition, Enter, arrows), reach the field and the game as before.
+  (Backspace on an empty composition, Enter, arrows, digits on some keyboards), reach the field and the game as before,
+  in the order they came with what the keyboard composes and commits (a word committed and then a digit sent as a key
+  types `word1`).
 - What the keyboard asks of the connection turns into the engine's events: the pre-edit string (`setComposingText`) is the
   composition, its highlighted clause the selection; `commitText` types its text once (a line break in it is Enter, a tab
   Tab); `finishComposingText` types the pre-edit string; `deleteSurroundingText` is presses of Backspace (before the
   caret) and Delete (after it), at most 64 each way; the keyboard's action key is Enter (the field decides what it does:
-  `ui.submit`). A field reads one press of a key per frame, so three deletes are three frames of Backspace.
+  `ui.submit`). A field reads one press of a key per frame and takes a frame's text before its keys, so three deletes
+  are three frames of Backspace, and text or a composition that comes after a key press waits for the next frame.
 - The connection holds only the pre-edit string, never what the field already has: a keyboard cannot read back typed text,
   so it cannot recompose a word already typed, and its suggestions start fresh at the caret.
 - When the field ends a composition itself (a tap in the field, the focus moving to another field: `ime_cancel`) the
-  input restarts with a new connection, and nothing the old one still sends is used. When the connection closes (the
-  app goes to the background, another window takes the focus) the composition is dropped: nothing is typed.
+  input restarts with a new connection, and nothing the old one still sends is used. When the app goes to the background
+  or another window takes the focus the keyboard decides, as in an `EditText`: Gboard and most keyboards finish the
+  composition, which types what was built once; a connection that closes with its composition still open drops it, and
+  nothing is typed.
 - If the class cannot be loaded (a project with its own manifest and `android:hasCode="false"`) or a call into it fails,
   the IME stays off for the rest of the run, with one log line: the keyboard sends keys, nothing typed is lost.
 - Not attached inside the editor (the editor does not run on Android).
@@ -566,7 +571,8 @@ To check it by hand on a phone (Settings > System > Languages & input), in a gam
   field and a password field keeps the keyboard up.
 - **Hardware keyboard** (Bluetooth or a Chromebook): letters, Backspace, Enter and arrows work in the field; with no field
   focused WASD plays the game.
-- **Background**: compose, press Home, come back: nothing of the composition was typed and the next one starts normally.
+- **Background**: compose, press Home, come back: what was built is typed once at most (Gboard commits it), never twice,
+  and the next composition starts normally.
 
 ## Limits
 

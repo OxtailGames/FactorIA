@@ -42,13 +42,18 @@ public:
     // frame, before the game runs.
     void feed(Input& input);
 
-private:
+    // What one key event turned into: a key edge, a character it typed (right after the key's press), or Back.
     struct Item {
         enum class Kind : std::uint8_t { Key, Text, Back } kind;
         Key key = Key::Unknown;
         bool down = false;
         std::uint32_t codepoint = 0;
     };
+    // Instead of feed(): hands over what came in since the last call, in order, and forgets it. mobile_android.cpp gives
+    // it to the IME's session (ime_ic.h), which feeds the keys and what the input method sends in the one order they came.
+    std::vector<Item> take();
+
+private:
     std::vector<Item> items_;
 };
 
