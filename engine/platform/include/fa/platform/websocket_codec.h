@@ -2,7 +2,8 @@
 // go in, frames, messages and bytes come out. Every client that talks WebSocket over a stream it owns uses it (the plain
 // TCP client of the tests, Android's client over a JNI socket) and so does the loopback server of the tests
 // (engine/platform/tests/ws_test_server.h). Clients that the system provides (NSURLSession, WinHTTP, libcurl, the
-// browser) do their own framing and never reach this file.
+// browser) do their own framing; WinHTTP's client uses only the handshake checks (check_server_response, with the same
+// messages as the other clients, and build_client_request to refuse a bad header before anything is sent).
 //
 //   handshake   make_client_key, accept_key, build_client_request, check_server_response (client side);
 //               parse_client_request, build_server_response, build_reject_response (server side).

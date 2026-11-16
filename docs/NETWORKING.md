@@ -241,14 +241,14 @@ ws.send(JSON.stringify({ type: "join", name: "Ann" }));  // false until the conn
 
 ### Which platforms can connect now
 
-**This build has no WebSocket client for a real network yet.** The shared part is done and tested (the address checks, the
-script API, reconnects, the protocol code, the test server); the clients that the platforms use arrive in this milestone,
-one per platform, and this table says what works today:
+**Not every platform has a WebSocket client for a real network yet.** The shared part is done and tested (the address
+checks, the script API, reconnects, the protocol code, the test server); the clients that the platforms use arrive in this
+milestone, one per platform, and this table says what works today:
 
 | Platform | Client | Works now |
 |---|---|---|
 | Tests, headless runs, `factoria call`, the MCP server | a scripted in-memory server (`game.websocket`) | yes, nothing touches the network |
-| Windows | WinHTTP's WebSocket API | not yet (M98.2b) |
+| Windows | WinHTTP's WebSocket API, with the system's certificates and proxy (like `http.fetch`) | yes |
 | macOS, iOS | `NSURLSessionWebSocketTask` | not yet (M98.2b) |
 | Linux | libcurl's WebSocket support, loaded when first needed (like `http.fetch`) | not yet (M98.2c); without `libcurl.so.4` it stays unavailable |
 | Android | a socket stream with the engine's own WebSocket protocol code, through JNI | not yet (M98.2c) |
@@ -259,6 +259,11 @@ Where there is no client, `websocket.supported` is `false` and `websocket.unsupp
 address checks: it fails at the next frame with an `"error"` event and a `"close"` event with code 1006, and does not
 reconnect, so a game written today runs everywhere and simply stays offline. Check `websocket.supported` to show an
 "online play not available" message instead.
+
+On Windows, WinHTTP does part of the protocol itself, which shows in three places: it answers the server's pings (and may
+send keep-alive frames of its own), a server whose handshake answer has a wrong `Sec-WebSocket-Accept` may fail with a
+message that does not name the header, and a connection destroyed (a scene change) while it is in the middle of sending a
+message is cut without a close frame; at any other moment the server gets the usual close with code 1001.
 
 ### Addresses and options
 
