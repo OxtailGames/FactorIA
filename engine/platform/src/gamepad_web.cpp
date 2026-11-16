@@ -9,7 +9,9 @@
 // free one), an unplugged pad frees its own. Each pad has a stable id (GamepadInfo) built from the browser's Gamepad.id.
 // Rumble: Gamepad.vibrationActuator.playEffect("dual-rumble", ...) where the browser has it (Chrome and Edge; Firefox and
 // Safari do not, so canRumble is false there). Everything is checked with typeof before use: a missing actuator, a
-// missing effect type or a refused promise (the browser wants a button pressed on the pad first) never throws.
+// missing effect type or a refused promise (the browser wants a button pressed on the pad first) never throws. While the
+// page has had no user activation (navigator.userActivation) a pad answers canRumble: false with that reason, so the
+// engine starts the rumble that is still running as soon as the player pressed a button, instead of losing it.
 #include <emscripten.h>
 #include <emscripten/html5.h>
 
@@ -23,18 +25,31 @@
 // The JavaScript of EM_JS is not C++: clang-format must not touch it. No apostrophes in it: it travels through the C
 // preprocessor.
 // clang-format off
+EM_JS(void, fa_web_pad_new_frame, (), {
+    Module["faPadList"] = null;  // navigator.getGamepads() is asked once per frame, not once per pad and call
+});
 EM_JS(int, fa_web_pad_rumble_kind, (int index), {
-    // 1: Gamepad.vibrationActuator takes "dual-rumble"; 0: it does not.
-    const pads = typeof navigator.getGamepads === "function" ? navigator.getGamepads() : null;
+    // 1: Gamepad.vibrationActuator takes "dual-rumble"; 2: it does, but the browser will not play it before the page has
+    // had a user activation; 0: it does not.
+    let pads = Module["faPadList"];
+    if (!pads) {
+        pads = typeof navigator.getGamepads === "function" ? navigator.getGamepads() : null;
+        Module["faPadList"] = pads;
+    }
     const pad = pads ? pads[index] : null;
     const act = pad ? pad.vibrationActuator : null;
     if (!act || typeof act.playEffect !== "function") return 0;
     if (act.effects && typeof act.effects.includes === "function" && !act.effects.includes("dual-rumble")) return 0;
     if (!act.effects && act.type && act.type !== "dual-rumble") return 0;
+    if (navigator.userActivation && navigator.userActivation.hasBeenActive === false) return 2;
     return 1;
 });
 EM_JS(int, fa_web_pad_rumble, (int index, double strong, double weak, int ms), {
-    const pads = typeof navigator.getGamepads === "function" ? navigator.getGamepads() : null;
+    let pads = Module["faPadList"];
+    if (!pads) {
+        pads = typeof navigator.getGamepads === "function" ? navigator.getGamepads() : null;
+        Module["faPadList"] = pads;
+    }
     const pad = pads ? pads[index] : null;
     const act = pad ? pad.vibrationActuator : null;
     if (!act || typeof act.playEffect !== "function") return 0;
@@ -144,6 +159,7 @@ void feed(Input& in, int slot, const EmscriptenGamepadEvent& pad) {
 
 void poll_gamepads(Input& in) {
     init_slots();
+    fa_web_pad_new_frame();
     if (emscripten_sample_gamepad_data() != EMSCRIPTEN_RESULT_SUCCESS) {
         if (!g_unsupportedLogged) {
             g_unsupportedLogged = true;
@@ -193,7 +209,12 @@ void poll_gamepads(Input& in) {
 
 GamepadRumbleSupport gamepad_backend_rumble_support(int slot) {
     if (slot < 0 || slot >= kMaxGamepads || g_slotOf[slot] < 0) return {false, "there is no pad in this slot"};
-    if (fa_web_pad_rumble_kind(g_slotOf[slot])) return {true, {}};
+    const int kind = fa_web_pad_rumble_kind(g_slotOf[slot]);
+    if (kind == 1) return {true, {}};
+    if (kind == 2)
+        return {false,
+                "the browser lets a pad rumble only after the player pressed a button on the pad or clicked the page: "
+                "press one, and a rumble still running starts then"};
     return {false,
             "this browser or this pad has no rumble (Gamepad.vibrationActuator): Chrome and Edge rumble Xbox and "
             "PlayStation pads, Firefox and Safari do not"};

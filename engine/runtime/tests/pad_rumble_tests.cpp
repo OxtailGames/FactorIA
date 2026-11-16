@@ -18,8 +18,10 @@ struct RumbleProject {
     RumbleProject() {
         write("factoria.json", R"({"format":"factoria.project/1","name":"Rumble","id":"com.example.rumble",
                                    "mainScene":"main.scene.json","display":{"width":64,"height":64},"physics":{"fixedHz":60}})");
-        write("main.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})");
-        write("other.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})");
+        write("main.scene.json",
+              R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})");
+        write("other.scene.json",
+              R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}}]})");
     }
     ~RumbleProject() {
         std::error_code ec;
@@ -82,6 +84,60 @@ TEST_CASE("pad rumble: it ends on the engine clock, and pause, a scene change an
         in.rumble({0, 0.5f, 0.5f, 5.0f});
         e.shutdown();
         CHECK_FALSE(in.rumble_state(0).active());
+    }
+    e.shutdown();
+}
+
+TEST_CASE("pad rumble: a request of the frame that pauses the game never stays; one of a frame that does not does") {
+    RumbleProject p;
+    p.write("scripts/pauser.js", R"JS(
+import { Behaviour, input, time } from "factoria";
+export default class Pauser extends Behaviour {
+  fired = false;
+  onUpdate() {
+    if (this.fired) return;
+    this.fired = true;
+    input.rumble(0, 1, 1, 5);
+    time.scale = 0;                 // the same frame: no buzz of one frame
+  }
+}
+)JS");
+    p.write("scripts/rumbler.js", R"JS(
+import { Behaviour, input } from "factoria";
+export default class Rumbler extends Behaviour {
+  fired = false;
+  onUpdate() {
+    if (this.fired) return;
+    this.fired = true;
+    input.rumble(0, 1, 1, 5);
+  }
+}
+)JS");
+    p.write("pause.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
+        {"id":"p","components":{"Transform":{},"Script":{"path":"scripts/pauser.js"}}}]})");
+    p.write("play.scene.json", R"({"format":"factoria.scene/1","entities":[{"id":"cam","components":{"Camera":{}}},
+        {"id":"p","components":{"Transform":{},"Script":{"path":"scripts/rumbler.js"}}}]})");
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    Input& in = e.input();
+
+    std::string loadErr;
+    REQUIRE_MESSAGE(e.load_scene("play.scene.json", &loadErr), loadErr);
+    in.on_gamepad_connected(0, true);
+    bool played = false;
+    for (int i = 0; i < 4; ++i) {
+        e.step(1);
+        played = played || in.rumble_state(0).active();
+    }
+    CHECK(played);  // the control: without the pause the request is there when the frame ends
+
+    REQUIRE_MESSAGE(e.load_scene("pause.scene.json", &loadErr), loadErr);
+    in.on_gamepad_connected(0, true);
+    for (int i = 0; i < 4; ++i) {
+        e.step(1);
+        INFO("after frame " << i);
+        CHECK_FALSE(in.rumble_state(0).active());  // never seen, not even at the end of the frame that asked
     }
     e.shutdown();
 }

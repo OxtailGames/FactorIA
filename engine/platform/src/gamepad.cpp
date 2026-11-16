@@ -9,12 +9,17 @@
 
 namespace fa {
 
-void GamepadRumbleSync::apply(Input& in, GamepadRumbleSink& sink) {
+void GamepadRumbleSync::refresh_support(Input& in, GamepadRumbleSink& sink) {
     for (int slot = 0; slot < kMaxGamepads; ++slot) {
-        if (in.gamepad_connected(slot)) {
-            GamepadRumbleSupport s = sink.support(slot);
-            in.set_gamepad_rumble_support(slot, s.can, std::move(s.why));
-        }
+        if (!in.gamepad_connected(slot)) continue;
+        GamepadRumbleSupport s = sink.support(slot);
+        in.set_gamepad_rumble_support(slot, s.can, std::move(s.why));
+    }
+}
+
+void GamepadRumbleSync::apply(Input& in, GamepadRumbleSink& sink) {
+    refresh_support(in, sink);
+    for (int slot = 0; slot < kMaxGamepads; ++slot) {
         const RumbleState st = in.rumble_state(slot);
         Sent& sent = sent_[slot];
         if (st.active() && in.gamepad_can_rumble(slot)) {
@@ -39,6 +44,11 @@ struct PlatformSink final : GamepadRumbleSink {
     }
 };
 }  // namespace
+
+void refresh_gamepad_rumble_support(Input& in) {
+    PlatformSink sink;
+    GamepadRumbleSync::refresh_support(in, sink);
+}
 
 void apply_gamepad_rumble(Input& in) {
     static GamepadRumbleSync sync;

@@ -220,7 +220,11 @@ void on_frame() {
     double dt = sapp_frame_duration();
     if (!(dt > 0.0)) dt = 1.0 / 60.0;
     dt = std::min(dt, 0.25);
-    if (g.desc.input && g.focused) poll_gamepads(*g.desc.input);  // pads have no events: read them before the game runs
+    if (g.desc.input && g.focused) {
+        poll_gamepads(*g.desc.input);  // pads have no events: read them before the game runs
+        refresh_gamepad_rumble_support(
+            *g.desc.input);  // a pad that just connected answers canRumble in this frame already
+    }
     if (g.desc.input)
         mobile_poll(*g.desc.input);  // Android: keys, typed characters and the Back button of the input queue
     if (--g.framesToInsets <= 0) refresh_insets();

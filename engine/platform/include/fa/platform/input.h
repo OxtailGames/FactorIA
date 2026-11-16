@@ -218,9 +218,10 @@ struct GamepadEvent {
 
 // Pad rumble. A request asks the two motors of one pad: `low` the heavy, low-frequency one (the left motor of an Xbox
 // pad), `high` the light, high-frequency one (the right motor), each 0..1, for `seconds`. The newest request of a pad
-// replaces the one before it; a pad's rumble ends by itself when its seconds have run down on the ENGINE clock
-// (Input::advance_rumble, once per frame: never the wall clock), and the engine also stops every pad on pause, on focus
-// loss, at a scene change and at quit, so a pad never keeps shaking. Input is the source of truth: a windowed run copies it
+// replaces the one before it; a pad's rumble ends by itself when its seconds have run down on the ENGINE's frame clock
+// (Input::advance_rumble, once per frame with the frame's own duration: not the wall clock, and not scaled by time.scale),
+// and the engine also stops every pad when the game pauses itself (time.scale 0, game.paused), on focus loss, at a scene
+// change and at quit, so a pad never keeps shaking. A request with both strengths 0 is a stop. Input is the source of truth: a windowed run copies it
 // to the hardware each frame (apply_gamepad_rumble, fa/platform/gamepad.h); headless runs and tests keep it, so they can
 // read what the game asked for (rumble_requests()) and what the motors do now (rumble_state()).
 inline constexpr float kMaxRumbleSeconds = 10.0f;  // one request can last this long: a game that wants more asks again
@@ -540,7 +541,7 @@ public:
     void rumble(const RumbleRequest& r);
     // Stops the motors of one pad (pad -1: every pad) and logs a request of 0 seconds, what input.stopRumble() does.
     void stop_rumble(int pad);
-    // The engine's stop (pause, focus loss, scene change, quit): the motors stop and nothing is logged.
+    // The engine's stop (the game pausing, focus loss, scene change, quit): the motors stop and nothing is logged.
     void stop_all_rumble();
     // Runs the pads' remaining time down by `dt` seconds (the engine clock); a pad whose time is up stops. The engine calls
     // it at the START of every frame, so a one-frame request is still seen by the hardware layer once.
@@ -549,8 +550,9 @@ public:
     const std::vector<RumbleRequest>& rumble_requests() const { return rumbleLog_; }
     void clear_rumble_requests() { rumbleLog_.clear(); }
     // Whether the pad in this slot has motors the platform can drive; false for a slot with no pad. The backend tells it
-    // (set_gamepad_rumble_support, from apply_gamepad_rumble); `why` is what it says when the answer is no ("" when yes),
-    // and a test pad says it with game.gamepad(i).connect({canRumble: true}).
+    // (set_gamepad_rumble_support, from refresh_gamepad_rumble_support and apply_gamepad_rumble, so it is known in the frame
+    // the pad connects); `why` is what it says when the answer is no ("" when yes). A pad that disconnects forgets it, and
+    // a test pad says it with game.gamepad(i).connect({canRumble: true}) at every connect.
     bool gamepad_can_rumble(int index) const;
     const std::string& gamepad_rumble_reason(int index) const;  // "" for an out-of-range index
     void set_gamepad_rumble_support(int index, bool can, std::string why);
@@ -756,7 +758,7 @@ private:
         std::array<bool, size_t(GamepadButton::Count)> buttons{};
         std::array<float, size_t(GamepadAxis::Count)> axes{};
         PadEdges edges[3];       // per layer (kFrameLayer, kFixedLayer, kLateLayer)
-        bool canRumble = false;  // told by the platform (set_gamepad_rumble_support); survives a disconnect
+        bool canRumble = false;  // told by the platform (set_gamepad_rumble_support); reset when the pad disconnects
         std::string rumbleReason = "no pad has reported rumble support in this slot yet";
         RumbleState rumble;
     };

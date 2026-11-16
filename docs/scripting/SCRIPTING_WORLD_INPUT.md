@@ -320,20 +320,29 @@ editor's game view), so check `window.available` first or offer the option only 
 `input.rumble(0, 0.7, 0.3, 0.2)` shakes the motors of the pad in slot 0 (the slot `input.gamepad(i)` reads): `low` is the heavy,
 low-frequency motor (the left one of an Xbox pad), `high` the light, high-frequency one, each 0..1 (a value outside is clamped),
 for `seconds` above 0 and up to 10 (0.05 to 0.15 is a tap, 0.3 a hit, 1 an explosion). A new call on the same pad replaces the
-one playing; `input.stopRumble(pad)` stops one pad and `input.stopRumble()` all of them. A pad that is not connected or cannot
-rumble ignores the call, so a game need not check; `input.gamepad(i).canRumble` says whether it will do something, to show a
-Vibration option only where it works. This is a different motor from a phone's `input.vibrate()`.
+one playing; `input.stopRumble(pad)` stops one pad and `input.stopRumble()` all of them (a request with both strengths 0 is a
+stop too). A pad that is not connected or cannot rumble ignores the call, so a game need not check;
+`input.gamepad(i).canRumble` says whether it will do something, to show a Vibration option only where it works (it is already
+right in the frame a pad connects and in its `gamepadConnected` handler). This is a different motor from a phone's
+`input.vibrate()`.
 
-- The time runs on the game's clock, not on the wall clock: the rumble ends when `seconds` of game time passed (a paused game does
-  not count) and a request made in a scene's `onStart` plays. To go on, ask again before it ends.
-- The engine stops every pad when the game pauses (`game.paused = true`, the editor's pause), when the window loses the focus
-  or the app is suspended, when a pad is unplugged, on a scene change and on quit, so a pad never keeps shaking. A request made
-  while the game is paused plays. On Windows the process also stops the motors as it exits, after the engine: the XInput
-  motors that were set, and every PlayStation or Switch pad still playing (with at most about 100 ms of waiting for all of
-  them). A crash zeroes the XInput motors too (the crash report goes on as before); a PlayStation or Switch pad keeps
-  shaking after a crash, and so does any pad when the game hangs, is killed or stops in a debugger, until it is switched off
-  or another program sets its motors.
-- Mistakes throw with a hint: a pad outside 0..3, a strength or `seconds` that is not a number, `seconds` outside 0..10.
+- The time runs on the frames' own duration, not on the wall clock of the hardware and not scaled by `time.scale`: the rumble
+  ends when `seconds` of frames have passed (a slow-motion hit-stop does not stretch it) and a request made in a scene's
+  `onStart` plays. To go on, ask again before it ends.
+- The engine stops every pad when the game pauses itself (`game.paused = true` or `time.scale` 0, and the editor's pause), when
+  the window loses the focus or the app is suspended, when a pad is unplugged, on a scene change and on quit, so a pad never
+  keeps shaking. A request made in the same frame that pauses the game is stopped before it reaches the pad (no buzz of one
+  frame); one made while the game stays paused (a click in a pause menu) plays, and ends with its `seconds`. On Windows the
+  process also stops the motors as it exits, after the engine: the XInput motors that were set, and every PlayStation or
+  Switch pad still playing (with at most about 100 ms of waiting for all of them). After an unhandled exception (an access
+  violation...) the XInput motors are zeroed too (the crash report goes on as before). After that exception a PlayStation
+  pad keeps shaking, while a Switch Pro stops by itself about 50 ms later (its rumble needs the report repeated). What does
+  not go through that path leaves every motor on until the pad is switched off or another program sets it: `abort()` (an
+  assert, `std::terminate`), a bad CRT call, a hang, a debugger that stops the game and a killed process.
+- The editor's Game view reads no physical gamepad, so no pad connects there and nothing rumbles: try rumble in a game run on its
+  own (`factoria run`, an export), or test it with `game.rumbles()` below.
+- Mistakes throw with a hint: a pad outside 0..3 (`input.stopRumble(-1)` too), a strength or `seconds` that is not a number,
+  `seconds` outside 0..10.
 - Where it works today, and how:
 
   | Platform | Pads | How | Needs |
@@ -343,25 +352,28 @@ Vibration option only where it works. This is a different motor from a phone's `
   | Linux | pads whose kernel driver offers force feedback (`FF_RUMBLE`: Xbox, DualShock 4, DualSense, Switch Pro with the usual drivers) | evdev: one rumble effect per pad on `/dev/input/eventN` | write access to that node |
   | macOS, iOS | pads GameController gives haptics (Xbox One/Series, DualShock 4, DualSense) | CoreHaptics: `low` on the left handle, `high` on the right, one engine plays the stronger when the pad has no handles | macOS 11, iOS 14 |
   | Android | pads whose `InputDevice` has vibrators | API 31+: `getVibratorManager()` (one vibrator plays the stronger of `low` and `high`, two play `low` on the first and `high` on the second); API 26 to 30: `getVibrator()` | nothing beyond the `VIBRATE` permission the player already has |
-  | Chrome-based browsers | Xbox and PlayStation pads | `gamepad.vibrationActuator` | a button pressed on the pad first |
+  | Chrome-based browsers | Xbox and PlayStation pads | `gamepad.vibrationActuator` | a button pressed on the pad or a click on the page first (until then `canRumble` is `false` with that reason, and a rumble still running starts once it is `true`) |
 
   Everything else answers `canRumble: false` with the reason: other Windows pads (generic HID pads: "this pad gives no rumble the
   engine can drive"), a Windows pad another program holds exclusively or that stopped taking reports (the reason says which;
   plug it in again), and Firefox and Safari, which have no browser API. On Linux the reason names what to do when `/dev/input/eventN`
   cannot be opened for writing: add the user to the `input` group (`sudo usermod -aG input $USER`, log in again) or add a udev
-  rule such as `KERNEL=="event*", SUBSYSTEM=="input", TAG+="uaccess"`; the answer is read when the pad is plugged in, so replug the
-  pad after changing it. Strengths are not the same motor on every pad: the 0..1 maps to the motor's whole range, and Android
+  rule such as `KERNEL=="event*", SUBSYSTEM=="input", TAG+="uaccess"`; a refused open is tried again every few seconds (udev may
+  set the permissions a moment after the pad appears), and a change of the rules reaches a pad that is already plugged in
+  after `udevadm trigger` or a replug. Strengths are not the same motor on every pad: the 0..1 maps to the motor's whole range, and Android
   amplitudes are 1..255 (a tiny strength still runs the motor). A phone or tablet pad may expose no vibrator to Android at all,
   most often over Bluetooth, and then `canRumble` is `false`. On Windows a report the pad does not take is sent again a few
   times, 100 ms apart, before the pad answers `canRumble: false`; a pad that is gone answers it at once. What the Windows
-  drivers change on the pad: a Switch Pro is put on its full report and put back on its simple one when the game exits; a
+  drivers change on the pad: a Switch Pro is put on its full report and, when the game exits, asked for its simple one again (not yet tried on a real pad; over USB the pad may not
+  answer it); a
   DualShock 4 or DualSense over Bluetooth stays on its full report until it is switched off or connected again, so an old
   DirectInput program started meanwhile may not read it (over USB these pads always send their full report).
 - Tests and headless runs: a test pad has no motors unless `game.gamepad(i).connect({ canRumble: true })`. `game.rumbles()` lists
   the requests the game made (strengths already clamped, `seconds` 0 for a stop, at most 256) and `game.rumbleState(pad)` says
-  what the motors do now (the seconds left run down with `game.step`).
-- For a tool or an AI: the command `game.rumble` (`{pad, low, high, seconds}` or `{pad, stop: true}`; without a pad, all pads)
-  does the same on a running game and answers with every pad's `canRumble` and the reason when it is false.
+  what the motors do now (the seconds left run down with `game.step`). A test pad that disconnects forgets `canRumble`: say it
+  again at every `connect()`.
+- For a tool or an AI: the command `game.rumble` (`{pad, low, high, seconds}` or `{pad, stop: true}`; without a pad, all pads;
+  `seconds` without `low` or `high` is refused) does the same on a running game and answers with every pad's `canRumble` and the reason when it is false.
 ```js
 import { Behaviour, input } from "factoria";
 export default class Hurt extends Behaviour {
