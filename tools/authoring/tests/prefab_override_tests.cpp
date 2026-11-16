@@ -627,7 +627,10 @@ TEST_CASE("prefab commands: a removed component and an added child together are 
         REQUIRE_MESSAGE(r.ok, error_text(r));
         CHECK(r.result["applied"].size() == 2);
         const Json file = s.project.json("prefabs/panel.prefab.json");
-        CHECK_FALSE(file["entity"]["components"].contains("Sprite"));
+        // The apply erases an emptied "components" object: never index a missing key of a const Json.
+        const bool keepsSprite =
+            file["entity"].contains("components") && file["entity"]["components"].contains("Sprite");
+        CHECK_FALSE(keepsSprite);
         REQUIRE(file["entity"]["children"].size() == 3);
         CHECK(file["entity"]["children"][2]["name"] == "Extra");
         CHECK(r.result["updated"].size() == 2);  // b and c
