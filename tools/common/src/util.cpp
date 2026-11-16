@@ -53,7 +53,7 @@ bool write_file(const std::filesystem::path& p, std::string_view data, std::stri
     // fs::write_bytes replaces the file atomically and creates the folders.
     std::error_code ec;
     const std::filesystem::path abs = std::filesystem::absolute(p, ec);
-    auto r = fs::write_bytes((ec ? p : abs).generic_string(), data.data(), data.size());
+    auto r = fs::write_bytes(fs::path_to_utf8(ec ? p : abs), data.data(), data.size());
     if (!r.ok() && err) *err = r.error().to_string();
     return r.ok();
 }

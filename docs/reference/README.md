@@ -469,6 +469,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`project.add_menu_kit`](commands/project.md#projectadd_menu_kit-modifies-state): Copy the menu kit (main menu, options, pause, loading screen, ...) into the game and merge its strings into the locales. _Since 0.3.0._
 - [`project.create`](commands/project.md#projectcreate-modifies-state): Create a new game project from a template.
 - [`project.create_storage_secret`](commands/project.md#projectcreate_storage_secret-modifies-state): Create the random secret that makes storage.set(..., {encrypt: true}) work, in factoria.json. _Not released yet._
+- [`project.examples`](commands/project.md#projectexamples-modifies-state): List the example games of the installed FactorIA version: what each shows and the docs to read first. _Not released yet._
 - [`project.export`](commands/project.md#projectexport-modifies-state): Package the game for a platform: a desktop bundle, an Android APK/AAB, an iOS project, or a web page (HTML5). _Since 0.1.2._
 - [`project.info`](commands/project.md#projectinfo): Show the project settings, input actions, current scene, scenes and scripts.
 - [`project.new_ci_workflow`](commands/project.md#projectnew_ci_workflow-modifies-state): Write a GitHub Actions workflow that validates, tests and exports the game on every push. _Since 0.2.0._

@@ -194,14 +194,15 @@ Create a new game project from a template.
 
 Capabilities: read, writeProject
 
-Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. Example: {"dir":"my-game","template":"2d-platformer","name":"My Game"}.
+Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. With `example` instead of `template` the project is a copy of an example game of the installed version (project.examples lists them): its zip is downloaded from the GitHub release (needs the network capability and the internet the first time; it is kept in FactorIA's cache folder), checked against the release's size and SHA-256, and unpacked into a hidden folder that is renamed to `dir` at the end, so a failure leaves nothing. Examples: {"dir":"my-game","template":"2d-platformer","name":"My Game"} and {"dir":"block-push","example":"block-push"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `dir` | string | yes | Target folder (created; must be empty or new). With a project open, a caller that may not write anywhere (an agent, an MCP client) gives a folder inside the project, relative to it; the command line may name any folder. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
-| `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default "2d-empty". |
-| `name` | string | no | Display name (default: folder name). |
-| `id` | string | no | Reverse-DNS id, e.g. com.example.mygame. |
+| `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default 2d-empty; not together with `example`. |
+| `example` | string | no | Start from this example game of the installed version instead of a template (names: project.examples). Downloads it the first time. Not together with `template`. |
+| `name` | string | no | Display name (default: folder name; an example keeps its own unless given). |
+| `id` | string | no | Reverse-DNS id, e.g. com.example.mygame (an example keeps its own unless given). |
 
 ## `project.create_storage_secret` (modifies state)
 
@@ -216,6 +217,16 @@ Writes "storage": {"encryptionSecret": <64 random hex characters>} into factoria
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `replace` | boolean | no | Make a new secret even when the project has one. Every save written with {encrypt: true} so far stops opening: use it only when the secret leaked and the saves can be lost. Default false. |
+
+## `project.examples` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+List the example games of the installed FactorIA version: what each shows and the docs to read first.
+
+Capabilities: read, network
+
+The download of FactorIA carries no example games; every release publishes them as assets. This downloads examples-manifest.json of the release of the INSTALLED version (a few KB), keeps a copy in <FACTORIA_HOME or ~/.factoria>/cache/examples/<version>/ and returns, per example, `name`, `title`, `shows` (what it shows), `readFirst` (docs to read before opening it: `docs.read` them), `size` (bytes to download) and `downloaded` (its zip is already in the cache). `stale` is true, and `staleReason` says why, when the network failed and the copy of an earlier call is returned: the list may then be older than the release. With no network and no copy it fails and says what to do. Create a project from one with project.create {example}. Example: {}.
 
 ## `project.export` (modifies state)
 
@@ -299,7 +310,7 @@ Zip every example game of examples/ and write examples-manifest.json, the files 
 
 Capabilities: read, writeAnywhere
 
-For the engine's release (docs/design/BUILDING.md, "Example games in the release"). Reads `examples`/examples.json (the title, what each example shows and the docs to read first), checks that every project folder has an entry and every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/, other hidden folders, node_modules/ and build/: the same files give the same bytes) and examples-manifest.json beside them (format, engineVersion, and per example name, title, shows, readFirst, file, size and sha256). Replaces files of the same names in `out`. Returns the manifest. Run it from a checkout of the repository: a download has no examples/. Example: {"examples":"examples","out":"dist/examples"}.
+For the engine's release (docs/design/BUILDING.md, "Example games in the release"). Reads `examples`/examples.json (the title, what each example shows and the docs to read first), checks that every project folder has an entry and every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/ and every other hidden folder, node_modules/, a top-level build/, .DS_Store, Thumbs.db, desktop.ini, *.actual.png, *.fa-tmp and the secrets and local settings .env, ai.local.json, *.key, *.keystore, *.jks, *.p12 and *.pem; a link is never followed; the same files give the same bytes) and examples-manifest.json beside them (format, engineVersion, and per example name, title, shows, readFirst, file, size and sha256). Replaces files of the same names in `out`. Returns the manifest. Run it from a checkout of the repository: a download has no examples/. Example: {"examples":"examples","out":"dist/examples"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
