@@ -6,7 +6,8 @@
 // gamepads and then handles the keys: the Back button becomes Input::on_back (sokol_app would end the app), the other
 // keys become key edges and typed characters. What the keys mean is decided in android_keys.cpp (unit-tested on every OS);
 // this file only reads the AInputEvent and talks to the Java side with JNI, through the activity's JavaVM
-// (sapp_android_get_native_activity()), on the sokol_app loop thread. Framework classes only, no Java code of ours.
+// (sapp_android_get_native_activity()), on the sokol_app loop thread. Framework classes only; the IME's Java class
+// (factoria.engine.Ime) is ime_android.cpp's, and once it is loaded the keyboard is shown through it.
 //
 // UNTESTED on a device: the decisions are unit-tested, this glue is only compiled by CI (and syntax-checked with the NDK).
 #include <android/input.h>
@@ -19,6 +20,7 @@
 #include "fa/core/log.h"
 #include "fa/platform/android_keys.h"
 #include "fa/platform/gamepad.h"
+#include "ime_android.h"
 #include "mobile_impl.h"
 
 namespace fa {
@@ -183,8 +185,11 @@ bool mobile_native_event(const void* nativeEvent) {
 }
 
 void mobile_poll(Input& input) {
-    std::lock_guard<std::mutex> lock(g_mutex);
-    g_keys.feed(input);
+    {
+        std::lock_guard<std::mutex> lock(g_mutex);
+        g_keys.feed(input);
+    }
+    ime_android_poll(input);  // what the input method composed and typed (a channel of its own: ime_android.cpp)
 }
 
 EdgeInsets mobile_safe_insets() {
@@ -241,9 +246,15 @@ void mobile_vibrate(float seconds) {
 // InputMethodManager on the activity's decor view. The NativeActivity's own showSoftInput (what sokol_app calls) does
 // nothing on many devices because the decor view is not a text editor; showSoftInput(view, SHOW_FORCED) can say no for the
 // same reason, and then toggleSoftInput(SHOW_FORCED, 0) shows the keyboard regardless. Hiding is a plain hide, so it can
-// be asked twice. Typed keys arrive as key events (mobile_native_event).
+// be asked twice. Typed keys arrive as key events (mobile_native_event). Once the IME's Java class is loaded it does all
+// of this on the UI thread, in order with the IME's own calls, and shows the keyboard for its text view while a field
+// composes (ime_android_show_keyboard).
 void mobile_show_keyboard(bool show) {
     if (show == g_imeShown && show) return;  // asking to show it again would toggle it away
+    if (ime_android_show_keyboard(show)) {
+        g_imeShown = show;
+        return;
+    }
     JNIEnv* env = android_thread_env();
     const ANativeActivity* act = android_activity();
     if (!env || !act || !act->clazz || env->PushLocalFrame(16) != JNI_OK) return;

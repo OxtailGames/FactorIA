@@ -449,8 +449,8 @@ characters come from depends on the device, and the game does not change for any
 - **Desktop.** The operating system's text input: composed text (shift, dead keys, IME) arrives as typed. On **macOS** and
   **Windows** a focused `TextField` also composes natively (below).
 - **Phones and tablets.** The `TextField` raises the system keyboard when it gets the focus and hides it when it loses it
-  (the UI does this by itself: [MOBILE.md](mobile/MOBILE_DEVICE.md#the-on-screen-keyboard)). iOS delivers composed text; Android
-  delivers what each key types in its layout.
+  (the UI does this by itself: [MOBILE.md](mobile/MOBILE_DEVICE.md#the-on-screen-keyboard)). iOS and Android deliver composed
+  text (below); with no field focused Android delivers what each key types in its layout.
 - **A gamepad alone.** The kit's on-screen keyboard ([MENUS.md](MENUS.md), "On-screen keyboard (gamepad players)"): the
   d-pad walks the keys, its layout follows the language's script.
 - **Web.** The page gets typed text from the browser's **`keypress`** events (`keydown` and `keyup` give the keys: Backspace,
@@ -475,7 +475,8 @@ the commit goes to `input.text` once. With no `TextField` focused the IME is off
 | macOS | yes | the game's view takes marked text (`NSTextInputClient`) while a field has the focus: the candidate window sits under the caret, a dead key shows its pending accent as a composition |
 | iOS | yes | the keyboard's marked text in the hidden text field, on-screen and hardware keyboards; the candidate bar follows the field |
 | Windows | yes | the input method (IMM32, which the Windows text services also serve) composes into the game's window while a field has the focus: its own composition window stays hidden (the field draws the composition), its candidate list sits under the caret. A dead key types its accented letter once it is finished, as before |
-| Linux, Android, web | not yet | composed text arrives as typed text, when it is finished |
+| Android | yes | the keyboard composes into the engine's input connection (a view that is a text editor only while a field has the focus): the pre-edit string shows in the field, underlined, the clause it converts selected; on-screen and hardware keyboards |
+| Linux, web | not yet | composed text arrives as typed text, when it is finished |
 
 On macOS and iOS:
 
@@ -529,6 +530,43 @@ To check it by hand on Windows 10 or 11 (Settings > Time & language > Language &
   field and nothing more of it appears anywhere; Alt+Tab away and back.
 - A password field: the IME stays off (letters type as letters).
 - No field focused, IME on: WASD and Space play the game and no composition appears.
+
+On Android:
+
+- The engine's Java class `factoria.engine.Ime` (part of every project `factoria export` writes) adds a 1x1 view that draws
+  nothing. While a `TextField` has the focus that view is a text editor and the keyboard composes into its input
+  connection; with no field focused, or a password field, it is none, so the keyboard sends keys, as without the IME.
+- Keys still come from the activity's input queue: a hardware keyboard, and the keys a keyboard sends as key events
+  (Backspace on an empty composition, Enter, arrows), reach the field and the game as before.
+- What the keyboard asks of the connection turns into the engine's events: the pre-edit string (`setComposingText`) is the
+  composition, its highlighted clause the selection; `commitText` types its text once (a line break in it is Enter, a tab
+  Tab); `finishComposingText` types the pre-edit string; `deleteSurroundingText` is presses of Backspace (before the
+  caret) and Delete (after it), at most 64 each way; the keyboard's action key is Enter (the field decides what it does:
+  `ui.submit`). A field reads one press of a key per frame, so three deletes are three frames of Backspace.
+- The connection holds only the pre-edit string, never what the field already has: a keyboard cannot read back typed text,
+  so it cannot recompose a word already typed, and its suggestions start fresh at the caret.
+- When the field ends a composition itself (a tap in the field, the focus moving to another field: `ime_cancel`) the
+  input restarts with a new connection, and nothing the old one still sends is used. When the connection closes (the
+  app goes to the background, another window takes the focus) the composition is dropped: nothing is typed.
+- If the class cannot be loaded (a project with its own manifest and `android:hasCode="false"`) or a call into it fails,
+  the IME stays off for the rest of the run, with one log line: the keyboard sends keys, nothing typed is lost.
+- Not attached inside the editor (the editor does not run on Android).
+
+To check it by hand on a phone (Settings > System > Languages & input), in a game with a `TextField`:
+
+- **Gboard, Japanese** (12-key or QWERTY kana): `nihongo` shows にほんご in the field, underlined; a candidate types 日本語
+  once; the keyboard's Enter while composing confirms and does not submit, a second Enter submits.
+- **Gboard, Chinese (Pinyin)**: `zhongwen`, a candidate types 中文 once; a full-width punctuation mark types once.
+- **Gboard, English with suggestions**: a word composes underlined, a suggestion or Space types it once; swipe typing types
+  one word per swipe; Backspace removes one character per press, and deletes into the text already typed.
+- **Samsung Keyboard** (Korean and English): `gksrmf` on 2-set builds 한글, a syllable at a time; predictive words type once.
+- **Cancel by tap**: mid-composition tap inside the field, then tap into another field: what was built is typed once into
+  the first field and nothing more of it appears anywhere.
+- **A password field**: no composition appears and letters type as letters (keys); moving the focus between a normal
+  field and a password field keeps the keyboard up.
+- **Hardware keyboard** (Bluetooth or a Chromebook): letters, Backspace, Enter and arrows work in the field; with no field
+  focused WASD plays the game.
+- **Background**: compose, press Home, come back: nothing of the composition was typed and the next one starts normally.
 
 ## Limits
 

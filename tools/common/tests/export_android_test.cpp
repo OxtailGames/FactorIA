@@ -304,8 +304,10 @@ TEST_CASE("android export: no icon means the default icon and a warning; no sign
     CHECK(gradle.find("compileSdk 36") != std::string::npos);
     CHECK(gradle.find("minSdk 26") != std::string::npos);
     CHECK(gradle.find("versionCode 100") != std::string::npos);  // 0.1.0
-    // No native plugin: no Java code to load, no module, no dependencies.
-    CHECK(manifest.find("android:hasCode=\"false\"") != std::string::npos);
+    // No native plugin: no module, no dependencies; the APK still loads code, the engine's input method class (the IME).
+    CHECK(manifest.find("android:hasCode=\"true\"") != std::string::npos);
+    CHECK(testing::read_all(root / "app/src/main/java/factoria/engine/Ime.java").find("package factoria.engine;") !=
+          std::string::npos);
     CHECK(gradle.find("dependencies") == std::string::npos);
     CHECK(testing::read_all(root / "settings.gradle").find("plugin_") == std::string::npos);
     CHECK_FALSE(stdfs::exists(root / "plugins"));
@@ -497,8 +499,8 @@ TEST_CASE("android export: a game without the AdMob plugin writes the same prope
     CHECK_FALSE(any_contains(r->warnings, "admob"));
 }
 
-TEST_CASE(
-    "android export: a plugin module without Java or Kotlin code leaves hasCode false; Kotlin sources turn it on") {
+TEST_CASE("android export: hasCode is true with a plugin module without Java or Kotlin code (the engine's class) and "
+          "with one") {
     testing::TempDir tmp;
     SUBCASE("only the native libraries") {
         const std::string game =
@@ -506,7 +508,7 @@ TEST_CASE(
         auto r = export_project(options(game, tmp, "gradle"));
         REQUIRE_MESSAGE(r.ok(), (r.ok() ? "" : r.error().to_string()));
         CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/src/main/AndroidManifest.xml")
-                  .find("android:hasCode=\"false\"") != std::string::npos);
+                  .find("android:hasCode=\"true\"") != std::string::npos);
         CHECK(testing::read_all(stdfs::path(r->outputDir) / "app/build.gradle")
                   .find("implementation project(':plugin_example')") != std::string::npos);
     }
