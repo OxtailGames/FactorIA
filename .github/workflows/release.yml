@@ -46,7 +46,13 @@ on:
   push:
     tags: ['v*']
   pull_request:
-    paths: ['.github/workflows/release.yml']
+    paths:
+      - '.github/workflows/release.yml'
+      - 'examples/examples.json'
+      - 'tools/common/src/examples.cpp'
+      - 'tools/common/src/examples_download.cpp'
+      - 'tools/common/src/examples_names.h'
+      - 'tools/common/src/export_zip.cpp'
   workflow_dispatch:
 
 permissions:
@@ -729,7 +735,7 @@ jobs:
           while read -r size file; do
             [[ "$(stat -c %s "$out/$file")" == "$size" ]] || fail "$file is not $size bytes, as the manifest says"
             unzip -tq "$out/$file" > /dev/null || fail "$file is not a valid zip"
-            if unzip -Z1 "$out/$file" | grep -Eq '^\.factoria/'; then fail "$file holds .factoria/"; fi
+            if unzip -Z1 "$out/$file" | grep -E '^\.factoria/' > /dev/null; then fail "$file holds .factoria/"; fi
           done < <(jq -r '.examples[] | "\(.size) \(.file)"' "$out/examples-manifest.json")
           ls -l "$out"
 

@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <fstream>
+#include <functional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -61,6 +62,25 @@ Result<std::vector<std::string>> zip_entry_names(const stdfs::path& file);
 
 // The uncompressed bytes of entry `name` of the zip `file` (stored or deflated; the CRC-32 is checked). The Error says what is
 // wrong with the file or lists nothing found under that name.
-Result<std::string> zip_read_entry(const stdfs::path& file, const std::string& name);
+// `maxSize` != 0 refuses an entry whose directory says it is bigger, and inflates into a buffer of exactly the declared size (an
+// entry that inflates to more fails instead of growing): the reader for a zip somebody else made.
+Result<std::string> zip_read_entry(const stdfs::path& file, const std::string& name, std::uint64_t maxSize = 0);
+
+// What the central directory says about an entry (nothing is read or inflated).
+struct ZipEntryInfo {
+    std::string name;        // as stored (UTF-8 or the zip's own encoding: not checked here)
+    std::uint64_t size = 0;  // uncompressed bytes
+    std::uint64_t compressedSize = 0;
+    bool directory = false;  // the name ends in '/'
+    bool symlink = false;    // made on Unix with the symbolic link file type
+    bool special = false;    // made on Unix as a device, pipe or socket
+    bool encrypted = false;
+};
+Result<std::vector<ZipEntryInfo>> zip_entries(const stdfs::path& file);
+
+// Calls `visit(entry, bytes)` for every entry in directory order (bytes of a folder are empty), reading each with the limit
+// `maxEntrySize` (as `maxSize` of zip_read_entry: pass a real limit for a zip somebody else made). Stops at the first Error, of the reader or of `visit`.
+Result<void> zip_each_entry(const stdfs::path& file, std::uint64_t maxEntrySize,
+                            const std::function<Result<void>(const ZipEntryInfo&, std::string&&)>& visit);
 
 }  // namespace fa::export_detail

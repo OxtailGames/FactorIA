@@ -208,6 +208,22 @@ Available templates:
 
 `factoria templates` lists the available templates with their descriptions.
 
+Or start from an **example game**. The download carries no examples (only a clone of the repository has the `examples/` folder),
+so FactorIA fetches the one you pick from the GitHub release of the version you installed:
+
+```bash
+factoria call project.examples                                  # name, title, what it shows, what to read first, download size
+factoria call project.create '{"dir":"my-game","example":"block-push"}'
+```
+
+`project.examples` downloads the list of the installed version and keeps a copy in FactorIA's cache folder (`$FACTORIA_HOME/cache/examples/<version>`,
+by default `~/.factoria/cache/examples/<version>`); without internet it answers with that copy and says `"stale": true`, and
+without a copy it tells you that you need the internet once (the base download has no examples). `project.create` with
+`example` downloads the zip, checks its size and SHA-256 against the list, refuses any file name that could write outside `dir`,
+unpacks it next to `dir` and renames it at the end, so a failure leaves nothing behind. `dir` must be new or empty. The
+zip stays in the cache folder, so the same example again needs no internet. Both commands need the `network` capability, which an MCP client
+has by default (`factoria mcp --read-only` does not).
+
 The project contains:
 
 - `factoria.json`: display, physics and control settings.
