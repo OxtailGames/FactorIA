@@ -20,6 +20,10 @@
 // Differences from the tcp client: destroying an open wss:// connection closes the socket at once, without the 1001 close
 // frame, because a Java write may block (fa/platform/websocket.h: "only when that takes no waiting"). The server sees 1006.
 //
+// The DNS lookup (the InetSocketAddress constructor here, getaddrinfo in the tcp client) is neither bounded by the connect
+// timeout nor interruptible: close() while connecting reports its Error and Close 1006 once the system's resolver has
+// answered, and destroying the connection never waits for it (the thread is detached).
+//
 // The game's manifest needs the INTERNET permission: the export adds it when factoria.json declares network hosts
 // (docs/NETWORKING.md); without it the socket or the DNS lookup fails, and the error says so.
 //
@@ -50,6 +54,8 @@ using ws_stream::Clock;
 using ws_stream::kCloseWait;
 
 constexpr jint kChunk = 64 * 1024;  // bytes per Java read or write
+// How long end_io() waits for the writer thread to end after the socket was closed (closing it ends a write that is stuck).
+constexpr auto kWriterEndWait = std::chrono::seconds(2);
 
 // The framework classes and methods the TLS client calls, looked up by the connection's thread. The method IDs stay valid
 // on every thread (framework classes are never unloaded); the class references are local to that thread's frame.
@@ -166,7 +172,8 @@ private:
     }
 
     // The game's frame: when a close frame cannot leave (the writer has been stuck in a write since the close wait began),
-    // close the socket so that the connection ends with Error and Close 1006 on time.
+    // close the socket so that the connection ends with Error and Close 1006 on time. It runs from poll() only: while the
+    // app is in the background and no frame is drawn, a stuck close waits there until the next frame (or the socket's end).
     void tick() override {
         {
             std::lock_guard<std::mutex> lock(mutex_);
@@ -208,7 +215,10 @@ private:
         if (stopping()) return;
         const std::string& host = url_.host;
         const std::string all = e.cls + " " + e.message + " " + e.causeCls + " " + e.causeMessage;
-        const std::string detail = e.message.empty() ? e.cls : e.message;
+        // No pending exception (an empty JavaError): say that, not "could not connect to host ()".
+        const std::string detail = !e.message.empty() ? e.message
+                                   : !e.cls.empty()   ? e.cls
+                                                      : std::string("Java gave no reason");
         if (e.cls == "java.lang.SecurityException" || has(all, "EACCES") || has(all, "EPERM") ||
             has(all, "Permission denied")) {
             fail_connect("the game is not allowed to use the network: " + detail,
@@ -446,10 +456,13 @@ private:
         return true;
     }
 
+    // Starts the writer thread and waits until it has its Java environment (it needs one to write): a writer that cannot
+    // attach would leave the connection Open with nothing able to send, and close() Closing for ever.
     bool start_writer() {
         {
             std::lock_guard<std::mutex> lock(mutex_);
             writerDone_ = false;
+            writerReady_ = writerFailed_ = false;
         }
         try {
             std::thread([self = std::static_pointer_cast<TlsCore>(shared_from_this())] {
@@ -464,7 +477,20 @@ private:
                          "Close other connections or programs and try again.");
             return false;
         }
-        return true;
+        bool failed;
+        {
+            // Attaching a thread takes no waiting for the network; the game closing or destroying the connection ends it too
+            // (interrupt() takes the mutex before it notifies).
+            std::unique_lock<std::mutex> lock(mutex_);
+            cv_.wait(lock, [&] { return writerReady_ || writerFailed_ || stopping(); });
+            failed = writerFailed_;
+        }
+        if (failed) {
+            fail_connect("could not start the connection (the Java runtime is not available on a new thread)",
+                         "Restart the game; close other connections or programs and try again.");
+            return false;
+        }
+        return !stopping();
     }
 
     // The writer's thread: writes what the session queued until the reader ends (after it flushed the rest), the
@@ -474,6 +500,11 @@ private:
         jbyteArray buf = env ? env->NewByteArray(kChunk) : nullptr;
         if (env && !buf) env->ExceptionClear();
         bool closeSocket = !buf;  // no Java: the reader must not wait for this thread's writes
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            (buf ? writerReady_ : writerFailed_) = true;  // start_writer() is waiting for this
+        }
+        cv_.notify_all();
         std::string chunk;
         while (buf) {
             bool write = false;
@@ -574,7 +605,7 @@ private:
         lock.unlock();
         close_raw(env);
         lock.lock();
-        const bool writerEnded = cv_.wait_for(lock, std::chrono::seconds(2), [&] { return writerDone_; });
+        const bool writerEnded = cv_.wait_for(lock, kWriterEndWait, [&] { return writerDone_; });
         lock.unlock();
         if (env && ssl_ && writerEnded) {  // frees the TLS state now rather than when the collector finds it
             env->CallVoidMethod(ssl_, socketClose_);
@@ -617,6 +648,8 @@ private:
     bool writing_ = false;        // the writer is in OutputStream.write
     bool readerDone_ = false;     // the reader stopped: the writer flushes what is left and ends
     bool writerDone_ = true;      // no writer thread is running (none started yet, or it ended)
+    bool writerReady_ = false;    // the writer has its Java environment and buffer
+    bool writerFailed_ = false;   // it has not: the connection never opens
     bool watchdogFired_ = false;  // tick() closed the socket already
 
     std::mutex javaMutex_;  // guards raw_ and rawClosed_: the game thread closes raw_ to end a blocked call

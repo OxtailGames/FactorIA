@@ -244,7 +244,7 @@ ws.send(JSON.stringify({ type: "join", name: "Ann" }));  // false until the conn
 **Every player has its WebSocket client.** The shared part (the address checks, the script API, reconnects, the
 protocol code, the test server) is the same everywhere; this table says what each platform connects with:
 
-| Platform | Client | Works now |
+| Platform | Client | Available |
 |---|---|---|
 | Tests, headless runs, `factoria call`, the MCP server | a scripted in-memory server (`game.websocket`) | yes, nothing touches the network |
 | Windows | WinHTTP's WebSocket API, with the system's certificates and proxy (like `http.fetch`) | yes |
@@ -260,8 +260,8 @@ addresses (mixed content; some browsers exempt `localhost`). `headers` is an err
 any). The browser gives no reason for a failed connection, so the `"error"` event lists what to check; `httpStatus` is
 always 0. A message longer than `maxMessageBytes` is checked when the whole message has arrived (the browser buffers it
 first), and the server is closed with 1000 and the reason "message too big", because the browser cannot send 1009 (it only
-sends 1000 and 3000 to 4999). A connection that a scene change or `ws.close()` without a code ends closes with no status code (the browser cannot
-send 1001). The timeout and the 5 s wait for the server's answer to `close()` are the engine's own timers.
+sends 1000 and 3000 to 4999). A connection that a scene change destroys closes with no status code (the browser cannot send 1001), and `ws.close()`
+without a code sends 1000. The timeout and the 5 s wait for the server's answer to `close()` are the engine's own timers.
 
 **On macOS and iOS** the client is the system's, so it differs from the others in three small ways. Closing: `ws.close()`
 reports the `"close"` event as soon as the system has sent the close frame, with the code and reason that were asked for and
