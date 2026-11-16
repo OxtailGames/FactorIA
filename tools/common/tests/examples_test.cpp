@@ -49,6 +49,11 @@ void make_examples(const TempDir& d) {
         write_all(p / "scripts/build/keep.js", "a build/ folder below the top is part of the project");
         write_all(p / ".DS_Store", "x");
         write_all(p / "shot.actual.png", "x");
+        for (const char* secret : {".env", "ai.local.json", "release.keystore", "upload.jks", "sign.p12", "tls.pem",
+                                   "api.key", "desktop.ini", "x.fa-tmp"})
+            write_all(p / secret, "secret");
+        write_all(p / "scripts/.env", "secret below the top");
+        write_all(p / "keystore.txt", "a name that only contains a left-out word stays");
         write_all(p / ".gitignore", ".factoria/\n");
     }
 }
@@ -68,9 +73,11 @@ TEST_CASE("examples source: every folder of examples/ has an entry and every ent
     for (const auto& d : stdfs::directory_iterator(root, ec))
         if (d.is_directory(ec)) folders.insert(d.path().filename().string());
     for (const std::string& f : folders)
-        CHECK_MESSAGE(entries.count(f), "examples/" << f << " has no entry in examples/examples.json (name, title, shows, readFirst)");
+        CHECK_MESSAGE(entries.count(f),
+                      "examples/" << f << " has no entry in examples/examples.json (name, title, shows, readFirst)");
     for (const std::string& n : entries)
-        CHECK_MESSAGE(folders.count(n), "examples/examples.json lists \"" << n << "\", which is no folder of examples/");
+        CHECK_MESSAGE(folders.count(n),
+                      "examples/examples.json lists \"" << n << "\", which is no folder of examples/");
     CHECK(entries.size() >= 11);
     for (const ExampleInfo& e : *src) {
         INFO("example " << e.name);
@@ -130,7 +137,8 @@ TEST_CASE("examples manifest: bad manifests say where and how to fix") {
             j["examples"][0].erase(field);
             auto m = parse_examples_manifest(j.dump());
             REQUIRE_FALSE(m.ok());
-            CHECK_MESSAGE(m.error().message.find(std::string("/examples/0/") + field) != std::string::npos, m.error().message);
+            CHECK_MESSAGE(m.error().message.find(std::string("/examples/0/") + field) != std::string::npos,
+                          m.error().message);
             CHECK_FALSE(m.error().hint.empty());
         }
         Json j = Json::parse(manifest_text());
@@ -148,7 +156,9 @@ TEST_CASE("examples manifest: bad manifests say where and how to fix") {
             j["examples"][0][field] = value;
             auto m = parse_examples_manifest(j.dump());
             CHECK_MESSAGE(!m.ok(), field);
-            if (!m.ok()) CHECK_MESSAGE(m.error().message.find(std::string("/examples/0/") + field) != std::string::npos, m.error().message);
+            if (!m.ok())
+                CHECK_MESSAGE(m.error().message.find(std::string("/examples/0/") + field) != std::string::npos,
+                              m.error().message);
         };
         bad("sha256", "xyz");
         bad("sha256", std::string(64, 'A'));  // upper case: the manifest writes lower case
@@ -239,9 +249,18 @@ TEST_CASE("examples packaging: what a zip holds, and the same bytes every time")
     TempDir d;
     make_examples(d);
     const stdfs::path a = d.path / "alpha";
-    const std::vector<std::string> files = example_zip_files(a);
-    CHECK(files == std::vector<std::string>{".gitignore", "assets/pic.bin", "factoria.json", "scripts/build/keep.js",
-                                            "scripts/main.js"});
+    auto listed = example_zip_files(a);
+    REQUIRE(listed.ok());
+    const std::vector<std::string>& files = *listed;
+    CHECK(files == std::vector<std::string>{".gitignore", "assets/pic.bin", "factoria.json", "keystore.txt",
+                                            "scripts/build/keep.js", "scripts/main.js"});
+
+    {  // a folder that cannot be listed is an Error that names it
+        auto missing = example_zip_files(d.path / "missing");
+        REQUIRE_FALSE(missing.ok());
+        CHECK(missing.error().message.find("missing") != std::string::npos);
+        CHECK_FALSE(missing.error().hint.empty());
+    }
 
     TempDir out1, out2;
     REQUIRE(package_example_zip(a, out1.path / "alpha.zip").ok());
@@ -255,7 +274,8 @@ TEST_CASE("examples packaging: what a zip holds, and the same bytes every time")
     // Packed again, later, from a copy whose files have other times: the same bytes.
     stdfs::copy(a, d.path / "alpha2", stdfs::copy_options::recursive);
     std::error_code ec;
-    stdfs::last_write_time(d.path / "alpha2/scripts/main.js", stdfs::file_time_type::clock::now() + std::chrono::hours(5), ec);
+    stdfs::last_write_time(d.path / "alpha2/scripts/main.js",
+                           stdfs::file_time_type::clock::now() + std::chrono::hours(5), ec);
     REQUIRE(package_example_zip(d.path / "alpha2", out2.path / "alpha.zip").ok());
     CHECK(read_all(out1.path / "alpha.zip") == read_all(out2.path / "alpha.zip"));
 
@@ -333,14 +353,18 @@ TEST_CASE("examples: the command project.package_examples") {
     register_tooling_commands(reg, d.str());
     REQUIRE(reg.has("project.package_examples"));
     CHECK(reg.info("project.package_examples")->capabilities.has(Capability::WriteAnywhere));
-    auto r = reg.call("project.package_examples", Json::object({{"examples", d.str()}, {"out", out.str()}, {"version", "0.31.0"}}));
+    auto r = reg.call("project.package_examples",
+                      Json::object({{"examples", d.str()}, {"out", out.str()}, {"version", "0.31.0"}}));
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["engineVersion"] == "0.31.0");
     CHECK(r.result["examples"].size() == 2);
     CHECK(stdfs::exists(out.path / "alpha.zip"));
     CHECK(stdfs::exists(out.path / kExamplesManifestFile));
-    auto bad = reg.call("project.package_examples", Json::object({{"examples", d.str()}, {"out", out.str()}, {"only", "alpha"}}));
+    auto bad = reg.call("project.package_examples",
+                        Json::object({{"examples", d.str()}, {"out", out.str()}, {"only", "alpha"}}));
     REQUIRE_FALSE(bad.ok);
     CHECK_FALSE(bad.error["hint"].get<std::string>().empty());
-    CHECK_FALSE(reg.call("project.package_examples", Json::object({{"examples", (d.path / "nope").string()}, {"out", out.str()}})).ok);
+    CHECK_FALSE(reg.call("project.package_examples",
+                         Json::object({{"examples", (d.path / "nope").string()}, {"out", out.str()}}))
+                    .ok);
 }

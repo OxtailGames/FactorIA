@@ -6,6 +6,16 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Example games you can get with a command (M97.5b):** `project.examples` lists the example games of the version you have
+  installed (name, title, what each shows, what to read first, download size) and `project.create {example, dir}` makes a project
+  from one: it downloads the example's zip from that version's GitHub release, checks its size and SHA-256 against the release's
+  list before opening it, refuses any file name that could write outside `dir` (`..`, absolute paths, drive letters, `\`, names
+  that differ only in capitals), unpacks it into a hidden folder and renames that folder to `dir` at the end, so a failure leaves
+  nothing behind (`dir` must be new or empty). Both keep what they download in FactorIA's cache folder (`~/.factoria/cache/examples/<version>`):
+  with no internet the list comes from there marked `stale`, and without a copy the error says the base download carries no
+  examples and that you need the internet once. A wrong name gets "did you mean". Both need the `network` capability, so an MCP
+  game AI calls them like `project.create` today. The release packer also leaves out secrets (`.env`, `ai.local.json`, `*.key`,
+  `*.keystore`, `*.jks`, `*.p12`, `*.pem`), `desktop.ini` and `*.fa-tmp`, and a folder it cannot read now fails with its name.
 - **Example games in the release, first part (M97.5a):** every release will publish each example game (`block-push`,
   `lantern-keep`, `kindlewatch`, ...) as its own zip, plus `examples-manifest.json` with each example's title, what it
   shows, the docs to read first, and the size and SHA-256 of its zip. The new command `project.package_examples` makes

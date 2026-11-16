@@ -39,6 +39,8 @@ struct ScaffoldResult {
 };
 
 std::vector<TemplateInfo> list_templates();
+// Reverse-DNS project id: at least two dot-separated parts of letters, digits and underscores, each starting with a letter.
+bool is_valid_project_id(const std::string& id);
 Result<ScaffoldResult> create_project(const std::string& targetDir, const std::string& templateName,
                                       const ScaffoldOptions& options = {});
 

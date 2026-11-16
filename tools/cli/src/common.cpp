@@ -19,6 +19,7 @@
 #include "fa/core/strings.h"
 #include "fa/runtime/project.h"
 #include "fa/runtime/test_files.h"
+#include "fa/tooling/examples.h"
 #include "fa/tooling/tooling.h"
 #include "fa/tooling/agent_cost.h"
 
@@ -270,6 +271,7 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
         register_agent_cost_commands(registry);
         register_setup_commands(registry);
         register_update_commands(registry);
+        register_examples_commands(registry);
         CommandInfo info;
         info.name = "project.templates";
         info.summary = "List the project templates `project.create` can start from.";
@@ -289,27 +291,42 @@ void register_cli_commands(CommandRegistry& registry, const std::string& project
             "Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, "
             "scripts, a test, AGENTS.md (the guide for AI agents; CLAUDE.md imports it), ENGINE_FEEDBACK.json and the "
             "real types/factoria.d.ts. Afterwards start "
-            "`factoria mcp --project <dir>` to work on it. Example: "
-            "{\"dir\":\"my-game\",\"template\":\"2d-platformer\",\"name\":\"My Game\"}.";
+            "`factoria mcp --project <dir>` to work on it. With `example` instead of `template` the project is a copy "
+            "of an "
+            "example game of the installed version (project.examples lists them): its zip is downloaded from the "
+            "GitHub "
+            "release (needs the network capability and the internet the first time; it is kept in FactorIA's cache "
+            "folder), "
+            "checked against the release's size and SHA-256, and unpacked into a hidden folder that is renamed to "
+            "`dir` at the "
+            "end, so a failure leaves nothing. Examples: "
+            "{\"dir\":\"my-game\",\"template\":\"2d-platformer\",\"name\":\"My Game\"} and "
+            "{\"dir\":\"block-push\",\"example\":\"block-push\"}.";
         ci.readOnly = false;
         ci.category = "project";
         ci.inputSchema = Json::parse(R"({
           "type":"object","required":["dir"],
           "properties":{
             "dir":{"type":"string","description":"Target folder (created; must be empty or new)."},
-            "template":{"type":"string","description":"2d-empty, 2d-platformer or 3d-empty (see project.templates).","default":"2d-empty"},
-            "name":{"type":"string","description":"Display name (default: folder name)."},
-            "id":{"type":"string","description":"Reverse-DNS id, e.g. com.example.mygame."}
+            "template":{"type":"string","description":"2d-empty, 2d-platformer or 3d-empty (see project.templates). Default 2d-empty; not together with `example`."},
+            "example":{"type":"string","description":"Start from this example game of the installed version instead of a template (names: project.examples). Downloads it the first time. Not together with `template`."},
+            "name":{"type":"string","description":"Display name (default: folder name; an example keeps its own unless given)."},
+            "id":{"type":"string","description":"Reverse-DNS id, e.g. com.example.mygame (an example keeps its own unless given)."}
           }})");
         registry.add(ci, [](const Json& a) {
             ScaffoldOptions o;
             o.name = a.value("name", std::string());
             o.id = a.value("id", std::string());
+            if (a.contains("example"))
+                return create_example_for_command(a, absolute_path(a.at("dir").get<std::string>()));
             auto r = create_project(absolute_path(a.at("dir").get<std::string>()),
                                     a.value("template", std::string("2d-empty")), o);
             if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
             return r->to_json();
         });
+        // The same capabilities as the project.create of register_project_commands: it writes the folder it creates; the network one
+        // an `example` needs is checked by the handler (create_example_for_command).
+        declare_command_capabilities(registry, {{"project.create", capability_sets::writes_project()}});
     }
     ai::AiCommandOptions ao;
     ao.projectDir = [projectDir]() { return projectDir; };
