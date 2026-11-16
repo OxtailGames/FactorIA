@@ -21,7 +21,7 @@ Replace exact text in a file (must match exactly once unless replaceAll).
 
 Capabilities: read, writeProject
 
-Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360"}. Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited).
+Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360"}. Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited). In a factoria.json the text is matched as fs.read shows it, with storage.encryptionSecret as "(hidden)": an edit that leaves "(hidden)" as the secret keeps the real one.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -51,7 +51,7 @@ Read a text file (optionally a line range).
 
 Capabilities: read
 
-Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files are refused. Set numbered=true to get line numbers for fs.edit planning. In factoria.json the value of storage.encryptionSecret (the key that seals the game's saves) is shown as "(hidden)", here and in fs.search; fs.write of a file that says "(hidden)" keeps the real secret.
+Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files are refused. Set numbered=true to get line numbers for fs.edit planning. In any file called factoria.json (the project's, or one of a project inside it) the value of storage.encryptionSecret (the key that seals the game's saves) is shown as "(hidden)", here and in fs.search; fs.write of a file that says "(hidden)" keeps the real secret.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|

@@ -180,7 +180,10 @@ std::string mask_project_secrets(std::string_view text) {
 }
 
 bool is_project_file_path(std::string_view rel) {
-    if (rel.size() >= 2 && rel.substr(0, 2) == "./") rel.remove_prefix(2);
+    // Any file called factoria.json, not only the one at the root: a project inside the project (an example, a copy) holds
+    // a real secret just the same.
+    const std::size_t slash = rel.find_last_of("/\\");
+    if (slash != std::string_view::npos) rel.remove_prefix(slash + 1);
     return to_lower(std::string(rel)) == "factoria.json";
 }
 
@@ -268,7 +271,8 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.description =
             "Example: {\"path\":\"scripts/player.js\",\"startLine\":1,\"endLine\":80}. "
             "Binary files are refused. Set numbered=true to get line numbers for fs.edit planning. In "
-            "factoria.json the value of storage.encryptionSecret (the key that seals the game's saves) is "
+            "any file called factoria.json (the project's, or one of a project inside it) the value of "
+            "storage.encryptionSecret (the key that seals the game's saves) is "
             "shown as \"(hidden)\", here and in fs.search; fs.write of a file that says \"(hidden)\" keeps the "
             "real secret.";
         info.inputSchema = Json::object(
@@ -405,7 +409,10 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
         info.description =
             "Example: {\"path\":\"scripts/player.js\",\"find\":\"speed = 300\",\"replace\":\"speed = 360\"}. "
             "Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. "
-            "Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited).";
+            "Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited). In a factoria.json the "
+            "text "
+            "is matched as fs.read shows it, with storage.encryptionSecret as \"(hidden)\": an edit that leaves "
+            "\"(hidden)\" as the secret keeps the real one.";
         info.inputSchema = Json::object(
             {{"type", "object"},
              {"properties", Json::object({{"path", path_prop("write", "Project-relative file path.")},
@@ -425,16 +432,17 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
             if (!text)
                 fail("not_found", "File '" + rel + "' does not exist.", "Use fs.list, or fs.write to create it.");
             if (is_binary(*text)) fail("binary_file", "'" + rel + "' is a binary file.");
+            // In factoria.json the match runs on what fs.read shows, with the secret as "(hidden)": a `find` that tried a
+            // prefix of the real secret would otherwise tell by "matched" or "not found" whether it was right.
+            const bool isProject = is_project_file_path(r);
+            const std::string realText = isProject ? *text : std::string();  // the secret is put back from it
+            if (isProject) *text = mask_project_secrets(*text);
             std::vector<size_t> positions;
             for (size_t pos = text->find(find); pos != std::string::npos; pos = text->find(find, pos + find.size()))
                 positions.push_back(pos);
             if (positions.empty())
                 fail("no_match", "Text to replace was not found in '" + rel + "'.",
-                     is_project_file_path(r) && find.find(kHiddenSecret) != std::string::npos
-                         ? "fs.read shows storage.encryptionSecret as \"(hidden)\" and the file holds the real secret: "
-                           "leave "
-                           "that line out of 'find'."
-                         : "Read the file with fs.read and copy the text exactly (indentation, quotes, line breaks).");
+                     "Read the file with fs.read and copy the text exactly (indentation, quotes, line breaks).");
             bool all = arg_bool(args, "replaceAll", false);
             if (positions.size() > 1 && !all) {
                 std::string lines;
@@ -456,8 +464,7 @@ void register_fs_commands(CommandRegistry& registry, const std::string& projectD
                 if (!all) break;
             }
             out.append(*text, last, std::string::npos);
-            if (is_project_file_path(r) && repl.find(kHiddenSecret) != std::string::npos)
-                out = keep_hidden_secret(out, *text);
+            if (isProject && out.find(kHiddenSecret) != std::string::npos) out = keep_hidden_secret(out, realText);
             std::string err;
             if (!tooling_detail::write_file(p, out, &err)) fail("failed", err);
             Json res = Json::object({{"path", r}, {"replacements", all ? positions.size() : size_t(1)}});

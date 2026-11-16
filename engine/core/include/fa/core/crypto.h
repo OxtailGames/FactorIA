@@ -26,6 +26,7 @@
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
 #include <vector>
 
 #include "fa/core/types.h"
@@ -107,7 +108,7 @@ Result<void> random_bytes(std::span<std::uint8_t> out);
 //   offset  size  field
 //        0     4  magic "FASB"
 //        4     1  format version (1)
-//        5     1  reserved, 0
+//        5     1  reserved, 0 (authenticated like the rest of the header; a reader ignores its value)
 //        6    16  salt (random per blob; the blob's encryption key is HKDF(key, salt))
 //       22    12  nonce (random per blob)
 //       34     n  ciphertext (the data, encrypted)
@@ -123,8 +124,12 @@ inline constexpr std::uint8_t kBlobVersion = 1;
 // same bytes must be given to `open_blob` (a game can pass the slot number so a file copied into another slot is
 // refused). Errors: the system random source failed, or `data` is too large.
 Result<std::string> seal_blob(const Key& key, ByteView aad, ByteView data);
-inline Result<std::string> seal_blob(const Key& key, ByteView aad, std::string_view data) {
-    return seal_blob(key, aad, as_bytes(data));
+// The same for text (a std::string, a string_view, a string literal). It is a template so that `seal_blob(key, aad, {})`
+// has one candidate (the ByteView one) instead of two equally good ones.
+template <class Text, class = std::enable_if_t<std::is_convertible_v<const Text&, std::string_view> &&
+                                               !std::is_convertible_v<const Text&, ByteView>>>
+Result<std::string> seal_blob(const Key& key, ByteView aad, const Text& data) {
+    return seal_blob(key, aad, as_bytes(std::string_view(data)));
 }
 
 // Verifies and decrypts a blob made by `seal_blob`. Errors say which problem it is: not a sealed blob (wrong magic: a

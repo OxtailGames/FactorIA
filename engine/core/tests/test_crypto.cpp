@@ -58,8 +58,8 @@ Key counting_key(std::uint8_t first) {
     return k;
 }
 
-const char* kSunscreen =
-    "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, sunscreen would be it.";
+const char* kSunscreen = "Ladies and Gentlemen of the class of '99: If I could offer you only one tip for the future, "
+                         "sunscreen would be it.";
 
 }  // namespace
 
@@ -82,9 +82,10 @@ TEST_CASE("crypto: HMAC-SHA256, RFC 4231 test cases") {
     // A key longer than the 64-byte block is hashed first.
     CHECK(hex(hmac_sha256(repeat(0xaa, 131), text("Test Using Larger Than Block-Size Key - Hash Key First"))) ==
           "60e431591ee0b67f0d8a26aacbf5b77f8e0bc6213728c5140546040f0ee37f54");
-    CHECK(hex(hmac_sha256(repeat(0xaa, 131),
-                          text("This is a test using a larger than block-size key and a larger than block-size data. The key "
-                               "needs to be hashed before being used by the HMAC algorithm."))) ==
+    CHECK(hex(hmac_sha256(
+              repeat(0xaa, 131),
+              text("This is a test using a larger than block-size key and a larger than block-size data. The key "
+                   "needs to be hashed before being used by the HMAC algorithm."))) ==
           "9b09ffa71b942fcb27635fbcd5b0e944bfdc63644f0713938a7f51535c3a35e2");
     // Empty key and empty data work (the key is padded with zeros).
     CHECK(hex(hmac_sha256({}, {})) == "b613679a0814d9ec772f95d778c35fc5ff1697c493715653c6c712144292c5ad");
@@ -101,9 +102,9 @@ TEST_CASE("crypto: HKDF-SHA256, RFC 5869 test cases") {
     for (int i = 0xb0; i <= 0xff; ++i) info.push_back(std::uint8_t(i));
     auto b = hkdf_sha256(ikm, salt, info, 82);
     REQUIRE(b);
-    CHECK(hex(*b) ==
-          "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c59045a99cac7827271cb41c65e590e09da3275600c2f09b836"
-          "7793a9aca3db71cc30c58179ec3e87c14c01d5c1f3434f1d87");
+    CHECK(hex(*b) == "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c59045a99cac7827271cb41c65e590e09d"
+                     "a3275600c2f09b836"
+                     "7793a9aca3db71cc30c58179ec3e87c14c01d5c1f3434f1d87");
 
     auto c = hkdf_sha256(repeat(0x0b, 22), {}, {}, 42);  // no salt, no info
     REQUIRE(c);
@@ -128,18 +129,19 @@ TEST_CASE("crypto: key_from_secret is stable and separates contexts") {
 TEST_CASE("crypto: ChaCha20 block function, RFC 8439 section 2.3.2") {
     std::uint8_t out[64];
     crypto::detail::chacha20_block(counting_key(0), 1, nonce_of(unhex("000000090000004a00000000")), out);
-    CHECK(hex(ByteView(out, 64)) ==
-          "10f1e7e4d13b5915500fdd1fa32071c4c7d1f4c733c068030422aa9ac3d46c4ed2826446079faa0914c2d705d98b02a2b5129cd1de164eb9cb"
-          "d083e8a2503c4e");
+    CHECK(hex(ByteView(out, 64)) == "10f1e7e4d13b5915500fdd1fa32071c4c7d1f4c733c068030422aa9ac3d46c4ed2826446079faa0914"
+                                    "c2d705d98b02a2b5129cd1de164eb9cb"
+                                    "d083e8a2503c4e");
 }
 
 TEST_CASE("crypto: ChaCha20 encryption, RFC 8439 section 2.4.2") {
     const Bytes pt = text(kSunscreen);
     Bytes ct(pt.size());
     crypto::detail::chacha20_xor(counting_key(0), 1, nonce_of(unhex("000000000000004a00000000")), pt, ct.data());
-    CHECK(hex(ct) ==
-          "6e2e359a2568f98041ba0728dd0d6981e97e7aec1d4360c20a27afccfd9fae0bf91b65c5524733ab8f593dabcd62b3571639d624e65152ab8f"
-          "530c359f0861d807ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab77937365af90bbf74a35be6b40b8eedf2785e42874d");
+    CHECK(hex(ct) == "6e2e359a2568f98041ba0728dd0d6981e97e7aec1d4360c20a27afccfd9fae0bf91b65c5524733ab8f593dabcd62b3571"
+                     "639d624e65152ab8f"
+                     "530c359f0861d807ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab77937365af90bbf74a35be6b40"
+                     "b8eedf2785e42874d");
     // Decryption is the same operation, in place.
     crypto::detail::chacha20_xor(counting_key(0), 1, nonce_of(unhex("000000000000004a00000000")), ct, ct.data());
     CHECK(ct == pt);
@@ -169,9 +171,10 @@ TEST_CASE("crypto: ChaCha20-Poly1305 AEAD, RFC 8439 section 2.8.2") {
     const Nonce nonce = nonce_of(unhex("070000004041424344454647"));
     const Bytes aad = unhex("50515253c0c1c2c3c4c5c6c7");
     const Bytes pt = text(kSunscreen);
-    const std::string expectedCt =
-        "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905"
-        "d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc3ff4def08e4b7a9de576d26586cec64b6116";
+    const std::string expectedCt = "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282f"
+                                   "afb69da92728b1a71de0a9e060b2905"
+                                   "d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc3ff4d"
+                                   "ef08e4b7a9de576d26586cec64b6116";
     const std::string expectedTag = "1ae10b594f09e26a7e902ecbd0600691";
 
     auto sealed = aead_seal(key, nonce, aad, pt);
@@ -195,8 +198,10 @@ TEST_CASE("crypto: AEAD against an independent reference for other lengths") {
         {0, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "b787aeec6f7e07d7b655e991cfbe89c8"},
         {33, 0, "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "8d873d58423f524189540db61ab076ec"},
         {0, 1, "e9b0c031f0493d3fd6b0b668260c79e7efe734bfd4b4115f9d82bc3be609c294", "6f183f95cb2dd54cc5f0258d24f68382"},
-        {17, 64, "6a1cc781ff342580fa626e7958b8b2f11d1789eaaf5f4cd1097717c8495d946c", "f4d929650c649f199357ca253697a43c"},
-        {5, 1000, "1c6f5759bb9580fbd39220c57e3251abd6e5443fabeae6e450a558ce7292d49e", "827c8c2bda2a327edc9bf135c37b5b4f"},
+        {17, 64, "6a1cc781ff342580fa626e7958b8b2f11d1789eaaf5f4cd1097717c8495d946c",
+         "f4d929650c649f199357ca253697a43c"},
+        {5, 1000, "1c6f5759bb9580fbd39220c57e3251abd6e5443fabeae6e450a558ce7292d49e",
+         "827c8c2bda2a327edc9bf135c37b5b4f"},
     };
     Key key;
     for (std::size_t i = 0; i < key.size(); ++i) key[i] = std::uint8_t((i * 5 + 1) & 255);
@@ -288,7 +293,8 @@ TEST_CASE("crypto: empty and large plaintexts, unaligned inputs") {
     for (std::size_t off = 1; off < 8; ++off) {
         std::copy(pt.begin(), pt.end(), buf.begin() + std::ptrdiff_t(off));
         std::copy(aad.begin(), aad.end(), aadBuf.begin() + std::ptrdiff_t(off));
-        auto s = aead_seal(key, nonce, ByteView(aadBuf.data() + off, aad.size()), ByteView(buf.data() + off, pt.size()));
+        auto s =
+            aead_seal(key, nonce, ByteView(aadBuf.data() + off, aad.size()), ByteView(buf.data() + off, pt.size()));
         REQUIRE(s);
         CHECK(*s == *reference);
         Bytes sealedBuf(reference->size() + 8);
@@ -436,5 +442,82 @@ TEST_CASE("crypto: sealed blob errors teach") {
         REQUIRE_FALSE(r);
         CHECK(r.error().message.find("format version") != std::string::npos);
         CHECK(r.error().hint.find("update") != std::string::npos);
+    }
+}
+
+TEST_CASE("crypto: `{}` for the data of seal_blob is not ambiguous") {
+    const Key key = key_from_secret("secret", "save-slots");
+    auto blob = seal_blob(key, {}, {});
+    REQUIRE(blob);
+    CHECK(blob->size() == kBlobOverhead);
+    auto opened = open_blob(key, {}, *blob);
+    REQUIRE(opened);
+    CHECK(opened->empty());
+}
+
+TEST_CASE("crypto: messages over the size limit are refused before anything is read") {
+    if constexpr (sizeof(std::size_t) > 4) {
+        // Views whose size is past kMaxMessageSize over a small buffer: every function checks the size first and never reads.
+        const Key key = key_from_secret("secret", "save-slots");
+        Nonce nonce{};
+        std::uint8_t small[64] = {'F', 'A', 'S', 'B', kBlobVersion};
+        const std::size_t huge = std::size_t(kMaxMessageSize) + 1;
+        auto check_too_large = [](const auto& r) {
+            REQUIRE_FALSE(r);
+            CHECK(r.error().message.find("limit of ChaCha20-Poly1305") != std::string::npos);
+            CHECK(r.error().hint.find("Split the data") != std::string::npos);
+        };
+        check_too_large(aead_seal(key, nonce, {}, ByteView(small, huge)));
+        check_too_large(aead_open(key, nonce, {}, ByteView(small, huge + kTagSize)));
+        check_too_large(seal_blob(key, {}, ByteView(small, huge)));
+        check_too_large(
+            open_blob(key, {}, std::string_view(reinterpret_cast<const char*>(small), huge + kBlobOverhead)));
+        // Exactly the limit is not "too large" for aead_open's size check: it gets as far as the tag (not run here).
+    }
+}
+
+TEST_CASE("crypto: the header's version and reserved bytes are authenticated, not just checked") {
+    const Key key = key_from_secret("secret", "save-slots");
+    const Bytes aad = text("slot-3");
+    const std::string data = "{\"gold\":5}";
+    auto blob = seal_blob(key, aad, data);
+    REQUIRE(blob);
+
+    // Re-seal the same data under a header with another byte 4 or 5 and a VALID tag (as someone who knew the key would),
+    // by redoing what seal_blob does: HKDF(key, salt) as the key, header || aad as the associated data.
+    auto forge = [&](std::size_t index, std::uint8_t value) {
+        std::string header = blob->substr(0, 34);
+        header[index] = char(value);
+        const auto* h = reinterpret_cast<const std::uint8_t*>(header.data());
+        auto okm = hkdf_sha256(ByteView(key), ByteView(h + 6, 16), as_bytes("factoria sealed blob v1"), kKeySize);
+        REQUIRE(okm);
+        Key sub;
+        std::copy(okm->begin(), okm->end(), sub.begin());
+        Nonce nonce;
+        std::copy(h + 22, h + 34, nonce.begin());
+        Bytes headerAad(h, h + 34);
+        headerAad.insert(headerAad.end(), aad.begin(), aad.end());
+        auto sealed = aead_seal(sub, nonce, headerAad, as_bytes(data));
+        REQUIRE(sealed);
+        return header + std::string(reinterpret_cast<const char*>(sealed->data()), sealed->size());
+    };
+
+    SUBCASE("forging with the unchanged header opens (the test's forgery matches seal_blob)") {
+        auto r = open_blob(key, aad, forge(5, 0));
+        REQUIRE(r);
+        CHECK(*r == data);
+    }
+    SUBCASE("a version this engine does not know is refused even with a valid tag") {
+        auto r = open_blob(key, aad, forge(4, kBlobVersion + 1));
+        REQUIRE_FALSE(r);
+        CHECK(r.error().message.find("format version") != std::string::npos);
+    }
+    SUBCASE("the reserved byte is covered by the tag; a valid tag over another value opens (ignored)") {
+        std::string flipped = *blob;
+        flipped[5] = 1;  // the old tag no longer matches
+        CHECK_FALSE(open_blob(key, aad, flipped));
+        auto r = open_blob(key, aad, forge(5, 1));
+        REQUIRE(r);
+        CHECK(*r == data);
     }
 }

@@ -660,10 +660,16 @@ void register_checkpoint_commands(CommandRegistry& registry, const std::string& 
             Json j = Json::object({{"id", id}, {"path", path}, {"size", bytes.size()}, {"binary", binary}});
             if (!out.empty() || bytes.size() > kReadInlineLimit) {
                 if (out.empty())
-                    throw CommandError("too_large",
-                                       "'" + path + "' is " + std::to_string(bytes.size()) +
-                                           " bytes, over the inline limit of " + std::to_string(kReadInlineLimit) + ".",
-                                       "Pass `out` (a project-relative path) and the file is written there.");
+                    throw CommandError(
+                        "too_large",
+                        "'" + path + "' is " + std::to_string(bytes.size()) + " bytes, over the inline limit of " +
+                            std::to_string(kReadInlineLimit) + ".",
+                        isProjectFile ? "A factoria.json cannot be copied with `out` (it holds the secret that seals "
+                                        "the game's saves); compare it with checkpoint.diff, or restore it with "
+                                        "checkpoint.restore {\"id\": ..., \"paths\": [\"" +
+                                            path + "\"]}."
+                                      : std::string("Pass `out` (a project-relative path) and the file is written "
+                                                    "there."));
                 std::string err;
                 if (!write_atomic(outPath, bytes.data(), bytes.size(), &err))
                     throw CommandError("failed", "Cannot write '" + out + "': " + err + ".",

@@ -51,8 +51,13 @@ void register_project_secret_commands(Engine& engine, Engine::Impl& I) {
          "alone (`created: false`) unless `replace` is true, which makes every encrypted save written so far "
          "unreadable. The "
          "secret is never returned or logged; it ships inside the exported game, so encryption is tamper-evidence, not "
-         "secrecy from a determined player (docs/scripting/SCRIPTING_UI_SCENES.md, \"Encrypted saves\"). Commit "
-         "factoria.json. "
+         "secrecy from a determined player (docs/scripting/SCRIPTING_UI_SCENES.md, \"Encrypted saves\"). The file is "
+         "written back in the engine's own layout (2-space indent, one array element per line, a trailing newline; "
+         "key order and values are kept), so a factoria.json formatted by hand shows more changed lines than the new "
+         "\"storage\" section. If the file cannot be replaced (read-only, or open in another program: Windows refuses "
+         "to replace an open file) the command fails with `write_failed` and changes nothing: close the program and "
+         "run "
+         "it again. Commit factoria.json. "
          "Result: {created, replaced, file}. Example: project.create_storage_secret {}",
          parse_schema(R"({"type":"object","properties":{
                "replace":{"type":"boolean","default":false,"description":"Make a new secret even when the project has one. Every save written with {encrypt: true} so far stops opening: use it only when the secret leaked and the saves can be lost."}}})"),
