@@ -23,6 +23,8 @@ public:
     void update(const void* data, std::size_t size);
     void update(std::string_view data) { update(data.data(), data.size()); }
     std::string finish_hex();
+    // The 32 raw bytes of the digest (fa/core/crypto.h builds HMAC and HKDF on it). Call once, instead of finish_hex().
+    std::array<std::uint8_t, 32> finish();
 
 private:
     void block(const std::uint8_t* p);
