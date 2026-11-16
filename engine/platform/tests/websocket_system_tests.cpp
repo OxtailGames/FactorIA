@@ -43,6 +43,15 @@ std::vector<WebSocketEvent> sys_collect_until_close(WebSocket& ws, int maxMs = 3
     return events;
 }
 
+// The close codes the server has read, once it has read one (or after 30 s): NSURLSession reports the Close event when it has
+// sent the frame, which may be before the server reads it.
+std::vector<int> sys_wait_close_codes(const fa::test::WsTestServer& server) {
+    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    while (server.client_close_codes().empty() && std::chrono::steady_clock::now() < until)
+        std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    return server.client_close_codes();
+}
+
 std::unique_ptr<WebSocket> sys_connect(WebSocketClient& client, const std::string& url,
                                        std::vector<std::string> sub = {},
                                        std::vector<std::pair<std::string, std::string>> headers = {}) {
@@ -287,7 +296,7 @@ TEST_CASE("websocket system: fragments, a big message, pings and bad frames") {
             for (int code : server.client_close_codes()) sawTooBig = sawTooBig || code == 1009;
             if (!sawTooBig) std::this_thread::sleep_for(std::chrono::milliseconds(5));
         }
-        CHECK(sawTooBig);
+        CHECK_MESSAGE(sawTooBig, server.diagnostics());
     }
     {
         // The system answers the server's ping by itself.
@@ -436,11 +445,8 @@ TEST_CASE("websocket system: close without a code is sent as 1000 (NSURLSession 
     CHECK(ws->state() == WebSocketState::Closed);
     CHECK(events.back().code == 1000);
     CHECK(events.back().wasClean);
-    const auto until = std::chrono::steady_clock::now() + std::chrono::seconds(30);
-    while (server.client_close_codes().empty() && std::chrono::steady_clock::now() < until)
-        std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    const auto codes = server.client_close_codes();
-    REQUIRE(codes.size() == 1);
+    const auto codes = sys_wait_close_codes(server);
+    REQUIRE_MESSAGE(codes.size() == 1, server.diagnostics());
     CHECK(codes[0] == 1000);
 }
 
@@ -475,7 +481,7 @@ TEST_CASE("websocket system: destroying an open connection says goodbye and leav
         for (int code : server.client_close_codes()) goodbye = goodbye || code == 1001;
         if (!goodbye) std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    CHECK(goodbye);
+    CHECK_MESSAGE(goodbye, server.diagnostics());
     while (server.finished_connections() < 1 && std::chrono::steady_clock::now() < end)
         std::this_thread::sleep_for(std::chrono::milliseconds(5));
     CHECK(server.finished_connections() >= 1);
@@ -510,8 +516,9 @@ TEST_CASE("websocket system: a client closes with an application code") {
     REQUIRE_FALSE(events.empty());
     CHECK(events.back().code == 4242);
     CHECK(events.back().reason == "custom");
-    const auto codes = server.client_close_codes();
-    REQUIRE(codes.size() == 1);
+    // The Close event comes when the frame is sent, not when the server has read it.
+    const auto codes = sys_wait_close_codes(server);
+    REQUIRE_MESSAGE(codes.size() == 1, server.diagnostics());
     CHECK(codes[0] == 4242);
 }
 
