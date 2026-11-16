@@ -64,8 +64,9 @@ bool edit_coalesces(const std::string& key, const std::string& lastKey, double n
 enum class CoalesceMode {
     Replace,  // the new forward replaces the old one, the old inverse stays: for "set X to v" commands
     Chain,    // forward = old then new, inverse = new then old: for relative commands
-    Merge  // a one-command call whose `target` an earlier forward command has takes that command's place (the inverse
-           // stays); with a new target it is added like Chain. For a drag that writes several entities under one key.
+    Merge  // a one-command call whose `target` an earlier forward command has replaces that command and goes last in the
+    // forward list (the inverse list stays: it holds the oldest values); with a new target it is added like Chain.
+    // For a drag that writes several entities under one key.
 };
 
 // A stack of entries capped by length and by memory. `push_back` drops the oldest entries while there are more than

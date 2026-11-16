@@ -694,6 +694,8 @@ void Editor::at_section_L(AtScript& at) {
                                                    field_edit_args("coin_2", "Shape2D", "thickness", -5.0f), &err);
             at_check(!bad.ok && undo_depth() == ce->depth && redo_depth() == ce->redoDepth,
                      "(L2) a refused edit leaves no entry and keeps the redo list");
+            at_check(!bad.ok && err.find("thickness") != std::string::npos,
+                     "(L2) ...because the value is out of the field's range: " + err);
             // A component that was absent: set adds it, undo removes it, redo adds it with its value; remove and undo.
             const CommandResult added = edit_command(
                 "at:cmd:add", "scene.set_component",
