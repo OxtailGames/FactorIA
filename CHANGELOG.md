@@ -26,6 +26,13 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   `upgrade(data, fromVersion)` with it (bare saves and old records are version 0), refuses a record from a newer version, and has
   an `encrypt` option and a `requireEncrypted` one (a slot that is not sealed is damaged); its tests and the CLI fixture copies are updated.
 
+- **Pad rumble, the shared part (M98.5a):** `input.rumble(pad, low, high, seconds)`, `input.stopRumble(pad?)` and
+  `input.gamepad(i).canRumble` shake the motors of a pad (low and high frequency, 0..1, up to 10 s, on the game's clock). The
+  engine stops every pad on pause, focus loss, unplug, scene change and quit. It works on Windows (XInput pads) and in
+  Chrome-based browsers; the other platforms answer `canRumble: false` with the reason until their backends land (Linux, macOS,
+  iOS and Android in M98.5c, Windows pads that are not XInput in M98.5b). Tests record the requests (`game.rumbles()`,
+  `game.rumbleState(pad)`, `connect({ canRumble: true })`) and the command `game.rumble` drives a running game. See
+  docs/scripting/SCRIPTING_WORLD_INPUT.md, "Pad rumble".
 - **Render interpolation (M98.3):** `"render": { "interpolation": true }` in `factoria.json` (default `false`, so nothing
   changes for a game that does not ask) draws entities at the pose between the last two fixed steps, so a 60 Hz simulation
   looks smooth at 120-144 Hz. Only the drawing is blended (position, scale, rotation by slerp; children, cameras and physics

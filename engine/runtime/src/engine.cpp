@@ -300,6 +300,7 @@ bool Engine::Impl::load_scene_impl(const std::string& pathIn, std::string* error
 
 void Engine::Impl::finish_scene_load(const LoadReport& report, const std::string& label, std::string* error) {
     world.reset_clock();
+    input.stop_all_rumble();  // a pad never keeps shaking into the next scene; its own onStart may rumble again
     sceneIssues.clear();
     sceneErrorCount = report.error_count();
     for (const LoadMessage& m : report.messages) {
@@ -553,6 +554,16 @@ void Engine::Impl::poll_hot_reload(bool force) {
     }
 }
 
+// The engine clock of pad rumble: the frame's time runs every pad's request down, at the START of the frame, so a request of
+// one frame is still seen once by the hardware layer. The game pausing itself (game.paused = true, time.scale 0) stops every pad
+// at that moment; a request made while it stays paused (a menu click) plays on, ending with its seconds.
+void Engine::Impl::advance_pad_rumble(double dt) {
+    input.advance_rumble(dt);
+    const bool userPaused = scripts.user_time_scale() <= 0.0;
+    if (userPaused && !wasUserPaused) input.stop_all_rumble();
+    wasUserPaused = userPaused;
+}
+
 void Engine::Impl::run_frame(double dt, int fixedSteps) {
     const jobs::OwnerScope jobScope(&jobOwner);  // the jobs a system or script of this frame queues are this engine's
     const LoadTrace::ReadingFor reading(traceOwner);  // play.auto and the headless runner call this directly
@@ -562,6 +573,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         scripts.begin_frame();  // so a scene load applied at the end of this frame is told apart (script budget)
     inFrame = true;
     set_log_frame(frame);
+    advance_pad_rumble(dt);
     // OnDemand: debug-draw primitives of undrawn frames are dropped (immediate mode: one frame each), but the last
     // frame's survive until the next frame starts so a screenshot still shows them.
     if (renderStale && renderer) renderer->debug().clear();
@@ -1079,6 +1091,7 @@ void Engine::shutdown() {
     end_load_trace();  // also after a failed init
     if (!I.initialized) return;
     I.initialized = false;
+    I.input.stop_all_rumble();  // quit: the window layer sends the stop to the hardware (apply_gamepad_rumble)
     // This engine's jobs run to the end before the systems they may touch go away; its main-thread tasks still queued
     // are dropped. Other engines' jobs keep running: the pool joins its threads when the last engine stops it.
     {
@@ -1167,6 +1180,7 @@ void Engine::frame(double dt) {
     if (I.paused) {
         const jobs::OwnerScope jobScope(&I.jobOwner);
         I.inFrame = true;
+        I.input.advance_rumble(dt);  // a request made while the engine is paused (the console) still ends by itself
         I.jobOwner.run_main_thread_tasks();  // a paused game still takes the results of its jobs (a load that finished)
         jobs::run_main_thread_tasks();
         I.audio.service();  // the sounds a paused game (or the editor) still plays keep their streams decoded
@@ -1234,7 +1248,10 @@ void Engine::reload_scene() {
 }
 
 bool Engine::paused() const { return impl_->paused; }
-void Engine::set_paused(bool p) { impl_->paused = p; }
+void Engine::set_paused(bool p) {
+    if (p && !impl_->paused) impl_->input.stop_all_rumble();  // a paused game does not keep a pad shaking
+    impl_->paused = p;
+}
 std::uint64_t Engine::frame_index() const { return impl_->frame; }
 std::uint64_t Engine::fixed_step_index() const { return impl_->fixedStep; }
 bool Engine::quit_requested() const { return impl_->quit; }

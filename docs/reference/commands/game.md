@@ -85,6 +85,26 @@ Capabilities: read, state
 
 Example: game.resume {}
 
+## `game.rumble` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+Rumble a gamepad (the heavy and the light motor, 0..1, for some seconds), stop it, or just read what every pad does and whether it can rumble.
+
+Capabilities: read, state
+
+Give `low` (the heavy, low-frequency motor), `high` (the light, high-frequency one) and `seconds` (above 0, up to 10) to start the motors of pad `pad` (0..3, default 0); the same as input.rumble() in a script. `stop: true` stops the pad instead (without `pad`, every pad). With neither, nothing changes and the result only reports. The result lists every pad: connected, canRumble, reason (why it cannot, e.g. the platform has no backend yet), and the motors now (low, high, seconds left). Strengths outside 0..1 are clamped; a request for a pad that is not connected or cannot rumble is accepted and does nothing. The seconds run down with the game's frames (game.step); the engine stops every pad when the game pauses, changes scene or quits.
+
+Example: game.rumble {"pad":0,"low":0.6,"high":0.2,"seconds":0.3}, then game.rumble {"stop":true}. A headless run has no hardware: connect a test pad first (game.input {"gamepad":{"index":0,"connected":true}}) and read the motors in the result; real motors need a windowed run on Windows (XInput pads) or in a Chrome-based browser.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `pad` | integer | no | Gamepad slot 0..3 (default 0; with `stop`, default every pad). |
+| `low` | number | no | Strength of the heavy, low-frequency motor, 0..1 (clamped). |
+| `high` | number | no | Strength of the light, high-frequency motor, 0..1 (clamped). |
+| `seconds` | number | no | How long, above 0 and up to 10. Required with low or high. |
+| `stop` | boolean | no | true: stop the pad (every pad when `pad` is left out). Default false. |
+
 ## `game.screenshot` (modifies state)
 
 Capture the game view as a PNG and show it: whole, a magnified region, or a filmstrip of frames.

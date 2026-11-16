@@ -792,6 +792,71 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
         });
 
     I.commands.add(
+        {"game.rumble",
+         "Rumble a gamepad (the heavy and the light motor, 0..1, for some seconds), stop it, or just read what every "
+         "pad "
+         "does and whether it can rumble.",
+         "Give `low` (the heavy, low-frequency motor), `high` (the light, high-frequency one) and `seconds` (above 0, "
+         "up "
+         "to 10) to start the motors of pad `pad` (0..3, default 0); the same as input.rumble() in a script. `stop: "
+         "true` "
+         "stops the pad instead (without `pad`, every pad). With neither, nothing changes and the result only reports. "
+         "The result lists every pad: connected, canRumble, reason (why it cannot, e.g. the platform has no backend "
+         "yet), and the motors now (low, high, seconds left). Strengths outside 0..1 are clamped; a request for a pad "
+         "that is not connected or cannot rumble is accepted and does nothing. The seconds run down with the game's "
+         "frames (game.step); the engine stops every pad when the game pauses, changes scene or "
+         "quits. " FA_COMMAND_DETAILS "Example: game.rumble {\"pad\":0,\"low\":0.6,\"high\":0.2,\"seconds\":0.3}, then "
+         "game.rumble {\"stop\":true}. A "
+         "headless run has no hardware: connect a test pad first (game.input "
+         "{\"gamepad\":{\"index\":0,\"connected\":true}}) "
+         "and read the motors in the result; real motors need a windowed run on Windows (XInput pads) or in a "
+         "Chrome-based browser.",
+         parse_schema(R"({"type":"object","properties":{
+               "pad":{"type":"integer","minimum":0,"maximum":3,"description":"Gamepad slot 0..3 (default 0; with `stop`, default every pad)."},
+               "low":{"type":"number","description":"Strength of the heavy, low-frequency motor, 0..1 (clamped)."},
+               "high":{"type":"number","description":"Strength of the light, high-frequency motor, 0..1 (clamped)."},
+               "seconds":{"type":"number","description":"How long, above 0 and up to 10. Required with low or high."},
+               "stop":{"type":"boolean","default":false,"description":"true: stop the pad (every pad when `pad` is left out)."}}})"),
+         false, "game"},
+        [&I](const Json& a) {
+            const bool stop = a.value("stop", false);
+            const bool start = a.contains("low") || a.contains("high") || a.contains("seconds");
+            if (stop && start)
+                throw CommandError(
+                    "invalid_argument",
+                    "`stop` cannot be combined with low, high or seconds: a call either starts the motors "
+                    "or stops them.",
+                    "Call game.rumble twice: {\"stop\":true}, then {\"low\":0.5,\"high\":0.5,\"seconds\":0.3}.");
+            if (start && !a.contains("seconds"))
+                throw CommandError("invalid_argument", "`seconds` is required to start the motors.",
+                                   "Add how long the rumble lasts, e.g. {\"low\":0.5,\"high\":0.5,\"seconds\":0.3}.");
+            const auto num = [&a](const char* key) {
+                return a.contains(key) && a[key].is_number() ? a[key].get<double>() : 0.0;
+            };
+            if (stop) {
+                I.input.stop_rumble(a.contains("pad") ? a.value("pad", 0) : -1);
+            } else if (start) {
+                auto r = make_rumble_request("game.rumble", a.value("pad", 0), num("low"), num("high"), num("seconds"));
+                if (!r.ok()) throw CommandError("invalid_argument", r.error().message, r.error().hint);
+                I.input.rumble(*r);
+            }
+            Json pads = Json::array();
+            for (int i = 0; i < kMaxGamepads; ++i) {
+                const RumbleState st = I.input.rumble_state(i);
+                pads.push_back(
+                    Json::object({{"pad", i},
+                                  {"connected", I.input.gamepad_connected(i)},
+                                  {"canRumble", I.input.gamepad_can_rumble(i)},
+                                  {"reason", I.input.gamepad_connected(i) ? I.input.gamepad_rumble_reason(i)
+                                                                          : std::string("no pad in this slot")},
+                                  {"low", std::round(st.low * 1000.0f) / 1000.0},
+                                  {"high", std::round(st.high * 1000.0f) / 1000.0},
+                                  {"seconds", std::round(st.remaining * 1000.0f) / 1000.0}}));
+            }
+            return Json::object({{"pads", pads}});
+        });
+
+    I.commands.add(
         {"game.click",
          "Click the game like a player: move the mouse, press, release; scripts see pressed/released and UI widgets "
          "get the click.",
@@ -2183,6 +2248,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
             {"game.step", capability_sets::changes_state()},
             {"game.input", capability_sets::changes_state()},
             {"game.click", capability_sets::changes_state()},
+            {"game.rumble", capability_sets::changes_state()},
             {"ui.set_slider", capability_sets::changes_state()},
             {"ui.set_text_scale", capability_sets::changes_state()},
             {"ui.force_touch", capability_sets::changes_state()},
