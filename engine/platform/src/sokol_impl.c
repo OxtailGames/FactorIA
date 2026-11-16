@@ -37,7 +37,7 @@ static int fa_x11_next_event(Display* display, XEvent* event) {
     // (XFilterEvent and XOpenIM wait for their server's answers with XIfEvent), and XNextEvent on an empty queue would
     // block until the next X event, the game not drawing: what is missing becomes an event sokol_app skips (its switch
     // has no case for NoExpose), and the backend does not see it.
-    if (XPending(display) == 0) {
+    if (XQLength(display) == 0 && XPending(display) == 0) {  // XPending flushes and reads the socket: only when empty
         memset(event, 0, sizeof *event);
         event->type = NoExpose;
         return 0;

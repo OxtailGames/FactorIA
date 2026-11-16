@@ -519,11 +519,17 @@ On Linux:
 - X11 only: sokol_app has no Wayland backend, so on a Wayland desktop the game runs through XWayland, where ibus and fcitx
   serve XIM as on X11. The input method is the one `XMODIFIERS` names (`@im=ibus`, `@im=fcitx`); with none, Xlib's own
   (dead keys and the Compose key) is used. One that starts after the game is picked up when it starts (it writes
-  `XIM_SERVERS` on the root window). One that stops is noticed when its window is destroyed: its input method is left
-  without another request (Xlib would wait forever for the answer) and the one running now, if any, is opened; a server
-  that dies while the game is waiting for its answer to a key still stalls the game, as in every Xlib XIM client. No input
-  method, or a locale Xlib does not support (`LANG`), leaves the IME off: one log line, keys unchanged. A game that left
-  `LC_CTYPE` at "C" keeps it: the environment's is set only while Xlib opens the input method, which keeps it.
+  `XIM_SERVERS` on the root window). One that stops (an ibus or fcitx restart, a switch to another) is noticed by Xlib
+  when its window is destroyed: Xlib ends the composition (`XNDestroyCallback`, which drops the rest of it) and frees the
+  input method without a request to the server, and the game opens the one running now, if any, or the next one that
+  starts. Xlib's own input method stays open when a server starts: Xlib picks it whenever `XMODIFIERS` names no server
+  and the locale has a Compose file, whatever servers run, so it would open again (only a dead key half typed would be
+  lost). Every request that waits for the server's answer (a key it filters, the caret's spot on every caret move, the
+  reset of `ime_cancel`, opening the input method) stalls the game if the server hangs or dies before it answers, as in
+  every Xlib XIM client. No input method, or a locale Xlib does not support (`LANG`), leaves the IME off: one log line,
+  keys unchanged. A game that left `LC_CTYPE` at "C" keeps it: the environment's is set only while Xlib opens the input
+  method, which keeps it. That `setlocale` is the whole process's, so another thread that reads `LC_CTYPE` right then
+  (the C library's multibyte functions) sees the environment's; it happens only when an input method opens.
 - With no `TextField` focused the input context does not have the focus and no key goes to the input method: every key is
   the game's.
 - A key the input method took (it composes, converts, confirms) does not reach the game, and neither does its release; a
@@ -551,8 +557,10 @@ On the web:
   (a phone keeps its keyboard only for a focus inside a tap).
 - A touch device's keyboard in a password field (IME off): what it composes is not shown, and typed when it ends, as
   before the IME existed. Paste is the page's paste event, never the `<input>`'s; a cut, an undo or a redo of the
-  `<input>` itself does nothing.
-- When the page loses the focus the keys held then are forgotten: their release, wherever it arrives, is the game's.
+  `<input>` itself does nothing. A phone keyboard's replacement (autocorrect, a suggestion) and a yank (Ctrl+Y on macOS)
+  type their text: the `<input>` holds none of the field's, so nothing is replaced. A transpose (Ctrl+T) does nothing.
+- When the page loses the focus the keys held then are forgotten: their release is the game's, unless the input method
+  takes it as any other (a `keyCode` 229, or a key while a composition is open and the IME is on).
 - The page (`platforms/web/shell.html`) gives the canvas the focus on a click unless the `<input>` has it.
 
 To check it by hand on Windows 10 or 11 (Settings > Time & language > Language & region: add Japanese, Chinese
