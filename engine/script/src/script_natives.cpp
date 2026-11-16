@@ -3351,17 +3351,40 @@ NATIVE(audioPlay) {
         return std::isfinite(v) ? static_cast<float>(std::clamp(v, -1e30, 1e30)) : 0.0f;
     };
     bool outOfRange = false;
-    const VoiceId voice =
-        atPlace
-            ? I->host->audio().play_at(
-                  W, path, pp,
-                  {finite(arg_num(ctx, argc, argv, 13)), finite(arg_num(ctx, argc, argv, 14)),
-                   finite(arg_num(ctx, argc, argv, 15))},
-                  static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 16, 800), 1e-3, 1e30)),
-                  static_cast<AudioRolloff>(static_cast<int>(std::clamp(arg_num(ctx, argc, argv, 17, 0), 0.0, 2.0))),
-                  static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 18, 0), 0.0, 1e30)),
-                  static_cast<float>(std::clamp(arg_num(ctx, argc, argv, 19, 1), 0.0, 100.0)), &outOfRange)
-            : I->host->audio().play(path, pp);
+    VoiceId voice = 0;
+    if (atPlace) {
+        const auto num = [&](int i, double fallback, double lo, double hi) {
+            const double v = arg_num(ctx, argc, argv, i, fallback);
+            return static_cast<float>(std::isfinite(v) ? std::clamp(v, lo, hi) : fallback);
+        };
+        SpatialSound sound;
+        sound.range = num(16, 800, 1e-3, 1e30);
+        sound.rolloff = static_cast<AudioRolloff>(static_cast<int>(num(17, 0, 0, 3)));
+        sound.refDistance = num(18, 0, 0, 1e30);
+        sound.rolloffFactor = num(19, 1, 0, 100);
+        const std::string curveText = arg_str(ctx, argc, argv, 20);
+        if (!curveText.empty()) {
+            Result<Curve> curve = Curve::parse(Json::parse(curveText, nullptr, false), "audio.play rolloffCurve");
+            if (!curve) return throw_err(ctx, curve.error().message + " " + curve.error().hint);
+            sound.rolloffCurve = std::move(*curve);
+        }
+        sound.direction = {num(21, 0, -1e30, 1e30), num(22, 0, -1e30, 1e30), num(23, 0, -1e30, 1e30)};
+        sound.coneInnerAngle = num(24, 360, 0, 360);
+        sound.coneOuterAngle = num(25, 360, 0, 360);
+        sound.coneOuterGain = num(26, 0, 0, 1);
+        sound.velocity = {num(27, 0, -1e30, 1e30), num(28, 0, -1e30, 1e30), num(29, 0, -1e30, 1e30)};
+        sound.dopplerLevel = num(30, 0, 0, 10);
+        sound.occlusion = arg_bool(ctx, argc, argv, 31, false);
+        sound.occlusionMask = static_cast<std::int32_t>(num(32, -1, -2147483648.0, 2147483647.0));
+        sound.occlusionGain = num(33, 0.4, 0, 1);
+        sound.occlusionLowpass = num(34, 1500, 20, 20000);
+        voice = I->host->audio().play_at(W, path, pp,
+                                         {finite(arg_num(ctx, argc, argv, 13)), finite(arg_num(ctx, argc, argv, 14)),
+                                          finite(arg_num(ctx, argc, argv, 15))},
+                                         sound, &outOfRange);
+    } else {
+        voice = I->host->audio().play(path, pp);
+    }
     // (text, key, speaker, seconds): a caption that lives with the sound (seconds > 0: for that long instead). A clip that could
     // not play (voice 0, the error is logged) still shows its caption for `seconds`, or 3 s; a sound from a place that is out of
     // range (play_at says so: nobody hears it, and it is no failure) shows it only when `seconds` is given.

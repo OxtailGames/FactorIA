@@ -1601,21 +1601,44 @@
           throw new Error(`audio.play(path, { range }): range is the distance in world units where the sound reaches 0 (default 800, as AudioSource.range), a number above 0, but got ${inspect(o.range)}`);
         if (o.loop)
           throw new Error(`audio.play(path, { position, loop: true }): a sound from a place is attenuated once, when it starts, so a loop would keep that volume (and never start if the place is out of range then). Put an AudioSource with spatial: true, loop: true on an entity at that place instead (docs/SOUND.md, "A sound at a place")`);
-        const rolloffs = ["linear", "inverse", "exponential"];
+        const rolloffs = ["linear", "inverse", "exponential", "curve"];
         if (o.rolloff !== undefined && !rolloffs.includes(o.rolloff))
-          throw new Error(`audio.play(path, { rolloff }): rolloff is "linear" (default), "inverse" or "exponential", but got ${inspect(o.rolloff)}${typeof o.rolloff === "string" && didYouMean(o.rolloff, rolloffs) ? ` (did you mean "${didYouMean(o.rolloff, rolloffs)}"?)` : ""}`);
+          throw new Error(`audio.play(path, { rolloff }): rolloff is "linear" (default), "inverse", "exponential" or "curve", but got ${inspect(o.rolloff)}${typeof o.rolloff === "string" && didYouMean(o.rolloff, rolloffs) ? ` (did you mean "${didYouMean(o.rolloff, rolloffs)}"?)` : ""}`);
         if (o.refDistance !== undefined && !(typeof o.refDistance === "number" && o.refDistance >= 0))
           throw new Error(`audio.play(path, { refDistance }): refDistance is the distance in world units up to which the sound is at full volume (0 = the default of the rolloff), a number from 0, but got ${inspect(o.refDistance)}`);
         if (o.rolloffFactor !== undefined && !(typeof o.rolloffFactor === "number" && o.rolloffFactor >= 0 && o.rolloffFactor <= 100))
           throw new Error(`audio.play(path, { rolloffFactor }): rolloffFactor is how fast the volume falls (default 1), a number from 0 to 100, but got ${inspect(o.rolloffFactor)}`);
-        at = [xyz[0], xyz[1], xyz[2] ?? 0, o.range ?? 800, Math.max(0, rolloffs.indexOf(o.rolloff ?? "linear")), o.refDistance ?? 0, o.rolloffFactor ?? 1];
+        if (o.rolloff === "curve" && o.rolloffCurve === undefined)
+          throw new Error(`audio.play(path, { rolloff: "curve" }): needs rolloffCurve, the gain over distance / range, e.g. rolloffCurve: [[0, 1], [0.3, 0.8], [1, 0]]`);
+        if (o.rolloffCurve !== undefined && o.rolloff !== "curve")
+          throw new Error(`audio.play(path, { rolloffCurve }): rolloffCurve is only used with rolloff: "curve", add it (or drop rolloffCurve)`);
+        const vec3 = (name, v) => {
+          if (v === undefined) return [0, 0, 0];
+          const a = Array.isArray(v) ? v : (v !== null && typeof v === "object" ? [v.x, v.y, v.z ?? 0] : null);
+          if (!a || (a.length !== 2 && a.length !== 3) || !a.every((n) => typeof n === "number" && Number.isFinite(n)))
+            throw new Error(`audio.play(path, { ${name} }): ${name} is [x, y, z] (or [x, y], or { x, y, z }), numbers, but got ${inspect(v)}`);
+          return [a[0], a[1], a[2] ?? 0];
+        };
+        const num = (name, v, lo, hi, dflt) => {
+          if (v === undefined) return dflt;
+          if (!(typeof v === "number" && v >= lo && v <= hi)) throw new Error(`audio.play(path, { ${name} }): ${name} is a number from ${lo} to ${hi} (default ${dflt}), but got ${inspect(v)}`);
+          return v;
+        };
+        const dir = vec3("direction", o.direction), vel = vec3("velocity", o.velocity);
+        const cone = [num("coneInnerAngle", o.coneInnerAngle, 0, 360, 360), num("coneOuterAngle", o.coneOuterAngle, 0, 360, 360), num("coneOuterGain", o.coneOuterGain, 0, 1, 0)];
+        const occ = [!!o.occlusion, o.occlusionMask === undefined ? -1 : num("occlusionMask", o.occlusionMask, -2147483648, 2147483647, -1), num("occlusionGain", o.occlusionGain, 0, 1, 0.4), num("occlusionLowpass", o.occlusionLowpass, 20, 20000, 1500)];
+        at = [xyz[0], xyz[1], xyz[2] ?? 0, o.range ?? 800, Math.max(0, rolloffs.indexOf(o.rolloff ?? "linear")), o.refDistance ?? 0, o.rolloffFactor ?? 1,
+          o.rolloffCurve === undefined ? "" : JSON.stringify(o.rolloffCurve), dir, cone, vel, num("dopplerLevel", o.dopplerLevel, 0, 10, 0), occ];
       } else {
-        for (const k of ["range", "rolloff", "refDistance", "rolloffFactor"])
+        for (const k of ["range", "rolloff", "refDistance", "rolloffFactor", "rolloffCurve", "direction", "coneInnerAngle", "coneOuterAngle", "coneOuterGain", "velocity", "dopplerLevel", "occlusion", "occlusionMask", "occlusionGain", "occlusionLowpass"])
           if (o[k] !== undefined) throw new Error(`audio.play(path, { ${k} }) needs a position: add position: [x, y, z], or drop ${k}`);
       }
       const id = N.audioPlay(path, o.volume ?? 1, o.pitch ?? 1, o.pan ?? 0, !!o.loop, o.bus ?? "", o.caption ?? "", o.captionKey ?? "", o.speaker ?? "", o.captionSeconds ?? 0, !!o.onEnded, o.priority ?? 128,
         !!at, at ? at[0] : 0, at ? at[1] : 0, at ? at[2] : 0, at ? at[3] : 800,
-        at ? at[4] : 0, at ? at[5] : 0, at ? at[6] : 1);
+        at ? at[4] : 0, at ? at[5] : 0, at ? at[6] : 1,
+        at ? at[7] : "", at ? at[8][0] : 0, at ? at[8][1] : 0, at ? at[8][2] : 0, at ? at[9][0] : 360, at ? at[9][1] : 360, at ? at[9][2] : 0,
+        at ? at[10][0] : 0, at ? at[10][1] : 0, at ? at[10][2] : 0, at ? at[11] : 0,
+        at ? at[12][0] : false, at ? at[12][1] : -1, at ? at[12][2] : 0.4, at ? at[12][3] : 1500);
       if (o.onEnded && id) voiceEnded.set(id, o.onEnded);  // a sound that did not start (id 0) never ends: no callback
       return id;
     },

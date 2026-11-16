@@ -36,6 +36,7 @@
 #include "fa/audio/music_player.h"
 #include "fa/core/json.h"
 #include "fa/core/types.h"
+#include "fa/scene/curve.h"
 #include "fa/scene/world.h"
 
 namespace fa {
@@ -123,8 +124,39 @@ struct AudioTestAccess;  // tests only (engine/audio/src/audio_testing.h)
 //   linear:      1 - factor * (d - r) / (reach - r)            (d >= r; 1 below)
 //   inverse:     r / (r + factor * (d - r))
 //   exponential: (d / r) ^ -factor
+//   curve:       audio_curve_gain with the curve you give (this function, with no curve, treats it as linear)
 float audio_spatial_gain(AudioRolloff rolloff, float distance, float reach, float refDistance = 0.0f,
                          float factor = 1.0f);
+
+// The gain (0..1) of `curve` at distance / reach, for AudioRolloff::Curve: the curve's value clamped to 0..1, 0 at or beyond
+// `reach`. An empty curve is the linear one (1 - distance / reach).
+float audio_curve_gain(const Curve& curve, float distance, float reach);
+
+// The gain (0..1) of a sound cone (AudioSource.coneInnerAngle/coneOuterAngle/coneOuterGain, full angles in degrees). `axis` is the
+// direction the cone points in the world and `toListener` the vector from the source to the listener (neither needs to be
+// normalized). Inside the inner cone it is 1, outside the outer cone `outerGain`, between them it blends linearly in the angle.
+// 1 for an inner angle of 360 or more, a zero axis or a listener at the source.
+float audio_cone_gain(Vec3 axis, Vec3 toListener, float innerAngle, float outerAngle, float outerGain);
+
+// Everything about a sound from a place that Audio::play_at takes beyond the clip and the position (audio.play's options with a
+// `position`). The defaults are the plain linear, omnidirectional sound of an AudioSource with spatial = true.
+struct SpatialSound {
+    float range = 800.0f;
+    AudioRolloff rolloff = AudioRolloff::Linear;
+    float refDistance = 0.0f;
+    float rolloffFactor = 1.0f;
+    Curve rolloffCurve;       // rolloff Curve: gain over distance / range (empty = linear)
+    Vec3 direction{0, 0, 0};  // the way the sound points in the world, for the cone (zero = omnidirectional)
+    float coneInnerAngle = 360.0f;
+    float coneOuterAngle = 360.0f;
+    float coneOuterGain = 0.0f;
+    Vec3 velocity{0, 0, 0};     // world units per second, for doppler (M98.8b: no effect yet)
+    float dopplerLevel = 0.0f;  // M98.8b: no effect yet
+    bool occlusion = false;     // M98.8b: no effect yet
+    std::int32_t occlusionMask = -1;
+    float occlusionGain = 0.4f;
+    float occlusionLowpass = 1500.0f;
+};
 
 class Audio {
 public:
@@ -158,6 +190,9 @@ public:
     // and takes no voice (a volume of 0 inside the range, or a muted listener, still plays and returns an id, as play() does).
     // `outOfRange`, when given, tells whether the 0 returned is for the range (not a clip that failed or a mixer with no free voice).
     // Game thread only: it reads the World.
+    // The same with every option of SpatialSound (a rolloff curve, a cone; doppler and occlusion are read but do nothing yet).
+    VoiceId play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position,
+                    const SpatialSound& sound, bool* outOfRange = nullptr);
     VoiceId play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position,
                     float range = 800.0f, AudioRolloff rolloff = AudioRolloff::Linear, float refDistance = 0.0f,
                     float rolloffFactor = 1.0f, bool* outOfRange = nullptr);

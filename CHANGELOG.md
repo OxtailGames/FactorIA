@@ -8,6 +8,13 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ### Added
 
+- 3D audio, the shared part (M98.8a): `AudioSource.rolloff` has a fourth value, `"curve"`, with `rolloffCurve` (the gain over
+  distance / range, the curve form of particles); a sound cone (`coneInnerAngle`, `coneOuterAngle`, `coneOuterGain`, `coneAxis`)
+  makes a source louder in front, in 2D and 3D; `audio.play({ position })` takes the same (`rolloffCurve`, `direction` and the
+  cone angles). The fields the next two packages need are in and documented as not working yet: `AudioSource.dopplerLevel` and
+  occlusion (`occlusion`, `occlusionMask`, `occlusionGain`, `occlusionLowpass`), `AudioListener.speedOfSound`,
+  `spatialization` (`pan` | `hrtf`) and `headRadius`, and `velocity`, `dopplerLevel` and the occlusion options of `audio.play`
+  (M98.8b doppler and occlusion by physics rays, M98.8c HRTF). With the defaults a sound is bit-for-bit what it was.
 - `websocket.connect(url, options)` for game scripts: WebSocket connections to the hosts `factoria.json` `network.hosts` declares (the
   same list, errors and `did you mean` as `http.fetch`), with `on`/`off`/`send`/`close`, text and binary messages, subprotocols,
   headers, and reconnects with exponential backoff and a jitter that is the same on every run. A scene change closes the

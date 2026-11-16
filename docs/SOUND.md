@@ -468,7 +468,7 @@ own volume (multiplied by the attenuation), `pan` is replaced by the computed on
 Position, volume and pan are computed once, when the sound starts: it does not follow the entity that made it. For a source that
 moves, or a looping sound at a place, use an `AudioSource` with `spatial: true` (and `loop: true`): `audio.play` with a `position` and
 `loop: true` throws, because the attenuation would stay frozen at the value of the start (and a sound out of range then would never play).
-In C++ it is `Audio::play_at(world, clip, params, position, range, rolloff, refDistance, rolloffFactor)` (game thread only: it reads the World).
+In C++ it is `Audio::play_at(world, clip, params, position, range, rolloff, refDistance, rolloffFactor)`, or `play_at(world, clip, params, position, SpatialSound)` for every option (game thread only: it reads the World).
 
 ### Rolloff
 
@@ -481,6 +481,7 @@ names follow Web Audio's `distanceModel` and OpenAL: `refDistance` (r) is the di
 | `"linear"` (default) | `1 - k * (d - r) / (range - r)` | with the defaults (`r` 0, `k` 1) it is `1 - d/range`, what the engine always did |
 | `"inverse"` | `r / (r + k * (d - r))` | loud when close, long quiet tail; at `d = 2r` and `k = 1` it is 1/2 |
 | `"exponential"` | `(d / r) ^ -k` | `k = 1` is the same as inverse at `r`; higher `k` falls faster |
+| `"curve"` | `rolloffCurve` at `d / range` | a curve you draw, below |
 
 `refDistance` 0 (the default) means 0 for `linear` and `range / 20` for `inverse` and `exponential` (they need a reference above 0).
 A `refDistance` at or above `range` is held at 99.9% of `range`: the sound stays at full volume up to there and `linear` then drops to 0 just
@@ -491,6 +492,37 @@ to the sound's volume, so it multiplies with `volume`, the bus and the listener'
 ```js
 audio.play("assets/sfx/bell.wav", { position: [40, 0, 0], range: 400, rolloff: "inverse", refDistance: 20 });
 ```
+
+### The curve rolloff
+
+`rolloff: "curve"` takes the gain from a curve you draw: `AudioSource.rolloffCurve` (or `rolloffCurve` of `audio.play`) is a list of
+`[position, gain]` keys, where `position` is the distance divided by `range` (0 at the listener, 1 at `range`) and `gain` is 0 to 1. It
+is the form of `ParticleEmitter.sizeCurve` (`{"keys": [...], "interp": "smooth"}` eases, at most 16 keys). An empty curve, or one that does
+not parse (the log says why), is the linear curve. `refDistance` and `rolloffFactor` do not apply, and the sound is cut at `range` as for the others.
+
+```js
+audio.play("assets/sfx/siren.wav", { position: [40, 0, 0], range: 400, rolloff: "curve", rolloffCurve: [[0, 1], [0.3, 0.8], [1, 0]] });
+```
+
+### Cones
+
+A source can be louder in front. `coneInnerAngle` and `coneOuterAngle` are full angles in degrees (as in OpenAL and Web Audio): inside the inner cone
+the volume is untouched, outside the outer cone it is multiplied by `coneOuterGain`, and between them it blends linearly in the angle. The defaults
+(360, 360, 0) are no cone. `AudioSource.coneAxis` is the direction the cone points in the entity's local space, turned by the entity's rotation:
+the default (0, 0, -1) is forward in 3D (as lights and cameras), use (1, 0, 0) for a 2D sprite that faces right. `audio.play` has no entity, so it takes
+the world `direction` (the same `coneInnerAngle`, `coneOuterAngle` and `coneOuterGain`); without a `direction` the sound is the same in every direction.
+The cone multiplies with the rolloff, and an `AudioSource` follows it as it turns; `audio.play` works it out once, when the sound starts.
+
+### Doppler, occlusion and headphones (not yet)
+
+These fields exist so scenes and scripts can be written now, but they have no effect until the packages that make them work land:
+
+| Field | Meaning | Default | Works in |
+| --- | --- | --- | --- |
+| `AudioSource.dopplerLevel` (`audio.play`: `dopplerLevel`, `velocity`) | how much the pitch shifts with the speed of source and listener (0 off, 1 real); velocities will come from the change of world position between frames, not from `RigidBody` | 0 | M98.8b |
+| `AudioListener.speedOfSound` | world units per second sound travels at | 343 | M98.8b |
+| `AudioSource.occlusion`, `occlusionMask`, `occlusionGain`, `occlusionLowpass` (same names in `audio.play`) | a physics ray from the listener to the source that hits a collider of the layers in `occlusionMask` multiplies the volume by `occlusionGain` and low-passes at `occlusionLowpass` Hz | off, -1 (all layers), 0.4, 1500 | M98.8b |
+| `AudioListener.spatialization` (`"pan"` or `"hrtf"`), `headRadius` | placement for headphones with a parametric head model; until then `"hrtf"` sounds as `"pan"` | `"pan"`, 0.0875 | M98.8c |
 
 ## Voice stealing
 

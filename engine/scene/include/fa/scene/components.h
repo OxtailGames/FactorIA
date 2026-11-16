@@ -1327,7 +1327,11 @@ struct NavLink3D {
 
 // ---------------------------------------------------------------- audio ---
 // How a spatial sound gets quieter with distance (AudioSource.rolloff, audio.play's rolloff): see audio_spatial_gain in fa/audio/audio.h.
-enum class AudioRolloff : std::int32_t { Linear, Inverse, Exponential };
+enum class AudioRolloff : std::int32_t { Linear, Inverse, Exponential, Curve };
+
+// How an AudioListener places a spatial sound for the ears: Pan (the classic left/right pan and volume) or Hrtf (headphones; the
+// parametric head model lands in M98.8c, until then it sounds as Pan).
+enum class AudioSpatialization : std::int32_t { Pan, Hrtf };
 
 struct AudioSource {
     std::string clip;  // asset path (.wav, .ogg, .mp3)
@@ -1345,6 +1349,20 @@ struct AudioSource {
         0.0f;  // spatial: distance up to which the sound is at full volume (0: linear starts at 0, the others use range / 20)
     float rolloffFactor =
         1.0f;  // spatial: steepness of the curve (linear: 1 reaches 0 at range; inverse and exponential: higher = faster)
+    Json rolloffCurve =
+        Json::array();  // spatial, rolloff "curve": gain over distance / range (fa/scene/curve.h); [] = linear
+    // Cone (spatial): the sound is louder in front. The angles are full cone angles in degrees, as in OpenAL and Web Audio.
+    float coneInnerAngle = 360.0f;  // full volume inside this cone around coneAxis (360 = no cone)
+    float coneOuterAngle = 360.0f;  // outside this cone the volume is coneOuterGain; between the two it blends
+    float coneOuterGain = 0.0f;     // volume multiplier outside the outer cone (0..1)
+    Vec3 coneAxis{0, 0, -1};        // the cone's direction in the entity's local space (default: forward, -Z)
+    // Doppler (M98.8b: no effect yet). Velocities come from the change of the world position between frames.
+    float dopplerLevel = 0.0f;  // 0 = off; 1 = the real shift; more exaggerates
+    // Occlusion by physics rays (M98.8b: no effect yet).
+    bool occlusion = false;  // a ray from the listener to the source that hits a collider of occlusionMask muffles it
+    std::int32_t occlusionMask = -1;   // physics layers that block the sound (bitmask, -1 = all)
+    float occlusionGain = 0.4f;        // volume multiplier of a blocked path
+    float occlusionLowpass = 1500.0f;  // low-pass cutoff in Hz of a blocked path (20000 = none)
     std::int32_t priority = 128;  // 0..255: voice stealing with every voice taken (higher wins; equal: the louder wins)
 };
 
@@ -1390,6 +1408,9 @@ struct MusicPlayer {
 struct AudioListener {
     float volume = 1.0f;
     float zoom = 1.0f;  // scales the distance positional sounds are heard at (AudioSource.range * zoom)
+    AudioSpatialization spatialization = AudioSpatialization::Pan;  // Hrtf: headphones (M98.8c: no effect yet)
+    float headRadius = 0.0875f;   // Hrtf: radius of the listener's head in world units (M98.8c: no effect yet)
+    float speedOfSound = 343.0f;  // Doppler (M98.8b): world units per second the sound travels at
 };
 
 // ------------------------------------------------------------- scripting ---
