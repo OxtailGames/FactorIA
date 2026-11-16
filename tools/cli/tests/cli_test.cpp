@@ -588,7 +588,13 @@ TEST_CASE("docs/MENUS.md: the files it prints are the tested fixture's, and none
         std::erase(s, '\r');
         return s;
     };
-    std::istringstream doc(read(repo / "docs/MENUS.md"));
+    // The entry page and the pages of its family (docs/menus/).
+    std::string all = read(repo / "docs/MENUS.md");
+    std::vector<stdfs::path> pages;
+    for (const auto& e : stdfs::directory_iterator(repo / "docs/menus")) pages.push_back(e.path());
+    std::sort(pages.begin(), pages.end());
+    for (const stdfs::path& p : pages) all += "\n" + read(p);
+    std::istringstream doc(all);
     std::string line, lang, path, body;
     bool inBlock = false;
     int files = 0;
@@ -730,7 +736,21 @@ TEST_CASE("test: named files, folders and globs select what runs; a non-test pat
 // `factoria test`, and assets.provenance / assets.disclosure answer in a test.
 TEST_CASE("docs/SCRIPTING.md: the commands fa.call lacks in a test are those of the test runtime") {
     const stdfs::path repo = FA_REPO_ROOT;
-    std::ifstream f(repo / "docs/SCRIPTING.md", std::ios::binary);
+    // The entry page and the pages of its family (docs/scripting/).
+    std::string text;
+    {
+        std::vector<stdfs::path> files{repo / "docs/SCRIPTING.md"};
+        std::vector<stdfs::path> pages;
+        for (const auto& e : stdfs::directory_iterator(repo / "docs/scripting")) pages.push_back(e.path());
+        std::sort(pages.begin(), pages.end());
+        files.insert(files.end(), pages.begin(), pages.end());
+        for (const stdfs::path& p : files) {
+            std::ifstream in(p, std::ios::binary);
+            text.append(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+            text += "\n";
+        }
+    }
+    std::istringstream f(text);
     std::string line;
     std::vector<std::string> lacks;
     bool in = false;

@@ -1,0 +1,86 @@
+Part of [EDITOR.md](../EDITOR.md): The editor autotest: sections, environment variables and how to add a check.
+
+# Editor: testing
+
+## Testing the editor
+
+- `fa_test_editor` (ctest `editor`): the GPU-free logic: the Audio feed and the Profiler view (`tools/editor/src/editor_tools.*`), picking geometry
+  (`pick.cpp`), the Project panel's tree, filter and sort (`project_browser_model.*`), the reflected fields the AI edits, the Particles panel's curve and gradient key edits, document edits and undo steps and its seeded preview (`particle_*.cpp`), what Save writes, the window title, the program icon (`app_icon.*`: every window size and the Dock icon decode), and the Export window's logic
+  (`export_job.*`: the options each platform's button exports with, the rows' checks, the export on its worker thread, its
+  progress lines and cancelling), the Platform settings window's logic (`platform_settings.*`: the working copy, Save and
+  Revert, validation, icons, the Android toolchain, the keystore command and creation) and the Set Up This Computer window's
+  logic (`setup_job.*`: which setup fixes which Export row, an install on its worker thread with its progress, cancelling,
+  the license loader and the cached status), all with an injected `fa::SetupContext` (a fake downloader and process runner and
+  a temporary home): no test touches the network or your `~/.factoria`.
+- `editor_autotest_1` to `editor_autotest_5` and `editor_autotest_welcome` (ctest, need a display: `xvfb-run` on Linux, the desktop session on macOS and Windows; on Windows a screen of at least 1600x900): the real editor window. The autotest
+  clicks the viewport and the View menu with injected mouse events, edits through Console commands, checks undo and redo, saved
+  files, play / pause / step / stop, keyboard input reaching the game, a scripted AI session, and the fake Claude Code of the AI
+  tests (`tools/ai/tests/fixtures`, needs curl) editing the scene through the editor's MCP endpoint, the Export window
+  (it exports the game for the machine it runs on and checks the report) and the Platform settings window (tabs, edits,
+  Save / Revert, closing with unsaved changes, the Create keystore window) and the Set Up This Computer window (it lists
+  the five components, the Export rows show the right Set up button, a setup that cannot download shows its report, "I accept" of
+  the Android license waits for its checkbox) and the Project panel (filter, search, a prefab dropped on the Viewport and Ctrl+Z, a picture dropped on a texture field, Delete) and a custom material (needs sokol-shdc, `SOKOL_SHDC`; without it that part records a SKIP, or fails with `FA_REQUIRE_SHDC=1` as on CI):
+  a `materialParams` edit from the Console changes the viewport and Undo brings the picture back, a snippet rewritten on disk
+  changes it without a reload (in edit mode and while playing), and a broken snippet keeps the last picture and logs one
+  error with `file:line` that `game.logs` returns. The autotest keeps this computer's settings in
+  `<FA_EDITOR_AUTOTEST_OUT>/export_config.json` (`FACTORIA_EXPORT_CONFIG`) and its `FACTORIA_HOME` in
+  `<FA_EDITOR_AUTOTEST_OUT>/factoria_home`, never in your `~/.factoria`. **It never installs anything**: its setup context
+  can neither download nor run a program, and no step presses "I accept". It checks the window title and the result after
+  every action and saves window screenshots (`FA_EDITOR_AUTOTEST_OUT=<dir>`). A click only lands on a widget whose centre is
+  shown in its window (a widget scrolled out of view, even half, fails the check instead of hitting what is under it), and a
+  watchdog thread ends the process with exit code 86 when the editor draws no frame for 60 seconds, so a stuck GPU or UI call
+  can never freeze the window for good; before it does, it prints the UI thread's stack to stderr (`fa::watched_thread_stack`),
+  which names the call that never returned. A failed MSVC Debug check (an STL assertion, `abort()`) prints its message and
+  stack and ends the run with exit code 3 instead of a dialog that waits for a click, and on Windows an access violation or
+  stack overflow prints its name, address and stack before the run ends (Windows would end it silently). While it runs the editor ignores the real mouse, keyboard and focus changes (using
+  the computer or switching apps does not disturb it). On macOS its window stays above the others (a covered window
+  draws nothing to take a screenshot of) but out of your way: see-through, without a Dock icon, clicks reach the windows
+  below and the app you were using keeps the keyboard, so you can go on working while ctest runs it.
+  `FA_EDITOR_AUTOTEST_SHOW=1` shows the window, to watch a run. `FA_EDITOR_AUTOTEST_SIZE=1024x642` runs it in a smaller
+  window, the size of the macOS CI runner's display. A step on a widget that is drawn but scrolled out of its window
+  scrolls the window to it and runs again on the next frame; only a widget that scrolling cannot bring in fails.
+  A manual end-to-end check of the CMake button: `FA_EDITOR_AUTOTEST_REAL_CMAKE=1` makes the autotest run one script only: it
+  presses **Install** of the CMake component and lets it download and unpack the real CMake (about 50 MB from Kitware) into
+  the autotest's own `factoria_home`; ctest never sets it.
+  Run it with `FA_EDITOR_AUTOTEST=1 xvfb-run -a -s "-screen 0 1600x900x24" build/dev/tools/editor/fa_editor_autotest`
+  (macOS: `FA_EDITOR_AUTOTEST=1 build/macos-debug/tools/editor/fa_editor_autotest`; Windows: set `FA_EDITOR_AUTOTEST=1` and run `fa_editor_autotest.exe` from the repository root; `FA_EDITOR_AUTOTEST=welcome` for the other).
+  The process exits with 1 if any check failed (`autotest_result.json` lists them). ctest splits the autotest into five
+  entries (`editor_autotest_1` to `_5`, a few sections each, see below) that `ctest -j` runs at the same time, each in its
+  own window, temp project and output folder (`<build>/test-output/editor/autotest_<n>`). On Windows they share the ctest
+  resource lock `editor_autotest`, so one runs at a time beside the other tests (five editors at once on the CI runner's
+  software D3D11 ran past their timeout). Each entry has a 300 s timeout.
+
+The AI's commands run on the editor's main thread, but never for long at a time: queued commands share about 10 ms per frame, and `game.step` with many frames and `project.test` run in slices (frames / one test file per UI frame) so the window stays responsive while the AI works. The results are the same as a single call.
+
+### Run only some sections
+
+The autotest is a list of sections, each a letter (`tools/editor/src/autotest_sections.h`): S (the start: select, edit, undo,
+play, AI marshaling, viewport click and keys), T (toolbar Screenshot and its Show-in-file-manager toast button), T2 (Play on Phone: no player, the stand-in player's server, the QR code, a phone log line, a re-export, Stop), A (Audio panel), A2 (Profiler panel: a behaviour's row, then the Threads tab with a row per thread and a job run while the game plays) and A3 (the card of a paid asset call waiting for the user's yes, in the 1024x642 window: Approve, Approve all for this run, Cancel and Stop; it uses a scratch user folder, never your own ~/.factoria), B (commands that
+rebuild the open scene file), C (pick bounds and the selection outline), D (bloom), E (Ctrl+V into the AI input), F (AI text:
+wrapping, right-click menu), G (delete a project), H (Export window), I (Platform settings), J (Set Up This Computer), K
+(custom material), L (hand editing in the Hierarchy and the Inspector), M (transform gizmos), N (Project panel), O (the CLI
+agent through the MCP endpoint), P (revert an AI run), Q (the AI panel while an agent is silent or a worker outlives the orchestrator's turn:
+the stuck warning, Check activity, the detached worker and its single continuation), R (a program updated on disk: the Restart notice,
+its button state and Not now), U (the layout: a floated panel, a moved tab, a wider column and a closed panel survive reopening the project and a visit to the welcome screen; Reset layout), V (AI reviews: the buttons, a read-only reviewer, the saved report, Send to orchestrator), B2 (the Animation panel: New clip, keys written in record mode by a gizmo drag, a key moved and its Undo, an easing from the context menu, an event, an event with a game feel action from a preset button, scrubbing that poses without changing the scene, the onion skin), C2 (the bone tools: a chain drawn by clicks, a sprite bound, weights painted as one undo step, an IK handle dragged, the overlay following the selected bone), Y (recipes: a stale badge and a banner when a source is saved, Regenerate from the toolbar and the banner, Not now, a deleted source), X (the AI settings window against a scratch `ai.json`: routes, a key, sites, a bad site stopping Save, Remove stored key), Q2 (the AI settings of the open project: a copied file waiting for Accept with Ignore and Review it, switching between two projects showing their own roles, Reset of one row, Save as my defaults, a project Save and the Assets tab's own route and sites with their Resets, an invalid file showing its error and no Accept, the confirmations of Delete the file and of Save over an ignored file with its backup, and `ai.settings.set` through a run's registry (refused for MCP with scope `user`, reloading the windows when it changes `ai.json`); it works on a scratch `ai.json` set with `FACTORIA_AI_CONFIG`), D2 (the External tools tab of that window: a server added with the form, Test, a pasted Claude Code JSON, Save keeping the other keys of `ai.json`, Remove; then the Agents tab: a dangerous permission mode asking before it is saved, Cancel, a safe mode saved at once, Use the default), Z (sprite sheets: the Project panel previews a sheet's clips, the Inspector lists them and one click sets `SpriteAnimator.clip`) and W (two AI chats at once against a scripted model: both finish with their own answers, the
+same-file warning in both, the third chat held back by `maxConcurrentRuns`, Revert of one run keeping the other's files, Stop of one run) and E2 (feedback sharing against a fake transport: the consent dialog and its preview, the Send feedback window (Send feedback with no mode chosen, the checked rows, unchecking one, Send, Cancel, the AI check against a scripted model that passes, rewrites and fails, a row that cannot be sent), the Add feedback window (Add and Cancel), a closed entry moving to the archive, the Feedback Settings sign-in and Send now, and a mode for this project alone (Always, Never, Follow default, written in the user's file and never inside the project); it never touches the network and writes its settings under `<FA_EDITOR_AUTOTEST_OUT>/share_config`), E3 (the Extensions tab of the AI settings: a plugin folder and pasted hooks added, a role switched off, Save keeping the other keys, a project's hooks needing the trust and a changed file dropping it), S2 (its Token savers section: switches and judge saved in `ai.json` keeping the other keys, the proposals of a project's runs, AGENTS.md and the tool groups changed only by Load up front / Add to AGENTS.md, No thanks), R2 (the Feedback panel's Retrospective button against a scripted fast-role model and a hand-made transcript: an efficiency entry filed with its measured saving, the message and the saving line, and a second click finding nothing new), K2 (the Skills table of that tab: the engine's and the project's skills listed, a role and an On box switched, Save keeping them as skill entries, and a role then being offered exactly the skills left on for it) H2 (its Hooks section: the saved hooks with where each runs, three real runs listed as ok, failed and blocked, Clear) E4 (rejected feedback: the engine rejecting an entry that says `Collider2D` has no one-way option, closed listing the archive, a double click opening an entry in a window, the status box asking for the reason, Copy, Delete asking first, ids not reused, and the engine developers' verdict from a fake server; it shares the clipboard with E, F and N, so it runs in their shard) and F2 (its TokenEconomizer section against a fake Claude Code CLI: the confirmation that runs nothing, the install, the entry added to `ai.json` keeping the other keys, Save, and only the entry offered when the plugin is already installed), and L3 (the Image panel's pixel-art tools: the grid and the Tiled preview, a palette colour added with its Undo and Redo, the primary and secondary colours painting with the two mouse buttons, a frame added with its onion skin and the ghost count, Play and Save baking the PNG) and I2 (the Image panel: a document created and opened, a brush stroke, a rectangle selection, a transform applied from its handles, an adjustment previewed then committed, six undos and six redos, Save baking the PNG whose pixels the section reads back, and Inpaint selection... against the fake provider adding a masked provider layer that Undo takes away), J2 (the Vector panel: an svg opened, a path drawn with the Pen with a dragged curve and closed on its first node, an anchor moved and made smooth with the Node tool, a marquee and Union, Undo and Redo through the editor's stack back to the original file byte for byte, then an image document's svg layer opened with Edit in Vector panel, an ellipse drawn into it, undone, and Save baking the PNG) and K3 (the Sound panel: a patch opened, a macro knob dragged as one undo step, play and stop, a waveform selection and zoom, A/B of variants with matched levels, Undo and Redo, Save baking the variants, an audio document with a step added, moved and enabled, the loop end marker dragged and Save baking `loopEnd`) and M3 (the Music panel: a layered song opened, a note drawn, moved and deleted on the piano roll with Undo and Redo through the editor's stack, a drum hit, a section repeat and a mute in the mixer, play with a moving playhead, the intensity buttons fading the top layer in and out, a looped section, and Save baking the mix and the stems) and N3 (the Model panel: a model document opened, its mesh drawn, a node picked and its part highlighted, a slider clicked as one undo step with Undo and Redo through the editor's stack, a part picked, a node added, switched off and removed, the view orbited, the figure and Check, and Save baking the .glb) and R3 (the Level generator window: a drawn level as the sample, Generate, Next and Previous seed bringing the same level back, Keep building it as one undo step, Save level file and the Replace question) and O3 (the Animation panel's 3D mode: a generated walk opened on its rigged model, a bone picked in the list and in the view, a rotation ring dragged as one undo step, Mirror pose, a key moved and deleted in the dopesheet, an IK handle dragged, scrubbing and Play, the filmstrip and the weights sheet, Generate with Undo and Redo) and P3 (the Particles panel: New, the playing preview, the time scrubber dragged and the same moment showing the same particles, a gradient key and curve keys dragged as one undo step each, a part added and removed, Undo and Redo through the editor's stack). While you work on one part of the editor, run only the sections that cover it:
+
+```bash
+FA_EDITOR_AUTOTEST=1 FA_EDITOR_AUTOTEST_SECTIONS=K,M build/macos-debug/tools/editor/fa_editor_autotest
+```
+
+The ids are separated by commas or spaces, in any case; an unknown one stops the run before a window opens, with the list of
+sections. Every section starts from the same state: the clean 2D fixture as the open scene (no unsaved changes, no undo
+history), the autotest's windows closed, `factoria.json` as it was, the mouse parked. So a section passes or fails alone as it
+does in the full run, whatever the sections before it did. `FA_EDITOR_AUTOTEST=1` without `FA_EDITOR_AUTOTEST_SECTIONS` still
+runs all of them in one window.
+
+At the end the autotest prints what each section cost (frames, seconds, failures) and writes the same list under `sections`
+in `autotest_result.json`. The ctest entries group the sections by those frames, about the same number per entry; E, F and N
+share one because they use the system clipboard. A new section goes in `kAutotestSections` and in one of the
+`editor_autotest_entries` of `tools/editor/CMakeLists.txt`: configuring fails if a section is in no entry or in two. The
+code of a section is `Editor::at_section_<id>` in one of the `tools/editor/src/autotest_*.cpp` files (the one that groups
+its neighbours; `autotest_common.h` has what they share), declared in `editor_internal.h` and called, in the order of a
+full run, by `Editor::at_build_tools_script` in `autotest_tools.cpp` (section S is in `autotest.cpp`).
+
+A few sections are for iterating only: before a push, build every target and run the full `ctest` (every
+`editor_autotest_*` entry), as for any other change.
