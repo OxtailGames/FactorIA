@@ -2,12 +2,18 @@
 // of one zip, its safe unpacking and the project created from it. docs/design/BUILDING_RELEASE.md, "Example games in the release".
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
+#include <chrono>
+#include <cstdio>
 #include <cstdlib>
 #include <map>
 #include <mutex>
 #include <set>
+#include <system_error>
+#include <thread>
 
 #include "examples_names.h"
+#include "examples_place.h"
 #include "export_zip.h"
 #include "fa/core/fs.h"
 #include "fa/core/strings.h"
@@ -18,7 +24,15 @@
 #include "util.h"
 
 #if defined(_WIN32)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
 #include <process.h>
+#elif defined(__linux__)
+#include <fcntl.h>
+#include <sys/syscall.h>
+#include <unistd.h>
 #else
 #include <unistd.h>
 #endif
@@ -494,32 +508,118 @@ Result<void> patch_project_file(const stdfs::path& dir, const ScaffoldOptions& o
     return {};
 }
 
+}  // namespace
+
+namespace examples_detail {
+
+bool is_cross_device(const std::error_code& ec) {
+    if (ec == std::errc::cross_device_link) return true;
+#if defined(_WIN32)
+    // MoveFileExW without MOVEFILE_COPY_ALLOWED answers ERROR_NOT_SAME_DEVICE (17): MSVC's standard library maps it to
+    // cross_device_link, MinGW's may not, so the raw value counts too.
+    return ec.category() == std::system_category() && ec.value() == 17;
+#else
+    return false;
+#endif
+}
+
+bool is_name_taken(const std::error_code& ec) {
+    if (ec == std::errc::file_exists || ec == std::errc::directory_not_empty) return true;
+#if defined(_WIN32)
+    return ec.category() == std::system_category() && (ec.value() == 183 || ec.value() == 80);
+#else
+    return false;
+#endif
+}
+
+void rename_no_replace(const stdfs::path& from, const stdfs::path& to, std::error_code& ec) {
+#if defined(_WIN32)
+    ec.clear();
+    if (!MoveFileExW(from.c_str(), to.c_str(), 0)) ec.assign(int(GetLastError()), std::system_category());
+#else
+    int rc = -1;
+    int err = ENOSYS;
+#if defined(__APPLE__)
+    rc = renamex_np(from.c_str(), to.c_str(), RENAME_EXCL);
+    err = errno;
+#elif defined(__linux__) && defined(SYS_renameat2)
+    rc = int(::syscall(SYS_renameat2, AT_FDCWD, from.c_str(), AT_FDCWD, to.c_str(), 1u /* RENAME_NOREPLACE */));
+    err = errno;
+#endif
+    if (rc == 0) {
+        ec.clear();
+        return;
+    }
+    bool unsupported = err == ENOSYS || err == EINVAL || err == EPERM || err == EOPNOTSUPP;
+#if defined(__APPLE__)
+    unsupported = unsupported || err == ENOTSUP;
+#endif
+    if (!unsupported) {
+        ec.assign(err, std::generic_category());
+        return;
+    }
+    std::error_code probe;
+    if (stdfs::exists(stdfs::symlink_status(to, probe))) {
+        ec = std::make_error_code(std::errc::file_exists);
+        return;
+    }
+    stdfs::rename(from, to, ec);
+#endif
+}
+
+namespace {
+
 // A rename that waits while Windows says somebody holds a file (an antivirus or the indexer, which look at what has just been written:
-// hundreds of files here). fs::replace_file waits about a second; this asks it up to five times (a safety net far above the normal
-// few milliseconds, so a slow machine does not change the result), and stops at once when `cancel` is set. `to` must not be a folder
-// that exists: a folder is not replaced.
-void rename_waiting(const stdfs::path& from, const stdfs::path& to, std::error_code& ec,
-                    const CancelFlag* cancel = nullptr) {
-    for (int attempt = 0; attempt < 5; ++attempt) {
-        fs::replace_file(fs::os_path(from), fs::os_path(to), ec);
+// hundreds of files here): up to 500 tries about 10 ms apart, about five seconds (a count, not a clock, and far above the normal few
+// milliseconds, so a slow machine does not change the result). It stops at once when `cancel` is set. Nothing at `to` is replaced.
+void rename_waiting(const stdfs::path& from, const stdfs::path& to, std::error_code& ec, const CancelFlag* cancel,
+                    const RenameFn& rename) {
+    for (int attempt = 0; attempt < 500; ++attempt) {
+        if (rename)
+            rename(fs::os_path(from), fs::os_path(to), ec);
+        else
+            rename_no_replace(fs::os_path(from), fs::os_path(to), ec);
         if (!ec || !fs::is_sharing_violation(ec) || is_cancelled(cancel)) return;
+        std::this_thread::sleep_for(std::chrono::milliseconds(attempt < 10 ? 1 : 10));
     }
 }
 
-// Moves one file or folder to a name that does not exist yet. Across file systems (a folder that is a mount point) a rename is
-// refused: copy and delete then.
-void move_entry(const stdfs::path& from, const stdfs::path& to, std::error_code& ec, const CancelFlag* cancel) {
-    rename_waiting(from, to, ec, cancel);
-    if (ec != std::errc::cross_device_link) return;
-    stdfs::copy(fs::os_path(from), fs::os_path(to), stdfs::copy_options::recursive, ec);
+}  // namespace
+
+void move_entry(const stdfs::path& from, const stdfs::path& to, std::error_code& ec, const CancelFlag* cancel,
+                std::string* partial, const RenameFn& rename) {
+    if (partial) partial->clear();
+    rename_waiting(from, to, ec, cancel, rename);
+    if (!is_cross_device(ec)) return;
+    // Another file system (a folder that is a mount point). A folder is made with create_directory, which says whether it was new, and a
+    // file is copied without overwriting, so what another process put at `to` meanwhile is never touched, nor taken away on failure.
+    std::error_code kind;
+    const bool isDir = stdfs::is_directory(fs::os_path(from), kind);
+    bool ours = false;
+    if (isDir) {
+        ours = stdfs::create_directory(fs::os_path(to), ec);
+        if (!ec && !ours) ec = std::make_error_code(std::errc::file_exists);
+        if (!ec) stdfs::copy(fs::os_path(from), fs::os_path(to), stdfs::copy_options::recursive, ec);
+    } else {
+        stdfs::copy_file(fs::os_path(from), fs::os_path(to), stdfs::copy_options::none, ec);
+        ours = ec != std::errc::file_exists;
+    }
     if (ec) {
-        std::error_code ignored;
-        fs::remove_tree(fs::os_path(to), ignored);
+        if (ours) {
+            std::error_code cleanup;
+            fs::remove_tree(fs::os_path(to), cleanup);
+            if (cleanup && partial) *partial = fs::path_to_utf8(to.filename()) + " (" + cleanup.message() + ")";
+        }
         return;
     }
+    // The copy is in place: what is left of the source is in the staging folder, which the caller removes as well as it can.
     std::error_code ignored;
     fs::remove_tree(fs::os_path(from), ignored);
 }
+
+}  // namespace examples_detail
+
+namespace {
 
 // The folders this call made above the project (the parent of "my-game" that did not exist): taken away again when it fails, so a
 // failure leaves nothing, not even "games/".
@@ -534,18 +634,24 @@ struct MadeFolders {
     void keep() { deepestFirst.clear(); }
 };
 
+}  // namespace
+
+namespace examples_detail {
+
 // Puts the unpacked project (`staging`, a folder beside `dir`) at `dir`. A `dir` that does not exist takes the whole folder in one
 // rename. A `dir` that exists (empty: checked by the caller) is never deleted or replaced, since it may be the working directory of the
 // caller or a process, a symbolic link, a mount point, and Windows cannot delete a folder in use: each top-level entry of the project
-// moves into it, and when one fails what moved is taken out again, so the folder the user gave stays empty.
-Result<void> place_project(const stdfs::path& staging, const stdfs::path& dir, bool dirExists,
-                           const CancelFlag* cancel) {
+// moves into it, and when one fails what moved is taken out again, so the folder the user gave stays empty. What cannot be taken out
+// (a file something holds open) is named in the error, never reported as gone. No move replaces: an entry that appeared meanwhile
+// stops the call and stays.
+Result<void> place_project(const stdfs::path& staging, const stdfs::path& dir, bool dirExists, const CancelFlag* cancel,
+                           const RenameFn& rename) {
     std::error_code ec;
     const std::string where = fs::path_to_utf8(dir);
     const char* closeHint =
         "Close what has the folder or its files open (an editor, a terminal, an antivirus scan) and try again.";
     if (!dirExists) {
-        rename_waiting(staging, dir, ec, cancel);
+        rename_waiting(staging, dir, ec, cancel, rename);
         if (ec)
             return make_error("Cannot move the unpacked example to " + where + ": " + ec.message() + ".", closeHint);
         return {};
@@ -557,37 +663,57 @@ Result<void> place_project(const stdfs::path& staging, const stdfs::path& dir, b
         return make_error("Cannot list the unpacked example " + fs::path_to_utf8(staging) + ": " + ec.message() + ".",
                           "Try again.");
     std::vector<stdfs::path> moved;
+    std::vector<std::string> left;  // what could not be taken out of `dir` again: "name (why)"
     auto undo = [&] {
         for (auto it = moved.rbegin(); it != moved.rend(); ++it) {
-            std::error_code ignored;
-            fs::remove_tree(fs::os_path(dir / *it), ignored);
+            std::error_code rec;
+            fs::remove_tree(fs::os_path(dir / *it), rec);
+            if (rec) left.push_back(fs::path_to_utf8(*it) + " (" + rec.message() + ")");
         }
     };
+    // The sentence for a hint: `clean` when the folder is as it was, else what is still in it.
+    auto state = [&](const std::string& clean) {
+        if (left.empty()) return clean;
+        std::string list;
+        for (const std::string& l : left) list += (list.empty() ? "" : ", ") + l;
+        return "These could not be taken out of " + where + " again and are still in it: " + list +
+               ". Delete them by hand before you try again.";
+    };
+    auto cancelled = [&] {
+        undo();
+        if (left.empty()) return cancelled_error("Creating the project");
+        return make_error("Creating the project was cancelled, but part of it is left in " + where + ".", state(""));
+    };
     for (const stdfs::path& n : names) {
-        if (is_cancelled(cancel)) {
-            undo();
-            return cancelled_error("Creating the project");
-        }
+        if (is_cancelled(cancel)) return cancelled();
         std::error_code probe;
         if (stdfs::exists(
                 stdfs::symlink_status(fs::os_path(dir / n), probe))) {  // something came into the folder meanwhile
             undo();
             return make_error(where + " is not empty any more: " + fs::path_to_utf8(n) + " is in it.",
-                              "Nothing was changed in it. Choose a new folder.");
+                              state("Nothing was changed in it.") + " Choose a new folder.");
         }
-        move_entry(staging / n, dir / n, ec, cancel);
+        std::string partial;
+        move_entry(staging / n, dir / n, ec, cancel, &partial, rename);
         if (ec) {
             const std::string why = ec.message();
+            const bool taken = is_name_taken(ec);
+            const bool wasCancelled = is_cancelled(cancel);
+            if (!partial.empty()) left.push_back(partial);
+            if (wasCancelled) return cancelled();
             undo();
+            if (taken)  // the no-replace rename found what the probe above did not
+                return make_error(where + " is not empty any more: " + fs::path_to_utf8(n) + " is in it.",
+                                  state("Nothing was changed in it.") + " Choose a new folder.");
             return make_error("Cannot move " + fs::path_to_utf8(n) + " of the example into " + where + ": " + why + ".",
-                              std::string(closeHint) + " The folder was left empty, as it was.");
+                              std::string(closeHint) + " " + state("The folder was left empty, as it was."));
         }
         moved.push_back(n);
     }
     return {};
 }
 
-}  // namespace
+}  // namespace examples_detail
 
 Result<ScaffoldResult> create_example_project(const SetupContext& ctx, const std::string& name,
                                               const std::string& targetDir, const ScaffoldOptions& options) {
@@ -666,9 +792,9 @@ Result<ScaffoldResult> create_example_project(const SetupContext& ctx, const std
     if (auto p = patch_project_file(staging.path, options); !p.ok()) return p.error();
     if (is_cancelled(ctx.cancel)) return cancelled_error("Creating the project");
 
-    if (auto placed = place_project(staging.path, dir, exists, ctx.cancel); !placed.ok())
-        return is_cancelled(ctx.cancel) ? cancelled_error("Creating the project") : placed.error();
-    staging.release();  // what is left of it (an empty folder when the project went into an existing one)
+    if (auto placed = examples_detail::place_project(staging.path, dir, exists, ctx.cancel); !placed.ok())
+        return placed.error();  // a cancelled call says so itself, and names what it could not take out again
+    staging.release();          // what is left of it (an empty folder when the project went into an existing one)
     made.keep();
     if (!download.path.empty()) {  // keep the verified zip: the same example again downloads nothing
         fs::replace_file(fs::os_path(download.path), fs::os_path(cachedZip), ec);

@@ -6,10 +6,13 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <map>
+#include <optional>
 #include <set>
 
 #include "examples_names.h"
+#include "examples_place.h"
 #include "export_zip.h"
 #include "fa/core/capability.h"
 #include "fa/core/command.h"
@@ -820,5 +823,240 @@ TEST_CASE("examples download: the packer refuses names that the unpacker refuses
         auto r = extract_example_zip(work.path / "p.zip", work.path / "out");
         REQUIRE(r.ok());
         CHECK(*r == std::vector<std::string>{"factoria.json", "ok.txt"});
+    }
+}
+
+// ---- moving the unpacked project into its folder ------------------------------------------------------------------------
+
+namespace {
+// Puts the Windows file rules on (a file open through ReadStream cannot be deleted, as on Windows, where it is always so) and back.
+struct WindowsRulesOn {
+    bool before = fs::windows_rules();
+    WindowsRulesOn() { fs::set_windows_rules(true); }
+    ~WindowsRulesOn() { fs::set_windows_rules(before); }
+};
+
+// Opens one file of `entry` (the entry itself when it is a file) for reading, and keeps it open in `held`.
+void hold_a_file(const stdfs::path& entry, std::optional<fs::ReadStream>& held) {
+    if (stdfs::is_regular_file(entry)) {
+        held.emplace(entry, std::ios::binary);
+        return;
+    }
+    for (const auto& e : stdfs::recursive_directory_iterator(entry))
+        if (e.is_regular_file()) {
+            held.emplace(e.path(), std::ios::binary);
+            return;
+        }
+}
+
+// `staging` with the folders p and q (a file each) and the file r.txt; `dir` is empty beside it.
+void make_staging(const TempDir& d) {
+    write_all(d.path / "staging/p/f.txt", "p");
+    write_all(d.path / "staging/q/g.txt", "q");
+    write_all(d.path / "staging/r.txt", "r");
+    stdfs::create_directories(d.path / "dir");
+}
+}  // namespace
+
+TEST_CASE("examples place: the classification of the errors of a move") {
+    using namespace fa::examples_detail;
+    CHECK(is_cross_device(std::make_error_code(std::errc::cross_device_link)));
+    CHECK_FALSE(is_cross_device(std::make_error_code(std::errc::permission_denied)));
+    CHECK_FALSE(is_cross_device(std::error_code()));
+    CHECK(is_name_taken(std::make_error_code(std::errc::file_exists)));
+    CHECK(is_name_taken(std::make_error_code(std::errc::directory_not_empty)));
+    CHECK_FALSE(is_name_taken(std::make_error_code(std::errc::no_such_file_or_directory)));
+#ifdef _WIN32
+    // The raw Windows values, whatever the standard library maps them to.
+    CHECK(is_cross_device(std::error_code(17, std::system_category())));  // ERROR_NOT_SAME_DEVICE
+    CHECK(is_name_taken(std::error_code(183, std::system_category())));   // ERROR_ALREADY_EXISTS
+    CHECK(is_name_taken(std::error_code(80, std::system_category())));    // ERROR_FILE_EXISTS
+    CHECK_FALSE(is_cross_device(std::error_code(5, std::system_category())));
+#endif
+}
+
+TEST_CASE("examples place: a move never replaces what is at the destination") {
+    using namespace fa::examples_detail;
+    TempDir d;
+    SUBCASE("a file") {
+        write_all(d.path / "from.txt", "new");
+        write_all(d.path / "to.txt", "theirs");
+        std::error_code ec;
+        rename_no_replace(d.path / "from.txt", d.path / "to.txt", ec);
+        CHECK(is_name_taken(ec));
+        CHECK(read_all(d.path / "to.txt") == "theirs");
+        CHECK(read_all(d.path / "from.txt") == "new");
+        rename_no_replace(d.path / "from.txt", d.path / "free.txt", ec);
+        CHECK_FALSE(ec);
+        CHECK(read_all(d.path / "free.txt") == "new");
+        CHECK_FALSE(stdfs::exists(d.path / "from.txt"));
+    }
+    SUBCASE("a folder onto an empty folder (a plain rename replaces it)") {
+        write_all(d.path / "from/a.txt", "new");
+        stdfs::create_directories(d.path / "to");
+        std::error_code ec;
+        move_entry(d.path / "from", d.path / "to", ec, nullptr);
+        CHECK(is_name_taken(ec));
+        CHECK(stdfs::is_empty(d.path / "to"));
+        CHECK(stdfs::exists(d.path / "from/a.txt"));
+    }
+    SUBCASE("a name that does not exist is moved") {
+        write_all(d.path / "from/a.txt", "new");
+        std::error_code ec;
+        move_entry(d.path / "from", d.path / "to", ec, nullptr);
+        CHECK_FALSE(ec);
+        CHECK(read_all(d.path / "to/a.txt") == "new");
+        CHECK_FALSE(stdfs::exists(d.path / "from"));
+    }
+}
+
+TEST_CASE("examples place: another file system copies and deletes, and never touches what is there") {
+    using namespace fa::examples_detail;
+    TempDir d;
+    const RenameFn otherDevice = [](const stdfs::path&, const stdfs::path&, std::error_code& ec) {
+        ec = std::make_error_code(std::errc::cross_device_link);
+    };
+    SUBCASE("a folder and a file") {
+        write_all(d.path / "from/sub/a.txt", "a");
+        write_all(d.path / "from/b.txt", "b");
+        write_all(d.path / "file.txt", "f");
+        std::error_code ec;
+        std::string partial = "stale";
+        move_entry(d.path / "from", d.path / "to", ec, nullptr, &partial, otherDevice);
+        CHECK_FALSE(ec);
+        CHECK(partial.empty());
+        CHECK(read_all(d.path / "to/sub/a.txt") == "a");
+        CHECK(read_all(d.path / "to/b.txt") == "b");
+        CHECK_FALSE(stdfs::exists(d.path / "from"));
+        move_entry(d.path / "file.txt", d.path / "file2.txt", ec, nullptr, &partial, otherDevice);
+        CHECK_FALSE(ec);
+        CHECK(read_all(d.path / "file2.txt") == "f");
+        CHECK_FALSE(stdfs::exists(d.path / "file.txt"));
+    }
+    SUBCASE("something that is there is kept, and so is the source") {
+        write_all(d.path / "from/a.txt", "a");
+        write_all(d.path / "to/theirs.txt", "t");
+        write_all(d.path / "file.txt", "f");
+        write_all(d.path / "taken.txt", "t");
+        std::error_code ec;
+        std::string partial;
+        move_entry(d.path / "from", d.path / "to", ec, nullptr, &partial, otherDevice);
+        CHECK(is_name_taken(ec));
+        CHECK(read_all(d.path / "to/theirs.txt") == "t");
+        CHECK_FALSE(stdfs::exists(d.path / "to/a.txt"));
+        CHECK(stdfs::exists(d.path / "from/a.txt"));
+        move_entry(d.path / "file.txt", d.path / "taken.txt", ec, nullptr, &partial, otherDevice);
+        CHECK(is_name_taken(ec));
+        CHECK(read_all(d.path / "taken.txt") == "t");
+        CHECK(partial.empty());
+    }
+#ifdef _WIN32
+    SUBCASE("the raw Windows error of another drive") {
+        write_all(d.path / "file.txt", "f");
+        std::error_code ec;
+        move_entry(
+            d.path / "file.txt", d.path / "moved.txt", ec, nullptr, nullptr,
+            [](const stdfs::path&, const stdfs::path&, std::error_code& e) { e.assign(17, std::system_category()); });
+        CHECK_FALSE(ec);
+        CHECK(read_all(d.path / "moved.txt") == "f");
+    }
+#endif
+}
+
+TEST_CASE("examples place: a failed move into a folder says what it could not take out again") {
+    using namespace fa::examples_detail;
+    TempDir d;
+    make_staging(d);
+    const stdfs::path staging = d.path / "staging", dir = d.path / "dir";
+    int calls = 0;
+    std::optional<fs::ReadStream> held;  // a file something has open: it cannot be deleted
+    CancelFlag cancel{false};
+    // The first entry moves for real; `second` is what the second one does.
+    auto rename = [&](const std::function<void(const stdfs::path&, const stdfs::path&, std::error_code&)>& second) {
+        return RenameFn([&, second](const stdfs::path& from, const stdfs::path& to, std::error_code& ec) {
+            if (++calls == 2) return second(from, to, ec);
+            rename_no_replace(from, to, ec);
+        });
+    };
+    auto fail_disk_full = [](const stdfs::path&, const stdfs::path&, std::error_code& ec) {
+        ec = std::make_error_code(std::errc::no_space_on_device);
+    };
+
+    SUBCASE("everything that moved is taken out: the folder is empty, and the message says so") {
+        auto r = place_project(staging, dir, true, nullptr, rename(fail_disk_full));
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "Cannot move"));
+        CHECK(has(r.error().hint, "left empty, as it was"));
+        CHECK(names_in(dir).empty());
+        CHECK(calls == 2);
+    }
+    SUBCASE("a folder that something holds open stays, and is named") {
+        WindowsRulesOn rules;
+        // After the first entry moved, hold one of its files.
+        RenameFn hold = [&](const stdfs::path& from, const stdfs::path& to, std::error_code& ec) {
+            if (++calls == 1) {
+                rename_no_replace(from, to, ec);
+                hold_a_file(to, held);
+                return;
+            }
+            fail_disk_full(from, to, ec);
+        };
+        auto r = place_project(staging, dir, true, nullptr, hold);
+        REQUIRE(held.has_value());
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "Cannot move"));
+        CHECK_FALSE(has(r.error().hint, "left empty"));
+        CHECK(has(r.error().hint, "are still in it"));
+        const std::string name = names_in(dir).empty() ? "" : names_in(dir).front();
+        REQUIRE_FALSE(name.empty());
+        CHECK(has(r.error().hint, name + " ("));
+        held.reset();
+    }
+    SUBCASE("something that appears meanwhile is kept, and the call says the folder is not empty any more") {
+        RenameFn appears = [&](const stdfs::path& from, const stdfs::path& to, std::error_code& ec) {
+            if (++calls == 2) write_all(to, "theirs");  // another process wins the name
+            rename_no_replace(from, to, ec);
+        };
+        auto r = place_project(staging, dir, true, nullptr, appears);
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "is not empty any more"));
+        CHECK(has(r.error().hint, "Nothing was changed in it."));
+        const auto left = names_in(dir);
+        REQUIRE(left.size() == 1);
+        CHECK(read_all(dir / left.front()) == "theirs");
+    }
+    SUBCASE("a cancelled call reports what it could not take out") {
+        WindowsRulesOn rules;
+        RenameFn hold = [&](const stdfs::path& from, const stdfs::path& to, std::error_code& ec) {
+            rename_no_replace(from, to, ec);
+            hold_a_file(to, held);
+            cancel = true;
+        };
+        auto r = place_project(staging, dir, true, &cancel, hold);
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "cancelled"));
+        CHECK(has(r.error().message, "left in"));
+        CHECK(has(r.error().hint, "are still in it"));
+        held.reset();
+    }
+    SUBCASE("a cancelled call that could take everything out says it was cancelled") {
+        cancel = true;
+        auto r = place_project(staging, dir, true, &cancel, {});
+        REQUIRE_FALSE(r.ok());
+        CHECK(has(r.error().message, "cancelled"));
+        CHECK_FALSE(has(r.error().message, "left in"));
+        CHECK(names_in(dir).empty());
+    }
+    SUBCASE("a folder that does not exist takes the staging folder whole, and never replaces one that appeared") {
+        auto r = place_project(staging, d.path / "new", false, nullptr, {});
+        REQUIRE(r.ok());
+        CHECK(read_all(d.path / "new/p/f.txt") == "p");
+        CHECK_FALSE(stdfs::exists(staging));
+        write_all(d.path / "again/p/f.txt", "p");
+        write_all(d.path / "taken/theirs.txt", "t");
+        auto t = place_project(d.path / "again", d.path / "taken", false, nullptr, {});
+        REQUIRE_FALSE(t.ok());
+        CHECK(has(t.error().message, "Cannot move the unpacked example"));
+        CHECK(read_all(d.path / "taken/theirs.txt") == "t");
     }
 }
