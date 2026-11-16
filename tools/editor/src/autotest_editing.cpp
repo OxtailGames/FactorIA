@@ -1408,4 +1408,302 @@ void Editor::at_section_N(AtScript& at) {
     }
 }
 
+void Editor::at_section_M4(AtScript& at) {
+    AT_SCRIPT_LOCALS(at)
+    // ------------------------------------------------------------------- M4. Several entities selected
+    // Ctrl/Cmd+click toggles and Shift+click selects a range in the Hierarchy, a marquee in the viewport selects what it covers
+    // (Shift adds), Ctrl+click toggles in the viewport, the move gizmo moves the whole selection as one undo step (Esc puts all of
+    // it back), the Inspector edits the shared fields of all of them, Add Component adds to all, and Delete and Duplicate act on
+    // the whole selection, each as one undo step.
+    {
+        struct Multi {
+            size_t undo = 0, entities = 0;
+            Vec3 player{}, coin3{};
+            Vec2 grab{}, cur{};
+        };
+        auto m = std::make_shared<Multi>();
+        auto pos_of = [this](const char* id) {
+            Entity e = world().find_by_id(id);
+            const Transform* t = e.is_null() ? nullptr : world().get<Transform>(e);
+            return t ? t->position : Vec3{9999, 9999, 9999};
+        };
+        auto sel_is = [this](std::vector<std::string> want) {
+            std::vector<std::string> got = selection_peek().ids();
+            std::sort(got.begin(), got.end());
+            std::sort(want.begin(), want.end());
+            return got == want;
+        };
+        // A point of the world, in panel pixels (the viewport image maps the design pixels the renderer reports).
+        auto panel_of = [this](Vec3 world) {
+            const Vec2 d = engine_->renderer()->world_to_screen(world);
+            return Vec2{vpImageMin_.x + d.x / float(engine_->renderer()->target_width()) * vpImageSize_.x,
+                        vpImageMin_.y + d.y / float(engine_->renderer()->target_height()) * vpImageSize_.y};
+        };
+        auto sc = [this] { return vpImageSize_.x / float(engine_->renderer()->target_width()); };
+        auto hold = [this, &step](bool shift, bool down) {
+            step(2, [this, shift, down] {
+#if defined(__APPLE__)
+                const int mod =
+                    shift ? SAPP_MODIFIER_SHIFT : SAPP_MODIFIER_SUPER;  // Dear ImGui swaps Cmd and Ctrl on macOS
+                const int key = shift ? SAPP_KEYCODE_LEFT_SHIFT : SAPP_KEYCODE_LEFT_SUPER;
+#else
+                const int mod = shift ? SAPP_MODIFIER_SHIFT : SAPP_MODIFIER_CTRL;
+                const int key = shift ? SAPP_KEYCODE_LEFT_SHIFT : SAPP_KEYCODE_LEFT_CONTROL;
+#endif
+                atMods_ = down ? mod : 0;
+                inject_key(down ? SAPP_EVENTTYPE_KEY_DOWN : SAPP_EVENTTYPE_KEY_UP, key);
+            });
+        };
+        auto wait_until = [this, &step](std::function<bool()> cond) {
+            step(1, [this, cond] {
+                atWaitCount_ = 0;
+                atWaitUntil_ = cond;
+            });
+        };
+        auto right_click = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), 1); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), 1); });
+        };
+        auto vp_click = [this, &step](std::function<Vec2()> where) {
+            step(2, [this, where] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, where()); });
+            step(2, [this, where] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, where()); });
+            step(4, [this, where] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, where()); });
+        };
+        // A rectangle dragged in the viewport from one world point to another (the mouse travels, so it is a drag, not a click).
+        auto marquee = [this, &step](std::function<Vec2()> from, std::function<Vec2()> to) {
+            step(2, [this, from] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, from()); });
+            step(2, [this, from] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, from()); });
+            step(3, [this, from, to] {
+                const Vec2 a = from(), b = to();
+                inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, Vec2{(a.x + b.x) * 0.5f, (a.y + b.y) * 0.5f});
+            });
+            step(3, [this, to] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, to()); });
+            step(3, [this] {
+                at_check(marquee_.active, "the rectangle is live while the mouse is down and has travelled");
+            });
+            step(2, [this, to] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, to()); });
+            step(4, [] {});
+        };
+
+        step(2, [this, project_file] {
+            stop();
+            select_id("");
+            gizmoMode_ = GizmoMode::Select;
+            showHierarchy_ = showInspector_ = true;
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            focus_window("###Viewport");
+        });
+        step(10, [this] {
+            at_check(at_visible("tree:coin_2") && at_visible("tree:player"), "the Hierarchy lists the entities");
+        });
+
+        // 1. The Hierarchy: Ctrl/Cmd toggles, Shift selects the rows between, in the order the tree shows them.
+        click("tree:player");
+        step(3, [this, sel_is] {
+            at_check(sel_is({"player"}) && selected_id() == "player", "a plain click selects one row");
+        });
+        hold(false, true);
+        click("tree:coin_2");
+        hold(false, false);
+        step(3, [this, sel_is] {
+            at_check(sel_is({"player", "coin_2"}), "Ctrl/Cmd+click adds a row to the selection");
+            at_check(selected_id() == "coin_2", "...and the row clicked last is the primary");
+        });
+        hold(false, true);
+        click("tree:player");
+        hold(false, false);
+        step(3,
+             [this, sel_is] { at_check(sel_is({"coin_2"}), "Ctrl/Cmd+click on a selected row takes it out again"); });
+        click("tree:ground");
+        hold(true, true);
+        click("tree:coin_1");
+        hold(true, false);
+        step(3, [this, sel_is] {
+            at_check(sel_is({"ground", "platform_1", "player", "coin_1"}),
+                     "Shift+click selects the rows from the last one clicked to this one, in tree order");
+            at_check(selected_id() == "coin_1", "...and the row clicked is the primary");
+        });
+        snap("editor_multi_hierarchy.png");
+
+        // 2. The viewport: a marquee selects what it covers entirely; Shift adds; Ctrl+click toggles one.
+        step(2, [this] { select_id(""); });
+        marquee([panel_of] { return panel_of(Vec3{-340, -195, 0}); },
+                [panel_of] { return panel_of(Vec3{-60, -300, 0}); });
+        step(3, [this, sel_is] {
+            at_check(
+                sel_is({"player", "coin_1"}),
+                "a marquee on empty space selects the entities it covers entirely (not the ground it only crosses)");
+        });
+        hold(true, true);
+        marquee([panel_of] { return panel_of(Vec3{380, -225, 0}); },
+                [panel_of] { return panel_of(Vec3{460, -300, 0}); });
+        hold(true, false);
+        step(3, [this, sel_is] {
+            at_check(sel_is({"player", "coin_1", "coin_3"}), "Shift+marquee adds to the selection");
+        });
+        snap("editor_multi_viewport.png");
+        hold(false, true);
+        vp_click([panel_of, pos_of] { return panel_of(pos_of("coin_1")); });
+        hold(false, false);
+        step(3, [this, sel_is] {
+            at_check(sel_is({"player", "coin_3"}), "Ctrl/Cmd+click on a selected entity in the viewport takes it out");
+        });
+        vp_click([panel_of, pos_of] { return panel_of(pos_of("platform_1")); });
+        step(3, [this, sel_is] {
+            at_check(sel_is({"platform_1"}), "a plain click in the viewport selects that entity only");
+        });
+        vp_click([panel_of] { return panel_of(Vec3{-340, -195, 0}); });
+        step(3, [this, sel_is] { at_check(sel_is({}), "a click on empty space (no travel) clears the selection"); });
+
+        // 3. The move gizmo moves all of them as one undo step; Esc puts them all back.
+        step(2, [this] {
+            select_id("player");
+            selection_mut().add("coin_3");
+            gizmoMode_ = GizmoMode::Move;
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE,
+                         Vec2{vpImageMin_.x + vpImageSize_.x * 0.5f, vpImageMin_.y + vpImageSize_.y * 0.25f});
+        });
+        step(4, [this] {
+            at_check(at_visible("gizmo:move:x"), "the move gizmo is shown for the primary of a selection");
+        });
+        step(2, [this, m, pos_of] {
+            m->undo = undo_depth();
+            m->player = pos_of("player");
+            m->coin3 = pos_of("coin_3");
+            m->grab = m->cur = at_widget("gizmo:move:x");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, m->grab);
+        });
+        step(2, [this, m] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, m->grab); });
+        wait_until([this] { return gizmoDrag_.active; });
+        step(2, [this, m] {
+            m->cur = Vec2{m->grab.x + 60.0f, m->grab.y + 25.0f};
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, m->cur);
+        });
+        wait_until([this] { return gizmoDrag_.wrote; });
+        step(3, [] {});
+        step(2, [this, m] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, m->cur); });
+        wait_until([this] { return !gizmoDrag_.active; });
+        step(3, [this, m, pos_of, sc] {
+            const Vec3 p = pos_of("player"), c = pos_of("coin_3");
+            const float dx = 60.0f / sc();
+            at_check(std::fabs(p.x - (m->player.x + dx)) < 0.05f && std::fabs(c.x - (m->coin3.x + dx)) < 0.05f,
+                     "dragging the X arrow moves every selected entity by the same distance");
+            at_check(p.y == m->player.y && c.y == m->coin3.y, "...and y did not change (the drag followed the axis)");
+            at_check(undo_depth() == m->undo + 1, "...the whole drag of both entities is ONE undo step");
+            undo();
+            at_check(pos_of("player").x == m->player.x && pos_of("coin_3").x == m->coin3.x,
+                     "Undo puts every entity back");
+        });
+        step(2, [this, m] {  // Esc: drag again and cancel
+            m->undo = undo_depth();
+            m->grab = m->cur = at_widget("gizmo:move:x");
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, m->grab);
+        });
+        step(2, [this, m] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, m->grab); });
+        wait_until([this] { return gizmoDrag_.active; });
+        step(2, [this, m] {
+            m->cur = Vec2{m->grab.x + 40.0f, m->grab.y};
+            inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, m->cur);
+        });
+        wait_until([this] { return gizmoDrag_.wrote; });
+        step(3, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ESCAPE); });
+        step(3, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ESCAPE); });
+        step(2, [this, m] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, m->cur); });
+        step(4, [this, m, pos_of] {
+            at_check(pos_of("player").x == m->player.x && pos_of("coin_3").x == m->coin3.x,
+                     "Esc during a drag of several entities puts all of them back");
+            at_check(undo_depth() == m->undo, "...and leaves no undo step");
+            gizmoMode_ = GizmoMode::Select;
+        });
+
+        // 4. The Inspector: one header for all, a field edit writes to every entity as one undo step.
+        step(2, [this, m] {
+            m->undo = undo_depth();
+            inspScrollTo_ = "Transform.position";
+        });
+        step(4, [this] {
+            at_check(at_visible("insp:Transform.position.0"), "the Inspector lists the components all of them share");
+        });
+        snap("editor_multi_inspector.png");
+        click("insp:Transform.position.0");
+        step(3,
+             [this] { at_check(ImGui::GetIO().WantTextInput, "a number of a field that differs opens for typing"); });
+        step(3, [this] {
+            for (char c : std::string("100")) inject_char(unsigned(static_cast<unsigned char>(c)));
+        });
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ENTER); });
+        step(4, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ENTER); });
+        step(4, [this, m, pos_of] {
+            at_check(pos_of("player").x == 100.0f && pos_of("coin_3").x == 100.0f,
+                     "typing a value writes it to the field of every selected entity");
+            at_check(pos_of("player").y == m->player.y && pos_of("coin_3").y == m->coin3.y,
+                     "...and the numbers that were not edited keep each entity's own value");
+            at_check(undo_depth() == m->undo + 1, "...as ONE undo step");
+            undo();
+            at_check(pos_of("player").x == m->player.x && pos_of("coin_3").x == m->coin3.x, "Undo restores both");
+        });
+
+        // 5. Add Component with several selected: added to each entity that lacks it, one undo step.
+        step(2, [this, m] { m->undo = undo_depth(); });
+        click("insp:add");
+        step(3, [this] {
+            at_check(at_visible("insp:add:Sprite"), "Add Component lists what some of the selected entities lack");
+        });
+        click("insp:add:Sprite");
+        step(4, [this, m] {
+            World& w = world();
+            at_check(w.has<Sprite>(w.find_by_id("player")) && w.has<Sprite>(w.find_by_id("coin_3")),
+                     "Add Component adds the component to every selected entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            undo();
+            at_check(!w.has<Sprite>(w.find_by_id("player")) && !w.has<Sprite>(w.find_by_id("coin_3")),
+                     "Undo takes it off all of them");
+        });
+
+        // 6. Duplicate and Delete act on the whole selection, one undo step each.
+        click("tree:coin_1");
+        hold(false, true);
+        click("tree:coin_2");
+        hold(false, false);
+        step(3, [this, m, sel_is] {
+            at_check(sel_is({"coin_1", "coin_2"}), "two coins selected in the tree");
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+        });
+        right_click("tree:coin_2");
+        step(3, [this, sel_is] {
+            at_check(at_visible("tree:ctx:duplicate") && sel_is({"coin_1", "coin_2"}),
+                     "the context menu of a selected row keeps the whole selection");
+        });
+        click("tree:ctx:duplicate");
+        step(4, [this, m, sel_is] {
+            at_check(world().entities().size() == m->entities + 2, "Duplicate copies every selected entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            at_check(selection_peek().size() == 2 && !sel_is({"coin_1", "coin_2"}), "...and selects the copies");
+            undo();
+            at_check(world().entities().size() == m->entities, "Undo removes both copies");
+        });
+        click("tree:coin_1");
+        hold(false, true);
+        click("tree:coin_2");
+        hold(false, false);
+        step(2, [this, m] { m->undo = undo_depth(); });
+        right_click("tree:coin_2");
+        step(3, [] {});
+        click("tree:ctx:delete");
+        step(4, [this, m] {
+            at_check(world().find_by_id("coin_1").is_null() && world().find_by_id("coin_2").is_null(),
+                     "Delete removes every selected entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            at_check(selection_peek().empty() || selection().empty(), "...and the selection is empty");
+            undo();
+            at_check(!world().find_by_id("coin_1").is_null() && !world().find_by_id("coin_2").is_null(),
+                     "Undo brings both back");
+            select_id("");
+        });
+    }
+}
+
 }  // namespace fa::editor
