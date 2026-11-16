@@ -151,7 +151,7 @@ when a loop needs it many times.
   `{ connected, down(button), pressed(button), released(button), axis(name), rawAxis(name) }`. Buttons: `A B X Y Start Back
   Guide DpadLeft DpadRight DpadUp DpadDown LeftShoulder RightShoulder LeftThumb RightThumb`; axes: `LeftX LeftY RightX RightY`
   (-1..1, +Y up) and `LeftTrigger RightTrigger` (0..1). `axis` has the deadzone applied (what the bindings see), `rawAxis`
-  does not. Real pads are read in windowed runs only (Windows XInput, Linux joystick API, macOS/iOS GameController,
+  does not. Real pads are read in windowed runs only (Windows XInput and HID, Linux joystick API, macOS/iOS GameController,
   Android's input queue, the browser's Gamepad API on the web), so headless runs and tests stay deterministic. A pad
   that stays plugged in survives the window losing focus (inputs are released meanwhile, and the pad reports its real state when focus is
   back). Face buttons are positional: `A` is the bottom one, `B` right, `X` left, `Y` top, whatever the pad prints on
@@ -166,10 +166,19 @@ when a loop needs it many times.
   pad nothing lists. Inside one source an exact bus + version match beats a vendor + product match; a source beats the
   ones below it even with the worse match (the user's word is final). The engine logs each pad's GUID and the mapping it chose, and warns about
   lines it cannot read; a database line for a stick driven by buttons or a hat (N64 and Joy-Con entries) is not
-  supported and is skipped. On macOS and iOS (GameController) a pad keeps its slot while connected and an unplugged pad
+  supported and is skipped. On Windows, Xbox-style pads go through XInput (no mapping needed) and every other pad
+  (DualShock 4, DualSense, Switch Pro, generic USB and Bluetooth pads) through Raw Input and HID: the pad's own report
+  descriptor numbers its buttons, axes and hat the way SDL's DirectInput driver does, and the same four sources apply with
+  the Windows lines of SDL GameControllerDB built in (about 850 entries, a separate 230 KB that only the Windows build
+  carries) and, for a pad nothing lists, a default layout read from the pad itself (A B X Y on its first four buttons,
+  the left stick on X/Y, the right stick on Z/Rz or Rx/Ry, the D-pad on its hat) instead of the xpad one; only
+  `platform:Windows` lines (or lines without a platform) count there. XInput and HID pads share the slots 0..3: a pad
+  keeps its slot while connected and a new one takes the free slot it had last time, else the lowest. Plugging is
+  noticed from the OS's device notifications; XInput's empty slots are asked every 2 s, and a few times right after a
+  device came or went. On macOS and iOS (GameController) a pad keeps its slot while connected and an unplugged pad
   frees it. On Android an unplugged pad frees its slot (checked about every 2 s through the Java
   `InputDevice`) and the pad's reported axes decide whether Z/RZ are its right stick or its triggers
-  (`docs/MOBILE.md`). Real pads tried so far: an Xbox Wireless Controller on macOS; Linux and Android not yet.
+  (`docs/MOBILE.md`). Real pads tried so far: an Xbox Wireless Controller on macOS; Linux, Android and Windows HID pads not yet.
   On phones the `TouchStick` and `TouchButton` components draw an on-screen pad whose fingers feed the same gamepad
   bindings, so these actions work there unchanged (docs/MOBILE.md, "On-screen gamepad"); `gamepad(index)` does not
   list it, and fingers on it are not in `touches`.
@@ -323,8 +332,10 @@ Vibration option only where it works. This is a different motor from a phone's `
 - Mistakes throw with a hint: a pad outside 0..3, a strength or `seconds` that is not a number, `seconds` outside 0..10.
 - Where it works today: Windows (XInput pads: Xbox 360, One, Series and the pads that present themselves as one) and
   Chrome-based browsers (Xbox and PlayStation pads, through `gamepad.vibrationActuator`; the browser may refuse it until a
-  button was pressed on the pad). Linux, macOS, iOS and Android answer `canRumble: false` for now (M98.5c) and so do Windows pads
-  that are not XInput (DualShock, DualSense, Switch Pro: M98.5b); Firefox and Safari do not offer the browser API.
+  button was pressed on the pad). Linux, macOS, iOS and Android answer `canRumble: false` for now (M98.5c), and so do the Windows pads
+  read through HID (DualShock 4, DualSense, Switch Pro and generic pads; the reason `game.rumble` gives for them says rumble
+  for the DualShock 4, DualSense and Switch Pro is coming, planned as M98.5b2); Firefox and Safari do not offer the browser
+  API.
 - Tests and headless runs: a test pad has no motors unless `game.gamepad(i).connect({ canRumble: true })`. `game.rumbles()` lists
   the requests the game made (strengths already clamped, `seconds` 0 for a stop, at most 256) and `game.rumbleState(pad)` says
   what the motors do now (the seconds left run down with `game.step`).
@@ -357,7 +368,8 @@ say rather than Valve's docs; a `SteamDeck=0` launch option turns it off). A Dec
 pad each time (vendor and product ids, the name and, where the platform has one, a serial or device path), so a game can give a
 player their pad back; `name` is the OS name; `type` is the pad family. A pad that returns takes its old slot when it is free
 (on Linux the slot is the kernel's joystick number). What goes into the id: Windows XInput has no ids, so the id says "an Xbox
-pad in XInput slot N" (it ends with `#xinputN`); Linux adds the kernel serial when the pad has one; macOS, iOS and the web give
+pad in XInput slot N" (it ends with `#xinputN`); Windows HID pads add the serial number the pad reports (a Bluetooth
+pad's address; many USB pads have none); Linux adds the kernel serial when the pad has one; macOS, iOS and the web give
 the name (the web also the vendor and product, but no serial); Android adds the InputDevice descriptor. Two pads of one model
 without a serial share an id. Losing the window focus does not disconnect a pad. Pads already plugged in when the first scene
 starts are not announced: read `input.gamepad(i).connected` and `.id` in the first frame. Tests: `game.gamepad(1).connect({

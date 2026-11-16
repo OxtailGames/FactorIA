@@ -3,7 +3,11 @@
 // (Input::on_gamepad_*), so they stay deterministic.
 //
 // Backends:
-//   Windows  XInput (xinput1_4.dll, loaded at run time: Xbox-style pads, 4 slots).
+//   Windows  XInput (xinput1_4.dll, loaded at run time) for Xbox-style pads, and Raw Input + hid.dll for every other pad
+//            (DualShock 4, DualSense, Switch Pro, generic USB/Bluetooth pads): their reports are read through their own
+//            descriptor and mapped like Linux pads, with the Windows lines of SDL_GameControllerDB built in and a default
+//            layout read from the pad for one none lists (fa/platform/gamepad_hid.h). Both share the 4 slots; plugging is
+//            noticed from WM_INPUT_DEVICE_CHANGE (gamepad_win32.cpp).
 //   Linux    the kernel joystick API (/dev/input/js0..3). The raw button and axis numbers differ from pad to pad, so
 //            each pad is looked up by its ids (bus, vendor, product, version) in SDL GameControllerDB mapping lines
 //            (fa/platform/gamepad_mapping.h), best source first: the SDL_GAMECONTROLLERCONFIG environment variable
@@ -26,10 +30,12 @@
 //                                         with an explicit stop, so a backend whose hardware has no duration (XInput) just
 //                                         sets the motors, and one that has (the web, evdev effects) may pass `seconds` on
 //                                         as a safety net. Returns false when the hardware refused (logged once).
-// Today: Windows XInput and Chrome-based browsers can rumble; every other backend answers "no" with its reason.
+// Today: Windows XInput and Chrome-based browsers can rumble; every other backend (Windows HID pads included, until
+// M98.5b2) answers "no" with its reason.
 // Windowed runs only, like poll_gamepads(): headless runs and tests have no hardware and read Input instead.
 //
-// Slots that have no pad are probed only every couple of seconds, so unplugged slots cost nothing. A pad that stays
+// Slots that have no pad are probed only every couple of seconds (on Windows, XInput's empty slots also a few times right
+// after a device notification), so unplugged slots cost nothing. A pad that stays
 // plugged in survives the window losing focus: Input::release_all() disconnects it, and the next poll connects it
 // again with its current state.
 #pragma once
