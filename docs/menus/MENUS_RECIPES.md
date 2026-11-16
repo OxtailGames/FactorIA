@@ -79,7 +79,9 @@ How a parent's layout (`Panel.layout`, a ScrollList) sees a turned or scaled chi
 - **A turned or scaled parent** lays its children out as if it were not, and then turns and scales them with it, each around the
   parent's origin: a rotated Panel is a rigid card.
 - A screen-space Text, Sprite or Shape2D that is a child of a layout counts the same way: its own scale makes room, its own
-  rotation does not.
+  rotation does not. Drawn, it turns and scales with the parent like a widget child: about the parent's origin (its position
+  plus its anchor point), with the child's own `anchor` and position taken in the same layout space (give the child the
+  anchor of the Panel to place it relative to the card). Not under `ui.mirrorRtl`, where a visual child keeps the old pivot.
 
 One limit: a ScrollList clips with a scissor rectangle, which cannot turn. A ScrollList that is turned (itself or a parent) by an angle that is not
 a multiple of 90 degrees clips what it draws to the rectangle that bounds the turned list, so rows can show in

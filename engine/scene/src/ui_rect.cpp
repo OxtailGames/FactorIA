@@ -305,7 +305,10 @@ bool ui_contains(const World& w, Entity e, Vec2 designSize, Vec2 p) {
         return r && r->contains(p);
     }
     const std::optional<std::array<Vec2, 4>> q = ui_quad(w, e, designSize);
-    return q && point_in_quad(p, *q);
+    if (!q) return false;
+    for (const Vec2& c : *q)
+        if (!std::isfinite(c.x) || !std::isfinite(c.y)) return false;  // point_in_quad answers true on NaN
+    return point_in_quad(p, *q);
 }
 
 Vec2 ui_local_point(const World& w, Entity e, Vec2 designSize, Vec2 p) {

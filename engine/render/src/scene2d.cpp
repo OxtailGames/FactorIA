@@ -177,6 +177,35 @@ Mat4 draw_matrix(const World& world, Entity e, bool screen) {
                   : drawn_visual_matrix(world, e);
 }
 
+// A screen-space visual under a UI parent that turns or scales (itself or above): drawn through the same map as the widgets
+// (ui_transform of the parent chain, ui_rect.h "Rotation and scale"), so the card is rigid. In layout space the visual sits at
+// the parents' positions summed + its anchor point + its own local matrix; the parents' map then turns that point about each
+// parent's origin. Replaces draw_matrix + apply_anchor; false (and `m` untouched) when no parent turns or scales, or when the
+// visual is mirrored (ui.mirrorRtl), which keep the old path.
+bool turned_parent_matrix(const World& world, Entity e, const Frame& f, Vec2 anchor, bool safeArea, bool mirrored,
+                          Mat4& m) {
+    const Entity parent = world.parent(e);
+    if (!parent || mirrored) return false;
+    const Vec2 design{float(f.targetW), float(f.targetH)};
+    const UiAffine g = ui_transform(world, parent, design);
+    if (g.is_identity()) return false;
+    Vec3 sum{0, 0, 0};
+    for (Entity a = parent; a; a = world.parent(a))
+        if (const Transform* t = world.get<Transform>(a)) sum = sum + t->position;
+    const Vec2 a = anchor_point(anchor, safeArea, ui_layout_screen(world, design), ui_layout_insets(world));
+    Mat4 g4 = Mat4::identity();
+    g4.at(0, 0) = g.a;
+    g4.at(0, 1) = g.b;
+    g4.at(1, 0) = g.c;
+    g4.at(1, 1) = g.d;
+    g4.at(3, 0) = g.tx;
+    g4.at(3, 1) = g.ty;
+    const Mat4 local = world.drawn_matrix(parent).inverse() * world.drawn_matrix(e);
+    const float k = ui_scale_clamped(world.ui_scale());
+    m = Mat4::scale({k, k, 1.0f}) * g4 * Mat4::translate(Vec3{sum.x + a.x, sum.y + a.y, sum.z}) * local;
+    return true;
+}
+
 // The light frame of a lit quad: `right` and `up` are the directions the picture's right and top edges point to, in the
 // entity's local space (y up). The shader needs the angle of the right axis in the world and whether up lies to its left
 // (a right-handed frame) or to its right (the picture is mirrored): em.mode = kModeLit (+1 mirrored), em.aux = angle.
@@ -379,7 +408,8 @@ void emit_sprite(const World& world, const Frame& f, const SpritePrep& prep, boo
             size = {size.x > 0 ? size.x : r.w, size.y > 0 ? size.y : r.h};
     }
     Mat4 m = draw_matrix(world, e, screen);
-    if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f, mirrored);
+    if (screen && !turned_parent_matrix(world, e, f, s.anchor, s.safeArea, mirrored, m))
+        apply_anchor(m, s.anchor, s.safeArea, world, f, mirrored);
     notes.pos = m.translation();
     list.begin_item(s.layer, secondary_key(f, m, !screen), tex, s.pixelArt ? SamplerKind::Nearest : SamplerKind::Linear,
                     s.blend, prep.clip);
@@ -594,7 +624,8 @@ bool emit_shape(World& world, Frame& f, Entity e, Shape2D& s, QuadList& list, Ve
     Mat4 m = draw_matrix(world, e, screen);
     Rect clip;
     if (screen && !screen_clip(world, e, f, clip)) return false;
-    if (screen) apply_anchor(m, s.anchor, s.safeArea, world, f, screen && ui_mirrored(world, e));
+    if (screen && !turned_parent_matrix(world, e, f, s.anchor, s.safeArea, ui_mirrored(world, e), m))
+        apply_anchor(m, s.anchor, s.safeArea, world, f, screen && ui_mirrored(world, e));
     if (screen && ui_mirrored(world, e))
         m = m * Mat4::scale({-1.0f, 1.0f, 1.0f});  // every shape is symmetric about its box, but a line
     if (pos) *pos = m.translation();
@@ -912,7 +943,8 @@ void gather_tilemaps_and_text(World& world, Frame& f) {
         TextLayout lay = f.fonts->layout(*drawn, px, eff);
         if (lay.quads.empty() && lay.icons.empty()) return;
         if (t.visibleCharacters == 0) return;
-        if (screen) apply_anchor(m, t.anchor, t.safeArea, world, f, mirrored);
+        if (screen && !turned_parent_matrix(world, e, f, t.anchor, t.safeArea, mirrored, m))
+            apply_anchor(m, t.anchor, t.safeArea, world, f, mirrored);
         // Pixel-snap the anchor for crisp glyphs when the transform is axis aligned.
         if ((screen || !f.cam.perspective) && axis_aligned(m)) {
             float ox = screen ? 0.0f : f.cam.visible.x, oy = screen ? 0.0f : f.cam.visible.y;

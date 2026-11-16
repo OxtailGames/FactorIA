@@ -175,8 +175,14 @@ void UiSystem::update_drag(World& w, Vec2 design, Vec2 mouse, bool down, bool pr
         if (const std::optional<Rect> r = ui_rect(w, dragImage_, design)) {
             const float k = ui_scale_clamped(w.ui_scale());
             if (Transform* t = w.get<Transform>(dragImage_)) {
-                t->position.x += (mouse.x - r->w * 0.5f - r->x) / k;
-                t->position.y += (mouse.y - r->h * 0.5f - r->y) / k;
+                Vec2 d{(mouse.x - r->w * 0.5f - r->x) / k, (mouse.y - r->h * 0.5f - r->y) / k};
+                // Under a turned or scaled parent a step in the layout space is another step on the screen: undo the parent's map.
+                const UiAffine up = ui_transform(w, w.parent(dragImage_), design);
+                if (!up.is_identity())
+                    if (const std::optional<UiAffine> inv = up.inverse())
+                        d = Vec2{inv->a * d.x + inv->c * d.y, inv->b * d.x + inv->d * d.y};
+                t->position.x += d.x;
+                t->position.y += d.y;
             }
         }
     }
