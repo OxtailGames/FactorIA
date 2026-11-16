@@ -411,7 +411,14 @@ if [ -n "${FA_SMOKE_QUIT:-}" ] && [ -n "${FA_SMOKE_BACK:-}" ]; then
         fail "quit: the app process $QUIT_PID is still running 20s after the second Back: the game did not end"
     sleep 5
     NOW_PID="$(app_pid)"
-    [ -z "$NOW_PID" ] || fail "quit: the system started the game again (pid $NOW_PID) after it ended"
+    # A process of the package may come back for a service of a bundled library (Google's datatransport job scheduler
+    # restarts itself a second later): that is not the game. Only an activity of the package means the game came back.
+    if [ -n "$NOW_PID" ]; then
+        if "$ADB" shell dumpsys activity activities 2>/dev/null | tr -d '\r' | grep -qE "ActivityRecord\{[^}]* $PKG/"; then
+            fail "quit: the system started the game again (pid $NOW_PID, with an activity) after it ended"
+        fi
+        note "quit: pid $NOW_PID of $PKG runs no activity (a service of a bundled library), not the game"
+    fi
     snapshot_log
     "$ADB" logcat -d -b all -v threadtime --pid="$QUIT_PID" >"$OUT/logcat-app-quit.txt" 2>/dev/null
     if grep -E "FATAL EXCEPTION|Fatal signal|FORTIFY|SIGSEGV|SIGABRT|tombstone|OpenGL ES API with no current context" \
