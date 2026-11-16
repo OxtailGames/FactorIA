@@ -1280,6 +1280,15 @@ request is `(method, args)` and gets one answer, a result or `{code, message, hi
   `fa/services/network.h` parses their `factoria.json` sections (`parse_analytics`, `parse_remote_config`) and `factoria
   validate` checks them. The script system ticks them with the unscaled frame time, and runs `app.suspend` and the quit
   flush (`request_quit` and `close_requested` wait up to 3 seconds for a pending request) through hooks of the prelude.
+- **`websocket.connect`** is not a `PlatformServices` request: a connection is a stream of events, so `ScriptHost::websocket_client()`
+  hands the script system a `WebSocketClient` of `fa_platform` (`fa/platform/websocket.h`: WinHTTP, `NSURLSessionWebSocketTask`,
+  libcurl, a socket stream through JNI on Android, the browser's WebSocket; `websocket_<platform>` files, plus the memory client of
+  headless runs and tests). The script layer checks the address against the same `network.hosts` list before `connect()`.
+  Thread rule: whatever the network does is pushed to the connection's `WebSocketEventQueue` by any thread (an OS callback, a
+  reader thread) and drained by the game thread once a frame (`dispatch_platform`), so no OS thread ever touches a script or the
+  World. The queue lives in a `std::shared_ptr` that every callback captures; the connection's destructor calls `abandon()` and
+  returns without waiting (it runs on the game thread), so a callback that comes late finds the queue ended. A scene change closes
+  every connection without events; reconnects with backoff run in `factoria.js` on the engine clock.
 Docs: [PLATFORM.md](../PLATFORM.md), [NETWORKING.md](../NETWORKING.md), [ANALYTICS.md](../ANALYTICS.md).
 
 ### Localization

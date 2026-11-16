@@ -4156,6 +4156,229 @@
     },
     {
      "kind": "interface",
+     "name": "WebSocketReconnectOptions",
+     "doc": "How websocket.connect tries again after a connection you did not close ends (the server went away, the network dropped, an attempt failed). The wait before attempt n is min(maxDelay, minDelay * factor^(n-1)) seconds, moved by up to +-jitter of itself with a pseudo-random sequence that is the same on every run (seeded by the URL and the connection's number: no rand(), no wall clock), counted on the engine clock.",
+     "members": [
+      {
+       "sig": "maxAttempts?: number",
+       "doc": "Reconnects tried in a row before the connection closes for good: a whole number of 1 or more, or Infinity. Default 10. The count starts again when a connection opens."
+      },
+      {
+       "sig": "minDelay?: number",
+       "doc": "Seconds before the first attempt, above 0. Default 1."
+      },
+      {
+       "sig": "maxDelay?: number",
+       "doc": "The longest wait in seconds, at least minDelay. Default 30."
+      },
+      {
+       "sig": "factor?: number",
+       "doc": "Each attempt waits this many times longer than the one before, 1 or more. Default 2."
+      },
+      {
+       "sig": "jitter?: number",
+       "doc": "A fraction from 0 to 1 of the wait that the delay may move up or down, so that many players do not reconnect at the same instant. Default 0.25."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketOptions",
+     "doc": "Options of websocket.connect.",
+     "members": [
+      {
+       "sig": "protocols?: string[]",
+       "doc": "Subprotocols to offer the server, in order of preference (Sec-WebSocket-Protocol); the one it picks is WebSocketConnection.protocol. Each must be a token like \"chat.v1\"."
+      },
+      {
+       "sig": "headers?: Record<string, string>",
+       "doc": "Extra headers of the handshake, string values, no line breaks. Host, Upgrade, Connection and Sec-* are set by the system and throw. The browser's WebSocket cannot send headers: a game for the web puts what the server needs in the URL or in the first message."
+      },
+      {
+       "sig": "timeout?: number",
+       "doc": "Seconds to wait for the connection and the handshake together, above 0 and at most 120. Default 15; a connection that takes longer gets an \"error\" event and a \"close\" event with code 1006."
+      },
+      {
+       "sig": "maxMessageBytes?: number",
+       "doc": "The longest message in either direction, 4194304 (4 MB) by default and at most 67108864. A longer incoming message fails the connection (an \"error\" event, then \"close\" with code 1006; the server is told 1009); send() throws for a longer outgoing one."
+      },
+      {
+       "sig": "reconnect?: boolean | WebSocketReconnectOptions",
+       "doc": "true or an object: connect again after a close you did not ask for. false (default): never. A connection you close() yourself, and one that the platform cannot open at all, never reconnect."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketOpenEvent",
+     "doc": "The \"open\" event of a connection: the handshake is done and send() works.",
+     "members": [
+      {
+       "sig": "readonly protocol: string",
+       "doc": "The subprotocol the server chose, \"\" when none."
+      },
+      {
+       "sig": "readonly reconnected: boolean",
+       "doc": "True when this is a reconnect (the connection was open before), so the game can ask the server for what it missed."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketMessageEvent",
+     "doc": "The \"message\" event: one whole message. Messages of a connection arrive in order, at the start of an engine frame.",
+     "members": [
+      {
+       "sig": "readonly data: string | ArrayBuffer",
+       "doc": "A text message as a string; a binary message as an ArrayBuffer (wrap it in new Uint8Array(data) to read it)."
+      },
+      {
+       "sig": "readonly binary: boolean",
+       "doc": "True when data is an ArrayBuffer."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketErrorEvent",
+     "doc": "The \"error\" event: something went wrong. A \"close\" event always follows with code 1006.",
+     "members": [
+      {
+       "sig": "readonly message: string",
+       "doc": "What went wrong, in a sentence that says what to do."
+      },
+      {
+       "sig": "readonly hint: string",
+       "doc": "What to try, \"\" when the platform gave none."
+      },
+      {
+       "sig": "readonly httpStatus: number",
+       "doc": "The HTTP status the server answered to the handshake when it refused it (403, 404...), 0 when there was none."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketCloseEvent",
+     "doc": "The \"close\" event: the end of a connection (or of one attempt, when it reconnects). Nothing more is delivered on it.",
+     "members": [
+      {
+       "sig": "readonly code: number",
+       "doc": "The close code: 1000 normal, 1001 going away, 1006 the connection failed or broke with no closing handshake (could not connect, a message too big, a server that breaks the protocol), 1008 the game did not read its messages, 3000 to 4999 the server's own."
+      },
+      {
+       "sig": "readonly reason: string",
+       "doc": "The reason text the closer sent, \"\" when none."
+      },
+      {
+       "sig": "readonly wasClean: boolean",
+       "doc": "True when the closing handshake completed."
+      },
+      {
+       "sig": "readonly willReconnect: boolean",
+       "doc": "True when websocket.connect was given reconnect and will try again: a \"reconnecting\" event follows. Call connection.close() in this handler to stop it."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketReconnectingEvent",
+     "doc": "The \"reconnecting\" event: the next attempt is scheduled.",
+     "members": [
+      {
+       "sig": "readonly attempt: number",
+       "doc": "1 for the first reconnect since the connection was last open, 2 for the second..."
+      },
+      {
+       "sig": "readonly delay: number",
+       "doc": "Seconds until the attempt starts (engine time)."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketConnection",
+     "doc": "One WebSocket connection, from websocket.connect. Events are delivered at the start of an engine frame, never in the middle of a script. A scene change or a script unload closes the connection WITHOUT events (readyState becomes \"closed\"): open the connections of a scene in that scene.",
+     "members": [
+      {
+       "sig": "readonly url: string",
+       "doc": "The address given to websocket.connect."
+      },
+      {
+       "sig": "readonly readyState: \"connecting\" | \"open\" | \"closing\" | \"closed\"",
+       "doc": "\"connecting\" until the handshake completes and also while a connection waits to reconnect; \"closing\" after close() until the \"close\" event."
+      },
+      {
+       "sig": "readonly protocol: string",
+       "doc": "The subprotocol the server chose, \"\" when none or not open yet."
+      },
+      {
+       "sig": "readonly attempt: number",
+       "doc": "Reconnects tried since the connection was last open: 0 while it is open."
+      },
+      {
+       "sig": "readonly bufferedAmount: number",
+       "doc": "Bytes that send() accepted and the network has not taken yet."
+      },
+      {
+       "sig": "on(event: \"open\", fn: (e: WebSocketOpenEvent) => void): () => void",
+       "doc": "Calls fn when the connection opens (again after each reconnect). Returns a function that removes the handler. A handler that throws is reported as a script error and the others still run."
+      },
+      {
+       "sig": "on(event: \"message\", fn: (e: WebSocketMessageEvent) => void): () => void",
+       "doc": "Calls fn for every message the server sends. Example: `ws.on(\"message\", (e) => { if (!e.binary) handle(JSON.parse(e.data)); });`."
+      },
+      {
+       "sig": "on(event: \"error\", fn: (e: WebSocketErrorEvent) => void): () => void",
+       "doc": "Calls fn when the connection fails: could not connect, refused (e.httpStatus), a broken stream, a message over maxMessageBytes. Followed by a \"close\" event."
+      },
+      {
+       "sig": "on(event: \"close\", fn: (e: WebSocketCloseEvent) => void): () => void",
+       "doc": "Calls fn when the connection ends, whoever ended it."
+      },
+      {
+       "sig": "on(event: \"reconnecting\", fn: (e: WebSocketReconnectingEvent) => void): () => void",
+       "doc": "Calls fn when a reconnect is scheduled (options.reconnect only)."
+      },
+      {
+       "sig": "off(event: \"open\" | \"message\" | \"error\" | \"close\" | \"reconnecting\", fn: Function): void",
+       "doc": "Removes a handler added with on(). An unknown handler does nothing."
+      },
+      {
+       "sig": "send(data: string | ArrayBuffer | ArrayBufferView): boolean",
+       "doc": "Queues one message: a string goes as a text message, an ArrayBuffer or typed array as a binary one. Returns true when queued, false when the connection is not open (still connecting, waiting to reconnect, closing, closed): nothing is queued or kept for later. Throws for data of another type (send an object as ws.send(JSON.stringify(obj))) and for a message over maxMessageBytes. Example: `if (!ws.send(JSON.stringify({ move: \"left\" }))) ui.toast(\"Reconnecting...\");`."
+      },
+      {
+       "sig": "close(code?: number, reason?: string): void",
+       "doc": "Starts the closing handshake; the \"close\" event follows when the server answers (or after a few seconds). code is 1000 (default) or 3000 to 4999, reason at most 123 bytes of UTF-8; others throw. Never reconnects afterwards, and stops a connection that waits to reconnect. Closing twice does nothing."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "WebSocketAPI",
+     "doc": "WebSocket connections to the hosts the game declares in factoria.json \"network\" (docs/NETWORKING.md, \"WebSocket\"), the same list as http.fetch: ws:// and wss://, wss:// everywhere except plain ws:// to localhost for development. A host that is not declared throws at once with the same hint and \"did you mean\". At most 32 connections at once. Which platforms can connect depends on the build (docs/NETWORKING.md says which): `websocket.supported` tells; where it is false, connect() still returns a connection, which fails with an \"error\" and a \"close\" event at the next frame. In tests and headless runs a scripted in-memory server answers (game.websocket) and nothing touches the network. Replays do not record WebSocket traffic.",
+     "members": [
+      {
+       "sig": "connect(url: string, options?: WebSocketOptions): WebSocketConnection",
+       "doc": "Starts connecting and returns at once: attach handlers with on() before the next frame. A mistake in the call (an undeclared host, a bad scheme, an unknown option, a header the handshake refuses, more than 32 connections) throws with what to change. Example: `const ws = websocket.connect(\"wss://game.example.com/room\", { reconnect: true }); ws.on(\"open\", () => ws.send(\"hello\"));`."
+      },
+      {
+       "sig": "readonly supported: boolean",
+       "doc": "True when this platform has a WebSocket client that can connect."
+      },
+      {
+       "sig": "readonly backend: string",
+       "doc": "The client in use: \"memory\" (tests, headless), \"winhttp\", \"nsurlsession\", \"curl\", \"socket\", \"browser\" or \"unavailable\"."
+      },
+      {
+       "sig": "readonly unsupportedReason: string",
+       "doc": "Why supported is false, \"\" when it is true."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "AnalyticsStatus",
      "doc": "What analytics.status() returns, for debugging.",
      "members": [
@@ -4562,6 +4785,12 @@
      "name": "http",
      "type": "HttpAPI",
      "doc": "http.fetch(url, options): HTTP requests to the hosts declared in factoria.json \"network\" (docs/NETWORKING.md)."
+    },
+    {
+     "kind": "const",
+     "name": "websocket",
+     "type": "WebSocketAPI",
+     "doc": "websocket.connect(url, options): WebSocket connections to the hosts declared in factoria.json \"network\", with reconnects (docs/NETWORKING.md, \"WebSocket\")."
     },
     {
      "kind": "const",
@@ -5733,6 +5962,100 @@
     },
     {
      "kind": "interface",
+     "name": "TestWebSocketConnection",
+     "doc": "One connection the game made, seen from the scripted server side (game.websocket.connections()).",
+     "members": [
+      {
+       "sig": "index: number",
+       "doc": "The number to pass to the other game.websocket calls: connections count in the order websocket.connect started them, reconnects included."
+      },
+      {
+       "sig": "url: string",
+       "doc": "The address the game asked for."
+      },
+      {
+       "sig": "protocols: string[]",
+       "doc": "The subprotocols the game offered."
+      },
+      {
+       "sig": "headers: Record<string, string>",
+       "doc": "The handshake headers the game set."
+      },
+      {
+       "sig": "open: boolean",
+       "doc": "Accepted and not closed."
+      },
+      {
+       "sig": "closed: boolean",
+       "doc": "Over, whoever closed it. A connection the game never closed but that its scene dropped counts as closed by the game with code 1001."
+      },
+      {
+       "sig": "closedByGame: boolean",
+       "doc": "The game closed it (close(), or its scene ended)."
+      },
+      {
+       "sig": "closeCode: number",
+       "doc": "The code of the game's close, 0 when it did not close."
+      },
+      {
+       "sig": "closeReason: string",
+       "doc": "The reason of the game's close."
+      },
+      {
+       "sig": "received: (string | ArrayBuffer)[]",
+       "doc": "What the game sent, oldest first: a string for a text message, an ArrayBuffer for a binary one."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
+     "name": "TestWebSocket",
+     "doc": "The server side of the game's WebSocket connections in tests (docs/NETWORKING.md, \"Testing\"): every websocket.connect meets a scripted in-memory server, nothing touches the network. The events of an action reach the game at the next game.step(). Connection numbers are the `index` of game.websocket.connections(); an unknown number throws.",
+     "members": [
+      {
+       "sig": "connections(): TestWebSocketConnection[]",
+       "doc": "Every connection made since the last reset(), in order, closed ones included, with what the game sent."
+      },
+      {
+       "sig": "accept(i: number, protocol?: string): void",
+       "doc": "Completes the handshake: the game's \"open\" event. Needed only after autoAccept(false). protocol is the subprotocol the server picks: one the game offered, else it throws."
+      },
+      {
+       "sig": "refuse(i: number, message?: string, httpStatus?: number): void",
+       "doc": "The handshake fails: the game gets an \"error\" event (with httpStatus, e.g. 403) and then \"close\" with code 1006."
+      },
+      {
+       "sig": "send(i: number, data: string | ArrayBuffer | ArrayBufferView): void",
+       "doc": "The server sends a message to the game: text for a string, binary for an ArrayBuffer or typed array."
+      },
+      {
+       "sig": "close(i: number, code?: number, reason?: string): void",
+       "doc": "The server closes cleanly (code 1000 by default): the game gets \"close\" with that code, reason and wasClean true."
+      },
+      {
+       "sig": "drop(i: number, message?: string): void",
+       "doc": "The connection breaks with no closing handshake: \"error\" then \"close\" with code 1006."
+      },
+      {
+       "sig": "autoAccept(on?: boolean): void",
+       "doc": "false: new connections wait for accept(i) or refuse(i) (default true: they open at the next step)."
+      },
+      {
+       "sig": "refuseNext(count?: number, message?: string): void",
+       "doc": "The next `count` connection attempts (default 1) fail like an unreachable server: \"error\" then \"close\" 1006. What a reconnect test needs."
+      },
+      {
+       "sig": "autoCloseReply(i: number, on?: boolean): void",
+       "doc": "false: the server does not answer the game's close() until close(i) is called, so the game stays \"closing\". Default true."
+      },
+      {
+       "sig": "reset(): void",
+       "doc": "Closes the game's connections without events, forgets every connection of the server and restores autoAccept and refuseNext. Every test file starts this way; call it at the start of a test that counts connections."
+      }
+     ]
+    },
+    {
+     "kind": "interface",
      "name": "TestPlatform",
      "doc": "The fake store, for tests: script what it answers, send it events, look at what it holds. Each test file starts with a fresh one; the real backends are never touched by tests. Backed by the platform.* commands. See docs/PLATFORM.md.",
      "members": [
@@ -6018,6 +6341,10 @@
       {
        "sig": "readonly remoteConfig: TestRemoteConfig",
        "doc": "The remote config of this test run: game.remoteConfig.restart()."
+      },
+      {
+       "sig": "readonly websocket: TestWebSocket",
+       "doc": "The scripted server of the game's WebSocket connections: game.websocket.connections(), accept(i), send(i, data), close(i), drop(i), refuseNext(n), reset()."
       }
      ]
     },

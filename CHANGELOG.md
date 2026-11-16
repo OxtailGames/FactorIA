@@ -6,6 +6,18 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+### Added
+
+- `websocket.connect(url, options)` for game scripts: WebSocket connections to the hosts `factoria.json` `network.hosts` declares (the
+  same list, errors and `did you mean` as `http.fetch`), with `on`/`off`/`send`/`close`, text and binary messages, subprotocols,
+  headers, and reconnects with exponential backoff and a jitter that is the same on every run. A scene change closes the
+  connections without events. This is the shared part: the interface (`fa/platform/websocket.h`), an RFC 6455 codec
+  (`fa/platform/websocket_codec.h`), a loopback test server, a scripted in-memory server for tests and headless runs
+  (`game.websocket`), and the script API. The clients of the platforms (WinHTTP, `NSURLSessionWebSocketTask`, libcurl, Android,
+  the browser) come in the same milestone; until then `websocket.supported` is false outside tests and a connection fails with an
+  `"error"` and a `"close"` event (docs/NETWORKING.md, "WebSocket").
+- `factoria validate` warns about a script that calls `websocket.connect` in a game with no `network` hosts, as it does for
+  `http.fetch`.
 - `TextField` has `caretIndex`, `selectionStart`, `selectionEnd` and a runtime `composition`, and scripts read
   `input.composing` / `input.compositionText`: the shared interface for text editing and IME composition (M98.6). Nothing
   moves the caret yet.

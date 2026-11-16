@@ -1571,12 +1571,17 @@ ValidationReport validate_project(const std::string& projectDir, const ValidateO
         }
     }
     if (!c.networkDeclared) {
-        // A script that calls http.fetch in a game that declares no host: every call throws (tests included).
+        // A script that calls http.fetch or websocket.connect in a game that declares no host: every call throws (tests included).
         for (const auto& s : scripts) {
             auto text = tooling_detail::read_file(stdfs::path(c.dir) / s);
-            if (!text || text->find("http.fetch") == std::string::npos) continue;
+            if (!text) continue;
+            const char* call = text->find("http.fetch") != std::string::npos          ? "http.fetch"
+                               : text->find("websocket.connect") != std::string::npos ? "websocket.connect"
+                                                                                      : nullptr;
+            if (!call) continue;
             c.warn(s, "",
-                   "this script calls http.fetch, but factoria.json declares no \"network\" hosts: every call throws",
+                   std::string("this script calls ") + call +
+                       ", but factoria.json declares no \"network\" hosts: every call throws",
                    "Add \"network\": {\"hosts\": [\"api.example.com\"], \"purpose\": \"...\"} to factoria.json "
                    "(docs/NETWORKING.md).");
             break;  // once per project is enough

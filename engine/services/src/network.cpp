@@ -345,10 +345,21 @@ RemoteConfigParse parse_remote_config(const Json& section, const NetworkPolicy& 
 }
 
 // ---------------------------------------------------------------------------------------------------------- URLs ---
-Result<HttpUrl> parse_http_url(const std::string& url) {
+namespace {
+
+// What differs between the addresses of http.fetch and those of websocket.connect: the two schemes and the name in messages.
+struct UrlKind {
+    const char* plain;   // "http" | "ws"
+    const char* secure;  // "https" | "wss"
+    const char* api;     // "http.fetch" | "websocket.connect"
+};
+
+Result<HttpUrl> parse_url_shape(const std::string& url, const UrlKind& kind) {
+    const std::string plainScheme = kind.plain, secureScheme = kind.secure;
     const std::string shown = url.size() > 80 ? url.substr(0, 77) + "..." : url;
     if (url.empty())
-        return make_error("the URL is empty", "Pass an absolute address: \"https://api.example.com/path\".");
+        return make_error("the URL is empty",
+                          "Pass an absolute address: \"" + secureScheme + "://api.example.com/path\".");
     if (url.size() > kMaxUrlBytes)
         return make_error("the URL is " + std::to_string(url.size()) + " bytes long; the most is " +
                               std::to_string(kMaxUrlBytes),
@@ -359,14 +370,15 @@ Result<HttpUrl> parse_http_url(const std::string& url) {
                               "Write spaces as %20 (or encode the pieces with encodeURIComponent).");
     const std::size_t schemeEnd = url.find("://");
     if (schemeEnd == std::string::npos)
-        return make_error("the URL " + in_quotes(shown) + " is not absolute",
-                          "Start it with https://, e.g. \"https://api.example.com/path\".");
+        return make_error("the URL " + in_quotes(shown) + " is not absolute", "Start it with " + secureScheme +
+                                                                                  "://, e.g. \"" + secureScheme +
+                                                                                  "://api.example.com/path\".");
     HttpUrl out;
     out.scheme = lower(url.substr(0, schemeEnd));
-    if (out.scheme != "https" && out.scheme != "http")
-        return make_error("the URL " + in_quotes(shown) + " uses " + in_quotes(out.scheme) +
-                              ": http.fetch only speaks https",
-                          "Use an https:// address.");
+    if (out.scheme != secureScheme && out.scheme != plainScheme)
+        return make_error("the URL " + in_quotes(shown) + " uses " + in_quotes(out.scheme) + ": " + kind.api +
+                              " only speaks " + secureScheme,
+                          "Use a " + secureScheme + ":// address.");
     const std::size_t authorityStart = schemeEnd + 3;
     const std::size_t authorityEnd = url.find_first_of("/?#", authorityStart);
     std::string authority = url.substr(
@@ -383,7 +395,7 @@ Result<HttpUrl> parse_http_url(const std::string& url) {
         const std::size_t close = authority.find(']');
         if (close == std::string::npos)
             return make_error("the URL " + in_quotes(shown) + " has an unclosed [ in the host",
-                              "Write an IPv6 address as http://[::1]:8080/.");
+                              "Write an IPv6 address as " + plainScheme + "://[::1]:8080/.");
         host = authority.substr(1, close - 1);
         const std::string after = authority.substr(close + 1);
         if (!after.empty()) {
@@ -398,7 +410,8 @@ Result<HttpUrl> parse_http_url(const std::string& url) {
     }
     host = lower(host);
     if (host.empty())
-        return make_error("the URL " + in_quotes(shown) + " has no host", "Write it as https://host/path.");
+        return make_error("the URL " + in_quotes(shown) + " has no host",
+                          "Write it as " + secureScheme + "://host/path.");
     if (!(authority[0] == '[' ? is_ipv6_literal(host) : valid_domain(host)))
         return make_error("the URL " + in_quotes(shown) + " has an invalid host " + in_quotes(host),
                           "A host name has letters, digits, \"-\" and dots.");
@@ -409,7 +422,7 @@ Result<HttpUrl> parse_http_url(const std::string& url) {
         if (n < 1 || n > 65535)
             return make_error("the URL " + in_quotes(shown) + " has the port " + in_quotes(port) +
                                   ", which is not 1 to 65535",
-                              "Write the port as a number after the host: https://host:8443/.");
+                              "Write the port as a number after the host: " + secureScheme + "://host:8443/.");
         out.port = n;
     }
     out.host = host;
@@ -418,6 +431,31 @@ Result<HttpUrl> parse_http_url(const std::string& url) {
               (rest.empty() ? std::string("/") : (rest[0] == '/' ? rest : "/" + rest));
     return out;
 }
+
+// The host of an address against the game's declared hosts; the same errors for http.fetch and websocket.connect.
+Result<void> check_declared_host(const std::string& host, const NetworkPolicy& policy, const char* api) {
+    if (!policy.declared())
+        return make_error(
+            std::string("this game declares no network hosts, so ") + api + " cannot call " + in_quotes(host),
+            "Declare the host in factoria.json: \"network\": {\"hosts\": [" + in_quotes(host) +
+                "]}. The same list gives the Android export its INTERNET permission (docs/NETWORKING.md).");
+    if (!policy.allows(host)) {
+        std::string hint = did_you_mean(host, policy.hosts);
+        if (!hint.empty()) hint += " ";
+        hint += "Declared: " + [&] {
+            std::string list;
+            for (const std::string& h : policy.hosts) list += (list.empty() ? "" : ", ") + in_quotes(h);
+            return list;
+        }() + ". Add the host to factoria.json \"network\".\"hosts\" if the game should call it.";
+        return make_error("the host " + in_quotes(host) + " is not declared in factoria.json \"network\".\"hosts\"",
+                          hint);
+    }
+    return {};
+}
+
+}  // namespace
+
+Result<HttpUrl> parse_http_url(const std::string& url) { return parse_url_shape(url, {"http", "https", "http.fetch"}); }
 
 Result<HttpUrl> check_http_url(const std::string& url, const NetworkPolicy& policy) {
     Result<HttpUrl> parsed = parse_http_url(url);
@@ -428,22 +466,31 @@ Result<HttpUrl> check_http_url(const std::string& url, const NetworkPolicy& poli
                           "Use https://" + u.host +
                               "/... : only https is allowed (http:// works for localhost, 127.0.0.1 and ::1 while "
                               "developing). docs/NETWORKING.md, \"Which URLs\".");
-    if (!policy.declared())
-        return make_error(
-            "this game declares no network hosts, so http.fetch cannot call " + in_quotes(u.host),
-            "Declare the host in factoria.json: \"network\": {\"hosts\": [" + in_quotes(u.host) +
-                "]}. The same list gives the Android export its INTERNET permission (docs/NETWORKING.md).");
-    if (!policy.allows(u.host)) {
-        std::string hint = did_you_mean(u.host, policy.hosts);
-        if (!hint.empty()) hint += " ";
-        hint += "Declared: " + [&] {
-            std::string list;
-            for (const std::string& h : policy.hosts) list += (list.empty() ? "" : ", ") + in_quotes(h);
-            return list;
-        }() + ". Add the host to factoria.json \"network\".\"hosts\" if the game should call it.";
-        return make_error("the host " + in_quotes(u.host) + " is not declared in factoria.json \"network\".\"hosts\"",
-                          hint);
-    }
+    if (auto host = check_declared_host(u.host, policy, "http.fetch"); !host.ok()) return host.error();
+    return parsed;
+}
+
+Result<WsUrl> parse_ws_url(const std::string& url) {
+    Result<HttpUrl> shape = parse_url_shape(url, {"ws", "wss", "websocket.connect"});
+    if (!shape.ok()) return shape.error();
+    WsUrl out;
+    out.scheme = shape->scheme;
+    out.host = shape->host;
+    out.port = shape->port;
+    out.url = shape->url;
+    return out;
+}
+
+Result<WsUrl> check_ws_url(const std::string& url, const NetworkPolicy& policy) {
+    Result<WsUrl> parsed = parse_ws_url(url);
+    if (!parsed.ok()) return parsed;
+    const WsUrl& u = parsed.value();
+    if (u.scheme == "ws" && !NetworkPolicy::is_loopback(u.host))
+        return make_error("websocket.connect refuses the plain ws:// address " + in_quotes(url),
+                          "Use wss://" + u.host +
+                              "/... : only wss is allowed (ws:// works for localhost, 127.0.0.1 and ::1 while "
+                              "developing). docs/NETWORKING.md, \"WebSocket\".");
+    if (auto host = check_declared_host(u.host, policy, "websocket.connect"); !host.ok()) return host.error();
     return parsed;
 }
 

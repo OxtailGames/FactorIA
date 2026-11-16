@@ -9,7 +9,8 @@
 //   - only https:// URLs; plain http:// is allowed to loopback hosts (localhost, 127.x.x.x, ::1) for a server on the developer's
 //     own machine, and only when the section lists that host;
 //   - the host of the URL must be listed: exactly, or covered by a "*.domain" entry (subdomains, not the domain itself);
-//   - no user name or password in the URL.
+//   - no user name or password in the URL;
+//   - websocket.connect follows the same rules with wss:// in place of https:// and ws:// in place of http:// (check_ws_url).
 #pragma once
 
 #include <string>
@@ -99,5 +100,16 @@ Result<HttpUrl> parse_http_url(const std::string& url);
 // The policy applied to one request: https only (http for loopback), host declared. The error names what is wrong and what to
 // write in factoria.json.
 Result<HttpUrl> check_http_url(const std::string& url, const NetworkPolicy& policy);
+
+// An absolute ws(s) address taken apart, with the same rules of shape as HttpUrl. `url` is the text to connect to.
+struct WsUrl {
+    std::string scheme;  // "ws" | "wss"
+    std::string host;    // lower case; IPv6 without the brackets
+    int port = 0;        // 0 = the scheme's default
+    std::string url;
+};
+Result<WsUrl> parse_ws_url(const std::string& url);
+// websocket.connect goes through the same list as http.fetch: wss only (ws for loopback), the host declared in "network".
+Result<WsUrl> check_ws_url(const std::string& url, const NetworkPolicy& policy);
 
 }  // namespace fa
