@@ -236,7 +236,26 @@ bool Editor::gizmo_frame(Renderer& r, ImVec2 imgMin, ImVec2 size, bool hovered) 
     Transform* tr = sel.is_null() ? nullptr : w.get<Transform>(sel);
     // A group drag writes Transform fields of many entities; a clip key (record mode) is one entity's, so there are no handles then.
     const bool groupOff = selection_peek().size() > 1 && anim_recording();
-    if (!editing || gizmoMode_ == GizmoMode::Select || !tr || groupOff || r.target_width() <= 0) {
+    // A screen-space (HUD) entity moves in design pixels and a world one in world units: one delta cannot mean both, so a group
+    // that mixes them gets no handles (the Inspector still edits them together).
+    bool mixedSpace = false;
+    if (editing && gizmoMode_ != GizmoMode::Select && tr && !groupOff && selection_peek().size() > 1) {
+        const bool primarySpace = bounds_of(sel).screenSpace;
+        for (const std::string& mid : selection_peek().ids()) {
+            const Entity me = w.find_by_id(mid);
+            if (!me.is_null() && w.alive(me) && bounds_of(me).screenSpace != primarySpace) {
+                mixedSpace = true;
+                break;
+            }
+        }
+    }
+    if (mixedSpace && !gizmoMixedSpace_)
+        notify(
+            "The selection mixes screen-space (HUD) and world entities, so it has no handles. Select one kind to use "
+            "them, or edit Transform in the Inspector.",
+            1);
+    gizmoMixedSpace_ = mixedSpace;
+    if (!editing || gizmoMode_ == GizmoMode::Select || !tr || groupOff || mixedSpace || r.target_width() <= 0) {
         gizmo_end_drag(false);
         return false;
     }

@@ -126,13 +126,14 @@ FieldMix field_mix(const std::vector<Json>& values) {
     return m;
 }
 
-Json multi_edit_value(const Json& entityCurrent, const Json& shown, const Json& edited) {
+Json multi_edit_value(const Json& entityCurrent, const Json& shown, const Json& edited,
+                      const std::vector<bool>& forced) {
     const bool arrays = edited.is_array() && shown.is_array() && entityCurrent.is_array() &&
                         edited.size() == shown.size() && entityCurrent.size() == shown.size();
     if (!arrays) return edited;
     Json out = entityCurrent;
     for (size_t i = 0; i < edited.size(); ++i)
-        if (edited[i] != shown[i]) out[i] = edited[i];
+        if (edited[i] != shown[i] || (i < forced.size() && forced[i])) out[i] = edited[i];
     return out;
 }
 

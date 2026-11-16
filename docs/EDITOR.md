@@ -234,11 +234,16 @@ Everything below goes through the commands, so the Console and the AI can do the
   instance removed is not drawn (the entity no longer has it): the header names it (`Removed from the prefab: ...`) and Revert
   all gives it back.
 - **Apply to prefab** (the same menus; **Apply all** asks first) calls `prefab.apply`: the value is written into the prefab
-  file, which keeps its own layout (nested prefabs and the parts you did not touch stay), and every other instance of that
-  prefab in the open scene gets the same change, except where it overrides that very value. A child you added under an
+  file, which keeps its own structure (nested prefabs and the parts you did not touch stay) but is written back in the
+  engine's own JSON layout, like a saved scene (its indentation and line endings are normalized, so the first Apply of a
+  hand-formatted file changes every line), and every other instance of that
+  prefab in the open scene gets the same change, except where it overrides that very value. Apply looks at every instance of
+  the prefab in the scene, so it takes longer with hundreds. A child you added under an
   instance becomes a part of the prefab (and of every other instance). Undo puts the open scene back, not the prefab file
-  (use version control for that). A component the instance removed is deleted from the prefab file (and from the other
-  instances); a prefab child the instance removed cannot be listed (the children are paired by position, so the rest would be
+  (use version control for that), and the editor says so when you do it: after the Undo the instances show the difference
+  against the file as overrides, so Revert them or Apply again. A component the instance removed is deleted from the prefab
+  file (and from the other instances, even from one that overrides some of its fields: the toast and the command's `notes` name
+  it); a prefab child the instance removed cannot be listed (the children are paired by position, so the rest would be
   matched with the wrong parts), so such an instance is refused, like one with a child added under a part of the prefab, with
   the reason; a read-only prefab file is refused too, and `prefab.overrides` marks what the file has no place for
   (`applyBlocked`). Apply is greyed out while the game plays (the running game's values are not the scene's, and the file is
@@ -257,7 +262,9 @@ so it survives an undo or a scene load) and one primary, the id selected last. `
 primary, so everything that works on one entity (the Inspector, the gizmos, the AI's "this") is unchanged; `Editor::selection()` is
 the set, after dropping the ids whose entity no longer exists. The set has `replace`, `add`, `toggle` (Ctrl-click), `range`
 (Shift-click, over the ids in the order the Hierarchy lists them), `remove`, `clear` and `prune`. `Editor::selection()` prunes the set (it drops what no
-longer exists), so code that only draws uses `selection_peek()`, which reads without changing it. Copy and paste build on this set (M98.7).
+longer exists) only in Edit: while the game plays or is paused it destroys and loads entities that come back on Stop, so
+the set keeps its ids and every reader skips one that is gone (`selected()` is empty when the primary is). Code that only draws uses `selection_peek()`, which reads without changing it.
+Ctrl+click on the primary removes it and the last id left becomes the primary (the removed row stays the anchor of the next Shift click). Copy and paste build on this set (M98.7).
 
 **Selecting several entities** (Ctrl is Cmd on macOS):
 
@@ -272,7 +279,8 @@ longer exists), so code that only draws uses `selection_peek()`, which reads wit
   primary.
   Copy, Cut and Paste work on the whole selection too (next section).
 - **Viewport:** a click selects the entity under the cursor; **Ctrl+click** toggles it, **Shift+click** adds it. Dragging
-  on empty space draws a **marquee**: it selects the entities whose outline (the picked bounds below) it covers completely and
+  on empty space draws a **marquee**: it selects the entities whose outline (the picked bounds below) it covers completely (a 3D mesh with a corner of its box behind the camera is never covered: that corner has no
+  place on the screen) and
   replaces the selection; with **Shift** it adds them, with **Ctrl** it toggles each. A plain click on empty space clears the
   selection. Every selected entity is outlined: the primary in yellow, the others in orange.
 - **Gizmos:** the handles sit at the primary's world position, which is the pivot (there is no other pivot setting). Move,
@@ -280,14 +288,18 @@ longer exists), so code that only draws uses `selection_peek()`, which reads wit
   offset, rotate turns their positions about the pivot and their own rotation by the same angle, scale scales their offsets
   from the pivot and their own scale by the same factor. An entity whose ancestor is also selected is skipped, since it
   follows that ancestor. Esc puts every entity back. While the animation recorder is on, a multi-selection has no handles
-  (a clip key belongs to one entity).
+  (a clip key belongs to one entity). A selection that mixes screen-space (HUD) entities, which move in design pixels, with
+  world entities has no handles either (one offset cannot mean both), and a toast says so; edit their Transform in the
+  Inspector.
 - **Inspector:** the header reads "N entities" and shows the components EVERY selected entity has. A field with the same
   value everywhere shows it; one that differs shows "—". Editing a field writes it to all the entities as ONE Undo step and
   leaves their other fields as they are (editing `rotation` keeps each entity's own `position`). Free-form JSON and
   `materialParams` that differ between the entities cannot be edited in this mode. A component only some of the entities have
   is listed as not shared and is not editable. **Add Component** lists the components at least one entity lacks, with
   "(k of N)", and adds the component to every selected entity that lacks it (one Undo step); the x of a header removes the
-  component from all of them.
+  component from all of them. When one entity refuses an edit, the ones before it keep the change (it is still one Undo
+  step) and the message says "Changed k of N entities" (Add Component and the x of a header say it too). In a number that
+  differs ("—") typing the primary's own value and pressing Enter writes it to all the entities.
 - **AI Assistant:** "this" and "it" mean the primary; the context names it and lists the ids of the others (the first 20,
   `scene.list_entities` has the rest), and "these" and "them" mean all of them. No command or flag changed: commands still
   take entity ids.
