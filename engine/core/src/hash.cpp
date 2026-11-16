@@ -109,13 +109,18 @@ void Sha256::update(const void* data, std::size_t size) {
     if (size > 0) std::memcpy(buf_.data(), p, size), bufLen_ = size;
 }
 
-std::string Sha256::finish_hex() {
+std::array<std::uint8_t, 32> Sha256::finish() {
     const std::uint64_t total = total_;
     pad_and_finish(*this, total);
-    std::uint8_t out[32];
+    std::array<std::uint8_t, 32> out;
     for (int i = 0; i < 8; ++i)
-        for (int j = 0; j < 4; ++j) out[4 * i + j] = std::uint8_t(h_[i] >> (24 - 8 * j));
-    return to_hex(out, sizeof out);
+        for (int j = 0; j < 4; ++j) out[std::size_t(4 * i + j)] = std::uint8_t(h_[std::size_t(i)] >> (24 - 8 * j));
+    return out;
+}
+
+std::string Sha256::finish_hex() {
+    const auto out = finish();
+    return to_hex(out.data(), out.size());
 }
 
 // ---- SHA-1 ------------------------------------------------------------------------------------------------
