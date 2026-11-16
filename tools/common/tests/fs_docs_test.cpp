@@ -779,12 +779,14 @@ struct DocFamilyFixture {
     std::map<std::string, std::string> files;
     DocFiles source;
     explicit DocFamilyFixture(bool linkSecondPage = true) {
-        files["docs/BIG.md"] = "# Big\n\nIndex:\n\n- [Input](big/BIG_INPUT.md): keys\n" +
-                               std::string(linkSecondPage ? "- [Audio](big/BIG_AUDIO.md): sound\n" : "") +
-                               "\n## Essentials\n\nText.\n";
-        files["docs/big/BIG_INPUT.md"] =
-            "# Big input\n\n## Keyboard\n\nkeys\n\n### Repeat\n\nrepeat\n\n## Shared\n\nin input\n";
-        files["docs/big/BIG_AUDIO.md"] = "# Big audio\n\n## Mixer\n\nbus\n\n## Shared\n\nin audio\n";
+        files["docs/BIG.md"] =
+            "# Big\n\nIndex:\n\n- [Input](big/BIG_INPUT.md): keys\n" +
+            std::string(linkSecondPage ? "- [Audio](big/BIG_AUDIO.md): sound\n" : "") +
+            "\n## Essentials\n\nText.\n\n## Keyboard shortcuts (summary)\n\nshort\n\n## Both\n\nentry both\n";
+        files["docs/big/BIG_INPUT.md"] = "# Big input\n\n## Keyboard\n\nkeys\n\n### Repeat\n\nrepeat\n\n## "
+                                         "Shared\n\nin input\n\n## Both\n\ninput both\n\n## Mixer settings\n\nknobs\n";
+        files["docs/big/BIG_AUDIO.md"] =
+            "# Big audio\n\n## Mixer\n\nbus\n\n## Shared\n\nin audio\n\n## Both\n\naudio both\n";
         files["docs/SMALL.md"] = "# Small\n\n## Only\n\nx\n";
         source.list = [this](std::string_view) {
             std::vector<std::string> out;
@@ -821,6 +823,26 @@ TEST_CASE("docs: a split doc's heading is served from the page that has it, and 
         if (d["name"] == "big-input") listed = d.value("family", "") == "big";
     CHECK(listed);
 
+    // A partial title on the entry page does not hide an exact title on a page.
+    auto exactPage = reg.call("docs.read", {{"name", "big"}, {"heading", "Keyboard"}});
+    REQUIRE(exactPage.ok);
+    CHECK(exactPage.result["page"] == "big-input");
+    CHECK(exactPage.result["heading"] == "Keyboard");
+    // An exact title on the entry page and on pages: the entry page wins and says where the others are.
+    auto both = reg.call("docs.read", {{"name", "big"}, {"heading", "Both"}});
+    REQUIRE(both.ok);
+    CHECK_FALSE(both.result.contains("page"));
+    CHECK(both.result["content"].get<std::string>().find("entry both") != std::string::npos);
+    REQUIRE(both.result["alsoOnPages"].size() == 2);
+    CHECK(both.result["note"].get<std::string>().find("longer version") != std::string::npos);
+    // A partial match in the entry page and in a page: ambiguous, the entry page is listed.
+    auto partials = reg.call("docs.read", {{"name", "big"}, {"heading", "settings"}});
+    REQUIRE(partials.ok);  // only one place: the input page
+    CHECK(partials.result["page"] == "big-input");
+    auto twoPlaces = reg.call("docs.read", {{"name", "big"}, {"heading", "shortcuts"}});
+    REQUIRE(twoPlaces.ok);  // only the entry page
+    CHECK_FALSE(twoPlaces.result.contains("page"));
+
     // A heading of the entry page itself: no page field.
     auto own = reg.call("docs.read", {{"name", "big"}, {"heading", "Essentials"}});
     REQUIRE(own.ok);
@@ -848,7 +870,19 @@ TEST_CASE("docs: a split doc's heading is served from the page that has it, and 
     CHECK(amb.error["message"].get<std::string>().find("big-audio") != std::string::npos);
     auto exact = reg.call("docs.read", {{"name", "big"}, {"heading", "Mixer"}});
     REQUIRE(exact.ok);
-    CHECK(exact.result["page"] == "big-audio");
+    CHECK(exact.result["page"] == "big-audio");  // "Mixer settings" on the other page is only a partial match
+    // A partial title on the entry page and one on a page: ambiguous, and the entry page is listed.
+    auto split = reg.call("docs.read", {{"name", "big"}, {"heading", "summary"}});
+    REQUIRE(split.ok);  // only the entry page has it
+    const std::string audioText = f.files["docs/big/BIG_AUDIO.md"];
+    f.files["docs/big/BIG_AUDIO.md"] += "\n## Summary of audio\n\nx\n";
+    set_doc_files_for_tests(&f.source);  // the source changed: drop what was read
+    auto both2 = reg.call("docs.read", {{"name", "big"}, {"heading", "summary"}});
+    REQUIRE_FALSE(both2.ok);
+    CHECK(both2.error["message"].get<std::string>().find("entry page `big`") != std::string::npos);
+    CHECK(both2.error["message"].get<std::string>().find("big-audio") != std::string::npos);
+    f.files["docs/big/BIG_AUDIO.md"] = audioText;
+    set_doc_files_for_tests(&f.source);
 
     // Not found anywhere: did you mean, with the titles of the whole family.
     auto none = reg.call("docs.read", {{"name", "big"}, {"heading", "Keybord"}});
@@ -892,6 +926,18 @@ TEST_CASE("docs: the layout check names duplicate names, orphan pages and pages 
         REQUIRE(problems.size() == 1);
         CHECK(problems[0].find("docs/BIG.md") != std::string::npos);
         CHECK(problems[0].find("docs/big/BIG_AUDIO.md") != std::string::npos);
+    }
+    {
+        DocFamilyFixture f;  // a path in plain text is not a link, and a page must be named <ENTRY>_<PART>.md
+        f.files["docs/BIG.md"] = "# Big\n\nSee big/BIG_INPUT.md and [x](big/BIG_AUDIO.md.bak)\n";
+        f.files["docs/big/OTHER.md"] = "# O\n";
+        set_doc_files_for_tests(&f.source);
+        const auto problems = doc_layout_problems();
+        std::string all;
+        for (const auto& p : problems) all += p + "\n";
+        CHECK(all.find("does not link to its page docs/big/BIG_INPUT.md") != std::string::npos);
+        CHECK(all.find("does not link to its page docs/big/BIG_AUDIO.md") != std::string::npos);
+        CHECK(all.find("docs/big/OTHER.md must be named BIG_<PART>.md") != std::string::npos);
     }
     {
         DocFamilyFixture f;
