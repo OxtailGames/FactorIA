@@ -1,4 +1,4 @@
-# The long fuzz run (M93.2, docs/design/BUILDING.md "Fuzzing"). Every Sunday, and by hand (Actions > Fuzz (weekly) > Run workflow), each
+# The long fuzz run (M93.2, docs/design/BUILDING_TESTS.md "Fuzzing"). Every Sunday, and by hand (Actions > Fuzz (weekly) > Run workflow), each
 # fuzz target of tools/fuzz runs for about half an hour under libFuzzer + ASan + UBSan, on its own runner, starting from the
 # corpus the previous weeks found. The 60-second run of CI (job `linux-fuzz`) only guards against the obvious.
 #
@@ -134,5 +134,5 @@ jobs:
       - name: Fail when the run found something
         if: steps.fuzz.outcome == 'failure'
         run: |
-          echo "::error title=The fuzz run of ${{ matrix.target }} failed::If the artifact fuzz-crashes-${{ matrix.target }} holds files, each is a crash: fix the bug and add the input to tools/fuzz/corpus/${{ matrix.target }}/ (docs/design/BUILDING.md, Fuzzing). If it holds none, the run itself failed: read the log of the Fuzz step."
+          echo "::error title=The fuzz run of ${{ matrix.target }} failed::If the artifact fuzz-crashes-${{ matrix.target }} holds files, each is a crash: fix the bug and add the input to tools/fuzz/corpus/${{ matrix.target }}/ (docs/design/BUILDING_TESTS.md, Fuzzing). If it holds none, the run itself failed: read the log of the Fuzz step."
           exit 1

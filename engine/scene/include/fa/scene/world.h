@@ -234,7 +234,7 @@ public:
 
     // The parent's world matrix * the local TRS, from the root down (identity for a dead entity). It comes from a cache
     // that is filled on demand and kept until something that can change it is written, so reading the same entities
-    // again costs a copy of 16 floats. THE RULES (docs/design/ARCHITECTURE.md, "The hierarchy cache"):
+    // again costs a copy of 16 floats. THE RULES (docs/design/ARCHITECTURE_CORE.md, "The hierarchy cache"):
     //  * Every MUTABLE access to a Transform or an EntityInfo invalidates: World::get<T>(e) / get(e, type) / add /
     //    info(e) on a non-const World, a callback of each<Transform>, set_parent, set_world_position and set_active. So
     //    any way of writing (C++, reflection, scripts, commands, the inspector, animation) is seen, and a reader that

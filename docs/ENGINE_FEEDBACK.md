@@ -510,7 +510,7 @@ The score of a group is the sum, over the projects (a pulled installation is one
   ten installations that each report it once count as ten. `totalOccurrences` in the report is not capped.
 
 A score with a half shows one decimal (1.5). The entries that `factoria feedback pull` writes
-(see docs/EXTENDING.md, section F) are collected like any project: `factoria feedback collect ~/.factoria/feedback-inbox`.
+(see docs/design/EXTENDING_FEEDBACK.md, section F; repository only, not in the binary) are collected like any project: `factoria feedback collect ~/.factoria/feedback-inbox`.
 The inbox's `quarantine/` folder holds `quarantine.json`, not an `ENGINE_FEEDBACK.json`, so collect ignores it.
 
 Two entries merge when their title, category, `suggestion` and `missing` text are alike enough (a title that merely

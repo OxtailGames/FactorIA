@@ -406,7 +406,7 @@ the App Store take theirs from the table below (`assets.draw_capsules` cuts thos
 `assets.draw_capsules` cuts one key art (a screenshot, or any image in the project) to every image of the stores you name
 and writes `store/capsules/<store>/<name>_<w>x<h>.png`. The art is cover-cropped around `focus` (a point `[x, y]` as
 fractions of the art, default the middle); the `logo` is an image (`{"image": "assets/logo.png"}`, a PNG with a
-transparent background) or the title drawn with the same rasterizer as [`assets.draw_icon`](../ASSETS.md#the-game-icon-without-a-provider-assetsdraw_icon)
+transparent background) or the title drawn with the same rasterizer as [`assets.draw_icon`](../assets/ASSETS_REVIEW.md#the-game-icon-without-a-provider-assetsdraw_icon)
 (`{"text": "Lantern Keep", "font": "assets/fonts/Title.ttf", "fill": "#fff4d0"}`). The logo goes where the asset's rule puts
 it: centred on capsules and covers, in the upper part for Microsoft (the bottom third is overlaid), none on heroes, page
 backgrounds and screenshots (Steam's library hero must have no text), and alone on a transparent canvas for the logo-only

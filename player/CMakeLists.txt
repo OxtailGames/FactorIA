@@ -164,7 +164,7 @@ elseif(FA_PLATFORM STREQUAL "linux" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang
     target_link_options(factoria_player PRIVATE -Wl,--gc-sections)
 endif()
 
-# Player size budgets (scripts/player-size.sh, docs/design/BUILDING.md "Player size budgets"). The CI jobs that measure the player
+# Player size budgets (scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets"). The CI jobs that measure the player
 # configure with -DFA_PLAYER_LINK_MAP=ON so the report can say what each library adds:
 #   - the linker writes a map next to the player, player/factoria_player.map (GNU ld, lld, ld64 and MSVC /MAP are read; the web
 #     player gets none: wasm-ld's map is not read, and a link flag the toolchain rejects would fail the build);

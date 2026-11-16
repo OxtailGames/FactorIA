@@ -207,7 +207,7 @@ if(FA_BUILD_TESTS)
             endforeach()
         endif()
     endforeach()
-    # The same frames with jobs inline and on 8 threads (docs/design/ARCHITECTURE.md, "Systems that run as jobs"): Tidewater
+    # The same frames with jobs inline and on 8 threads (docs/design/ARCHITECTURE_THREADS.md, "Systems that run as jobs"): Tidewater
     # Market's stress scene gathers its sprites as jobs, Larkspur Lodge's 3D ground scene (shadows, skinned guests) stays
     # under the thresholds and must not change either.
     add_test(NAME example_jobs_same_frames

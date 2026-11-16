@@ -1,4 +1,4 @@
-// Baking audio documents (`*.audio.json`, docs/SOUND.md "Audio documents"): the sound file next to the document, its provenance and
+// Baking audio documents (`*.audio.json`, docs/sound/SOUND_DOCUMENTS.md "Audio documents"): the sound file next to the document, its provenance and
 // recipe in assets.json, and whether that file is current. The format, the renderer and the DSP are fa_audio's (fa/audio/audio_doc.h);
 // this is the project side, shared by the audio.* commands, project.validate and `factoria export` (which bakes first, like image documents).
 #pragma once

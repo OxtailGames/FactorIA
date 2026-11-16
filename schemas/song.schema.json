@@ -153,7 +153,7 @@
                   "required": [
                     "type"
                   ],
-                  "description": "One effect step, written like a step of an audio document (docs/SOUND.md \"Audio documents\"; audio.info lists the fields of each): {\"type\": \"reverb\", \"decay\": 1.8}. A reverb or delay on a track runs inside it; put one on a bus to share it.",
+                  "description": "One effect step, written like a step of an audio document (docs/sound/SOUND_DOCUMENTS.md \"Audio documents\"; audio.info lists the fields of each): {\"type\": \"reverb\", \"decay\": 1.8}. A reverb or delay on a track runs inside it; put one on a bus to share it.",
                   "properties": {
                     "type": {
                       "enum": [
@@ -199,7 +199,7 @@
                 "required": [
                   "type"
                 ],
-                "description": "One effect step, written like a step of an audio document (docs/SOUND.md \"Audio documents\"; audio.info lists the fields of each): {\"type\": \"reverb\", \"decay\": 1.8}. A reverb or delay on a track runs inside it; put one on a bus to share it.",
+                "description": "One effect step, written like a step of an audio document (docs/sound/SOUND_DOCUMENTS.md \"Audio documents\"; audio.info lists the fields of each): {\"type\": \"reverb\", \"decay\": 1.8}. A reverb or delay on a track runs inside it; put one on a bus to share it.",
                 "properties": {
                   "type": {
                     "enum": [
@@ -373,7 +373,7 @@
               "required": [
                 "type"
               ],
-              "description": "One effect step, written like a step of an audio document (docs/SOUND.md \"Audio documents\"; audio.info lists the fields of each): {\"type\": \"reverb\", \"decay\": 1.8}. A reverb or delay on a track runs inside it; put one on a bus to share it.",
+              "description": "One effect step, written like a step of an audio document (docs/sound/SOUND_DOCUMENTS.md \"Audio documents\"; audio.info lists the fields of each): {\"type\": \"reverb\", \"decay\": 1.8}. A reverb or delay on a track runs inside it; put one on a bus to share it.",
               "properties": {
                 "type": {
                   "enum": [

@@ -950,9 +950,10 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         I.startupProblems.push_back("audio: " + aerr);
     }
     I.audio.set_clock(&I.world);  // play log entries carry the frame/time scripts see
-    I.audio.set_occlusion_probe([&I](World& w, const AudioOcclusionRay& ray) {  // docs/SOUND.md, "Occlusion"
-        return audio_occlusion_blocked(I.physics, w, ray);
-    });
+    I.audio.set_occlusion_probe(
+        [&I](World& w, const AudioOcclusionRay& ray) {  // docs/sound/SOUND_SPATIAL.md, "Occlusion"
+            return audio_occlusion_blocked(I.physics, w, ray);
+        });
     device_overridden(
         device_info());  // MusicPlayer.mode "auto" chooses between live synthesis and stems for this device (docs/MUSIC.md)
     register_builtin_commands(*this, I);  // before scripts.init: JS tools (tools/*.js) are added on top

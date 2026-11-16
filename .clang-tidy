@@ -1,5 +1,5 @@
 # Bug-finding checks only (no style, no modernize): every hit should be a real defect or a near one. Run on the files a
-# change touches by scripts/tidy-changed.sh and by the `lint` job of CI (docs/design/BUILDING.md, "Formatting and lint").
+# change touches by scripts/tidy-changed.sh and by the `lint` job of CI (docs/design/BUILDING_CI.md, "Formatting and lint").
 Checks: >
   -*,
   bugprone-use-after-move,

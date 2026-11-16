@@ -62,7 +62,7 @@ asked again).
   events of a run before the question are not stored to be sent later.
 - `setConsent(false)` **forgets the queue** and stops every later send. A batch already on its way when the player
   refuses is not put back if it fails.
-- **The menu kit asks for you.** Add its `analyticsConsent` part ([MENUS.md](MENUS.md#analytics-question)): the main
+- **The menu kit asks for you.** Add its `analyticsConsent` part ([MENUS.md](menus/MENUS_HOW.md)): the main
   menu opens a screen on the first run with "Allow" and "No thanks", the options panel gets the switch "Share anonymous
   usage data", and the texts are string-table keys you edit to match what the game sends. A game of your own can call
   `analytics.setConsent` from any button.

@@ -1621,7 +1621,7 @@
         if (o.range !== undefined && !(typeof o.range === "number" && o.range > 0))
           throw new Error(`audio.play(path, { range }): range is the distance in world units where the sound reaches 0 (default 800, as AudioSource.range), a number above 0, but got ${inspect(o.range)}`);
         if (o.loop)
-          throw new Error(`audio.play(path, { position, loop: true }): a sound from a place is attenuated once, when it starts, so a loop would keep that volume (and never start if the place is out of range then). Put an AudioSource with spatial: true, loop: true on an entity at that place instead (docs/SOUND.md, "A sound at a place")`);
+          throw new Error(`audio.play(path, { position, loop: true }): a sound from a place is attenuated once, when it starts, so a loop would keep that volume (and never start if the place is out of range then). Put an AudioSource with spatial: true, loop: true on an entity at that place instead (docs/sound/SOUND_SPATIAL.md, "A sound at a place")`);
         const rolloffs = ["linear", "inverse", "exponential", "curve"];
         if (o.rolloff !== undefined && !rolloffs.includes(o.rolloff))
           throw new Error(`audio.play(path, { rolloff }): rolloff is "linear" (default), "inverse", "exponential" or "curve", but got ${inspect(o.rolloff)}${typeof o.rolloff === "string" && didYouMean(o.rolloff, rolloffs) ? ` (did you mean "${didYouMean(o.rolloff, rolloffs)}"?)` : ""}`);
@@ -5249,7 +5249,7 @@
     tooltipFns.clear(); worldTooltipFn = null; dropFns.clear(); worldDropFn = null;
   }
 
-  // Deprecated script API (docs/design/ARCHITECTURE.md, "Versions"): `targets` is [{ key, test, path }] from the engine (the "script" part of the
+  // Deprecated script API (docs/design/ARCHITECTURE_CORE.md, "Versions"): `targets` is [{ key, test, path }] from the engine (the "script" part of the
   // deprecated section of api_since.json, mapped to where each export or member lives); empty in nearly every run, so nothing is wrapped.
   // A function or class is wrapped in a Proxy that asks the engine for the warning on its first call (the engine logs it once per key
   // per process); a plain value gets an accessor that warns on its first read or write. Nothing here runs in a hot loop: a call to a

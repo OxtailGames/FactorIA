@@ -214,8 +214,8 @@ bool decode_switch_pro_report(std::span<const std::uint8_t> report, GamepadState
     set_button(state, GamepadButton::Y, (right & 0x02u) != 0);  // printed X, the top one
     set_button(state, GamepadButton::RightShoulder, (right & 0x40u) != 0);
     set_axis(state, GamepadAxis::RightTrigger, (right & 0x80u) != 0 ? 1.0f : 0.0f);  // ZR
-    set_button(state, GamepadButton::Back, (shared & 0x01u) != 0);   // Minus
-    set_button(state, GamepadButton::Start, (shared & 0x02u) != 0);  // Plus
+    set_button(state, GamepadButton::Back, (shared & 0x01u) != 0);                   // Minus
+    set_button(state, GamepadButton::Start, (shared & 0x02u) != 0);                  // Plus
     set_button(state, GamepadButton::RightThumb, (shared & 0x04u) != 0);
     set_button(state, GamepadButton::LeftThumb, (shared & 0x08u) != 0);
     set_button(state, GamepadButton::Guide, (shared & 0x10u) != 0);  // Home
@@ -254,8 +254,9 @@ std::array<std::uint8_t, 4> switch_hd_rumble(float low, float high) {
     constexpr unsigned kHighFrequency = 0x100;  // 320 Hz: 10 * 2^((0x60 + code / 4) / 32)
     constexpr unsigned kLowFrequency = 0x40;    // 160 Hz: 10 * 2^((0x40 + code) / 32)
     const unsigned highCode = switch_rumble_amplitude(high), lowCode = switch_rumble_amplitude(low);
-    const unsigned highAmp = highCode * 2;                                         // 0..200, even
-    const unsigned lowAmp = ((lowCode & 1u) != 0 ? 0x8000u : 0u) | (lowCode / 2 + 0x40);  // 9 bits: the half step on top
+    const unsigned highAmp = highCode * 2;  // 0..200, even
+    const unsigned lowAmp =
+        ((lowCode & 1u) != 0 ? 0x8000u : 0u) | (lowCode / 2 + 0x40);  // 9 bits: the half step on top
     return {std::uint8_t(kHighFrequency & 0xffu), std::uint8_t(highAmp | ((kHighFrequency >> 8) & 0x01u)),
             std::uint8_t(kLowFrequency | ((lowAmp >> 8) & 0x80u)), std::uint8_t(lowAmp & 0xffu)};
 }
@@ -359,7 +360,8 @@ public:
         if (pending_ == Pending::Firmware) {
             firmwareAnswered_ = true;
             const std::optional<std::uint16_t> version = ok ? dualsense_update_version(reply) : std::nullopt;
-            if (version && *version >= kDualSenseVibrationV2Version) v2_ = true;  // else (or unknown): v1, which all have
+            if (version && *version >= kDualSenseVibrationV2Version)
+                v2_ = true;  // else (or unknown): v1, which all have
         }
         pending_ = Pending::None;
     }
@@ -415,7 +417,8 @@ public:
                 replied_ = false;
                 sentAt_ = nowMs;
                 ++tries_;
-                if (st.usbCommand != 0) return HidPadRequest{HidPadRequest::Kind::Write, build_switch_usb_command(st.usbCommand)};
+                if (st.usbCommand != 0)
+                    return HidPadRequest{HidPadRequest::Kind::Write, build_switch_usb_command(st.usbCommand)};
                 const std::uint8_t args[1] = {st.arg};
                 return HidPadRequest{HidPadRequest::Kind::Write,
                                      build_switch_subcommand(counter_++, transport_, st.subcommand, args)};

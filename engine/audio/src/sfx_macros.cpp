@@ -1,4 +1,4 @@
-// Macros, variations and the measurements of a rendered sound (fa/audio/sfx.h, docs/SOUND.md "Macros" and "Variations").
+// Macros, variations and the measurements of a rendered sound (fa/audio/sfx.h, docs/sound/SOUND_PATCHES.md "Macros" and "Variations").
 // Everything uses sfx_math.h only, so macros and variants render the same bits on every platform like the rest of the synthesizer.
 #include "sfx_macros.h"
 

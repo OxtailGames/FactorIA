@@ -58,7 +58,7 @@ constexpr float kTouchSkin =
 constexpr float kTouchGain = 0.0005f;  // ...and counts as hit again once it sinks this much deeper (m)
 constexpr float kWarmRadius =
     0.05f;  // a contact point inherits the impulses of the previous sub-step's one this close (m)
-// Pair scans on the job system (docs/design/ARCHITECTURE.md, "Physics on jobs"): the narrow phase of a big scene is computed by
+// Pair scans on the job system (docs/design/ARCHITECTURE_THREADS.md, "Physics on jobs"): the narrow phase of a big scene is computed by
 // chunks of rows in parallel (each row asks the broad phase for its candidate partners) and replayed in row order, so the
 // result is the one of the single-threaded scan.
 // Fewer rows than kMinParallelRows: the scan runs on the calling thread. Measured with 4 workers (M94.4g,

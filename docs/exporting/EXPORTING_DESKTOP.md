@@ -354,7 +354,7 @@ it) and `packStats` (below); its `files` lists what is on disk.
 
 **How the player uses it.** It looks for `game/` next to the executable first (so a folder always wins, which makes it easy to
 try a changed file), then for `game.pak`; `factoria_player path/to/game.pak` runs a pack from anywhere. It mounts the pack into
-the virtual file system the whole engine reads through (`fa::fs::mount_pack`, [ARCHITECTURE.md](../design/ARCHITECTURE.md), repository only, not in the binary): `factoria.json`, scenes,
+the virtual file system the whole engine reads through (`fa::fs::mount_pack`, [ARCHITECTURE_FILES.md](../design/ARCHITECTURE_FILES.md), repository only, not in the binary): `factoria.json`, scenes,
 prefabs, textures, sounds, fonts, scripts, `import`s and the window icon all come out of it, and a game that works from the folder
 works from the pack. Only the index (the list of paths with their offsets) is read at start; a file is read when the game asks
 for it, and any number of threads can read at once, so a large pack starts as fast as a small one. On a 64-bit desktop
@@ -488,7 +488,7 @@ What each desktop export takes from [Platform settings](EXPORTING_SETUP.md#platf
   [AppImage](#linux-appimage) carries the same entry, with `Icon=<name>` and the game's version.
 
 Windows: the player of a release download would carry FactorIA's signature if the release were signed, but the
-Windows releases are not signed yet ([BUILDING.md](../design/BUILDING.md), "Code signing"; repository only, not in the binary), and one built from source never is.
+Windows releases are not signed yet ([BUILDING_RELEASE.md](../design/BUILDING_RELEASE.md), "Code signing"; repository only, not in the binary), and one built from source never is.
 Writing the game's icon and version
 information edits the exe, which invalidates a signature, so the export removes it (the certificate table at the end of
 the file) and says so in the report: an exe with the wrong signature is worse than an unsigned one. Only a player

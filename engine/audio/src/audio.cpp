@@ -1,6 +1,6 @@
 // Audio: the game side of the mixer. Decoded clips -> voices -> buses -> master -> (device | null sink | recorder).
 //
-// Threads (docs/SOUND.md, "The audio callback"). Every public call runs on the game thread side under Impl::apiMu, a
+// Threads (docs/sound/SOUND_MIXER.md, "The audio callback"). Every public call runs on the game thread side under Impl::apiMu, a
 // mutex the audio callback never takes: the mixer (audio_mixer.h) owns what it mixes and the two sides talk through
 // lock-free single-producer single-consumer rings. The game keeps a mirror of what it asked for (the voices, the buses,
 // the music players) and answers every question from it; it sends what changes as commands, and reads back the commands
@@ -872,7 +872,7 @@ struct Audio::Impl {
         return g;
     }
 
-    // Voice stealing (docs/SOUND.md, "Voice stealing"). With every voice taken, the new voice replaces the voice with the
+    // Voice stealing (docs/sound/SOUND_MIXER.md, "Voice stealing"). With every voice taken, the new voice replaces the voice with the
     // lowest priority, the quietest of those (ties: the one started first), when it has a higher priority, or the same
     // priority and is louder; otherwise the new one is refused. Age never decides. True when there is room now.
     bool make_room(int priority, float loud) {
@@ -2527,7 +2527,7 @@ Json Audio::stats() const {
     j["music"] = im.musicPath;
     j["recording"] = im.recording;
     j["recordedSeconds"] = double(im.rec.size() / 2) / double(im.recRate);
-    // The real-time path (docs/SOUND.md, "The audio callback"). Relaxed loads: counters the mixer alone writes.
+    // The real-time path (docs/sound/SOUND_MIXER.md, "The audio callback"). Relaxed loads: counters the mixer alone writes.
     j["musicUnderruns"] = musicUnderruns;
     j["musicUnderrunFrames"] = musicUnderrunFrames;
     // Streamed clips and streamed music together.

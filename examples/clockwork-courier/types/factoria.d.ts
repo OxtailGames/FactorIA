@@ -8327,7 +8327,7 @@ declare module "factoria" {
      */
     zoom: number;
     /**
-     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/SOUND.md, Headphones.
+     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/sound/SOUND_SPATIAL.md, Headphones.
      * @since unreleased
      */
     spatialization: "pan" | "hrtf";

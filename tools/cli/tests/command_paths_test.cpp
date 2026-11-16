@@ -4,7 +4,7 @@
 //  - every schema property marked "x-fa-path": "write" is confined: called as an MCP client with `../outside.txt` or an absolute
 //    path, the command refuses (path_outside_root, absolute_path_denied, invalid_path, managed_path_denied or capability_denied)
 //    and nothing appears outside the project.
-// docs/design/ARCHITECTURE.md, "Commands", "Capabilities" and "Paths a caller gives to a command that writes".
+// docs/design/ARCHITECTURE_COMMANDS.md, "Commands", "Capabilities" and "Paths a caller gives to a command that writes".
 #include <doctest.h>
 
 #include <algorithm>

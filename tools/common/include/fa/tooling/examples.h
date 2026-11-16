@@ -1,4 +1,4 @@
-// The example games a user can get (M97.5, docs/design/BUILDING.md, "Example games in the release").
+// The example games a user can get (M97.5, docs/design/BUILDING_RELEASE.md, "Example games in the release").
 //
 // The download carries no examples (only a clone of the repository has examples/), so each release publishes every example as
 // its own zip plus one manifest that says what is there:
@@ -43,9 +43,9 @@ inline constexpr const char* kExamplesSourceFile = "examples.json";
 
 // One example. The source manifest fills name, title, shows and readFirst; the release manifest also fills file, size and sha256.
 struct ExampleInfo {
-    std::string name;                    // the folder under examples/ and the project's name: "block-push" (a-z, 0-9, '-')
-    std::string title;                   // "Block Push"
-    std::string shows;                   // one line: what the example shows
+    std::string name;   // the folder under examples/ and the project's name: "block-push" (a-z, 0-9, '-')
+    std::string title;  // "Block Push"
+    std::string shows;  // one line: what the example shows
     std::vector<std::string> readFirst;  // docs to read first, as docs/<NAME>.md paths ("docs/SCRIPTING.md"), at most 8
     std::string file;                    // the asset's name in the release: "block-push.zip" (release manifest only)
     std::uint64_t size = 0;              // bytes of the zip (release manifest only)
@@ -71,7 +71,8 @@ struct ExamplesManifest {
 
 // The release manifest: format, engineVersion and the examples with all their fields (file is a plain file name ending in .zip,
 // sha256 is 64 hex digits, names are unique).
-Result<ExamplesManifest> parse_examples_manifest(std::string_view text, std::string_view source = kExamplesManifestFile);
+Result<ExamplesManifest> parse_examples_manifest(std::string_view text,
+                                                 std::string_view source = kExamplesManifestFile);
 // The source manifest examples/examples.json: format, then {name, title, shows, readFirst} per example (any file, size or sha256
 // in it is an Error: they belong to the release manifest only).
 Result<std::vector<ExampleInfo>> parse_examples_source(std::string_view text,

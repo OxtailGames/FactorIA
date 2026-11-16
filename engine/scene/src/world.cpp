@@ -68,7 +68,7 @@ struct World::Impl {
         std::vector<Entity> children;
     };
 
-    // The hierarchy cache (docs/design/ARCHITECTURE.md, "The hierarchy cache"): per entity index, the world matrix and the
+    // The hierarchy cache (docs/design/ARCHITECTURE_CORE.md, "The hierarchy cache"): per entity index, the world matrix and the
     // "active in hierarchy" answer, each with a valid bit. Invariant: a valid entry has valid ancestors, so an
     // invalidation stops at the first entry that is already invalid. Writers (a mutable access to Transform or
     // EntityInfo, set_parent, set_active, create) run on one thread at a time and never while jobs read the world;

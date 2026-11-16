@@ -1,4 +1,4 @@
-// The occlusion probe of the engine: answers Audio's rays with the physics world (docs/SOUND.md, "Occlusion").
+// The occlusion probe of the engine: answers Audio's rays with the physics world (docs/sound/SOUND_SPATIAL.md, "Occlusion").
 //
 // The audio module sits below physics and cannot cast rays, so Audio asks a probe (Audio::set_occlusion_probe) and the engine sets
 // this one. Audio owns the rest: which sources are asked, at most how many per frame, and the smoothing of the answer.
