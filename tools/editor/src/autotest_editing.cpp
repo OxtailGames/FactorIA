@@ -1731,6 +1731,7 @@ void Editor::at_section_M5(AtScript& at) {
     {
         struct Clip {
             size_t undo = 0, entities = 0;
+            std::string big;
         };
         auto m = std::make_shared<Clip>();
         auto hold_ctrl = [this, &step](bool down) {
@@ -1840,6 +1841,27 @@ void Editor::at_section_M5(AtScript& at) {
         step(4, [this, m] {
             at_check(world().entities().size() == m->entities && undo_depth() == m->undo,
                      "Ctrl+V of text that is not entities creates nothing and leaves no undo step");
+        });
+
+        // 4b. A copy that does not fit the clipboard is refused, and Cut deletes nothing.
+        step(2, [this, m] {
+            const CommandResult r = engine_->commands().call(
+                "scene.spawn", Json::object({{"name", std::string(kClipboardBytes + 1000, 'x')}}));
+            at_check(r.ok, "an entity with a name longer than the clipboard is made");
+            m->big = r.result.value("id", std::string());
+            select_id(m->big);
+            sapp_set_clipboard_string("sentinel");
+            m->undo = undo_depth();
+            m->entities = world().entities().size();
+        });
+        chord(SAPP_KEYCODE_X);
+        step(3, [this, m, clip_has] {
+            at_check(clip_has("sentinel"), "a copy bigger than the clipboard leaves the clipboard alone");
+            at_check(!world().find_by_id(m->big).is_null() && world().entities().size() == m->entities &&
+                         undo_depth() == m->undo,
+                     "...and Cut deletes nothing");
+            (void)engine_->commands().call("scene.destroy", Json::object({{"id", m->big}}));
+            select_id("");
         });
 
         // 5. Another panel holding the keyboard keeps Ctrl+C: the Inspector does not copy the selection.

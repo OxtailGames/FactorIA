@@ -316,7 +316,7 @@ int Editor::run() {
     // Copy and paste: sokol_imgui pastes on sokol_app's CLIPBOARD_PASTED event (it swallows the Ctrl+V key), and both
     // need the clipboard enabled. 1 MB, not sokol's 8 KB: a pasted log or design doc must not be refused.
     s.enable_clipboard = true;
-    s.clipboard_size = 1 << 20;
+    s.clipboard_size = int(kClipboardBytes);
     sapp_run(&s);  // macOS: does not return, the platform layer exits with d.exit_code()
     return d.exit_code();
 }

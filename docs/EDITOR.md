@@ -252,7 +252,11 @@ nothing selected Copy and Cut do nothing.
 a wall that was not copied) keeps naming it when the scene you paste into has an entity with that id (so Duplicate keeps it),
 and is **cleared** when it has not; the editor counts the cleared references in its message, and `scene.paste_entities` lists
 each one in `cleared` (`entity`, `component`, `field`, `target`). Runtime state (velocities, animation time) is not copied, and
-a field an animation drives is copied at its rest value.
+a field an animation drives is copied at its rest value. Only Entity fields are remapped: an entity id written inside a
+Json field (a script's `props`, for example) is copied as it is.
+
+A copy must fit the system clipboard the editor asks for (1 MB of text). A bigger one is refused with a message that says its
+size, and **Cut then deletes nothing**: copy fewer entities, or use `scene.copy_entities` from a script or the MCP tools.
 
 The outline of the selected entity comes from the engine's own geometry (`fa/scene/bounds.h`), the code behind
 `entity.bounds()` in scripts, so what the editor outlines is what a script measures:

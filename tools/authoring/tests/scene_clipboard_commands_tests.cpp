@@ -182,7 +182,8 @@ TEST_CASE("scene.paste_entities: parent, keepParents and nameSuffix") {
     CommandResult p = s.paste(text, Json::object({{"parent", "anchor"}}));
     REQUIRE_MESSAGE(p.ok, Session::error_text(p));
     REQUIRE(p.result["ids"].size() == 2);
-    for (const Json& id : p.result["ids"]) CHECK(s.world().id_of(s.world().parent(s.find(id.get<std::string>()))) == "anchor");
+    for (const Json& id : p.result["ids"])
+        CHECK(s.world().id_of(s.world().parent(s.find(id.get<std::string>()))) == "anchor");
     // Each under the parent it had (pair_b was under holder, squad was at the top), with a suffix.
     p = s.paste(text, Json::object({{"keepParents", true}, {"nameSuffix", " copy"}}));
     REQUIRE_MESSAGE(p.ok, Session::error_text(p));
@@ -231,7 +232,8 @@ TEST_CASE("scene.paste_entities: references inside the copied set name the copie
     CHECK(s.joint_target(q.result["ids"][0].get<std::string>()) == q.result["ids"][1].get<std::string>());
 }
 
-TEST_CASE("scene.paste_entities: a reference outside the set is kept when the target exists and cleared when it does not") {
+TEST_CASE(
+    "scene.paste_entities: a reference outside the set is kept when the target exists and cleared when it does not") {
     Session s;
     const std::string text = s.copy({"link"});  // link -> anchor, which is not copied
     CommandResult p = s.paste(text);
@@ -352,8 +354,8 @@ TEST_CASE("scene.copy_entities: an unknown id is an error with suggestions, and 
 TEST_CASE("scene.copy_entities: 'primary' comes back as the pasted root that is or holds its copy") {
     Session s;
     // primary is the child of the second root: paste reports the copy of that root.
-    CommandResult c = s.call("scene.copy_entities", Json::object({{"ids", Json::array({"anchor", "squad"})},
-                                                                   {"primary", "gunner"}}));
+    CommandResult c =
+        s.call("scene.copy_entities", Json::object({{"ids", Json::array({"anchor", "squad"})}, {"primary", "gunner"}}));
     REQUIRE_MESSAGE(c.ok, Session::error_text(c));
     CommandResult p = s.paste(c.result["text"].get<std::string>());
     REQUIRE_MESSAGE(p.ok, Session::error_text(p));
@@ -367,4 +369,65 @@ TEST_CASE("scene.copy_entities: 'primary' comes back as the pasted root that is 
     c = s.call("scene.copy_entities", Json::object({{"ids", Json::array({"anchor"})}, {"primary", "squad"}}));
     CHECK_FALSE(c.ok);
     CHECK(contains(c.error.value("message", std::string()), "/primary"));
+}
+
+TEST_CASE("scene.paste_entities: a text that was cut short says so") {
+    Session s;
+    const std::string whole = s.copy({"squad"});
+    const CommandResult r = s.paste(whole.substr(0, whole.size() / 2));
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(r.error.value("message", std::string()), "cut short"));
+    CHECK(contains(r.error.value("hint", std::string()), "fewer entities"));
+}
+
+TEST_CASE("scene.paste_entities: hostile or hand-edited texts are refused with a pointer, and leave nothing behind") {
+    Session s;
+    const std::size_t n = s.world().entity_count();
+    auto entry = [](const std::string& entity) {
+        return R"({"format":"factoria.entities/1","entities":[{"entity":)" + entity + "}]}";
+    };
+    struct Case {
+        std::string text;
+        Json extra;
+        std::string pointer;
+    };
+    std::string deep = R"({"id":"leaf"})";
+    for (int i = 0; i < 70; ++i) deep = R"({"id":"n)" + std::to_string(i) + R"(","children":[)" + deep + "]}";
+    const std::vector<Case> cases = {
+        // a non-string name with nameSuffix used to throw from the middle of the paste
+        {entry(R"({"id":"ok","name":5})"), Json::object({{"nameSuffix", " copy"}}), "/entities/0/entity/name"},
+        // a non-string id with a primary named in the text used to be an internal error
+        {R"({"format":"factoria.entities/1","primary":"x","entities":[{"entity":{"id":4}}]})", Json::object(),
+         "/entities/0/entity/id"},
+        {R"({"format":"factoria.entities/1","primary":3,"entities":[{"entity":{"id":"a"}}]})", Json::object(),
+         "/primary"},
+        {entry(deep), Json::object(), "/children/"},
+        {entry(R"({"prefab":"prefabs/pair.prefab.json"})"), Json::object(), "/entities/0/entity/prefab"},
+        {entry(R"({"id":"ok","children":[{"prefab":"x"}]})"), Json::object(), "/entities/0/entity/children/0/prefab"},
+        {entry(R"({"id":"ok","$prefab":"/etc/passwd"})"), Json::object(), "/entities/0/entity/$prefab"},
+        {entry(R"({"id":"ok","$prefab":"../outside.prefab.json"})"), Json::object(), "/entities/0/entity/$prefab"},
+    };
+    for (const Case& c : cases) {
+        const CommandResult r = s.paste(c.text, c.extra);
+        INFO(c.text.substr(0, 120));
+        REQUIRE_FALSE(r.ok);
+        const std::string message = r.error.value("message", std::string());
+        CHECK(r.error.value("code", std::string()) == "invalid_argument");
+        CHECK_MESSAGE(contains(message, c.pointer), message);
+        CHECK_FALSE(r.error.value("hint", std::string()).empty());
+        CHECK(s.world().entity_count() == n);
+    }
+    // A $prefab inside the project is kept.
+    const CommandResult ok = s.paste(entry(R"({"id":"ok2","$prefab":"prefabs/pair.prefab.json"})"));
+    CHECK_MESSAGE(ok.ok, Session::error_text(ok));
+}
+
+TEST_CASE("scene.copy_entities: a name that is not valid UTF-8 does not make the copy throw") {
+    Session s;
+    Entity e = s.find("anchor");
+    REQUIRE_FALSE(e.is_null());
+    s.world().info(e).name = "bad \xFF name";
+    const CommandResult c = s.call("scene.copy_entities", Json::object({{"ids", Json::array({"anchor"})}}));
+    REQUIRE_MESSAGE(c.ok, Session::error_text(c));
+    CHECK(contains(c.result["text"].get<std::string>(), "bad "));
 }
