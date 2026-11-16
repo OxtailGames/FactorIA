@@ -1,5 +1,5 @@
-// Linux: libcurl's WebSocket support, loaded with dlopen (websocket_curl.cpp, written by M98.2c; until then unavailable and
-// saying so, which is what websocket.connect reports to the game).
+// Linux: libcurl loaded with dlopen (websocket_curl.cpp); where libcurl is missing the client is unavailable and says why,
+// which is what websocket.connect reports to the game.
 #include "fa/platform/websocket.h"
 
 namespace fa {
