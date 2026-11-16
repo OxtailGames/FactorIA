@@ -272,3 +272,25 @@ TEST_CASE("interpolation: the records are dense, one per interpolated entity, an
     f.frame(0, 0.5);
     CHECK(f.w.interp().records.size() == 2);
 }
+
+TEST_CASE("interpolation: with the project default off only the entities with an Interpolation component are kept") {
+    World w;
+    ensure_builtin_components();
+    Entity a = w.create("a", "a"), b = w.create("b", "b");
+    for (int i = 0; i < 20; ++i) w.create("still", "still");  // a scene of entities that never opted in
+    w.add<Interpolation>(a);                                  // on
+    w.add<Interpolation>(b).mode = InterpolationMode::Off;
+    interp_update(w, 1.0, true);
+    CHECK(w.interp().records.size() == 1);
+    interp_begin_step(w);
+    w.get<Transform>(a)->position.x += 10.0f;
+    w.get<Transform>(b)->position.x += 10.0f;
+    interp_update(w, 0.5, true);
+    interp_update(w, 0.5, false);
+    CHECK(w.drawn_matrix(a).translation().x == doctest::Approx(5.0f));
+    CHECK(w.drawn_matrix(b).translation().x == doctest::Approx(10.0f));
+    w.remove<Interpolation>(a);  // no longer interpolated: its record goes
+    interp_update(w, 0.5, false);
+    CHECK(w.interp().records.empty());
+    CHECK(w.interp().poseCount == 0);
+}

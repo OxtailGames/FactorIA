@@ -116,12 +116,24 @@ std::vector<CameraInfo> Renderer::Impl::collect_cameras(World& world, bool blend
     return out;
 }
 
-// The real-pose cameras queries use while render interpolation blends something; none (queries use lastCams) otherwise.
+// The real-pose cameras queries use while render interpolation blends a camera; none (queries use lastCams) otherwise. A camera is
+// blended when it or an ancestor has a blended pose; when none is (the poses are other entities'), lastCams already is the real
+// view and a second collect_cameras would repeat it.
 void Renderer::Impl::refresh_logic_cameras(World& world) {
-    if (world.interp().poseCount > 0)
-        logicCams = collect_cameras(world, false);
-    else
-        logicCams.clear();
+    logicCams.clear();
+    const InterpState& ip = world.interp();
+    if (ip.poseCount == 0) return;
+    bool blended = false;
+    for (const CameraInfo& c : lastCams) {
+        for (Entity e = c.entity; !blended && !e.is_null(); e = world.parent(e)) blended = ip.pose_of(e) != nullptr;
+        if (blended) break;
+    }
+    if (blended) logicCams = collect_cameras(world, false);
+}
+
+// Where the first camera is for scripts: its real pose (what Parallax.offset, and so entity.bounds() of a layer, follows).
+Vec2 Renderer::Impl::logic_camera_xy() const {
+    return (logicCams.empty() ? lastCams : logicCams).front().position.xy();
 }
 
 // The camera a query uses: `camera` when it is a rendering camera; else (a screen point given) the topmost camera whose
@@ -129,7 +141,7 @@ void Renderer::Impl::refresh_logic_cameras(World& world) {
 const CameraInfo& Renderer::Impl::camera_for(Entity camera, const Vec2* screenPoint) const {
     static const CameraInfo kNone{};
     // Render interpolation: queries answer from the real pose of the cameras, drawing from the blended one (logicCams is empty
-    // while nothing is blended).
+    // while no camera is blended).
     const CameraInfo* c = pick_camera(logicCams.empty() ? lastCams : logicCams, camera, screenPoint,
                                       Vec2{float(targetW), float(targetH)});
     return c ? *c : kNone;
@@ -591,8 +603,8 @@ void Renderer::update(World& world) {
     // does not draw (OnDemand, a test that steps without drawing) still refreshes the cameras here.
     im.lastCams = im.collect_cameras(world);
     im.refresh_logic_cameras(world);
-    // entity.bounds() of a parallax layer follows the camera whether or not the frame is drawn.
-    update_parallax(world, im.lastCams.front().position.xy());
+    // entity.bounds() of a parallax layer follows the camera whether or not the frame is drawn (its real pose, not the blended one).
+    update_parallax(world, im.logic_camera_xy());
     im.updated = true;
 }
 
@@ -811,9 +823,10 @@ void Renderer::Impl::render(World& world, float dt) {
             }
         if (fonts->atlas_epoch() == atlasEpoch) break;
     }
-    // gather_2d shifted the Parallax layers for each camera it drew; what the world keeps is the shift for the first camera (the one
-    // Renderer::update and a run with no renderer use), whatever cameras or render targets the frame had.
-    update_parallax(world, lastCams.front().position.xy());
+    // gather_2d shifted the Parallax layers for each camera it drew (from the blended pose); what the world keeps is the shift for
+    // the first camera's REAL pose (the one Renderer::update and a run with no renderer use, so Parallax.offset and bounds() do not
+    // depend on the interpolation alpha), whatever cameras or render targets the frame had.
+    update_parallax(world, logic_camera_xy());
     // After every gather: the glyph atlas may be remade by a sync, which no job of this frame has recorded a draw with yet.
     fonts->sync();
     ramps.sync();
