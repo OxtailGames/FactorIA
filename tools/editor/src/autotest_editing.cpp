@@ -1984,6 +1984,9 @@ void Editor::at_section_M4(AtScript& at) {
         });
         step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_TAB); });
         step(4, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_TAB); });
+        // Tab moves to the next field with its box open: Esc closes it, so the next step starts with no active box.
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ESCAPE); });
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ESCAPE); });
         step(4, [this, m, pos_of] {
             at_check(pos_of("player").x == pos_of("coin_3").x,
                      "leaving the box with Tab after typing the primary's own value writes it to every entity");
