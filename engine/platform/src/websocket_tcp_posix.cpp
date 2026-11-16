@@ -24,6 +24,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <exception>
 #include <memory>
 #include <mutex>
 #include <random>
@@ -57,9 +58,16 @@ class Core : public std::enable_shared_from_this<Core> {
 public:
     Core(WebSocketRequest request, ws::Url url)
         : request_(std::move(request)), url_(std::move(url)), session_(make_options(request_.maxMessageBytes)) {
+#if defined(__linux__)
+        if (::pipe2(wake_, O_CLOEXEC | O_NONBLOCK) != 0) wake_[0] = wake_[1] = -1;
+#else
         if (::pipe(wake_) != 0) wake_[0] = wake_[1] = -1;
         for (int fd : wake_)
-            if (fd >= 0) ::fcntl(fd, F_SETFL, ::fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+            if (fd >= 0) {
+                ::fcntl(fd, F_SETFL, ::fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+                ::fcntl(fd, F_SETFD, ::fcntl(fd, F_GETFD, 0) | FD_CLOEXEC);
+            }
+#endif
     }
 
     ~Core() {
@@ -68,7 +76,12 @@ public:
     }
 
     void start() {
-        std::thread([self = shared_from_this()] { self->run(); }).detach();
+        try {
+            std::thread([self = shared_from_this()] { self->run(); }).detach();
+        } catch (const std::exception& e) {  // no thread to be had (std::system_error)
+            fail_connect(std::string("could not start the connection (") + e.what() + ")",
+                         "Close other connections or programs and try again.");
+        }
     }
 
     // The game let go of the connection: nothing it reports is delivered, and the thread ends without being waited for.
@@ -103,7 +116,10 @@ public:
         const WebSocketState s = state_.load();
         if (s == WebSocketState::Closing || s == WebSocketState::Closed) return {};
         if (s == WebSocketState::Connecting) {
+            // Closing at once; the thread ends the attempt with Error and Close 1006, and then it is Closed.
             abort_ = true;
+            WebSocketState expected = WebSocketState::Connecting;
+            state_.compare_exchange_strong(expected, WebSocketState::Closing);
         } else if (session_.close(code, reason).ok()) {
             // The thread may have ended the connection meanwhile: only Open becomes Closing.
             WebSocketState expected = WebSocketState::Open;
@@ -178,9 +194,9 @@ private:
     }
 
     void fail_connect(const std::string& error, const std::string& hint, int status = 0) {
+        state_ = WebSocketState::Closed;  // before the events: when the game reads Close, state() is Closed
         emit(WebSocketEvent::failure(error, hint, status));
         emit(WebSocketEvent::close(ws::close_code::kAbnormal, "", false));
-        state_ = WebSocketState::Closed;
     }
 
     int connect_socket(Clock::time_point deadline) {
@@ -285,8 +301,13 @@ private:
     // Reads the head of the server's answer; returns false (after reporting) when it fails.
     bool handshake(int fd, Clock::time_point deadline, std::string& leftover) {
         std::uint8_t random[16];
-        std::random_device rd;
-        for (std::uint8_t& b : random) b = static_cast<std::uint8_t>(rd());
+        try {
+            std::random_device rd;
+            for (std::uint8_t& b : random) b = static_cast<std::uint8_t>(rd());
+        } catch (const std::exception& e) {  // no entropy source
+            fail_connect(std::string("could not make the handshake key (") + e.what() + ")", "Try again.");
+            return false;
+        }
         const std::string key = ws::make_client_key(random);
         auto req = ws::build_client_request(url_, key, request_.subprotocols, request_.headers);
         if (!req.ok()) {
@@ -369,7 +390,9 @@ private:
     // connection (stop_) or an ended queue (dead_) says nothing.
     void finish_aborted() {
         if (state_.load() != WebSocketState::Closed && !stop_ && !dead_)
-            fail_connect("the connection was closed before it was open", "");
+            fail_connect(
+                "the connection was closed before it was open",
+                "close() was called before the connection opened; wait for the 'open' event, or ignore this error.");
         state_ = WebSocketState::Closed;
     }
 
@@ -477,6 +500,7 @@ private:
             state_ = WebSocketState::Closed;
             return;
         }
+        state_ = WebSocketState::Closed;  // before the Close event: when the game reads it, state() is Closed
         if (lost && !peerClosed && !failed) {
             emit(WebSocketEvent::failure("the connection to " + url_.host + " was lost",
                                          "Check the connection; try again."));
@@ -488,12 +512,12 @@ private:
             emit(WebSocketEvent::close(closeCode == ws::close_code::kAbnormal ? ws::close_code::kNoStatus : closeCode,
                                        closeReason, peerClosed));
         }
-        state_ = WebSocketState::Closed;
     }
 
     WebSocketRequest request_;
     ws::Url url_;
-    std::shared_ptr<WebSocketEventQueue> queue_ = std::make_shared<WebSocketEventQueue>();
+    std::shared_ptr<WebSocketEventQueue> queue_ =
+        std::make_shared<WebSocketEventQueue>(WebSocketEventQueue::limit_for(request_.maxMessageBytes));
     mutable std::mutex
         mutex_;  // guards session_, outgoing_, sent_, closeAsked_ and the transitions out of Connecting and Open
     ws::Session session_;

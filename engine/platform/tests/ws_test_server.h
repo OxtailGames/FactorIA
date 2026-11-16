@@ -140,7 +140,11 @@ private:
     void accept_loop() {
         while (!stop_) {
             Socket c = ::accept(listener_, nullptr, nullptr);
-            if (c == kBad) continue;
+            if (c == kBad) {
+                // A persistent accept() error (out of descriptors...) must not spin a core.
+                if (!stop_) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
             if (stop_) {
                 close_socket(c);
                 break;

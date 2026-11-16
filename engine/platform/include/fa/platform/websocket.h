@@ -58,6 +58,10 @@ const char* websocket_state_name(WebSocketState state);  // "connecting", "open"
 // own business and never reaches the game. The one other code a failure can carry is 1008, from the event queue below.
 // If the queue overflows before the game drained its first events, those are dropped with the rest: the connection then
 // reports only [Error, Close 1008], without the Open (or the messages) that came before.
+//
+// State and events agree: state() shows Open no later than the moment poll() can deliver the Open event, and when poll()
+// delivers the Close event state() is already Closed (a client sets the state BEFORE it pushes the event, never after).
+// A game that checks state() right after it read Close sees Closed on every platform.
 struct WebSocketEvent {
     enum class Type {
         Open,    // the handshake is done; `subprotocol` is the one the server chose ("" = none)
@@ -90,9 +94,20 @@ struct WebSocketEvent {
 //
 // Lifetime: allocate it with std::make_shared and let every callback capture the shared_ptr (see the pattern above); the
 // connection's destructor calls abandon(). The queue is not copyable and never lives as a plain member of a connection.
+//
+// Size it for the connection: std::make_shared<WebSocketEventQueue>(WebSocketEventQueue::limit_for(request.maxMessageBytes)).
+// The default limit (32 MB) is below the longest message a request may allow (64 MB), and a legal message must never end in
+// "too many unread messages".
 class WebSocketEventQueue {
 public:
     explicit WebSocketEventQueue(std::size_t maxPendingBytes = 32u * 1024 * 1024) : maxPendingBytes_(maxPendingBytes) {}
+    // What every client passes to the constructor: the larger of 32 MB and two messages of `maxMessageBytes` (saturating).
+    static std::size_t limit_for(std::size_t maxMessageBytes) {
+        constexpr std::size_t kFloor = 32u * 1024 * 1024;
+        constexpr std::size_t kMax = static_cast<std::size_t>(-1);
+        const std::size_t twice = maxMessageBytes > kMax / 2 ? kMax : maxMessageBytes * 2;
+        return twice > kFloor ? twice : kFloor;
+    }
     WebSocketEventQueue(const WebSocketEventQueue&) = delete;
     WebSocketEventQueue& operator=(const WebSocketEventQueue&) = delete;
     // false: the queue overflowed, ended or was abandoned; the caller closes the transport, stops and pushes nothing more.
@@ -143,6 +158,10 @@ public:
     // unsent data. The text must be valid UTF-8.
     virtual Result<void> send_text(std::string_view text) = 0;
     virtual Result<void> send_binary(const void* data, std::size_t size) = 0;
+    // Closing while the connection is still Connecting abandons the attempt: state() is Closing at once, and Closed when
+    // poll() delivers its Error and Close 1006 (wasClean false). The Error says close() was called before the connection
+    // opened.
+    //
     // Starts the closing handshake: `code` is 1000 or 3000-4999 (0: none), `reason` valid UTF-8 up to 123 bytes
     // (ws::check_close_request). Anything else is an error that says so, and nothing happens. While connecting it abandons
     // the attempt (Error and Close 1006). The Close event follows when the peer answers, or after kWebSocketCloseWaitSec
@@ -232,6 +251,7 @@ public:
         friend class MemoryWebSocketClient;
         friend class MemoryWebSocketConnection;
         struct Link;
+        void deliver(WebSocketEvent event);
         std::shared_ptr<Link> link_;
     };
 

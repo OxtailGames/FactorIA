@@ -293,7 +293,11 @@ from another thread. `ws.on(event, fn)` returns a function that removes the hand
 when queued, `false` when the connection is not open (nothing is kept for later; this is how a game notices it is between
 two connections). Data of another type and a message over `maxMessageBytes` throw. `ws.close(code = 1000, reason = "")`
 starts the closing handshake (`code` 1000 or 3000 to 4999, `reason` at most 123 bytes); the `"close"` event follows.
-`ws.readyState` is `"connecting"` (also while waiting to reconnect), `"open"`, `"closing"` or `"closed"`.
+`ws.readyState` is `"connecting"` (also while waiting to reconnect), `"open"`, `"closing"` or `"closed"`. `ws.close()` while
+it is still `"connecting"` gives `"closing"` at once, and `"closed"` when the `"error"` (which says `close()` came before the
+connection opened) and the `"close"` event (code 1006) arrive; whenever you read the `"close"` event, `readyState` is already
+`"closed"`. A message of any size `maxMessageBytes` allows (up to 64 MB) arrives: the engine keeps at least twice that unread
+before it ends a game that does not read its messages (`"close"` 1008).
 
 ### Reconnects
 

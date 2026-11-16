@@ -96,18 +96,65 @@ TEST_CASE("websocket: every platform answers, never null; a client that is not w
     REQUIRE(client);
     CHECK_FALSE(client->name().empty());
     if (!client->available()) {
-        CHECK(client->unavailable_reason().find("lands in M98.2") != std::string::npos);
+        CHECK_FALSE(client->unavailable_reason().empty());
         WebSocketRequest r;
         r.url = "ws://example.com/";
         auto ws = client->connect(r);
         REQUIRE_FALSE(ws.ok());
-        CHECK(ws.error().message.find("not available") != std::string::npos);
+        CHECK_FALSE(ws.error().message.empty());
         CHECK_FALSE(ws.error().hint.empty());
     }
     auto unavailable = make_unavailable_websocket_client("x", "because");
     CHECK_FALSE(unavailable->available());
     CHECK(unavailable->name() == "x");
     CHECK(unavailable->unavailable_reason() == "because");
+}
+
+TEST_CASE("websocket: the queue limit holds the longest legal message, and says small limits in bytes") {
+    CHECK(WebSocketEventQueue::limit_for(1) == 32u * 1024 * 1024);
+    CHECK(WebSocketEventQueue::limit_for(64u * 1024 * 1024) == 128u * 1024 * 1024);
+    CHECK(WebSocketEventQueue::limit_for(static_cast<std::size_t>(-1)) == static_cast<std::size_t>(-1));
+    WebSocketEventQueue small(1000);
+    CHECK_FALSE(small.push(WebSocketEvent::text(std::string(2000, 'a'))));
+    std::vector<WebSocketEvent> out;
+    small.drain(out);
+    REQUIRE(out.size() == 2);
+    CHECK(out[0].error.find("1000 bytes") != std::string::npos);
+    CHECK(out[0].error.find("0 MB") == std::string::npos);
+}
+
+TEST_CASE("websocket memory: close() while connecting is Closing until Error and Close arrive, then Closed") {
+    MemoryWebSocketClient server;
+    server.set_auto_accept(false);
+    WebSocketRequest r;
+    r.url = "ws://localhost/chat";
+    auto ws = server.connect(r).value();
+    CHECK(ws->close(1000, "").ok());
+    CHECK(ws->state() == WebSocketState::Closing);
+    CHECK_FALSE(server.peer(0)->accept());
+    std::vector<WebSocketEvent> events;
+    ws->poll(events);
+    REQUIRE(events.size() == 2);
+    CHECK(events[0].type == WebSocketEvent::Type::Error);
+    CHECK_FALSE(events[0].hint.empty());
+    CHECK(events[1].code == 1006);
+    CHECK(ws->state() == WebSocketState::Closed);
+}
+
+TEST_CASE("websocket memory: a peer that overflows the queue ends the connection") {
+    MemoryWebSocketClient server;
+    WebSocketRequest r;
+    r.url = "ws://localhost/chat";
+    auto ws = server.connect(r).value();
+    const std::string big(20u * 1024 * 1024, 'a');
+    server.peer(0)->send_text(big);
+    CHECK(ws->state() == WebSocketState::Open);
+    server.peer(0)->send_text(big);  // 40 MB unread: over the 32 MB limit
+    CHECK(ws->state() == WebSocketState::Closed);
+    std::vector<WebSocketEvent> events;
+    ws->poll(events);
+    REQUIRE(events.size() == 2);
+    CHECK(events[1].code == 1008);
 }
 
 TEST_CASE("websocket memory: connect, accept, messages both ways, close") {

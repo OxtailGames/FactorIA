@@ -78,6 +78,8 @@ struct Url {
     std::string path;                 // path and query, always starts with "/"
     std::string host_header() const;  // "host" or "host:port" (port only when it is not the default), IPv6 in brackets
 };
+// Relies on check_ws_url (fa/services/network.h), which the script layer runs first: it does not decide which hosts a game may
+// open, and it accepts what it can build a request from (any ws:// or wss:// address with a valid host and port).
 Result<Url> parse_url(std::string_view url);
 
 // Sec-WebSocket-Key: base64 of 16 random bytes (the caller supplies the randomness).
