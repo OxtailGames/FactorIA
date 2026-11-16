@@ -31,9 +31,9 @@ const char* kScene = R"({
   "format": "factoria.scene/1",
   "entities": [
     { "id": "hero", "name": "Hero", "tags": ["player"],
-      "components": { "Transform": { "position": [10, 20, 0] }, "Shape2D": { "size": [30, 20], "color": "#cc3030" },
+      "components": { "Transform": { "position": [10, 20, 0] }, "RigidBody2D": {}, "Shape2D": { "size": [30, 20], "color": "#cc3030" },
                       "Script": { "props": { "speed": 3, "label": "x" } }, "UiControl": {} } },
-    { "id": "target", "name": "Target", "components": { "Transform": { "position": [50, 0, 0] }, "Joint2D": { "connected": "hero" } } }
+    { "id": "target", "name": "Target", "components": { "Transform": { "position": [50, 0, 0] }, "RigidBody2D": {}, "Joint2D": { "connected": "hero" } } }
   ]
 })";
 
@@ -122,19 +122,11 @@ struct Session {
         for (Entity r : world().roots()) out.push_back(world().id_of(r));
         return out;
     }
-    // The scene with its top-level entities sorted by id.
-    Json sorted_scene() {
-        Json j = scene();
-        std::vector<Json> ents(j["entities"].begin(), j["entities"].end());
-        std::sort(ents.begin(), ents.end(), [](const Json& a, const Json& b) { return a["id"] < b["id"]; });
-        j["entities"] = Json(ents);
-        return j;
-    }
     // The real call, as Editor::edit_command makes it: plan, run, finish; then undo, redo, undo through the plan's lists.
-    // Returns the plan. `sortRoots` compares the scenes with the top-level entities sorted.
-    UndoPlan edit_round_trip(const std::string& name, const Json& args, bool sortRoots = false) {
+    // Returns the plan.
+    UndoPlan edit_round_trip(const std::string& name, const Json& args) {
         INFO(name << " " << args.dump());
-        auto snap = [&] { return sortRoots ? sorted_scene() : scene(); };
+        auto snap = [&] { return scene(); };
         const Json before = snap();
         std::optional<UndoPlan> plan = plan_undo(world(), name, args);
         REQUIRE(plan.has_value());
@@ -481,8 +473,7 @@ TEST_CASE("undo inverse: a spawn is undone by destroying it and redone with the 
     UndoPlan plan = s.edit_round_trip(
         "scene.spawn",
         Json::object({{"name", "Coin"},
-                      {"components", Json::object({{"Shape2D", Json::object({{"size", Json::array({4, 4})}})}})}}),
-        true);
+                      {"components", Json::object({{"Shape2D", Json::object({{"size", Json::array({4, 4})}})}})}}));
     CHECK(plan.inverse.size() == 1);
     CHECK(plan.inverse[0].cmd == "scene.destroy");
     CHECK(plan.forward[0].cmd == "scene.paste_entities");  // redo re-creates what the call made
@@ -493,7 +484,7 @@ TEST_CASE("undo inverse: a spawn is undone by destroying it and redone with the 
     // under a parent, at an index; and a prefab with children
     s.edit_round_trip("scene.spawn", Json::object({{"name", "Mid"}, {"parent", "holder"}, {"index", 1}}));
     s.edit_round_trip("scene.spawn",
-                      Json::object({{"prefab", "prefabs/pair.prefab.json"}, {"position", Json::array({3, 4})}}), true);
+                      Json::object({{"prefab", "prefabs/pair.prefab.json"}, {"position", Json::array({3, 4})}}));
     CHECK_FALSE(plan_undo(s.world(), "scene.spawn", Json::object()).has_value());
 }
 
@@ -605,7 +596,6 @@ TEST_CASE("undo inverse: several destroys chained in one step come back in order
     const Json after = s.scene();
     UndoEntry e = st.take_back();
     REQUIRE(s.run(e.inverse));
-    CHECK(s.sorted_scene() != Json());
     const TypeInfo* joint = TypeRegistry::global().find("Joint3D");
     const Entity a = s.world().find_by_id("pair_a");
     REQUIRE_FALSE(a.is_null());
@@ -624,8 +614,7 @@ TEST_CASE("undo inverse: bones.create is undone by destroying the chain and redo
     UndoPlan plan = s.edit_round_trip(
         "bones.create",
         Json::object({{"parent", "free"},
-                      {"points", Json::array({Json::array({0, 20}), Json::array({0, 10}), Json::array({0, 0})})}}),
-        true);
+                      {"points", Json::array({Json::array({0, 20}), Json::array({0, 10}), Json::array({0, 0})})}}));
     CHECK(plan.inverse.size() == 1);
     CHECK(plan.inverse[0].cmd == "scene.destroy");
 }
@@ -637,4 +626,90 @@ TEST_CASE("undo inverse: a failed finish is reported, and a plan is never made f
     CHECK_FALSE(finish_undo_plan(s.world(), "scene.spawn", *plan, Json::object()));
     CHECK_FALSE(finish_undo_plan(s.world(), "scene.paste_entities", *plan, Json::object({{"ids", Json::array()}})));
     CHECK(finish_undo_plan(s.world(), "scene.destroy", *plan, Json::object()));  // needs nothing from the result
+}
+
+// ------------------------------------------------------------------------------------------------ polish (M98) ----
+
+namespace {
+
+// A chain of `levels` entities, each the child of the one before (the first at the top level, last among the roots).
+void make_chain(Session& s, int levels, const std::string& prefix) {
+    std::string parent;
+    for (int i = 0; i < levels; ++i) {
+        Json args = Json::object({{"id", prefix + std::to_string(i)}});
+        if (!parent.empty()) args["parent"] = parent;
+        REQUIRE(s.engine.commands().call("scene.spawn", args).ok);
+        parent = prefix + std::to_string(i);
+    }
+}
+
+}  // namespace
+
+TEST_CASE("undo inverse: a subtree deeper than a paste accepts has no plan (the snapshot undoes it)") {
+    Session s(kStructScene);
+    make_chain(s, 66, "deep");  // levels 0..65: the root has a descendant 65 levels below it
+    CHECK_FALSE(plan_undo(s.world(), "scene.destroy", Json::object({{"id", "deep0"}})).has_value());
+    CHECK_FALSE(has_undo_plan(s.world(), "scene.destroy", Json::object({{"id", "deep0"}})));
+    // a child whose own subtree is 64 levels deep is the limit: a plan, and its inverse really pastes
+    CHECK(has_undo_plan(s.world(), "scene.destroy", Json::object({{"id", "deep1"}})));
+    s.edit_round_trip("scene.destroy", Json::object({{"id", "deep1"}}));
+    // the call that spawns that much nesting is not planned either
+    Json spec = Json::object({{"id", "leaf"}});
+    for (int i = 0; i < 70; ++i)
+        spec = Json::object({{"id", "n" + std::to_string(i)}, {"children", Json::array({spec})}});
+    CHECK_FALSE(plan_undo(s.world(), "scene.spawn", spec).has_value());
+    // bones.create: N points make a chain N-2 levels deep
+    Json points = Json::array();
+    for (int i = 0; i < 70; ++i) points.push_back(Json::array({0, i * 3}));
+    CHECK_FALSE(
+        plan_undo(s.world(), "bones.create", Json::object({{"parent", "free"}, {"points", points}})).has_value());
+}
+
+TEST_CASE("undo inverse: has_undo_plan agrees with plan_undo") {
+    Session s(kStructScene);
+    for (const char* id : {"anchor", "squad", "gunner", "holder", "free", "inst", "nobody"}) {
+        const Json args = Json::object({{"id", id}});
+        CHECK(has_undo_plan(s.world(), "scene.destroy", args) ==
+              plan_undo(s.world(), "scene.destroy", args).has_value());
+    }
+    CHECK(has_undo_plan(s.world(), "scene.set_component",
+                        Json::object({{"id", "anchor"}, {"component", "Transform"}, {"fields", Json::object()}})));
+    CHECK_FALSE(has_undo_plan(s.world(), "scene.import_ascii", Json::object()));
+}
+
+TEST_CASE("undo inverse: a reparent that changes nothing is a no-op plan, a real one is not") {
+    Session s(kStructScene);
+    auto noop = [&](const Json& args) {
+        const auto plan = plan_undo(s.world(), "scene.set_parent", args);
+        REQUIRE(plan.has_value());
+        return plan->noop;
+    };
+    CHECK(noop(Json::object({{"id", "free"}, {"parent", nullptr}})));                         // a root made a root
+    CHECK(noop(Json::object({{"id", "pair_d"}, {"parent", "holder"}})));                      // already the last child
+    CHECK(noop(Json::object({{"id", "pair_a"}, {"parent", "holder"}, {"index", 0}})));        // already first
+    CHECK_FALSE(noop(Json::object({{"id", "pair_a"}, {"parent", "holder"}})));                // would go last
+    CHECK_FALSE(noop(Json::object({{"id", "pair_d"}, {"parent", "holder"}, {"index", 0}})));  // would go first
+    CHECK_FALSE(noop(Json::object({{"id", "free"}, {"parent", "holder"}})));                  // another parent
+    CHECK_FALSE(noop(Json::object({{"id", "pair_a"}, {"parent", nullptr}})));                 // to the top level
+}
+
+TEST_CASE("undo inverse: restoring several roots under one parent adds a set_parent only where a place differs") {
+    Session s(kStructScene);
+    // pair_d is the last child of holder: a paste puts it there, so no set_parent
+    const auto first = plan_undo(s.world(), "scene.destroy", Json::object({{"id", "pair_d"}}));
+    REQUIRE(first.has_value());
+    CHECK(first->inverse[0].cmd == "scene.paste_entities");
+    for (const UndoCommand& c : first->inverse) CHECK(c.cmd != "scene.set_parent");
+    // a paste of two roots under holder leaves them last, in order: redo needs no reorder either
+    const CommandResult copied =
+        s.engine.commands().call("scene.copy_entities", Json::object({{"ids", Json::array({"anchor", "free"})}}));
+    REQUIRE(copied.ok);
+    const UndoPlan plan = s.edit_round_trip("scene.paste_entities",
+                                            Json::object({{"text", copied.result["text"]}, {"parent", "holder"}}));
+    for (const UndoCommand& c : plan.forward) CHECK(c.cmd != "scene.set_parent");
+    // pair_b has two children after it now (pair_d and the pasted ones): one set_parent puts it back, and the trip is exact
+    const UndoPlan mid = s.edit_round_trip("scene.destroy", Json::object({{"id", "pair_b"}}));
+    int reorders = 0;
+    for (const UndoCommand& c : mid.inverse) reorders += c.cmd == "scene.set_parent";
+    CHECK(reorders == 1);
 }
