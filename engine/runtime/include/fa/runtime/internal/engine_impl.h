@@ -153,6 +153,9 @@ struct Engine::Impl {
     std::uint64_t frame = 0;
     std::uint64_t fixedStep = 0;  // fixed simulation steps run so far (several per frame when the frame was slow)
     bool paused = false;
+    bool wasUserPaused =
+        false;  // scripts.user_time_scale() was 0 at the start of the last frame (pad rumble stops on the edge)
+    void advance_pad_rumble(double dt);
     bool quit = false;
     bool inFrame = false;  // between the start and the end of run_frame (commands defer risky work)
     double accumulator = 0.0;

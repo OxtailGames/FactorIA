@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cmath>
 #include <format>
+#include <optional>
 
 #include "fa/core/log.h"
 #include "fa/core/strings.h"
@@ -418,6 +419,108 @@ void Input::vibrate(float seconds) {
         vibrations_.push_back(seconds);  // nobody plays them in a headless run: keep the log short
 }
 
+// ---------------------------------------------------------------------------
+// Pad rumble
+// ---------------------------------------------------------------------------
+Result<RumbleRequest> make_rumble_request(std::string_view who, double pad, double low, double high, double seconds) {
+    const std::string w(who);
+    auto describe = [](double v) {
+        return std::isfinite(v) ? std::format("{}", v) : std::string("not a finite number");
+    };
+    if (!std::isfinite(pad) || pad != std::floor(pad) || pad < 0.0 || pad >= double(kMaxGamepads))
+        return make_error(
+            w + ": pad must be a whole number from 0 to " + std::to_string(kMaxGamepads - 1) + ", got " +
+                describe(pad) + ".",
+            "It is the pad slot input.gamepad(i) reads; game.on(\"gamepadConnected\") hands the slot of a "
+            "pad that was just plugged in.");
+    auto strength = [&](const char* name, double v, const char* motor) -> std::optional<Error> {
+        if (std::isfinite(v)) return std::nullopt;
+        return Error{w + ": " + name + " must be a number from 0 to 1 (the strength of the " + motor + " motor), got " +
+                         describe(v) + ".",
+                     "Pass 0 for a motor that should stay still; a value outside 0..1 is clamped."};
+    };
+    if (auto e = strength("low", low, "heavy, low-frequency")) return *e;
+    if (auto e = strength("high", high, "light, high-frequency")) return *e;
+    if (!std::isfinite(seconds) || seconds <= 0.0 || seconds > double(kMaxRumbleSeconds))
+        return make_error(
+            w + ": seconds must be above 0 and up to " + std::format("{}", kMaxRumbleSeconds) + ", got " +
+                describe(seconds) + ".",
+            "0.05 to 0.15 is a tap, 0.3 a hit, 1 an explosion; for a longer rumble ask again before it ends, "
+            "and to end one early use input.stopRumble(pad).");
+    RumbleRequest r;
+    r.pad = int(pad);
+    r.low = std::clamp(float(low), 0.0f, 1.0f);
+    r.high = std::clamp(float(high), 0.0f, 1.0f);
+    r.seconds = float(seconds);
+    return r;
+}
+
+void Input::rumble(const RumbleRequest& req) {
+    if (req.pad < 0 || req.pad >= kMaxGamepads) return;
+    RumbleRequest r = req;
+    r.low = std::isfinite(r.low) ? std::clamp(r.low, 0.0f, 1.0f) : 0.0f;
+    r.high = std::isfinite(r.high) ? std::clamp(r.high, 0.0f, 1.0f) : 0.0f;
+    r.seconds = std::isfinite(r.seconds) ? std::clamp(r.seconds, 0.0f, kMaxRumbleSeconds) : 0.0f;
+    if (rumbleLog_.size() < 256) rumbleLog_.push_back(r);  // nobody clears it in a headless run: keep the log short
+    Pad& pad = pads_[size_t(r.pad)];
+    const std::uint32_t serial = pad.rumble.serial + 1;
+    pad.rumble = {};
+    pad.rumble.serial = serial;
+    if (!pad.connected || r.seconds <= 0.0f) return;
+    pad.rumble.low = r.low;
+    pad.rumble.high = r.high;
+    pad.rumble.remaining = r.seconds;
+}
+
+void Input::stop_rumble(int pad) {
+    if (pad >= kMaxGamepads) return;
+    for (int i = pad < 0 ? 0 : pad; i < (pad < 0 ? kMaxGamepads : pad + 1); ++i) {
+        RumbleRequest r;
+        r.pad = i;
+        rumble(r);
+    }
+}
+
+void Input::stop_all_rumble() {
+    for (Pad& pad : pads_) {
+        if (pad.rumble.low == 0.0f && pad.rumble.high == 0.0f && pad.rumble.remaining == 0.0f) continue;
+        const std::uint32_t serial = pad.rumble.serial + 1;
+        pad.rumble = {};
+        pad.rumble.serial = serial;
+    }
+}
+
+void Input::advance_rumble(double dt) {
+    if (!(dt > 0.0)) return;
+    for (Pad& pad : pads_) {
+        if (pad.rumble.remaining <= 0.0f) continue;
+        pad.rumble.remaining -= float(dt);
+        if (pad.rumble.remaining <= 0.0f) {
+            const std::uint32_t serial = pad.rumble.serial + 1;
+            pad.rumble = {};
+            pad.rumble.serial = serial;
+        }
+    }
+}
+
+RumbleState Input::rumble_state(int pad) const {
+    return pad >= 0 && pad < kMaxGamepads && pads_[size_t(pad)].connected ? pads_[size_t(pad)].rumble : RumbleState{};
+}
+
+bool Input::gamepad_can_rumble(int index) const { return gamepad_connected(index) && pads_[size_t(index)].canRumble; }
+
+const std::string& Input::gamepad_rumble_reason(int index) const {
+    static const std::string none;
+    return index >= 0 && index < kMaxGamepads ? pads_[size_t(index)].rumbleReason : none;
+}
+
+void Input::set_gamepad_rumble_support(int index, bool can, std::string why) {
+    if (index < 0 || index >= kMaxGamepads) return;
+    Pad& pad = pads_[size_t(index)];
+    pad.canRumble = can;
+    pad.rumbleReason = can ? std::string() : std::move(why);
+}
+
 void Input::on_key(Key key, bool down) {
     if (InputObserver* o = tap(); o && key != Key::Unknown) o->observe_key(key, down);
     size_t i = size_t(key);
@@ -723,6 +826,11 @@ void Input::release_pad(int index) {
         pad.buttons[i] = false;
     }
     pad.axes.fill(0.0f);
+    if (pad.rumble.low != 0.0f || pad.rumble.high != 0.0f || pad.rumble.remaining != 0.0f) {
+        const std::uint32_t serial = pad.rumble.serial + 1;  // no pad, no motors: the hardware layer sees a stop
+        pad.rumble = {};
+        pad.rumble.serial = serial;
+    }
 }
 
 void Input::set_gamepad_info(int index, GamepadInfo info) {
@@ -809,11 +917,15 @@ void Input::reset_options() {
     mouseVisible_ = true;
     mouseLocked_ = keyboardShown_ = platformKeyboard_ = false;
     vibrations_.clear();
+    rumbleLog_.clear();
     lastDevice_ = InputDevice::Keyboard;
     for (Pad& pad : pads_) {
         pad.type = GamepadType::Generic;
         pad.info = {};
         pad.announced = false;  // a new test starts with no pad announced, whatever the last one left plugged in
+        pad.canRumble = false;  // a test pad rumbles only when the test says so (connect({canRumble: true}))
+        pad.rumbleReason = "no pad has reported rumble support in this slot yet";
+        pad.rumble = {};
     }
     padEvents_.clear();
     padSlotMemory_.clear();

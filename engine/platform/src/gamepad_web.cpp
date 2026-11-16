@@ -7,6 +7,10 @@
 // A pad without that mapping is used with the same numbers (the best a page can do) and logged once as untested.
 // A pad keeps its slot while it stays connected: a new pad takes the slot it had before when that is free (else the first
 // free one), an unplugged pad frees its own. Each pad has a stable id (GamepadInfo) built from the browser's Gamepad.id.
+// Rumble: Gamepad.vibrationActuator.playEffect("dual-rumble", ...) where the browser has it (Chrome and Edge; Firefox and
+// Safari do not, so canRumble is false there). Everything is checked with typeof before use: a missing actuator, a
+// missing effect type or a refused promise (the browser wants a button pressed on the pad first) never throws.
+#include <emscripten.h>
 #include <emscripten/html5.h>
 
 #include <cstdint>
@@ -15,6 +19,40 @@
 
 #include "fa/core/log.h"
 #include "fa/platform/gamepad.h"
+
+// The JavaScript of EM_JS is not C++: clang-format must not touch it. No apostrophes in it: it travels through the C
+// preprocessor.
+// clang-format off
+EM_JS(int, fa_web_pad_rumble_kind, (int index), {
+    // 1: Gamepad.vibrationActuator takes "dual-rumble"; 0: it does not.
+    const pads = typeof navigator.getGamepads === "function" ? navigator.getGamepads() : null;
+    const pad = pads ? pads[index] : null;
+    const act = pad ? pad.vibrationActuator : null;
+    if (!act || typeof act.playEffect !== "function") return 0;
+    if (act.effects && typeof act.effects.includes === "function" && !act.effects.includes("dual-rumble")) return 0;
+    if (!act.effects && act.type && act.type !== "dual-rumble") return 0;
+    return 1;
+});
+EM_JS(int, fa_web_pad_rumble, (int index, double strong, double weak, int ms), {
+    const pads = typeof navigator.getGamepads === "function" ? navigator.getGamepads() : null;
+    const pad = pads ? pads[index] : null;
+    const act = pad ? pad.vibrationActuator : null;
+    if (!act || typeof act.playEffect !== "function") return 0;
+    try {
+        let p;
+        if (ms <= 0) {
+            if (typeof act.reset === "function") p = act.reset();
+            else p = act.playEffect("dual-rumble", { startDelay: 0, duration: 1, weakMagnitude: 0, strongMagnitude: 0 });
+        } else {
+            p = act.playEffect("dual-rumble", { startDelay: 0, duration: ms, weakMagnitude: weak, strongMagnitude: strong });
+        }
+        if (p && typeof p.catch === "function") p.catch(function () {});
+    } catch (e) {
+        return 0;
+    }
+    return 1;
+});
+// clang-format on
 
 namespace fa {
 namespace {
@@ -151,6 +189,21 @@ void poll_gamepads(Input& in) {
         else
             in.on_gamepad_connected(s, false);
     }
+}
+
+GamepadRumbleSupport gamepad_backend_rumble_support(int slot) {
+    if (slot < 0 || slot >= kMaxGamepads || g_slotOf[slot] < 0) return {false, "there is no pad in this slot"};
+    if (fa_web_pad_rumble_kind(g_slotOf[slot])) return {true, {}};
+    return {false,
+            "this browser or this pad has no rumble (Gamepad.vibrationActuator): Chrome and Edge rumble Xbox and "
+            "PlayStation pads, Firefox and Safari do not"};
+}
+
+// low is the heavy motor (the spec's strongMagnitude), high the light one (weakMagnitude). seconds 0 stops the effect.
+bool gamepad_backend_rumble(int slot, float low, float high, float seconds) {
+    if (slot < 0 || slot >= kMaxGamepads || g_slotOf[slot] < 0) return false;
+    const int ms = seconds > 0.0f ? int(seconds * 1000.0f + 0.5f) : 0;
+    return fa_web_pad_rumble(g_slotOf[slot], double(low), double(high), seconds > 0.0f && ms < 1 ? 1 : ms) != 0;
 }
 
 }  // namespace fa

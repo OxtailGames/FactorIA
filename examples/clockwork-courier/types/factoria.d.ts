@@ -665,6 +665,11 @@ declare module "factoria" {
      */
     readonly name: string;
     /**
+     * True when this pad has motors the platform can drive now, so input.rumble(pad, ...) shakes it; false for a slot with no pad and for a platform or pad without rumble. Windows (XInput pads) and Chrome-based browsers (Xbox and PlayStation pads) can today; Linux, macOS, iOS and Android do not yet, Firefox and Safari never; Windows pads that are not XInput (DualShock, DualSense, Switch Pro) come later. Games need not check it: input.rumble on a pad that cannot rumble does nothing. Check it to show a Vibration option only where it works. A test pad answers false unless game.gamepad(i).connect({ canRumble: true }).
+     * @since unreleased
+     */
+    readonly canRumble: boolean;
+    /**
      * Button held. Unknown names throw with a suggestion.
      */
     down(button: GamepadButton): boolean;
@@ -871,6 +876,16 @@ declare module "factoria" {
      * @since 0.2.0
      */
     onBack(handler: () => boolean | void): () => void;
+    /**
+     * Shakes the motors of gamepad pad (0..3, the slot input.gamepad(i) reads): low is the heavy, low-frequency motor (the left one of an Xbox pad) and high the light, high-frequency one, each 0..1 (a value outside is clamped), for seconds above 0 and up to 10 (0.05 to 0.15 is a tap, 0.3 a hit, 1 an explosion). A new call on the same pad replaces the one playing. It ends by itself when the seconds run out on the game's clock; to go on, ask again before. The engine also stops every pad when the game pauses (game.paused = true, the editor's pause), loses the window focus, changes scene or quits, so a pad never keeps shaking, and a rumble asked in a scene's onStart plays. A pad that is not connected or cannot rumble (input.gamepad(pad).canRumble) ignores it; on the web a browser may refuse it until a button was pressed on the pad. Phones vibrate with input.vibrate(), a different motor. Throws for a pad outside 0..3, a strength or seconds that is not a number, and seconds outside 0..10; a headless run or test records the request (game.rumbles(), game.rumbleState(pad)). Example: input.rumble(0, 0.7, 0.3, 0.2) when the player is hit.
+     * @since unreleased
+     */
+    rumble(pad: number, low: number, high: number, seconds: number): void;
+    /**
+     * Stops the rumble of gamepad pad (0..3) now; without an argument, of every pad. Does nothing for a pad that is not rumbling. A pad outside 0..3 throws.
+     * @since unreleased
+     */
+    stopRumble(pad?: number): void;
     /**
      * One pulse of the vibration motor of a phone, seconds above 0 and up to 5 (default 0.1): 0.02 to 0.05 is a tap, 0.2 a buzz. iOS cannot pick a length: a short pulse is a haptic tap, a long one the system vibration; iPads have no motor. Android needs the VIBRATE permission, which the FactorIA Android template declares. A no-op on desktop; a headless run or test records the pulse (game.vibrations()). Throws for anything but a number in range.
      * @since 0.2.0
@@ -10705,9 +10720,9 @@ declare module "factoria:test" {
      */
     axis(axis: GamepadAxis, value: number): void;
     /**
-     * Plugs the pad in (input.gamepad(i).connected becomes true) and raises game.on("gamepadConnected") at the next step. info says who the pad is: its id, name, family and USB ids (0 to 65535); a field left out keeps what the slot had, and without an id one is made from the ids and the name. A mistake throws with a suggestion. Example: game.gamepad(1).connect({ id: "pad-red", name: "Red pad", type: "playstation" }).
+     * Plugs the pad in (input.gamepad(i).connected becomes true) and raises game.on("gamepadConnected") at the next step. info says who the pad is: its id, name, family and USB ids (0 to 65535); a field left out keeps what the slot had, and without an id one is made from the ids and the name. canRumble: true makes input.gamepad(i).canRumble true, to test what a game does with a pad that has motors (a test pad has none unless you say so). A mistake throws with a suggestion. Example: game.gamepad(1).connect({ id: "pad-red", name: "Red pad", type: "playstation" }).
      */
-    connect(info?: { id?: string; name?: string; type?: GamepadType; vendor?: number; product?: number }): void;
+    connect(info?: { id?: string; name?: string; type?: GamepadType; vendor?: number; product?: number; canRumble?: boolean }): void;
     /**
      * Unplugs the pad; what it held is released.
      */
@@ -11100,6 +11115,16 @@ declare module "factoria:test" {
      * @since 0.2.0
      */
     setStorageText(text: string | null): void;
+    /**
+     * The requests input.rumble() and input.stopRumble() made since the test started, oldest first (cleared before each test, at most 256): pad, the strengths low and high already clamped to 0..1, and seconds (0 for a stop). They are recorded for any pad, connected or not; what a pad does is rumbleState(pad).
+     * @since unreleased
+     */
+    rumbles(): { pad: number; low: number; high: number; seconds: number }[];
+    /**
+     * What the motors of pad (default 0) do now: the strengths and the seconds left on the game's clock (game.step runs it down). All 0 for a pad that is not connected and once the rumble ended by itself, was stopped, or was cut by the game pausing, a scene change or the window losing focus.
+     * @since unreleased
+     */
+    rumbleState(pad?: number): { low: number; high: number; seconds: number };
     /**
      * The pulses input.vibrate() asked for since the test started, in seconds, oldest first (cleared before each test).
      * @since 0.2.0
