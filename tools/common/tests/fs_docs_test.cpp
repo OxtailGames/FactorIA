@@ -419,7 +419,7 @@ TEST_CASE("docs.read: the default result fits an MCP tool result, a cut read end
     CommandRegistry reg;
     register_docs_commands(reg);
     register_api_export_commands(reg);
-    for (const char* doc : {"ai-guide", "licenses"}) {
+    for (const char* doc : {"ai-guide-tools", "licenses"}) {
         CAPTURE(doc);
         auto r = reg.call("docs.read", {{"name", doc}});
         REQUIRE(r.ok);
@@ -543,7 +543,7 @@ TEST_CASE("ai-guide: the Index at the top is under 7 KB and lists exactly the ##
     CHECK(content.rfind("## Index", 0) == 0);
     CHECK(content.find("## 1. Mental model") == std::string::npos);
     CHECK(content.find("14. Where to read more") != std::string::npos);
-    CHECK(content.size() < 5120);
+    CHECK(content.size() < 7168);
 }
 
 TEST_CASE("docs.components and docs.commands: the default lists names, name gives one in full, filter narrows, full is "

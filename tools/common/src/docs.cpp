@@ -154,12 +154,10 @@ const std::vector<DocManifestEntry>& manifest() {
         {"ai-guide", "How to build a game: the loop, project layout, recipes by genre. Read its Index, then sections.",
          aud({kGameAi})},
         {"ai-guide-tools",
-         "AI guide pages: MCP tools and CLI, skills, coordinates and units, scene and prefab files, component "
-         "cheat-sheet (sections 4 to 7).",
+         "AI guide: MCP tools and CLI, skills, units, scene and prefab files, components (sections 4 to 7).",
          aud({kGameAi})},
         {"ai-guide-scripts",
-         "AI guide pages: the JavaScript API and recipes 9.1 to 9.7 (platformer, top-down, spawning, HUD, collisions, "
-         "camera, sounds).",
+         "AI guide: the JavaScript API; recipes 9.1 to 9.7 (platformer, top-down, HUD, camera, sounds).",
          aud({kGameAi})},
         {"ai-guide-tilemaps", "AI guide pages: recipe 9.8, tilemap levels, objects and tile collision.",
          aud({kGameAi})},
@@ -172,8 +170,7 @@ const std::vector<DocManifestEntry>& manifest() {
          "analytics).",
          aud({kGameAi})},
         {"ai-guide-recipes-production",
-         "AI guide pages: recipes 9.26 to 9.32 (2D production, enemy AI, multiplayer, split screen, render targets, "
-         "game feel, choices).",
+         "AI guide: recipes 9.26 to 9.32 (2D production, enemy AI, multiplayer, split screen, game feel).",
          aud({kGameAi})},
         {"ai-guide-checks",
          "AI guide pages: tests, debugging and replays, common mistakes, performance, where to read more (sections 10 "
