@@ -43,6 +43,12 @@ std::uint32_t hid_crc32(std::span<const std::uint8_t> data, std::uint32_t crc = 
 inline constexpr std::uint8_t kPsOutputCrcSeed = 0xA2;
 inline constexpr std::uint8_t kPsInputCrcSeed = 0xA1;
 std::uint32_t playstation_bt_crc(std::uint8_t seed, std::span<const std::uint8_t> reportWithoutCrc);
+// The full Bluetooth input reports (DualShock 4 0x11, DualSense 0x31) are 78 bytes: the CRC (seed 0xA1) of bytes 0..73
+// in bytes 74..77. Windows hands a report over in a buffer as long as the device's longest input report, so the CRC
+// stays at byte 74 whatever the length. True when `report` is at least 78 bytes long and that CRC does not match (a
+// report damaged on the radio link: the decoders drop it); a shorter report has no CRC to check.
+inline constexpr size_t kPsBtInputReportSize = 78;
+bool playstation_bt_input_crc_bad(std::span<const std::uint8_t> report);
 
 // A rumble strength (0..1, clamped; NaN is 0) as a motor byte 0..255, rounded to the nearest.
 std::uint8_t rumble_motor_byte(float strength);
@@ -60,7 +66,8 @@ std::optional<std::vector<std::uint8_t>> fit_hid_output_report(std::span<const s
 // 0x20, Circle 0x40, Triangle 0x80; L1 0x01, R1 0x02, L2 0x04, R2 0x08, Share 0x10, Options 0x20, L3 0x40, R3 0x80; PS
 // 0x01 (touchpad click 0x02, not mapped); then the analog L2 and R2 (0..255).
 // Engine buttons by position: Cross A, Circle B, Square X, Triangle Y; Share Back, Options Start, PS Guide.
-// False (state untouched) for another report or one too short.
+// False (state untouched) for another report, one too short, or a report 0x11 whose CRC is bad
+// (playstation_bt_input_crc_bad).
 bool decode_ds4_report(std::span<const std::uint8_t> report, GamepadState& state);
 // Output. USB report 0x05, 32 bytes: [1] = 0x01 (only the motors are valid: the light bar keeps its colour), [4] the
 // light (high) motor, [5] the heavy (low) motor. Bluetooth report 0x11, 78 bytes: [1] = 0xC4 (HID data, CRC, a 4 ms
@@ -78,7 +85,8 @@ inline constexpr size_t kDs4FeatureCalibrationSize = 37;
 // RY (as the DualShock 4), the analog L2 and R2, a counter, then the hat and face buttons, L1 R1 L2 R2 Create Options L3
 // R3, and PS 0x01 (touchpad 0x02, mic 0x04, the Edge's paddles and Fn buttons above: not mapped) in the DualShock 4's bit
 // order. Over Bluetooth report 0x01 is the simple report (another layout): not decoded here, the generic path reads it.
-// False (state untouched) for another report, one too short, or report 0x01 when `transport` is Bluetooth.
+// False (state untouched) for another report, one too short, report 0x01 when `transport` is Bluetooth, or a report 0x31
+// whose CRC is bad (playstation_bt_input_crc_bad).
 bool decode_dualsense_report(std::span<const std::uint8_t> report, HidTransport transport, GamepadState& state);
 // Output. USB report 0x02, 63 bytes; Bluetooth report 0x31, 78 bytes: [1] the sequence tag (`seq` & 15 in the high
 // nibble), [2] the tag 0x10, and the common part from [3] (USB: from [1]) whose first bytes are the valid flags 0 and 1,
@@ -134,7 +142,8 @@ std::vector<std::uint8_t> build_switch_subcommand(std::uint8_t seq, HidTransport
 // [1], except for 0x04.
 std::vector<std::uint8_t> build_switch_usb_command(std::uint8_t command);
 inline constexpr std::uint8_t kSwitchUsbHandshake = 0x02, kSwitchUsbBaud3M = 0x03, kSwitchUsbForceHid = 0x04;
-inline constexpr std::uint8_t kSwitchSubcommandInputMode = 0x03, kSwitchInputModeFull = 0x30;
+inline constexpr std::uint8_t kSwitchSubcommandInputMode = 0x03, kSwitchInputModeFull = 0x30,
+                              kSwitchInputModeSimple = 0x3F;
 inline constexpr std::uint8_t kSwitchSubcommandVibration = 0x48;
 
 // The set-up steps of the Switch Pro, in order: over USB the bridge's handshake (handshake, 3 Mbit, handshake, then
@@ -145,5 +154,8 @@ inline constexpr unsigned kSwitchReplyTimeoutMs = 300;
 inline constexpr unsigned kSwitchStepTries = 3;
 // How often the motors' report is repeated while they run: the pad stops them by itself when the reports stop coming.
 inline constexpr unsigned kSwitchRumbleRefreshMs = 50;
+// At exit (HidPadDriver::exit_report), once the full report was asked for: subcommand 0x03 0x3F, the simple report a
+// Bluetooth pad starts in and its descriptor declares, so a program that reads the pad after the game (an old DirectInput
+// game, a generic HID reader) gets reports it understands.
 
 }  // namespace fa
