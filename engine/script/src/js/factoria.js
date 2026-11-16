@@ -3327,7 +3327,7 @@
     // and a "close" event at the next frame.
     get supported() { return N.wsInfo().supported; },
     // The name of the client that opens connections: "memory" in tests and headless runs, or the platform's ("winhttp",
-    // "nsurlsession", "curl", "socket", "browser"), or "unavailable".
+    // "network" on macOS and iOS, "curl", "socket", "browser"), or "unavailable".
     get backend() { return N.wsInfo().backend; },
     // Why websocket.supported is false ("" when it is true).
     get unsupportedReason() { const i = N.wsInfo(); return i.supported ? "" : i.reason; },

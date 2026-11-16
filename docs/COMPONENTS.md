@@ -14119,7 +14119,7 @@ declare module "factoria" {
      */
     readonly supported: boolean;
     /**
-     * The client in use: "memory" (tests, headless), "winhttp", "nsurlsession", "curl", "socket", "browser" or "unavailable".
+     * The client in use: "memory" (tests, headless), "winhttp", "network" (macOS, iOS), "curl", "socket", "browser" or "unavailable".
      * @since 0.30.0
      */
     readonly backend: string;
