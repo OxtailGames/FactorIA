@@ -25,6 +25,7 @@
 //   anything else      404 and closes
 #pragma once
 
+#include <algorithm>
 #include <atomic>
 #include <cerrno>
 #include <chrono>
@@ -137,7 +138,100 @@ public:
     // True once the server noticed that a connection ended (the client closed it or sent a close).
     int finished_connections() const { return finished_.load(); }
 
+    // What the last connections received, for the message of a failed check: for each one its route, the bytes that came
+    // after the handshake (the first ones in hex), the frames they held (opcode, FIN, RSV bits, mask, length, close code), the
+    // events of the parser, and how the connection ended (the client's FIN, a reset, the closing handshake, the test's end).
+    std::string diagnostics() const {
+        std::lock_guard<std::mutex> lock(mutex_);
+        if (logs_.empty()) return "the server accepted no connection";
+        std::string out;
+        for (const auto& log : logs_) {
+            out += "connection #" + std::to_string(log->id) + " " + (log->route.empty() ? "(no request)" : log->route) +
+                   ": " + std::to_string(log->bytesIn) + " bytes after the handshake";
+            if (!log->raw.empty()) {
+                static const char* hex = "0123456789abcdef";
+                out += " [";
+                const std::size_t shown = std::min<std::size_t>(log->raw.size(), kHexBytes);
+                for (std::size_t i = 0; i < shown; ++i) {
+                    const auto b = static_cast<unsigned char>(log->raw[i]);
+                    if (i) out += ' ';
+                    out += hex[b >> 4];
+                    out += hex[b & 15];
+                }
+                if (log->raw.size() > shown) out += " ...";
+                out += "]";
+            }
+            out += log->closeFrame ? "; a close frame arrived" : "; NO close frame arrived";
+            for (const std::string& note : log->notes) out += "\n    " + note;
+            out += "\n    ended: " + (log->end.empty() ? std::string("still open") : log->end) + "\n";
+        }
+        return out;
+    }
+
 private:
+    // What one connection received (diagnostics()). Written by its thread, read by the test, both under mutex_.
+    struct ConnectionLog {
+        int id = 0;
+        std::string route;
+        std::size_t bytesIn = 0;         // every byte after the handshake
+        std::string raw;                 // the first kRawBytes of them
+        std::size_t decodedTo = 0;       // how far `raw` was split into frames
+        std::vector<std::string> notes;  // frames and parser events, at most kMaxNotes
+        bool closeFrame = false;
+        std::string end;
+    };
+    static constexpr std::size_t kRawBytes = 4096, kHexBytes = 64, kMaxNotes = 32;
+    static constexpr std::size_t kMaxLogs = 8;
+
+    void note(ConnectionLog& log, std::string text) {
+        if (log.notes.size() < kMaxNotes) log.notes.push_back(std::move(text));
+    }
+
+    // Bytes the client sent after the handshake: kept, and each frame they complete described. mutex_ held.
+    void log_input(ConnectionLog& log, const char* data, std::size_t size) {
+        log.bytesIn += size;
+        if (log.raw.size() < kRawBytes) log.raw.append(data, std::min(size, kRawBytes - log.raw.size()));
+        const std::string& r = log.raw;
+        while (true) {
+            const std::size_t at = log.decodedTo;
+            if (r.size() - at < 2) return;
+            const auto b0 = static_cast<unsigned char>(r[at]);
+            const auto b1 = static_cast<unsigned char>(r[at + 1]);
+            std::size_t header = 2;
+            std::uint64_t length = b1 & 0x7f;
+            if (length == 126 || length == 127) {
+                const std::size_t extra = length == 126 ? 2 : 8;
+                if (r.size() - at < header + extra) return;
+                length = 0;
+                for (std::size_t i = 0; i < extra; ++i)
+                    length = (length << 8) | static_cast<unsigned char>(r[at + 2 + i]);
+                header += extra;
+            }
+            const bool masked = (b1 & 0x80) != 0;
+            if (masked) header += 4;
+            if (length > kRawBytes || r.size() - at < header + length) return;  // incomplete, or past what is kept
+            const int opcode = b0 & 0x0f;
+            std::string text = "frame: opcode " + std::to_string(opcode) + " fin " + std::to_string((b0 >> 7) & 1) +
+                               " rsv " + std::to_string((b0 >> 4) & 7) + " masked " + std::to_string(masked ? 1 : 0) +
+                               " length " + std::to_string(length);
+            if (opcode == 8) {
+                log.closeFrame = true;
+                if (length >= 2) {
+                    unsigned char code[2];
+                    for (std::size_t i = 0; i < 2; ++i) {
+                        const auto key = masked ? static_cast<unsigned char>(r[at + header - 4 + i]) : 0;
+                        code[i] = static_cast<unsigned char>(static_cast<unsigned char>(r[at + header + i]) ^ key);
+                    }
+                    text += " (close, code " + std::to_string((code[0] << 8) | code[1]) + ")";
+                } else {
+                    text += " (close, no code)";
+                }
+            }
+            note(log, std::move(text));
+            log.decodedTo = at + header + static_cast<std::size_t>(length);
+        }
+    }
+
     static void close_socket(Socket s) {
 #ifdef _WIN32
         ::closesocket(s);
@@ -211,11 +305,22 @@ private:
             const int one = 1;
             ::setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
 #endif
+            auto log = std::make_shared<ConnectionLog>();
+            log->id = connections_.load();
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                logs_.push_back(log);
+                if (logs_.size() > kMaxLogs) logs_.erase(logs_.begin());
+            }
             Worker w;
             w.done = std::make_shared<std::atomic<bool>>(false);
             auto done = w.done;
-            w.thread = std::thread([this, c, done] {
-                serve(c);
+            w.thread = std::thread([this, c, done, log] {
+                serve(c, *log);
+                {
+                    std::lock_guard<std::mutex> lock(mutex_);
+                    if (log->end.empty()) log->end = "the server ended it before the WebSocket session";
+                }
                 close_socket(c);
                 ++finished_;
                 done->store(true);
@@ -242,18 +347,32 @@ private:
 
     // -1: the peer closed or an error; 0: nothing within 100 ms (the caller looks at stop_); n > 0: bytes. The wait is a
     // poll, not SO_RCVTIMEO: on Windows a socket whose receive timed out is in an undefined state.
-    static int read_some(Socket c, char* buffer, int size) {
+    // `why`, when given, says what a -1 was: the client's FIN, a reset, another error.
+    static int read_some(Socket c, char* buffer, int size, std::string* why = nullptr) {
         const int ready = wait_readable(c, 100);
-        if (ready < 0) return -1;
+        if (ready < 0) {
+            if (why) *why = "poll failed";
+            return -1;
+        }
         if (ready == 0) return 0;
         const auto n = ::recv(c, buffer, size, 0);
         if (n > 0) return static_cast<int>(n);
-        if (n == 0) return -1;
+        if (n == 0) {
+            if (why) *why = "the client closed the TCP connection (FIN)";
+            return -1;
+        }
 #ifdef _WIN32
-        return WSAGetLastError() == WSAEWOULDBLOCK ? 0 : -1;
+        const int error = WSAGetLastError();
+        if (error == WSAEWOULDBLOCK) return 0;
+        const bool reset = error == WSAECONNRESET;
 #else
-        return (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) ? 0 : -1;
+        const int error = errno;
+        if (error == EAGAIN || error == EWOULDBLOCK || error == EINTR) return 0;
+        const bool reset = error == ECONNRESET;
 #endif
+        if (why)
+            *why = reset ? "the client reset the TCP connection (RST)" : "recv failed, error " + std::to_string(error);
+        return -1;
     }
 
     static std::map<std::string, std::string> query_of(const std::string& path) {
@@ -272,7 +391,11 @@ private:
         return q;
     }
 
-    void serve(Socket c) {
+    void serve(Socket c, ConnectionLog& log) {
+        auto finish = [&](std::string why) {
+            std::lock_guard<std::mutex> lock(mutex_);
+            log.end = std::move(why);
+        };
         // The head of the request.
         std::string data;
         std::size_t headEnd = std::string::npos;
@@ -299,6 +422,10 @@ private:
         }
         const std::string route = req.path.substr(0, req.path.find('?'));
         const auto query = query_of(req.path);
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            log.route = req.path;
+        }
 
         if (route == "/refuse") {
             const int status = query.count("status") ? std::atoi(query.at("status").c_str()) : 403;
@@ -380,7 +507,22 @@ private:
         if (!flush()) return;
 
         std::vector<ws::Event> events;
-        if (!leftover.empty()) session.feed(leftover.data(), leftover.size(), events);
+        auto feed = [&](const char* bytes, std::size_t size) {
+            {
+                std::lock_guard<std::mutex> lock(mutex_);
+                log_input(log, bytes, size);
+            }
+            session.feed(bytes, size, events);
+            std::lock_guard<std::mutex> lock(mutex_);
+            for (const ws::Event& e : events) {
+                if (e.type == ws::Event::Type::Close)
+                    note(log, "parser: close, code " + std::to_string(e.code) + " reason \"" + e.reason + "\"");
+                else if (e.type == ws::Event::Type::Failure)
+                    note(log, "parser: failure \"" + e.error + "\", answered with close " + std::to_string(e.code));
+            }
+        };
+        if (!leftover.empty()) feed(leftover.data(), leftover.size());
+        std::string why;
         while (!stop_) {
             for (ws::Event& e : events) {
                 switch (e.type) {
@@ -404,12 +546,15 @@ private:
                 }
             }
             events.clear();
-            if (!flush()) return;
-            if (session.done()) return;
-            const int n = read_some(c, buffer, kBufferSize);
-            if (n < 0) return;
-            if (n > 0) session.feed(buffer, static_cast<std::size_t>(n), events);
+            if (!flush()) return finish("writing to the client failed");
+            if (session.done())
+                return finish(session.close_received() ? "the closing handshake completed"
+                                                       : "the server failed the session (protocol error)");
+            const int n = read_some(c, buffer, kBufferSize, &why);
+            if (n < 0) return finish(why);
+            if (n > 0) feed(buffer, static_cast<std::size_t>(n));
         }
+        finish("the test ended with the connection open");
     }
 
     struct Worker {
@@ -428,6 +573,7 @@ private:
     mutable std::mutex mutex_;
     std::vector<Worker> workers_;
     std::vector<int> closeCodes_;
+    std::vector<std::shared_ptr<ConnectionLog>> logs_;  // the last kMaxLogs connections, oldest first
     std::map<std::string, std::string> lastHeaders_;
     std::thread thread_;
 };
