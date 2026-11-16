@@ -3019,6 +3019,9 @@
   const WS_EVENTS = ["open", "message", "error", "close", "reconnecting"];
   const WS_RECONNECT_DEFAULTS = Object.freeze({ maxAttempts: 10, minDelay: 1, maxDelay: 30, factor: 2, jitter: 0.25 });
   const wsStates = new WeakMap();   // connection -> its state
+  // The bytes a DataView shows (its byteOffset and byteLength), as a Uint8Array over the same buffer: the native side reads
+  // ArrayBuffers and typed arrays.
+  const wsViewBytes = (view) => new Uint8Array(view.buffer, view.byteOffset, view.byteLength);
   const wsByNative = new Map();     // id of the engine's connection -> state (a reconnect gets a new id)
   const wsAll = new Set();          // states of the connections that are not closed for good (waiting to reconnect included)
   const wsWaiting = new Set();      // the ones that wait for their reconnect time
@@ -3187,6 +3190,7 @@
       const binary = typeof data !== "string";
       if (binary && !(data instanceof ArrayBuffer) && !ArrayBuffer.isView(data))
         throw new Error(`websocket.send(data): data must be a string, an ArrayBuffer or a typed array, but got ${platformArg(data)} (hint: send an object as ws.send(JSON.stringify(obj)))`);
+      if (data instanceof DataView) data = wsViewBytes(data);
       if (st.state !== "open" || !st.id) return false;
       const r = N.wsSend(st.id, binary, data, binary ? data.byteLength : 0);
       if (r === true) return true;
@@ -4944,6 +4948,7 @@
         const binary = typeof data !== "string";
         if (binary && !(data instanceof ArrayBuffer) && !ArrayBuffer.isView(data))
           throw new Error(`game.websocket.send(i, data): data must be a string, an ArrayBuffer or a typed array, but got ${platformArg(data)}`);
+        if (data instanceof DataView) data = wsViewBytes(data);
         wsTestCall("send", i, binary, data, binary ? data.byteLength : 0);
       },
       // close(i, code = 1000, reason = ""): the server closes cleanly: the game gets "close" with that code.

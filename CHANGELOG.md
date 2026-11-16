@@ -16,6 +16,7 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   (`game.websocket`), and the script API. The clients of the platforms (WinHTTP, `NSURLSessionWebSocketTask`, libcurl, Android,
   the browser) come in the same milestone; until then `websocket.supported` is false outside tests and a connection fails with an
   `"error"` and a `"close"` event (docs/NETWORKING.md, "WebSocket").
+- The web player opens WebSockets with the browser's own `WebSocket` (`websocket.supported` is true there): messages, subprotocols, the engine's connect timeout and close timer, and `error` messages that name what to check, since the browser gives no reason; `headers` is an error on the web (the browser cannot send any). `ws.send` and `game.websocket.send` also take a `DataView`.
 - `factoria validate` warns about a script that calls `websocket.connect` in a game with no `network` hosts, as it does for
   `http.fetch`.
 - `TextField` has `caretIndex`, `selectionStart`, `selectionEnd` and a runtime `composition`, and scripts read
