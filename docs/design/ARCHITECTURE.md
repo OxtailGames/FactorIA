@@ -209,10 +209,10 @@ becomes the engine roadmap.
   A citation of an entry page is accepted for an embedded doc when one of its pages holds the
   section, because `docs.read` searches the family; it is not accepted for `docs/design/`, which `docs.read` cannot serve.
 - Translations: the first line of a translation is `<!-- follows <english path> sha256:<16 hex> -->`, where the hash is the
-  first 16 hex digits of the SHA-256 of the English file with its carriage returns removed and without the line that
-  starts with `Version x.y` (README.md's; every version bump edits it, and the hash must survive a bump). A hash needs
-  no history, which
-  a shallow CI checkout or a source tarball does not have, and gives the same value on a CRLF checkout). A test flags a
+  first 16 hex digits of the SHA-256 of the English file with its carriage returns removed (a hash needs no history,
+  which a shallow CI checkout or a source tarball does not have, and gives the same value on a CRLF checkout). For
+  README.md only, the number of the line that starts with `Version x.y` is left out of the hash (the rest of that line
+  counts), so a version bump does not make README.es.md stale. A test flags a
   translation whose English original has another hash. To update one, translate the change and write the new hash (the
   test prints it). A translation that is still behind ends the line with ` behind` (`sha256:unknown behind` when it never
   followed a known version) and says so in a visible notice at its top.
