@@ -83,7 +83,8 @@ TEST_CASE("project.create_storage_secret: writes a random secret once, keeps it,
     CHECK(made.result.dump().find(secret) == std::string::npos);  // never in a result
 
     // The running game uses it at once (no restart), and nothing shows it.
-    auto after = c.call("script.eval", Json::object({{"code", "storage.set('a', 1, {encrypt: true}); storage.get('a')"}}));
+    auto after =
+        c.call("script.eval", Json::object({{"code", "storage.set('a', 1, {encrypt: true}); storage.get('a')"}}));
     CHECK_MESSAGE(after.ok, after.error.dump());
     auto info = c.call("project.info", Json::object());
     REQUIRE(info.ok);
@@ -110,7 +111,8 @@ TEST_CASE("project.create_storage_secret: writes a random secret once, keeps it,
     e.shutdown();
 }
 
-TEST_CASE("project.create_storage_secret: a \"storage\" section that is not an object is refused when the project loads, with its pointer") {
+TEST_CASE("project.create_storage_secret: a \"storage\" section that is not an object is refused when the project "
+          "loads, with its pointer") {
     authoring::install();
     TempProject p;
     std::ofstream(p.dir / "factoria.json", std::ios::binary | std::ios::trunc)

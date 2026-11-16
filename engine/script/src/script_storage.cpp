@@ -60,7 +60,7 @@ std::string file_name(const std::string& key) {
 namespace {
 constexpr const char* kEncName = "chacha20poly1305";
 constexpr const char* kContext = "factoria.storage.v1:";
-constexpr std::size_t kMinSecretSize = 16;  // a random secret is 43 characters; shorter is a typed word, not a key
+constexpr std::size_t kMinSecretSize = 16;  // a random secret is 64 hex characters; shorter is a typed word, not a key
 }  // namespace
 
 Result<crypto::Key> derive_key(const KeyMaterial& material, const std::string& key) {
@@ -76,8 +76,9 @@ Result<crypto::Key> derive_key(const KeyMaterial& material, const std::string& k
     if (material.secret.size() < kMinSecretSize)
         return make_error("storage.encryptionSecret in factoria.json is too short to be a key (" +
                               std::to_string(material.secret.size()) + " characters, at least 16 needed)",
-                          "Run `factoria call project.create_storage_secret {\"replace\": true}` for a random one "
-                          "(saves written with the old secret cannot be opened afterwards).");
+                          "Do not write it by hand: delete the field and run `factoria call "
+                          "project.create_storage_secret` for a random one (saves written with the old secret cannot "
+                          "be opened afterwards).");
     auto okm = crypto::hkdf_sha256(crypto::as_bytes(material.secret), crypto::as_bytes(material.gameId),
                                    crypto::as_bytes(std::string(kContext) + key), crypto::kKeySize);
     if (!okm) return okm.error();
@@ -168,7 +169,10 @@ bool decode(const std::string& text, Decoded& out, std::string& problem, const K
     }
     std::string plain;
     if (zlibbed) {
-        const std::size_t n = j.contains("n") && j["n"].is_number_unsigned() ? j["n"].get<std::size_t>() : 0;
+        // "n" is only a buffer-size hint, and in an encrypted file it is not authenticated: a hand-edited huge value must not
+        // make a big allocation, so a sealed value lets the decoder grow its buffer from the (authenticated) body.
+        const std::size_t n =
+            !encrypted && j.contains("n") && j["n"].is_number_unsigned() ? j["n"].get<std::size_t>() : 0;
         auto z = zlib_decompress(body, n);
         if (!z) {
             problem = z.error().message;
@@ -202,8 +206,13 @@ Writer::~Writer() {
 }
 
 void Writer::run(Job& job) {
-    auto encoded = encode(job.key, job.valueText, job.compress, job.encrypt ? &job.sealKey : nullptr);
-    crypto::secure_zero(job.sealKey);
+    if (job.encrypt && !job.sealKey) {  // never write a value in plain that was meant to be sealed
+        job.ok = false;
+        job.error = "no encryption key was given for an encrypted write";
+        return;
+    }
+    auto encoded = encode(job.key, job.valueText, job.compress, job.encrypt ? job.sealKey.get() : nullptr);
+    job.sealKey.reset();  // zeroes the key
     if (!encoded) {
         job.ok = false;
         job.error = encoded.error().message;

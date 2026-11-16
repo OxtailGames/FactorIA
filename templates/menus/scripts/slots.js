@@ -23,7 +23,10 @@
 // shows nothing and a changed byte makes the save unreadable instead of loading edited gold). It needs the project's secret
 // (`factoria call project.create_storage_secret`, once) and it is tamper-evidence, not secrecy: the secret ships with the game
 // (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). The counter and last-slot keys and the cloud copies stay plain text.
-// A slot that was saved before `encrypt` was turned on is still read, and is sealed the next time it is written.
+// A slot that was saved before `encrypt` was turned on is still read, and is sealed the next time it is written. That also means
+// a player can delete a sealed slot file and write a plain one by hand, and it loads: `requireEncrypted: true` (it needs `encrypt`)
+// closes that, a slot that is not sealed is "damaged" (the player can delete it). Turn it on for a new game, or once your players'
+// saves are sealed (a game that already shipped plain saves would show them all as damaged).
 //
 //   const slots = new Slots({ version: 2, encrypt: true, upgrade: migrate, describe: (data) => ({ chapter: data.chapter, playTime: data.playTime }) });
 //   slots.write(1, { name: "Before the cellar", data: mySave, chapter: 3, playTime: 3725.5, pic: capturePic() });
@@ -77,6 +80,7 @@ export class Slots {
    * @param {string} [options.lastKey] storage key of the id of the slot saved last (for a "Continue" button)
    * @param {number} [options.version] the layout of `data` this build writes (a whole number, default 0); stored in every record and given to `upgrade`
    * @param {boolean} [options.encrypt] seal the slot files with the project's storage secret (default false)
+   * @param {boolean} [options.requireEncrypted] with `encrypt`: a slot that is not sealed is "damaged" instead of read (default false, so saves written before `encrypt` was turned on still load)
    * @param {(data: any, fromVersion: number) => Upgraded} [options.upgrade] migrates the data of a slot to the newest layout when it is read, knowing the version it was written with (0 for a bare save or a record without a version); a not-ok result makes the slot "damaged" with that message
    * @param {(data: any) => { chapter?: number, playTime?: number }} [options.describe] chapter and play time of a bare save (a record's own fields win)
    */
@@ -91,8 +95,11 @@ export class Slots {
     const version = options.version ?? 0;
     if (!Number.isInteger(version) || version < 0) throw new Error(`Slots: version must be a whole number from 0 up, but got ${JSON.stringify(version)}. It is the layout of the saved data; raise it by one when that layout changes.`);
     if (options.encrypt !== undefined && typeof options.encrypt !== "boolean") throw new Error(`Slots: encrypt must be true or false, but got ${JSON.stringify(options.encrypt)}.`);
+    if (options.requireEncrypted !== undefined && typeof options.requireEncrypted !== "boolean") throw new Error(`Slots: requireEncrypted must be true or false, but got ${JSON.stringify(options.requireEncrypted)}.`);
+    if (options.requireEncrypted === true && options.encrypt !== true) throw new Error("Slots: requireEncrypted needs encrypt: true (a game that never seals its slots cannot ask for sealed ones). Add encrypt: true, and run `factoria call project.create_storage_secret` once.");
     this.version = version;
     this.encrypt = options.encrypt === true;
+    this.requireEncrypted = options.requireEncrypted === true;
     this.upgrade = options.upgrade ?? ((data) => ({ ok: true, data }));
     this.describe = options.describe ?? (() => ({}));
   }
@@ -122,7 +129,9 @@ export class Slots {
     }
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) return { ok: false, reason: "not a JSON object", hint: "Delete the slot." };
     const bare = !Object.hasOwn(raw, "data");
-    const from = !bare && Number.isInteger(raw.version) && raw.version >= 0 ? raw.version : 0;
+    if (!bare && Object.hasOwn(raw, "version") && !(Number.isInteger(raw.version) && raw.version >= 0))
+      return { ok: false, reason: `the save has a version that is not a whole number from 0 up (${JSON.stringify(raw.version)})`, hint: "Delete the slot." };
+    const from = bare ? 0 : (raw.version ?? 0);
     if (from > this.version) {
       return {
         ok: false,
@@ -155,7 +164,14 @@ export class Slots {
 
   /** What the slot screen shows: `{ status: "empty" | "used" | "damaged", reason?, hint?, record? }`. */
   peek(id) {
-    const text = storage.get(this.key(id), null);
+    const key = this.key(id);
+    if (this.requireEncrypted && storage.isEncrypted(key) === false)
+      return {
+        status: "damaged",
+        reason: "this slot is not encrypted, but the game only reads sealed slots (it was saved before encryption was turned on, or the file was replaced by hand)",
+        hint: "Delete the slot.",
+      };
+    const text = storage.get(key, null, this.requireEncrypted ? { encrypted: true } : undefined);
     if (text === null) return { status: "empty" };
     const r = this.parse(text);
     if (!r.ok) return { status: "damaged", reason: r.reason, hint: r.hint };

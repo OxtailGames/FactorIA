@@ -315,14 +315,27 @@ job.promise.catch(() => { if (!this.gone && !job.cancelled) scene.load("scenes/l
     packed with the exported game like the rest of `factoria.json` (the exported pack is not readable text, but it is not
     a vault either), so it is the same in every build and install of the game: sealed saves survive an update or a
     reinstall and can be copied between a player's devices (the cloud copy of the Slots kit is plain text). It is never
-    logged, and `project.info` and `game.project` show it as `"(hidden)"`. Keep the secret and the game id for the life
+    logged, and `project.info`, `game.project`, `fs.read` / `fs.search` of `factoria.json` (and so the MCP and AI tools) and the MCP
+    `factoria.json` resource show it as `"(hidden)"` (`fs.write` of a file that says `"(hidden)"` keeps the real one). Keep the secret and the game id for the life
     of the game: changing either one orphans every sealed save.
-  - **What it protects, and what it does not.** It is tamper-evidence and protection against casual reading: a player
-    cannot raise their gold with a text or hex editor, and a half-written or damaged file is reported. It is NOT secrecy
-    and NOT anti-cheat: the key necessarily ships inside the game, so anyone who takes the secret out of the pack (or
-    out of the running process) can read and forge saves; the file size is visible; and an older sealed file can be put
-    back (a rollback: keep a counter or a timestamp in the data and check it if that matters). Real secrecy needs a key
-    that never leaves the player's device or a server that holds it. Do not keep passwords or purchase state in it.
+  - **What it protects, and what it does not.** It depends on what the game asks for, and none of it is secrecy or anti-cheat:
+    the key necessarily ships inside the game, so anyone who takes the secret out of the pack (or out of the running process)
+    can read and forge saves; the file size is visible; and an older sealed file can be put back (a rollback: keep a counter or
+    a timestamp in the data and check it if that matters). Do not keep passwords or purchase state in it.
+    - `storage.set(key, value, {encrypt: true})` alone: a player cannot READ the save with a text or hex editor, and a sealed
+      file that was edited (one changed byte, a changed flag, a file moved to another key) is refused. But `storage.get(key)`
+      still reads a PLAIN file for that key, because a game that turns encryption on later must keep its players' old saves:
+      a player who deletes the sealed file and writes `{"key": "slot1", "value": {...}}` by hand (the format is on this page)
+      loads whatever they typed. So with `encrypt` alone a determined player CAN set their own gold.
+    - `storage.get(key, fallback, {encrypted: true})` as well: a value read from a plain file is treated like one that failed
+      authentication (the file is kept aside, `storage.corrupt` is `true`, the log names the key) and `fallback` comes back. Now
+      a player cannot write the value of that key at all without the secret. Use it for a key the game has always sealed, or
+      once every player's save is sealed (`storage.isEncrypted(key)` tells; a game that already shipped plain saves would
+      refuse every one of them: read the plain value, write it again with `{encrypt: true}`, and only then ask for
+      `{encrypted: true}`). A value the game itself stored in plain in this run is just not returned.
+    - The Slots kit: `encrypt: true` is the first case (`write` seals, `peek` still reads a plain slot); adding
+      `requireEncrypted: true` is the second (a slot that is not sealed is `damaged`). Set it for a new game, or after a
+      release in which every slot is sealed.
 
 ### The bot (`game.autoplay`)
 

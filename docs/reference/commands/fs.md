@@ -51,7 +51,7 @@ Read a text file (optionally a line range).
 
 Capabilities: read
 
-Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files are refused. Set numbered=true to get line numbers for fs.edit planning.
+Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files are refused. Set numbered=true to get line numbers for fs.edit planning. In factoria.json the value of storage.encryptionSecret (the key that seals the game's saves) is shown as "(hidden)", here and in fs.search; fs.write of a file that says "(hidden)" keeps the real secret.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
