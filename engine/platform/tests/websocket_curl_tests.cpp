@@ -1,5 +1,7 @@
 // The libcurl WebSocket client (make_curl_websocket_client, Linux's client) against the loopback server of ws_test_server.h.
-// It runs wherever libcurl can be loaded (Linux CI, macOS's own libcurl); without one every case says so and passes.
+// It runs wherever libcurl can be loaded (Linux CI, macOS's own libcurl); without one every case says so and passes, except on
+// Linux, where a missing libcurl fails the case (the CI image has one: otherwise a broken loader would pass silently); a Linux
+// machine without libcurl runs the tests with FA_ALLOW_NO_CURL=1.
 // Nothing here reaches another machine.
 #include <doctest.h>
 
@@ -15,6 +17,7 @@
 #include <atomic>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <thread>
 #include <utility>
@@ -43,6 +46,13 @@ std::unique_ptr<WebSocketClient> curl_client() {
         auto ws = client->connect(r);
         REQUIRE_FALSE(ws.ok());
         CHECK_FALSE(ws.error().hint.empty());
+#if defined(__linux__)
+        const char* allow = std::getenv("FA_ALLOW_NO_CURL");
+        CHECK_MESSAGE(allow != nullptr && allow[0] != '\0' && allow[0] != '0',
+                      "libcurl cannot be loaded on this Linux machine (" << client->unavailable_reason()
+                                                                         << "); install libcurl 7.45 or newer, or set "
+                                                                            "FA_ALLOW_NO_CURL=1 to skip these cases");
+#endif
         MESSAGE("skipped: the curl WebSocket client is not available here: " << client->unavailable_reason());
         return nullptr;
     }
@@ -486,6 +496,29 @@ TEST_CASE("websocket curl: close() while connecting, the handshake timeout, and 
         CHECK(events[1].code == 1006);
     }
     {
+        // An address that never answers (a black hole, or unreachable at once where the network says so): close() during
+        // the TCP connect ends the attempt well before curl's own connect timeout, because the progress callback runs while
+        // curl waits for the connection. The connect timeout of the request is the safety net far above it.
+        WebSocketRequest blackhole;
+        blackhole.url = "ws://10.255.255.1/";
+        blackhole.connectTimeoutSec = 60;
+        auto ws = client->connect(blackhole).value();
+        std::vector<WebSocketEvent> early;
+        const auto settle = Clock::now() + std::chrono::milliseconds(300);
+        while (Clock::now() < settle) {
+            ws->poll(early);
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        CHECK(ws->close(1000, "").ok());
+        auto events = collect_until_close(*ws, 20000);
+        early.insert(early.end(), std::make_move_iterator(events.begin()), std::make_move_iterator(events.end()));
+        REQUIRE(early.size() >= 2);
+        CHECK(early[early.size() - 2].type == WebSocketEvent::Type::Error);
+        CHECK(early.back().type == WebSocketEvent::Type::Close);
+        CHECK(early.back().code == 1006);
+        CHECK(ws->state() == WebSocketState::Closed);
+    }
+    {
         auto ws = open(*client, "ws://127.0.0.1:1/");  // nothing listens on port 1: refused at once
         auto events = collect_until_close(*ws);
         REQUIRE(events.size() == 2);
@@ -524,8 +557,10 @@ TEST_CASE("websocket curl: a burst of sends to a server that reads slowly arrive
     // or change meanwhile (a TLS library retries the same buffer), and nothing may be lost or reordered.
     auto client = curl_client();
     if (!client) return;
-    constexpr int kCount = 64;
-    constexpr std::size_t kSize = 64 * 1024;  // 4 MB in all: far more than the socket buffers hold
+    constexpr int kCount = 160;
+    constexpr std::size_t kSize =
+        64 * 1024;  // 10 MB in all (below the 16 MB the client queues): more than any socket buffer
+                    // holds, even a Linux one that tuned itself up to 4 MB
     SlowReader server(kCount, kSize);
     REQUIRE(server.ok());
     auto ws = open(*client, server.url());
@@ -537,6 +572,9 @@ TEST_CASE("websocket curl: a burst of sends to a server that reads slowly arrive
         for (std::size_t k = 0; k < kSize; ++k) message[k] = burst_byte(i, k);
         REQUIRE(ws->send_binary(message.data(), message.size()).ok());
     }
+    // The server takes 8 KB a millisecond at most, so most of the burst is still waiting: the writes did stall (CURLE_AGAIN),
+    // which is what this case is about.
+    CHECK(ws->buffered_amount() > 0);
     events = collect_until_close(*ws);
     REQUIRE(events.size() == 2);
     CHECK(events[0].type == WebSocketEvent::Type::Text);

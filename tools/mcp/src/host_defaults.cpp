@@ -175,9 +175,12 @@ Result<std::vector<McpPromptMessage>> default_mcp_prompt_messages(std::string_vi
 
 std::vector<McpResource> default_mcp_resources(const std::string& projectDir) {
     std::vector<McpResource> out;
-    for (const auto& d : list_docs())
-        out.push_back(
-            {"factoria://docs/" + d.path.substr(5), d.name, d.title.empty() ? d.name : d.title, "text/markdown"});
+    for (const auto& d : list_docs()) {
+        // A page of a split doc has only its own H1 as title: say whose page it is.
+        std::string description = d.title.empty() ? d.name : d.title;
+        if (!d.family.empty()) description += " (page of " + d.family + ")";
+        out.push_back({"factoria://docs/" + d.path.substr(5), d.name, std::move(description), "text/markdown"});
+    }
     std::error_code ec;
     auto exists = [&](const char* f) { return stdfs::exists(stdfs::path(projectDir) / f, ec); };
     if (exists("factoria.json"))

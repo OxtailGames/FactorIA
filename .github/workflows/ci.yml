@@ -282,7 +282,7 @@ jobs:
           retention-days: 7
 
   # Linux with Clang and ThreadSanitizer: only the tests that run threads (ctest label `tsan`: the job system and the background
-  # reads in core, the jobs engine and the background loads in runtime, all of audio and of mcp; CMakeLists.txt, "ThreadSanitizer").
+  # reads in core, the jobs engine and the background loads in runtime, all of audio and of mcp, the WebSocket cases of platform; CMakeLists.txt, "ThreadSanitizer").
   # A data race fails the test (TSan's exit code). The suppressions are tools/ci/sanitizers/tsan.supp.
   linux-tsan:
     name: Linux (Clang, TSan, threaded tests)
@@ -315,7 +315,7 @@ jobs:
         run: |
           ccache --zero-stats
           cmake --preset linux-tsan -DFA_WARNINGS_AS_ERRORS=ON
-          cmake --build --preset linux-tsan --target fa_test_core fa_test_runtime fa_test_audio fa_test_mcp -- -k 0
+          cmake --build --preset linux-tsan --target fa_test_core fa_test_runtime fa_test_audio fa_test_mcp fa_test_platform -- -k 0
           ccache --show-stats --verbose
 
       # Trim, save and prune: see the linux job.
