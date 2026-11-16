@@ -25,13 +25,16 @@ Text problem_text(Problem problem, const std::string& host, bool secureAddress, 
         case Problem::CouldNotConnect:
             t.message = "could not connect to " + host;
             t.hint =
-                "The browser gives no reason for a failed WebSocket on purpose, so check each of these. (1) The address and "
+                "The browser gives no reason for a failed WebSocket on purpose, so check each of these. (1) The "
+                "address and "
                 "the port are right and the server is running. (2) A page loaded over https:// may only open wss:// "
                 "addresses (mixed content)" +
-                std::string(pageHttps && !secureAddress ? ": this page is https:// and the address is ws://, use wss://. "
-                                                        : ". ") +
+                std::string(pageHttps && !secureAddress
+                                ? ": this page is https:// and the address is ws://, use wss://. "
+                                : ". ") +
                 "(3) The browser always sends the page's Origin header, and a server may refuse origins it does not "
-                "know (the handshake then fails with a 403 the page cannot see): allow this game's origin in the server. "
+                "know (the handshake then fails with a 403 the page cannot see): allow this game's origin in the "
+                "server. "
                 "(4) For wss:// the server needs a certificate the browser trusts.";
             break;
         case Problem::ConnectionLost:
@@ -47,13 +50,14 @@ Text problem_text(Problem problem, const std::string& host, bool secureAddress, 
                 "server, or raise the timeout option of websocket.connect.";
             break;
         case Problem::CloseTimeout:
-            t.message = "the server at " + host + " did not answer the close within " + seconds_text(kWebSocketCloseWaitSec) +
-                        " s";
+            t.message = "the server at " + host + " did not answer the close within " +
+                        seconds_text(kWebSocketCloseWaitSec) + " s";
             t.hint = "The connection was dropped without a closing handshake.";
             break;
         case Problem::ClosedBeforeOpen:
             t.message = "the connection was closed before it was open";
-            t.hint = "close() was called before the connection opened; wait for the 'open' event, or ignore this error.";
+            t.hint =
+                "close() was called before the connection opened; wait for the 'open' event, or ignore this error.";
             break;
     }
     return t;
@@ -64,10 +68,11 @@ Text constructor_failure_text(const std::string& name, const std::string& messag
     Text t;
     if (name == "SecurityError") {
         t.message = "the browser refused to open " + url + " from this page";
-        t.hint = std::string(pageHttps ? "This page was loaded over https://, and a browser blocks ws:// from it (mixed "
-                                         "content; only localhost is exempt in some browsers). Use a wss:// address."
-                                       : "The browser's security rules refuse this address from this page. ") +
-                 (message.empty() ? "" : std::string(" Browser: ") + message);
+        t.hint =
+            std::string(pageHttps ? "This page was loaded over https://, and a browser blocks ws:// from it (mixed "
+                                    "content; only localhost is exempt in some browsers). Use a wss:// address."
+                                  : "The browser's security rules refuse this address from this page. ") +
+            (message.empty() ? "" : std::string(" Browser: ") + message);
     } else if (name == "SyntaxError") {
         t.message = "the browser does not accept this address or these subprotocols: " + message;
         t.hint =
@@ -136,10 +141,7 @@ std::string json_string_array(const std::vector<std::string>& items) {
 
 Mapper::Mapper(std::string host, bool secureAddress, bool pageHttps, std::size_t maxMessageBytes,
                double connectTimeoutSec)
-    : host_(std::move(host)),
-      secure_(secureAddress),
-      pageHttps_(pageHttps),
-      max_(maxMessageBytes),
+    : host_(std::move(host)), secure_(secureAddress), pageHttps_(pageHttps), max_(maxMessageBytes),
       timeoutSec_(connectTimeoutSec) {}
 
 bool Mapper::wants_payload(BrowserEvent::Kind kind, std::size_t size) const {
@@ -180,9 +182,10 @@ Reaction Mapper::on_browser(BrowserEvent e) {
             if (e.size > max_) {
                 // The browser buffered the whole message already; it cannot send 1009, so it closes normally.
                 Reaction f;
-                f.events.push_back(WebSocketEvent::failure(
-                    "a message of " + std::to_string(e.size) + " bytes arrived; the most is " + std::to_string(max_),
-                    "Raise maxMessageBytes in websocket.connect (up to 64 MB), or ask the server for smaller messages."));
+                f.events.push_back(WebSocketEvent::failure("a message of " + std::to_string(e.size) +
+                                                               " bytes arrived; the most is " + std::to_string(max_),
+                                                           "Raise maxMessageBytes in websocket.connect (up to 64 MB), "
+                                                           "or ask the server for smaller messages."));
                 f.events.push_back(WebSocketEvent::close(ws::close_code::kAbnormal, "", false));
                 errored_ = finished_ = true;
                 state_ = WebSocketState::Closed;

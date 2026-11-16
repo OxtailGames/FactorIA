@@ -30,7 +30,8 @@ struct Text {
 Text problem_text(Problem problem, const std::string& host, bool secureAddress, bool pageHttps, double timeoutSec);
 
 // The browser's `new WebSocket(...)` threw: `name` and `message` are the exception's. The text of connect()'s error.
-Text constructor_failure_text(const std::string& name, const std::string& message, const std::string& url, bool pageHttps);
+Text constructor_failure_text(const std::string& name, const std::string& message, const std::string& url,
+                              bool pageHttps);
 
 // The browser cannot send handshake headers: a request that has some is an error that names them.
 Result<void> check_request(const WebSocketRequest& request);
@@ -66,7 +67,8 @@ struct BrowserEvent {
 // browser's socket.
 struct Reaction {
     std::vector<WebSocketEvent> events;
-    bool stopBrowser = false;   // remove the handlers and close the browser's socket (closeCode/closeReason for its close())
+    bool stopBrowser =
+        false;  // remove the handlers and close the browser's socket (closeCode/closeReason for its close())
     bool startClosing = false;  // call the browser's close(closeCode, closeReason) and start the closing timer
     int closeCode = 0;
     std::string closeReason;
