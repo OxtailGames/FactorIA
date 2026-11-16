@@ -156,6 +156,8 @@ struct Engine::Impl {
     bool quit = false;
     bool inFrame = false;  // between the start and the end of run_frame (commands defer risky work)
     double accumulator = 0.0;
+    double interpAlpha =
+        1.0;  // render interpolation: how far past the latest fixed step this frame is, 0..1 (1 = real pose)
     double fixedDt = 1.0 / 60.0;
     std::string pendingScene;
     bool hasPendingScene = false;

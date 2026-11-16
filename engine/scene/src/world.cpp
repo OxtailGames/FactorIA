@@ -345,6 +345,7 @@ void World::clear() {
     tooltip_ = UiTooltipView{};
     meshes_.clear();
     feel_.clear_scene();
+    interp_.clear_scene();
     vfxLive_ = 0;
     particles_->clear();
     warnedSpriteClips_.clear();
@@ -618,8 +619,9 @@ Mat4 World::world_matrix(Entity e) const {
     return impl_->world_cached(e);
 }
 
-Mat4 World::drawn_matrix(Entity e) const {
-    if (feel_.poseCount == 0) return world_matrix(e);
+Mat4 World::drawn_matrix(Entity e, bool blended) const {
+    const InterpState* ip = blended && interp_.poseCount > 0 ? &interp_ : nullptr;
+    if (feel_.poseCount == 0 && !ip) return world_matrix(e);
     if (!alive(e)) return Mat4::identity();
     // The same product as world_matrix (down from the root), with the visual pose of each entity of the chain; not cached
     // (the poses change every frame). The chain sits on the stack up to 32 levels; a chain with no pose in it is world_matrix.
@@ -629,7 +631,7 @@ Mat4 World::drawn_matrix(Entity e) const {
     std::size_t n = 0;
     bool anyPose = false;
     for (Entity cur = e; !cur.is_null(); cur = impl_->slots[cur.index].parent) {
-        anyPose = anyPose || feel_.pose_of(cur) != nullptr;
+        anyPose = anyPose || feel_.pose_of(cur) != nullptr || (ip && ip->pose_of(cur) != nullptr);
         if (n < kInline) {
             inlineChain[n] = cur;
         } else {
@@ -645,6 +647,8 @@ Mat4 World::drawn_matrix(Entity e) const {
     for (std::size_t k = n; k-- > 0;) {
         const auto* t = static_cast<const Transform*>(impl_->transformPool->get(chain[k]));
         Mat4 local;
+        if (const Transform* bp = ip ? ip->pose_of(chain[k]) : nullptr)
+            t = bp;  // the blend between the last two fixed steps
         if (const FeelPose* p = feel_.pose_of(chain[k]))
             local = Mat4::trs(t->position + p->position, t->rotation + p->rotation,
                               {t->scale.x * p->scale.x, t->scale.y * p->scale.y, t->scale.z * p->scale.z});
@@ -654,6 +658,26 @@ Mat4 World::drawn_matrix(Entity e) const {
         first = false;
     }
     return m;
+}
+
+void World::interp_teleport(Entity e) {
+    if (e.index < interp_.slots.size() && interp_.slots[e.index] != 0 &&
+        interp_.records[interp_.slots[e.index] - 1].bits == e.bits())
+        interp_.records[interp_.slots[e.index] - 1].teleport = true;
+}
+
+void World::walk_transforms_readonly(void* ctx, void (*visit)(void*, Entity, const Transform&)) const {
+    // The pool's walk gives a mutable pointer; nothing here writes it and no dirty mark is made.
+    struct Pair {
+        void* ctx;
+        void (*visit)(void*, Entity, const Transform&);
+    } pair{ctx, visit};
+    impl_->transformPool->walk(
+        [](void* c, Entity e, void* component) {
+            Pair& p = *static_cast<Pair*>(c);
+            p.visit(p.ctx, e, *static_cast<const Transform*>(component));
+        },
+        &pair);
 }
 
 Vec3 World::world_position(Entity e) const { return world_matrix(e).translation(); }

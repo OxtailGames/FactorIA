@@ -87,6 +87,19 @@ Json ProjectSettings::to_json() const {
     physics["fixedHz"] = fixedHz;
     physics["pixelsPerMeter"] = pixelsPerMeter;
     j["physics"] = physics;
+    if (renderInterpolation || renderInterpolationSnapDistance > 0.0f) {
+        Json render = j.contains("render") && j["render"].is_object() ? j["render"] : Json::object();
+        render["interpolation"] = renderInterpolation;
+        if (renderInterpolationSnapDistance > 0.0f)
+            render["interpolationSnapDistance"] = renderInterpolationSnapDistance;
+        else
+            render.erase("interpolationSnapDistance");
+        j["render"] = render;
+    } else if (j.contains("render") && j["render"].is_object()) {
+        j["render"].erase("interpolation");
+        j["render"].erase("interpolationSnapDistance");
+        if (j["render"].empty()) j.erase("render");
+    }
     Json input = j.contains("input") && j["input"].is_object() ? j["input"] : Json::object();
     input["actions"] = inputActions;
     input["deadzone"] = inputDeadzone;
@@ -533,6 +546,13 @@ Result<ProjectSettings> load_project(std::string_view projectDir) {
         FA_TRY(read_double(*it, "pixelsPerMeter", "/physics", ppm, 0.0, true));
         s.pixelsPerMeter = float(ppm);
     }
+    if (auto it = j.find("render"); it != j.end() && !it->is_null()) {
+        if (!it->is_object()) return field_error("/render", "an object like {\"interpolation\": true}", *it);
+        FA_TRY(read_bool(*it, "interpolation", "/render", s.renderInterpolation));
+        double snap = s.renderInterpolationSnapDistance;
+        FA_TRY(read_double(*it, "interpolationSnapDistance", "/render", snap, 0.0, false));
+        s.renderInterpolationSnapDistance = float(snap);
+    }
     if (auto it = j.find("runtime"); it != j.end() && !it->is_null()) {
         if (!it->is_object()) return field_error("/runtime", "an object like {\"jobThreads\": \"auto\"}", *it);
         if (auto jt = it->find("jobThreads"); jt != it->end() && !jt->is_null()) {
@@ -861,6 +881,23 @@ constexpr const char* kSchemaText =
           "type": "number",
           "exclusiveMinimum": 0,
           "description": "2D world units per physics meter (default 100)."
+        }
+      }
+    },
+    "render": {
+      "type": "object",
+      "description": "Drawing settings.",
+      "properties": {
+        "interpolation": {
+          "type": "boolean",
+          "default": false,
+          "description": "Draw entities at the pose between the last two fixed simulation steps, so a 60 Hz simulation looks smooth on a 120-144 Hz display (the picture is one step behind the simulation). Only the drawing changes: Transform, physics and scripts see the real pose. Cameras, physics bodies and children of interpolated entities are included; a Transform written outside the fixed step, a new entity and entity.teleport() are not smeared. The Interpolation component overrides it per entity. Default false (docs/RENDERING.md, \"Render interpolation\")."
+        },
+        "interpolationSnapDistance": {
+          "type": "number",
+          "minimum": 0,
+          "default": 0,
+          "description": "With interpolation: a fixed step that moves an entity farther than this many world units (pixels in 2D) is a jump and is drawn without blending. 0 (default) = no limit; use entity.teleport() for known jumps."
         }
       }
     },
