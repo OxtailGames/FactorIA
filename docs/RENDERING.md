@@ -194,6 +194,50 @@ test("the page's toggle works through the model", () => {
 Anything a test awaits (a `scene.preload`, a platform answer) must compare `scene.current` (or `scene.generation` for a reload
 of the same scene) with the scene it started in before it acts: the page and the model belong to one scene.
 
+## Render interpolation
+
+The simulation moves in fixed steps (`physics.fixedHz`, 60 by default). On a 120 or 144 Hz display most frames run no step, so
+the picture repeats a pose and then jumps. `"render": { "interpolation": true }` in `factoria.json` (default `false`) draws
+every entity at the pose BETWEEN its last two fixed steps, `alpha = time since the latest step / fixed step` of the way from the
+older to the newer one. The picture runs one step (16.7 ms at 60 Hz) behind the simulation, which is what makes it smooth.
+
+- **Only the drawing changes.** The blend is applied by `World::drawn_matrix`, like shake and squash; it is never written to
+  `Transform`. Scripts, physics, commands, bounds, audio, picking and saved scenes always see the real, latest pose
+  (`entity.position` is where the simulation put it, the sprite is drawn up to one step behind). That includes the camera:
+  `screenToWorld`, `worldToScreen`, `screenRay`, `cameraAt`, UI hit tests and picking are answered from the camera's REAL pose,
+  so a click lands on the same world point whatever alpha the frame has; only the drawing uses the blended camera.
+- **What is included.** Position and scale are blended linearly and rotation by quaternion slerp (a rotation about z alone, the 2D case,
+  blends the angle itself, and one that did not change is kept bit for bit). A rotation that turned MORE THAN 180 degrees on an
+  axis in one step (a fast spin, a wrap from 359 to 1) cannot be told from a short turn the other way, so it is not blended: it
+  is drawn at the latest rotation. A child follows the blended pose of an interpolated parent (each entity of the chain is blended on its
+  local pose). A `Camera` is viewed from its blended pose, so it stays in step with what it follows (see "A follow camera" below). Physics bodies (2D and 3D) are interpolated through their entity's Transform, which physics writes every
+  step. Lights, particles and sounds are placed from the real pose.
+- **Per entity.** The `Interpolation` component overrides the project: `mode: "on"` interpolates an entity even when the project
+  does not, `"off"` never (a cursor, an entity a script moves every frame), `"inherit"` follows the project.
+- **No smearing.** A pose is blended only when a fixed step moved it. These are drawn where they are: a new entity, a Transform
+  written outside the fixed steps (a script's `update` / `lateUpdate`, a command, the editor), a step that moved the entity farther
+  than `"interpolationSnapDistance"` (world units, 0 = no limit) and `entity.teleport()`, which a script calls right after
+  setting a position in `onFixedUpdate` (a respawn, a door).
+- **Determinism.** Nothing the simulation computes changes, so replays, `--frames` runs and tests give the same world. Pictures
+  depend on alpha, which comes from the frame times: `Engine::step` (`game.step`, `--headless`, `--frames`, replays and the
+  autoplay bot) always draws alpha 1, the real pose, and a paused game and the editor's pause and step show the real pose too. A
+  windowed run with an unstable frame time draws what its frame times say.
+- **Cost.** Only interpolated entities keep a record (three transforms and a few flags, 128 bytes, in a dense list, plus
+  4 bytes per entity slot); each fixed step and each frame reads the Transforms once, and the work on records is proportional to
+  the interpolated entities. See docs/performance/, "Render interpolation".
+
+### A follow camera
+
+The camera is drawn at its blended pose, so it must move together with what it follows:
+
+- Write the camera in `onFixedUpdate` (the same step that moves the target). Both are blended by the same alpha and stay in step.
+  This is the recipe to use.
+- A camera written in `onLateUpdate` (or `update`) is a write outside the fixed steps: it is drawn at the pose it was given, the
+  target's real pose of this frame, while the target itself is drawn up to one step behind. The camera is then ahead of the
+  picture, which shows as a wobble. If the camera has to follow in `onLateUpdate`, put `Interpolation` with `mode: "off"` on the
+  target (and on what it carries) so the target is drawn at its real pose too.
+- `onLateUpdate` reads the real poses: `entity.position` of the target is the latest simulation pose, not the pose drawn.
+
 ## Game feel in the renderer
 
 Camera shake and squash are a pose added to an entity's matrix when the frame is drawn (`World::drawn_matrix`), so a shaken

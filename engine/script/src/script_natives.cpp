@@ -1147,6 +1147,14 @@ NATIVE(behaviour) {
     return JS_DupValue(ctx, b->instance.get());
 }
 
+NATIVE(
+    interpTeleport) {  // (entity): the pose it has now is a jump, not a move: render interpolation does not blend to it
+    SETUP;
+    ENTITY(e, 0);
+    W.interp_teleport(e);
+    return JS_UNDEFINED;
+}
+
 NATIVE(isGrounded) {
     SETUP;
     ENTITY(e, 0);
@@ -5146,6 +5154,7 @@ const Reg kRegs[] = {
     R(spawn, 3),
     R(spawnPrefab, 4),
     R(behaviour, 1),
+    R(interpTeleport, 1),
     R(isGrounded, 2),
     R(hasComp, 2),
     R(hasCompT, 2),

@@ -4,6 +4,12 @@ The short effects that make a hit, a landing or an explosion read on screen. Eac
 and one JSON action (the form the events of an animation clip carry, "Effects as data"), and all three run the same C++
 (`fa/scene/feel.h`). Two more actions, `spawn` (an effect prefab) and `sound`, exist as actions and commands only.
 
+Movement that looks stepped on a 120-144 Hz display is a different problem: turn on `render.interpolation` (docs/RENDERING.md,
+"Render interpolation") and the simulation keeps its 60 Hz while the drawing is smooth. A follow camera then moves in
+`onFixedUpdate`, with the target; written in `onLateUpdate` it is drawn at the pose it was given, ahead of a target drawn one
+step behind, unless the target has `Interpolation` `mode: "off"` (docs/RENDERING.md, "A follow camera"). Shake is added on top
+and does not depend on interpolation.
+
 | Effect | Script | Command | What moves |
 |---|---|---|---|
 | Camera shake | `camera.shake(amount, opts)` | `feel.shake` | what the camera DRAWS |

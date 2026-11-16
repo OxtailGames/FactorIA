@@ -21,6 +21,7 @@
 #include "fa/scene/camera_mask.h"
 #include "fa/scene/camera_query.h"
 #include "fa/scene/feel.h"
+#include "fa/scene/interpolation.h"
 #include "fa/script/script_budget.h"
 #include "fa/scene/animation.h"
 #include "fa/scene/bones2d.h"
@@ -97,6 +98,8 @@ bool Engine::Impl::inject_named(const std::string& name, bool down, std::string*
 
 void Engine::Impl::apply_project_settings() {
     fixedDt = 1.0 / std::max(1.0, project.fixedHz);
+    world.interp().enabled = project.renderInterpolation;  // fa/scene/interpolation.h
+    world.interp().snapDistance = project.renderInterpolationSnapDistance;
     world.feel().pixelsPerMeter = project.pixelsPerMeter;  // the 2D default speed of entity.knockback (fa/scene/feel.h)
     input.set_gamepad_deadzone(float(project.inputDeadzone));
     if (cfg.forceTouch) input.set_force_touch(true);
@@ -583,6 +586,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         // view: a press or release reaches exactly one step, however many (0 to 5) a frame runs, and one that arrives in a
         // frame with no step waits for the next (fa/platform/input.h, "TWO VIEWS").
         Input::FixedScope fixedInput(input);
+        interp_begin_step(world);  // the pose now is the "before" pose of this step (render interpolation)
         {
             ProfSystemScope prof(ProfSystem::Physics);
             physics.sync(world);  // entities spawned since the last step get bodies before scripts query physics
@@ -660,6 +664,8 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
         input.end_fixed_step();  // what this step saw is taken: the next one gets only what arrives from now on
         ++fixedStep;
     }
+    // Render interpolation: the poses the steps left are the "after" poses; this frame is drawn interpAlpha of the way there.
+    interp_update(world, interpAlpha, fixedSteps > 0);
     // The UI reads this frame's input and sends its events, which scripts get right away. Real time: it works at time.scale 0.
     {
         ProfSystemScope prof(ProfSystem::Ui);
@@ -694,6 +700,7 @@ void Engine::Impl::run_frame(double dt, int fixedSteps) {
     // drawing, so the poses the renderer reads belong to this frame. The lifetimes of spawned effects run on the game clock
     // (`time_scale()`: a hit-stop or a pause holds them).
     feel_update(world, dt * scripts.user_time_scale(), dt * scripts.time_scale());
+    interp_update(world, interpAlpha, false);  // what scripts moved since the steps is drawn where it is, not blended
     render(dt);
     {
         ProfSystemScope prof(ProfSystem::EndOfFrame);
@@ -1159,6 +1166,7 @@ void Engine::frame(double dt) {
         I.jobOwner.run_main_thread_tasks();  // a paused game still takes the results of its jobs (a load that finished)
         jobs::run_main_thread_tasks();
         I.audio.service();  // the sounds a paused game (or the editor) still plays keep their streams decoded
+        I.world.interp().clear_poses();  // a paused game (and the editor's pause / step) shows the real pose
         I.render(0.0);
         I.end_of_frame(dt, false);
         I.inFrame = false;
@@ -1172,6 +1180,7 @@ void Engine::frame(double dt) {
         ++steps;
     }
     if (steps == 5 && I.accumulator > I.fixedDt) I.accumulator = 0.0;  // spiral of death: drop the backlog
+    I.interpAlpha = interp_alpha(I.accumulator, I.fixedDt);
     I.run_frame(dt, steps);
 }
 
@@ -1179,6 +1188,7 @@ void Engine::step(int frames) {
     const LoadTrace::ReadingFor reading(impl_->traceOwner);
     Impl& I = *impl_;
     if (!I.initialized) return;
+    I.interpAlpha = 1.0;  // a stepped game is drawn at the pose the step left (deterministic frames)
     for (int i = 0; i < frames && !I.quit; ++i) I.run_frame(I.fixedDt, 1);
 }
 

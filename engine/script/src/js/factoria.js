@@ -585,6 +585,7 @@
       return undefined;
     }
     bounds() { const b = N.bounds(this.$h); return b === null ? null : new Rect(b[0], b[1], b[2], b[3]); }
+    teleport() { N.interpTeleport(this.$h); }
     isGrounded(tolerance) { return N.isGrounded(this.$h, tolerance === undefined ? -1 : tolerance); }
     isTouching(direction, tolerance) { const d = vecArr(direction, 3, "entity.isTouching(direction)"); return N.isTouching(this.$h, d[0], d[1], d[2], tolerance === undefined ? (N.hasComp(this.$h, "RigidBody3D") || N.hasComp(this.$h, "Collider3D") ? 0.05 : 2) : tolerance); }
     emitBurst(count = 10) { N.particlesBurst(this.$h, count); }

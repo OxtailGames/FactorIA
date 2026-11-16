@@ -6,7 +6,7 @@ commands.
 
 ## Pages of this doc
 
-- [Budgets by area](performance/PERFORMANCE_AREAS.md): What each budget covers: 2D lights, path finding, startup, loading, script budgets, background loading.
+- [Budgets by area](performance/PERFORMANCE_AREAS.md): What each budget covers: 2D lights, render interpolation, path finding, startup, loading, script budgets, background loading.
 - [Profiler and job threads](performance/PERFORMANCE_PROFILING.md): Finding what is slow: the profiler and the job threads.
 - [Microbenchmarks](performance/PERFORMANCE_BENCH.md): Microbenchmarks (fa_bench).
 

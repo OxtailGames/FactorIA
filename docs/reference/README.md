@@ -42,6 +42,7 @@ Version marks: an entry added after 0.1.0 ends with "(Since 0.1.x)", and "(Not r
 ### [Core](components/core.md)
 
 - [EntityInfo](components/core.md#entityinfo): Identity of an entity; present on every entity.
+- [Interpolation](components/core.md#interpolation): Draws this entity at the pose BETWEEN the last two fixed simulation steps, so a 60 Hz simulation moves smoothly on a 120-144 Hz display (docs/RENDERING.md, "Render interpolation"). _Not released yet._
 - [Transform](components/core.md#transform): Position, rotation and scale of an entity relative to its parent.
 
 ### [Physics](components/physics.md)

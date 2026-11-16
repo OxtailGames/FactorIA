@@ -422,6 +422,11 @@ declare module "factoria" {
      */
     squash(opts?: SquashOptions): void;
     /**
+     * Marks the pose the entity has NOW as a jump, not a move: with render interpolation (factoria.json render.interpolation, docs/RENDERING.md) the next frames draw it where it is instead of blending from where it was. Set the position first, then call teleport() in the same fixed step (a respawn, a door, a warp). A Transform written outside the fixed step (update, lateUpdate, a command) and a new entity are never smeared, so they need no call. Does nothing for an entity that is not interpolated. Example: me.position = spawn.position; me.teleport();
+     * @since unreleased
+     */
+    teleport(): void;
+    /**
      * Pushes the entity away: `speed` world units per second along `direction` (any length, it is normalised). A dynamic RigidBody2D/RigidBody3D gets the impulse on its velocity; an entity without one moves with a velocity that decays (opts.decay) and is integrated on the fixed clock. For opts.lockTime seconds isKnockedBack is true so your movement script can leave the player without control. Frozen by hit-stop like the rest of the simulation. Example: if (!me.isKnockedBack) move(); me.knockback(vec2(-1, 0.3), { speed: 8 });
      * @since 0.17.0
      */
@@ -6211,6 +6216,19 @@ declare module "factoria" {
     readonly offset: Vec2;
   }
   /**
+   * Draws this entity at the pose BETWEEN the last two fixed simulation steps, so a 60 Hz simulation moves smoothly on a 120-144 Hz display (docs/RENDERING.md, "Render interpolation"). Only the drawing changes: Transform, physics, scripts, bounds and commands always see the real, latest pose; the blend is never written to the Transform. Children follow an interpolated parent and a Camera is viewed from its blended pose. A pose set outside the fixed step (a script's update, a command) or after entity.teleport() is not smeared: it is drawn where it is. The project default is factoria.json render.interpolation (false); add this component to opt one entity in ("on") or out ("off"). Nothing is blended while the game is paused or stepped.
+   * 
+   * Category: Core
+   * @since unreleased
+   */
+  export interface InterpolationComponent {
+    /**
+     * on: interpolated whatever the project says. off: never interpolated (a cursor that must follow the pointer at once, an entity a script moves every frame). inherit: what factoria.json render.interpolation says.
+     * @since unreleased
+     */
+    mode: "inherit" | "on" | "off";
+  }
+  /**
    * A light for lit 2D visuals: sprites, shapes and tilemaps with `lit` true. Their colour is multiplied by SceneSettings.ambientLight plus the light of every Light2D (point: color * intensity * (1 - distance / radius)^falloff, scaled by the normal map's angle to the light when the sprite has a normalMap; directional: even light from one direction). Unlit visuals ignore lights, so existing games look the same. Point lights are added up in a light buffer the size of the picture (SceneSettings.lightScale), so a scene can have hundreds: at most 256 lights shade a frame, directional lights first, then the point lights whose radius reaches the camera view (the ones with more of their radius in view first, then the more intense ones); a light entirely off-view is left out. More than 256 in view logs one warning per scene, and renderStats().lights2d / lights2dDropped count what was kept and left out. A lit sprite or tile WITH a normal map is shaded per pixel by the first 16 of those lights (directional first), the rest only lights flat surfaces. `castShadows` lets the solid tiles of a Tilemap with occludesLight cast shadows (at most 32 shadow-casting lights per frame). The light sits at the entity's position (Transform) and ignores layers.
    * 
    * Category: 2D
@@ -10239,6 +10257,7 @@ declare module "factoria" {
     Sprite: SpriteComponent;
     Tint: TintComponent;
     Parallax: ParallaxComponent;
+    Interpolation: InterpolationComponent;
     Light2D: Light2DComponent;
     SpriteAnimator: SpriteAnimatorComponent;
     Bone2D: Bone2DComponent;
@@ -10291,6 +10310,7 @@ declare module "factoria" {
     Sprite: { texture?: string; region?: RectLike; size?: Vec2Like; pivot?: Vec2Like; color?: ColorLike; flipX?: boolean; flipY?: boolean; layer?: number; space?: "world" | "screen"; pixelArt?: boolean; blend?: "alpha" | "additive" | "multiply"; anchor?: Vec2Like; safeArea?: boolean; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; lit?: boolean; normalMap?: string; skew?: Vec2Like; meshColumns?: number; meshRows?: number; vertexOffsets?: Float32Array; vertexColors?: Float32Array };
     Tint: { color?: ColorLike };
     Parallax: { factor?: Vec2Like; repeatX?: boolean; repeatY?: boolean; repeatSize?: Vec2Like };
+    Interpolation: { mode?: "inherit" | "on" | "off" };
     Light2D: { type?: "point" | "directional"; color?: ColorLike; intensity?: number; radius?: number; falloff?: number; height?: number; direction?: number; elevation?: number; castShadows?: boolean };
     SpriteAnimator: { columns?: number; rows?: number; firstFrame?: number; lastFrame?: number; fps?: number; loop?: boolean; loopMode?: "inherit" | "loop" | "once"; playing?: boolean; clip?: string; mode?: "forward" | "reverse" | "pingpong"; sheetPivot?: boolean; events?: any; ended?: boolean; playedClip?: string; time?: number; frame?: number };
     Bone2D: { length?: number; minAngle?: number; maxAngle?: number };

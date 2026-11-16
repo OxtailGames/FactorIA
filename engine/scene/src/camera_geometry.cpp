@@ -39,13 +39,13 @@ Rect sanitize_camera_viewport(const Rect& v, std::string& warned) {
 }
 
 CameraGeometry camera_geometry(World& world, Entity best, const CameraTarget& target, std::string& warnedViewport,
-                               const Vec2* viewSize, bool renderTarget) {
+                               const Vec2* viewSize, bool renderTarget, bool blended) {
     CameraGeometry ci;
     Camera cam;  // defaults when no camera exists
     Mat4 camWorld;
     if (best) {
         cam = *world.get<Camera>(best);
-        camWorld = world.drawn_matrix(best);
+        camWorld = world.drawn_matrix(best, blended);
         ci.fromEntity = true;
         ci.entity = best;
         ci.depth = cam.depth;
@@ -174,8 +174,10 @@ void CameraSet::refresh(World& world, const CameraTarget& size) {
         }
     }
     cameras_.clear();
-    for (const Entity e : entities) cameras_.push_back(camera_geometry(world, e, size, warnedViewport_));
-    if (cameras_.empty()) cameras_.push_back(camera_geometry(world, kNullEntity, size, warnedViewport_));
+    for (const Entity e : entities)
+        cameras_.push_back(camera_geometry(world, e, size, warnedViewport_, nullptr, false, false));
+    if (cameras_.empty())
+        cameras_.push_back(camera_geometry(world, kNullEntity, size, warnedViewport_, nullptr, false, false));
 }
 
 Vec2 CameraSet::world_to_screen(Vec3 p, Entity camera) const {
