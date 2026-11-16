@@ -120,9 +120,9 @@ std::vector<Heading> labels_of(const std::string& text) {
 
 // Files that can hold a citation: the sources of the engine, the tools, the scripts and the workflows.
 bool is_citing_file(const stdfs::path& p) {
-    static const std::set<std::string> kinds = {".h",   ".hpp", ".cpp",  ".cc", ".c",  ".mm", ".m",   ".js", ".mjs",
-                                                 ".ts",  ".sh",  ".ps1",  ".py", ".yml", ".yaml", ".cmake", ".txt",
-                                                 ".md",  ".json", ".glsl", ".kt", ".java", ".gradle", ".html"};
+    static const std::set<std::string> kinds = {".h",   ".hpp", ".cpp",  ".cc",   ".c",  ".mm",   ".m",      ".js",
+                                                ".mjs", ".ts",  ".sh",   ".ps1",  ".py", ".yml",  ".yaml",   ".cmake",
+                                                ".txt", ".md",  ".json", ".glsl", ".kt", ".java", ".gradle", ".html"};
     const std::string ext = p.extension().generic_string();
     const std::string name = p.filename().generic_string();
     return kinds.count(ext) != 0 || name == "CMakeLists.txt";
@@ -138,8 +138,8 @@ const std::vector<Source>& citing_sources() {
     static const std::vector<Source> all = [] {
         std::vector<Source> out;
         const stdfs::path repo = FA_REPO_ROOT;
-        static const std::set<std::string> skipDirs = {"build", "external", "node_modules", ".git", "corpus", ".cache",
-                                                       "i18n",  "reference"};
+        static const std::set<std::string> skipDirs = {"build",  "external", "node_modules", ".git",
+                                                       "corpus", ".cache",   "i18n",         "reference"};
         for (const char* top : {"engine", "tools", "scripts", ".github", "schemas", "templates", "docs", "platforms"}) {
             if (!stdfs::exists(repo / top)) continue;
             stdfs::recursive_directory_iterator it(repo / top), end;
@@ -219,28 +219,87 @@ struct Citation {
     int line = 0;
 };
 
-// `X.md, "Section"`, `X.md "Section"`, `X.md, \"Section\"` (in a string literal) and the "and"/"or" lists of sections
-// after the first one.
-std::vector<Citation> citations_of(const std::string& text) {
-    std::vector<Citation> out;
+// The text with every comment or quote prefix of a line (`//`, `#`, `*`, `>`) removed and the lines joined by one space,
+// so a citation broken across two lines reads as one. `lineOf[k]` is the original line of byte k.
+struct Flat {
+    std::string text;
+    std::vector<int> lineOf;
+};
+
+Flat flatten(const std::string& src) {
+    Flat f;
+    f.text.reserve(src.size());
+    f.lineOf.reserve(src.size());
     int line = 1;
-    size_t lineStart = 0;
-    for (size_t i = 0; i + 3 < text.size(); ++i) {
-        if (text[i] == '\n') {
-            ++line;
-            lineStart = i + 1;
-            continue;
+    size_t pos = 0;
+    while (pos <= src.size()) {
+        size_t end = src.find('\n', pos);
+        if (end == std::string::npos) end = src.size();
+        size_t k = pos;
+        while (k < end && (src[k] == ' ' || src[k] == '\t')) ++k;
+        // A prefix only counts when it is followed by a space or ends the line ("#include" or "*ptr" are not prefixes).
+        size_t afterPrefix = k;
+        if (src.compare(k, 2, "//") == 0)
+            afterPrefix = k + 2;
+        else if (k < end && (src[k] == '#' || src[k] == '*' || src[k] == '>'))
+            afterPrefix = k + 1;
+        if (afterPrefix != k) {
+            while (afterPrefix < end && (src[afterPrefix] == '/' || src[afterPrefix] == '#' || src[afterPrefix] == '*'))
+                ++afterPrefix;
+            if (afterPrefix < end && src[afterPrefix] != ' ') afterPrefix = k;
         }
-        if (text.compare(i, 3, ".md") != 0 || (i + 3 < text.size() && is_word_char(text[i + 3]))) continue;
+        while (afterPrefix < end && (src[afterPrefix] == ' ' || src[afterPrefix] == '\t')) ++afterPrefix;
+        // Two string literals side by side ("..." newline "...") are one: drop the quote that ends one and opens the next.
+        if (afterPrefix < end && src[afterPrefix] == '"' && f.text.size() >= 3 && f.text.back() == ' ' &&
+            f.text[f.text.size() - 2] == '"' && f.text[f.text.size() - 3] != '\\') {
+            f.text.resize(f.text.size() - 2);
+            f.lineOf.resize(f.text.size());
+            ++afterPrefix;
+        }
+        for (size_t m = afterPrefix; m < end; ++m) {
+            if (src[m] == '\r') continue;
+            f.text.push_back(src[m]);
+            f.lineOf.push_back(line);
+        }
+        f.text.push_back(' ');
+        f.lineOf.push_back(line);
+        ++line;
+        pos = end + 1;
+    }
+    return f;
+}
+
+// `X.md, "Section"`, `X.md "Section"`, `X.md, \"Section\"` (in a string literal), `X.md`, "Section" (backticks),
+// [X.md](X.md), "Section" (a link), the same split across two lines, and the "and"/"or" lists of sections after the
+// first one.
+std::vector<Citation> citations_of(const std::string& source) {
+    const Flat flat = flatten(source);
+    const std::string& text = flat.text;
+    std::vector<Citation> out;
+    for (size_t i = text.find(".md"); i != std::string::npos; i = text.find(".md", i + 3)) {
+        if (i + 3 < text.size() && is_word_char(text[i + 3])) continue;
         size_t b = i;
-        while (b > lineStart && (is_word_char(text[b - 1]) || text[b - 1] == '_' || text[b - 1] == '-' ||
-                                 text[b - 1] == '/' || text[b - 1] == '.'))
+        while (b > 0 && (is_word_char(text[b - 1]) || text[b - 1] == '_' || text[b - 1] == '-' || text[b - 1] == '/' ||
+                         text[b - 1] == '.'))
             --b;
         const std::string path = text.substr(b, i + 3 - b);
         if (path.size() < 4 || path[0] == '.' || path[0] == '/') continue;  // a URL's path or a file name
+        const int line = flat.lineOf[i];
         size_t j = i + 3;
+        if (j < text.size() && text[j] == '`') ++j;
+        if (j + 1 < text.size() && text[j] == ']' && text[j + 1] == '(') {  // [X.md](target)
+            const size_t close = text.find(')', j);
+            if (close == std::string::npos || close - j > 200) continue;
+            j = close + 1;
+        } else if (j < text.size() && text[j] == ')') {
+            // `[text](X.md), "Section"`: the link target; any other `X.md)` is the end of a parenthesis
+            if (b >= 2 && text[b - 1] == '(' && text[b - 2] == ']')
+                ++j;
+            else
+                continue;
+        }
+        if (j < text.size() && text[j] == '`') ++j;
         if (j < text.size() && text[j] == ',') ++j;
-        if (j < text.size() && text[j] == ')') continue;
         while (j < text.size() && text[j] == ' ') ++j;
         if (text.compare(j, 8, "section ") == 0) j += 8;
         auto quote_at = [&](size_t k) -> size_t {  // the position after an opening quote (or \"), or npos
@@ -251,22 +310,31 @@ std::vector<Citation> citations_of(const std::string& text) {
         size_t q = quote_at(j);
         while (q != std::string::npos) {
             size_t e = q;
-            while (e < text.size() && text[e] != '"' && text[e] != '\n' && e - q < 90) ++e;
+            while (e < text.size() && text[e] != '"' && e - q < 90) ++e;
             if (e >= text.size() || text[e] != '"') break;
-            size_t close = e;
+            const size_t close = e;
+            if (close + 1 < text.size() && text[close + 1] == ':') break;  // a JSON key on the next line, not a title
             std::string section = text.substr(q, close - q);
             if (!section.empty() && section.back() == '\\') section.pop_back();
             // A quote that closes a string literal before the name ("x", "docs/X.md", ...) or opens a literal that goes
             // on after it ("Render " "section"): not a section title.
-            if (!section.empty() && std::isalnum(static_cast<unsigned char>(section.front())) && section.back() != ' ')
-                out.push_back({path, section, line});
+            if (!section.empty() && std::isalnum(static_cast<unsigned char>(section.front())) &&
+                section.back() != ' ') {
+                Citation c{path, section, line};
+                if (out.empty() || out.back().path != c.path || out.back().section != c.section ||
+                    out.back().line != c.line)
+                    out.push_back(c);
+            }
             // ` and "B"`, `, "B"`, ` or "B"`
             size_t k = close + 1;
             if (k < text.size() && text[k] == ',') ++k;
             while (k < text.size() && text[k] == ' ') ++k;
-            if (text.compare(k, 4, "and ") == 0) k += 4;
-            else if (text.compare(k, 3, "or ") == 0) k += 3;
-            else if (k == close + 1) break;
+            if (text.compare(k, 4, "and ") == 0)
+                k += 4;
+            else if (text.compare(k, 3, "or ") == 0)
+                k += 3;
+            else if (k == close + 1)
+                break;
             q = quote_at(k);
         }
     }
@@ -292,8 +360,8 @@ TEST_CASE("docs: every citation 'X.md, \"Section\"' names a section of that doc,
             bool missing = false;
             const std::string doc = cited_doc(c.path, missing);
             if (doc.empty()) continue;
-            const std::string where = src.rel + ":" + std::to_string(c.line) + ": cites " + c.path + ", \"" +
-                                      c.section + "\"";
+            const std::string where =
+                src.rel + ":" + std::to_string(c.line) + ": cites " + c.path + ", \"" + c.section + "\"";
             if (missing) {
                 std::vector<std::string> names;
                 for (const auto& [rel, heads] : doc_headings()) names.push_back(rel);
@@ -333,9 +401,9 @@ TEST_CASE("docs: every citation 'X.md, \"Section\"' names a section of that doc,
 }
 
 TEST_CASE("docs: the citation scanner reads what the docs and the source write") {
-    const std::vector<Citation> a = citations_of(
-        "// (docs/MUSIC.md, \"Writing notes\") and docs/SOUND.md \"Foo\" or \"Bar\"\n"
-        "throw Error(\"see docs/EDITOR.md, \\\"Run only\\\".\"); see https://x.org/y.md, \"no\"; a.md.\n");
+    const std::vector<Citation> a =
+        citations_of("// (docs/MUSIC.md, \"Writing notes\") and docs/SOUND.md \"Foo\" or \"Bar\"\n"
+                     "throw Error(\"see docs/EDITOR.md, \\\"Run only\\\".\"); see https://x.org/y.md, \"no\"; a.md.\n");
     REQUIRE(a.size() == 4);
     CHECK(a[0].path == "docs/MUSIC.md");
     CHECK(a[0].section == "Writing notes");
@@ -344,6 +412,18 @@ TEST_CASE("docs: the citation scanner reads what the docs and the source write")
     CHECK(a[2].line == 1);
     CHECK(a[3].section == "Run only");
     CHECK(a[3].line == 2);
+    const std::vector<Citation> w =
+        citations_of("see `docs/X.md`, \"Tick\" and [Y.md](Y.md), \"Link\" and [Z](docs/Z.md), \"Target\".\n"
+                     "// docs/W.md,\n"
+                     "// \"Split path\" and V.md, \"A title that\n"
+                     "// breaks\".\n");
+    REQUIRE(w.size() == 5);
+    CHECK(w[0].section == "Tick");
+    CHECK(w[1].section == "Link");
+    CHECK(w[2].section == "Target");
+    CHECK(w[3].section == "Split path");
+    CHECK(w[3].line == 2);
+    CHECK(w[4].section == "A title that breaks");
     CHECK(heading_matches("Sanitizers (TSan, ASan)", "Sanitizers"));
     CHECK(heading_matches("`docs.read`: reading", "docs.read"));
     CHECK(heading_matches("G. Native plugins", "Native plugins"));
@@ -418,7 +498,8 @@ TEST_CASE("docs: an entry page links every one of its pages") {
         }
         for (const std::string& page : pages)
             if (linked.count(page) == 0)
-                problems.push_back(rel + " does not link its page " + page + " (add it to the list under \"## Pages\")");
+                problems.push_back(rel + " does not link its page " + page +
+                                   " (add it to the list under \"## Pages\")");
     }
     CHECK(entries > 10);
     CHECK_MESSAGE(problems.empty(), "pages an entry page does not list:" << join_lines(problems));
@@ -478,8 +559,8 @@ TEST_CASE("docs: an embedded doc names a doc outside the binary only with a note
         }
     }
     CHECK(embedded > 50);
-    CHECK_MESSAGE(problems.empty(), "embedded docs that name a doc outside the binary without saying so:"
-                                        << join_lines(problems));
+    CHECK_MESSAGE(problems.empty(),
+                  "embedded docs that name a doc outside the binary without saying so:" << join_lines(problems));
 }
 
 // ---- headings --------------------------------------------------------------------------------------------------------
@@ -498,8 +579,8 @@ TEST_CASE("docs: no heading repeats inside one doc (its anchor would be ambiguou
             auto [it, fresh] = firstLine.emplace(slug, h.line);
             if (!fresh)
                 problems.push_back(rel + ":" + std::to_string(h.line) + ": the heading \"" + h.title +
-                                   "\" repeats line " + std::to_string(it->second) +
-                                   ": rename one (a link to #" + slug + " and docs.read would take the first)");
+                                   "\" repeats line " + std::to_string(it->second) + ": rename one (a link to #" +
+                                   slug + " and docs.read would take the first)");
         }
     }
     CHECK(docs > 100);
@@ -535,12 +616,13 @@ TEST_CASE("docs: a translation records the English text it follows, and says so 
         const std::string text = read_all(p);
         const std::string first = text.substr(0, text.find('\n'));
         // README.<lang>.md follows README.md; docs/i18n/<lang>/X.md follows docs/X.md (docs/<topic>/X.md for a page).
-        std::string english = starts_with(rel, "docs/i18n/") ? "docs/" + stdfs::path(rel).filename().generic_string()
-                                                            : "README.md";
+        std::string english =
+            starts_with(rel, "docs/i18n/") ? "docs/" + stdfs::path(rel).filename().generic_string() : "README.md";
         const std::string example = "<!-- follows " + english + " sha256:" +
                                     (stdfs::exists(repo / english) ? content_hash(repo / english) : "<hash>") + " -->";
         if (!starts_with(first, "<!-- follows ")) {
-            problems.push_back(rel + ":1: the first line does not record the English text it follows; write " + example +
+            problems.push_back(rel + ":1: the first line does not record the English text it follows; write " +
+                               example +
                                " (or add \" behind\" before the \"-->\" when it is not up to date, with a notice)");
             continue;
         }
@@ -563,15 +645,17 @@ TEST_CASE("docs: a translation records the English text it follows, and says so 
         const std::string hash = body.substr(sp + 8);
         std::error_code ec;
         if (!stdfs::is_regular_file(repo / path, ec)) {
-            problems.push_back(rel + ":1: follows " + path + ", which does not exist (the English file moved?): write " +
-                               example);
+            problems.push_back(rel + ":1: follows " + path +
+                               ", which does not exist (the English file moved?): write " + example);
             continue;
         }
         const std::string now = content_hash(repo / path);
         if (hash == "unknown") {
             if (!behind)
-                problems.push_back(rel + ":1: \"sha256:unknown\" is only for a translation that says it is behind: "
-                                   "update the translation and write sha256:" + now + ", or add \" behind\"");
+                problems.push_back(rel +
+                                   ":1: \"sha256:unknown\" is only for a translation that says it is behind: "
+                                   "update the translation and write sha256:" +
+                                   now + ", or add \" behind\"");
         } else if (hash != now && !behind) {
             problems.push_back(rel + ":1: " + path + " changed after this translation was brought up to date (hash " +
                                hash + ", now " + now + "): translate what changed and write sha256:" + now +
