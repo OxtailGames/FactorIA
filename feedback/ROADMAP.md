@@ -1262,6 +1262,12 @@ entry of `examples/*` opens each milestone.
   what to read first. Every `examples/...` citation in the docs keeps the recipe in the doc itself and names the
   example as optional ("if you got it with `project.create {example}`"); M97.4's test flags one without that. The
   base download stays without examples (user, 2026-11-09).
+  - M97.5a — DONE (the release publishes the examples): `examples/examples.json` (title, what it shows, docs to read
+    first; a test keeps it in step with the folders), `project.package_examples` (a zip per example, deterministic, and
+    `examples-manifest.json` with size and SHA-256), the Linux leg of the release workflow packs and checks them and the
+    `publish` job attaches them, and `fa/tooling/examples.h` reads the manifest, builds the asset URL
+    (`examples_asset_url`) and checks a download (`verify_example_bytes`). docs/design/BUILDING.md, "Example games in
+    the release". M97.5b-d build on it.
 
 ## M98. What games expect and the engine lacks (L; 9 packages) — outside review, 2026-11-09
 

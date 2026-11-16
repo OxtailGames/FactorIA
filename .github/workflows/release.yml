@@ -24,6 +24,11 @@
 #   FactorIA-linux-x64.tar.gz         the Linux package; the editor's updater uses it. Built in the Steam Runtime "sniper"
 #                                     container (scripts/build-sniper.sh): runs on glibc 2.31 and newer
 #   FactorIA-linux-x64.AppImage       the same files as one file (scripts/package-appimage.sh); does not update itself
+#   <name>.zip, examples-manifest.json
+#                                     every example game of examples/ as its own zip, and the list with their title, what they
+#                                     show, size and SHA-256 (the Linux leg of `package` makes them; docs/design/BUILDING.md,
+#                                     "Example games in the release"). The download carries no examples: project.create
+#                                     {example} fetches them from releases/download/v<version>/ (fa/tooling/examples.h)
 #
 # Signing: with the repository secrets set, the executables are signed on Windows (signtool; the installer too) and
 # signed + notarized on macOS (codesign, notarytool). Without them these steps only print a notice and the packages
@@ -696,6 +701,51 @@ jobs:
           path: dist/FactorIA-linux-x64.AppImage
           if-no-files-found: error
           compression-level: 0
+
+      # The example games of examples/ as release assets (docs/design/BUILDING.md, "Example games in the release"): one zip per
+      # example and examples-manifest.json, made by `project.package_examples` of the Linux package just built, so the release
+      # publishes what its own factoria writes and reads. The `publish` job attaches the artifact FactorIA-examples.
+      - name: Package the example games (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          fail() { echo "::error::$*"; exit 1; }
+          fa="$PWD/dist/FactorIA/factoria"
+          version="$("$fa" version | awk '{print $2}')"
+          out="$PWD/dist-examples"
+          src="$PWD/examples"
+          # From outside the checkout, so no project is found around the working directory.
+          mkdir -p "$RUNNER_TEMP/examples-work"
+          cd "$RUNNER_TEMP/examples-work"
+          "$fa" call project.package_examples "{\"examples\":\"$src\",\"out\":\"$out\"}" --no-graphics > /dev/null
+          # The same files give the same manifest (and so the same zips).
+          "$fa" call project.package_examples "{\"examples\":\"$src\",\"out\":\"$RUNNER_TEMP/examples-again\"}" --no-graphics > /dev/null
+          cmp "$out/examples-manifest.json" "$RUNNER_TEMP/examples-again/examples-manifest.json" || fail "packing the examples twice gave different files"
+
+          # Checked with tools that share no code with the packer.
+          [[ "$(jq -r .engineVersion "$out/examples-manifest.json")" == "$version" ]] || fail "examples-manifest.json has another engineVersion than $version"
+          [[ "$(jq '.examples | length' "$out/examples-manifest.json")" == "$(jq '.examples | length' "$src/examples.json")" ]] || fail "an example is missing from the manifest"
+          jq -r '.examples[] | "\(.sha256)  \(.file)"' "$out/examples-manifest.json" > "$RUNNER_TEMP/examples-sums.txt"
+          (cd "$out" && sha256sum -c "$RUNNER_TEMP/examples-sums.txt") || fail "a zip does not match the SHA-256 of the manifest"
+          while read -r size file; do
+            [[ "$(stat -c %s "$out/$file")" == "$size" ]] || fail "$file is not $size bytes, as the manifest says"
+            unzip -tq "$out/$file" > /dev/null || fail "$file is not a valid zip"
+            if unzip -Z1 "$out/$file" | grep -Eq '^\.factoria/'; then fail "$file holds .factoria/"; fi
+          done < <(jq -r '.examples[] | "\(.size) \(.file)"' "$out/examples-manifest.json")
+          ls -l "$out"
+
+          # An example unpacked from its zip is a project that the package alone validates.
+          mkdir "$RUNNER_TEMP/examples-unpacked"
+          unzip -q "$out/block-push.zip" -d "$RUNNER_TEMP/examples-unpacked"
+          "$fa" call project.validate '{}' --project "$RUNNER_TEMP/examples-unpacked" --no-graphics | tee "$RUNNER_TEMP/examples-validate.json"
+          jq -e '.ok == true' "$RUNNER_TEMP/examples-validate.json" > /dev/null || fail "the unpacked block-push does not validate"
+
+      - uses: actions/upload-artifact@v4
+        if: runner.os == 'Linux'
+        with:
+          name: FactorIA-examples
+          path: dist-examples/*
+          if-no-files-found: error
+          compression-level: 0  # already compressed
 
       - name: Player size verdict
         if: ${{ !cancelled() && steps.size.outcome == 'failure' }}

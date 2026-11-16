@@ -6,6 +6,12 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Example games in the release, first part (M97.5a):** every release will publish each example game (`block-push`,
+  `lantern-keep`, `kindlewatch`, ...) as its own zip, plus `examples-manifest.json` with each example's title, what it
+  shows, the docs to read first, and the size and SHA-256 of its zip. The new command `project.package_examples` makes
+  them from the repository's `examples/` (the same files give the same zip), and the engine can now read the manifest,
+  build the download address of a release's file from the installed version and check a download against its hash.
+  Getting an example from the editor comes in the next parts.
 - **Editor undo as commands, first half (M98.7e1):** an edit of a field or a component (Inspector fields, rename, the active box,
   Transform gizmo drags, adding and removing a component) no longer stores a copy of the whole scene on the undo stack: it stores
   the command and its inverse, built from the scene before the edit, so 100 edits cost less than one snapshot of a big scene.
