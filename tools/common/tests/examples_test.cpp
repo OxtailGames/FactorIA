@@ -368,3 +368,44 @@ TEST_CASE("examples: the command project.package_examples") {
                          Json::object({{"examples", (d.path / "nope").string()}, {"out", out.str()}}))
                     .ok);
 }
+
+#ifndef _WIN32
+#include <unistd.h>
+
+TEST_CASE("examples: a folder that cannot be read fails the listing, never a partial list") {
+    if (::geteuid() == 0) return;  // root reads everything
+    TempDir d;
+    write_all(d.path / "p/factoria.json", R"({"format":"factoria.project/1"})");
+    write_all(d.path / "p/a.txt", "a");
+    write_all(d.path / "p/locked/b.txt", "b");
+    write_all(d.path / "p/zzz/c.txt", "c");
+    stdfs::permissions(d.path / "p/locked", stdfs::perms::none);
+    struct Restore {
+        stdfs::path p;
+        ~Restore() {
+            std::error_code ec;
+            stdfs::permissions(p, stdfs::perms::owner_all, ec);
+        }
+    } restore{d.path / "p/locked"};
+    auto files = example_zip_files(d.path / "p");
+    REQUIRE_FALSE(files.ok());
+    CHECK(files.error().message.find("Cannot list") != std::string::npos);
+    CHECK_FALSE(files.error().hint.empty());
+    CHECK_FALSE(package_example_zip(d.path / "p", d.path / "p.zip").ok());
+    // The same for the folder of examples.
+    write_all(d.path / "ex/examples.json", R"({"format":"factoria.examples-source/1","examples":[
+      {"name":"p","title":"P","shows":"x","readFirst":[]}]})");
+    write_all(d.path / "ex/p/factoria.json", R"({"format":"factoria.project/1"})");
+    write_all(d.path / "ex/q/factoria.json", R"({"format":"factoria.project/1"})");
+    stdfs::permissions(d.path / "ex/q", stdfs::perms::none);
+    struct Restore2 {
+        stdfs::path p;
+        ~Restore2() {
+            std::error_code ec;
+            stdfs::permissions(p, stdfs::perms::owner_all, ec);
+        }
+    } restore2{d.path / "ex/q"};
+    auto m = package_examples(d.path / "ex", d.path / "out", "0.30.0");
+    REQUIRE_FALSE(m.ok());
+}
+#endif

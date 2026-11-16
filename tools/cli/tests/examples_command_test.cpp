@@ -61,7 +61,8 @@ struct FakeRelease {
             std::error_code ec;
             if (offline || !stdfs::exists(from, ec)) {
                 r.ok = false;
-                r.error = make_error(offline ? "Cannot download " + rq.what + ": no network." : "HTTP 404 for " + rq.url, "Try later.");
+                r.error = make_error(
+                    offline ? "Cannot download " + rq.what + ": no network." : "HTTP 404 for " + rq.url, "Try later.");
                 return r;
             }
             ++downloads;
@@ -94,7 +95,8 @@ void check_registry(CommandRegistry& reg, FakeRelease& rel, const stdfs::path& o
         const CommandInfo* info = reg.info(name);
         REQUIRE(info);
         CHECK(info->capabilitiesDeclared);
-        CHECK((CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Network}).has_all(info->capabilities));
+        CHECK((CapabilitySet{Capability::Read, Capability::WriteProject, Capability::Network})
+                  .has_all(info->capabilities));
         CHECK_FALSE(info->capabilities.has(Capability::WriteAnywhere));
     }
     CHECK(reg.info("project.examples")->capabilities.has(Capability::Network));

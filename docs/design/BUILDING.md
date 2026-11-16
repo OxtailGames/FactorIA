@@ -807,9 +807,14 @@ game as its own asset, plus one manifest. The pieces and where they live:
   `create_example_project` checks the target (new or empty, anything else is an Error), looks the name up (a wrong one gets
   "did you mean"), takes the zip from the cache when its size and SHA-256 match or downloads it, verifies it BEFORE opening
   it, checks every entry name (`..`, absolute paths, drive letters, `:`, `\`, Windows device names, names that differ only
-  in capitals, a file that is also a folder, encrypted or linked entries, and size limits) before it writes any, unpacks
-  into a hidden folder next to the target and renames that folder at the end, so a failure leaves nothing behind. A zip
-  that did not verify and unpack is never kept in the cache. Tests inject a `SetupContext` (a fake downloader, a home
+  in capitals (ASCII and Latin-1 letters are folded; other scripts' capitals and Unicode normalisation are not), a file that
+  is also a folder, encrypted or linked entries, and size limits) before it writes any, unpacks into a hidden folder next to
+  the target and renames that folder at the end, so a failure leaves nothing behind (no hidden folder, no parent folder the
+  call made). An existing empty `dir` is never deleted: the entries of the project move into it one by one and are taken out
+  again if one fails (the AI may pass `.` in an empty folder that is its working directory, which Windows cannot delete). The
+  renames wait up to about five seconds while Windows reports a sharing violation (a scanner looking at the new files), and
+  `ctx.cancel` stops the call between files. A zip that did not verify and unpack is never kept in the cache.
+  `project.package_examples` applies the same name rules, so a release never holds a zip that no one can unpack. Tests inject a `SetupContext` (a fake downloader, a home
   folder, a version: `set_examples_context`), so nothing touches the network. `project.examples` needs the `network`
   capability, and so does `project.create` with `example` (the handler checks it): an MCP client has it, the read-only one
   does not.

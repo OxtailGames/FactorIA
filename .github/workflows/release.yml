@@ -46,7 +46,13 @@ on:
   push:
     tags: ['v*']
   pull_request:
-    paths: ['.github/workflows/release.yml', 'examples/**', 'tools/common/src/examples.cpp']
+    paths:
+      - '.github/workflows/release.yml'
+      - 'examples/examples.json'
+      - 'tools/common/src/examples.cpp'
+      - 'tools/common/src/examples_download.cpp'
+      - 'tools/common/src/examples_names.h'
+      - 'tools/common/src/export_zip.cpp'
   workflow_dispatch:
 
 permissions:
