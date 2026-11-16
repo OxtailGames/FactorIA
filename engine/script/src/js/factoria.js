@@ -1311,6 +1311,9 @@
         // pad) and the name the OS gave it. Both are kept after the pad is unplugged, until another pad takes the slot.
         get id() { return N.inPadInfo(index).id; },
         get name() { return N.inPadInfo(index).name; },
+        // True when this pad has motors the platform can drive right now (input.rumble(pad, ...) then shakes it); false for a
+        // slot with no pad. Games need not check it: input.rumble on a pad that cannot rumble does nothing.
+        get canRumble() { return N.inPadCanRumble(index); },
         down: (b) => N.inPad(1, index, b), pressed: (b) => N.inPad(2, index, b), released: (b) => N.inPad(3, index, b),
         axis: (a) => N.inPad(4, index, a), rawAxis: (a) => N.inPad(5, index, a),
       };
@@ -1388,6 +1391,23 @@
       if (typeof seconds !== "number" || !(seconds > 0) || seconds > 5)
         throw new Error(`input.vibrate(seconds) expects a number above 0 and up to 5, e.g. input.vibrate(0.05) for a tap, but got ${inspect(seconds)}`);
       N.inVibrate(seconds);
+    },
+    // Shakes the motors of gamepad `pad` (0..3): `low` is the heavy, low-frequency motor and `high` the light, high-frequency
+    // one, each 0..1 (outside it is clamped), for `seconds` (above 0, up to 10). A new call on the same pad replaces the one
+    // playing. It ends by itself, and the engine also stops every pad when the game pauses, loses the focus, changes scene
+    // or quits. A pad that is not there or cannot rumble (input.gamepad(pad).canRumble) ignores it; a headless run or test
+    // records it (game.rumbles()).
+    rumble(pad, low, high, seconds) {
+      for (const [name, v] of [["pad", pad], ["low", low], ["high", high], ["seconds", seconds]])
+        if (typeof v !== "number")
+          throw new Error(`input.rumble(pad, low, high, seconds) expects four numbers, e.g. input.rumble(0, 0.6, 0.2, 0.15) for a thump on pad 0, but ${name} is ${inspect(v)}`);
+      N.inRumble(pad, low, high, seconds);
+    },
+    // Stops the rumble of gamepad `pad` now; without an argument it stops every pad.
+    stopRumble(pad) {
+      if (pad !== undefined && typeof pad !== "number")
+        throw new Error(`input.stopRumble(pad) expects a pad number from 0 to 3 (or nothing for every pad), but got ${inspect(pad)}`);
+      N.inStopRumble(pad === undefined ? -1 : pad);
     },
     // Rebinding. rebind() replaces an action's bindings and validates the names (an unknown action or binding throws with
     // a suggestion); resetBindings() goes back to factoria.json (one action, or all of them).
@@ -4736,12 +4756,13 @@
         release(button) { N.testPad(1, index, button, 0); },
         tap(button) { N.testPad(0, index, button, 0); stepN(1); N.testPad(1, index, button, 0); stepN(1); },
         axis(name, value) { N.testPad(2, index, name, value); },
-        // connect(info?): info = { id?, name?, type?, vendor?, product? } says who the pad is (the "gamepadConnected" event and
-        // input.gamepad(i).id carry it); one left out keeps what the slot had. Without an id one is made from vendor, product and name.
+        // connect(info?): info = { id?, name?, type?, vendor?, product?, canRumble? } says who the pad is (the "gamepadConnected"
+        // event and input.gamepad(i).id carry it); one left out keeps what the slot had. Without an id one is made from vendor,
+        // product and name. canRumble: true makes input.gamepad(i).canRumble true, for testing a game's rumble (default false).
         connect(info) {
           if (info !== undefined) {
-            const keys = ["id", "name", "type", "vendor", "product"];
-            if (!isObj(info)) throw new Error(`game.gamepad(${index}).connect(info) expects { id?, name?, type?, vendor?, product? }, but got ${inspect(info)}`);
+            const keys = ["id", "name", "type", "vendor", "product", "canRumble"];
+            if (!isObj(info)) throw new Error(`game.gamepad(${index}).connect(info) expects { id?, name?, type?, vendor?, product?, canRumble? }, but got ${inspect(info)}`);
             for (const k of Object.keys(info)) {
               if (keys.includes(k)) continue;
               const sug = closest(k, keys);
@@ -4749,6 +4770,7 @@
             }
             for (const k of ["id", "name", "type"]) if (info[k] !== undefined && typeof info[k] !== "string") throw new Error(`game.gamepad(${index}).connect: ${k} must be a string, but got ${inspect(info[k])}`);
             for (const k of ["vendor", "product"]) if (info[k] !== undefined && !(Number.isInteger(info[k]) && info[k] >= 0 && info[k] <= 65535)) throw new Error(`game.gamepad(${index}).connect: ${k} must be an integer from 0 to 65535 (a USB id), but got ${inspect(info[k])}`);
+            if (info.canRumble !== undefined && typeof info.canRumble !== "boolean") throw new Error(`game.gamepad(${index}).connect: canRumble must be true or false, but got ${inspect(info.canRumble)}`);
             if (info.type !== undefined) N.testPad(6, index, info.type, 0);  // validates the family
           }
           N.testPad(3, index, "", 0, info === undefined ? undefined : plain(info));
@@ -4827,6 +4849,12 @@
       };
       N.testSafeInsets(side("left"), side("top"), side("right"), side("bottom"));
     },
+    // The requests input.rumble() and input.stopRumble() made since the test started (cleared before each test), oldest first:
+    // { pad, low, high, seconds } with the strengths clamped to 0..1 and seconds 0 for a stop.
+    rumbles() { return N.testRumbles(); },
+    // What the motors of pad `pad` do now: { low, high, seconds } with seconds the time left, all 0 when the pad is not
+    // connected or its rumble ended, was stopped, or was cut by pause, a scene change or focus loss.
+    rumbleState(pad = 0) { return N.testRumbleState(pad); },
     // The pulses input.vibrate() asked for since the test started (cleared before each test), in seconds, oldest first.
     vibrations() { return N.testVibrations(); },
     mouseMove(p) { const a = posArg(p, "game.mouseMove"); N.inMouseMove(a[0], a[1]); },

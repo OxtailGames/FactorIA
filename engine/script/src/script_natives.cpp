@@ -3134,6 +3134,37 @@ NATIVE(inVibrate) {  // (seconds)
     return JS_UNDEFINED;
 }
 
+NATIVE(inRumble) {  // (pad, low, high, seconds)
+    SETUP;
+    auto r = make_rumble_request("input.rumble", arg_num(ctx, argc, argv, 0, -1), arg_num(ctx, argc, argv, 1, 0),
+                                 arg_num(ctx, argc, argv, 2, 0), arg_num(ctx, argc, argv, 3, 0));
+    if (!r.ok()) return throw_err(ctx, r.error().message + " " + r.error().hint);
+    I->host->input().rumble(*r);
+    return JS_UNDEFINED;
+}
+
+NATIVE(inStopRumble) {  // (pad, -1 = every pad)
+    SETUP;
+    const double d = arg_num(ctx, argc, argv, 0, -1);
+    if (d != -1.0) {
+        int i = 0;
+        JSValue exc = JS_UNDEFINED;
+        if (!pad_index(ctx, argc, argv, 0, i, exc)) return exc;
+        I->host->input().stop_rumble(i);
+    } else {
+        I->host->input().stop_rumble(-1);
+    }
+    return JS_UNDEFINED;
+}
+
+NATIVE(inPadCanRumble) {  // (index)
+    SETUP;
+    int i = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!pad_index(ctx, argc, argv, 0, i, exc)) return exc;
+    return JS_NewBool(ctx, I->host->input().gamepad_can_rumble(i));
+}
+
 NATIVE(screenInsets) {  // [left, top, right, bottom] of the safe area, in design pixels
     SETUP;
     const EdgeInsets& e = W.safe_insets();
@@ -3221,6 +3252,23 @@ NATIVE(testBack) {
     SETUP;
     I->host->input().on_back();
     return JS_UNDEFINED;
+}
+
+NATIVE(testRumbles) {  // every input.rumble / input.stopRumble request since the test started
+    SETUP;
+    Json out = Json::array();
+    for (const RumbleRequest& r : I->host->input().rumble_requests())
+        out.push_back(Json::object({{"pad", r.pad}, {"low", r.low}, {"high", r.high}, {"seconds", r.seconds}}));
+    return I->from_json(out);
+}
+
+NATIVE(testRumbleState) {  // (pad): what the motors do now
+    SETUP;
+    int i = 0;
+    JSValue exc = JS_UNDEFINED;
+    if (!pad_index(ctx, argc, argv, 0, i, exc)) return exc;
+    const RumbleState st = I->host->input().rumble_state(i);
+    return I->from_json(Json::object({{"low", st.low}, {"high", st.high}, {"seconds", st.remaining}}));
 }
 
 NATIVE(testVibrations) {
@@ -4964,6 +5012,9 @@ NATIVE(
                 info.id = make_gamepad_id(info.vendor, info.product, info.name.empty() ? "Gamepad" : info.name, "");
             if (info.id.empty()) info.id = in.gamepad_info(i).id;
             in.set_gamepad_info(i, std::move(info));
+            if (j.contains("canRumble") && j["canRumble"].is_boolean())
+                in.set_gamepad_rumble_support(i, j["canRumble"].get<bool>(),
+                                              "this test pad was connected without canRumble: true");
         }
         in.on_gamepad_connected(i, kind == 3);
     }
@@ -5241,6 +5292,9 @@ const Reg kRegs[] = {
     R(windowSet, 3),
     R(testText, 1),
     R(inVibrate, 1),
+    R(inRumble, 4),
+    R(inStopRumble, 1),
+    R(inPadCanRumble, 1),
     R(screenInsets, 0),
     R(testSafeInsets, 4),
     R(testSafeProfile, 1),
@@ -5254,6 +5308,8 @@ const Reg kRegs[] = {
     R(clipboardSet, 1),
     R(testSystemLanguages, 1),
     R(testVibrations, 0),
+    R(testRumbles, 0),
+    R(testRumbleState, 1),
     R(inKeyEvent, 2),
     R(inMouseMove, 2),
     R(inMouseEvent, 2),
