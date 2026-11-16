@@ -85,7 +85,7 @@ Write the browsable API reference pages (docs/reference/) and docs/COMPONENTS.md
 
 Capabilities: read, writeProject
 
-Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the scripting API) and <out>/reference/: README.md (index of every component and command), components/<category>.md and commands/<category>.md, and it refreshes the generated tools table between the markers in section 4 of <out>/AI_GUIDE.md (an <out> without that file, or a file without the markers, gives a `warnings` entry and nothing else changes); all generated from the registries of this session. Run it outside a project (the scratch session) so plugin and project commands are not included; the unit test api_reference compares the committed files with this output. The files are identical on every platform. Example: {"out":"docs"} from the repository root.
+Writes <out>/COMPONENTS.md (the whole `factoria api --md` text, including the scripting API) and <out>/reference/: README.md (index of every component and command), components/<category>.md and commands/<category>.md, and it refreshes the generated tools table between the markers in section 4 of <out>/ai-guide/AI_GUIDE_TOOLS.md (an <out> without that file, or a file without the markers, gives a `warnings` entry and nothing else changes); all generated from the registries of this session. Run it outside a project (the scratch session) so plugin and project commands are not included; the unit test api_reference compares the committed files with this output. The files are identical on every platform. Example: {"out":"docs"} from the repository root.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
