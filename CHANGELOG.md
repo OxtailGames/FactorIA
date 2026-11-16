@@ -12,6 +12,17 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   Undo and Redo run those commands, a drag is still one step, and a step that fails midway puts the scene back and says which
   command failed. The other edits (entities created, deleted, reparented, pasted; the Console and the AI; bone tools) still take
   a snapshot until the second half. docs/EDITOR.md, "Undo entries".
+- **Prefab overrides (M98.7d):** three new commands, `prefab.overrides` (what an instance differs in from its prefab file, one
+  entry per field, added component and added child, with the prefab's own value, and what cannot be written as an override and
+  why), `prefab.revert` (a field, a component or the whole instance back to the prefab; one Undo step in the editor) and
+  `prefab.apply` (the instance's value written into the prefab file, which keeps its layout and nested prefabs; the other
+  instances of it in the open scene follow, keeping what they override themselves). The Inspector marks overridden fields
+  (blue label, tooltip with the prefab's value) and added components, shows the prefab and the override count under the name,
+  and offers Revert to prefab / Apply to prefab in the right-click menu of a field and of a component header, and Revert all /
+  Apply all (which asks first, and is greyed out while the game plays) for the entity (docs/EDITOR.md, "Prefab instances").
+  A component an instance removed is listed (`removedComponent`), comes back with Revert and is deleted from the prefab file by
+  Apply; `name`, `tags` and `active` of EntityInfo can be named as fields; Revert is all or nothing; instances are matched by
+  the normalized path of their prefab (case on Windows and macOS). A removed prefab child is still not listed.
 - **Copy, cut and paste of entities (M98.7c):** the new commands `scene.copy_entities` (entities with their subtrees as one
   self-contained JSON text: components, children, links to prefabs) and `scene.paste_entities` (creates them under an optional
   parent or each under the parent it had, with free ids, `nameSuffix`, and the new ids in the answer) make the clipboard

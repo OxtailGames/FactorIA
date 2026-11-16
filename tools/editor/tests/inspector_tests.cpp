@@ -313,3 +313,43 @@ TEST_CASE("multi_selection_title") {
     CHECK(multi_selection_title(3) == "3 entities");
     CHECK(multi_selection_title(12) == "12 entities");
 }
+
+TEST_CASE("prefab overrides: the Inspector marks what prefab.overrides lists, and not where the instance stands") {
+    const Json list = Json::parse(R"([
+        {"kind":"field","entity":"a","component":"Sprite","field":"/layer","value":9,"prefabValue":1},
+        {"kind":"field","entity":"a","component":"Transform","field":"/position","value":[7,8,0],"prefabValue":[0,0,0],"placement":true},
+        {"kind":"field","entity":"title","component":"Transform","field":"/position/0","value":3,"prefabValue":0},
+        {"kind":"component","entity":"ok","component":"Shape2D","value":{"layer":4}},
+        {"kind":"removedComponent","entity":"ok","component":"Text","prefabValue":{"text":"OK"}},
+        {"kind":"child","entity":"extra"}])");
+    CHECK(prefab_override_count(list) == 5);
+    CHECK(prefab_removed_components(list, "ok") == std::vector<std::string>{"Text"});
+    CHECK(prefab_removed_components(list, "a").empty());
+    CHECK(prefab_removed_components(Json(), "a").empty());
+    CHECK_FALSE(prefab_component_added(list, "ok", "Text"));
+    CHECK(prefab_component_override_count(list, "ok", "Text") == 1);
+    const Json* layer = prefab_field_override(list, "a", "Sprite", "layer");
+    REQUIRE(layer);
+    CHECK((*layer)["prefabValue"] == 1);
+    CHECK(prefab_field_override(list, "a", "Sprite", "color") == nullptr);
+    CHECK(prefab_field_override(list, "b", "Sprite", "layer") == nullptr);
+    CHECK(prefab_field_override(list, "a", "Transform", "position") == nullptr);  // placement
+    CHECK(prefab_field_override(list, "title", "Transform", "position") !=
+          nullptr);  // a deeper pointer marks its field
+    CHECK(prefab_field_override(list, "title", "Transform", "pos") == nullptr);
+    CHECK(prefab_component_added(list, "ok", "Shape2D"));
+    CHECK_FALSE(prefab_component_added(list, "a", "Sprite"));
+    CHECK(prefab_component_override_count(list, "ok", "Shape2D") == 1);
+    CHECK(prefab_component_override_count(list, "a", "Transform") == 0);
+    CHECK(prefab_field_override(Json(), "a", "Sprite", "layer") == nullptr);
+    CHECK(prefab_override_count(Json()) == 0);
+}
+
+TEST_CASE("prefab overrides: revert and apply are the commands' own arguments") {
+    CHECK(prefab_edit_args("a", "", "") == Json::parse(R"({"id":"a"})"));
+    CHECK(prefab_edit_args("a", "Sprite", "") == Json::parse(R"({"id":"a","component":"Sprite"})"));
+    CHECK(prefab_edit_args("a", "Sprite", "layer") ==
+          Json::parse(R"({"id":"a","component":"Sprite","field":"/layer"})"));
+    CHECK(prefab_edit_args("a", "Sprite", "/layer") ==
+          Json::parse(R"({"id":"a","component":"Sprite","field":"/layer"})"));
+}

@@ -510,6 +510,9 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`bones.create`](commands/scene.md#bonescreate-modifies-state): Create a chain of Bone2D entities along points, under a parent. _Since 0.7.0._
 - [`load.cancel`](commands/scene.md#loadcancel-modifies-state): Stop a background load, or drop the files a finished one read ahead. _Since 0.19.0._
 - [`load.status`](commands/scene.md#loadstatus): Show the background loads: progress, items, bytes, errors. _Since 0.19.0._
+- [`prefab.apply`](commands/scene.md#prefabapply-modifies-state): Write an instance's values into its prefab file: one field, one component, or everything; the other instances follow. _Not released yet._
+- [`prefab.overrides`](commands/scene.md#prefaboverrides): List what a prefab instance of the open scene overrides: what differs from its prefab. _Not released yet._
+- [`prefab.revert`](commands/scene.md#prefabrevert-modifies-state): Put the prefab's values back into an instance: one field, one component, or everything. _Not released yet._
 - [`prefab.save`](commands/scene.md#prefabsave-modifies-state): Save an entity of the running world, with its children, as a prefab file.
 - [`scene.ascii_edit`](commands/scene.md#sceneascii_edit-modifies-state): Edit the ASCII map of a level file (a scene.import_ascii args file) with operations instead of rewriting rows, then rebuild the level. _Since 0.2.0._
 - [`scene.copy_entities`](commands/scene.md#scenecopy_entities): Write entities of the running world, with their subtrees, as one JSON text. _Not released yet._

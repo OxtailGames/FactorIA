@@ -2069,4 +2069,189 @@ void Editor::at_section_M5(AtScript& at) {
     }
 }
 
+void Editor::at_section_P4(AtScript& at) {
+    AT_SCRIPT_LOCALS(at)
+    // ------------------------------------------------------- P4. Prefab overrides: marked, reverted, applied, undone
+    // Two instances of a prefab. An edit of the first is marked in the Inspector (blue label, count, header buttons); the right-click
+    // menu reverts it (prefab.revert, one undo step) and applies it (prefab.apply: the file is written and the second instance
+    // follows); Apply all asks first. Every button is a command call, so the checks read the world and the prefab file.
+    {
+        auto right_click = [this, &step](const std::string& name) {
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_MOVE, at_widget(name)); });
+            step(2, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_DOWN, at_widget(name), 1); });
+            step(4, [this, name] { inject_mouse(SAPP_EVENTTYPE_MOUSE_UP, at_widget(name), 1); });
+        };
+        auto layer_of = [this](const char* id) {
+            Entity e = world().find_by_id(id);
+            const Shape2D* s = e.is_null() ? nullptr : world().get<Shape2D>(e);
+            return s ? s->layer : -999;
+        };
+        auto prefab_json = [project_file] {
+            auto loaded = load_json_file(project_file("prefabs/panel.prefab.json"));
+            return loaded ? *loaded : Json::object();
+        };
+        auto set_layer = [this](const char* id, int layer) {
+            std::string err;
+            const CommandResult r = edit_command(
+                "at:p4:" + std::to_string(uiFrame_), "scene.set_component",
+                Json::object({{"id", id}, {"component", "Shape2D"}, {"fields", Json::object({{"layer", layer}})}}),
+                &err);
+            at_check(r.ok, "scene.set_component on the instance: " + err);
+        };
+        auto undos = std::make_shared<size_t>(0);
+        // A small window shows only the top of the Inspector, and the field is below Transform and the prefab header.
+        auto scroll_to_layer = [this, &step] {
+            step(2, [this] { inspScrollTo_ = "Shape2D.layer"; });
+            step(3, [] {});
+        };
+
+        step(2, [this, project_file] {
+            stop();
+            select_id("");
+            showHierarchy_ = showInspector_ = true;
+            write_file(project_file("prefabs/panel.prefab.json"), R"({
+  "format": "factoria.prefab/1",
+  "entity": { "id": "panel", "name": "Panel",
+    "components": { "Shape2D": { "size": [120, 40], "color": [0.3, 0.5, 0.8, 1], "layer": 1 } },
+    "children": [ { "id": "label", "name": "Label", "components": { "Shape2D": { "size": [60, 10], "layer": 2 } } } ] }
+})");
+            write_file(project_file(scenePath_), R"({
+  "format": "factoria.scene/1",
+  "entities": [
+    { "id": "camera", "name": "Main Camera", "components": { "Camera": { "primary": true } } },
+    { "id": "panel_1", "prefab": "prefabs/panel.prefab.json", "components": { "Transform": { "position": [-100, 0, 0] } } },
+    { "id": "panel_2", "prefab": "prefabs/panel.prefab.json", "components": { "Transform": { "position": [100, 0, 0] } } }
+  ]
+})");
+            reload_scene_from_disk();
+            focus_window("###Viewport");
+            select_id("panel_1");
+        });
+        step(10, [this, layer_of] {
+            at_check(at_visible("insp:prefab") && !inspOvRoot_.empty() && inspOvRoot_ == "panel_1",
+                     "the Inspector says the selected entity is an instance of a prefab");
+            at_check(prefab_override_count(inspOv_) == 0 && !at_enabled("insp:prefab:revert") &&
+                         !at_enabled("insp:prefab:apply"),
+                     "...with no overrides, so Revert all and Apply all are disabled");
+            at_check(layer_of("panel_1") == 1 && layer_of("panel_2") == 1,
+                     "both instances start with the prefab's layer");
+        });
+
+        // 1. An edit of the instance is marked.
+        step(2, [this, undos, set_layer] {
+            *undos = undo_depth();
+            set_layer("panel_1", 7);
+        });
+        scroll_to_layer();
+        step(8, [this, undos] {
+            at_check(undo_depth() == *undos + 1, "the edit is one undo step");
+            at_check(prefab_field_override(inspOv_, "panel_1", "Shape2D", "layer") != nullptr &&
+                         prefab_override_count(inspOv_) == 1,
+                     "prefab.overrides lists Shape2D.layer, and the Inspector counted one override");
+            at_check(at_enabled("insp:prefab:revert") && at_enabled("insp:prefab:apply"),
+                     "Revert all and Apply all are enabled");
+            at_check(at_visible("insp:label:Shape2D.layer"), "the field's label is on screen");
+        });
+        snap("editor_prefab_override.png");
+
+        // 2. Revert to prefab from the field's menu.
+        scroll_to_layer();
+        right_click("insp:label:Shape2D.layer");
+        step(4, [this] {
+            at_check(at_enabled("insp:ctx:revert") && at_enabled("insp:ctx:apply"),
+                     "the menu of an overridden field offers Revert to prefab and Apply to prefab");
+        });
+        step(2, [this, undos] { *undos = undo_depth(); });
+        click("insp:ctx:revert");
+        step(8, [this, undos, layer_of] {
+            at_check(layer_of("panel_1") == 1, "Revert to prefab puts the prefab's value back");
+            at_check(undo_depth() == *undos + 1, "...as one undo step");
+            at_check(prefab_override_count(inspOv_) == 0, "...and the Inspector shows no override");
+        });
+        click("toolbar:undo");
+        step(8, [this, layer_of] {
+            at_check(layer_of("panel_1") == 7, "Undo brings the override back");
+            at_check(prefab_override_count(inspOv_) == 1, "...and the field is marked again");
+        });
+
+        // 3. Apply to prefab: the file is written, the other instance follows.
+        scroll_to_layer();
+        right_click("insp:label:Shape2D.layer");
+        step(4, [this] { at_check(at_enabled("insp:ctx:apply"), "the menu is open again"); });
+        click("insp:ctx:apply");
+        step(8, [this, layer_of, prefab_json] {
+            const Json file = prefab_json();
+            at_check(file["entity"]["components"]["Shape2D"]["layer"] == 7,
+                     "Apply to prefab writes the value into the prefab file");
+            at_check(file["entity"]["components"]["Shape2D"].contains("size"), "...and keeps the rest of the file");
+            at_check(layer_of("panel_2") == 7, "the other instance of the prefab follows");
+            at_check(prefab_override_count(inspOv_) == 0, "the instance has nothing left to override");
+        });
+        click("toolbar:undo");
+        step(8, [this, layer_of, prefab_json] {
+            at_check(layer_of("panel_2") == 1 && layer_of("panel_1") == 7,
+                     "Undo puts the scene back (the other instance keeps the old layer, this one its override)");
+            at_check(prefab_json()["entity"]["components"]["Shape2D"]["layer"] == 7,
+                     "...but not the prefab file, which the popup said");
+        });
+
+        // 4. Apply all asks first; Cancel changes nothing.
+        step(2, [set_layer] { set_layer("panel_1", 9); });
+        step(8, [this] { at_check(at_enabled("insp:prefab:apply"), "a new override enables Apply all"); });
+        click("insp:prefab:apply");
+        step(6, [this] { at_check(at_visible("insp:prefab:apply-yes"), "Apply all asks before it writes the file"); });
+        snap("editor_prefab_apply_ask.png");
+        click("insp:prefab:apply-no");
+        step(6, [this, prefab_json] {
+            at_check(prefab_json()["entity"]["components"]["Shape2D"]["layer"] == 7, "Cancel writes nothing");
+        });
+        click("insp:prefab:apply");
+        step(6, [this] { at_check(at_visible("insp:prefab:apply-yes"), "the question is back"); });
+        click("insp:prefab:apply-yes");
+        step(8, [this, layer_of, prefab_json] {
+            at_check(prefab_json()["entity"]["components"]["Shape2D"]["layer"] == 9,
+                     "Apply writes the instance's layer");
+            at_check(layer_of("panel_2") == 1,
+                     "...and the other instance keeps its own layer (after the Undo above it overrides the file's 7)");
+        });
+
+        // 5. A component the instance lost is named in the header and counted; Revert gives it back.
+        step(2, [this, undos] {
+            *undos = undo_depth();
+            std::string err;
+            const CommandResult r = edit_command("at:p4:rm", "scene.remove_component",
+                                                 Json::object({{"id", "panel_1"}, {"component", "Shape2D"}}), &err);
+            at_check(r.ok, "scene.remove_component on the instance: " + err);
+        });
+        step(8, [this] {
+            at_check(prefab_removed_components(inspOv_, "panel_1") == std::vector<std::string>{"Shape2D"},
+                     "prefab.overrides lists the lost Shape2D as removedComponent");
+            at_check(at_visible("insp:prefab:removed") && at_enabled("insp:prefab:revert"),
+                     "the header names the removed component and Revert all is enabled");
+        });
+        click("insp:prefab:revert");
+        step(8, [this] {
+            at_check(world().get<Shape2D>(world().find_by_id("panel_1")) != nullptr, "Revert all gives it back");
+            at_check(prefab_override_count(inspOv_) == 0, "...and nothing is left to override");
+        });
+
+        // 6. While the game runs Apply is not offered (the running game's values are not the scene's); Revert still is.
+        step(2, [this, set_layer] {
+            set_layer("panel_1", 3);
+            play();
+        });
+        step(10, [this] {
+            at_check(play_state() != PlayState::Edit, "the game runs");
+            at_check(at_visible("insp:prefab:apply") && !at_enabled("insp:prefab:apply"),
+                     "Apply all is disabled while the game runs");
+            at_check(at_enabled("insp:prefab:revert"), "...and Revert all is not");
+            stop();
+        });
+        step(6, [this] {
+            at_check(play_state() == PlayState::Edit, "Stop returns to edit mode");
+            select_id("");
+        });
+    }
+}
+
 }  // namespace fa::editor

@@ -17,6 +17,7 @@ void register_authoring_commands(Engine& engine) {
 
     // scenes, prefabs
     register_scene_file_commands(engine, impl);
+    register_prefab_override_commands(engine, impl);  // prefab.overrides, prefab.revert, prefab.apply
     register_scene_clipboard_commands(engine, impl);  // scene.copy_entities, scene.paste_entities
 
     // animation, rigs
