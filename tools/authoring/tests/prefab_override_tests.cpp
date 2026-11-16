@@ -130,8 +130,8 @@ void make_edits(Session& s) {
     s.set("title", "Text", Json{{"text", "Edited"}});
     s.set("ok", "EntityInfo", Json{{"name", "Done"}});
     s.set("ok", "Shape2D", Json{{"layer", 4}});
-    const CommandResult r =
-        s.call("scene.spawn", Json{{"id", "extra"}, {"parent", "a"}, {"name", "Extra"}, {"position", Json::array({1, 2})}});
+    const CommandResult r = s.call(
+        "scene.spawn", Json{{"id", "extra"}, {"parent", "a"}, {"name", "Extra"}, {"position", Json::array({1, 2})}});
     REQUIRE_MESSAGE(r.ok, r.error.dump());
 }
 
@@ -306,7 +306,8 @@ TEST_CASE("prefab.apply: a field goes into the file and the other instances foll
     // A descendant's field: b has its own text, so it keeps it; a plain instance would take it.
     r = s.call("prefab.apply", Json{{"id", "title"}});
     REQUIRE_MESSAGE(r.ok, error_text(r));
-    CHECK(s.project.json("prefabs/panel.prefab.json")["entity"]["children"][0]["components"]["Text"]["text"] == "Edited");
+    CHECK(s.project.json("prefabs/panel.prefab.json")["entity"]["children"][0]["components"]["Text"]["text"] ==
+          "Edited");
     CHECK(w.get<Text>(s.find("title_2"))->text == "Mine");
     CHECK(s.call("prefab.overrides", Json{{"id", "a"}}).result["count"] == 0);
     CHECK(s.saved("b")["overrides"]["title"]["components"]["Text"]["text"] == "Mine");
@@ -377,7 +378,8 @@ TEST_CASE("prefab.apply: refuses a read-only file, a change the file has no plac
     CHECK(contains(error_text(r), "prefab.revert"));
     CHECK(s.project.read("prefabs/panel.prefab.json") == before);
     CHECK(s.world().get<Sprite>(s.find("b"))->layer == 5);
-    stdfs::permissions(s.project.dir / "prefabs/panel.prefab.json", stdfs::perms::owner_write, stdfs::perm_options::add);
+    stdfs::permissions(s.project.dir / "prefabs/panel.prefab.json", stdfs::perms::owner_write,
+                       stdfs::perm_options::add);
 
     // A reference to an entity outside the prefab has no id the file could hold: listed as blocked, apply refuses.
     s.set("a", "Sprite", Json{{"layer", 1}});

@@ -285,4 +285,59 @@ Json duplicate_spec(Json entityJson) {
     return entityJson;
 }
 
+// ---------------------------------------------------------------------------------------------- prefab overrides
+namespace {
+std::string json_text(const Json& j, const char* key) {
+    return j.is_object() && j.contains(key) && j[key].is_string() ? j[key].get<std::string>() : std::string();
+}
+bool is_real(const Json& item) { return !(item.is_object() && item.value("placement", false)); }
+}  // namespace
+
+const Json* prefab_field_override(const Json& overrides, std::string_view entity, std::string_view component,
+                                  std::string_view field) {
+    if (!overrides.is_array()) return nullptr;
+    const std::string whole = "/" + std::string(field);
+    for (const Json& item : overrides) {
+        if (!is_real(item) || json_text(item, "kind") != "field" || json_text(item, "entity") != entity ||
+            json_text(item, "component") != component)
+            continue;
+        const std::string pointer = json_text(item, "field");
+        if (pointer == whole || pointer.compare(0, whole.size() + 1, whole + "/") == 0) return &item;
+    }
+    return nullptr;
+}
+
+bool prefab_component_added(const Json& overrides, std::string_view entity, std::string_view component) {
+    if (!overrides.is_array()) return false;
+    for (const Json& item : overrides)
+        if (json_text(item, "kind") == "component" && json_text(item, "entity") == entity &&
+            json_text(item, "component") == component)
+            return true;
+    return false;
+}
+
+int prefab_component_override_count(const Json& overrides, std::string_view entity, std::string_view component) {
+    int n = 0;
+    if (!overrides.is_array()) return 0;
+    for (const Json& item : overrides)
+        if (is_real(item) && json_text(item, "kind") != "child" && json_text(item, "entity") == entity &&
+            json_text(item, "component") == component)
+            ++n;
+    return n;
+}
+
+int prefab_override_count(const Json& overrides) {
+    int n = 0;
+    if (!overrides.is_array()) return 0;
+    for (const Json& item : overrides) n += is_real(item) ? 1 : 0;
+    return n;
+}
+
+Json prefab_edit_args(const std::string& entityId, const std::string& component, const std::string& field) {
+    Json a = Json::object({{"id", entityId}});
+    if (!component.empty()) a["component"] = component;
+    if (!field.empty()) a["field"] = field[0] == '/' ? field : "/" + field;
+    return a;
+}
+
 }  // namespace fa::editor

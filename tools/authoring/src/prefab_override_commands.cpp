@@ -149,9 +149,8 @@ Selection select_changes(const World& w, const Instance& inst, const Json& a) {
         component = t->name;
         if (!rawField.empty()) {
             field = field_pointer(rawField);
-            const bool known = std::any_of(t->fields.begin(), t->fields.end(), [&](const FieldInfo& f) {
-                return f.serialized && "/" + f.name == field;
-            });
+            const bool known = std::any_of(t->fields.begin(), t->fields.end(),
+                                           [&](const FieldInfo& f) { return f.serialized && "/" + f.name == field; });
             if (!known) {
                 std::vector<std::string> names;
                 for (const FieldInfo& f : t->fields)
@@ -445,8 +444,8 @@ Json prefab_apply(Engine::Impl& I, const Json& a) {
                            "use prefab.save to save '" +
                                w.id_of(inst.root) + "' as a new prefab.");
     const auto perms = sfs::status(full, ec).permissions();
-    if (!ec && (perms & (sfs::perms::owner_write | sfs::perms::group_write | sfs::perms::others_write)) ==
-                   sfs::perms::none)
+    if (!ec &&
+        (perms & (sfs::perms::owner_write | sfs::perms::group_write | sfs::perms::others_write)) == sfs::perms::none)
         throw CommandError("read_only",
                            "The prefab file '" + rel + "' is read-only, so '" + w.id_of(inst.scope) +
                                "' cannot be applied to it.",
@@ -456,7 +455,8 @@ Json prefab_apply(Engine::Impl& I, const Json& a) {
     auto loaded = load_json_file(rel);
     if (!loaded.ok())
         throw CommandError("failed", loaded.error().message,
-                           loaded.error().hint.empty() ? "Fix the JSON of the prefab file first." : loaded.error().hint);
+                           loaded.error().hint.empty() ? "Fix the JSON of the prefab file first."
+                                                       : loaded.error().hint);
     Json file = std::move(loaded.value());
     if (!file.is_object() || !file.contains("entity") || !file["entity"].is_object())
         throw CommandError("failed", "The prefab '" + rel + "' has no \"entity\" object.",
@@ -541,16 +541,19 @@ void register_prefab_override_commands(Engine& engine, Engine::Impl& I) {
     (void)engine;
     I.commands.add(
         {"prefab.overrides", "List what a prefab instance of the open scene overrides: what differs from its prefab.",
-         "`id` is an entity of a prefab instance, its root or a part of it; the list covers that entity and what is below "
+         "`id` is an entity of a prefab instance, its root or a part of it; the list covers that entity and what is "
+         "below "
          "it (the whole instance for the root). Returns {id, root, prefab, expressible, count, overrides: [{kind, "
          "entity, component, field, value, prefabValue}]}: kind \"field\" (a field of a component, as a JSON pointer: "
-         "\"/position\"; name, tags and active are fields of EntityInfo), \"component\" (one the prefab lacks, with its "
-         "whole value) or \"child\" (added under the instance's root). Example: prefab.overrides {\"id\":\"enemy_1\"}"
-         FA_COMMAND_DETAILS
-         "`prefabValue` is what prefab.revert puts back; an Entity field gives the id of the instance's own entity. The "
+         "\"/position\"; name, tags and active are fields of EntityInfo), \"component\" (one the prefab lacks, with "
+         "its "
+         "whole value) or \"child\" (added under the instance's root). Example: prefab.overrides "
+         "{\"id\":\"enemy_1\"}" FA_COMMAND_DETAILS "`prefabValue` is what prefab.revert puts back; an Entity field "
+         "gives the id of the instance's own entity. The "
          "root's Transform.position is listed with placement: true and not counted: where an instance stands is not "
          "an override of the prefab. An entry with `applyBlocked` cannot be written to the prefab file by prefab.apply "
-         "(it points at an entity outside the prefab, or at a part that a prefab inside the prefab made): the text says "
+         "(it points at an entity outside the prefab, or at a part that a prefab inside the prefab made): the text "
+         "says "
          "why. When the differences cannot be listed (a part of the prefab was removed, a child was added under a part "
          "of it) `expressible` is false, `reason` says what to fix and the list is empty. It reads the prefab file and "
          "changes nothing.",
@@ -565,7 +568,8 @@ void register_prefab_override_commands(Engine& engine, Engine::Impl& I) {
          "overrides goes back to the prefab (for the root: the whole instance, added components and children "
          "included); with `component`, that component of the entity; with `component` and `field`, that one field "
          "(a JSON pointer such as \"/position\"; name, tags and active are fields of EntityInfo). Changes the open "
-         "scene only: the prefab file stays as it is. Example: prefab.revert {\"id\":\"enemy_1\",\"component\":\"Sprite\","
+         "scene only: the prefab file stays as it is. Example: prefab.revert "
+         "{\"id\":\"enemy_1\",\"component\":\"Sprite\","
          "\"field\":\"/color\"}" FA_COMMAND_DETAILS
          "Where the instance stands (the root's Transform.position) is not reverted unless named: {\"component\": "
          "\"Transform\", \"field\": \"/position\"}. A component the prefab lacks is removed, a child added under the "
@@ -581,20 +585,22 @@ void register_prefab_override_commands(Engine& engine, Engine::Impl& I) {
 
     I.commands.add(
         {"prefab.apply",
-         "Write an instance's values into its prefab file: one field, one component, or everything; the other instances follow.",
+         "Write an instance's values into its prefab file: one field, one component, or everything; the other "
+         "instances follow.",
          "`id` is the instance's root or a part of it; `component` and `field` narrow it as in prefab.revert (without "
          "them: everything the entity and what is below it overrides, added components and children included). The "
          "prefab file keeps its own layout (its nested prefabs and the parts you did not touch stay), and every other "
          "instance of the prefab in the open scene gets the same change, except where it overrides that thing itself. "
          "Example: prefab.apply {\"id\":\"enemy_1\",\"component\":\"Sprite\",\"field\":\"/color\"}" FA_COMMAND_DETAILS
          "Returns {id, root, prefab, applied: [the entries prefab.overrides lists], files: [the prefab file written], "
-         "updated: [ids of the other instances that were updated], skipped: [{id, reason}] (instances whose differences "
+         "updated: [ids of the other instances that were updated], skipped: [{id, reason}] (instances whose "
+         "differences "
          "cannot be listed: left as they are), notes?}. Where the instance stands (the root's Transform.position) is "
          "not written unless named, like prefab.save. Refuses, changing nothing, a read-only file (code read_only), a "
          "prefab that does not exist, an instance whose differences cannot be listed (not_expressible) and changes the "
-         "file has no place for (cannot_apply; each entry of prefab.overrides says so in `applyBlocked`). It is not an "
-         "undo step of the editor: the file is written (use version control to go back), and instances of this prefab "
-         "inside other prefabs are only updated after a scene.reload.",
+         "file has no place for (cannot_apply; each entry of prefab.overrides says so in `applyBlocked`). The "
+         "file is written for good (the editor's Ctrl+Z puts the open scene back, not the file: use version control "
+         "to go back), and instances of this prefab inside other prefabs are only updated after a scene.reload.",
          parse_schema(R"({"type":"object","required":["id"],"properties":{
                "id":{"type":"string","description":"Id (or name) of the instance's root or of a part of it."},
                "component":{"type":"string","description":"Only this component of the entity (e.g. Sprite, Transform, EntityInfo). Without it: everything of the entity and below."},

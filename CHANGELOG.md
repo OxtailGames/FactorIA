@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Prefab overrides (M98.7d):** three new commands, `prefab.overrides` (what an instance differs in from its prefab file, one
+  entry per field, added component and added child, with the prefab's own value, and what cannot be written as an override and
+  why), `prefab.revert` (a field, a component or the whole instance back to the prefab; one Undo step in the editor) and
+  `prefab.apply` (the instance's value written into the prefab file, which keeps its layout and nested prefabs; the other
+  instances of it in the open scene follow, keeping what they override themselves). The Inspector marks overridden fields
+  (blue label, tooltip with the prefab's value) and added components, shows the prefab and the override count under the name,
+  and offers Revert to prefab / Apply to prefab in the right-click menu of a field and of a component header, and Revert all /
+  Apply all (which asks first) for the entity (docs/EDITOR.md, "Prefab instances").
 - **Several entities selected (M98.7b):** in the editor, Ctrl/Cmd+click toggles and Shift+click selects a range in the
   Hierarchy, and Ctrl/Cmd+click, Shift+click and a marquee on empty space select in the Viewport. Every selected entity is
   outlined; the gizmo moves, rotates and scales all of them about the primary as one Undo step; Delete, Duplicate and
