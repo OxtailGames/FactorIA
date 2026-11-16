@@ -917,3 +917,22 @@ TEST_CASE("audio: AudioSource curve and cone, play_at agrees, defaults unchanged
     fx.audio.play_at(world, "sounds/sine.wav", PlayParams{}, {0, 0, -40}, sound);
     CHECK(fx.audio.play_log().back().volume == doctest::Approx(0.3f));
 }
+
+TEST_CASE("audio: close_device without a real device changes nothing, and shutdown still works after it") {
+    Fixture fx;  // the null device: there is nothing to close
+    CHECK_FALSE(fx.audio.has_device());
+    VoiceId v = fx.audio.play("sounds/sine.wav");
+    REQUIRE(v != 0);
+    fx.audio.close_device();
+    fx.audio.close_device();  // twice is as harmless as once
+    CHECK(fx.audio.is_playing(v));
+    fx.run(0.1);
+    CHECK(fx.audio.is_playing(v));  // still mixing: a null device is not closed
+    fx.audio.stop(v);
+    fx.run(0.1);
+    CHECK_FALSE(fx.audio.is_playing(v));
+    fx.audio.shutdown();
+    fx.audio.close_device();  // after shutdown: a no-op too
+    fx.audio.stop(v);
+    CHECK_FALSE(fx.audio.is_playing(v));
+}

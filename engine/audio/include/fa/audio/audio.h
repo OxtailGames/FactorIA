@@ -230,7 +230,9 @@ public:
     void shutdown();
     // Stops and closes the output device only (the audio thread is joined: nothing mixes from here on), keeping everything
     // else: the music, the clips and the voices stay as they are and nothing is waited for. For an app whose process ends right after
-    // (Android's end, Engine::end_app); shutdown() still works afterwards. Does nothing without a real device.
+    // (Android's end, Engine::end_app); shutdown() still works afterwards. The commands still waiting for the device are
+    // applied first and later ones run at once, but nothing mixes any more: only shutdown() is expected after it.
+    // Does nothing without a real device.
     void close_device();
 
     // Preload (optional; play() loads on demand). Returns false + logs a

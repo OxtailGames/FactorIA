@@ -331,6 +331,9 @@ struct PadRumble {
     bool viaManager = false;
     bool playing = false;
 };
+// g_rumble is read and written only on the frame thread (poll_gamepads -> check_devices -> forget_gone_pad_rumble, and the
+// rumble backend calls from apply_gamepad_rumble): the input callback never touches it. g_mutex guards g_pads, which that
+// callback shares, so it is held only where g_pads is read.
 PadRumble g_rumble[kMaxGamepads];
 
 // A pad went (its slot is free): its answer is dropped, so a pad that comes back with a reused device id is asked again. One that
@@ -535,7 +538,9 @@ GamepadRumbleSupport gamepad_backend_rumble_support(int slot) {
     }
     PadRumble& r = g_rumble[slot];
     if (deviceId < 0) {
-        r = PadRumble{};  // a pad that comes back with a reused device id is asked again
+        // A pad that comes back with a reused device id is asked again; one that was shaking keeps its record until the stop
+        // reaches the vibrator (gamepad_backend_rumble drops it then), as forget_gone_pad_rumble does.
+        if (!r.playing) r = PadRumble{};
         return {false, "there is no pad in this slot"};
     }
     if (r.deviceId != deviceId) {  // a new pad (or none asked yet): ask Android once
