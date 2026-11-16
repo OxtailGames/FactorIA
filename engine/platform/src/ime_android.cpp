@@ -24,6 +24,7 @@
 
 #include "android_jni.h"
 #include "fa/core/log.h"
+#include "fa/platform/ime.h"
 #include "ime_android.h"
 #include "ime_ic.h"
 #include "ime_impl.h"
@@ -40,7 +41,8 @@ struct Bridge {
     jmethodID setEnabled = nullptr, restart = nullptr, setCaret = nullptr, showKeyboard = nullptr;
     bool ready = false, failed = false;
 };
-Bridge g_bridge;  // the game thread only
+Bridge g_bridge;          // the game thread only
+bool g_attached = false;  // between app.cpp's on_init and on_cleanup: the UI's teardown after that tells the OS nothing
 
 // ---- Java -> C++: the UI thread ---------------------------------------------------------------------------------------
 std::u16string read_string(JNIEnv* env, jstring s) {
@@ -197,7 +199,20 @@ bool call(jmethodID method, Args... args) {
 
 }  // namespace
 
+void ime_android_attach(bool attached) {
+    if (attached == g_attached) return;
+    if (!attached) {
+        ime_backend_set_enabled(false);  // the text view leaves the focus (a no-op when it was off)
+        g_session.cancel();
+    }
+    g_attached = attached;
+    if (!attached) return;
+    const ImeState state = ime_state();  // what the UI asked before the window was up
+    if (state.enabled) ime_backend_set_enabled(true);
+}
+
 void ime_backend_set_enabled(bool enabled) {
+    if (!g_attached) return;  // not attached (tests, the editor, the engine's teardown after the app ended)
     const std::int32_t generation = g_session.set_enabled(enabled);
     if (enabled && !g_bridge.ready && !g_bridge.failed) {
         JNIEnv* env = android_thread_env();
@@ -208,11 +223,13 @@ void ime_backend_set_enabled(bool enabled) {
 }
 
 void ime_backend_set_caret_rect(Rect r) {
+    if (!g_attached) return;
     call(g_bridge.setCaret, jfloat(r.x), jfloat(r.y), jfloat(r.w), jfloat(r.h), jint(sapp_width()),
          jint(sapp_height()));
 }
 
 void ime_backend_cancel() {
+    if (!g_attached) return;
     if (g_session.cancel()) call(g_bridge.restart, jint(g_session.generation()));
 }
 

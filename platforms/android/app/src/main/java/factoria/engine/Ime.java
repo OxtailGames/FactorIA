@@ -6,7 +6,8 @@
 // class's view on: a 1x1 view that draws nothing, takes the focus and answers onCreateInputConnection. What the input
 // method does on that connection goes to the engine, which decides (engine/platform/src/ime_ic.h, tested on every OS):
 //   setComposingText -> the pre-edit string; commitText -> typed; finishComposingText -> the pre-edit string typed;
-//   deleteSurroundingText -> Backspace / Delete; performEditorAction -> Enter; closeConnection -> the composition dropped.
+//   deleteSurroundingText -> Backspace / Delete (UTF-16 units; deleteSurroundingTextInCodePoints counts code points: an
+//   emoji deleted in units is two presses); performEditorAction -> Enter; closeConnection -> the composition dropped.
 // Nothing typed stays in the connection's text: the field has it, and an input method that could read it back would try
 // to compose it again. Keys (hardware keys, and those an input method sends) go through the activity's input queue as
 // before. With the view off it is not a text editor, so the keyboard sends keys, as it did before this class.
@@ -27,6 +28,8 @@ import android.text.style.BackgroundColorSpan;
 import android.util.Log;
 import android.view.View;
 import android.view.ViewGroup;
+import android.view.Window;
+import android.view.WindowManager;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.CursorAnchorInfo;
 import android.view.inputmethod.EditorInfo;
@@ -135,6 +138,11 @@ public final class Ime {
     private static ImeView view(Activity activity) {
         if (view == null && !failed) {
             ImeView v = new ImeView(activity);
+            // A window that gets the focus back (the app returns from the background) must not open the keyboard by
+            // itself because a text editor has the focus in it: the engine shows it when a field asks.
+            Window window = activity.getWindow();
+            int adjust = window.getAttributes().softInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_ADJUST;
+            window.setSoftInputMode(adjust | WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED);
             activity.addContentView(v, new ViewGroup.LayoutParams(1, 1));
             view = v;
         }
@@ -280,6 +288,7 @@ public final class Ime {
             super.setComposingText(text, newCursorPosition);
             nativeCompose(generation, text == null ? "" : text.toString(), newCursorPosition, clauses(text));
             owner.cursorMoved();
+            selectionChanged();
             return true;
         }
 
@@ -289,6 +298,7 @@ public final class Ime {
             nativeCommit(generation, text == null ? "" : text.toString());
             clear();
             owner.cursorMoved();
+            selectionChanged();
             return true;
         }
 
@@ -297,12 +307,28 @@ public final class Ime {
             if (closed) return false;
             nativeFinish(generation);
             clear();
+            selectionChanged();
             return true;
         }
 
-        // Not overridden: setSelection, replaceText (API 34) and commitCorrection are BaseInputConnection's own. They work on
-        // the editable, which holds only the pre-edit string, and tell the engine nothing: the field's caret stays where
-        // it is, and the next setComposingText or commitText says what the field gets.
+        // The input method keeps its suggestions in step with the text through onUpdateSelection (Gboard, Samsung's
+        // keyboard): after each change of the pre-edit string it is told the selection and composing span of the
+        // editable, which holds only that string (the caret is in it, or at 0 with none).
+        private void selectionChanged() {
+            Editable e = getEditable();
+            InputMethodManager imm = owner.imm();
+            if (e == null || imm == null) return;
+            imm.updateSelection(owner, Math.max(0, Selection.getSelectionStart(e)),
+                    Math.max(0, Selection.getSelectionEnd(e)), BaseInputConnection.getComposingSpanStart(e),
+                    BaseInputConnection.getComposingSpanEnd(e));
+        }
+
+        // Not overridden: setSelection and commitCorrection are BaseInputConnection's own. They work on the editable,
+        // which holds only the pre-edit string, and tell the engine nothing: the field's caret stays where it is, and the
+        // next setComposingText or commitText says what the field gets. replaceText (API 34) is the interface's default,
+        // finishComposingText + commitText, so a correction types the composition and then its replacement: overriding it
+        // needs android.view.inputmethod.TextAttribute, which the compileSdk of an export below 33 (compileSdk is the
+        // project's targetSdk, 26 and up) does not have, so this class would not compile there.
 
         // Nothing typed is here to recompose (it is in the field already): the region stays as it is.
         @Override
