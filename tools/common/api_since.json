@@ -836,7 +836,20 @@
     "Vfx.loop": "0.17.0",
     "Vfx.playing": "0.17.0",
     "Vfx.speed": "0.17.0",
-    "Vfx.time": "0.17.0"
+    "Vfx.time": "0.17.0",
+    "AudioListener.spatialization": "unreleased",
+    "AudioListener.headRadius": "unreleased",
+    "AudioListener.speedOfSound": "unreleased",
+    "AudioSource.rolloffCurve": "unreleased",
+    "AudioSource.coneInnerAngle": "unreleased",
+    "AudioSource.coneOuterAngle": "unreleased",
+    "AudioSource.coneOuterGain": "unreleased",
+    "AudioSource.coneAxis": "unreleased",
+    "AudioSource.dopplerLevel": "unreleased",
+    "AudioSource.occlusion": "unreleased",
+    "AudioSource.occlusionMask": "unreleased",
+    "AudioSource.occlusionGain": "unreleased",
+    "AudioSource.occlusionLowpass": "unreleased"
   },
   "commands": {
     "agent.cost": "0.22.0",
@@ -2680,7 +2693,18 @@
     "VfxAPI.play": "0.17.0",
     "VfxAPI.playing": "0.17.0",
     "VfxAPI.stop": "0.17.0",
-    "vfx": "0.17.0"
+    "vfx": "0.17.0",
+    "PlayOptions.rolloffCurve": "unreleased",
+    "PlayOptions.direction": "unreleased",
+    "PlayOptions.coneInnerAngle": "unreleased",
+    "PlayOptions.coneOuterAngle": "unreleased",
+    "PlayOptions.coneOuterGain": "unreleased",
+    "PlayOptions.velocity": "unreleased",
+    "PlayOptions.dopplerLevel": "unreleased",
+    "PlayOptions.occlusion": "unreleased",
+    "PlayOptions.occlusionMask": "unreleased",
+    "PlayOptions.occlusionGain": "unreleased",
+    "PlayOptions.occlusionLowpass": "unreleased"
   },
   "deprecated": {
     "commands": {},

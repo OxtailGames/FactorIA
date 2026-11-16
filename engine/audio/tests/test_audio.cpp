@@ -1,5 +1,7 @@
 #include <doctest.h>
 
+#include <cmath>
+#include <functional>
 #include <set>
 
 #include "../src/audio_testing.h"
@@ -786,4 +788,110 @@ TEST_CASE("audio: an AudioSource with variants picks one per play, never the las
     world.get<AudioSource>(e)->playing = true;
     fx.audio.update(world, 1.0f / 60.0f);
     CHECK(fx.audio.play_log().back().path == "sounds/step.wav");
+}
+
+TEST_CASE("audio: the curve rolloff") {
+    const Curve c = Curve::parse(Json::parse("[[0, 1], [0.5, 0.25], [1, 0]]"), "t").value();
+    CHECK(audio_curve_gain(c, 0, 100) == doctest::Approx(1.0f));
+    CHECK(audio_curve_gain(c, 25, 100) == doctest::Approx(0.625f));
+    CHECK(audio_curve_gain(c, 50, 100) == doctest::Approx(0.25f));
+    CHECK(audio_curve_gain(c, 75, 100) == doctest::Approx(0.125f));
+    CHECK(audio_curve_gain(c, 100, 100) == 0.0f);  // cut at the reach, whatever the curve says
+    CHECK(audio_curve_gain(c, 500, 100) == 0.0f);
+    // an empty curve is the linear one; values are held to 0..1
+    CHECK(audio_curve_gain(Curve{}, 25, 100) == doctest::Approx(0.75f));
+    CHECK(audio_curve_gain(Curve::constant(3.0f), 10, 100) == 1.0f);
+    CHECK(audio_curve_gain(Curve::constant(-1.0f), 10, 100) == 0.0f);
+    // audio_spatial_gain with the Curve value has no curve to read: linear
+    CHECK(audio_spatial_gain(AudioRolloff::Curve, 25, 100) == doctest::Approx(0.75f));
+}
+
+TEST_CASE("audio: cone gain") {
+    const Vec3 axis{0, 0, -1};
+    // 90 degree inner cone (45 each side), 180 outer, outer gain 0.2
+    auto g = [&](Vec3 to) { return audio_cone_gain(axis, to, 90, 180, 0.2f); };
+    CHECK(g({0, 0, -5}) == doctest::Approx(1.0f));  // straight ahead
+    CHECK(g({1, 0, -1}) == doctest::Approx(1.0f));  // 45 degrees: the edge of the inner cone
+    CHECK(g({1, 0, 0}) == doctest::Approx(0.2f));   // 90 degrees: the outer edge
+    CHECK(g({0, 0, 3}) == doctest::Approx(0.2f));   // behind
+    // 67.5 degrees: half way between the two cones -> 0.6
+    const float a = 67.5f * 3.14159265f / 180.0f;
+    CHECK(g({std::sin(a), 0, -std::cos(a)}) == doctest::Approx(0.6f).epsilon(0.001));
+    // no cone: 360 inner angle, a zero axis, the listener on the source
+    CHECK(audio_cone_gain(axis, {0, 0, 5}, 360, 360, 0.0f) == 1.0f);
+    CHECK(audio_cone_gain({0, 0, 0}, {0, 0, 5}, 90, 180, 0.0f) == 1.0f);
+    CHECK(audio_cone_gain(axis, {0, 0, 0}, 90, 180, 0.0f) == 1.0f);
+    // an outer angle below the inner one is the inner one: a hard edge
+    CHECK(audio_cone_gain(axis, {1, 0, 0}, 90, 10, 0.5f) == doctest::Approx(0.5f));
+}
+
+TEST_CASE("audio: AudioSource curve and cone, play_at agrees, defaults unchanged") {
+    Fixture fx;
+    World world;
+    Entity listener = world.create("ear", "ear");
+    world.add<AudioListener>(listener);
+    auto play_source = [&](const std::function<void(AudioSource&, Transform&)>& setup) {
+        World w;
+        Entity l = w.create("ear", "ear");
+        w.add<AudioListener>(l);
+        Entity s = w.create("src", "src");
+        AudioSource& src = w.add<AudioSource>(s);
+        src.clip = "sounds/sine.wav";
+        src.playOnStart = true;
+        src.spatial = true;
+        src.range = 100.0f;
+        setup(src, *w.get<Transform>(s));
+        const std::size_t before = fx.audio.play_log().size();
+        for (int i = 0; i < 3; ++i) {
+            fx.audio.update(w, 1.0f / 60.0f);
+            fx.audio.advance_null_device(1.0 / 60.0);
+        }
+        REQUIRE(fx.audio.play_log().size() == before + 1);
+        const float v = fx.audio.play_log().back().volume;
+        fx.audio.update(world, 1.0f / 60.0f);
+        return v;
+    };
+    // defaults: no cone, linear, 1 - d/range
+    CHECK(play_source([](AudioSource&, Transform& t) { t.position = {40, 0, 0}; }) == doctest::Approx(0.6f));
+    // curve
+    const float viaSource = play_source([](AudioSource& s, Transform& t) {
+        t.position = {40, 0, 0};
+        s.rolloff = AudioRolloff::Curve;
+        s.rolloffCurve = Json::parse("[[0, 1], [0.5, 0.25], [1, 0]]");
+    });
+    CHECK(viaSource == doctest::Approx(0.4f));
+    SpatialSound sound;
+    sound.range = 100.0f;
+    sound.rolloff = AudioRolloff::Curve;
+    sound.rolloffCurve = Curve::parse(Json::parse("[[0, 1], [0.5, 0.25], [1, 0]]"), "t").value();
+    fx.audio.play_at(world, "sounds/sine.wav", PlayParams{}, {40, 0, 0}, sound);
+    CHECK(fx.audio.play_log().back().volume == doctest::Approx(viaSource));
+    // an unusable curve falls back to linear
+    CHECK(play_source([](AudioSource& s, Transform& t) {
+              t.position = {40, 0, 0};
+              s.rolloff = AudioRolloff::Curve;
+              s.rolloffCurve = Json::parse("\"nope\"");
+          }) == doctest::Approx(0.6f));
+    // cone: the listener at the origin, the source at z = -40 facing -Z (away from it is +Z): rotation 180 about Y turns it round
+    auto cone = [&](float yaw) {
+        return play_source([&](AudioSource& s, Transform& t) {
+            t.position = {0, 0, -40};
+            t.rotation = {0, yaw, 0};
+            s.coneInnerAngle = 60;
+            s.coneOuterAngle = 120;
+            s.coneOuterGain = 0.5f;
+        });
+    };
+    // forward is -Z: the listener at +Z of the source is behind it when yaw = 0
+    CHECK(cone(0) == doctest::Approx(0.6f * 0.5f));
+    CHECK(cone(180) == doctest::Approx(0.6f));
+    // play_at with a direction
+    sound = SpatialSound{};
+    sound.range = 100.0f;
+    sound.direction = {0, 0, -1};
+    sound.coneInnerAngle = 60;
+    sound.coneOuterAngle = 120;
+    sound.coneOuterGain = 0.5f;
+    fx.audio.play_at(world, "sounds/sine.wav", PlayParams{}, {0, 0, -40}, sound);
+    CHECK(fx.audio.play_log().back().volume == doctest::Approx(0.3f));
 }
