@@ -57,6 +57,19 @@ WebSocketEvent WebSocketEvent::close(int closeCode, std::string closeReason, boo
 }
 
 // ------------------------------------------------------------------------------------------------------ the queue ---
+namespace {
+
+// "32 MB", or bytes under 1 MB ("1000 bytes", never "0 MB").
+std::string size_text(std::size_t bytes) {
+    if (bytes < 1024 * 1024) return std::to_string(bytes) + " bytes";
+    return std::to_string(bytes / (1024 * 1024)) + " MB";
+}
+
+const char* const kClosedBeforeOpenHint =
+    "close() was called before the connection opened; wait for the 'open' event, or ignore this error.";
+
+}  // namespace
+
 bool WebSocketEventQueue::push(WebSocketEvent event) {
     std::lock_guard<std::mutex> lock(mutex_);
     if (ended_) return false;
@@ -68,8 +81,7 @@ bool WebSocketEventQueue::push(WebSocketEvent event) {
             events_.clear();
             pendingBytes_ = 0;
             events_.push_back(WebSocketEvent::failure("the game did not read the messages that arrived (more than " +
-                                                          std::to_string(maxPendingBytes_ / (1024 * 1024)) +
-                                                          " MB waiting)",
+                                                          size_text(maxPendingBytes_) + " waiting)",
                                                       "Read messages every frame, and ask the server to send less."));
             events_.push_back(
                 WebSocketEvent::close(ws::close_code::kPolicyViolation, "too many unread messages", false));
@@ -133,6 +145,8 @@ std::unique_ptr<WebSocketClient> make_unavailable_websocket_client(std::string n
 struct MemoryWebSocketClient::Peer::Link {
     std::shared_ptr<WebSocketEventQueue> queue = std::make_shared<WebSocketEventQueue>();
     WebSocketState state = WebSocketState::Connecting;
+    bool abandoned =
+        false;  // close() came while Connecting: Closing until poll() hands over Error and Close, then Closed
     std::vector<std::string> offered;
 };
 
@@ -171,9 +185,11 @@ public:
         peer_->clientCloseCode = code;
         peer_->clientCloseReason = std::string(reason);
         if (link.state == WebSocketState::Connecting) {
-            link.queue->push(WebSocketEvent::failure("the connection was closed before it was open"));
+            link.queue->push(
+                WebSocketEvent::failure("the connection was closed before it was open", kClosedBeforeOpenHint));
             link.queue->push(WebSocketEvent::close(ws::close_code::kAbnormal, "", false));
-            link.state = WebSocketState::Closed;
+            link.state = WebSocketState::Closing;  // Closed when poll() delivers the Close
+            link.abandoned = true;
             peer_->closed = true;
             return {};
         }
@@ -189,7 +205,12 @@ public:
         return {};
     }
     std::size_t buffered_amount() const override { return 0; }
-    std::size_t poll(std::vector<WebSocketEvent>& out) override { return peer_->link_->queue->drain(out); }
+    std::size_t poll(std::vector<WebSocketEvent>& out) override {
+        auto& link = *peer_->link_;
+        const std::size_t n = link.queue->drain(out);
+        if (link.abandoned && link.state == WebSocketState::Closing) link.state = WebSocketState::Closed;
+        return n;
+    }
 
 private:
     Result<void> check(std::size_t size) const {
@@ -218,7 +239,7 @@ bool MemoryWebSocketClient::Peer::accept(std::string subprotocol) {
 }
 
 void MemoryWebSocketClient::Peer::refuse(std::string message, int httpStatus) {
-    if (link_->state == WebSocketState::Closed) return;
+    if (link_->state == WebSocketState::Closed || link_->abandoned) return;
     link_->queue->push(WebSocketEvent::failure(std::move(message), "", httpStatus));
     link_->queue->push(WebSocketEvent::close(ws::close_code::kAbnormal, "", false));
     link_->state = WebSocketState::Closed;
@@ -227,17 +248,25 @@ void MemoryWebSocketClient::Peer::refuse(std::string message, int httpStatus) {
 }
 
 void MemoryWebSocketClient::Peer::send_text(std::string text) {
-    if (link_->state == WebSocketState::Open || link_->state == WebSocketState::Closing)
-        link_->queue->push(WebSocketEvent::text(std::move(text)));
+    if ((link_->state == WebSocketState::Open || link_->state == WebSocketState::Closing) && !link_->abandoned)
+        deliver(WebSocketEvent::text(std::move(text)));
 }
 
 void MemoryWebSocketClient::Peer::send_binary(std::string data) {
-    if (link_->state == WebSocketState::Open || link_->state == WebSocketState::Closing)
-        link_->queue->push(WebSocketEvent::binary(std::move(data)));
+    if ((link_->state == WebSocketState::Open || link_->state == WebSocketState::Closing) && !link_->abandoned)
+        deliver(WebSocketEvent::binary(std::move(data)));
+}
+
+// A message the queue could not take (the game did not read): the queue holds [Error, Close 1008], the connection is over.
+void MemoryWebSocketClient::Peer::deliver(WebSocketEvent event) {
+    if (link_->queue->push(std::move(event))) return;
+    link_->state = WebSocketState::Closed;
+    open = false;
+    closed = true;
 }
 
 void MemoryWebSocketClient::Peer::close(int code, std::string reason) {
-    if (link_->state == WebSocketState::Closed) return;
+    if (link_->state == WebSocketState::Closed || link_->abandoned) return;
     if (link_->state == WebSocketState::Connecting) {
         refuse("the server closed the connection during the handshake");
         return;
@@ -249,7 +278,7 @@ void MemoryWebSocketClient::Peer::close(int code, std::string reason) {
 }
 
 void MemoryWebSocketClient::Peer::drop(std::string message) {
-    if (link_->state == WebSocketState::Closed) return;
+    if (link_->state == WebSocketState::Closed || link_->abandoned) return;
     link_->queue->push(WebSocketEvent::failure(std::move(message), "Check the connection; the game can reconnect."));
     link_->queue->push(WebSocketEvent::close(ws::close_code::kAbnormal, "", false));
     link_->state = WebSocketState::Closed;
@@ -264,6 +293,7 @@ Result<std::unique_ptr<WebSocket>> MemoryWebSocketClient::connect(WebSocketReque
     peer->subprotocols = request.subprotocols;
     peer->headers = request.headers;
     peer->link_ = std::make_shared<Peer::Link>();
+    peer->link_->queue = std::make_shared<WebSocketEventQueue>(WebSocketEventQueue::limit_for(request.maxMessageBytes));
     peer->link_->offered = request.subprotocols;
     peers_.push_back(peer);
     auto connection = std::make_unique<MemoryWebSocketConnection>(peer, request.maxMessageBytes);
