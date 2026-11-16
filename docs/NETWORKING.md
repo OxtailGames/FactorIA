@@ -241,18 +241,26 @@ ws.send(JSON.stringify({ type: "join", name: "Ann" }));  // false until the conn
 
 ### Which platforms can connect now
 
-**This build has no WebSocket client for a real network yet.** The shared part is done and tested (the address checks, the
-script API, reconnects, the protocol code, the test server); the clients that the platforms use arrive in this milestone,
-one per platform, and this table says what works today:
+**Not every platform has its WebSocket client yet.** The shared part is done and tested (the address checks, the script API,
+reconnects, the protocol code, the test server); the clients that the platforms use arrive in this milestone, one per
+platform, and this table says what works today:
 
 | Platform | Client | Works now |
 |---|---|---|
 | Tests, headless runs, `factoria call`, the MCP server | a scripted in-memory server (`game.websocket`) | yes, nothing touches the network |
 | Windows | WinHTTP's WebSocket API | not yet (M98.2b) |
-| macOS, iOS | `NSURLSessionWebSocketTask` | not yet (M98.2b) |
+| macOS, iOS | `NSURLSessionWebSocketTask` | yes (system certificates and proxy; see "On macOS and iOS" below) |
 | Linux | libcurl's WebSocket support, loaded when first needed (like `http.fetch`) | not yet (M98.2c); without `libcurl.so.4` it stays unavailable |
 | Android | a socket stream with the engine's own WebSocket protocol code, through JNI | not yet (M98.2c) |
 | Web | the browser's `WebSocket` | not yet (M98.2d) |
+
+**On macOS and iOS** the client is the system's, so it differs from the others in three small ways. Closing: `ws.close()`
+reports the `"close"` event as soon as the system has sent the close frame, with the code and reason that were asked for and
+`wasClean` true, without waiting for the server's answer (the system does not say whether it came), so a server that never
+answers a close is not reported as a failure; `close()` with no code sends 1000, because the system cannot send a close frame
+without a code. Messages: a message longer than `maxMessageBytes` ends the connection with `"error"` and `"close"` 1006 (the
+server is sent 1009), as everywhere, but the system holds the whole message first. Plain `ws://` is only allowed to your own
+computer (App Transport Security, as for `http.fetch`); use `wss://` for any other server.
 
 Where there is no client, `websocket.supported` is `false` and `websocket.unsupportedReason` says why
 (`WebSocket client for <platform> lands in M98.2b/c/d`). `websocket.connect` still returns a connection after the usual
