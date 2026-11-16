@@ -1946,6 +1946,26 @@ void Editor::at_section_M4(AtScript& at) {
             undo();
             at_check(pos_of("player").x == m->player.x && pos_of("coin_3").x == m->coin3.x, "Undo restores both");
         });
+        // Typing exactly the primary's own value into the "—" number still writes it to the others (ImGui reports no change).
+        step(2, [this, m, pos_of] {
+            at_check(pos_of("player").x != pos_of("coin_3").x, "the two entities differ in x again");
+            m->undo = undo_depth();
+        });
+        click("insp:Transform.position.0");
+        step(3, [this, pos_of] {
+            char text[32];
+            std::snprintf(text, sizeof text, "%g", pos_of("coin_3").x);  // the primary is the last one selected
+            for (const char* c = text; *c; ++c) inject_char(unsigned(static_cast<unsigned char>(*c)));
+        });
+        step(2, [this] { inject_key(SAPP_EVENTTYPE_KEY_DOWN, SAPP_KEYCODE_ENTER); });
+        step(4, [this] { inject_key(SAPP_EVENTTYPE_KEY_UP, SAPP_KEYCODE_ENTER); });
+        step(4, [this, m, pos_of] {
+            at_check(pos_of("player").x == pos_of("coin_3").x,
+                     "typing the primary's own value into a number that differs writes it to every entity");
+            at_check(undo_depth() == m->undo + 1, "...as one undo step");
+            undo();
+            at_check(pos_of("player").x == m->player.x && pos_of("coin_3").x == m->coin3.x, "Undo restores both");
+        });
 
         // 5. Add Component with several selected: added to each entity that lacks it, one undo step.
         step(2, [this, m] { m->undo = undo_depth(); });
@@ -2370,10 +2390,26 @@ void Editor::at_section_P4(AtScript& at) {
             at_check(at_visible("insp:prefab:apply") && !at_enabled("insp:prefab:apply"),
                      "Apply all is disabled while the game runs");
             at_check(at_enabled("insp:prefab:revert"), "...and Revert all is not");
+            at_check(selected_id() == "panel_1", "the selection survives Play");
+            selection_mut().add("panel_2");  // two selected: panel_1 stays the primary after the game removes panel_2
+            selection_mut().add("panel_1");
+            // The game destroys a selected entity: the selection keeps its id (it comes back on Stop).
+            const CommandResult r = engine_->commands().call("scene.destroy", Json::object({{"id", "panel_2"}}));
+            at_check(r.ok, "the running game destroys panel_2");
+        });
+        step(6, [this] {
+            at_check(world().find_by_id("panel_2").is_null(), "panel_2 is gone from the running world");
+            at_check(selection().contains("panel_2") && selection_peek().size() == 2,
+                     "...but the selection is not pruned while the game runs");
+            at_check(selection_roots() == std::vector<std::string>{"panel_1"},
+                     "...and the readers skip the id that is gone");
             stop();
         });
         step(6, [this] {
             at_check(play_state() == PlayState::Edit, "Stop returns to edit mode");
+            at_check(!world().find_by_id("panel_2").is_null() && selection().contains("panel_2") &&
+                         selection().contains("panel_1"),
+                     "Stop brings panel_2 back, and it is still selected");
             select_id("");
         });
     }
