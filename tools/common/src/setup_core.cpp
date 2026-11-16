@@ -133,7 +133,7 @@ Downloader curl_downloader(ProcessRunner run) {
                 make_error("Cannot download " + what + ": the 'curl' program was not found.",
                            "curl comes with macOS, Windows 10 and later and most Linux systems; on Linux install it "
                            "(sudo apt install curl, sudo dnf install curl)."));
-        const stdfs::path dest(rq.destination);
+        const stdfs::path dest = fs::path_from_utf8(rq.destination);
         stdfs::path part = dest;
         part += ".part";
         std::error_code ec;

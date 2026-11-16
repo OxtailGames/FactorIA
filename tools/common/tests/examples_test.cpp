@@ -49,6 +49,11 @@ void make_examples(const TempDir& d) {
         write_all(p / "scripts/build/keep.js", "a build/ folder below the top is part of the project");
         write_all(p / ".DS_Store", "x");
         write_all(p / "shot.actual.png", "x");
+        for (const char* secret : {".env", "ai.local.json", "release.keystore", "upload.jks", "sign.p12", "tls.pem",
+                                   "api.key", "desktop.ini", "x.fa-tmp"})
+            write_all(p / secret, "secret");
+        write_all(p / "scripts/.env", "secret below the top");
+        write_all(p / "keystore.txt", "a name that only contains a left-out word stays");
         write_all(p / ".gitignore", ".factoria/\n");
     }
 }
@@ -244,9 +249,18 @@ TEST_CASE("examples packaging: what a zip holds, and the same bytes every time")
     TempDir d;
     make_examples(d);
     const stdfs::path a = d.path / "alpha";
-    const std::vector<std::string> files = example_zip_files(a);
-    CHECK(files == std::vector<std::string>{".gitignore", "assets/pic.bin", "factoria.json", "scripts/build/keep.js",
-                                            "scripts/main.js"});
+    auto listed = example_zip_files(a);
+    REQUIRE(listed.ok());
+    const std::vector<std::string>& files = *listed;
+    CHECK(files == std::vector<std::string>{".gitignore", "assets/pic.bin", "factoria.json", "keystore.txt",
+                                            "scripts/build/keep.js", "scripts/main.js"});
+
+    {  // a folder that cannot be listed is an Error that names it
+        auto missing = example_zip_files(d.path / "missing");
+        REQUIRE_FALSE(missing.ok());
+        CHECK(missing.error().message.find("missing") != std::string::npos);
+        CHECK_FALSE(missing.error().hint.empty());
+    }
 
     TempDir out1, out2;
     REQUIRE(package_example_zip(a, out1.path / "alpha.zip").ok());
@@ -354,3 +368,44 @@ TEST_CASE("examples: the command project.package_examples") {
                          Json::object({{"examples", (d.path / "nope").string()}, {"out", out.str()}}))
                     .ok);
 }
+
+#ifndef _WIN32
+#include <unistd.h>
+
+TEST_CASE("examples: a folder that cannot be read fails the listing, never a partial list") {
+    if (::geteuid() == 0) return;  // root reads everything
+    TempDir d;
+    write_all(d.path / "p/factoria.json", R"({"format":"factoria.project/1"})");
+    write_all(d.path / "p/a.txt", "a");
+    write_all(d.path / "p/locked/b.txt", "b");
+    write_all(d.path / "p/zzz/c.txt", "c");
+    stdfs::permissions(d.path / "p/locked", stdfs::perms::none);
+    struct Restore {
+        stdfs::path p;
+        ~Restore() {
+            std::error_code ec;
+            stdfs::permissions(p, stdfs::perms::owner_all, ec);
+        }
+    } restore{d.path / "p/locked"};
+    auto files = example_zip_files(d.path / "p");
+    REQUIRE_FALSE(files.ok());
+    CHECK(files.error().message.find("Cannot list") != std::string::npos);
+    CHECK_FALSE(files.error().hint.empty());
+    CHECK_FALSE(package_example_zip(d.path / "p", d.path / "p.zip").ok());
+    // The same for the folder of examples.
+    write_all(d.path / "ex/examples.json", R"({"format":"factoria.examples-source/1","examples":[
+      {"name":"p","title":"P","shows":"x","readFirst":[]}]})");
+    write_all(d.path / "ex/p/factoria.json", R"({"format":"factoria.project/1"})");
+    write_all(d.path / "ex/q/factoria.json", R"({"format":"factoria.project/1"})");
+    stdfs::permissions(d.path / "ex/q", stdfs::perms::none);
+    struct Restore2 {
+        stdfs::path p;
+        ~Restore2() {
+            std::error_code ec;
+            stdfs::permissions(p, stdfs::perms::owner_all, ec);
+        }
+    } restore2{d.path / "ex/q"};
+    auto m = package_examples(d.path / "ex", d.path / "out", "0.30.0");
+    REQUIRE_FALSE(m.ok());
+}
+#endif

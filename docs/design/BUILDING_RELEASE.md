@@ -91,8 +91,11 @@ game as its own asset, plus one manifest. The pieces and where they live:
   here**, or the release job stops.
 - `factoria call project.package_examples '{"examples":"examples","out":"dist/examples"}'` (`fa/tooling/examples.h`) writes
   `<name>.zip` per example and `examples-manifest.json`. A zip is the project without `.factoria/`, any other hidden
-  folder, `node_modules/`, a top-level `build/`, `.DS_Store`, `Thumbs.db` and `*.actual.png`; entries are sorted by name,
-  stored with the DOS date 1980-01-01 and no extra fields, so the same files give the same zip and the same hash.
+  folder, `node_modules/`, a top-level `build/`, `.DS_Store`, `Thumbs.db`, `desktop.ini`, `*.actual.png` and `*.fa-tmp`,
+  and the secrets and local settings of a developer's folder (`.env`, `ai.local.json`, `*.key`, `*.keystore`, `*.jks`,
+  `*.p12`, `*.pem`: a key must never ship in a public zip, whatever is in the folder that day); entries are sorted by name,
+  deflated where that is smaller, with the DOS date 1980-01-01 and no extra fields, so the same files give the same zip and
+  the same hash. A folder or file that cannot be read fails the command and names it; nothing is packed from half a folder.
 - The Linux leg of the `package` job of `.github/workflows/release.yml` runs that command with the `factoria` it just
   packed (so it also runs on a pull request that changes the workflow). It packs twice and compares the manifests,
   checks every zip against the manifest with `sha256sum`, `stat` and `unzip -t` (tools that share no code with the
@@ -125,6 +128,25 @@ game as its own asset, plus one manifest. The pieces and where they live:
   needs only the installed version. It refuses a file name with a folder, `..`, `?` or `#`, and every URL it returns passes
   `is_trusted_download_url`. `verify_example_bytes` and `verify_example_file` check a download's size and SHA-256 against
   its manifest entry before anything is unpacked.
+- **Getting an example** (`project.examples`, `project.create {example, dir}`; `fa/tooling/examples.h`, the same functions
+  the start window's Examples tab calls from a worker thread). `list_examples` downloads `examples-manifest.json` of the
+  INSTALLED version and keeps a copy in `<factoria home>/cache/examples/<version>/` (the folder setup's downloads use:
+  `$FACTORIA_HOME`, else `~/.factoria`). With the network down it returns that copy marked `stale`; with no network and no
+  copy it is an Error that says what is missing, how to fix it and that the base download carries no examples.
+  `create_example_project` checks the target (new or empty, anything else is an Error), looks the name up (a wrong one gets
+  "did you mean"), takes the zip from the cache when its size and SHA-256 match or downloads it, verifies it BEFORE opening
+  it, checks every entry name (`..`, absolute paths, drive letters, `:`, `\`, Windows device names, names that differ only
+  in capitals (ASCII and Latin-1 letters are folded; other scripts' capitals and Unicode normalisation are not), a file that
+  is also a folder, encrypted or linked entries, and size limits) before it writes any, unpacks into a hidden folder next to
+  the target and renames that folder at the end, so a failure leaves nothing behind (no hidden folder, no parent folder the
+  call made). An existing empty `dir` is never deleted: the entries of the project move into it one by one and are taken out
+  again if one fails (the AI may pass `.` in an empty folder that is its working directory, which Windows cannot delete). The
+  renames wait up to about five seconds while Windows reports a sharing violation (a scanner looking at the new files), and
+  `ctx.cancel` stops the call between files. A zip that did not verify and unpack is never kept in the cache.
+  `project.package_examples` applies the same name rules, so a release never holds a zip that no one can unpack. Tests inject a `SetupContext` (a fake downloader, a home
+  folder, a version: `set_examples_context`), so nothing touches the network. `project.examples` needs the `network`
+  capability, and so does `project.create` with `example` (the handler checks it): an MCP client has it, the read-only one
+  does not.
 
 ### Code signing
 

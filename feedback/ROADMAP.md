@@ -1275,6 +1275,12 @@ entry of `examples/*` opens each milestone.
     `publish` job attaches them, and `fa/tooling/examples.h` reads the manifest, builds the asset URL
     (`examples_asset_url`) and checks a download (`verify_example_bytes`). docs/design/BUILDING.md, "Example games in
     the release". M97.5b-d build on it.
+  - M97.5b — DONE (examples downloaded by command): `project.examples` (the release manifest of the installed version, kept in
+    `<factoria home>/cache/examples/<version>`; offline it answers with that copy marked `stale`) and
+    `project.create {example, dir}` (download, size and SHA-256 check before opening, safe unpack into a hidden folder renamed
+    at the end, did-you-mean, a non-empty `dir` is an error), both with the `network` capability, both registrations of
+    `project.create`; tests inject the downloader (`set_examples_context`). The packer leaves out secrets and a folder it
+    cannot read is an Error. `list_examples` / `cached_examples` / `create_example_project` are what M97.5c's Examples tab calls.
 
 ## M98. What games expect and the engine lacks (L; 9 packages) — outside review, 2026-11-09
 

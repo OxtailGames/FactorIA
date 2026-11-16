@@ -185,6 +185,7 @@ std::uint64_t get64(const std::string& s, std::size_t at) {
 struct CentralEntry {
     std::string name;
     std::uint32_t method = 0, crc = 0, compressedSize = 0, size = 0, offset = 0;
+    std::uint32_t flags = 0, madeBy = 0, externalAttributes = 0;
 };
 
 // The central directory of `file` (read from its end).
@@ -219,7 +220,8 @@ Result<std::vector<CentralEntry>> read_central_directory(const stdfs::path& file
         size = get64(z, 40);
         offset = get64(z, 48);
     }
-    if (offset + size > total) return err(generic(file) + ": the central directory lies outside the file");
+    if (size > total || offset > total - size)
+        return err(generic(file) + ": the central directory lies outside the file");
     std::string central(static_cast<std::size_t>(size), '\0');
     in.seekg(static_cast<std::streamoff>(offset));
     in.read(central.data(), static_cast<std::streamsize>(size));
@@ -229,12 +231,15 @@ Result<std::vector<CentralEntry>> read_central_directory(const stdfs::path& file
         if (at + 46 > central.size() || get32(central, at) != 0x02014b50)
             return err(generic(file) + ": the central directory is damaged");
         CentralEntry e;
+        e.madeBy = get16(central, at + 4);
+        e.flags = get16(central, at + 8);
         e.method = get16(central, at + 10);
         e.crc = get32(central, at + 16);
         e.compressedSize = get32(central, at + 20);
         e.size = get32(central, at + 24);
         const std::size_t n = get16(central, at + 28), extra = get16(central, at + 30),
                           comment = get16(central, at + 32);
+        e.externalAttributes = get32(central, at + 38);
         e.offset = get32(central, at + 42);
         if (at + 46 + n > central.size()) return err(generic(file) + ": the central directory is damaged");
         e.name = central.substr(at + 46, n);
@@ -254,39 +259,118 @@ Result<std::vector<std::string>> zip_entry_names(const stdfs::path& file) {
     return names;
 }
 
-Result<std::string> zip_read_entry(const stdfs::path& file, const std::string& name) {
-    auto entries = read_central_directory(file);
-    if (!entries.ok()) return entries.error();
-    for (const CentralEntry& e : *entries) {
-        if (e.name != name) continue;
-        std::ifstream in(os_path(file), std::ios::binary);
-        std::string header(30, '\0');
-        in.seekg(e.offset);
-        in.read(header.data(), 30);
-        if (!in || get32(header, 0) != 0x04034b50)
-            return err(generic(file) + ": the entry " + name + " has a damaged header");
-        in.seekg(static_cast<std::streamoff>(e.offset) + 30 + get16(header, 26) + get16(header, 28));
-        std::string packed(e.compressedSize, '\0');
-        in.read(packed.data(), static_cast<std::streamsize>(e.compressedSize));
-        if (!in) return err(generic(file) + ": the entry " + name + " is cut short");
-        std::string data;
-        if (e.method == 0) {
-            data = std::move(packed);
-        } else if (e.method == 8) {
+namespace {
+
+// The bytes of one entry of the open zip `in` (`file` names it in errors); `maxSize` != 0 refuses a bigger entry before it is read
+// or inflated.
+Result<std::string> read_entry(std::ifstream& in, const stdfs::path& file, const CentralEntry& e,
+                               std::uint64_t maxSize) {
+    const std::string& name = e.name;
+    if (maxSize != 0 && e.size > maxSize)
+        return err(generic(file) + ": the entry " + name + " is " + std::to_string(e.size) + " bytes, more than the " +
+                   std::to_string(maxSize) + " this reads");
+    std::string header(30, '\0');
+    in.clear();
+    in.seekg(e.offset);
+    in.read(header.data(), 30);
+    if (!in || get32(header, 0) != 0x04034b50)
+        return err(generic(file) + ": the entry " + name + " has a damaged header");
+    const std::uint64_t dataStart = e.offset + 30 + get16(header, 26) + get16(header, 28);
+    in.seekg(0, std::ios::end);
+    const std::uint64_t fileSize = in.good() ? static_cast<std::uint64_t>(in.tellg()) : 0;
+    // The size comes from the zip itself: it must fit in the file before a buffer of that size is made (a damaged or forged zip
+    // that asks for 4 GB gets an Error, never std::bad_alloc).
+    if (dataStart > fileSize || e.compressedSize > fileSize - dataStart)
+        return err(generic(file) + ": the entry " + name + " is cut short");
+    if (maxSize != 0 && e.method == 0 && e.compressedSize > maxSize)
+        return err(generic(file) + ": the entry " + name + " is " + std::to_string(e.compressedSize) +
+                   " bytes, more than the " + std::to_string(maxSize) + " this reads");
+    in.clear();
+    in.seekg(static_cast<std::streamoff>(dataStart));
+    std::string packed(static_cast<std::size_t>(e.compressedSize), '\0');
+    in.read(packed.data(), static_cast<std::streamsize>(e.compressedSize));
+    if (!in) return err(generic(file) + ": the entry " + name + " is cut short");
+    std::string data;
+    if (e.method == 0) {
+        data = std::move(packed);
+    } else if (e.method == 8) {
+        if (maxSize != 0) {
+            // Inflate into a buffer of the size the directory declares: an entry that inflates to more fails, it never grows.
+            data.assign(e.size, '\0');
+            const std::size_t n =
+                buminiz::tinfl_decompress_mem_to_mem(data.data(), data.size(), packed.data(), packed.size(), 0);
+            if (n != e.size)
+                return err(generic(file) + ": the entry " + name + " does not inflate to its declared size");
+        } else {
             std::size_t n = 0;
             void* heap = buminiz::tinfl_decompress_mem_to_heap(packed.data(), packed.size(), &n, 0);
             if (!heap) return err(generic(file) + ": the entry " + name + " does not inflate");
             data.assign(static_cast<const char*>(heap), n);
             std::free(heap);
-        } else {
-            return err(generic(file) + ": the entry " + name + " uses compression method " + std::to_string(e.method) +
-                       ", which is not read here");
         }
-        if (data.size() != e.size || zip_crc32(data) != e.crc)
-            return err(generic(file) + ": the entry " + name + " does not match its CRC-32");
-        return data;
+    } else {
+        return err(generic(file) + ": the entry " + name + " uses compression method " + std::to_string(e.method) +
+                   ", which is not read here");
+    }
+    if (data.size() != e.size || zip_crc32(data) != e.crc)
+        return err(generic(file) + ": the entry " + name + " does not match its CRC-32");
+    return data;
+}
+
+ZipEntryInfo info_of(const CentralEntry& e) {
+    ZipEntryInfo i;
+    i.name = e.name;
+    i.size = e.size;
+    i.compressedSize = e.compressedSize;
+    i.directory = !e.name.empty() && e.name.back() == '/';
+    i.encrypted = (e.flags & 1) != 0;
+    const bool fromUnix =
+        (e.madeBy >> 8) == 3;  // "made by" host 3: the high half of the external attributes is the st_mode
+    const std::uint32_t mode = e.externalAttributes >> 16;
+    i.symlink = fromUnix && (mode & 0170000) == 0120000;
+    i.special = fromUnix && mode != 0 && (mode & 0170000) != 0100000 && (mode & 0170000) != 0040000 && !i.symlink;
+    return i;
+}
+
+}  // namespace
+
+Result<std::string> zip_read_entry(const stdfs::path& file, const std::string& name, std::uint64_t maxSize) {
+    auto entries = read_central_directory(file);
+    if (!entries.ok()) return entries.error();
+    for (const CentralEntry& e : *entries) {
+        if (e.name != name) continue;
+        std::ifstream in(os_path(file), std::ios::binary);
+        return read_entry(in, file, e, maxSize);
     }
     return err(generic(file) + " has no entry " + name);
+}
+
+Result<std::vector<ZipEntryInfo>> zip_entries(const stdfs::path& file) {
+    auto entries = read_central_directory(file);
+    if (!entries.ok()) return entries.error();
+    std::vector<ZipEntryInfo> out;
+    out.reserve(entries->size());
+    for (const CentralEntry& e : *entries) out.push_back(info_of(e));
+    return out;
+}
+
+Result<void> zip_each_entry(const stdfs::path& file, std::uint64_t maxEntrySize,
+                            const std::function<Result<void>(const ZipEntryInfo&, std::string&&)>& visit) {
+    auto entries = read_central_directory(file);
+    if (!entries.ok()) return entries.error();
+    std::ifstream in(os_path(file), std::ios::binary);
+    if (!in) return err("cannot open the zip " + generic(file));
+    for (const CentralEntry& e : *entries) {
+        const ZipEntryInfo info = info_of(e);
+        std::string data;
+        if (!info.directory) {
+            auto r = read_entry(in, file, e, maxEntrySize);
+            if (!r.ok()) return r.error();
+            data = std::move(*r);
+        }
+        if (auto v = visit(info, std::move(data)); !v.ok()) return v.error();
+    }
+    return {};
 }
 
 }  // namespace fa::export_detail

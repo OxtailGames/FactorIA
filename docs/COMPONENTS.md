@@ -717,7 +717,7 @@ The 'ears' for spatial audio, usually on the camera or player. If no listener ex
 |---|---|---|---|
 | `volume` | float | `1.0` | Master volume multiplier for everything this listener hears. Range 0.0..4.0. |
 | `zoom` | float | `1.0` | Scales how far positional sounds are heard: a spatial AudioSource is silent at `range * zoom` from the listener (gain = 1 - distance / (range * zoom), and the pan spans the same distance), so 2 doubles the reach and 0.5 halves it. A game with a zoomable 2D camera sets it from the camera's orthoSize each frame. When the camera is the listener (no AudioListener component) the zoom is 1. Range 0.01..100.0. (since 0.3.0) |
-| `spatialization` | enum: pan \| hrtf | `"pan"` | How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/sound/SOUND_SPATIAL.md, Headphones. (not released yet, on main after 0.29.1) |
+| `spatialization` | enum: pan \| hrtf | `"pan"` | How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/SOUND.md, Headphones. (not released yet, on main after 0.29.1) |
 | `headRadius` | float | `0.0875` | hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; scale it with the world in a game that does not use meters). It sets the time difference between the ears (Woodworth: about 0.66 ms at 90 degrees for the default). A head smaller than 0.03 m or larger than 0.12 m at speedOfSound 343 (the ratio headRadius / speedOfSound is what counts) is clamped, with a warning that says how to fix it. Range 0.001..100000.0. (not released yet, on main after 0.29.1) |
 | `speedOfSound` | float | `343.0` | Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives. Range 1.0..10000000.0. (not released yet, on main after 0.29.1) |
 
@@ -3140,7 +3140,7 @@ Check an audio document and say what its chain renders to; with no arguments, li
 
 Capabilities: read
 
-An audio document (`*.audio.json`, docs/sound/SOUND_DOCUMENTS.md "Audio documents") is a non-destructive chain over a sound: a WAV/OGG, an .sfx.json patch or another audio document, then steps (trim, fade, normalize, gain, pitch, stretch, speed, eq, filter, compressor, distortion, bitcrush, reverb, delay, reverse, layer, loop, granular). With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns its steps, where it bakes to and whether that sound is fresh or stale, and (unless render is false) renders it in memory: seconds, loudness, peak, brightness (centroidHz), the loop points of a loop step and the length and peak after each step. With no argument it returns the catalog of step types with every field, its range, default and doc string. Example: {"path":"assets/audio/door.audio.json"}
+An audio document (`*.audio.json`, docs/SOUND.md "Audio documents") is a non-destructive chain over a sound: a WAV/OGG, an .sfx.json patch or another audio document, then steps (trim, fade, normalize, gain, pitch, stretch, speed, eq, filter, compressor, distortion, bitcrush, reverb, delay, reverse, layer, loop, granular). With `path` (or an inline `document`) this checks it: a document with mistakes returns valid false and ALL its issues, each with the JSON pointer, what is wrong and the fix; a valid one returns its steps, where it bakes to and whether that sound is fresh or stale, and (unless render is false) renders it in memory: seconds, loudness, peak, brightness (centroidHz), the loop points of a loop step and the length and peak after each step. With no argument it returns the catalog of step types with every field, its range, default and doc string. Example: {"path":"assets/audio/door.audio.json"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6485,7 +6485,7 @@ Write an instance's values into its prefab file: one field, one component, or ev
 
 Capabilities: read, state, writeProject
 
-`id` is the instance's root or a part of it; `component` and `field` narrow it as in prefab.revert (without them: everything the entity and what is below it overrides, added components and children included; a component the instance lost is deleted from the file). The prefab file keeps its own structure (its nested prefabs and the parts you did not touch stay) but is written back in the engine's own JSON layout, like scene.save: the indentation and line endings of a hand-formatted file are normalized, so the first Apply of such a file shows up as a whole-file diff. Every other instance of the prefab in the open scene gets the same change, except where it overrides that thing itself (a component the instance lost is also removed from an instance that overrides some of its fields: a note says so; the call looks at every instance of the prefab in the scene, so it takes longer with hundreds). Example: prefab.apply {"id":"enemy_1","component":"Sprite","field":"/color"}
+`id` is the instance's root or a part of it; `component` and `field` narrow it as in prefab.revert (without them: everything the entity and what is below it overrides, added components and children included; a component the instance lost is deleted from the file). The prefab file keeps its own layout (its nested prefabs and the parts you did not touch stay), and every other instance of the prefab in the open scene gets the same change, except where it overrides that thing itself. Example: prefab.apply {"id":"enemy_1","component":"Sprite","field":"/color"}
 
 Returns {id, root, prefab, applied: [the entries prefab.overrides lists], files: [the prefab file written], updated: [ids of the other instances that were updated], skipped: [{id, reason}] (instances whose differences cannot be listed: left as they are), notes?}. Where the instance stands (the root's Transform.position) is not written unless named, like prefab.save. Refuses, changing nothing, a read-only file (code read_only), a prefab that does not exist, an instance whose differences cannot be listed (not_expressible) and changes the file has no place for (cannot_apply; each entry of prefab.overrides says so in `applyBlocked`). The file is written for good (the editor's Ctrl+Z puts the open scene back, not the file: use version control to go back), and instances of this prefab inside other prefabs are only updated after a scene.reload. The editor does not offer it while the game runs: a call made then writes what the running game holds.
 
@@ -6570,14 +6570,15 @@ Create a new game project from a template.
 
 Capabilities: read, writeProject
 
-Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. Example: {"dir":"my-game","template":"2d-platformer","name":"My Game"}.
+Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. With `example` instead of `template` the project is a copy of an example game of the installed version (project.examples lists them): its zip is downloaded from the GitHub release (needs the network capability and the internet the first time; it is kept in FactorIA's cache folder), checked against the release's size and SHA-256, and unpacked into a hidden folder that is renamed to `dir` at the end, so a failure leaves nothing. Examples: {"dir":"my-game","template":"2d-platformer","name":"My Game"} and {"dir":"block-push","example":"block-push"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `dir` | string | yes | Target folder (created; must be empty or new). With a project open, a caller that may not write anywhere (an agent, an MCP client) gives a folder inside the project, relative to it; the command line may name any folder. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
-| `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default "2d-empty". |
-| `name` | string | no | Display name (default: folder name). |
-| `id` | string | no | Reverse-DNS id, e.g. com.example.mygame. |
+| `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default 2d-empty; not together with `example`. |
+| `example` | string | no | Start from this example game of the installed version instead of a template (names: project.examples). Downloads it the first time. Not together with `template`. |
+| `name` | string | no | Display name (default: folder name; an example keeps its own unless given). |
+| `id` | string | no | Reverse-DNS id, e.g. com.example.mygame (an example keeps its own unless given). |
 
 ### `project.create_storage_secret` (modifies state)
 
@@ -6592,6 +6593,16 @@ Writes "storage": {"encryptionSecret": <64 random hex characters>} into factoria
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `replace` | boolean | no | Make a new secret even when the project has one. Every save written with {encrypt: true} so far stops opening: use it only when the secret leaked and the saves can be lost. Default false. |
+
+### `project.examples` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+List the example games of the installed FactorIA version: what each shows and the docs to read first.
+
+Capabilities: read, network
+
+The download of FactorIA carries no example games; every release publishes them as assets. This downloads examples-manifest.json of the release of the INSTALLED version (a few KB), keeps a copy in <FACTORIA_HOME or ~/.factoria>/cache/examples/<version>/ and returns, per example, `name`, `title`, `shows` (what it shows), `readFirst` (docs to read before opening it: `docs.read` them), `size` (bytes to download) and `downloaded` (its zip is already in the cache). `stale` is true, and `staleReason` says why, when the network failed and the copy of an earlier call is returned: the list may then be older than the release. With no network and no copy it fails and says what to do. Create a project from one with project.create {example}. Example: {}.
 
 ### `project.export` (modifies state)
 
@@ -6675,7 +6686,7 @@ Zip every example game of examples/ and write examples-manifest.json, the files 
 
 Capabilities: read, writeAnywhere
 
-For the engine's release (docs/design/BUILDING_RELEASE.md, "Example games in the release"). Reads `examples`/examples.json (the title, what each example shows and the docs to read first), checks that every project folder has an entry and every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/, other hidden folders, node_modules/ and build/: the same files give the same bytes) and examples-manifest.json beside them (format, engineVersion, and per example name, title, shows, readFirst, file, size and sha256). Replaces files of the same names in `out`. Returns the manifest. Run it from a checkout of the repository: a download has no examples/. Example: {"examples":"examples","out":"dist/examples"}.
+For the engine's release (docs/design/BUILDING.md, "Example games in the release"). Reads `examples`/examples.json (the title, what each example shows and the docs to read first), checks that every project folder has an entry and every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/ and every other hidden folder, node_modules/, a top-level build/, .DS_Store, Thumbs.db, desktop.ini, *.actual.png, *.fa-tmp and the secrets and local settings .env, ai.local.json, *.key, *.keystore, *.jks, *.p12 and *.pem; a link is never followed; the same files give the same bytes) and examples-manifest.json beside them (format, engineVersion, and per example name, title, shows, readFirst, file, size and sha256). Replaces files of the same names in `out`. Returns the manifest. Run it from a checkout of the repository: a download has no examples/. Example: {"examples":"examples","out":"dist/examples"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -17836,7 +17847,7 @@ declare module "factoria" {
      */
     zoom: number;
     /**
-     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/sound/SOUND_SPATIAL.md, Headphones.
+     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/SOUND.md, Headphones.
      * @since unreleased
      */
     spatialization: "pan" | "hrtf";

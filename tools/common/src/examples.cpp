@@ -9,6 +9,7 @@
 #include <set>
 
 #include "export_internal.h"
+#include "examples_names.h"
 #include "export_zip.h"
 #include "fa/core/build_info.h"
 #include "fa/core/fs.h"
@@ -62,8 +63,9 @@ bool is_hex64(std::string_view s) {
            std::all_of(s.begin(), s.end(), [](char c) { return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'); });
 }
 
+// "<source>#<pointer>: <message>", the form of ValidationIssue::to_string (a pointer is not a path inside the source).
 Error at(std::string_view source, const std::string& pointer, const std::string& message, const std::string& hint) {
-    return make_error(std::string(source) + pointer + ": " + message, hint);
+    return make_error(std::string(source) + (pointer.empty() ? "" : "#" + pointer) + ": " + message, hint);
 }
 
 // The member `key` of the object `o` as a string, or an Error that points at it.
@@ -96,8 +98,14 @@ Result<void> check_format(const Json& root, const char* expected, std::string_vi
     if (format.rfind(kind, 0) == 0)
         return at(source, "/format",
                   "the manifest has the format \"" + format + "\", and this FactorIA reads \"" + expected + "\" only",
-                  "The release was made by a different version of FactorIA than the one installed. Update FactorIA "
-                  "(Help > Check for updates, or download it again) and try again.");
+                  std::string(expected) == kExamplesSourceFormat
+                      ? "Use the examples.json of the same checkout as the factoria that reads it, or, if you wrote "
+                        "it, bring its fields to the format \"" +
+                            std::string(expected) +
+                            "\" (docs/design/BUILDING_RELEASE.md, "
+                            "\"Example games in the release\")."
+                      : "The release was made by a different version of FactorIA than the one installed. Update "
+                        "FactorIA (Help > Check for updates, or download it again) and try again.");
     return at(source, "/format", "the format is \"" + format + "\", expected \"" + expected + "\"",
               std::string("This is not the examples manifest this FactorIA reads; the format line must be \"") +
                   expected + "\".");
@@ -317,10 +325,20 @@ Result<void> verify_example_file(const ExampleInfo& example, const stdfs::path& 
 
 namespace {
 
+bool ends_with_text(const std::string& s, std::string_view suffix) {
+    return s.size() > suffix.size() && s.compare(s.size() - suffix.size(), suffix.size(), suffix) == 0;
+}
+
+// What the OS, the tests and a developer's machine leave in a project folder: never part of an example. The secrets and local
+// settings a developer keeps next to a project (.env, keys, keystores, ai.local.json) must never be published, whatever is in
+// the folder the release job packs.
 bool left_out_file(const std::string& name) {
-    if (name == ".DS_Store" || name == "Thumbs.db" || name == "desktop.ini") return true;
-    if (name.size() > 11 && name.compare(name.size() - 11, 11, ".actual.png") == 0) return true;
-    return name.size() > 7 && name.compare(name.size() - 7, 7, ".fa-tmp") == 0;
+    if (name == ".DS_Store" || name == "Thumbs.db" || name == "desktop.ini" || name == ".env" ||
+        name == "ai.local.json")
+        return true;
+    for (const char* suffix : {".actual.png", ".fa-tmp", ".key", ".keystore", ".jks", ".p12", ".pem"})
+        if (ends_with_text(name, suffix)) return true;
+    return false;
 }
 
 // Same rule as checkpoints and project.validate: hidden folders, node_modules and a top-level build/.
@@ -328,31 +346,42 @@ bool left_out_dir(const std::string& name, bool topLevel) {
     return name == "node_modules" || (topLevel && name == "build") || (!name.empty() && name[0] == '.');
 }
 
-std::string utf8_relative(const stdfs::path& rel) {
-    const auto u = rel.generic_u8string();
-    return std::string(u.begin(), u.end());
-}
+std::string utf8_relative(const stdfs::path& rel) { return fs::path_to_utf8(rel); }  // forward slashes
 
 }  // namespace
 
-std::vector<std::string> example_zip_files(const stdfs::path& dir) {
+Result<std::vector<std::string>> example_zip_files(const stdfs::path& dir) {
     std::vector<std::string> out;
-    std::error_code ec;
     const stdfs::path root = fs::os_path(dir);
-    for (stdfs::recursive_directory_iterator it(root, ec), end; !ec && it != end; it.increment(ec)) {
-        const stdfs::path rel = stdfs::relative(it->path(), root, ec);
-        if (ec) break;
+    auto fail = [&](const std::error_code& ec, const stdfs::path& at) {
+        return make_error("Cannot list the files of the example folder " + fs::path_to_utf8(dir) + " (at " +
+                              fs::path_to_utf8(at) + "): " + ec.message() + ".",
+                          "Check that the folder exists and can be read; nothing was packed.");
+    };
+    std::error_code ec;
+    stdfs::recursive_directory_iterator it(root, ec), end;
+    if (ec) return fail(ec, root);
+    for (; it != end; it.increment(ec)) {
+        if (ec) return fail(ec, root);
+        const stdfs::path rel = it->path().lexically_relative(root);
         const std::string name = utf8_relative(rel.filename());
-        if (it->is_symlink(ec)) {  // a link may point out of the example: never followed, never packed
+        const bool link = it->is_symlink(ec);  // a link may point out of the example: never followed, never packed
+        if (ec) return fail(ec, it->path());
+        if (link) {
             if (it->is_directory(ec)) it.disable_recursion_pending();
             continue;
         }
-        if (it->is_directory(ec)) {
+        const bool isDir = it->is_directory(ec);
+        if (ec) return fail(ec, it->path());
+        if (isDir) {
             if (left_out_dir(name, !rel.has_parent_path())) it.disable_recursion_pending();
             continue;
         }
-        if (it->is_regular_file(ec) && !left_out_file(name)) out.push_back(utf8_relative(rel));
+        const bool regular = it->is_regular_file(ec);
+        if (ec) return fail(ec, it->path());
+        if (regular && !left_out_file(name)) out.push_back(utf8_relative(rel));
     }
+    if (ec) return fail(ec, root);  // an increment that failed leaves the iterator at its end: the list is not whole
     std::sort(out.begin(), out.end());
     return out;
 }
@@ -362,8 +391,18 @@ Result<void> package_example_zip(const stdfs::path& dir, const stdfs::path& zipF
     if (!stdfs::exists(fs::os_path(dir / kProjectFileName), ec))
         return make_error(fs::path_to_utf8(dir) + " is not a FactorIA project: factoria.json is missing.",
                           "Pack the folder of one project, the one that holds factoria.json.");
-    const std::vector<std::string> files = example_zip_files(dir);
+    auto listed = example_zip_files(dir);
+    if (!listed.ok()) return listed.error();
+    const std::vector<std::string>& files = *listed;
     if (files.empty()) return make_error(fs::path_to_utf8(dir) + " has no files to pack.", "Check the folder.");
+    // The names project.create unpacks (examples_names.h): a zip that every reader refuses is never written.
+    std::vector<ExampleEntryName> names;
+    for (const std::string& rel : files) names.push_back({rel, false});
+    if (auto bad = find_unsafe_example_entry(names))
+        return make_error(
+            "The file \"" + bad->name + "\" of " + fs::path_to_utf8(dir) + " cannot be packed: " + bad->reason + ".",
+            "Rename or delete it: project.create refuses a zip with a name like that, so a release with it would "
+            "give nobody the example.");
     stdfs::create_directories(fs::os_path(zipFile.parent_path()), ec);
     export_detail::ZipWriter zip(zipFile);
     for (const std::string& rel : files) {
@@ -397,14 +436,23 @@ Result<ExamplesManifest> package_examples(const stdfs::path& examplesDir, const 
     // Every project folder has an entry and every entry a folder: a release never leaves an example out by accident.
     std::set<std::string> folders, entries;
     std::error_code ec;
-    for (const auto& d : stdfs::directory_iterator(fs::os_path(examplesDir), ec)) {
-        std::error_code e2;
-        if (d.is_directory(e2) && stdfs::exists(d.path() / kProjectFileName, e2))
-            folders.insert(utf8_relative(d.path().filename()));
+    auto cannot_list = [&](const stdfs::path& at) {
+        return make_error("Cannot list the example folders in " + fs::path_to_utf8(examplesDir) + " (at " +
+                              fs::path_to_utf8(at) + "): " + ec.message() + ".",
+                          "Check that the folder exists and can be read; nothing was packed.");
+    };
+    stdfs::directory_iterator dit(fs::os_path(examplesDir), ec), dend;
+    if (ec) return cannot_list(examplesDir);
+    for (; dit != dend; dit.increment(ec)) {
+        if (ec) return cannot_list(examplesDir);
+        const bool isDir = dit->is_directory(ec);
+        if (ec) return cannot_list(dit->path());
+        if (!isDir) continue;
+        const bool hasProject = stdfs::exists(dit->path() / kProjectFileName, ec);
+        if (ec) return cannot_list(dit->path());
+        if (hasProject) folders.insert(utf8_relative(dit->path().filename()));
     }
-    if (ec)
-        return make_error("Cannot list " + fs::path_to_utf8(examplesDir) + ": " + ec.message() + ".",
-                          "Check the folder.");
+    if (ec) return cannot_list(examplesDir);  // see example_zip_files: a failed increment ends the loop
     for (const ExampleInfo& e : *source) entries.insert(e.name);
     for (const std::string& f : folders)
         if (!entries.count(f))
@@ -415,7 +463,7 @@ Result<ExamplesManifest> package_examples(const stdfs::path& examplesDir, const 
     for (const std::string& n : entries)
         if (!folders.count(n))
             return make_error(fs::path_to_utf8(sourceFile) + " lists \"" + n + "\", but there is no project folder " +
-                                  fs::path_to_utf8(examplesDir / n) + ".",
+                                  fs::path_to_utf8(examplesDir / fs::path_from_utf8(n)) + ".",
                               "Remove the entry, or fix its name (" +
                                   did_you_mean(n, std::vector<std::string>(folders.begin(), folders.end())) + ").");
     for (const std::string& n : only)
@@ -436,8 +484,8 @@ Result<ExamplesManifest> package_examples(const stdfs::path& examplesDir, const 
     for (ExampleInfo e : sorted) {
         if (!only.empty() && std::find(only.begin(), only.end(), e.name) == only.end()) continue;
         e.file = e.name + ".zip";
-        const stdfs::path zip = outDir / e.file;
-        if (auto r = package_example_zip(examplesDir / e.name, zip); !r.ok()) return r.error();
+        const stdfs::path zip = outDir / fs::path_from_utf8(e.file);
+        if (auto r = package_example_zip(examplesDir / fs::path_from_utf8(e.name), zip); !r.ok()) return r.error();
         std::error_code e2;
         e.size = stdfs::file_size(fs::os_path(zip), e2);
         if (e2)
@@ -469,8 +517,12 @@ void register_examples_commands(CommandRegistry& registry) {
         "`examples`/examples.json "
         "(the title, what each example shows and the docs to read first), checks that every project folder has an "
         "entry and "
-        "every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/, other hidden "
-        "folders, node_modules/ and build/: the same files give the same bytes) and examples-manifest.json beside them "
+        "every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/ and every "
+        "other "
+        "hidden folder, node_modules/, a top-level build/, .DS_Store, Thumbs.db, desktop.ini, *.actual.png, *.fa-tmp "
+        "and the "
+        "secrets and local settings .env, ai.local.json, *.key, *.keystore, *.jks, *.p12 and *.pem; a link is never "
+        "followed; the same files give the same bytes) and examples-manifest.json beside them "
         "(format, engineVersion, and per example name, title, shows, readFirst, file, size and sha256). Replaces files "
         "of "
         "the same names in `out`. Returns the manifest. Run it from a checkout of the repository: a download has no "
@@ -501,9 +553,36 @@ void register_examples_commands(CommandRegistry& registry) {
         if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
         return r->to_json();
     });
-    // It reads and writes folders the caller names, anywhere: not for an agent that may write only inside its project.
+
+    CommandInfo l;
+    l.name = "project.examples";
+    l.category = "project";
+    l.readOnly = true;
+    l.summary = "List the example games of the installed FactorIA version: what each shows and the docs to read first.";
+    l.description =
+        "The download of FactorIA carries no example games; every release publishes them as assets. This downloads "
+        "examples-manifest.json of the release of the INSTALLED version (a few KB), keeps a copy in <FACTORIA_HOME or "
+        "~/.factoria>/cache/examples/<version>/ and returns, per example, `name`, `title`, `shows` (what it shows), "
+        "`readFirst` "
+        "(docs to read before opening it: `docs.read` them), `size` (bytes to download) and `downloaded` (its zip is "
+        "already in "
+        "the cache). `stale` is true, and `staleReason` says why, when the network failed and the copy of an earlier "
+        "call is "
+        "returned: the list may then be older than the release. With no network and no copy it fails and says what to "
+        "do. "
+        "Create a project from one with project.create {example}. Example: {}.";
+    l.inputSchema = Json::parse(R"({"type":"object","properties":{}})");
+    registry.add(l, [](const Json&) {
+        auto r = list_examples(examples_context());
+        if (!r.ok()) throw CommandError("failed", r.error().message, r.error().hint);
+        return r->to_json();
+    });
+    // package_examples reads and writes folders the caller names, anywhere: not for an agent that may write only inside its
+    // project. project.examples reads the release over the network and keeps a copy in FactorIA's own cache folder (never a
+    // path the caller chooses), so it is {read, network}.
     declare_command_capabilities(
-        registry, {{"project.package_examples", CapabilitySet{Capability::Read, Capability::WriteAnywhere}}});
+        registry, {{"project.package_examples", CapabilitySet{Capability::Read, Capability::WriteAnywhere}},
+                   {"project.examples", CapabilitySet{Capability::Read, Capability::Network}}});
 }
 
 }  // namespace fa

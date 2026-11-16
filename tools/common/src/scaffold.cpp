@@ -101,6 +101,8 @@ Json ScaffoldResult::to_json() const {
     return Json::object({{"dir", dir}, {"template", templateName}, {"files", files}});
 }
 
+bool is_valid_project_id(const std::string& id) { return valid_id(id); }
+
 std::vector<TemplateInfo> list_templates() {
     std::vector<TemplateInfo> out;
     std::set<std::string> names;
