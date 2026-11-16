@@ -12,7 +12,9 @@ float unit(float v) { return v > 0.0f ? std::min(v, 1.0f) : 0.0f; }  // NaN and 
 // Rounded up to whole milliseconds, ignoring float noise (0.3f is 0.30000001: 300 ms, not 301).
 long long whole_ms(float seconds) {
     if (!(seconds > 0.0f)) return 1;
-    return std::max<long long>(1, (long long)std::ceil(double(seconds) * 1000.0 - 0.01));
+    // Clamped first: converting an infinite or huge double to an integer is undefined, and every caller cuts it far lower.
+    const double ms = std::min(double(seconds), 3600.0) * 1000.0;
+    return std::max<long long>(1, (long long)std::ceil(ms - 0.01));
 }
 
 }  // namespace

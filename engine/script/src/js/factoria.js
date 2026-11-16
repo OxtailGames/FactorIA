@@ -1394,8 +1394,9 @@
     },
     // Shakes the motors of gamepad `pad` (0..3): `low` is the heavy, low-frequency motor and `high` the light, high-frequency
     // one, each 0..1 (outside it is clamped), for `seconds` (above 0, up to 10). A new call on the same pad replaces the one
-    // playing. It ends by itself, and the engine also stops every pad when the game pauses, loses the focus, changes scene
-    // or quits. A pad that is not there or cannot rumble (input.gamepad(pad).canRumble) ignores it; a headless run or test
+    // playing; both strengths 0 is a stop. It ends by itself (the seconds count the frames' own duration, not scaled by
+    // time.scale), and the engine also stops every pad when the game pauses itself (a rumble of the frame that pauses never
+    // reaches the pad), loses the focus, changes scene or quits. A pad that is not there or cannot rumble (input.gamepad(pad).canRumble) ignores it; a headless run or test
     // records it (game.rumbles()).
     rumble(pad, low, high, seconds) {
       for (const [name, v] of [["pad", pad], ["low", low], ["high", high], ["seconds", seconds]])
@@ -1403,11 +1404,11 @@
           throw new Error(`input.rumble(pad, low, high, seconds) expects four numbers, e.g. input.rumble(0, 0.6, 0.2, 0.15) for a thump on pad 0, but ${name} is ${inspect(v)}`);
       N.inRumble(pad, low, high, seconds);
     },
-    // Stops the rumble of gamepad `pad` now; without an argument it stops every pad.
+    // Stops the rumble of gamepad `pad` now; without an argument it stops every pad. A pad outside 0..3 (-1 too) throws.
     stopRumble(pad) {
       if (pad !== undefined && typeof pad !== "number")
         throw new Error(`input.stopRumble(pad) expects a pad number from 0 to 3 (or nothing for every pad), but got ${inspect(pad)}`);
-      N.inStopRumble(pad === undefined ? -1 : pad);
+      N.inStopRumble(pad);
     },
     // Rebinding. rebind() replaces an action's bindings and validates the names (an unknown action or binding throws with
     // a suggestion); resetBindings() goes back to factoria.json (one action, or all of them).

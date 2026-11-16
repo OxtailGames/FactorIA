@@ -50,6 +50,19 @@ test("a test pad that can rumble, strengths are clamped, stopRumble stops one pa
   expect(input.gamepad(1).canRumble).toBe(false);
 });
 
+test("both strengths 0 is a stop; a test pad forgets canRumble when it disconnects", () => {
+  game.gamepad(0).connect({ canRumble: true });
+  input.rumble(0, 0.5, 0.5, 2);
+  input.rumble(0, 0, 0, 2);
+  expect(game.rumbleState(0)).toEqual({ low: 0, high: 0, seconds: 0 });
+  expect(game.rumbles()[1]).toEqual({ pad: 0, low: 0, high: 0, seconds: 0 });
+  game.gamepad(0).disconnect();
+  game.gamepad(0).connect();
+  expect(input.gamepad(0).canRumble).toBe(false);
+  game.gamepad(0).connect({ canRumble: true });
+  expect(input.gamepad(0).canRumble).toBe(true);
+});
+
 test("mistakes are explained and record nothing", () => {
   expect(() => input.rumble(4, 0.5, 0.5, 1)).toThrow("input.rumble: pad must be a whole number from 0 to 3");
   expect(() => input.rumble(0.5, 0.5, 0.5, 1)).toThrow("pad must be a whole number");
@@ -59,6 +72,7 @@ test("mistakes are explained and record nothing", () => {
   expect(() => input.rumble(0, 0.5, 0.5)).toThrow("expects four numbers");
   expect(() => input.rumble("0", 0.5, 0.5, 1)).toThrow("but pad is");
   expect(() => input.stopRumble(7)).toThrow("0 to 3");
+  expect(() => input.stopRumble(-1)).toThrow("0 to 3");      // -1 is no "all pads": leave the argument out
   expect(() => input.stopRumble("all")).toThrow("expects a pad number");
   expect(() => game.rumbleState(5)).toThrow("0 to 3");
   expect(() => game.gamepad(0).connect({ canRumble: "yes" })).toThrow("canRumble must be true or false");

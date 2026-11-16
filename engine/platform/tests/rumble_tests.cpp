@@ -234,6 +234,39 @@ TEST_CASE(
     CHECK(hw.calls.size() == 1);
 }
 
+TEST_CASE("a pad that just connected answers canRumble before any request or frame (refresh_support)") {
+    Input in;
+    FakeHardware hw;
+    in.on_gamepad_connected(0, true);
+    CHECK_FALSE(in.gamepad_can_rumble(0));  // nobody asked the hardware yet
+    GamepadRumbleSync::refresh_support(in, hw);
+    CHECK(in.gamepad_can_rumble(0));
+    CHECK_FALSE(in.gamepad_can_rumble(1));  // no pad in that slot
+    CHECK(hw.calls.empty());                // asking never drives the motors
+
+    in.on_gamepad_connected(0, false);  // the pad goes: what it said goes with it
+    CHECK_FALSE(in.gamepad_can_rumble(0));
+    in.on_gamepad_connected(0, true);
+    CHECK_FALSE(in.gamepad_can_rumble(0));  // the next pad in the slot is asked again
+    hw.can = false;
+    GamepadRumbleSync::refresh_support(in, hw);
+    CHECK_FALSE(in.gamepad_can_rumble(0));
+    CHECK(in.gamepad_rumble_reason(0) == "no motors");
+}
+
+TEST_CASE("a request with both strengths 0 is a stop, whatever its seconds") {
+    Input in;
+    in.on_gamepad_connected(0, true);
+    in.rumble(req(0, 1.0f, 1.0f, 2.0f));
+    CHECK(in.rumble_state(0).active());
+    const std::uint32_t serial = in.rumble_state(0).serial;
+    in.rumble(req(0, 0.0f, 0.0f, 2.0f));
+    CHECK_FALSE(in.rumble_state(0).active());
+    CHECK(in.rumble_state(0).serial != serial);  // a new request: the hardware layer sees the stop
+    REQUIRE(in.rumble_requests().size() == 2);
+    CHECK(in.rumble_requests()[1].seconds == 0.0f);  // recorded as a stop
+}
+
 #if defined(__linux__) || defined(__APPLE__) || defined(__ANDROID__)
 TEST_CASE("the Linux, Apple and Android backends answer 'no' with a reason while no pad is attached") {
     // poll_gamepads() is never called here, so the backend has no pad in any slot: it must not touch the hardware.

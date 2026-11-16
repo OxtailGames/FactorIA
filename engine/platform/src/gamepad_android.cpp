@@ -32,6 +32,7 @@
 #include <string>
 
 #include "android_jni.h"
+#include "fa/core/log.h"
 #include "fa/platform/android_gamepads.h"
 #include "fa/platform/gamepad.h"
 #include "fa/platform/gamepad_rumble_map.h"
@@ -243,16 +244,26 @@ bool init_vibrator_jni(JNIEnv* env) {
     jclass vibrator = find_class(env, "android/os/Vibrator");
     v.vibrationEffect = global_class(env, "android/os/VibrationEffect");  // the classes that are called statically stay
     if (!inputDevice || !vibrator || !v.vibrationEffect) {
+        if (inputDevice) env->DeleteLocalRef(inputDevice);
+        if (vibrator) env->DeleteLocalRef(vibrator);
+        if (v.vibrationEffect) env->DeleteGlobalRef(v.vibrationEffect);
         g_vib.failed = true;
+        FA_INFO("gamepad",
+                "pad rumble: Android's vibrator classes could not be reached through JNI, no pad can rumble");
         return false;
     }
+    // A missing method throws NoSuchMethodError: clear it after every lookup, so the next one is not made with an exception pending.
     v.getVibrator = env->GetMethodID(inputDevice, "getVibrator", "()Landroid/os/Vibrator;");
+    android_clear_exception(env);
     v.hasVibrator = env->GetMethodID(vibrator, "hasVibrator", "()Z");
+    android_clear_exception(env);
     v.vibrate = env->GetMethodID(vibrator, "vibrate", "(Landroid/os/VibrationEffect;)V");
+    android_clear_exception(env);
     v.cancel = env->GetMethodID(vibrator, "cancel", "()V");
+    android_clear_exception(env);
     v.createOneShot = env->GetStaticMethodID(v.vibrationEffect, "createOneShot", "(JI)Landroid/os/VibrationEffect;");
-    const bool basic =
-        !android_clear_exception(env) && v.getVibrator && v.hasVibrator && v.vibrate && v.cancel && v.createOneShot;
+    android_clear_exception(env);
+    const bool basic = v.getVibrator && v.hasVibrator && v.vibrate && v.cancel && v.createOneShot;
     // The manager classes exist on API 31+ only: a missing one is not an error.
     if (basic) {
         jclass manager = find_class(env, "android/os/VibratorManager");
@@ -261,19 +272,27 @@ bool init_vibrator_jni(JNIEnv* env) {
         if (manager && v.combined && parallel) {
             v.getVibratorManager =
                 env->GetMethodID(inputDevice, "getVibratorManager", "()Landroid/os/VibratorManager;");
+            android_clear_exception(env);
             v.getVibratorIds = env->GetMethodID(manager, "getVibratorIds", "()[I");
+            android_clear_exception(env);
             v.managerVibrate = env->GetMethodID(manager, "vibrate", "(Landroid/os/CombinedVibration;)V");
+            android_clear_exception(env);
             v.managerCancel = env->GetMethodID(manager, "cancel", "()V");
+            android_clear_exception(env);
             v.createParallel = env->GetStaticMethodID(v.combined, "createParallel",
                                                       "(Landroid/os/VibrationEffect;)Landroid/os/CombinedVibration;");
+            android_clear_exception(env);
             v.startParallel = env->GetStaticMethodID(v.combined, "startParallel",
                                                      "()Landroid/os/CombinedVibration$ParallelCombination;");
+            android_clear_exception(env);
             v.addVibrator = env->GetMethodID(parallel, "addVibrator",
                                              "(ILandroid/os/VibrationEffect;)"
                                              "Landroid/os/CombinedVibration$ParallelCombination;");
+            android_clear_exception(env);
             v.combine = env->GetMethodID(parallel, "combine", "()Landroid/os/CombinedVibration;");
-            if (android_clear_exception(env) || !v.getVibratorManager || !v.getVibratorIds || !v.managerVibrate ||
-                !v.managerCancel || !v.createParallel || !v.startParallel || !v.addVibrator || !v.combine)
+            android_clear_exception(env);
+            if (!v.getVibratorManager || !v.getVibratorIds || !v.managerVibrate || !v.managerCancel ||
+                !v.createParallel || !v.startParallel || !v.addVibrator || !v.combine)
                 v.getVibratorManager = nullptr;  // use getVibrator() only
         }
         if (manager) env->DeleteLocalRef(manager);
@@ -281,8 +300,16 @@ bool init_vibrator_jni(JNIEnv* env) {
     }
     if (inputDevice) env->DeleteLocalRef(inputDevice);
     if (vibrator) env->DeleteLocalRef(vibrator);
+    if (!v.getVibratorManager && v.combined) {  // no usable manager: its class reference is not needed
+        env->DeleteGlobalRef(v.combined);
+        v.combined = nullptr;
+    }
     if (!basic) {
+        if (v.vibrationEffect) env->DeleteGlobalRef(v.vibrationEffect);
+        if (v.combined) env->DeleteGlobalRef(v.combined);
         g_vib.failed = true;
+        FA_INFO("gamepad",
+                "pad rumble: the Vibrator methods of this Android could not be found through JNI, no pad can rumble");
         return false;
     }
     g_vib = v;
@@ -496,12 +523,18 @@ GamepadRumbleSupport gamepad_backend_rumble_support(int slot) {
         std::lock_guard<std::mutex> lock(g_mutex);
         deviceId = g_pads.device_id(slot);
     }
-    if (deviceId < 0) return {false, "there is no pad in this slot"};
     PadRumble& r = g_rumble[slot];
+    if (deviceId < 0) {
+        r = PadRumble{};  // a pad that comes back with a reused device id is asked again
+        return {false, "there is no pad in this slot"};
+    }
     if (r.deviceId != deviceId) {  // a new pad (or none asked yet): ask Android once
         JNIEnv* env = android_thread_env();
         if (!env || !init_jni(env) || env->PushLocalFrame(32) != JNI_OK) {
             r = PadRumble{};
+            static bool logged = false;  // asked every frame: say it once
+            if (!logged) FA_INFO("gamepad", "pad rumble: Android's InputDevice could not be reached through JNI");
+            logged = true;
             return {false, "Android's InputDevice could not be reached through JNI"};
         }
         probe_rumble(env, deviceId, r);

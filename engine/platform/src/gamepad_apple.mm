@@ -52,17 +52,31 @@ void stop_players(Haptics& h) {
     }
 }
 
+// Stops an engine (the system also frees it when the object goes away; stopping tells the pad's motors to let go now).
+void stop_engine(CHHapticEngine* engine) {
+    [engine stopWithCompletionHandler:^(NSError*) {
+    }];
+}
+
 // The pad's slot was freed (or the pad is a different one): stop and drop the engines.
 void release_haptics(int slot) {
     Haptics& h = g_haptics[slot];
     stop_players(h);
     for (int i = 0; i < 2; ++i) {
         if (h.engine[i] == nil) continue;
-        [h.engine[i] stopWithCompletionHandler:^(NSError*) {
-        }];
+        stop_engine(h.engine[i]);
         h.engine[i] = nil;
     }
     h = Haptics{};
+}
+
+// Says what a CoreHaptics call answered, for the first few failures only (a pad that refuses does it at every request).
+void log_haptics_error(const char* what, NSError* error) {
+    static int logged = 0;
+    if (logged >= 5) return;
+    ++logged;
+    FA_INFO("gamepad", "pad rumble: {} failed: {}", what,
+            error ? error.localizedDescription.UTF8String : "no error given");
 }
 
 // Creates the engines for the pad (once). `h.why` is left empty when at least one exists.
@@ -82,6 +96,7 @@ void make_engines(Haptics& h, GCController* c) {
         CHHapticEngine* engine = [haptics createEngineWithLocality:locality];
         if (engine == nil) return nil;
         engine.playsHapticsOnly = YES;
+        engine.autoShutdownEnabled = YES;  // the system stops an idle engine (power); start_player starts it again
         NSError* error = nil;
         if (![engine startAndReturnError:&error]) {
             FA_INFO("gamepad", "cannot start the haptic engine of '{}': {}", describe(c),
@@ -94,8 +109,11 @@ void make_engines(Haptics& h, GCController* c) {
         h.engine[0] = make(GCHapticsLocalityLeftHandle);
         h.engine[1] = make(GCHapticsLocalityRightHandle);
         h.split = h.engine[0] != nil && h.engine[1] != nil;
-        if (!h.split) {  // one handle failed: use the default engine instead
-            for (int i = 0; i < 2; ++i) h.engine[i] = nil;
+        if (!h.split) {  // one handle failed: use the default engine instead, and let go of the one that started
+            for (int i = 0; i < 2; ++i) {
+                if (h.engine[i] != nil) stop_engine(h.engine[i]);
+                h.engine[i] = nil;
+            }
         }
     }
     if (!h.split) h.engine[0] = make(GCHapticsLocalityDefault);
@@ -116,11 +134,23 @@ id<CHHapticPatternPlayer> start_player(CHHapticEngine* engine, float intensity, 
                                                            duration:seconds];
     NSError* error = nil;
     CHHapticPattern* pattern = [[CHHapticPattern alloc] initWithEvents:@[ event ] parameters:@[] error:&error];
-    if (pattern == nil) return nil;
-    if (![engine startAndReturnError:&error]) return nil;  // a no-op when it runs; restarts one the system stopped
+    if (pattern == nil) {
+        log_haptics_error("making the haptic pattern", error);
+        return nil;
+    }
+    if (![engine startAndReturnError:&error]) {  // a no-op when it runs; restarts one the system stopped
+        log_haptics_error("starting the haptic engine", error);
+        return nil;
+    }
     id<CHHapticPatternPlayer> player = [engine createPlayerWithPattern:pattern error:&error];
-    if (player == nil) return nil;
-    if (![player startAtTime:CHHapticTimeImmediate error:&error]) return nil;
+    if (player == nil) {
+        log_haptics_error("making the haptic player", error);
+        return nil;
+    }
+    if (![player startAtTime:CHHapticTimeImmediate error:&error]) {
+        log_haptics_error("starting the haptic player", error);
+        return nil;
+    }
     return player;
 }
 

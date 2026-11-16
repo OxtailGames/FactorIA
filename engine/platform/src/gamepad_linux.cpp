@@ -26,6 +26,7 @@
 
 #include <algorithm>
 #include <cerrno>
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -55,7 +56,21 @@ struct Rumble {
     int fd = -1;        // /dev/input/eventN, O_RDWR
     int effectId = -1;  // the uploaded FF_RUMBLE effect, -1 = none yet
     bool playing = false;
+    // The node could not be opened YET (udev may not have set its permissions when the pad appeared, or sysfs did not list it):
+    // the probe is repeated every few seconds until it succeeds or the pad goes, so the answer does not stay "no" until a replug.
+    bool retry = false;
+    std::chrono::steady_clock::time_point retryAt;  // the main thread's real clock: a probe schedule, not simulation
 };
+
+// ioctl that restarts when a signal interrupts it (the profiler, SIGCHLD...).
+template <class Req, class Arg>
+int ioctl_retry(int fd, Req request, Arg arg) {
+    int rc;
+    do {
+        rc = ioctl(fd, request, arg);
+    } while (rc < 0 && errno == EINTR);
+    return rc;
+}
 
 struct Slot {
     int fd = -1;
@@ -192,8 +207,11 @@ bool test_bit(const unsigned char* bits, size_t size, unsigned bit) {
 void probe_rumble(int index, Slot& s) {
     Rumble& r = s.rumble;
     r.probed = true;
+    r.retry = false;
     const std::string node = event_node(index);
     if (node.empty()) {
+        r.retry = true;
+        r.retryAt = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         r.why = "the kernel does not list an event device (/dev/input/eventN) for this pad under /sys/class/input/js" +
                 std::to_string(index) + "/device, and rumble goes through it";
         return;
@@ -201,6 +219,8 @@ void probe_rumble(int index, Slot& s) {
     const int fd = open(node.c_str(), O_RDWR | O_NONBLOCK | O_CLOEXEC);
     if (fd < 0) {
         const int err = errno;
+        r.retry = err == EACCES || err == EPERM || err == ENOENT;
+        r.retryAt = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         r.why = "cannot open " + node + " for writing (" + std::strerror(err) + ")";
         if (err == EACCES || err == EPERM)
             r.why +=
@@ -210,7 +230,7 @@ void probe_rumble(int index, Slot& s) {
         return;
     }
     unsigned char ff[(FF_MAX + 7) / 8 + 1] = {};
-    if (ioctl(fd, EVIOCGBIT(EV_FF, sizeof(ff)), ff) < 0 || !test_bit(ff, sizeof(ff), FF_RUMBLE)) {
+    if (ioctl_retry(fd, EVIOCGBIT(EV_FF, sizeof(ff)), ff) < 0 || !test_bit(ff, sizeof(ff), FF_RUMBLE)) {
         r.why = "this pad's driver offers no rumble effect (" + node + " has no FF_RUMBLE force feedback)";
         close(fd);
         return;
@@ -223,7 +243,7 @@ void probe_rumble(int index, Slot& s) {
 void close_rumble(Slot& s) {
     Rumble& r = s.rumble;
     if (r.fd >= 0) {
-        if (r.effectId >= 0) ioctl(r.fd, EVIOCRMFF, r.effectId);
+        if (r.effectId >= 0) ioctl_retry(r.fd, EVIOCRMFF, r.effectId);
         close(r.fd);
     }
     r = Rumble{};
@@ -298,7 +318,8 @@ void poll_gamepads(Input& in) {
 GamepadRumbleSupport gamepad_backend_rumble_support(int slot) {
     if (slot < 0 || slot >= kMaxGamepads || g_slots[slot].fd < 0) return {false, "there is no pad in this slot"};
     Slot& s = g_slots[slot];
-    if (!s.rumble.probed) probe_rumble(slot, s);
+    if (!s.rumble.probed || (s.rumble.retry && std::chrono::steady_clock::now() >= s.rumble.retryAt))
+        probe_rumble(slot, s);
     return {s.rumble.can, s.rumble.can ? std::string() : s.rumble.why};
 }
 
@@ -318,10 +339,13 @@ bool gamepad_backend_rumble(int slot, float low, float high, float seconds) {
     effect.replay.length = m.lengthMs;     // a request longer than 65.5 s is cut: the engine's stop ends it anyway
     effect.u.rumble.strong_magnitude = m.strong;
     effect.u.rumble.weak_magnitude = m.weak;
-    if (ioctl(r.fd, EVIOCSFF, &effect) < 0) {
-        if (r.effectId < 0) return false;
-        effect.id = -1;  // the old id is not known to the kernel any more (the device was re-registered): upload anew
-        if (ioctl(r.fd, EVIOCSFF, &effect) < 0) return false;
+    if (ioctl_retry(r.fd, EVIOCSFF, &effect) < 0) {
+        // Only EINVAL says the old id is not known to the kernel any more (the device was re-registered): upload anew. Any
+        // other failure keeps the old effect (a new upload would leak it); the next request tries to update it again.
+        if (r.effectId < 0 || errno != EINVAL) return false;
+        r.effectId = -1;
+        effect.id = -1;
+        if (ioctl_retry(r.fd, EVIOCSFF, &effect) < 0) return false;
     }
     r.effectId = effect.id;  // the kernel picked it
     r.playing = write_ff(r.fd, r.effectId, 1);
