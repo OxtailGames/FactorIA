@@ -19,9 +19,33 @@
 #if defined(__ANDROID__)
 #define ANativeActivity_onCreate fa_sokol_ANativeActivity_onCreate
 #endif
+// Linux: the IME backend (ime_linux.cpp) sees every X event before sokol_app does. sokol_app's loop reads the queue with
+// XPending (once per frame) and XNextEvent (each event); here they get wrappers that call the real ones and then the
+// backend, which may turn an event the input method took into one sokol_app ignores. Xlib.h comes first, so its own
+// declarations keep their names.
+#if defined(__linux__) && !defined(__ANDROID__)
+#include <X11/Xlib.h>
+
+#include "ime_linux.h"
+static int fa_x11_pending(Display* display) {
+    fa_ime_x11_batch();
+    return XPending(display);
+}
+static int fa_x11_next_event(Display* display, XEvent* event) {
+    const int r = XNextEvent(display, event);
+    fa_ime_x11_event(event);
+    return r;
+}
+#define XPending fa_x11_pending
+#define XNextEvent fa_x11_next_event
+#endif
 #include "sokol_app.h"
 #if defined(__ANDROID__)
 #undef ANativeActivity_onCreate
+#endif
+#if defined(__linux__) && !defined(__ANDROID__)
+#undef XPending
+#undef XNextEvent
 #endif
 
 #if defined(__ANDROID__)
@@ -479,5 +503,45 @@ JNIEXPORT void ANativeActivity_onCreate(ANativeActivity* activity, void* saved_s
     }
 }
 #endif  // __ANDROID__
+
+#if defined(__EMSCRIPTEN__)
+// The web: sokol_app listens for keys, focus and blur on the window (capture phase). The IME backend (ime_web.cpp) sees
+// each first, through these wrappers of sokol_app's own handlers:
+//  - a key the browser's input method takes (keyCode 229, or any key while a composition is open) is the IME's: sokol_app
+//    does not see it, and the browser gets it with its default action (no preventDefault), so the composition goes on;
+//  - the focus moving to or from the hidden <input> the IME and the phone's keyboard type into is not the page losing it.
+#include "ime_web.h"
+
+static EM_BOOL fa_emsc_key_cb(int type, const EmscriptenKeyboardEvent* e, void* user_data) {
+    const int kind = type == EMSCRIPTEN_EVENT_KEYDOWN ? 0 : (type == EMSCRIPTEN_EVENT_KEYUP ? 1 : 2);
+    const sapp_keycode key = _sapp_emsc_translate_key(e->code[0] != 0 ? e->code : e->key);
+    if (fa_ime_web_key(kind, (int)e->keyCode, (int)key)) return false;
+    return _sapp_emsc_key_cb(type, e, user_data);
+}
+
+static EM_BOOL fa_emsc_focus_cb(int type, const EmscriptenFocusEvent* e, void* user_data) {
+    if (fa_ime_web_ignore_focus(e->id)) return true;
+    return _sapp_emsc_focus_cb(type, e, user_data);
+}
+
+static EM_BOOL fa_emsc_blur_cb(int type, const EmscriptenFocusEvent* e, void* user_data) {
+    if (fa_ime_web_ignore_focus(e->id)) return true;
+    return _sapp_emsc_blur_cb(type, e, user_data);
+}
+
+void fa_sapp_web_route_events(void) {
+    // A NULL callback removes the handlers sokol_app registered for that event on the window; then the wrappers go on.
+    emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, 0);
+    emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, 0);
+    emscripten_set_keypress_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, 0);
+    emscripten_set_focus_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, 0);
+    emscripten_set_blur_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, 0);
+    emscripten_set_keydown_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, fa_emsc_key_cb);
+    emscripten_set_keyup_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, fa_emsc_key_cb);
+    emscripten_set_keypress_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, fa_emsc_key_cb);
+    emscripten_set_focus_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, fa_emsc_focus_cb);
+    emscripten_set_blur_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, true, fa_emsc_blur_cb);
+}
+#endif  // __EMSCRIPTEN__
 
 #endif  // !__APPLE__

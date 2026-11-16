@@ -52,6 +52,10 @@ void* fa_sapp_ios_textfield(void);
 void fa_sapp_macos_key_down(const void* nsevent, bool chars);
 // Linux: sets the window's WM_CLASS to `name` (AppDesc::appName). false: not available here.
 bool fa_sapp_set_class_name(const char* name);
+// The web only: sokol_app's key, focus and blur handlers on the window go through the IME backend first (ime_web.cpp:
+// what the browser's input method takes is not a game key, and the focus moving to the hidden <input> is not the page
+// losing it). app.cpp calls it once, when the app starts.
+void fa_sapp_web_route_events(void);
 
 #ifdef __cplusplus
 }
