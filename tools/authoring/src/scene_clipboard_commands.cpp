@@ -142,8 +142,7 @@ void check_prefab_mark(const Json& entity, const std::string& pointer) {
         bad_arg(pointer + "/$prefab: '" + path + "' is not a project-relative prefab path.",
                 "A copied text holds the entities inline and links an instance to its prefab with a path such as "
                 "prefabs/enemy.prefab.json inside this project: no drive or leading slash, and no folder named only of "
-                "dots and "
-                "spaces (.., ..., '.. '), which Windows reads as a way up. Copy the entities again with "
+                "dots and spaces (.., ..., '.. '), which Windows reads as a way up. Copy the entities again with "
                 "scene.copy_entities.");
 }
 
