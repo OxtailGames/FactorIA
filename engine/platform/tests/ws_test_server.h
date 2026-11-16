@@ -1,7 +1,9 @@
-// A WebSocket server for the tests of the clients (fa/platform/websocket.h), on the loopback address only (127.0.0.1, an
-// ephemeral port): it never accepts a connection from another machine. It is built on the codec of
-// fa/platform/websocket_codec.h, one thread per connection, and ends by itself: the destructor stops the accept loop, every
-// connection thread notices within 100 ms and is joined, so no thread or socket outlives the test.
+// A WebSocket server for the tests of the clients (fa/platform/websocket.h), on the loopback address only (127.0.0.1, or ::1
+// when asked; an ephemeral port): it never accepts a connection from another machine. It is built on the codec of
+// fa/platform/websocket_codec.h, one thread per connection, on POSIX sockets or Winsock. It ends by itself: every thread
+// waits for its socket with poll() (select() on Windows) at most 100 ms at a time and looks at stop_ in between, so the
+// destructor only sets stop_ and joins them (no connection to itself to wake an accept(), which a busy machine can refuse or
+// delay); finished connection threads are joined while the server runs. No thread or socket outlives the test.
 //
 // Routes (the path of the address; "?x=1" arguments where listed):
 //   /echo              answers every text and binary message with the same message; pings are answered, a close is answered
@@ -18,6 +20,7 @@
 //   /badutf8           sends a text frame that is not valid UTF-8
 //   /badrsv            sends a frame with a reserved bit set
 //   /ping              sends a ping "hi" after the handshake; pongs received are counted (pongs())
+//   /hang              reads the handshake request and never answers it (a client stays connecting until its timeout)
 //   anything else      404 and closes
 #pragma once
 
@@ -28,6 +31,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -37,11 +41,18 @@
 #include "fa/platform/websocket_codec.h"
 
 #ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
 #include <arpa/inet.h>
 #include <netinet/in.h>
+#include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
 #endif
@@ -58,49 +69,45 @@ public:
     static constexpr Socket kBad = -1;
 #endif
 
-    WsTestServer() {
+    // `ipv6`: listen on ::1 instead of 127.0.0.1. ok() is false when the machine has no IPv6 loopback (some containers).
+    explicit WsTestServer(bool ipv6 = false) : ipv6_(ipv6) {
 #ifdef _WIN32
         WSADATA data;
-        WSAStartup(MAKEWORD(2, 2), &data);
+        wsaStarted_ = WSAStartup(MAKEWORD(2, 2), &data) == 0;
+        if (!wsaStarted_) return;
 #endif
-        listener_ = ::socket(AF_INET, SOCK_STREAM, 0);
+        listener_ = ::socket(ipv6 ? AF_INET6 : AF_INET, SOCK_STREAM, 0);
         if (listener_ == kBad) return;
-        sockaddr_in addr{};
-        addr.sin_family = AF_INET;
-        addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);  // loopback only
-        addr.sin_port = 0;
-        if (::bind(listener_, reinterpret_cast<sockaddr*>(&addr), sizeof(addr)) != 0 || ::listen(listener_, 16) != 0) {
+        sockaddr_in addr4{};
+        sockaddr_in6 addr6{};
+        addr4.sin_family = AF_INET;
+        addr4.sin_addr.s_addr = htonl(INADDR_LOOPBACK);  // loopback only
+        addr6.sin6_family = AF_INET6;
+        addr6.sin6_addr = in6addr_loopback;
+        sockaddr* addr = ipv6 ? reinterpret_cast<sockaddr*>(&addr6) : reinterpret_cast<sockaddr*>(&addr4);
+        socklen_t length = ipv6 ? static_cast<socklen_t>(sizeof(addr6)) : static_cast<socklen_t>(sizeof(addr4));
+        if (::bind(listener_, addr, length) != 0 || ::listen(listener_, 16) != 0 ||
+            ::getsockname(listener_, addr, &length) != 0) {
             close_socket(listener_);
             listener_ = kBad;
             return;
         }
-        socklen_t length = sizeof(addr);
-        ::getsockname(listener_, reinterpret_cast<sockaddr*>(&addr), &length);
-        port_ = ntohs(addr.sin_port);
+        port_ = ntohs(ipv6 ? addr6.sin6_port : addr4.sin_port);
         thread_ = std::thread([this] { accept_loop(); });
     }
     ~WsTestServer() {
-        stop_ = true;
-        if (listener_ != kBad) {
-            Socket s = ::socket(AF_INET, SOCK_STREAM, 0);  // wake accept(): connect to ourselves once
-            if (s != kBad) {
-                sockaddr_in addr{};
-                addr.sin_family = AF_INET;
-                addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-                addr.sin_port = htons(static_cast<std::uint16_t>(port_));
-                ::connect(s, reinterpret_cast<sockaddr*>(&addr), sizeof(addr));
-                close_socket(s);
-            }
-        }
+        stop_ = true;  // the accept loop and every connection thread see it within 100 ms
         if (thread_.joinable()) thread_.join();
+        std::vector<Worker> workers;
         {
             std::lock_guard<std::mutex> lock(mutex_);
-            for (std::thread& t : workers_)
-                if (t.joinable()) t.join();
+            workers.swap(workers_);
         }
+        for (Worker& w : workers)
+            if (w.thread.joinable()) w.thread.join();
         if (listener_ != kBad) close_socket(listener_);
 #ifdef _WIN32
-        WSACleanup();
+        if (wsaStarted_) WSACleanup();
 #endif
     }
     WsTestServer(const WsTestServer&) = delete;
@@ -108,7 +115,8 @@ public:
 
     bool ok() const { return port_ != 0; }
     int port() const { return port_; }
-    std::string url(const std::string& path, const std::string& host = "127.0.0.1") const {
+    std::string url(const std::string& path) const { return url(path, ipv6_ ? "[::1]" : "127.0.0.1"); }
+    std::string url(const std::string& path, const std::string& host) const {
         return "ws://" + host + ":" + std::to_string(port_) + path;
     }
 
@@ -137,8 +145,56 @@ private:
 #endif
     }
 
+    // 1: `s` is readable (or has an error or hung up: the next call says which), 0: nothing within `ms`, -1: poll failed.
+    static int wait_readable(Socket s, int ms) {
+#ifdef _WIN32
+        // select() rather than WSAPoll, which needs _WIN32_WINNT >= 0x0600 from every includer. The set is filled by hand
+        // (Winsock's fd_set is a count and an array), without the FD_SET macros.
+        fd_set set{};
+        set.fd_count = 1;
+        set.fd_array[0] = s;
+        timeval tv{};
+        tv.tv_sec = ms / 1000;
+        tv.tv_usec = (ms % 1000) * 1000;
+        const int n = ::select(0, &set, nullptr, nullptr, &tv);
+        if (n == SOCKET_ERROR) return -1;
+#else
+        pollfd p{};
+        p.fd = s;
+        p.events = POLLIN;
+        const int n = ::poll(&p, 1, ms);
+        if (n < 0) return errno == EINTR ? 0 : -1;
+#endif
+        return n > 0 ? 1 : 0;
+    }
+
+    // Joins the connection threads that ended, so a long test does not keep them all.
+    void reap_finished() {
+        std::vector<Worker> done;
+        {
+            std::lock_guard<std::mutex> lock(mutex_);
+            for (auto it = workers_.begin(); it != workers_.end();) {
+                if (it->done->load()) {
+                    done.push_back(std::move(*it));
+                    it = workers_.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
+        for (Worker& w : done)
+            if (w.thread.joinable()) w.thread.join();
+    }
+
     void accept_loop() {
         while (!stop_) {
+            reap_finished();
+            const int ready = wait_readable(listener_, 50);
+            if (ready <= 0) {
+                // A persistent poll() error must not spin a core.
+                if (ready < 0) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
             Socket c = ::accept(listener_, nullptr, nullptr);
             if (c == kBad) {
                 // A persistent accept() error (out of descriptors...) must not spin a core.
@@ -150,24 +206,21 @@ private:
                 break;
             }
             ++connections_;
-            // A short receive timeout lets every thread look at stop_ and end by itself.
-#ifdef _WIN32
-            DWORD ms = 100;
-            ::setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, reinterpret_cast<const char*>(&ms), sizeof(ms));
-#else
-            timeval tv{0, 100 * 1000};
-            ::setsockopt(c, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
 #ifdef SO_NOSIGPIPE
             const int one = 1;
             ::setsockopt(c, SOL_SOCKET, SO_NOSIGPIPE, &one, sizeof(one));
 #endif
-#endif
-            std::lock_guard<std::mutex> lock(mutex_);
-            workers_.emplace_back([this, c] {
+            Worker w;
+            w.done = std::make_shared<std::atomic<bool>>(false);
+            auto done = w.done;
+            w.thread = std::thread([this, c, done] {
                 serve(c);
                 close_socket(c);
                 ++finished_;
+                done->store(true);
             });
+            std::lock_guard<std::mutex> lock(mutex_);
+            workers_.push_back(std::move(w));
         }
     }
 
@@ -186,14 +239,17 @@ private:
         return true;
     }
 
-    // -1: the peer closed or an error; 0: timeout (nothing yet); n > 0: bytes
+    // -1: the peer closed or an error; 0: nothing within 100 ms (the caller looks at stop_); n > 0: bytes. The wait is a
+    // poll, not SO_RCVTIMEO: on Windows a socket whose receive timed out is in an undefined state.
     static int read_some(Socket c, char* buffer, int size) {
+        const int ready = wait_readable(c, 100);
+        if (ready < 0) return -1;
+        if (ready == 0) return 0;
         const auto n = ::recv(c, buffer, size, 0);
         if (n > 0) return static_cast<int>(n);
         if (n == 0) return -1;
 #ifdef _WIN32
-        const int err = WSAGetLastError();
-        return (err == WSAETIMEDOUT || err == WSAEWOULDBLOCK) ? 0 : -1;
+        return WSAGetLastError() == WSAEWOULDBLOCK ? 0 : -1;
 #else
         return (errno == EAGAIN || errno == EWOULDBLOCK || errno == EINTR) ? 0 : -1;
 #endif
@@ -220,8 +276,9 @@ private:
         std::string data;
         std::size_t headEnd = std::string::npos;
         char buffer[4096];
+        constexpr int kBufferSize = static_cast<int>(sizeof(buffer));
         while (headEnd == std::string::npos && !stop_) {
-            const int n = read_some(c, buffer, sizeof(buffer));
+            const int n = read_some(c, buffer, kBufferSize);
             if (n < 0) return;
             data.append(buffer, static_cast<std::size_t>(n));
             headEnd = ws::find_head_end(data);
@@ -245,6 +302,12 @@ private:
         if (route == "/refuse") {
             const int status = query.count("status") ? std::atoi(query.at("status").c_str()) : 403;
             write_all(c, ws::build_reject_response(status, status == 403 ? "Forbidden" : "Refused"));
+            return;
+        }
+        if (route == "/hang") {
+            // Never answer: wait until the client gives up (closes the connection) or the server stops.
+            while (!stop_)
+                if (read_some(c, buffer, kBufferSize) < 0) return;
             return;
         }
         if (route != "/echo" && route != "/greet" && route != "/protocol" && route != "/headers" && route != "/close" &&
@@ -330,18 +393,27 @@ private:
             events.clear();
             if (!flush()) return;
             if (session.done()) return;
-            const int n = read_some(c, buffer, sizeof(buffer));
+            const int n = read_some(c, buffer, kBufferSize);
             if (n < 0) return;
             if (n > 0) session.feed(buffer, static_cast<std::size_t>(n), events);
         }
     }
 
+    struct Worker {
+        std::thread thread;
+        std::shared_ptr<std::atomic<bool>> done;  // set by the thread as its last step: joining it then is quick
+    };
+
+    bool ipv6_ = false;
     Socket listener_ = kBad;
     int port_ = 0;
+#ifdef _WIN32
+    bool wsaStarted_ = false;
+#endif
     std::atomic<bool> stop_{false};
     std::atomic<int> connections_{0}, handshakes_{0}, pongs_{0}, finished_{0};
     mutable std::mutex mutex_;
-    std::vector<std::thread> workers_;
+    std::vector<Worker> workers_;
     std::vector<int> closeCodes_;
     std::map<std::string, std::string> lastHeaders_;
     std::thread thread_;

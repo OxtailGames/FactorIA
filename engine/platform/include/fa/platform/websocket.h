@@ -1,7 +1,7 @@
 // WebSocket connections of a running game (`websocket.connect` in scripts, docs/NETWORKING.md): one client per platform,
 // each wrapping what the system already has, so that the player carries no network library of its own.
 //
-//   Windows    WinHTTP's WebSocket API                 (M98.2b)
+//   Windows    WinHTTP's WebSocket API                 ("winhttp"; see "Windows" below)
 //   macOS/iOS  NSURLSessionWebSocketTask               (M98.2b)
 //   Linux      libcurl (dlopen'ed) as the transport and fa/platform/websocket_codec.h; missing = not available
 //   Android    fa/platform/websocket_codec.h over Java's SSLSocket through JNI (wss://), over the tcp client (ws://)
@@ -24,6 +24,13 @@
 //      asks the transport to stop (cancel the task, close with 1001 when that takes no waiting) and returns.
 // Destroying a WebSocket runs on the game thread (the script layer's wsRelease, a scene change), so it takes a few
 // milliseconds at most: it never joins a thread that may sit in a blocking call, never waits for the network or a DNS lookup.
+//
+// Windows. WinHTTP keeps part of the protocol to itself, so its client differs from the tcp one in what the tests can see:
+// it answers pings by itself and sends keep-alive frames of its own on an open connection (every 30 s, set explicitly), a
+// wrong Sec-WebSocket-Accept may fail inside WinHttpWebSocketCompleteUpgrade with a message that does not name the header,
+// and connect() refuses a header value that is not ASCII (WinHTTP sends header values as 8-bit text). A connection destroyed
+// while a send is in flight (WinHTTP allows one at a time) sends 1001 once that send has gone out; a send still stuck after
+// kWebSocketCloseWaitSec (a server that does not read) ends with the handle closed and no close frame.
 //
 // Like fa/platform/http.h, a client only sends: it does not check WHICH address a game may open. That is fa/services/
 // network.h (the hosts the game declares in factoria.json, the same list as http.fetch) and the script layer, which check
@@ -194,9 +201,8 @@ public:
     virtual Result<std::unique_ptr<WebSocket>> connect(WebSocketRequest request) = 0;
 };
 
-// The client of this platform; never null. On Linux it is the libcurl client (make_curl_websocket_client), available
-// when libcurl 7.45 or newer can be loaded. The other platforms answer available() == false with "WebSocket client for
-// <platform> lands in M98.2b/c/d" until their native clients land.
+// The client of this platform; never null. Windows: WinHTTP ("winhttp"). Linux: the libcurl client
+// (make_curl_websocket_client), available when libcurl 7.45 or newer can be loaded.
 std::unique_ptr<WebSocketClient> make_system_websocket_client();
 
 // A client that is never available, with this reason (what the platform stubs return).

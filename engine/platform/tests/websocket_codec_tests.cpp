@@ -407,6 +407,17 @@ TEST_CASE("ws codec: addresses") {
     REQUIRE(u.ok());
     CHECK(u.value().host == "::1");
     CHECK(u.value().host_header() == "[::1]");
+    CHECK(u.value().host_in_brackets() == "[::1]");
+    u = parse_url("ws://[fe80::1]:9000/");
+    REQUIRE(u.ok());
+    CHECK(u.value().host_in_brackets() == "[fe80::1]");
+    CHECK(u.value().host_header() == "[fe80::1]:9000");
+    u = parse_url("ws://example.com:9000/");
+    REQUIRE(u.ok());
+    CHECK(u.value().host_in_brackets() == "example.com");
+    u = parse_url("ws://127.0.0.1:9000/");
+    REQUIRE(u.ok());
+    CHECK(u.value().host_in_brackets() == "127.0.0.1");
 
     for (const char* bad :
          {"http://example.com/", "ws://", "ws://host:99999/", "ws://host:0/", "example.com", "ws://a b/", ""}) {
