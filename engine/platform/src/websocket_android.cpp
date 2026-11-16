@@ -486,7 +486,8 @@ private:
             failed = writerFailed_;
         }
         if (failed) {
-            fail_connect("could not start the connection (the Java runtime is not available on a new thread)",
+            fail_connect("could not start the connection (the writer thread got no Java environment or no memory "
+                         "for its buffer)",
                          "Restart the game; close other connections or programs and try again.");
             return false;
         }

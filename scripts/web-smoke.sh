@@ -49,8 +49,10 @@ PY
 # "smoke ws: ..." lines that the smoke waits for. A second connection goes to a port that nothing listens on: the page gets an
 # error and then a close 1006 that is not clean ("smoke ws: closed port ...").
 free_port() { python3 -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'; }
+# Two different ports: the dead one must not be the echo server's.
 wsport="$(free_port)"
 deadport="$(free_port)"
+while [ "$deadport" = "$wsport" ]; do deadport="$(free_port)"; done
 cat > "$work/game/scripts/smoke_ws.js" <<JS
 import { Behaviour, websocket } from "factoria";
 
