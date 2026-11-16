@@ -138,6 +138,9 @@ const Json* prefab_field_override(const Json& overrides, std::string_view entity
                                   std::string_view field);
 // True when `component` of `entity` is one the prefab does not have.
 bool prefab_component_added(const Json& overrides, std::string_view entity, std::string_view component);
+// The components of `entity` the prefab has and the instance lost, in the order prefab.overrides lists them (they are not
+// drawn: the entity does not have them, so the header names them and Revert puts them back).
+std::vector<std::string> prefab_removed_components(const Json& overrides, std::string_view entity);
 // How many entries concern `component` of `entity` (the added component itself or its fields).
 int prefab_component_override_count(const Json& overrides, std::string_view entity, std::string_view component);
 // How many entries are real overrides: the placement entry is left out.

@@ -74,7 +74,7 @@ inline constexpr AutotestSection kAutotestSections[] = {
     {"T2", "Play on phone window: Start without a web player says how to get one, with a stand-in player the server answers on its token, the LAN address is drawn as a QR code, a log line POSTed like the phone's page lands in the log (category phone), a new file exports again, Stop closes the port; the checklist for a phone that cannot connect"},
     {"S3", "Play > Let the AI Play: the Play sessions list marks the AI's sessions, Attach last play session picks the one you played, a real play.auto run on a worker thread ends with its session listed and opened, Cancel writes none"},
     {"R4", "Review window: a sheet made by a command is offered in a toast and opens on its button, 3 and the arrows select, Compare shows 1 and 2 side by side, Enter and the confirmation pick through review.pick (the other files move to the drop folder), History shows the pick and opens the sheet read-only, the Level generator's Sheet of seeds makes a sheet in a child factoria whose pick sets the seed"},
-    {"P4", "Prefab overrides in the Inspector: an overridden field is marked and counted, Revert to prefab and Apply to prefab from the field's menu, Undo, the other instance follows an apply, Apply all asks first"},
+    {"P4", "Prefab overrides in the Inspector: an overridden field is marked and counted, Revert to prefab and Apply to prefab from the field's menu, Undo, the other instance follows an apply, Apply all asks first, a removed component named and given back, Apply greyed out while the game plays"},
 };
 // clang-format on
 

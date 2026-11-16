@@ -7,6 +7,7 @@
 #include <unordered_map>
 
 #include "fa/core/fs.h"
+#include "fa/core/strings.h"
 #include "fa/scene/serialize.h"
 #include "serialize_internal.h"
 
@@ -132,6 +133,12 @@ public:
                 overrides[key] = std::move(node);
             }
         }
+        if (removed_ > 0) {  // what a scene file cannot say, but the list holds
+            PrefabDiff gone = inexpressible();
+            gone.listable = true;
+            gone.list = std::move(list_);
+            return gone;
+        }
         Json entry = Json::object();
         entry["id"] = cw_.info(root).id;
         entry["prefab"] = path_;
@@ -153,6 +160,7 @@ public:
         if (childOpts_.skipSpawned)
             for (Entity x : skippedSpawned_) detail::skip_spawned_entity(cw_, x, childOpts_);
         out.expressible = true;
+        out.listable = true;
         out.entry = std::move(entry);
         out.changes = changes_;
         out.list = std::move(list_);
@@ -272,9 +280,11 @@ private:
             note(p, "EntityInfo", "/active", ci.active, bi.active, ci.active);
         }
 
-        for (const TypeInfo* t : bw_.components_of(p.b))
-            if (t->name != "EntityInfo" && !cw_.get(p.c, *t))
-                return fail("the component " + t->name + " of the prefab was removed from '" + ci.id + "'");
+        for (const TypeInfo* t : bw_.components_of(p.b)) {
+            if (t->name == "EntityInfo" || cw_.get(p.c, *t)) continue;
+            fail("the component " + t->name + " of the prefab was removed from '" + ci.id + "'");
+            removed_component(p, *t);
+        }
 
         Json comps = Json::object();
         for (const TypeInfo* t : cw_.components_of(p.c)) {
@@ -360,6 +370,39 @@ private:
         return true;
     }
 
+    // A component of the prefab the instance lost: listed so it can be given back or deleted from the prefab file.
+    void removed_component(const Pair& p, const TypeInfo& t) {
+        const void* bo = bw_.get(p.b, t);
+        Json value = component_to_json(bw_, p.b, t, true, false);
+        for (const FieldInfo& f : t.fields) {
+            if (f.kind != FieldKind::Entity || !f.serialized || !value.is_object() || !value.contains(f.name)) continue;
+            const Entity bt = *static_cast<const Entity*>(f.ptr(bo));
+            const auto it = bw_.alive(bt) ? map_.find(bt.bits()) : map_.end();
+            value[f.name] = it != map_.end() ? Json(cw_.info(it->second).id) : Json(nullptr);
+        }
+        PrefabChange c;
+        c.kind = PrefabChange::Kind::RemovedComponent;
+        c.entity = p.c;
+        c.nodePath = p.path;
+        c.nodeInFile = p.node != nullptr;
+        c.component = t.name;
+        c.prefabValue = std::move(value);
+        // The file can only lose what its own node writes: a component that comes from a prefab the node instances is
+        // not there to delete.
+        if (p.node) {
+            bool inFile = false;
+            if (p.node->contains("components") && (*p.node)["components"].is_object())
+                for (auto it = (*p.node)["components"].begin(); it != (*p.node)["components"].end(); ++it)
+                    inFile = inFile || to_lower(it.key()) == to_lower(t.name);
+            if (!inFile)
+                c.fileError =
+                    "the " + t.name + " of '" + cw_.info(p.c).id +
+                    "' comes from a prefab that the prefab itself instances, so the file has no entry to delete";
+        }
+        list_.push_back(std::move(c));
+        ++removed_;
+    }
+
     void note(const Pair& p, const char* component, const char* field, Json value, Json prefabValue, Json fileValue) {
         PrefabChange c;
         c.entity = p.c;
@@ -430,6 +473,7 @@ private:
     std::vector<Entity> added_;
     std::vector<Entity> skippedSpawned_;
     std::size_t changes_ = 0;
+    std::size_t removed_ = 0;  // components of the prefab the instance lost
     std::string reason_;
 };
 

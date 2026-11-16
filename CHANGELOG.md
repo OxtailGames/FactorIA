@@ -13,7 +13,10 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   instances of it in the open scene follow, keeping what they override themselves). The Inspector marks overridden fields
   (blue label, tooltip with the prefab's value) and added components, shows the prefab and the override count under the name,
   and offers Revert to prefab / Apply to prefab in the right-click menu of a field and of a component header, and Revert all /
-  Apply all (which asks first) for the entity (docs/EDITOR.md, "Prefab instances").
+  Apply all (which asks first, and is greyed out while the game plays) for the entity (docs/EDITOR.md, "Prefab instances").
+  A component an instance removed is listed (`removedComponent`), comes back with Revert and is deleted from the prefab file by
+  Apply; `name`, `tags` and `active` of EntityInfo can be named as fields; Revert is all or nothing; instances are matched by
+  the normalized path of their prefab (case on Windows and macOS). A removed prefab child is still not listed.
 - **Copy, cut and paste of entities (M98.7c):** the new commands `scene.copy_entities` (entities with their subtrees as one
   self-contained JSON text: components, children, links to prefabs) and `scene.paste_entities` (creates them under an optional
   parent or each under the parent it had, with free ids, `nameSuffix`, and the new ids in the answer) make the clipboard

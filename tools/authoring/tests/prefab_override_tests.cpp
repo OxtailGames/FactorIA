@@ -397,3 +397,188 @@ TEST_CASE("prefab.apply: a missing prefab file is a teaching error") {
     REQUIRE_FALSE(r.ok);
     CHECK(contains(error_text(r), "prefabs/panel.prefab.json"));
 }
+
+TEST_CASE("prefab.apply: two instances that both added a child: each gets the other's, keeps its own") {
+    Session s;
+    REQUIRE(s.call("scene.spawn", Json{{"prefab", "prefabs/panel.prefab.json"}, {"id", "c"}}).ok);
+    REQUIRE(s.call("scene.spawn", Json{{"id", "extra"}, {"parent", "a"}, {"name", "Extra"}}).ok);
+    REQUIRE(s.call("scene.spawn", Json{{"id", "mine"}, {"parent", "c"}, {"name", "Mine"}}).ok);
+    World& w = s.world();
+
+    const CommandResult r = s.call("prefab.apply", Json{{"id", "a"}});
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(r.result["skipped"].empty());
+    CHECK(r.result["updated"].size() == 2);  // b and c
+    CHECK(s.project.json("prefabs/panel.prefab.json")["entity"]["children"].size() == 3);
+
+    std::vector<std::string> names;
+    for (Entity k : w.children(s.find("c"))) names.push_back(w.info(k).name);
+    REQUIRE(names.size() == 4);
+    CHECK(names[2] == "Extra");  // the prefab's new child
+    CHECK(names[3] == "Mine");   // its own, after the prefab's
+    CHECK(w.info(w.children(s.find("c"))[2]).fromPrefab);
+    CHECK_FALSE(w.info(w.children(s.find("c"))[3]).fromPrefab);
+    const Json after = s.call("prefab.overrides", Json{{"id", "c"}}).result;
+    CHECK(after["expressible"] == true);
+    CHECK(after["count"] == 1);  // only its own child
+    CHECK(s.call("prefab.overrides", Json{{"id", "a"}}).result["count"] == 0);
+}
+
+TEST_CASE("prefab.overrides / revert / apply: name, tags and active of EntityInfo") {
+    Session s;
+    World& w = s.world();
+    s.set("a", "EntityInfo", Json{{"tags", Json::array({"boss", "ui"})}, {"active", false}});
+    const CommandResult listed = s.call("prefab.overrides", Json{{"id", "a"}});
+    REQUIRE_MESSAGE(listed.ok, error_text(listed));
+    CHECK(find_item(listed.result["overrides"], "a", "EntityInfo", "/tags") != nullptr);
+    CHECK(find_item(listed.result["overrides"], "a", "EntityInfo", "/active") != nullptr);
+
+    // Revert one field, then the other.
+    CommandResult r = s.call("prefab.revert", Json{{"id", "a"}, {"component", "EntityInfo"}, {"field", "/tags"}});
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(r.result["reverted"].size() == 1);
+    CHECK(w.info(s.find("a")).tags == std::vector<std::string>{"ui"});
+    CHECK_FALSE(w.info(s.find("a")).active);
+    r = s.call("prefab.revert", Json{{"id", "a"}, {"component", "EntityInfo"}, {"field", "active"}});
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(w.info(s.find("a")).active);
+
+    // Apply them: the file gets both and the other instance follows.
+    s.set("a", "EntityInfo", Json{{"tags", Json::array({"boss"})}, {"active", false}});
+    r = s.call("prefab.apply", Json{{"id", "a"}, {"component", "EntityInfo"}, {"field", "/tags"}});
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(s.project.json("prefabs/panel.prefab.json")["entity"]["tags"] == Json::parse(R"(["boss"])"));
+    CHECK(w.info(s.find("b")).tags == std::vector<std::string>{"boss"});
+    r = s.call("prefab.apply", Json{{"id", "a"}, {"component", "EntityInfo"}, {"field", "/active"}});
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(s.project.json("prefabs/panel.prefab.json")["entity"]["active"] == false);
+    CHECK_FALSE(w.info(s.find("b")).active);
+    CHECK(s.call("prefab.overrides", Json{{"id", "a"}}).result["count"] == 0);
+
+    r = s.call("prefab.revert", Json{{"id", "a"}, {"component", "EntityInfo"}, {"field", "/tag"}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(contains(error_text(r), "tags"));
+}
+
+TEST_CASE("prefab commands: a component the instance removed is listed, comes back and can be deleted from the file") {
+    Session s;
+    World& w = s.world();
+    REQUIRE(s.call("scene.remove_component", Json{{"id", "a"}, {"component", "Sprite"}}).ok);
+    CHECK(w.get<Sprite>(s.find("a")) == nullptr);
+
+    const CommandResult listed = s.call("prefab.overrides", Json{{"id", "a"}});
+    REQUIRE_MESSAGE(listed.ok, error_text(listed));
+    CHECK(listed.result["expressible"] == true);
+    CHECK(listed.result["count"] == 1);
+    const Json* gone = nullptr;
+    for (const Json& j : listed.result["overrides"])
+        if (j["kind"] == "removedComponent") gone = &j;
+    REQUIRE(gone != nullptr);
+    CHECK((*gone)["component"] == "Sprite");
+    CHECK((*gone)["prefabValue"]["layer"] == 1);
+    CHECK_FALSE(gone->contains("applyBlocked"));
+
+    // Revert gives it back, with the prefab's values; the Inspector's Ctrl+Z is the editor's own business.
+    CommandResult r = s.call("prefab.revert", Json{{"id", "a"}, {"component", "Sprite"}});
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    REQUIRE(w.get<Sprite>(s.find("a")) != nullptr);
+    CHECK(w.get<Sprite>(s.find("a"))->layer == 1);
+    CHECK(s.call("prefab.overrides", Json{{"id", "a"}}).result["count"] == 0);
+
+    // Apply deletes it from the file; the other instance loses it too (it had changed a field of it).
+    REQUIRE(s.call("scene.remove_component", Json{{"id", "a"}, {"component", "Sprite"}}).ok);
+    r = s.call("prefab.apply", Json{{"id", "a"}});
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK_FALSE(s.project.json("prefabs/panel.prefab.json")["entity"]["components"].contains("Sprite"));
+    CHECK(s.project.json("prefabs/panel.prefab.json")["entity"]["children"].size() == 2);  // the rest stays
+    CHECK(r.result["updated"] == Json::parse(R"(["b"])"));
+    CHECK(w.get<Sprite>(s.find("b")) == nullptr);
+    CHECK(s.call("prefab.overrides", Json{{"id", "a"}}).result["count"] == 0);
+    CHECK(s.call("prefab.overrides", Json{{"id", "b"}}).result["count"] == 0);  // its layer went with the component
+
+    // A removed child is not listed: the children are paired by position.
+    REQUIRE(s.call("scene.destroy", Json{{"id", "title"}}).ok);
+    const CommandResult child = s.call("prefab.overrides", Json{{"id", "a"}});
+    REQUIRE_MESSAGE(child.ok, error_text(child));
+    CHECK(child.result["expressible"] == false);
+    CHECK(contains(child.result["reason"].get<std::string>(), "removed"));
+}
+
+TEST_CASE("prefab.apply: refuses, changing nothing, a reference outside the prefab and a part of a nested prefab") {
+    Session s;
+    s.project.write("prefabs/outer.prefab.json", R"({
+  "format": "factoria.prefab/1",
+  "entity": { "id": "outer", "name": "Outer", "children": [ { "id": "inner", "prefab": "prefabs/panel.prefab.json" } ] }
+})");
+    const std::string before = s.project.read("prefabs/panel.prefab.json");
+    World& w = s.world();
+
+    // 1. A component the instance added that points at an entity of the scene ("plain"): the file has no id for it.
+    s.set("a", "Interactable", Json{{"knob", "plain"}});
+    CommandResult listed = s.call("prefab.overrides", Json{{"id", "a"}});
+    REQUIRE_MESSAGE(listed.ok, error_text(listed));
+    const Json* added = find_item(listed.result["overrides"], "a", "Interactable");
+    REQUIRE(added != nullptr);
+    CHECK(contains((*added)["applyBlocked"].get<std::string>(), "plain"));
+    CommandResult r = s.call("prefab.apply", Json{{"id", "a"}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "cannot_apply");
+    CHECK(contains(error_text(r), "plain"));
+    CHECK(s.project.read("prefabs/panel.prefab.json") == before);
+    CHECK(w.get<Interactable>(s.find("a")) != nullptr);      // nothing changed in the scene either
+    REQUIRE(s.call("prefab.revert", Json{{"id", "a"}}).ok);  // reverting is still allowed
+
+    // 2. A component lost inside a prefab that the prefab itself instances: shown and reverted, not written.
+    REQUIRE(s.call("scene.spawn", Json{{"prefab", "prefabs/outer.prefab.json"}, {"id", "o"}}).ok);
+    const Entity inner = w.children(s.find("o")).at(0);
+    const Entity title = w.children(inner).at(0);
+    const std::string titleId = w.id_of(title);
+    REQUIRE(s.call("scene.remove_component", Json{{"id", titleId}, {"component", "Text"}}).ok);
+    listed = s.call("prefab.overrides", Json{{"id", "o"}});
+    REQUIRE_MESSAGE(listed.ok, error_text(listed));
+    const Json* gone = find_item(listed.result["overrides"], titleId, "Text");
+    REQUIRE(gone != nullptr);
+    CHECK((*gone)["kind"] == "removedComponent");
+    CHECK(contains((*gone)["applyBlocked"].get<std::string>(), "prefab"));
+    r = s.call("prefab.apply", Json{{"id", "o"}});
+    REQUIRE_FALSE(r.ok);
+    CHECK(r.error["code"] == "cannot_apply");
+    CHECK(s.project.read("prefabs/outer.prefab.json").find("Text") == std::string::npos);
+    CHECK(s.project.read("prefabs/panel.prefab.json") == before);
+    r = s.call("prefab.revert", Json{{"id", "o"}});
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(w.get<Text>(title) != nullptr);
+    CHECK(w.get<Text>(title)->text == "Hello");
+}
+
+TEST_CASE("prefab.apply: a prefab path outside the project is refused and nothing is written") {
+    Session s;
+    const stdfs::path outside = s.project.dir.parent_path() / "fa_prefab_overrides_outside.prefab.json";
+    {
+        std::ofstream(outside, std::ios::binary) << kPanel;
+    }
+    s.set("a", "Sprite", Json{{"layer", 9}});
+    s.world().info(s.find("a")).prefab = "../fa_prefab_overrides_outside.prefab.json";
+    const CommandResult r = s.call("prefab.apply", Json{{"id", "a"}});
+    CHECK_FALSE(r.ok);
+    std::ifstream in(outside, std::ios::binary);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    CHECK(ss.str() == std::string(kPanel));
+    std::error_code ec;
+    stdfs::remove(outside, ec);
+}
+
+#if defined(_WIN32) || defined(__APPLE__)
+TEST_CASE(
+    "prefab.apply: instances whose prefab path differs only by case are the same prefab (case-insensitive volumes)") {
+    Session s;
+    s.world().info(s.find("b")).prefab = "Prefabs/Panel.prefab.json";
+    s.set("a", "Sprite", Json{{"layer", 9}});
+    s.set("title_2", "Text", Json{{"text", "Edited"}});  // b's descendant, which the apply must reach (a plain value)
+    const CommandResult r = s.call("prefab.apply", Json{{"id", "a"}, {"component", "Sprite"}, {"field", "/layer"}});
+    REQUIRE_MESSAGE(r.ok, error_text(r));
+    CHECK(r.result["updated"] == Json::parse(R"(["b"])"));
+    CHECK(s.world().get<Sprite>(s.find("b"))->layer == 5);  // its own override is kept
+}
+#endif

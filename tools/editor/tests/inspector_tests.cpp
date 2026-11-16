@@ -320,8 +320,14 @@ TEST_CASE("prefab overrides: the Inspector marks what prefab.overrides lists, an
         {"kind":"field","entity":"a","component":"Transform","field":"/position","value":[7,8,0],"prefabValue":[0,0,0],"placement":true},
         {"kind":"field","entity":"title","component":"Transform","field":"/position/0","value":3,"prefabValue":0},
         {"kind":"component","entity":"ok","component":"Shape2D","value":{"layer":4}},
+        {"kind":"removedComponent","entity":"ok","component":"Text","prefabValue":{"text":"OK"}},
         {"kind":"child","entity":"extra"}])");
-    CHECK(prefab_override_count(list) == 4);
+    CHECK(prefab_override_count(list) == 5);
+    CHECK(prefab_removed_components(list, "ok") == std::vector<std::string>{"Text"});
+    CHECK(prefab_removed_components(list, "a").empty());
+    CHECK(prefab_removed_components(Json(), "a").empty());
+    CHECK_FALSE(prefab_component_added(list, "ok", "Text"));
+    CHECK(prefab_component_override_count(list, "ok", "Text") == 1);
     const Json* layer = prefab_field_override(list, "a", "Sprite", "layer");
     REQUIRE(layer);
     CHECK((*layer)["prefabValue"] == 1);
