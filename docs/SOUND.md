@@ -574,13 +574,48 @@ Recipe: a guard that can be heard through a door.
 
 Put the walls on layer 0 (mask 1 is layer 0) and the sound dulls behind them and opens when the door is gone (disable its collider).
 
-### Headphones (not yet)
+### Headphones
 
-This field exists so scenes and scripts can be written now, but it has no effect until the package that makes it work lands:
+`AudioListener.spatialization` is `"pan"` (the default: left/right pan and volume, made for speakers) or `"hrtf"`: a model of a head for
+headphones, where a sound to the right reaches the right ear earlier and louder and the left ear a little later, quieter and duller. Nothing else
+changes: distance gain, cones, doppler and occlusion apply as with `"pan"`.
 
-| Field | Meaning | Default | Works in |
-| --- | --- | --- | --- |
-| `AudioListener.spatialization` (`"pan"` or `"hrtf"`), `headRadius` | placement for headphones with a parametric head model; until then `"hrtf"` sounds as `"pan"` | `"pan"`, 0.0875 | M98.8c |
+```json
+{ "id": "ears", "components": { "Transform": {}, "AudioListener": { "spatialization": "hrtf", "headRadius": 0.0875 } } }
+```
+
+The model is written for this engine and uses no recorded data (no measured HRIR sets, no library). Its structure is the one of the
+spherical-head model of C. P. Brown and R. O. Duda, "A structural model for binaural sound synthesis", IEEE Transactions on Speech and Audio
+Processing 6(5), 1998, with the time difference of Woodworth (1938):
+
+- **Time.** Each ear delays the sound by a fractional delay (a delay line of the voice with cubic interpolation). With `a` the head radius, `c`
+  the speed of sound and `beta` the angle of the source from the median plane (0 straight ahead or behind, 90 degrees at the ear), the
+  difference between the ears is `(a / c) (beta + sin beta)`: about 0.66 ms at 90 degrees for the default head.
+- **Shadow.** Each ear filters the sound with a one-pole, one-zero filter that is flat at low frequencies. At high ones it boosts the sound up to
+  6 dB when the source is straight in front of that ear's axis and cuts it down to 20 dB when the head is in the way, so the far ear is duller. A
+  sound at 90 degrees is also 3 dB quieter in the far ear at every frequency.
+- **Smooth.** The delay moves at most 0.03 samples per frame (a pitch change of 3% while it moves, so a fast fly-by is not clean but never clicks)
+  and the shadow and level follow their targets over about 8 ms, whatever the block size. A sound that starts at a place starts at the right
+  time and level.
+- **Head size.** `headRadius` is in world units: `headRadius / speedOfSound` is the head's size in seconds, 0.000255 s for a human one. In a
+  world of meters leave the default; in a 2D game in pixels set `speedOfSound` as for doppler and `headRadius` to `speedOfSound * 0.000255`. A
+  head outside 0.03 to 0.12 m at 343 m/s (a ratio of 0.0000875 to 0.00035 s) is clamped, with a warning once that says so. A source nearer than the head's radius
+  is pulled to the middle in proportion to its distance, so a sound at the listener's own position is in the middle.
+
+What it does not do. There is no measured pinna: no elevation cue (a sound above and below sound the same), and a sound in front and its
+mirror behind differ only by the shadow (what real heads do, front/back confusion included). The head is a sphere: no torso, no room, no
+reverb. One head for everybody, so it will not be as convincing as a measured one for every listener. It is for headphones: on speakers use `"pan"`.
+
+When it applies:
+
+- Only to **spatial** sounds heard by an `AudioListener` entity with `spatialization: "hrtf"` (sounds that are not spatial, music and the
+  interface are not placed), on an output device with two or more channels. A 2D camera as the listener (no `AudioListener`) and a mono output keep the pan.
+- A **stereo clip** is mixed to mono (the mean of its channels) and placed as one source, since each channel would need its own place; its stereo image is lost.
+  Use a mono clip for a sound at a place.
+- A sound played at a place (`audio.play({ position })`) follows the listener's head, like a source in the scene.
+- Switching `spatialization` back to `"pan"` puts the playing voices back to the pan within a few milliseconds.
+
+Cost: one cubic read, one filter and two gains for each ear of a spatial voice; the mixer keeps no lock and allocates nothing.
 
 ## Voice stealing
 

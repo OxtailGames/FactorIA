@@ -2723,15 +2723,20 @@ void register_builtin_components(TypeRegistry& r) {
                "the listener "
                "(no AudioListener component) the zoom is 1.")
         .range(0.01f, 100)
-        .enum_field("spatialization", &AudioListener::spatialization, {"pan", "hrtf"},
-                    "How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for "
-                    "speakers. hrtf: a head model for headphones (time and level differences between the ears and "
-                    "the shadow of the head, with no recorded data). NOT YET: hrtf lands in M98.8c; until then it "
-                    "sounds as pan.")
-        .field("headRadius", &AudioListener::headRadius,
-               "hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; "
-               "scale it with the world in a game that does not use meters). It sets the time difference between "
-               "the ears. NOT YET (M98.8c).")
+        .enum_field(
+            "spatialization", &AudioListener::spatialization, {"pan", "hrtf"},
+            "How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for "
+            "speakers. hrtf: a head model for headphones (time and level differences between the ears and "
+            "the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono "
+            "first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output "
+            "with two or more channels (a mono device keeps pan). See docs/SOUND.md, Headphones.")
+        .field(
+            "headRadius", &AudioListener::headRadius,
+            "hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; "
+            "scale it with the world in a game that does not use meters). It sets the time difference between "
+            "the ears (Woodworth: about 0.66 ms at 90 degrees for the default). A head smaller than 0.03 m or larger "
+            "than 0.12 m at speedOfSound 343 (the ratio headRadius / speedOfSound is what counts) is clamped, with "
+            "a warning that says how to fix it.")
         .range(0.001f, 100000)
         .field("speedOfSound", &AudioListener::speedOfSound,
                "Doppler only: the world units per second a sound travels at (default 343, meters per second in air). "
