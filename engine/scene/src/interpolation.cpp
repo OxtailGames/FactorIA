@@ -76,6 +76,22 @@ void visit(void* p, Entity e, const Transform& cur) {
     }
 }
 
+// The same visit for a walk of the Interpolation pool (the project default is off: only the entities that opted in take part).
+void visit_owner(void* p, Entity e, void*) {
+    Walk& k = *static_cast<Walk*>(p);
+    const World& cw = *k.world;  // the const get: reading a Transform here is not a write
+    if (const Transform* t = cw.get<Transform>(e)) visit(p, e, *t);
+}
+
+// One pass over the entities that can take part: every Transform when the project interpolates, else only the Interpolation
+// components (a project that does not interpolate pays for the entities that opt in, not for the size of the scene).
+void walk(World& w, Walk& k) {
+    if (k.byDefault)
+        w.walk_transforms_readonly(&k, &visit);
+    else
+        w.walk_owners(World::type_of<Interpolation>(), &k, &visit_owner);
+}
+
 }  // namespace
 
 Transform interp_blend(const Transform& a, const Transform& b, float alpha) {
@@ -120,7 +136,7 @@ void interp_begin_step(World& w) {
     Walk k;
     if (!prepare(w, k)) return;
     k.begin = true;
-    w.walk_transforms_readonly(&k, &visit);
+    walk(w, k);
 }
 
 void interp_update(World& w, double alpha, bool stepped) {
@@ -131,7 +147,7 @@ void interp_update(World& w, double alpha, bool stepped) {
     k.stepped = stepped;
     k.alpha = float(std::clamp(alpha, 0.0, 1.0));
     ++s.stamp;
-    w.walk_transforms_readonly(&k, &visit);
+    walk(w, k);
     for (std::size_t i = 0; i < s.records.size();) {  // gone, or no longer interpolated: swap-remove
         if (s.records[i].seen == s.stamp) {
             ++i;

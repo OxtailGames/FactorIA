@@ -185,6 +185,9 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   CoreHaptics: low on the left handle, high on the right). The numbers each API wants are pure, unit-tested helpers
   (`fa/platform/gamepad_rumble_map.h`); the three backends are untested on hardware. The AI guide's feedback example no longer
   uses "No gamepad rumble".
+
+### Added
+
 - **Render interpolation (M98.3):** `"render": { "interpolation": true }` in `factoria.json` (default `false`, so nothing
   changes for a game that does not ask) draws entities at the pose between the last two fixed steps, so a 60 Hz simulation
   looks smooth at 120-144 Hz. Only the drawing is blended (position, scale, rotation by slerp; children, cameras and physics
@@ -193,8 +196,10 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   without smearing, and `render.interpolationSnapDistance` treats a long step as a jump. `game.step`, headless runs, replays
   and a paused game draw the real pose. Scripts, UI hit tests and picking read the real camera pose, so `screenToWorld` does not
   depend on the frame time; a rotation that turns more than 180 degrees in one step is not blended. See docs/RENDERING.md, "Render interpolation".
-### Added
-
+  Polish: `Parallax.offset` and `entity.bounds()` of a parallax layer follow the camera's real pose (the drawing still follows
+  the blended one), so they no longer change with the frame time; with `render.interpolation` off and `Interpolation` components
+  on a few entities, the passes read only those entities instead of every Transform; the docs now say that lights, particle
+  emitters and sounds are placed from the real pose, so a sprite can lag its light or emitter by one fixed step.
 - `fa/core/crypto.h`: authenticated encryption for save files, written in the engine with no new dependency: SHA-256 as raw bytes,
   HMAC-SHA256, HKDF-SHA256, ChaCha20-Poly1305 (RFC 8439, checked against the RFC vectors), `seal_blob` / `open_blob` (a file
   format with a random salt and nonce per seal; a changed byte, a wrong key or a wrong slot name fails with "the data was
