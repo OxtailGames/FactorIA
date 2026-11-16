@@ -259,11 +259,12 @@ TEST_CASE("macOS IME client: ime_cancel and a disabled IME") {
     ime_apple_test::set_marked(c, u"ab", 2, 0);
     ime_apple_test::set_enabled(c, false);  // no TextField has the focus any more: the composition goes
     CHECK_FALSE(in.composing());
-    // Disabled: marked text and text from the system are ignored, the game's keys are sokol_app's.
+    // Disabled: marked text is ignored and the game's keys are sokol_app's; text the system inserts with no key (the emoji picker,
+    // dictation) is still typed, control characters are not.
     ime_apple_test::set_marked(c, u"cd", 2, 0);
-    ime_apple_test::insert_text(c, u"x");
     CHECK_FALSE(in.composing());
-    CHECK(typed(in).empty());
+    ime_apple_test::insert_text(c, u"x\n");
+    CHECK(typed(in) == U"x");
     ime_apple_test::destroy(c);
 }
 

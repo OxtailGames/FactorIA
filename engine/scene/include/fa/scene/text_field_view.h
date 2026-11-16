@@ -1,7 +1,5 @@
-// Where the parts of a TextField are: the ONE definition behind drawing (fa_render), the caret rectangle handed to
-// the IME and
-// the pointer hit test (fa_ui). Everything is in UI UNITS (ui_rect.h), in the coordinates of the `rect` given, and
-// measures
+// Where the parts of a TextField are: the ONE definition behind drawing (fa_render), the caret rectangle handed to the IME and
+// the pointer hit test (fa_ui). Everything is in UI UNITS (ui_rect.h), in the coordinates of the `rect` given, and measures
 // text with the callback the caller has for its label font, so the UI and the renderer agree to the pixel.
 #pragma once
 

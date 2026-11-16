@@ -5,6 +5,8 @@
 // backend in engine/platform/src (ime_apple.mm, ime_win32.cpp, ime_linux.cpp, ime_web.cpp; ime_android.cpp is a JNI glue to
 // an InputConnection): docs/TEXT.md, "What composes where".
 // The last values asked for are kept (ime_state()) so tests and diagnostics can read what the UI requested.
+// Known limit: the editor's Play view has no IME: the editor does not give its window the game's Input (AppDesc::input), so a
+// backend that is not attached ignores these calls there. A built game has it.
 #pragma once
 
 #include <fa/core/math.h>
