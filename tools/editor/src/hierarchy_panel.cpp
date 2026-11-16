@@ -110,9 +110,14 @@ void Editor::hierarchy_destroy_selection() {
     if (ids.empty()) return;
     const std::string key = "hier:destroy:" + std::to_string(uiFrame_);
     std::string failure;
+    // One step for the whole selection: when any of them has no inverse (a top-level entity before other top-level ones),
+    // all of them take the snapshot, which coalesces under the key.
+    bool snapshot = false;
+    for (const std::string& id : ids)
+        if (!plan_undo(world(), "scene.destroy", Json::object({{"id", id}}))) snapshot = true;
     for (const std::string& id : ids) {
         std::string err;
-        CommandResult r = edit_command(key, "scene.destroy", Json::object({{"id", id}}), &err);
+        CommandResult r = edit_command(key, "scene.destroy", Json::object({{"id", id}}), &err, snapshot);
         if (!r.ok && failure.empty()) failure = err;
     }
     if (!failure.empty()) notify("Could not delete the entity: " + failure, 2);

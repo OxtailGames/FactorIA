@@ -234,11 +234,21 @@ Entity live_entity(const World& w, const Json& a, const char* key) {
     return !e.is_null() && w.alive(e) && !w.pending_destroy(e) ? e : kNullEntity;
 }
 
+// A top-level entity that has other top-level entities after it: the commands cannot give it that place back (the order of
+// the roots is the order the entities were created in, and a paste creates last), and that order is saved in the file and
+// decides what a tie in drawing order shows first. Destroying one takes a snapshot instead. A set_parent keeps the entity
+// in the pool, so moving a root under a parent and back keeps its place.
+bool root_before_other_roots(const World& w, Entity e) {
+    if (!w.parent(e).is_null()) return false;
+    const std::vector<Entity> roots = w.roots();
+    return !roots.empty() && roots.back() != e;
+}
+
 // scene.destroy {id}: undo pastes the entity and its subtree back, puts it at its place among its siblings and sets the
-// references other entities held to it.
+// references other entities held to it. A top-level entity with other top-level entities after it has no plan (see above).
 std::optional<UndoPlan> plan_destroy(const World& w, const Json& a) {
     const Entity e = live_entity(w, a, "id");
-    if (e.is_null()) return std::nullopt;
+    if (e.is_null() || root_before_other_roots(w, e)) return std::nullopt;
     UndoPlan plan;
     plan.forward.push_back(destroy_call(w.id_of(e)));
     plan.inverse = restore_commands(w, {e});

@@ -827,23 +827,27 @@ void Editor::at_section_L(AtScript& at) {
                      "(L3) Redo of a Duplicate brings back the same ids");
             undo();
         });
-        step(2, [this, st, sorted, only_commands] {  // Delete of a multi-selection
+        step(2, [this, st, sorted] {  // Delete of top-level entities that are not the last ones
             at_check(sorted() == st->before, "(L3) the scene is as it was before the Duplicate");
+            const Json exact = snapshot_scene(world());  // not sorted: the order of the top-level entities counts
             select_ids({"coin_1", "player"}, "coin_1");
             hierarchy_destroy_selection();
-            st->after = sorted();
             at_check(undo_depth() == st->depth + 1 && world().find_by_id("coin_1").is_null() &&
                          world().find_by_id("player").is_null(),
                      "(L3) Delete of two entities is ONE step");
-            at_check(only_commands(st->depth), "(L3) ...a Command step, not a snapshot");
+            at_check(undo_.back().kind == UndoEntry::Kind::Snapshot,
+                     "(L3) ...a snapshot: an inverse would put a top-level entity last, and their order is the file's");
             undo();
-            at_check(sorted() == st->before && !world().find_by_id("player").is_null(),
-                     "(L3) Undo of a Delete gives back both entities, as they were");
+            at_check(snapshot_scene(world()) == exact && redo_depth() == 1,
+                     "(L3) Undo gives back both entities, the order of the top-level entities exactly as it was");
             redo();
-            at_check(sorted() == st->after && redo_depth() == 0, "(L3) Redo of a Delete deletes them again");
+            at_check(world().find_by_id("coin_1").is_null() && redo_depth() == 0,
+                     "(L3) Redo of a Delete deletes them again");
             undo();
+            at_check(snapshot_scene(world()) == exact && undo_depth() == st->depth, "(L3) ...and Undo again");
         });
         step(2, [this, st, sorted, only_commands] {  // Cut and Paste
+            const Json exact = snapshot_scene(world());
             select_ids({"coin_2"}, "coin_2");
             at_check(entity_copy(), "(L3) Copy puts the selection on the clipboard");
             entity_paste();
@@ -856,12 +860,15 @@ void Editor::at_section_L(AtScript& at) {
             at_check(sorted() == st->after, "(L3) Redo of a Paste makes the same ids again");
             undo();
             at_check(sorted() == st->before && undo_depth() == st->depth, "(L3) ...and Undo again");
+            select_ids({"coin_3"},
+                       "coin_3");  // the Paste above selected what it made; coin_3 is the last top-level entity
             entity_cut();
-            at_check(undo_depth() == st->depth + 1 && world().find_by_id("coin_2").is_null() &&
+            at_check(undo_depth() == st->depth + 1 && world().find_by_id("coin_3").is_null() &&
                          only_commands(st->depth),
-                     "(L3) Cut is ONE Command step");
+                     "(L3) Cut of the last top-level entity is ONE Command step");
             undo();
-            at_check(sorted() == st->before, "(L3) Undo of a Cut brings the entity back");
+            at_check(snapshot_scene(world()) == exact && !world().find_by_id("coin_3").is_null(),
+                     "(L3) Undo of a Cut brings the entity back, in its place");
         });
         step(2, [this, st, sorted, only_commands] {  // drag-reparent
             const Vec3 local = world().get<Transform>(world().find_by_id("coin_3"))->position;
@@ -877,8 +884,25 @@ void Editor::at_section_L(AtScript& at) {
             redo();
             at_check(sorted() == st->after, "(L3) Redo reparents again");
             undo();
-            at_check(only_commands(0) && undo_depth() == st->depth,
-                     "(L3) no snapshot was stored by any of these edits");
+        });
+        step(2, [this, st, only_commands] {  // Delete of a child and of the last top-level entity: Command steps
+            hierarchy_reparent("coin_3", "platform_1");  // coin_3 is a child now
+            const size_t depth = undo_depth();
+            const Json exact = snapshot_scene(world());
+            select_ids({"coin_3", "coin_2"}, "coin_3");
+            hierarchy_destroy_selection();
+            at_check(undo_depth() == depth + 1 && world().find_by_id("coin_3").is_null() &&
+                         world().find_by_id("coin_2").is_null(),
+                     "(L3) Delete of a child and of the last top-level entity is ONE step");
+            at_check(only_commands(st->depth), "(L3) ...a Command step, not a snapshot");
+            undo();
+            at_check(snapshot_scene(world()) == exact, "(L3) Undo gives back both, in their places");
+            redo();
+            at_check(world().find_by_id("coin_3").is_null() && world().find_by_id("coin_2").is_null(),
+                     "(L3) Redo deletes them again");
+            undo();
+            undo();  // the reparent
+            at_check(undo_depth() == st->depth && only_commands(0), "(L3) no snapshot is left by these edits");
             toasts_.clear();
             select_id("");
         });
