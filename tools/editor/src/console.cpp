@@ -57,10 +57,13 @@ void Editor::run_console_line(const std::string& raw) {
             return;
         }
         const CommandInfo* ci = engine_->commands().info(name);
-        if (ci && !ci->readOnly && command_edits_scene(name, *args) && play_ == PlayState::Edit)
-            begin_edit("console:" + std::to_string(uiFrame_));
-        r = engine_->commands().call(name, *args);
-        after_command(name, *args, r);
+        if (ci && !ci->readOnly && command_edits_scene(name, *args) && play_ == PlayState::Edit) {
+            // One undo step: a Command step when the command has an inverse (undo_inverse.h), else a snapshot.
+            r = edit_command("console:" + std::to_string(uiFrame_), name, *args, nullptr, false, false);
+        } else {
+            r = engine_->commands().call(name, *args);
+            after_command(name, *args, r);
+        }
     }
     if (r.ok)
         FA_INFO("console", "{}", r.result.dump(2));
