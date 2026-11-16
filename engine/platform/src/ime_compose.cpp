@@ -193,6 +193,7 @@ void Session::focus_lost() {
 bool Session::key_down(unsigned code, bool imeTook, std::uint32_t time) {
     const std::size_t k = code % kKeys;
     dropping_ = false;
+    if (k == 0) return active() && imeTook;  // code 0 is no key (ime_compose.h)
     if (!active() || !imeTook) {
         if (active() && time != 0) {
             // The same key with the same time again (or an older one): a copy of a key down already delivered.
@@ -209,6 +210,7 @@ bool Session::key_down(unsigned code, bool imeTook, std::uint32_t time) {
 
 bool Session::key_up(unsigned code, bool imeTook, std::uint32_t time) {
     const std::size_t k = code % kKeys;
+    if (k == 0) return active() && imeTook;  // code 0 is no key (ime_compose.h)
     if (active() && time != 0 && !delivered_.test(k) && !swallowed_.test(k) && lastUp_[k] != 0 &&
         static_cast<std::int32_t>(time - lastUp_[k]) <= 0)
         return true;  // a copy of a key up already delivered

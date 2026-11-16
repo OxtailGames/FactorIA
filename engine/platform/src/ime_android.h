@@ -8,6 +8,10 @@
 
 namespace fa {
 
+// The app's window is up (on_init: true) or gone (on_cleanup: false). While it is not, the backend tells the OS nothing: the
+// UI's teardown (ime_cancel, ime_set_enabled(false)) runs after the app's end. Turning it off first takes the text view's
+// focus away. On the sokol_app loop thread.
+void ime_android_attach(bool attached);
 // Feeds the keys and what the input method composed and typed since the last frame, in the order they came
 // (ime_ic::Session::feed). Once per frame, on the sokol_app loop thread.
 void ime_android_poll(Input& input);
