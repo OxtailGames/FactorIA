@@ -315,9 +315,15 @@ job.promise.catch(() => { if (!this.gone && !job.cancelled) scene.load("scenes/l
     packed with the exported game like the rest of `factoria.json` (the exported pack is not readable text, but it is not
     a vault either), so it is the same in every build and install of the game: sealed saves survive an update or a
     reinstall and can be copied between a player's devices (the cloud copy of the Slots kit is plain text). It is never
-    logged, and `project.info`, `game.project`, `fs.read` / `fs.search` of `factoria.json` (and so the MCP and AI tools) and the MCP
-    `factoria.json` resource show it as `"(hidden)"` (`fs.write` of a file that says `"(hidden)"` keeps the real one). Keep the secret and the game id for the life
-    of the game: changing either one orphans every sealed save.
+    logged, and these channels show it as `"(hidden)"`: `project.info`, `game.project`, `fs.read` and `fs.search` of
+    `factoria.json` (also of the copies a checkpoint keeps under `.factoria/checkpoints/objects`), `checkpoint.read` of
+    `factoria.json` (its `out` is refused for that file; `checkpoint.restore` brings the real file back), the MCP
+    `factoria://project/factoria.json` resource and the AI assistant's prompt. `fs.write` / `fs.edit` that leave `"(hidden)"` as
+    the value keep the real secret. This is masking per channel, not a guarantee: the secret is a plain value in `factoria.json`,
+    so it is in the project's repository, in every checkpoint, in an exported game's pack, and in what any tool that reads the
+    file without these commands (a shell, a git client, an editor) sees. Do not put the project folder where a person you
+    would not trust with the saves' key can read it, and replace the secret (`project.create_storage_secret {"replace": true}`)
+    if it leaks. Keep the secret and the game id for the life of the game: changing either one orphans every sealed save.
   - **What it protects, and what it does not.** It depends on what the game asks for, and none of it is secrecy or anti-cheat:
     the key necessarily ships inside the game, so anyone who takes the secret out of the pack (or out of the running process)
     can read and forge saves; the file size is visible; and an older sealed file can be put back (a rollback: keep a counter or
