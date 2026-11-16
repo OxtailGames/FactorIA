@@ -57,7 +57,8 @@ std::vector<DocInfo> doc_family_pages(std::string_view entryName);
 std::vector<std::string> doc_layout_problems();
 
 // Test seam: serve docs/ from these functions instead of the bundle (nullptr: the bundle again). `list` receives
-// "docs/" and returns repository-relative paths.
+// "docs/" and returns repository-relative paths. The pointer is a global that is not guarded while a test reads docs: use it
+// from single-threaded tests only, and keep the DocFiles alive until set_doc_files_for_tests(nullptr).
 struct DocFiles {
     std::function<std::vector<std::string>(std::string_view prefix)> list;
     std::function<std::optional<std::string>(std::string_view path)> read;

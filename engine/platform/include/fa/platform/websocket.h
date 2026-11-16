@@ -149,8 +149,10 @@ struct WebSocketRequest {
     // whole message before it hands it over (the browser, NSURLSession) it is checked on arrival, and the platform's own
     // limit (set to this value where it has one) may be what stops it.
     std::size_t maxMessageBytes = 4u * 1024 * 1024;
-    // There is no keep-alive field: pings and the answers to the server's pings are the platform's own (the system stacks do
-    // them; the tcp client only answers the server's).
+    // There is no keep-alive field: pings and the answers to the server's pings are the platform's own. Every client answers
+    // the server's pings; WinHTTP also sends its own keep-alive frames, and the others (NSURLSession, the tcp, curl
+    // and Android clients) send none, and the browser does what it likes, so a connection that must survive idle time needs a
+    // message from the game now and then.
 };
 
 // One connection. Game thread only, including destruction (the script layer drops it in wsRelease and on a scene change).
@@ -165,19 +167,19 @@ public:
     // unsent data. The text must be valid UTF-8.
     virtual Result<void> send_text(std::string_view text) = 0;
     virtual Result<void> send_binary(const void* data, std::size_t size) = 0;
-    // macOS and iOS (NSURLSession) differ in one place: the system reports the close as soon as it has sent the close frame, so
-    // the Close event comes at once with the code and reason asked for and wasClean true, without waiting for the server's
-    // answer and without the kWebSocketCloseWaitSec wait; and no code (0) is sent as 1000, because the system cannot send a
-    // close frame without one.
+    // Starts the closing handshake: `code` is 1000 or 3000-4999 (0: none), `reason` valid UTF-8 up to 123 bytes
+    // (ws::check_close_request). Anything else is an error that says so, and nothing happens. The Close event follows when
+    // the peer answers, or after kWebSocketCloseWaitSec without an answer (Error, then Close 1006, wasClean false). Closing
+    // twice, or a closed connection, is not an error.
     //
     // Closing while the connection is still Connecting abandons the attempt: state() is Closing at once, and Closed when
     // poll() delivers its Error and Close 1006 (wasClean false). The Error says close() was called before the connection
     // opened.
     //
-    // Starts the closing handshake: `code` is 1000 or 3000-4999 (0: none), `reason` valid UTF-8 up to 123 bytes
-    // (ws::check_close_request). Anything else is an error that says so, and nothing happens. While connecting it abandons
-    // the attempt (Error and Close 1006). The Close event follows when the peer answers, or after kWebSocketCloseWaitSec
-    // without an answer (Error, then Close 1006, wasClean false). Closing twice, or a closed connection, is not an error.
+    // macOS and iOS (NSURLSession) differ in one place: the system reports the close as soon as it has sent the close frame, so
+    // the Close event comes at once with the code and reason asked for and wasClean true, without waiting for the server's
+    // answer and without the kWebSocketCloseWaitSec wait; and no code (0) is sent as 1000, because the system cannot send a
+    // close frame without one.
     virtual Result<void> close(int code, std::string_view reason) = 0;
     // Bytes accepted by send_* and not yet handed to the network.
     virtual std::size_t buffered_amount() const = 0;

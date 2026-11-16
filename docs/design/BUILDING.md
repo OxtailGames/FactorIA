@@ -475,8 +475,9 @@ every race of the run and fails the test with its exit code.
   split by `scripts/ctest_shard.py`, below) run the whole Debug suite under Xvfb like the `linux` job does, with
   the example games' tests off as in any Debug build, and the `_perf` budgets (`example_*_perf`, `fixture_skinned_sprites_perf`)
   off too: a sanitizer build has no baseline and its times and memory are not an optimized build's. `Linux (Clang, TSan, threaded tests)` (`linux-tsan`) builds only the
-  four test programs with threads and runs the tests of the CTest label `tsan`: the job system and the background reads of
-  core, the jobs engine and the background loads of runtime, and all of audio and mcp. Both are part of `CI result` and run
+  five test programs with threads and runs the tests of the CTest label `tsan`: the job system and the background reads of
+  core, the jobs engine and the background loads of runtime, all of audio and mcp, and the WebSocket cases of platform
+  (`tsan_platform_websocket`). Both are part of `CI result` and run
   when the change touches anything but docs. Each runs `sudo sysctl vm.mmap_rnd_bits=28` before the tests: the runner's kernel
   randomizes mappings with more bits than the sanitizers' shadow memory layout supports, and the programs would not start.
 - **Suppressions policy:** `tools/ci/sanitizers/` (`asan.supp`, `lsan.supp`, `tsan.supp`, and `ubsan_ignorelist.txt`). A finding
