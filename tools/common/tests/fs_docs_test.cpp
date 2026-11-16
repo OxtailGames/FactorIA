@@ -238,6 +238,15 @@ TEST_CASE("fs: factoria.json is shown without the storage secret, and written ba
     auto obj = f.reg.call("fs.read", {{"path", ".factoria/checkpoints/objects/ab/abcdef"}});
     REQUIRE(obj.ok);
     CHECK(obj.result["content"].get<std::string>().find(fresh) == std::string::npos);
+    // ... and when searched with a path that names one of them (the folder walk skips .factoria, a file path does not)
+    auto hit =
+        f.reg.call("fs.search", {{"query", "encryptionSecret"}, {"path", ".factoria/checkpoints/objects/ab/abcdef"}});
+    REQUIRE(hit.ok);
+    CHECK(hit.result["count"] == 1);
+    CHECK(hit.result.dump().find(fresh) == std::string::npos);
+    // ... whatever the case of the path (macOS and Windows open the same file)
+    auto upper = f.reg.call("fs.read", {{"path", ".Factoria/Checkpoints/Objects/ab/abcdef"}});
+    if (upper.ok) CHECK(upper.result["content"].get<std::string>().find(fresh) == std::string::npos);
 }
 
 TEST_CASE("fs: search skips binary and .factoria, supports regex") {
