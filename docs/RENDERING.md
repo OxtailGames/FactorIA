@@ -194,6 +194,35 @@ test("the page's toggle works through the model", () => {
 Anything a test awaits (a `scene.preload`, a platform answer) must compare `scene.current` (or `scene.generation` for a reload
 of the same scene) with the scene it started in before it acts: the page and the model belong to one scene.
 
+## Render interpolation
+
+The simulation moves in fixed steps (`physics.fixedHz`, 60 by default). On a 120 or 144 Hz display most frames run no step, so
+the picture repeats a pose and then jumps. `"render": { "interpolation": true }` in `factoria.json` (default `false`) draws
+every entity at the pose BETWEEN its last two fixed steps, `alpha = time since the latest step / fixed step` of the way from the
+older to the newer one. The picture runs one step (16.7 ms at 60 Hz) behind the simulation, which is what makes it smooth.
+
+- **Only the drawing changes.** The blend is applied by `World::drawn_matrix`, like shake and squash; it is never written to
+  `Transform`. Scripts, physics, commands, bounds, audio, picking and saved scenes always see the real, latest pose
+  (`entity.position` is where the simulation put it, the sprite is drawn up to one step behind).
+- **What is included.** Position and scale are blended linearly and rotation by quaternion slerp (350 to 10 degrees goes through
+  0, not through 180). A child follows the blended pose of an interpolated parent (each entity of the chain is blended on its
+  local pose). A `Camera` is viewed from its blended pose, so it stays in step with what it follows (do a follow camera in
+  `onFixedUpdate`; one written in `onLateUpdate` is drawn where it is, and follows the target's real pose, a step ahead of its
+  blended drawing). Physics bodies (2D and 3D) are interpolated through their entity's Transform, which physics writes every
+  step. Lights, particles and sounds are placed from the real pose.
+- **Per entity.** The `Interpolation` component overrides the project: `mode: "on"` interpolates an entity even when the project
+  does not, `"off"` never (a cursor, an entity a script moves every frame), `"inherit"` follows the project.
+- **No smearing.** A pose is blended only when a fixed step moved it. These are drawn where they are: a new entity, a Transform
+  written outside the fixed steps (a script's `update` / `lateUpdate`, a command, the editor), a step that moved the entity farther
+  than `"interpolationSnapDistance"` (world units, 0 = no limit) and `entity.teleport()`, which a script calls right after
+  setting a position in `onFixedUpdate` (a respawn, a door).
+- **Determinism.** Nothing the simulation computes changes, so replays, `--frames` runs and tests give the same world. Pictures
+  depend on alpha, which comes from the frame times: `Engine::step` (`game.step`, `--headless`, `--frames`, replays and the
+  autoplay bot) always draws alpha 1, the real pose, and a paused game and the editor's pause and step show the real pose too. A
+  windowed run with an unstable frame time draws what its frame times say.
+- **Cost.** Only interpolated entities pay: a 36-byte record each, one pass over the Transforms per fixed step and two per frame.
+  See docs/PERFORMANCE.md, "Render interpolation".
+
 ## Game feel in the renderer
 
 Camera shake and squash are a pose added to an entity's matrix when the frame is drawn (`World::drawn_matrix`), so a shaken

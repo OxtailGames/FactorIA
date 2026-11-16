@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Render interpolation (M98.3):** `"render": { "interpolation": true }` in `factoria.json` (default `false`, so nothing
+  changes for a game that does not ask) draws entities at the pose between the last two fixed steps, so a 60 Hz simulation
+  looks smooth at 120-144 Hz. Only the drawing is blended (position, scale, rotation by slerp; children, cameras and physics
+  bodies included): Transform, physics and scripts see the real pose. The new `Interpolation` component sets it per entity
+  (`on` / `off` / `inherit`), a new entity, a Transform written outside the fixed step and `entity.teleport()` are drawn
+  without smearing, and `render.interpolationSnapDistance` treats a long step as a jump. `game.step`, headless runs, replays
+  and a paused game draw the real pose. See docs/RENDERING.md, "Render interpolation".
 - `TextField` has `caretIndex`, `selectionStart`, `selectionEnd` and a runtime `composition`, and scripts read
   `input.composing` / `input.compositionText`: the shared interface for text editing and IME composition (M98.6). Nothing
   moves the caret yet.

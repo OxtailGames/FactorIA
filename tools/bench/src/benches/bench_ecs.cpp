@@ -6,6 +6,7 @@
 #include "fa/core/math.h"
 #include "fa/scene/bounds.h"
 #include "fa/scene/components.h"
+#include "fa/scene/interpolation.h"
 #include "fa/scene/world.h"
 
 namespace fa::bench {
@@ -357,6 +358,39 @@ Bench hierarchy_active() {
 
 }  // namespace
 
+// Render interpolation (fa/scene/interpolation.h) with every one of 20000 entities interpolated: a frame of one fixed step (the
+// pass before the step, the pass after it, the pass before drawing) and the drawn matrix of each entity.
+Bench interpolation_frame() {
+    Bench b;
+    b.name = "interpolation.frame";
+    b.summary = "Render interpolation of 20000 entities, 4 frames: begin_step + update twice (the steps, the draw) + "
+                "drawn_matrix "
+                "of each entity";
+    b.make = [] {
+        auto w = make_populated_world();
+        w->interp().enabled = true;
+        interp_update(*w, 1.0, true);
+        Prepared p;
+        p.items = 4 * kEntities;
+        p.unit = "entities";
+        p.run = [w] {
+            double sum = 0;
+            for (int frame = 0; frame < 4; ++frame) {
+                interp_begin_step(*w);
+                w->each<Transform, Sprite>([&](Entity, Transform& t, Sprite&) { t.position.x += 1.0f; });
+                interp_update(*w, 0.5, true);
+                interp_update(*w, 0.5, false);
+                sum += double(w->interp().poseCount);  // every entity moved: the same count on every repeat
+                for (Entity e : w->entities())
+                    if (w->drawn_matrix(e).m[12] > 1e30f) sum += 1.0;  // keeps the matrix from being optimised away
+            }
+            return sum;
+        };
+        return p;
+    };
+    return b;
+}
+
 void add_ecs_benches(std::vector<Bench>& out) {
     out.push_back(ecs_each());
     out.push_back(ecs_each_skewed());
@@ -364,6 +398,7 @@ void add_ecs_benches(std::vector<Bench>& out) {
     out.push_back(ecs_count());
     out.push_back(ecs_spawn_destroy());
     out.push_back(sprite_mesh_data());
+    out.push_back(interpolation_frame());
 }
 
 void add_hierarchy_benches(std::vector<Bench>& out) {

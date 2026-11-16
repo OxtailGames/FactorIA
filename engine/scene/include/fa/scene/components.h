@@ -449,6 +449,15 @@ struct Parallax {
     Vec2 offset{0, 0};        // runtime: the shift applied to the drawing this frame (written by the renderer)
 };
 
+// Render interpolation of one entity (fa/scene/interpolation.h): whether it is DRAWN at the pose between the last two fixed steps
+// (smooth on a display faster than the simulation) instead of the pose the last step left. Inherit follows factoria.json
+// render.interpolation. Only the drawing changes: Transform, physics and scripts always see the real pose.
+enum class InterpolationMode : std::int32_t { Inherit, On, Off };
+struct Interpolation {
+    InterpolationMode mode =
+        InterpolationMode::On;  // On: interpolated whatever the project says; Off: never; Inherit: the project
+};
+
 // Colour multiplied into every 2D visual of this entity and of all its descendants (Sprite, Shape2D, Text, Tilemap, particles
 // and screen-space UI widgets): fade or colour a whole group with one component. The tints of the entity and its ancestors
 // multiply, alpha included.
