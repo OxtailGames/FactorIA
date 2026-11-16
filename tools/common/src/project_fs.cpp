@@ -162,7 +162,7 @@ std::string lines_slice(const std::string& text, long from, long to, bool number
 }
 
 Json str_prop(const char* desc) { return Json::object({{"type", "string"}, {"description", desc}}); }
-// A path property: `kind` is "read" or "write" (the "x-fa-path" annotation of docs/design/ARCHITECTURE.md, "Commands").
+// A path property: `kind` is "read" or "write" (the "x-fa-path" annotation of docs/design/ARCHITECTURE_COMMANDS.md, "Commands").
 Json path_prop(const char* kind, const char* desc) {
     return Json::object({{"type", "string"}, {"description", desc}, {"x-fa-path", kind}});
 }

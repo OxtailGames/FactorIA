@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# One-time setup on the Mac for the remote Windows check (scripts/ci-remote-windows.sh; docs/design/BUILDING.md, "Checking
+# One-time setup on the Mac for the remote Windows check (scripts/ci-remote-windows.sh; docs/design/BUILDING_CI.md, "Checking
 # Windows from the Mac"). Safe to run again.
 #
 #   scripts/setup-windows-remote.sh                          # step 1: key + the line to paste on the PC

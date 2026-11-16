@@ -5,7 +5,7 @@ The logic of a game is JavaScript. When a behaviour misbehaves you have two ways
 - **A person**: press F5 in VS Code. The game stops at your breakpoints; you see the call stack, `this`, the locals, step
   line by line, watch expressions, and type expressions in the debug console.
 - **An AI**: the command `script.trace` runs the game headless and records the stack, the locals and any expressions
-  every time a line runs. One call, one JSON answer. No UI needed. See [For AIs: `script.trace`](#for-ais-scriptrace).
+  every time a line runs. One call, one JSON answer. No UI needed. See [For AIs: `script.trace`](#for-ais-scripttrace).
 
 Both work on the **project** (the folder with `factoria.json`), not on an exported game: an export holds bytecode and
 cannot be debugged ([Limits](#limits)).

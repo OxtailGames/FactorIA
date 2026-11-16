@@ -1,7 +1,7 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-    One-time setup of this Windows PC so a Mac can run the native Windows check over SSH (docs/design/BUILDING.md,
+    One-time setup of this Windows PC so a Mac can run the native Windows check over SSH (docs/design/BUILDING_CI.md,
     "Checking Windows from the Mac"). Run it from an ADMINISTRATOR PowerShell. Safe to run again.
 
         powershell -NoProfile -ExecutionPolicy Bypass -File scripts\setup-windows-remote.ps1 -PublicKey "ssh-ed25519 AAAA... mac" [-RemoteDir C:\path\FactorIA-remote]

@@ -69,13 +69,13 @@ Details: [EXPORTING.md, From the editor](../EXPORTING.md#from-the-editor).
 ## Play on Phone
 
 File > Play on Phone... (also the **Play on phone...** button of the Export window's Web row) opens the **Play on phone**
-window, the editor's front for `project.serve_web` ([EXPORTING.md](../EXPORTING.md#serving-the-web-build-projectserve_web)).
+window, the editor's front for `project.serve_web` ([EXPORTING.md](../exporting/EXPORTING_WEB.md#serving-the-web-build-projectserve_web)).
 **Start** exports the web build (on a helper thread: the editor keeps working) and serves it on the local network under a
 random port and token; the window shows the state in one line (exporting, ready, the export failed and why), the address
 as a **QR code** drawn by the engine (point the phone's camera at it; a menu picks the address when this computer has
 several; none when it has no private network address, since a code of `127.0.0.1` would open the phone's own localhost),
 **Copy address**, **Open on this computer**, **Stop** and the checklist for a phone that cannot open it (same Wi-Fi, the
-firewall prompt on Windows and macOS, guest networks that isolate devices, a VPN; [MOBILE.md](../MOBILE.md#play-on-a-phone)).
+firewall prompt on Windows and macOS, guest networks that isolate devices, a VPN; [MOBILE.md](../mobile/MOBILE_DEVICE.md#play-on-a-phone)).
 A changed script or asset exports again and the phone's page reloads; what the page logs comes to the Console with the
 category `phone`. The scene on disk is what the phone gets: the window warns about unsaved changes and has **Save scene**.
 Without the web player the window says how to install it (**Open Set Up This Computer...**). The server stops with **Stop**,
@@ -86,7 +86,7 @@ a stand-in player.
 
 An export needs things that are not part of FactorIA: a JDK and the Android SDK, the players of the other operating
 systems, CMake, Xcode. You never install them by hand: File > Set Up This Computer... opens the **Set up this computer**
-window, the editor's front for `factoria setup` ([EXPORTING.md, Setting up this computer](../EXPORTING.md#setting-up-this-computer)).
+window, the editor's front for `factoria setup` ([EXPORTING.md, Setting up this computer](../exporting/EXPORTING_SETUP.md#setting-up-this-computer)).
 It runs the very same code (`fa::setup_install`), so what a button installs is what `factoria setup` and the `setup.install`
 command install.
 
@@ -118,7 +118,7 @@ command install.
 ## Platform settings
 
 File > Platform Settings... opens the window that edits what an export needs besides the game: the icon and, per
-platform, the fields of its app (see [EXPORTING.md, Platform settings](../EXPORTING.md#platform-settings) for what each
+platform, the fields of its app (see [EXPORTING.md, Platform settings](../exporting/EXPORTING_SETUP.md#platform-settings) for what each
 field does). It is a form over exactly what `factoria.json` holds in `icon` and `export` (and `~/.factoria/export.json`
 for This computer), checked by the same code `factoria validate` and the export use, so what you can enter here is what
 the AI can write in the file and the reverse.

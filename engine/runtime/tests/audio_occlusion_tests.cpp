@@ -1,4 +1,4 @@
-// The engine's occlusion probe (docs/SOUND.md, "Occlusion"): a ray from the listener to the source against the physics world, in 2D
+// The engine's occlusion probe (docs/sound/SOUND_SPATIAL.md, "Occlusion"): a ray from the listener to the source against the physics world, in 2D
 // and 3D. Audio's own scheduling and smoothing are tested in engine/audio/tests/test_audio_doppler_occlusion.cpp.
 #include <doctest.h>
 

@@ -1,4 +1,4 @@
-// Voice stealing (docs/SOUND.md, "Voice stealing"): with all 64 voices taken, a new sound replaces the voice of the lowest
+// Voice stealing (docs/sound/SOUND_MIXER.md, "Voice stealing"): with all 64 voices taken, a new sound replaces the voice of the lowest
 // priority, the quietest of those, when its own priority is higher or the same and it is louder; otherwise it does not
 // play. How long a voice has played never decides.
 #include <doctest.h>

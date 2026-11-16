@@ -152,7 +152,7 @@ Part of [MENUS.md](../MENUS.md): What each part of the kit does and what to chan
   `tests/platform.test.js` in the fixture: they drive the shop with the pad against the fake store.
 - **Age gate.** <a id="age-gate"></a>A game whose ads reach children and adults (`"platform": { "ads": { "audience": "mixed" } }`
   in factoria.json) must not request an ad, or show Google's consent form, before it knows whether the player is under the
-  age of consent ([PLATFORM.md](../PLATFORM.md#children-and-consent)). The `ageGate` part is that question: with it, `main_menu.js` (the
+  age of consent ([PLATFORM.md](../platform/PLATFORM_ADS.md#children-and-consent)). The `ageGate` part is that question: with it, `main_menu.js` (the
   `main-menu` part without `ageGate` has no such line) opens the `age_gate` panel over the title screen, the first time, when `platform.ads.audience` is `"mixed"` (any other audience
   never sees it). The player picks a year of birth on a slider that starts at no particular year, or presses "I would rather
   not say"; the script computes `underAge` (born 16 or fewer years ago, or declined: the highest age of consent in Europe,

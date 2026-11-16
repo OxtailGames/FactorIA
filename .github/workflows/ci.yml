@@ -12,7 +12,7 @@ name: CI
 # workflow" (workflow_dispatch) for those. The same checks can run locally with
 # ./scripts/ci-local.sh (see docs/design/BUILDING.md).
 # Each run only builds what the change can break, and `CI result` is the check that
-# auto-merge waits for: docs/design/BUILDING.md, "Continuous integration".
+# auto-merge waits for: docs/design/BUILDING_CI.md, "Continuous integration".
 on:
   push:
     branches: [main]
@@ -191,7 +191,7 @@ jobs:
 
   # Linux with Clang and AddressSanitizer + UndefinedBehaviorSanitizer (and LeakSanitizer, which only Linux has): the whole
   # Debug suite on a build whose every target, external/ included, is instrumented (FA_SANITIZE, preset linux-asan;
-  # docs/design/BUILDING.md, "Sanitizers"). A finding fails the test (UBSan stops at the first one). The suppressions are
+  # docs/design/BUILDING_TESTS.md, "Sanitizers"). A finding fails the test (UBSan stops at the first one). The suppressions are
   # tools/ci/sanitizers/*.supp. Debug: the example games' tests are disabled, as in any Debug build.
   # Two machines, each builds (a warm ccache makes that quick) and runs half of the tests: scripts/ctest_shard.py gives every
   # test to exactly one shard, balanced by the times of its linux-asan table. The `tooling` test alone took 19 minutes when
@@ -408,7 +408,7 @@ jobs:
         run: ./scripts/build-sniper.sh smoke
 
       # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
-      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING.md "Player size budgets". Last in
+      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets". Last in
       # the job, so a player over its budget does not skip the tests: one round shows both.
       - name: Player size (linux-x64)
         id: size
@@ -553,7 +553,7 @@ jobs:
           retention-days: 7
 
       # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
-      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING.md "Player size budgets". Last in
+      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets". Last in
       # the job, so a player over its budget does not skip the tests: one round shows both.
       - name: Player size (windows-x64)
         id: size
@@ -661,7 +661,7 @@ jobs:
           retention-days: 7
 
       # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
-      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING.md "Player size budgets". Last in
+      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets". Last in
       # the job, so a player over its budget does not skip the tests: one round shows both.
       - name: Player size (macos-arm64)
         id: size
@@ -1150,7 +1150,7 @@ jobs:
           retention-days: 7
 
       # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
-      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING.md "Player size budgets". Last in
+      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets". Last in
       # the job, so a player over its budget does not skip the tests: one round shows both.
       - name: Player size (web-wasm)
         id: size
@@ -1231,7 +1231,7 @@ jobs:
           grep -q ANativeActivity_onCreate /tmp/symbols.txt
 
       # Size of the Release player against tools/size/player_size_budget.json: fails above maxBytes, always writes the report
-      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING.md "Player size budgets". Last in
+      # (the library table is in the job summary). scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size budgets". Last in
       # the job, so a player over its budget does not skip the tests: one round shows both.
       - name: Player size (android-arm64-v8a)
         id: size
@@ -1562,7 +1562,7 @@ jobs:
 
   # libFuzzer with AddressSanitizer and UBSan (Clang, -DFA_FUZZ=ON) on the data-format targets of tools/fuzz: each one runs
   # for about a minute over a copy of its corpus (tools/fuzz/run.sh). A crash, a sanitizer report or a timeout fails the job
-  # and its input is uploaded. The ordinary builds replay the same corpus as the ctests labelled `fuzz` (docs/design/BUILDING.md,
+  # and its input is uploaded. The ordinary builds replay the same corpus as the ctests labelled `fuzz` (docs/design/BUILDING_TESTS.md,
   # "Fuzzing"). Nothing here runs the editor, a GPU or the tests: only the fuzz programs are built.
   linux-fuzz:
     name: Fuzz (Clang, libFuzzer, ASan + UBSan)
@@ -1646,7 +1646,7 @@ jobs:
       - name: Say that the fuzz run found something
         if: steps.fuzz.outputs.status == '1'
         run: |
-          echo "::warning title=Fuzzing found a crash::The random fuzz run failed. It does not block this pull request, but the input is a real bug: download the artifact fuzz-crashes, reproduce it with build/fuzz/tools/fuzz/fa_fuzz_<target> <file>, fix it and add the input to tools/fuzz/corpus/<target>/ (docs/design/BUILDING.md, Fuzzing)."
+          echo "::warning title=Fuzzing found a crash::The random fuzz run failed. It does not block this pull request, but the input is a real bug: download the artifact fuzz-crashes, reproduce it with build/fuzz/tools/fuzz/fa_fuzz_<target> <file>, fix it and add the input to tools/fuzz/corpus/<target>/ (docs/design/BUILDING_TESTS.md, Fuzzing)."
           {
             echo "### Fuzzing found something"
             echo
@@ -1660,7 +1660,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       # crash-*, timeout-*, oom-* and leak-* files: `build/fuzz/tools/fuzz/fa_fuzz_<target> <file>` reproduces one; to keep it,
-      # copy it into tools/fuzz/corpus/<target>/ (docs/design/BUILDING.md, "Fuzzing").
+      # copy it into tools/fuzz/corpus/<target>/ (docs/design/BUILDING_TESTS.md, "Fuzzing").
       - name: Upload the inputs that failed
         if: failure() || steps.fuzz.outputs.status == '1'
         uses: actions/upload-artifact@v4
@@ -1670,7 +1670,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-  # Source coverage per module (llvm-cov, docs/design/BUILDING.md "Coverage"): the Debug suite with the editor autotest under Xvfb.
+  # Source coverage per module (llvm-cov, docs/design/BUILDING_TESTS.md "Coverage"): the Debug suite with the editor autotest under Xvfb.
   # Informative: NOT in the `needs` of `result`, so a failing test or a lower number here never blocks a merge (the `linux`
   # job already gates the tests; this one runs them again instrumented, and instrumented Debug runs are slow).
   coverage:
@@ -1770,7 +1770,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-  # Formatting and bug-finding lint (docs/design/BUILDING.md, "Formatting and lint"). Cheap: nothing is compiled, CMake only
+  # Formatting and bug-finding lint (docs/design/BUILDING_CI.md, "Formatting and lint"). Cheap: nothing is compiled, CMake only
   # writes compile_commands.json for clang-tidy.
   lint:
     name: Lint (format, clang-tidy)

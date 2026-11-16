@@ -60,8 +60,8 @@ TEST_CASE("output reports are fitted to the device's output report length") {
     CHECK(*fit_hid_output_report(r, 5) == r);
     CHECK(*fit_hid_output_report(r, 7) == Bytes{0x02, 0x03, 0x00, 0x40, 0x00, 0x00, 0x00});
     CHECK(*fit_hid_output_report(r, 4) == Bytes{0x02, 0x03, 0x00, 0x40});  // a zero tail is trimmed
-    CHECK_FALSE(fit_hid_output_report(r, 3).has_value());                 // 0x40 would be cut
-    CHECK_FALSE(fit_hid_output_report(r, 0).has_value());                 // the device has no output report
+    CHECK_FALSE(fit_hid_output_report(r, 3).has_value());                  // 0x40 would be cut
+    CHECK_FALSE(fit_hid_output_report(r, 0).has_value());                  // the device has no output report
     // The real cases: a DualSense's 63-byte USB report on a device that declares 64, a Switch Pro's 49-byte Bluetooth
     // report on one that declares 48 (the rumble data ends at byte 9).
     CHECK(fit_hid_output_report(build_dualsense_rumble_report(1, 1, HidTransport::Usb, 0, false), 64)->size() == 64);
@@ -147,14 +147,14 @@ TEST_CASE("DualShock 4 input: the USB report 0x01 and the Bluetooth report 0x11"
 
     Bytes bt = zeros(78);
     bt[0] = 0x11;
-    bt[1] = 0xC0;   // carries input
-    bt[3] = 0xFF;   // LX full right
-    bt[4] = 0x00;   // LY full up
+    bt[1] = 0xC0;  // carries input
+    bt[3] = 0xFF;  // LX full right
+    bt[4] = 0x00;  // LY full up
     bt[5] = 0x80;
     bt[6] = 0x80;
-    bt[7] = 0x87;   // hat 7 (up-left), Triangle
-    bt[8] = 0xC2;   // R1, L3, R3
-    bt[11] = 128;   // R2 half
+    bt[7] = 0x87;  // hat 7 (up-left), Triangle
+    bt[8] = 0xC2;  // R1, L3, R3
+    bt[11] = 128;  // R2 half
     GamepadState b;
     REQUIRE(decode_ds4_report(bt, b));
     CHECK(axis(b, GamepadAxis::LeftX) == doctest::Approx(1.0f));
@@ -263,14 +263,14 @@ TEST_CASE("DualSense input: USB report 0x01 and Bluetooth report 0x31; Bluetooth
     usb[0] = 0x01;
     usb[1] = 0x80;
     usb[2] = 0x80;
-    usb[3] = 0xFF;  // RX full right
-    usb[4] = 0xFF;  // RY full down
-    usb[5] = 64;    // L2
-    usb[6] = 255;   // R2
-    usb[7] = 0x5a;  // a counter
-    usb[8] = 0x54;  // hat 4 (down), Square, Circle
-    usb[9] = 0x0A;  // R1, R2 (digital: the analog value is what the engine reads)
-    usb[10] = 0x01; // PS
+    usb[3] = 0xFF;   // RX full right
+    usb[4] = 0xFF;   // RY full down
+    usb[5] = 64;     // L2
+    usb[6] = 255;    // R2
+    usb[7] = 0x5a;   // a counter
+    usb[8] = 0x54;   // hat 4 (down), Square, Circle
+    usb[9] = 0x0A;   // R1, R2 (digital: the analog value is what the engine reads)
+    usb[10] = 0x01;  // PS
     GamepadState s;
     REQUIRE(decode_dualsense_report(usb, HidTransport::Usb, s));
     CHECK(axis(s, GamepadAxis::RightX) == doctest::Approx(1.0f));
@@ -295,8 +295,8 @@ TEST_CASE("DualSense input: USB report 0x01 and Bluetooth report 0x31; Bluetooth
     bt[3] = 0x80;
     bt[4] = 0x80;
     bt[5] = 0x80;
-    bt[9] = 0x18;  // hat 8 (centred), Square
-    bt[10] = 0x20; // Options
+    bt[9] = 0x18;   // hat 8 (centred), Square
+    bt[10] = 0x20;  // Options
     GamepadState b;
     REQUIRE(decode_dualsense_report(bt, HidTransport::Bluetooth, b));
     CHECK(button(b, GamepadButton::X));
@@ -337,7 +337,8 @@ TEST_CASE("DualSense driver: over USB it reads the firmware, then rumbles with t
     newer->request_done(true, fw);
     CHECK(newer->setup_done());
     CHECK_FALSE(newer->next_request(2).has_value());
-    CHECK(newer->rumble_report(0.25f, 0.75f) == build_dualsense_rumble_report(0.25f, 0.75f, HidTransport::Usb, 0, true));
+    CHECK(newer->rumble_report(0.25f, 0.75f) ==
+          build_dualsense_rumble_report(0.25f, 0.75f, HidTransport::Usb, 0, true));
 
     auto older = make_hid_pad_driver(kHidVendorSony, kHidProductDualSense, HidTransport::Usb);
     REQUIRE(older->next_request(0).has_value());
@@ -406,8 +407,8 @@ TEST_CASE("Switch Pro HD rumble: amplitude codes, fixed frequencies, neutral at 
         CHECK(switch_rumble_amplitude(float(i) / 100.0f) >= switch_rumble_amplitude(float(i - 1) / 100.0f));
 
     using Hd = std::array<std::uint8_t, 4>;
-    CHECK(switch_hd_rumble(0, 0) == Hd{0x00, 0x01, 0x40, 0x40});   // neutral: 320 Hz and 160 Hz, both silent
-    CHECK(switch_hd_rumble(1, 1) == Hd{0x00, 0xC9, 0x40, 0x72});   // code 100 on both bands
+    CHECK(switch_hd_rumble(0, 0) == Hd{0x00, 0x01, 0x40, 0x40});  // neutral: 320 Hz and 160 Hz, both silent
+    CHECK(switch_hd_rumble(1, 1) == Hd{0x00, 0xC9, 0x40, 0x72});  // code 100 on both bands
     CHECK(switch_hd_rumble(1, 0) == Hd{0x00, 0x01, 0x40, 0x72});
     CHECK(switch_hd_rumble(0, 1) == Hd{0x00, 0xC9, 0x40, 0x40});
     CHECK(switch_hd_rumble(0.5f, 0.25f) == Hd{0x00, 0x49, 0x40, 0x62});  // low code 68, high code 36
@@ -531,9 +532,9 @@ TEST_CASE("Switch Pro driver: the USB handshake, the subcommands, a reply that d
         CHECK_FALSE(d->next_request(now).has_value());  // not written yet
         d->request_done(true, {});
         CHECK_FALSE(d->next_request(now + 10).has_value());  // waiting for the reply
-        CHECK(d->read_report(reply_81(0x7f), s));             // another command's reply: still waiting
+        CHECK(d->read_report(reply_81(0x7f), s));            // another command's reply: still waiting
         CHECK_FALSE(d->next_request(now + 20).has_value());
-        CHECK(d->read_report(reply_81(command), s));          // the driver's, with no input in it
+        CHECK(d->read_report(reply_81(command), s));  // the driver's, with no input in it
         now += 30;
     }
     std::optional<HidPadRequest> forceHid = d->next_request(now);

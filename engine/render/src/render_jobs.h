@@ -1,4 +1,4 @@
-// The render work of a frame handed to the job system (fa/core/jobs.h; docs/design/ARCHITECTURE.md, "Systems that run as
+// The render work of a frame handed to the job system (fa/core/jobs.h; docs/design/ARCHITECTURE_THREADS.md, "Systems that run as
 // jobs"). A pass splits its items into chunks whose bounds depend only on how many items there are (never on the
 // thread count, never on a time), each chunk writes only its own slot, and the slots are joined in chunk order on the
 // calling thread: the frame is the same with jobThreads "inline", 0 or 16. Below a pass's threshold (a count of items,

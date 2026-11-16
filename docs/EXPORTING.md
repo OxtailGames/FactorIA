@@ -78,7 +78,7 @@ button per platform (Windows, macOS, Linux, Android, iOS, Web), each running thi
   **Release** makes a release build, as `--release` does (for Android a release APK or AAB, signed with the keystore
   of the Android settings; hover it for what it changes on each platform).
 - **Platform settings...** (top of the window, also File > Platform Settings...) and the **Settings...** button of each
-  row open the [Platform settings window](EDITOR.md#platform-settings): the icon and the fields of
+  row open the [Platform settings window](editor/EDITOR_SETUP.md#platform-settings): the icon and the fields of
   [Platform settings](exporting/EXPORTING_SETUP.md#platform-settings) below, with Save / Revert, previews of the icons, a Create keystore... button for
   the Android signing key and the JDK / SDK folders of this computer. It edits `factoria.json` (and
   `~/.factoria/export.json`) through the same code `factoria validate` and the export read them with.

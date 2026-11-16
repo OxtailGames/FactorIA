@@ -1,6 +1,6 @@
 # Getting started with FactorIA
 
-**English** | [Español](i18n/es/GETTING_STARTED.md)
+**English** | [Español](i18n/es/GETTING_STARTED.md) (translation: repository only, not in the binary)
 
 > AI agents: read [AI_GUIDE.md](AI_GUIDE.md) first, the complete English guide for building a game (also available as `factoria docs read ai-guide`).
 

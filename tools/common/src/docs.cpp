@@ -317,6 +317,10 @@ const std::vector<DocManifestEntry>& manifest() {
         {"shaders", "Custom shaders and materials: the template, uniforms and limits.", aud({kGameAi, kEngineDev})},
         {"skills", "Agent Skills: topic guides an AI loads when the work needs them.", aud({kGameAi, kUser})},
         {"sound", "Sound patches (*.sfx.json) and audio documents (*.audio.json).", aud({kGameAi})},
+        {"sound-patches", "Sound patch format, presets, macros and variations.", aud({kGameAi})},
+        {"sound-documents", "Audio documents (*.audio.json).", aud({kGameAi})},
+        {"sound-spatial", "Playing a sound at a place in the scene.", aud({kGameAi})},
+        {"sound-mixer", "Voice stealing, the Sound panel and the audio callback.", aud({kGameAi})},
         {"text", "Fonts, languages and text size.", aud({kGameAi})},
         {"vector", "Vector illustration: the vector.* commands and SVG import.", aud({kGameAi})},
     };

@@ -306,7 +306,7 @@ Run it with `factoria call assets.draw_icon @tools/icon.json` (keep the JSON in 
 ### Store page images without a provider: assets.draw_capsules
 
 `assets.draw_capsules` makes the images of the store pages (capsules, heroes, covers) from one piece of key art, at the size
-each store asks for (the table is in [EXPORTING.md](../EXPORTING.md#store-page-material), as of 2026-10). `keyArt` is an image
+each store asks for (the table is in [EXPORTING.md](../exporting/EXPORTING_STORES.md#store-page-material), as of 2026-10). `keyArt` is an image
 in the project, usually a screenshot taken natively large (`game.screenshot {scale: 1.5}`, or `factoria run --render-scale 1.5`).
 It is cover-cropped around `focus` (`[x, y]`, fractions of the art; default the middle) and written to
 `store/capsules/<store>/<name>_<w>x<h>.png` (`name` defaults to the project name; files are replaced; `overwrite: false`

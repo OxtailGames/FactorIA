@@ -1,4 +1,4 @@
-# Code coverage (scripts/coverage-report.sh, docs/design/BUILDING.md "Coverage").
+# Code coverage (scripts/coverage-report.sh, docs/design/BUILDING_TESTS.md "Coverage").
 #
 #   FA_COVERAGE=ON  Clang only (Clang or AppleClang): every target is built with -fprofile-instr-generate -fcoverage-mapping, and
 #                   every ctest process writes its raw profile to <build>/coverage/raw/ (LLVM_PROFILE_FILE with %4m: online merge
@@ -10,7 +10,7 @@
 #                   scripts/coverage-report.sh leaves it out of the report with llvm-cov's ignore regex.
 #   FA_COVERAGE=OFF (default) nothing changes.
 
-option(FA_COVERAGE "Instrument the build for llvm-cov source coverage (Clang only; docs/design/BUILDING.md, 'Coverage')" OFF)
+option(FA_COVERAGE "Instrument the build for llvm-cov source coverage (Clang only; docs/design/BUILDING_TESTS.md, 'Coverage')" OFF)
 set(FA_COVERAGE_TIMEOUT_SCALE 3 CACHE STRING "FA_COVERAGE: factor applied to the TIMEOUT property of every test")
 
 if(FA_COVERAGE)

@@ -1,4 +1,4 @@
-// Deprecated script API (core/deprecation.h, docs/design/ARCHITECTURE.md "Versions"): a function, a namespace member and a member of an
+// Deprecated script API (core/deprecation.h, docs/design/ARCHITECTURE_CORE.md "Versions"): a function, a namespace member and a member of an
 // object the module exports still work, and the first call of each logs one warning that names the replacement. The entries are
 // test-only: the real deprecated section ships empty.
 #include <doctest.h>

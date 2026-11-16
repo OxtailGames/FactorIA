@@ -22,7 +22,7 @@ std::string api_since(std::string_view section, std::string_view key);
 // "Since 0.1.3" or "Not released yet (on main after 0.1.6)".
 std::string api_since_label(const std::string& since);
 
-// Deprecations (docs/design/ARCHITECTURE.md, "Versions"): the "deprecated" section of the embedded api_since.json,
+// Deprecations (docs/design/ARCHITECTURE_CORE.md, "Versions"): the "deprecated" section of the embedded api_since.json,
 // {"commands": {key: {since, use, note}}, "components": {...}, "script": {...}}, keyed like the sections of since marks.
 // install_deprecations() loads it into fa::Deprecations::global() (what the runtime warnings and the generators read) the
 // first time it is called in the process; `reload` loads it again (a test that injected entries puts the file's back). The CLI

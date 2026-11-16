@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Build (and test) a Ninja Debug tree from any shell, printing only what matters: the Linux and macOS twin of
-# scripts/agent-build.ps1, made for AI agents. See docs/design/BUILDING.md, "Linux and macOS, short output".
+# scripts/agent-build.ps1, made for AI agents. See docs/design/BUILDING_SCRIPTS.md, "Linux and macOS, short output".
 #
 #   scripts/agent-build.sh <build dir> [--target t1,t2] [--test | --tests REGEX] [--examples | --examples-only]
 #                                      [--jobs N] [--ctest-jobs N] [--wait-s N]

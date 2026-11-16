@@ -123,7 +123,7 @@
     },
     "macros": {
       "type": "object",
-      "description": "Named knobs from -1 to 1 that move several parameters by meaning (docs/SOUND.md, \"Macros\"). Built in: attack, brightness, weight, tail, pitch, grit; the value is the setting the patch renders with (0 = as written). A macro is a number, or an object {value, strength, doc, binds}; a macro of your own needs binds that set numbers of the patch by JSON pointer.",
+      "description": "Named knobs from -1 to 1 that move several parameters by meaning (docs/sound/SOUND_PATCHES.md, \"Macros\"). Built in: attack, brightness, weight, tail, pitch, grit; the value is the setting the patch renders with (0 = as written). A macro is a number, or an object {value, strength, doc, binds}; a macro of your own needs binds that set numbers of the patch by JSON pointer.",
       "additionalProperties": {
         "oneOf": [
           {
