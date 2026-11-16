@@ -127,7 +127,7 @@ goes on: the player may take minutes to read it, and the flow ends by itself wit
 | `"mixed"` | Children and adults play. **Until the game calls `platform.ads.setUnderAge(bool)`, nothing is requested**: no consent form, no SDK start, no ad (`available` is false, `showRewarded` is `consentRefused`, `consent().gdpr` is `"unknown"`), so a child is never shown the form untagged. The answer tags UMP and every ad request the way `"children"` does for a child (`true`), or as not child-directed (`false`). |
 
 For `"mixed"`, add the menu kit's age gate: `factoria call project.add_menu_kit '{"parts": ["main-menu", "ageGate"]}'`
-(the main menu opens it; the `ageGate` part alone adds the panel and `openAgeGate()` for your own first scene; [MENUS.md](../MENUS.md#age-gate)). It asks the year of birth, keeps only whether the player is under age (never the year; a player
+(the main menu opens it; the `ageGate` part alone adds the panel and `openAgeGate()` for your own first scene; [MENUS.md](../menus/MENUS_HOW.md)). It asks the year of birth, keeps only whether the player is under age (never the year; a player
 who prefers not to say counts as a child), and calls `platform.ads.setUnderAge`; later runs read the stored answer and call it
 again. The engine keeps the answer for the run and sends it to the backend with every ads request. `platform.reset()` (tests)
 forgets it.

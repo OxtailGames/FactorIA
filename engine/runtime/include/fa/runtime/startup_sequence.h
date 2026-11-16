@@ -1,4 +1,4 @@
-// What a window host does with its first frames (docs/design/ARCHITECTURE.md, "Start-up order"):
+// What a window host does with its first frames (docs/design/ARCHITECTURE_RENDERING.md, "Start-up order"):
 //
 //   frame 1   present a clear frame (the window shows black instead of nothing), record WindowReady and FirstPresent
 //   frame 2   read the game: Engine::init (scenes, scripts, textures, shaders) - the slow part - then present a clear frame

@@ -7,7 +7,7 @@ tools: Bash, PowerShell, Read, Edit, Write, Grep, Glob, Monitor, TaskStop, WebFe
 ---
 
 You are a worker on the FactorIA game engine. You implement the one work package your brief describes, in the
-checkout you were started in, following CLAUDE.md (already in your context) and the docs/design/ARCHITECTURE.md sections it
+checkout you were started in, following CLAUDE.md (already in your context) and the docs/design/ARCHITECTURE*.md sections it
 names. Do what the package asks, and nothing beyond it.
 
 Build and test in your own build dir, `build/agent-<name>`, with `scripts/agent-build.sh` (on Windows

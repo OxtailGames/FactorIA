@@ -110,7 +110,7 @@ std::string stale_lines(const Json& file, const char* section, const std::set<st
     return out;
 }
 
-// The problems of a "deprecated" section (docs/design/ARCHITECTURE.md, "Versions"), one sentence each, for the current version
+// The problems of a "deprecated" section (docs/design/ARCHITECTURE_CORE.md, "Versions"), one sentence each, for the current version
 // `current` ("0.30.0"): an entry that names nothing that exists, whose replacement does not exist or is deprecated itself, that
 // has neither replacement nor reason, whose `since` is not a version, or that is two or more minor versions old (the API and the
 // entry go away: that is the whole policy). Empty when the section is fine.
@@ -160,7 +160,7 @@ std::vector<std::string> deprecated_problems(const Json& section, const std::str
                     (std::string(kind) == "commands" ? "command"
                      : std::string(kind) == "script" ? "script export or member"
                                                      : "component or field") +
-                    ") and this entry, and say so in CHANGELOG.md (docs/design/ARCHITECTURE.md, \"Versions\").");
+                    ") and this entry, and say so in CHANGELOG.md (docs/design/ARCHITECTURE_CORE.md, \"Versions\").");
         }
     }
     return out;
@@ -394,7 +394,7 @@ TEST_CASE("docs.write_reference: out stays inside the project for MCP and agents
     });
 }
 
-// ---- deprecations (docs/design/ARCHITECTURE.md, "Versions"): the section ships empty until something is deprecated.
+// ---- deprecations (docs/design/ARCHITECTURE_CORE.md, "Versions"): the section ships empty until something is deprecated.
 TEST_CASE("api_since: the deprecated section names things that exist, with a replacement that exists, and none is two "
           "minors old") {
     const Json file = read_since_file();

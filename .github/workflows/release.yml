@@ -27,7 +27,7 @@
 #
 # Signing: with the repository secrets set, the executables are signed on Windows (signtool; the installer too) and
 # signed + notarized on macOS (codesign, notarytool). Without them these steps only print a notice and the packages
-# are unsigned. Which secrets, what to buy: docs/design/BUILDING.md, "Releasing".
+# are unsigned. Which secrets, what to buy: docs/design/BUILDING_RELEASE.md, "Releasing".
 # Mobile: `mobile-android` and `mobile-ios` build the game-independent player libraries once (libfactoria_player.so
 # per ABI; static archives per iOS SDK) and every package carries them in FactorIA/mobile/ (Android in all packages, iOS
 # in the macOS one), so `factoria export --platform android|ios` works from the download without the engine source
@@ -109,7 +109,7 @@ jobs:
           path: mobile
           if-no-files-found: error
 
-      # Size of the player against tools/size/player_size_budget.json (scripts/player-size.sh, docs/design/BUILDING.md "Player size
+      # Size of the player against tools/size/player_size_budget.json (scripts/player-size.sh, docs/design/BUILDING_RELEASE.md "Player size
       # budgets"): a release whose player went over its budget does not ship. The report is an artifact and in the job summary.
       # Last in the job: a player over its budget fails the job (so the release does not ship) after the artifacts are up.
       - name: Player size (android-${{ matrix.abi }})
@@ -379,7 +379,7 @@ jobs:
       - name: Add the pinned shader compiler (sokol-shdc)
         run: ./scripts/bundle-sokol-shdc.sh build/sokol-shdc
 
-      # Code signing (docs/design/BUILDING.md, "Releasing"). Each script prints a notice and does nothing without its secrets.
+      # Code signing (docs/design/BUILDING_RELEASE.md, "Releasing"). Each script prints a notice and does nothing without its secrets.
       # The signed files are what the packages and the installer are made of, so this comes before "Package".
       - name: Sign executables (Windows)
         if: runner.os == 'Windows'

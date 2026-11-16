@@ -1,5 +1,5 @@
 // What a command run by `fa.call` may do (capability.h): the set a game script, the editor's Play and a test get, and the hint of
-// the refusal that says where that caller gets more. docs/SCRIPTING.md, "What fa.call can do", docs/design/ARCHITECTURE.md, "Capabilities".
+// the refusal that says where that caller gets more. docs/SCRIPTING.md, "What fa.call can do", docs/design/ARCHITECTURE_COMMANDS.md, "Capabilities".
 #include <string>
 
 #include "script_internal.h"

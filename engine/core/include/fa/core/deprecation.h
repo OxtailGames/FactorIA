@@ -1,5 +1,5 @@
 // Deprecations: API that still works but has a replacement (or none), and will be removed two minor versions after the one that
-// deprecated it. The data lives in the "deprecated" section of tools/common/api_since.json (docs/design/ARCHITECTURE.md, "Versions");
+// deprecated it. The data lives in the "deprecated" section of tools/common/api_since.json (docs/design/ARCHITECTURE_CORE.md, "Versions");
 // the tooling loads it into this table at start-up (fa::install_deprecations), the generated reference and typings print it, and
 // the runtime warns through it: a command call (CommandRegistry), a scene or prefab field (the loader) and a script call (the
 // "factoria" prelude). A process that never loads the table (an exported game) has an empty one and pays one atomic load.
@@ -46,7 +46,9 @@ public:
     // section of api_since.json). Entries that are not objects are skipped. Forgets which warnings were given.
     void set(const Json& section);
     void clear();
-    bool empty() const noexcept { return empty_.load(std::memory_order_relaxed); }  // lock-free: the hot path of every call
+    bool empty() const noexcept {
+        return empty_.load(std::memory_order_relaxed);
+    }  // lock-free: the hot path of every call
 
     std::optional<Deprecation> find(std::string_view kind, std::string_view key) const;
     // Every key of a kind, sorted.

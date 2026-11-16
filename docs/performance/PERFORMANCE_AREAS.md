@@ -97,7 +97,7 @@ Not covered yet: the web and Android players report memory and time with the lim
 ## Startup
 
 What a player does between the click on its icon and a game you can play, in order (design in
-[ARCHITECTURE.md](../design/ARCHITECTURE.md#start-up-order-and-the-shader-cache), repository only, not in the binary):
+[ARCHITECTURE_RENDERING.md](../design/ARCHITECTURE_RENDERING.md#start-up-order-and-the-shader-cache), repository only, not in the binary):
 
 1. **The first frame is presented before any game file is read.** The window and the graphics context come first; the very
    first window frame shows a cleared frame (black, the letterbox colour) and returns, so the window is on screen at once
@@ -119,7 +119,7 @@ line `startup: first frame presented at ... ms, game ready at ... ms`):
 | `windowReadyMs`, `initMs`, `warmupMs` | Window and context ready; reading the game; making the first scene's pipelines. |
 | `startupCpuMs` | CPU time from reading the files to the first game frame. The `startupMs` of `perf.*`, what `maxStartupMs` budgets. |
 | `diskReadsAtFirstPresent`, `diskReadsAtFirstGameFrame` | Files read from disk by then. The first is 0 or the player's own few files: the game's files are read after the first frame. |
-| `gpu` | The renderer's part: `backend`, `cache` (the mode: `d3d11-dxbc` where the engine keeps a shader cache, `none` elsewhere), `programs` and `createMs` (shader programs made and the wall time that took), the cache counters `stages`, `cacheHits`, `cacheMisses`, `cacheStale`, `cacheDamaged`, `cacheStored`, `cacheStoreFailed` (present where the engine has a cache), `pipelinesWarmed`, `pipelines` (pipelines in the cache now), `pipelineHits` (asks answered from the cache), `pipelinesMade` and `pipelinesEvicted` (made, and destroyed for being idle: see ARCHITECTURE.md, "Rendering"; repository only, not in the binary), `warmMs`, `groupsLeft`. |
+| `gpu` | The renderer's part: `backend`, `cache` (the mode: `d3d11-dxbc` where the engine keeps a shader cache, `none` elsewhere), `programs` and `createMs` (shader programs made and the wall time that took), the cache counters `stages`, `cacheHits`, `cacheMisses`, `cacheStale`, `cacheDamaged`, `cacheStored`, `cacheStoreFailed` (present where the engine has a cache), `pipelinesWarmed`, `pipelines` (pipelines in the cache now), `pipelineHits` (asks answered from the cache), `pipelinesMade` and `pipelinesEvicted` (made, and destroyed for being idle: see ARCHITECTURE_RENDERING.md, "Rendering"; repository only, not in the binary), `warmMs`, `groupsLeft`. |
 
 `loading.startup` is there for a session that starts its own engine (`factoria run`, `play.auto`, the player); a Play inside the
 editor has none, because the editor's engine started once with the editor and its start-up numbers say nothing about the session.

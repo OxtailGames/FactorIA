@@ -354,7 +354,7 @@ it) and `packStats` (below); its `files` lists what is on disk.
 
 **How the player uses it.** It looks for `game/` next to the executable first (so a folder always wins, which makes it easy to
 try a changed file), then for `game.pak`; `factoria_player path/to/game.pak` runs a pack from anywhere. It mounts the pack into
-the virtual file system the whole engine reads through (`fa::fs::mount_pack`, [ARCHITECTURE.md](../design/ARCHITECTURE.md), repository only, not in the binary): `factoria.json`, scenes,
+the virtual file system the whole engine reads through (`fa::fs::mount_pack`, [ARCHITECTURE_FILES.md](../design/ARCHITECTURE_FILES.md), repository only, not in the binary): `factoria.json`, scenes,
 prefabs, textures, sounds, fonts, scripts, `import`s and the window icon all come out of it, and a game that works from the folder
 works from the pack. Only the index (the list of paths with their offsets) is read at start; a file is read when the game asks
 for it, and any number of threads can read at once, so a large pack starts as fast as a small one. On a 64-bit desktop

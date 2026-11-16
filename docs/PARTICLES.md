@@ -145,7 +145,7 @@ the state belongs to the world, the editor's scene and its Play session, or a sc
 scene empties the store. `entity.emitBurst(n)` (`particles.burst`) queues a burst that is born in the next simulation step
 (or in the picture drawn before it, if the script ran this frame), at most a million at a time, then the emitter's own budgets
 apply. The simulation costs time in the `Animation` system of the profiler (docs/PERFORMANCE.md) and, with many particles, runs as the
-`scene.particles` job (docs/design/ARCHITECTURE.md, "Systems that run as jobs").
+`scene.particles` job (docs/design/ARCHITECTURE_THREADS.md, "Systems that run as jobs").
 
 ## Budgets
 

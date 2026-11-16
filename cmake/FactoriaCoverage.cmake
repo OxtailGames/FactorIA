@@ -1,4 +1,4 @@
-# Code coverage (scripts/coverage-report.sh, docs/design/BUILDING.md "Coverage").
+# Code coverage (scripts/coverage-report.sh, docs/design/BUILDING_TESTS.md "Coverage").
 #
 #   FA_COVERAGE=ON  Clang only (Clang or AppleClang): every target is built with -fprofile-instr-generate -fcoverage-mapping, and
 #                   every ctest process writes its raw profile to <build>/coverage/raw/ (LLVM_PROFILE_FILE with %4m: online merge

@@ -184,9 +184,9 @@ Topics, one page each:
 
 Read [CLAUDE.md](CLAUDE.md) and [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md) first. These pages are not in the binary.
 
-- [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md): design, modules, conventions, commands, reflection, threads, loading, rendering, testing.
-- [docs/design/BUILDING.md](docs/design/BUILDING.md): platform requirements, presets, CI, tests, releases and troubleshooting.
-- [docs/EXTENDING.md](docs/EXTENDING.md): adding commands, components and systems (sections B to F; A and G are for games).
+- [docs/design/ARCHITECTURE.md](docs/design/ARCHITECTURE.md): design, modules, conventions, commands, reflection, threads, loading, rendering, testing (split into pages: the file lists them).
+- [docs/design/BUILDING.md](docs/design/BUILDING.md): platform requirements, presets, CI, tests, releases and troubleshooting (split into pages: the file lists them).
+- [docs/EXTENDING.md](docs/EXTENDING.md): adding commands, components and systems (sections B to F, in docs/design/EXTENDING_*.md; A and G are for games).
 - [docs/ENGINE_FEEDBACK.md](docs/ENGINE_FEEDBACK.md): "Collecting" and "Triage loop" are for engine developers.
 - [docs/design/CUSTOM_SHADERS.md](docs/design/CUSTOM_SHADERS.md): design of custom shaders per material.
 - [docs/design/FEEDBACK_SHARING.md](docs/design/FEEDBACK_SHARING.md): design of sharing feedback with the engine developer.
