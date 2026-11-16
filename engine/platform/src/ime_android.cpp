@@ -218,6 +218,17 @@ void ime_backend_cancel() {
 
 void ime_android_poll(Input& input) { g_session.feed(input); }
 
+void ime_android_push_keys(const std::vector<AndroidKeys::Item>& items) {
+    if (g_session.push_keys(items)) return;
+    static bool warned = false;  // the game thread only
+    if (!warned) {
+        warned = true;
+        FA_WARN("platform",
+                "input: more than {} keys and input method events waited for one frame; the rest are dropped",
+                ime_ic::kMaxQueued);
+    }
+}
+
 bool ime_android_show_keyboard(bool show) { return call(g_bridge.showKeyboard, jboolean(show ? JNI_TRUE : JNI_FALSE)); }
 
 }  // namespace fa

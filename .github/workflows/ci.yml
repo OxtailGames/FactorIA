@@ -1442,6 +1442,7 @@ jobs:
           grep -q 'android:hasCode="true"' /tmp/ci-out/ci-game-android/app/src/main/AndroidManifest.xml
           unzip -p /tmp/ci-out/ci-game-android/ci-game-debug.apk 'classes*.dex' > /tmp/apk-classes.dex
           grep -aq 'Lfactoria/plugin/example/Plugin;' /tmp/apk-classes.dex
+          grep -aq 'Lfactoria/engine/Ime;' /tmp/apk-classes.dex  # the engine's IME connection (ime_android.cpp loads it)
 
       # The Google Play backend: its C bridge for both ABIs, its Java class and the three Google libraries in the dex, the Play Games
       # id in the app's resources, and the manifest merged: the Play Games meta-data in, the library's auto-start provider out.

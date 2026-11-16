@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "../src/ime_ic.h"
+#include "fa/platform/android_keys.h"
 #include "fa/platform/input.h"
 
 using namespace fa;
@@ -252,7 +253,7 @@ TEST_CASE("Android IME: ime_cancel drops what is queued behind a key press too")
     s.push(compose(g, u"a"));
     s.push(simple(Event::Kind::Action, g));
     s.push(compose(g, u"b"));
-    frame(s, in);  // the composition "a", then Enter: "b" waits
+    frame(s, in);  // the composition "a"; Enter waits for the next frame (the field ignores it while "a" is open)
     in.on_composition_cancel();
     CHECK(s.cancel());
     Frame f = frame(s, in);
@@ -336,4 +337,102 @@ TEST_CASE("Android IME: events pushed from another thread arrive in order; a ful
     frame(s, in);
     CHECK(s.push(commit(g, u"ok")));  // the feed emptied it
     CHECK(frame(s, in).text == U"ok");
+}
+
+TEST_CASE("Android IME: ime_cancel with the composition's commit still queued types nothing more") {
+    Input in;
+    Session s;
+    const std::int32_t g = s.set_enabled(true);
+    s.push(compose(g, u"にほ"));
+    frame(s, in);
+    REQUIRE(in.composing());
+    s.push(commit(g, u"日本"));  // the IME's commit, queued before the game saw it
+    s.push(simple(Event::Kind::Finish, g));
+    // A tap in the field: the UI types what Input shows and cancels the composition, then ime_cancel().
+    in.on_composition_commit(in.composition_text());
+    CHECK(s.cancel());  // open in Input: a new generation, whatever the queue says
+    CHECK(s.generation() != g);
+    CHECK(frame(s, in).text == U"にほ");  // the UI's commit, once
+    CHECK(frame(s, in).text.empty());
+    CHECK(s.pending() == 0);
+}
+
+namespace {
+// The keys of one key event of the activity's input queue, into the session (what mobile_native_event does).
+void key(Session& s, AndroidKeys& keys, int code, bool down, std::uint32_t unicode = 0) {
+    keys.on_key(code, down, unicode, false);
+    REQUIRE(s.push_keys(keys.take()));
+}
+constexpr int kKeycode1 = 8, kKeycodeEnter = 66, kKeycodeDel = 67, kKeycodeA = 29, kKeycodeShiftLeft = 59;
+}  // namespace
+
+TEST_CASE("Android IME: keys and the input method's calls reach Input in the order they came") {
+    Input in;
+    Session s;
+    AndroidKeys keys;
+    const std::int32_t g = s.set_enabled(true);
+    // AOSP LatinIME commits a word, then sends a digit as a key event.
+    s.push(compose(g, u"hola"));
+    s.push(commit(g, u"hola"));
+    key(s, keys, kKeycode1, true, '1');
+    key(s, keys, kKeycode1, false);
+    CHECK(frame(s, in).text == U"hola1");
+
+    // Backspace as a key event after the composition was emptied: the field sees it with no composition open.
+    s.push(compose(g, u"a"));
+    frame(s, in);
+    REQUIRE(in.composing());
+    s.push(compose(g, u""));
+    key(s, keys, kKeycodeDel, true);
+    key(s, keys, kKeycodeDel, false);
+    Frame f = frame(s, in);
+    CHECK_FALSE(in.composing());
+    CHECK(f.backspace);
+
+    // A key press after this frame's composition update, with the composition open: next frame, after the update.
+    s.push(compose(g, u"b"));
+    key(s, keys, kKeycodeDel, true);
+    key(s, keys, kKeycodeDel, false);
+    f = frame(s, in);
+    CHECK(in.composing());
+    CHECK_FALSE(f.backspace);
+    f = frame(s, in);
+    CHECK(f.backspace);
+    s.push(simple(Event::Kind::Close, g));
+    frame(s, in);
+
+    // Text after an editing key waits for the next frame (the field takes the text before the keys).
+    key(s, keys, kKeycodeEnter, true);
+    key(s, keys, kKeycodeEnter, false);
+    s.push(commit(g, u"x"));
+    f = frame(s, in);
+    CHECK(f.enter);
+    CHECK(f.text.empty());
+    f = frame(s, in);
+    CHECK_FALSE(f.enter);
+    CHECK(f.text == U"x");
+}
+
+TEST_CASE(
+    "Android IME: keys always arrive, also while the IME is off and across a cancel; typing keys keep one frame") {
+    Input in;
+    Session s;
+    AndroidKeys keys;
+    key(s, keys, kKeycodeShiftLeft, true);  // a modifier and a letter it types: one frame, as without the IME
+    key(s, keys, kKeycodeA, true, 'A');
+    key(s, keys, kKeycodeA, false);
+    key(s, keys, kKeycodeShiftLeft, false);
+    Frame f = frame(s, in);
+    CHECK(f.text == U"A");
+    const std::int32_t g = s.set_enabled(true);
+    s.push(compose(g, u"x"));
+    key(s, keys, kKeycodeA, true, 'a');
+    CHECK(s.cancel());  // the composition is dropped, the key is not
+    CHECK(frame(s, in).text == U"a");
+    s.set_enabled(false);
+    key(s, keys, kKeycodeDel, true);
+    CHECK(frame(s, in).backspace);
+    key(s, keys, kAndroidKeyBack, true);
+    s.feed(in);
+    CHECK(in.back_pressed());
 }

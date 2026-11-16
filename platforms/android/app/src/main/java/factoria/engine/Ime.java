@@ -50,6 +50,7 @@ public final class Ime {
 
     private static ImeView view;  // UI thread only; made the first time the IME is turned on
     private static boolean failed;  // UI thread only: something threw, the IME stays off
+    private static int keyboardRequest;  // UI thread only: one more per showKeyboard; a pending show retry checks it
 
     // ---- called by the engine, on its thread
 
@@ -109,21 +110,23 @@ public final class Ime {
                 View decor = activity.getWindow().getDecorView();
                 if (imm == null || decor == null) return;
                 ImeView v = view;
+                final int request = ++keyboardRequest;  // a show still retrying (ImeView.show) stops at the next call
                 if (!show)
                     imm.hideSoftInputFromWindow(decor.getWindowToken(), 0);
                 else if (v != null && v.active)
-                    v.show(imm, SHOW_TRIES);
+                    v.show(imm, SHOW_TRIES, request);
                 else
-                    showWithoutConnection(imm, decor);
+                    showWithoutConnection(imm, v != null ? v : decor);
             } catch (RuntimeException e) {
                 fail(e);
             }
         });
     }
 
+    // `target`: the engine's view once it exists (it keeps the focus), else the decor view.
     @SuppressWarnings("deprecation")  // SHOW_FORCED and toggleSoftInput: what a view that is no text editor still needs
-    private static void showWithoutConnection(InputMethodManager imm, View decor) {
-        if (!imm.showSoftInput(decor, InputMethodManager.SHOW_FORCED))
+    private static void showWithoutConnection(InputMethodManager imm, View target) {
+        if (!imm.showSoftInput(target, InputMethodManager.SHOW_FORCED))
             imm.toggleSoftInput(InputMethodManager.SHOW_FORCED, 0);
     }
 
@@ -202,14 +205,15 @@ public final class Ime {
             return connection;
         }
 
-        void show(InputMethodManager imm, int tries) {
-            if (!active) return;
+        // `request`: the showKeyboard call this answers; a later call (a hide) ends the retries.
+        void show(InputMethodManager imm, int tries, int request) {
+            if (!active || request != keyboardRequest) return;
             if (!hasFocus()) requestFocus();
             if (imm.showSoftInput(this, 0) || tries <= 1) return;
             postDelayed(() -> {
                 try {
                     InputMethodManager again = imm();
-                    if (again != null) show(again, tries - 1);
+                    if (again != null) show(again, tries - 1, request);
                 } catch (RuntimeException e) {
                     fail(e);
                 }
@@ -295,6 +299,10 @@ public final class Ime {
             clear();
             return true;
         }
+
+        // Not overridden: setSelection, replaceText (API 34) and commitCorrection are BaseInputConnection's own. They work on
+        // the editable, which holds only the pre-edit string, and tell the engine nothing: the field's caret stays where
+        // it is, and the next setComposingText or commitText says what the field gets.
 
         // Nothing typed is here to recompose (it is in the field already): the region stays as it is.
         @Override
