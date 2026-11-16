@@ -673,7 +673,7 @@ Plays a sound clip from the entity. Set playOnStart to start automatically, or s
 | `coneOuterGain` | float | `0.0` | Spatial only: volume multiplier outside the outer cone, 0 (silent, default) to 1 (no effect). Range 0.0..1.0. (not released yet, on main after 0.29.1) |
 | `coneAxis` | vec3 | `[0.0,0.0,-1.0]` | Spatial only: the direction the cone points in the entity's local space. Default (0, 0, -1) is forward in 3D (as lights and cameras); in a 2D game, where sprites face +X, use (1, 0, 0). A zero vector turns the cone off. (not released yet, on main after 0.29.1) |
 | `dopplerLevel` | float | `0.0` | Spatial only: how much the pitch shifts with the speed the source and the listener approach or separate at (the AudioListener's speedOfSound). 0 (default) = off, 1 = the real shift, more exaggerates (it is the exponent of the real pitch ratio). The pitch factor is limited to 0.25..4 and glides over about 0.05 s. Velocities come from the change of each one's world position between frames (not from RigidBody), so scripted and animated movement shifts too; the first frame and a teleport give velocity 0. Range 0.0..10.0. (not released yet, on main after 0.29.1) |
-| `occlusion` | bool | `false` | Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. Each source is asked every 0.1 s, but at most 8 rays per frame go out in the whole game: with more sources than that the ones not asked yet come first, then the one asked longest ago, so none is left out for good. The change is smoothed over 0.1 s and the mixer ramps the volume and the low-pass to it (no click). (not released yet, on main after 0.29.1) |
+| `occlusion` | bool | `false` | Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. At most 8 rays per frame in the whole game, each source asked every 0.1 s; the change is smoothed over 0.1 s. (not released yet, on main after 0.29.1) |
 | `occlusionMask` | int | `-1` | Spatial only: the physics layers (bitmask, -1 = all) whose colliders block the sound when `occlusion` is on. The source's own colliders, the listener's and triggers are ignored. (not released yet, on main after 0.29.1) |
 | `occlusionGain` | float | `0.4` | Spatial only: volume multiplier while the path is blocked, 0 to 1 (default 0.4). Range 0.0..1.0. (not released yet, on main after 0.29.1) |
 | `occlusionLowpass` | float | `1500.0` | Spatial only: low-pass cutoff in Hz while the path is blocked (default 1500; 20000 = no filtering): a wall makes a sound dull. The voice gets its own 12 dB/octave low-pass. Range 20.0..20000.0. (not released yet, on main after 0.29.1) |
@@ -717,9 +717,9 @@ The 'ears' for spatial audio, usually on the camera or player. If no listener ex
 |---|---|---|---|
 | `volume` | float | `1.0` | Master volume multiplier for everything this listener hears. Range 0.0..4.0. |
 | `zoom` | float | `1.0` | Scales how far positional sounds are heard: a spatial AudioSource is silent at `range * zoom` from the listener (gain = 1 - distance / (range * zoom), and the pan spans the same distance), so 2 doubles the reach and 0.5 halves it. A game with a zoomable 2D camera sets it from the camera's orthoSize each frame. When the camera is the listener (no AudioListener component) the zoom is 1. Range 0.01..100.0. (since 0.3.0) |
-| `spatialization` | enum: pan \| hrtf | `"pan"` | How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and a stereo output (a mono device and a surround one, 5.1 and more, keep pan). A change between pan and hrtf crossfades over 4 ms. See docs/sound/SOUND_SPATIAL.md, Headphones. (not released yet, on main after 0.29.1) |
+| `spatialization` | enum: pan \| hrtf | `"pan"` | How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/sound/SOUND_SPATIAL.md, Headphones. (not released yet, on main after 0.29.1) |
 | `headRadius` | float | `0.0875` | hrtf only: radius of the listener's head in world units (default 0.0875, a human head in meters; scale it with the world in a game that does not use meters). It sets the time difference between the ears (Woodworth: about 0.66 ms at 90 degrees for the default). A head smaller than 0.03 m or larger than 0.12 m at speedOfSound 343 (the ratio headRadius / speedOfSound is what counts) is clamped, with a warning that says how to fix it. Range 0.001..100000.0. (not released yet, on main after 0.29.1) |
-| `speedOfSound` | float | `343.0` | Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives. With hrtf it is also the speed the head model divides headRadius by to get the time between the ears. Range 1.0..10000000.0. (not released yet, on main after 0.29.1) |
+| `speedOfSound` | float | `343.0` | Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives. Range 1.0..10000000.0. (not released yet, on main after 0.29.1) |
 
 ## UI
 
@@ -3814,7 +3814,7 @@ Replace exact text in a file (must match exactly once unless replaceAll).
 
 Capabilities: read, writeProject
 
-Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360"}. Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited).
+Example: {"path":"scripts/player.js","find":"speed = 300","replace":"speed = 360"}. Fails if 'find' is not found or matches several places; include more surrounding text to make it unique. Same write rule as fs.write (inside .factoria/ only .factoria/tmp/ may be edited). In a factoria.json the text is matched as fs.read shows it, with storage.encryptionSecret as "(hidden)": an edit that leaves "(hidden)" as the secret keeps the real one.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3844,7 +3844,7 @@ Read a text file (optionally a line range).
 
 Capabilities: read
 
-Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files are refused. Set numbered=true to get line numbers for fs.edit planning. In factoria.json the value of storage.encryptionSecret (the key that seals the game's saves) is shown as "(hidden)", here and in fs.search; fs.write of a file that says "(hidden)" keeps the real secret.
+Example: {"path":"scripts/player.js","startLine":1,"endLine":80}. Binary files are refused. Set numbered=true to get line numbers for fs.edit planning. In any file called factoria.json (the project's, or one of a project inside it) the value of storage.encryptionSecret (the key that seals the game's saves) is shown as "(hidden)", here and in fs.search; fs.write of a file that says "(hidden)" keeps the real secret.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -6485,7 +6485,7 @@ Write an instance's values into its prefab file: one field, one component, or ev
 
 Capabilities: read, state, writeProject
 
-`id` is the instance's root or a part of it; `component` and `field` narrow it as in prefab.revert (without them: everything the entity and what is below it overrides, added components and children included; a component the instance lost is deleted from the file). The prefab file keeps its own layout (its nested prefabs and the parts you did not touch stay), and every other instance of the prefab in the open scene gets the same change, except where it overrides that thing itself. Example: prefab.apply {"id":"enemy_1","component":"Sprite","field":"/color"}
+`id` is the instance's root or a part of it; `component` and `field` narrow it as in prefab.revert (without them: everything the entity and what is below it overrides, added components and children included; a component the instance lost is deleted from the file). The prefab file keeps its own structure (its nested prefabs and the parts you did not touch stay) but is written back in the engine's own JSON layout, like scene.save: the indentation and line endings of a hand-formatted file are normalized, so the first Apply of such a file shows up as a whole-file diff. Every other instance of the prefab in the open scene gets the same change, except where it overrides that thing itself (a component the instance lost is also removed from an instance that overrides some of its fields: a note says so; the call looks at every instance of the prefab in the scene, so it takes longer with hundreds). Example: prefab.apply {"id":"enemy_1","component":"Sprite","field":"/color"}
 
 Returns {id, root, prefab, applied: [the entries prefab.overrides lists], files: [the prefab file written], updated: [ids of the other instances that were updated], skipped: [{id, reason}] (instances whose differences cannot be listed: left as they are), notes?}. Where the instance stands (the root's Transform.position) is not written unless named, like prefab.save. Refuses, changing nothing, a read-only file (code read_only), a prefab that does not exist, an instance whose differences cannot be listed (not_expressible) and changes the file has no place for (cannot_apply; each entry of prefab.overrides says so in `applyBlocked`). The file is written for good (the editor's Ctrl+Z puts the open scene back, not the file: use version control to go back), and instances of this prefab inside other prefabs are only updated after a scene.reload. The editor does not offer it while the game runs: a call made then writes what the running game holds.
 
@@ -6570,14 +6570,15 @@ Create a new game project from a template.
 
 Capabilities: read, writeProject
 
-Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. Example: {"dir":"my-game","template":"2d-platformer","name":"My Game"}.
+Creates `dir` (relative to the server's working directory unless absolute) with factoria.json, a scene, scripts, a test, AGENTS.md, ENGINE_FEEDBACK.json and the real types/factoria.d.ts. Afterwards start `factoria mcp --project <dir>` to work on it. With `example` instead of `template` the project is a copy of an example game of the installed version (project.examples lists them): its zip is downloaded from the GitHub release (needs the network capability and the internet the first time; it is kept in FactorIA's cache folder), checked against the release's size and SHA-256, and unpacked into a hidden folder that is renamed to `dir` at the end, so a failure leaves nothing. Examples: {"dir":"my-game","template":"2d-platformer","name":"My Game"} and {"dir":"block-push","example":"block-push"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `dir` | string | yes | Target folder (created; must be empty or new). With a project open, a caller that may not write anywhere (an agent, an MCP client) gives a folder inside the project, relative to it; the command line may name any folder. Path the command writes; the write rules apply (docs/CLI.md, "Paths"). |
-| `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default "2d-empty". |
-| `name` | string | no | Display name (default: folder name). |
-| `id` | string | no | Reverse-DNS id, e.g. com.example.mygame. |
+| `template` | string | no | 2d-empty, 2d-platformer or 3d-empty (see project.templates). Default 2d-empty; not together with `example`. |
+| `example` | string | no | Start from this example game of the installed version instead of a template (names: project.examples). Downloads it the first time. Not together with `template`. |
+| `name` | string | no | Display name (default: folder name; an example keeps its own unless given). |
+| `id` | string | no | Reverse-DNS id, e.g. com.example.mygame (an example keeps its own unless given). |
 
 ### `project.create_storage_secret` (modifies state)
 
@@ -6587,11 +6588,21 @@ Create the random secret that makes storage.set(..., {encrypt: true}) work, in f
 
 Capabilities: read, state, writeProject
 
-Writes "storage": {"encryptionSecret": <64 random hex characters>} into factoria.json, once. Save encryption (storage.set(key, value, {encrypt: true}), the Slots kit's `encrypt` option) derives one key per storage key from it, so run this before the game's first encrypted save and keep the secret for the life of the game: saves written with another secret cannot be opened (they are set aside as damaged files). A project that already has one is left alone (`created: false`) unless `replace` is true, which makes every encrypted save written so far unreadable. The secret is never returned or logged; it ships inside the exported game, so encryption is tamper-evidence, not secrecy from a determined player (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). Commit factoria.json. Result: {created, replaced, file}. Example: project.create_storage_secret {}
+Writes "storage": {"encryptionSecret": <64 random hex characters>} into factoria.json, once. Save encryption (storage.set(key, value, {encrypt: true}), the Slots kit's `encrypt` option) derives one key per storage key from it, so run this before the game's first encrypted save and keep the secret for the life of the game: saves written with another secret cannot be opened (they are set aside as damaged files). A project that already has one is left alone (`created: false`) unless `replace` is true, which makes every encrypted save written so far unreadable. The secret is never returned or logged; it ships inside the exported game, so encryption is tamper-evidence, not secrecy from a determined player (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). The file is written back in the engine's own layout (2-space indent, one array element per line, a trailing newline; key order and values are kept), so a factoria.json formatted by hand shows more changed lines than the new "storage" section. If the file cannot be replaced (read-only, or open in another program: Windows refuses to replace an open file) the command fails with `write_failed` and changes nothing: close the program and run it again. Commit factoria.json. Result: {created, replaced, file}. Example: project.create_storage_secret {}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
 | `replace` | boolean | no | Make a new secret even when the project has one. Every save written with {encrypt: true} so far stops opening: use it only when the secret leaked and the saves can be lost. Default false. |
+
+### `project.examples` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+List the example games of the installed FactorIA version: what each shows and the docs to read first.
+
+Capabilities: read, network
+
+The download of FactorIA carries no example games; every release publishes them as assets. This downloads examples-manifest.json of the release of the INSTALLED version (a few KB), keeps a copy in <FACTORIA_HOME or ~/.factoria>/cache/examples/<version>/ and returns, per example, `name`, `title`, `shows` (what it shows), `readFirst` (docs to read before opening it: `docs.read` them), `size` (bytes to download) and `downloaded` (its zip is already in the cache). `stale` is true, and `staleReason` says why, when the network failed and the copy of an earlier call is returned: the list may then be older than the release. With no network and no copy it fails and says what to do. Create a project from one with project.create {example}. Example: {}.
 
 ### `project.export` (modifies state)
 
@@ -6675,7 +6686,7 @@ Zip every example game of examples/ and write examples-manifest.json, the files 
 
 Capabilities: read, writeAnywhere
 
-For the engine's release (docs/design/BUILDING_RELEASE.md, "Example games in the release"). Reads `examples`/examples.json (the title, what each example shows and the docs to read first), checks that every project folder has an entry and every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/, other hidden folders, node_modules/ and build/: the same files give the same bytes) and examples-manifest.json beside them (format, engineVersion, and per example name, title, shows, readFirst, file, size and sha256). Replaces files of the same names in `out`. Returns the manifest. Run it from a checkout of the repository: a download has no examples/. Example: {"examples":"examples","out":"dist/examples"}.
+For the engine's release (docs/design/BUILDING_RELEASE.md, "Example games in the release"). Reads `examples`/examples.json (the title, what each example shows and the docs to read first), checks that every project folder has an entry and every entry a folder, writes <name>.zip per example into `out` (the project without .factoria/ and every other hidden folder, node_modules/, a top-level build/, .DS_Store, Thumbs.db, desktop.ini, *.actual.png, *.fa-tmp and the secrets and local settings .env, ai.local.json, *.key, *.keystore, *.jks, *.p12 and *.pem; a link is never followed; the same files give the same bytes) and examples-manifest.json beside them (format, engineVersion, and per example name, title, shows, readFirst, file, size and sha256). Replaces files of the same names in `out`. Returns the manifest. Run it from a checkout of the repository: a download has no examples/. Example: {"examples":"examples","out":"dist/examples"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -12575,11 +12586,11 @@ declare module "factoria" {
    */
   export interface StorageAPI {
     /**
-     * The value stored under `key`, or `fallback`. A value written with `{encrypt: true}` is opened at the first use of storage and returned like any other; one that fails authentication (edited, damaged, or written with another secret) is kept aside as a damaged file, storage.corrupt is true and the value is missing. A plain file is read as it is by default, so a game can turn encryption on later; but then a player can replace a sealed file with a hand-written plain one. `{encrypted: true}` refuses that: a value that was read from a plain file is treated like one that failed authentication (the file is kept aside, storage.corrupt is true, a warning names the key) and `fallback` is returned. Use it for a key the game has always sealed, or once every player's save is sealed (storage.isEncrypted tells which are). A value the game itself stored in plain in this run is not the subject of the check: it is simply not returned. Throws on an unknown option.
+     * The value stored under `key`, or `fallback`. A value written with `{encrypt: true}` is opened at the first use of storage and returned like any other; one that fails authentication (edited, damaged, or written with another secret) is kept aside as a damaged file, storage.corrupt is true and the value is missing. A plain file is read as it is by default, so a game can turn encryption on later; but then a player can replace a sealed file with a hand-written plain one. `{encrypted: true}` refuses that: a value that was read from a plain file is treated like one that failed authentication (the file is kept aside, storage.corrupt is true, a warning names the key) and `fallback` is returned. Keeping the file aside reads it and moves it (or copies it, when it cannot be moved) on the calling thread, in the frame, once per such key (the key is dropped from memory afterwards). Use it for a key the game has always sealed, or once every player's save is sealed (storage.isEncrypted tells which are). A value the game itself stored in plain in this run is not the subject of the check: it is simply not returned. It is tamper evidence, not secrecy: the secret ships with the game, so a player who takes it out of the game can still write a sealed value (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). Throws on an unknown option.
      */
     get<T = any>(key: string, fallback?: T, options?: { encrypted?: boolean }): T;
     /**
-     * Stores `value` under `key` and writes that key's file now (atomically: temporary file, then rename), so a save costs the size of its own key only. `{compress: true}` stores the value zlib-compressed (smaller on disk, for big saves; storage.get returns the same value either way). `{encrypt: true}` seals the file with ChaCha20-Poly1305 under a key derived from the project's secret (factoria.json storage.encryptionSecret, created once with the command project.create_storage_secret), so a player cannot read it, and cannot change a byte of it without the sealed value failing to open; it combines with compress (compressed first, then sealed). It makes a CHANGED sealed file refuse to load; it does not stop a player from replacing the file with a plain one unless the game reads the key with storage.get(key, fallback, {encrypted: true}). It is tamper evidence, not secrecy: the secret ships with the game (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). Each call decides for its key: a set without encrypt writes the key in plain again. Throws, changing nothing, when encrypt is asked and the project has no secret (the error names the command). The write blocks the frame; use setAsync for a big value. Throws on an empty key or an unknown option.
+     * Stores `value` under `key` and writes that key's file now (atomically: temporary file, then rename), so a save costs the size of its own key only. `{compress: true}` stores the value zlib-compressed (smaller on disk, for big saves; storage.get returns the same value either way). `{encrypt: true}` seals the file with ChaCha20-Poly1305 under a key derived from the project's secret (factoria.json storage.encryptionSecret, created once with the command project.create_storage_secret), so a player cannot read it, and cannot change a byte of it without the sealed value failing to open; it combines with compress (compressed first, then sealed). It makes a CHANGED sealed file refuse to load; it does not stop a player from replacing the file with a plain one unless the game reads the key with storage.get(key, fallback, {encrypted: true}). It is tamper evidence, not secrecy: the secret ships with the game (docs/scripting/SCRIPTING_UI_SCENES.md, "Encrypted saves"). Each call decides for its key: a set without encrypt writes the key in plain again. Throws, changing nothing, when encrypt is asked and the project has no secret (the error names the command). The write blocks the frame; use setAsync for a big value. When the file cannot be written (the disk is full, or on Windows another program holds the file open so it cannot be replaced) the old file stays, the value stays in memory only and the log has the warning "cannot write <file> for storage key '<key>': ..."; set does not throw for it (it throws when the value cannot be encoded or encrypted), setAsync rejects with the reason. Throws on an empty key or an unknown option.
      */
     set(key: string, value: Json, options?: { compress?: boolean, encrypt?: boolean }): void;
     /**
@@ -17682,7 +17693,7 @@ declare module "factoria" {
      */
     dopplerLevel: number;
     /**
-     * Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. Each source is asked every 0.1 s, but at most 8 rays per frame go out in the whole game: with more sources than that the ones not asked yet come first, then the one asked longest ago, so none is left out for good. The change is smoothed over 0.1 s and the mixer ramps the volume and the low-pass to it (no click).
+     * Spatial only: true = a physics ray from the listener to the source that hits a collider of `occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. At most 8 rays per frame in the whole game, each source asked every 0.1 s; the change is smoothed over 0.1 s.
      * @since unreleased
      */
     occlusion: boolean;
@@ -17836,7 +17847,7 @@ declare module "factoria" {
      */
     zoom: number;
     /**
-     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and a stereo output (a mono device and a surround one, 5.1 and more, keep pan). A change between pan and hrtf crossfades over 4 ms. See docs/sound/SOUND_SPATIAL.md, Headphones.
+     * How spatial sounds are placed for the ears. pan (default): left/right pan and volume, for speakers. hrtf: a head model for headphones (time and level differences between the ears and the shadow of the head, from a parametric model with no recorded data; stereo clips are mixed to mono first). It needs this AudioListener entity (a 2D camera as the listener keeps pan) and an output with two or more channels (a mono device keeps pan). See docs/sound/SOUND_SPATIAL.md, Headphones.
      * @since unreleased
      */
     spatialization: "pan" | "hrtf";
@@ -17846,7 +17857,7 @@ declare module "factoria" {
      */
     headRadius: number;
     /**
-     * Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives. With hrtf it is also the speed the head model divides headRadius by to get the time between the ears.
+     * Doppler only: the world units per second a sound travels at (default 343, meters per second in air). A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source is its dopplerLevel as the exponent of the pitch ratio this speed gives.
      * @since unreleased
      */
     speedOfSound: number;
