@@ -193,6 +193,17 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   without smearing, and `render.interpolationSnapDistance` treats a long step as a jump. `game.step`, headless runs, replays
   and a paused game draw the real pose. Scripts, UI hit tests and picking read the real camera pose, so `screenToWorld` does not
   depend on the frame time; a rotation that turns more than 180 degrees in one step is not blended. See docs/RENDERING.md, "Render interpolation".
+- **Encrypted saves, polish (M98.1):** `fs.read`, `fs.search`, `fs.write`, `fs.edit` and `checkpoint.read` now hide
+  `storage.encryptionSecret` in any file named `factoria.json` (before, only the one at the project root), and `fs.edit`
+  matches its `find` against the text `fs.read` shows, so it cannot be used to guess the secret one prefix at a time. An
+  `fs.edit` whose `find` copies the `"(hidden)"` line now matches (it used to say "not found"); an edit that leaves `"(hidden)"`
+  as the value still keeps the real secret. `checkpoint.read` of a `factoria.json` over 256 KB no longer suggests `out`, which
+  is refused for that file. `seal_blob(key, aad, {})` compiles (it was ambiguous between the byte and the text overload), and
+  the Windows error of `random_bytes` prints its status in hex; on Android `random_bytes` uses `arc4random_buf`. The docs say
+  that `storage.get(.., {encrypted: true})` keeps a plain file aside in the frame, that a write that cannot replace its file
+  (open in another program on Windows) leaves the old file (`storage.set` logs a warning and keeps the value in memory,
+  `storage.setAsync` rejects), and that `project.create_storage_secret`
+  writes `factoria.json` in the engine's layout.
 ### Added
 
 - `fa/core/crypto.h`: authenticated encryption for save files, written in the engine with no new dependency: SHA-256 as raw bytes,
