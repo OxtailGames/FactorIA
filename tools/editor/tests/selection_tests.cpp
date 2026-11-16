@@ -274,6 +274,32 @@ TEST_CASE("click_in_list: plain replaces, Ctrl toggles, Shift selects the rows b
     CHECK(s.ids() == Ids{"other"});
 }
 
+TEST_CASE("click_in_list: the anchor survives two Shift clicks in a row (A, Shift C, Shift B is A..B, not C..B)") {
+    Selection s;
+    std::string anchor;
+    click_in_list(s, "root", {}, anchor, kTree);
+    click_in_list(s, "kidB", SelectMods{false, true}, anchor, kTree);
+    CHECK(s.ids() == Ids{"root", "kidA", "grand", "kidB"});
+    CHECK(s.primary() == "kidB");
+    click_in_list(s, "kidA", SelectMods{false, true}, anchor, kTree);
+    CHECK(s.ids() == Ids{"root", "kidA"});
+    CHECK(anchor == "root");
+    CHECK(s.primary() == "kidA");
+}
+
+TEST_CASE("Selection: deleting the primary hands the primary to a live id, or leaves the selection empty") {
+    Selection s;
+    s.add("a");
+    s.add("b");
+    s.add("c");  // primary c
+    CHECK(s.prune([](const std::string& id) { return id != "c"; }) == 1);
+    CHECK(s.ids() == Ids{"a", "b"});
+    CHECK(s.primary() == "b");
+    CHECK(s.prune([](const std::string&) { return false; }) == 2);
+    CHECK(s.empty());
+    CHECK(s.primary().empty());
+}
+
 TEST_CASE("click_in_list: a Shift click with no usable anchor starts from the primary, then from the row itself") {
     Selection s;
     s.replace("kidB");

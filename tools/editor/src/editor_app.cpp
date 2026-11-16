@@ -1679,6 +1679,9 @@ void Editor::build_ui() {
     draw_status_bar();
 
     if (engine_) {
+        // The panels below only peek at the selection (selection_peek()). An AI command or an undo may have deleted entities
+        // since the last frame: drop them once here, so no panel counts a dead id and a dead primary hands over to a live one.
+        selection();
         if (showViewport_) draw_viewport();
         if (showHierarchy_) draw_hierarchy_panel();
         if (showInspector_) draw_inspector_panel();
