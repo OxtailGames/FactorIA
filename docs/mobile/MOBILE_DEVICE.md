@@ -188,11 +188,13 @@ keyboard instead ([MENUS.md](../MENUS.md), "On-screen keyboard (gamepad players)
   (`showSoftInput`, `toggleSoftInput` as a fallback; the NativeActivity method sokol_app uses does nothing on many
   devices) and what is typed comes as key events, from which the engine asks Android for the character the key makes. That
   gives letters, digits, punctuation, Space, Enter and Backspace in the keyboard's layout, and accents through dead keys.
-  Limits: a keyboard that composes words or emoji (predictive text, swipe, CJK input methods, emoji panels, voice typing)
-  cannot send them to a `NativeActivity`, and some keyboards send nothing until a hardware-style key is pressed. A hardware
-  keyboard works the same way (also on a tablet). Written against the NDK headers and checked for syntax only: it was not
-  run on a device or in the emulator, and the calls are made from the game's thread instead of the Android UI thread, which
-  works on the releases known to the author but is not guaranteed by Android.
+  While a `TextField` has the focus the keyboard also composes (predictive text, swipe, CJK input methods, emoji, voice
+  typing) into the engine's input connection, the Java class `factoria.engine.Ime` of every exported project, which then
+  shows the keyboard too ([TEXT.md](../TEXT.md#what-composes-where)); with no field focused, or a password field, the
+  keyboard sends keys only. A hardware keyboard works the same way (also on a tablet). Once that class is loaded the
+  keyboard is shown and hidden from the Android UI thread; before (or when an APK lacks it) the calls are made from the
+  game's thread, which works on the releases known to the author but is not guaranteed by Android. Written against the NDK
+  headers and compiled only: it was not run on a device or in the emulator.
 
 ## Web
 

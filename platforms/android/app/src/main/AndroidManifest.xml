@@ -11,11 +11,12 @@
             <action android:name="android.intent.action.TTS_SERVICE" />
         </intent>
     </queries>
-    <!-- hasCode is true only when a native plugin brings Java / Kotlin code or .aar / .jar files (docs/MOBILE.md); the engine itself is native. -->
+    <!-- hasCode: the engine's one Java class (factoria.engine.Ime: the input method connection that lets a keyboard compose
+         into a TextField) and any Java / Kotlin code or .aar / .jar files of a native plugin (docs/MOBILE.md). -->
     <application
         android:label="@string/app_name"{{APP_ICON_ATTRS}}
         android:appCategory="game"
-        android:hasCode="{{HAS_CODE}}"
+        android:hasCode="true"
         android:allowBackup="false"
         android:enableOnBackInvokedCallback="false"
         android:supportsRtl="true">

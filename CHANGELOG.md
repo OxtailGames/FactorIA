@@ -71,6 +71,12 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   Korean IMEs show their pre-edit text in the field with the converted clause selected, their candidate list sits under the
   caret, and the commit types once. A key the IME takes (Enter that confirms, Backspace inside a composition) is not also a
   game key. While no field has the focus the window has no input context, so the IME leaves game keys alone.
+- Android: a focused `TextField` composes natively. Gboard, Samsung Keyboard and the other keyboards compose into the
+  engine's input connection (a new Java class, `factoria.engine.Ime`, in every exported project, whose manifest now always
+  has `android:hasCode="true"`): Japanese, Chinese and Korean pre-edit text and predictive words show in the field and type
+  once, the converted clause selected, and a tap in the field or a focus move drops what the keyboard still sends about
+  the composition. Password fields and unfocused games get keys, as before; a missing class or a failed call leaves the
+  keyboard sending keys, with one log line. See [docs/TEXT.md](docs/TEXT.md), "What composes where".
 - **Docs (M97.3a):** the docs are laid out for reading cheaply. `docs/COMPONENTS.md` (1.8 MB) is no longer inside the
   binary: `docs.read components` answers with a pointer to `docs.components`, which serves one component at a time (the
   file stays in the repository for GitHub readers). `docs/MENUS.md` no longer prints the files of the menu kit (257 KB

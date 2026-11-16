@@ -94,6 +94,8 @@ android {
     buildTypes {
         release {
             minifyEnabled false
+            // Read only if minifyEnabled is turned on: keeps the class the native engine loads by name (JNI).
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
             signingConfig hasReleaseKey ? signingConfigs.release : signingConfigs.debug
         }
     }
