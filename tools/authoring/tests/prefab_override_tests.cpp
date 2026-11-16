@@ -493,6 +493,13 @@ TEST_CASE("prefab commands: a component the instance removed is listed, comes ba
     CHECK(s.project.json("prefabs/panel.prefab.json")["entity"]["children"].size() == 2);  // the rest stays
     CHECK(r.result["updated"] == Json::parse(R"(["b"])"));
     CHECK(w.get<Sprite>(s.find("b")) == nullptr);
+    // b had its own layer on that component: it went with it, and the call says so (a note, not a refusal).
+    REQUIRE(r.result.contains("notes"));
+    bool noted = false;
+    for (const Json& n : r.result["notes"])
+        noted = noted || (contains(n.get<std::string>(), "Sprite") && contains(n.get<std::string>(), "'b'") &&
+                          contains(n.get<std::string>(), "1 overridden field"));
+    CHECK_MESSAGE(noted, r.result["notes"].dump());
     CHECK(s.call("prefab.overrides", Json{{"id", "a"}}).result["count"] == 0);
     CHECK(s.call("prefab.overrides", Json{{"id", "b"}}).result["count"] == 0);  // its layer went with the component
 
@@ -553,12 +560,15 @@ TEST_CASE("prefab.apply: refuses, changing nothing, a reference outside the pref
 
 TEST_CASE("prefab.apply: a prefab path outside the project is refused and nothing is written") {
     Session s;
-    const stdfs::path outside = s.project.dir.parent_path() / "fa_prefab_overrides_outside.prefab.json";
+    // A folder of its own next to the project (not a file in the temp folder itself, where other tests and runs write).
+    const stdfs::path otherDir = fs::make_temp_dir("fa_prefab_overrides_outside").value();
+    const stdfs::path outside = otherDir / "outside.prefab.json";
     {
         std::ofstream(outside, std::ios::binary) << kPanel;
     }
     s.set("a", "Sprite", Json{{"layer", 9}});
-    s.world().info(s.find("a")).prefab = "../fa_prefab_overrides_outside.prefab.json";
+    s.world().info(s.find("a")).prefab = "../" + otherDir.filename().generic_string() + "/outside.prefab.json";
+    REQUIRE(stdfs::equivalent(s.project.dir / s.world().info(s.find("a")).prefab, outside));
     const CommandResult r = s.call("prefab.apply", Json{{"id", "a"}});
     CHECK_FALSE(r.ok);
     std::ifstream in(outside, std::ios::binary);
@@ -566,22 +576,31 @@ TEST_CASE("prefab.apply: a prefab path outside the project is refused and nothin
     ss << in.rdbuf();
     CHECK(ss.str() == std::string(kPanel));
     std::error_code ec;
-    stdfs::remove(outside, ec);
+    stdfs::remove_all(otherDir, ec);
 }
 
-#if defined(_WIN32) || defined(__APPLE__)
-TEST_CASE(
-    "prefab.apply: instances whose prefab path differs only by case are the same prefab (case-insensitive volumes)") {
+TEST_CASE("prefab.apply: two spellings that differ only by case are one prefab on a volume that ignores case, two on "
+          "one that "
+          "does not") {
     Session s;
+    // Which kind of volume this is: does the other spelling reach the file that is there?
+    const bool ignoresCase = stdfs::exists(s.project.dir / "Prefabs/Panel.prefab.json");
+    if (!ignoresCase)  // a case-sensitive volume (Linux, or APFS formatted so): Panel is a file of its own
+        s.project.write("Prefabs/Panel.prefab.json", kPanel);
     s.world().info(s.find("b")).prefab = "Prefabs/Panel.prefab.json";
     s.set("a", "Sprite", Json{{"layer", 9}});
     s.set("title_2", "Text", Json{{"text", "Edited"}});  // b's descendant, which the apply must reach (a plain value)
     const CommandResult r = s.call("prefab.apply", Json{{"id", "a"}, {"component", "Sprite"}, {"field", "/layer"}});
     REQUIRE_MESSAGE(r.ok, error_text(r));
-    CHECK(r.result["updated"] == Json::parse(R"(["b"])"));
-    CHECK(s.world().get<Sprite>(s.find("b"))->layer == 5);  // its own override is kept
+    if (ignoresCase) {
+        CHECK(r.result["updated"] == Json::parse(R"(["b"])"));
+        CHECK(s.world().get<Sprite>(s.find("b"))->layer == 5);  // its own override is kept
+    } else {
+        CHECK(r.result["updated"] == Json::array());  // b follows another file: it is left alone
+        CHECK(s.world().get<Sprite>(s.find("b"))->layer == 5);
+        CHECK(s.project.json("Prefabs/Panel.prefab.json")["entity"]["components"]["Sprite"]["layer"] == 1);
+    }
 }
-#endif
 
 TEST_CASE("prefab commands: a removed component and an added child together are both listed, reverted and applied") {
     const auto prepare = [](Session& s) {

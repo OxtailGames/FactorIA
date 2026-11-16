@@ -75,6 +75,16 @@ void error_text(const std::string& message) {
 }  // namespace
 
 void Editor::draw_inspector_panel() {
+    // Undo of a prefab.apply puts the scene back but not the prefab file: say so, once (the other instances now show the applied
+    // value as an override against the file, and the instance itself the old one).
+    if (inspApplyDepth_ >= 0 && long(undo_depth()) < inspApplyDepth_) {
+        inspApplyDepth_ = -1;
+        inspOvStale_ = true;
+        notify("Undo put the scene back, but the prefab file keeps what Apply wrote: the instances now show the "
+               "difference as "
+               "overrides. Revert them to the prefab, or Apply again to write the old value back.",
+               1);
+    }
     ImGui::SetNextWindowSize(ImVec2(340, 520), ImGuiCond_FirstUseEver);
     if (!ImGui::Begin("Inspector", &showInspector_)) {
         ImGui::End();
@@ -209,7 +219,16 @@ void Editor::inspector_prefab_edit(const std::string& command, const std::string
             "Applied to " +
             (files.is_array() && !files.empty() && files[0].is_string() ? files[0].get<std::string>() : inspOvPrefab_);
         if (others) msg += "; " + std::to_string(others) + " other instance" + (others == 1 ? "" : "s") + " updated";
-        notify(msg, 0);
+        msg += ". Ctrl+Z puts the scene back, not the prefab file";
+        const Json& notes = r.result.contains("notes") ? r.result["notes"] : Json::array();
+        if (notes.is_array() && !notes.empty() &&
+            notes[0].is_string()) {  // the first one; the command returns them all
+            msg += ". " + notes[0].get<std::string>();
+            if (notes.size() > 1)
+                msg += " (and " + std::to_string(notes.size() - 1) + " more in prefab.apply's answer)";
+        }
+        if (files.is_array() && !files.empty()) inspApplyDepth_ = long(undo_depth());  // something was written
+        notify(msg, notes.is_array() && !notes.empty() ? 1 : 0);
     }
 }
 
@@ -358,14 +377,19 @@ void Editor::draw_inspector_multi(const std::vector<Entity>& ents) {
                 const std::string key =
                     "insp:add:" + std::to_string(uiFrame_);  // one key: one undo step for all of them
                 std::string err;
+                std::size_t done = 0;
                 for (const std::string& lid : lacking) {
                     CommandResult r = edit_command(
                         key, "scene.set_component",
                         Json::object({{"id", lid}, {"component", t->name}, {"fields", Json::object()}}), &err);
                     if (!r.ok) {
-                        notify("Could not add " + t->name + " to " + lid + ": " + err, 2);
+                        // The ones before it were added (they are one undo step): say how many.
+                        notify("Could not add " + t->name + " to " + lid + ": " + err + " Added to " +
+                                   std::to_string(done) + " of " + std::to_string(lacking.size()) + " entities.",
+                               2);
                         break;
                     }
+                    ++done;
                 }
             }
             at_track("insp:add:" + t->name);
@@ -412,13 +436,17 @@ void Editor::draw_inspector_component_multi(const std::vector<Entity>& ents, con
     if (!keep) {  // the x of the header: off every selected entity, one undo step
         const std::string key = "insp:remove:" + std::to_string(uiFrame_);
         std::string err;
+        std::size_t done = 0;
         for (Entity e : ents) {
             CommandResult r = edit_command(key, "scene.remove_component",
                                            Json::object({{"id", w.id_of(e)}, {"component", type.name}}), &err);
             if (!r.ok) {
-                notify("Could not remove " + type.name + ": " + err, 2);
+                notify("Could not remove " + type.name + ": " + err + " Removed from " + std::to_string(done) + " of " +
+                           std::to_string(ents.size()) + " entities.",
+                       2);
                 break;
             }
+            ++done;
         }
         ImGui::PopID();
         return;
@@ -450,7 +478,8 @@ void Editor::draw_inspector_component_multi(const std::vector<Entity>& ents, con
                     ImGui::TextDisabled("Material params: select one entity to edit them.");
                 } else {
                     Json out;
-                    if (draw_field_widget(key, f, values[0], disabled, out, &mix)) {
+                    std::vector<bool> forced;
+                    if (draw_field_widget(key, f, values[0], disabled, out, &mix, &forced)) {
                         // What the user saw is the primary's value rounded to 4 decimals: compare against that, so a number
                         // they did not touch does not count as edited and leaves the other entities' own value alone.
                         Json shown = values[0];
@@ -458,18 +487,21 @@ void Editor::draw_inspector_component_multi(const std::vector<Entity>& ents, con
                             for (std::size_t i = 0; i < shown.size(); ++i)
                                 if (shown[i].is_number()) shown[i] = round4(shown[i].get<float>());
                         std::string err;
-                        bool ok = true;
-                        for (std::size_t i = 0; i < ents.size() && ok; ++i) {
-                            CommandResult r = edit_command("insp:" + inspEntity_ + ":" + key, "scene.set_component",
-                                                           field_edit_args(w.id_of(ents[i]), type.name, f.name,
-                                                                           multi_edit_value(values[i], shown, out)),
-                                                           &err);
-                            ok = r.ok;
+                        std::size_t done = 0;
+                        for (std::size_t i = 0; i < ents.size(); ++i) {
+                            CommandResult r =
+                                edit_command("insp:" + inspEntity_ + ":" + key, "scene.set_component",
+                                             field_edit_args(w.id_of(ents[i]), type.name, f.name,
+                                                             multi_edit_value(values[i], shown, out, forced)),
+                                             &err);
+                            if (!r.ok) break;
+                            ++done;
                         }
-                        if (ok)
+                        if (done == ents.size())
                             inspErrors_.erase(key);
-                        else
-                            inspErrors_[key] = err;
+                        else  // the entities before the refused one were written (one undo step covers them)
+                            inspErrors_[key] = err + " Changed " + std::to_string(done) + " of " +
+                                               std::to_string(ents.size()) + " entities.";
                     }
                 }
                 if (auto it = inspErrors_.find(key); it != inspErrors_.end()) error_text(it->second);
@@ -602,12 +634,15 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
                         std::string err;
                         CommandResult r = edit_command("insp:" + id + ":" + key, "scene.set_component",
                                                        field_edit_args(id, type.name, f.name, out), &err);
-                        inspOvStale_ = true;
+                        // A drag edits every frame: the overrides are asked again when the item is let go (below), not
+                        // on each frame of the drag (the diff walks the whole instance). The one-second refresh still runs.
+                        if (!ImGui::IsItemActive()) inspOvStale_ = true;
                         if (r.ok)
                             inspErrors_.erase(key);
                         else
                             inspErrors_[key] = err;
                     }
+                    if (ImGui::IsItemDeactivatedAfterEdit()) inspOvStale_ = true;
                 }
                 if (auto it = inspErrors_.find(key); it != inspErrors_.end()) error_text(it->second);
                 if (type.name == "SpriteAnimator" && f.name == "clip") draw_animator_clips(e, id, value);
@@ -631,7 +666,7 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
 }
 
 bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const Json& cur, bool disabled, Json& out,
-                               const FieldMix* mix) {
+                               const FieldMix* mix, std::vector<bool>* forced) {
     const FieldWidget kind = widget_for(f);
     // With several entities selected `cur` is the primary's value and `mix` says where the others differ: the widget shows "—"
     // (U+2014) there. A drag or a pick still starts from the primary's value.
@@ -708,6 +743,7 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             const float speed =
                 drag_speed_for(f, std::max({std::fabs(v[0]), std::fabs(v[1]), n > 2 ? std::fabs(v[2]) : 0.0f}));
             bool edited = false;
+            if (forced) forced->assign(size_t(n), false);
             if (mixed) {
                 // One drag box per number, so that only the numbers that differ show "—" (DragFloat3 has one format).
                 const float total = ImGui::CalcItemWidth(), gap = ImGui::GetStyle().ItemInnerSpacing.x;
@@ -717,7 +753,26 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
                     if (i > 0) ImGui::SameLine(0.0f, gap);
                     ImGui::SetNextItemWidth(std::max(1.0f, (total - gap * float(n - 1)) / float(n)));
                     const bool partMixed = i < int(mix->parts.size()) ? bool(mix->parts[size_t(i)]) : true;
-                    edited |= ImGui::DragFloat("##c", &v[i], speed, lo, hi, partMixed ? dash : "%.3f");
+                    const bool partEdited = ImGui::DragFloat("##c", &v[i], speed, lo, hi, partMixed ? dash : "%.3f");
+                    edited |= partEdited;
+                    if (forced) {
+                        // The edit counts for this number even when it equals the primary's (then the other entities'
+                        // own values must still be replaced): ImGui reports no change for a typed value that equals the
+                        // shown one, so Enter on the box being typed into is the commit.
+                        const ImGuiID pid = ImGui::GetItemID();
+                        const bool typing = ImGui::TempInputIsActive(pid);
+                        const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
+                                           ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
+                        const bool committed = partEdited || (enter && inspTypingId_ == pid);
+                        if (committed) {
+                            (*forced)[size_t(i)] = true;
+                            edited = true;
+                        }
+                        if (typing)
+                            inspTypingId_ = pid;
+                        else if (inspTypingId_ == pid)
+                            inspTypingId_ = 0;
+                    }
                     keep_step_alive();
                     ImGui::PopID();
                 }

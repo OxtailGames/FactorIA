@@ -1346,7 +1346,10 @@ Entity Editor::selected() {
 void Editor::select(Entity e) { selection_.replace((e.is_null() || !engine_) ? std::string() : world().id_of(e)); }
 
 const Selection& Editor::selection() {
-    if (engine_) {
+    // Only in Edit: the game may destroy a selected entity (or load another scene) while it runs, and on Stop the scene comes
+    // back as it was, with the selection the user made. Pruning in Play/Pause would drop those ids for good. The readers skip an
+    // id that is gone (selected() is null when the primary is).
+    if (engine_ && play_ == PlayState::Edit) {
         World& w = world();
         selection_.prune([&w](const std::string& id) {
             const Entity e = w.find_by_id(id);
@@ -1358,9 +1361,14 @@ const Selection& Editor::selection() {
 
 std::vector<std::string> Editor::selection_roots() {
     if (!engine_) return {};
-    const Selection& sel = selection();  // drops what no longer exists
+    const Selection& sel = selection();  // Edit: drops what no longer exists
     World& w = world();
-    std::vector<std::string> ids = without_selected_descendants(sel.ids(), [&w](const std::string& id) {
+    std::vector<std::string> alive;  // in Play/Pause the set is not pruned: leave out what the game destroyed
+    for (const std::string& id : sel.ids()) {
+        const Entity e = w.find_by_id(id);
+        if (!e.is_null() && w.alive(e)) alive.push_back(id);
+    }
+    std::vector<std::string> ids = without_selected_descendants(alive, [&w](const std::string& id) {
         const Entity e = w.find_by_id(id);
         const Entity p = e.is_null() ? kNullEntity : w.parent(e);
         return p.is_null() ? std::string() : w.id_of(p);

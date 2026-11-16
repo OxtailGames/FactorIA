@@ -3,6 +3,10 @@
 #include "selection.h"
 #include "undo_stack.h"
 
+#include <algorithm>
+#include <map>
+#include <string>
+
 using namespace fa;
 using namespace fa::editor;
 
@@ -444,4 +448,29 @@ TEST_CASE("without_selected_descendants keeps the order and drops what an ancest
     // a parent_of that loops does not hang
     auto loop = [](const std::string& id) { return id == "x" ? std::string("y") : std::string("x"); };
     CHECK(without_selected_descendants({"x", "y"}, loop).size() <= 2);
+}
+
+TEST_CASE(
+    "without_selected_descendants follows a reparent of the selection and its undo (the roots are never cached)") {
+    // Drag "root" (selected with its subtree and "other") onto "other": hierarchy_reparent moves selection_roots() minus the
+    // target, so only "root" moves; its subtree stays selected under it.
+    std::map<std::string, std::string> parents = {{"kidA", "root"}, {"kidB", "root"}, {"grand", "kidA"}};
+    auto parent_of = [&parents](const std::string& id) {
+        const auto it = parents.find(id);
+        return it == parents.end() ? std::string() : it->second;
+    };
+    const Ids selected = {"root", "kidA", "grand", "other"};
+    Ids roots = without_selected_descendants(selected, parent_of);
+    CHECK(roots == Ids{"root", "other"});
+    Ids moving = roots;
+    moving.erase(std::remove(moving.begin(), moving.end(), std::string("other")), moving.end());
+    CHECK(moving == Ids{"root"});
+    for (const std::string& id : moving) parents[id] = "other";
+    CHECK(without_selected_descendants(selected, parent_of) ==
+          Ids{"other"});                                     // the whole group hangs under "other" now
+    for (const std::string& id : moving) parents.erase(id);  // Undo
+    CHECK(without_selected_descendants(selected, parent_of) == roots);
+    // A selected child dragged out of its selected parent becomes a root of its own.
+    parents["grand"] = "";
+    CHECK(without_selected_descendants(selected, parent_of) == Ids{"root", "grand", "other"});
 }
