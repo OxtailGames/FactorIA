@@ -74,5 +74,18 @@ TEST_CASE("audio 3d fields: the scene file round trip") {
     World w3;
     Entity plain = w3.create("p", "p");
     w3.add<AudioSource>(plain);
-    CHECK(entity_to_json(w3, plain).dump().find("cone") == std::string::npos);
+    const std::string defaults = entity_to_json(w3, plain).dump();
+    for (const char* name : {"rolloffCurve", "coneInnerAngle", "coneOuterAngle", "coneOuterGain", "coneAxis",
+                             "dopplerLevel", "occlusion", "occlusionMask", "occlusionGain", "occlusionLowpass"}) {
+        CAPTURE(name);
+        CHECK(defaults.find(std::string("\"") + name + "\"") == std::string::npos);
+    }
+    // and a default listener writes none of its new ones
+    Entity ear = w3.create("e", "e");
+    w3.add<AudioListener>(ear);
+    const std::string earJson = entity_to_json(w3, ear).dump();
+    for (const char* name : {"spatialization", "headRadius", "speedOfSound"}) {
+        CAPTURE(name);
+        CHECK(earJson.find(std::string("\"") + name + "\"") == std::string::npos);
+    }
 }

@@ -47,7 +47,7 @@ audio.play("assets/sfx/bell.wav", { position: [40, 0, 0], range: 400, rolloff: "
 `rolloff: "curve"` takes the gain from a curve you draw: `AudioSource.rolloffCurve` (or `rolloffCurve` of `audio.play`) is a list of
 `[position, gain]` keys, where `position` is the distance divided by `range` (0 at the listener, 1 at `range`) and `gain` is 0 to 1. It
 is the form of `ParticleEmitter.sizeCurve` (`{"keys": [...], "interp": "smooth"}` eases, at most 16 keys). An empty curve is the linear curve. A curve in `AudioSource.rolloffCurve` that does
-not parse falls back to linear (the log says why); `audio.play` throws for it instead, with the same message. `refDistance` and `rolloffFactor` do not apply, and the sound is cut at `range` as for the others.
+not parse (more than 16 keys, a key that is not a pair) falls back to linear and the log says why, once for each change of the field; `audio.play` throws for it instead, with the same message. In a script `rolloff: "curve"` without a `rolloffCurve` throws, and so does a `rolloffCurve` without `rolloff: "curve"` (it would have no effect). `refDistance` and `rolloffFactor` do not apply, and the sound is cut at `range` as for the others.
 
 ```js
 audio.play("assets/sfx/siren.wav", { position: [40, 0, 0], range: 400, rolloff: "curve", rolloffCurve: [[0, 1], [0.3, 0.8], [1, 0]] });
@@ -103,9 +103,13 @@ A wall between the listener and a source makes the sound quieter and duller. `Au
   floor or a room volume that is not the source's own entity or its child) is blocked by it, so keep such volumes out of `occlusionMask`. The ray is a straight line, so it does not model sound that goes around a corner.
 - **The budget.** Rays cost time, so they are spread over frames: at most 8 rays per frame in the whole game (`audio.play` at a position uses
   them too), and each source asks again every 0.1 s. A source that was never measured goes first, and its first answer applies at once (a sound
-  that starts behind a wall starts muffled). With more sources than the budget serves (about 48 at 60 frames per second) each one is checked a
-  little less often than every 0.1 s; nothing is skipped for good.
-- **The result is smooth.** When the answer changes, the volume and the cutoff move to the new state over 0.1 s, so there is no click. The volume
+  that starts behind a wall starts muffled). With more sources than the budget serves (about 48 at 60 frames per second) the frame's rays go
+  first to the sources never measured, then to the ones measured longest ago, so each one is checked a little less often than every 0.1 s and
+  none waits for good. A source or a sound played at a place that asks for the first time takes what the frame has left; when the frame has
+  none left, it is planned in the next one, behind the ones that wait since earlier. Only 256 sounds played at a place are followed at once
+  (doppler, occlusion, head model): past that the next ones keep what they started with, and the log says so once.
+- **The result is smooth.** When the answer changes, the volume and the cutoff move to the new state over 0.1 s, and the mixer itself ramps
+  the voice's volume and its low-pass to each step (about 20 ms for the volume, about 5 ms for the cutoff), so there is no click. The volume
   is multiplied by `occlusionGain` and the voice goes through its own low-pass (two one-pole stages, 12 dB per octave) that moves from open to
   `occlusionLowpass`. A voice that is not occluded, or whose `occlusionLowpass` is 20000, is not filtered at all and sounds exactly as before.
 - It needs physics bodies (`sync` runs every fixed step); colliders created in the same frame may be seen one frame later. A game that
@@ -144,7 +148,10 @@ Processing 6(5), 1998, with the time difference of Woodworth (1938):
   sound at 90 degrees is also 3 dB quieter in the far ear at every frequency.
 - **Smooth.** The delay moves at most 0.03 samples per frame (a pitch change of 3% while it moves, so a fast fly-by is not clean but never clicks)
   and the shadow and level follow their targets over about 8 ms, whatever the block size. A sound that starts at a place starts at the right
-  time and level.
+  time and level, and its delay line starts filled with the sound's own first sample (no step from silence).
+- **Far-ear tail.** The ear that hears the sound later is not played out when the voice ends: the voice stops at the end of the clip, and the
+  last 0.9 ms at most (about 40 frames at 44.1 kHz, the largest time difference the head model can make) of that ear are cut. A clip ends in
+  silence, so nothing is heard; a clip cut off by `stop` is cut anyway.
 - **Head size.** `headRadius` is in world units: `headRadius / speedOfSound` is the head's size in seconds, 0.000255 s for a human one. In a
   world of meters leave the default; in a 2D game in pixels set `speedOfSound` as for doppler and `headRadius` to `speedOfSound * 0.000255`. A
   head outside 0.03 to 0.12 m at 343 m/s (a ratio of 0.0000875 to 0.00035 s) is clamped, with a warning once that says so. A source nearer than the head's radius
@@ -157,11 +164,20 @@ reverb. One head for everybody, so it will not be as convincing as a measured on
 When it applies:
 
 - Only to **spatial** sounds heard by an `AudioListener` entity with `spatialization: "hrtf"` (sounds that are not spatial, music and the
-  interface are not placed), on an output device with two or more channels. A 2D camera as the listener (no `AudioListener`) and a mono output keep the pan.
+  interface are not placed), on a stereo output device (two channels). A 2D camera as the listener (no `AudioListener`), a mono output and a surround one (5.1 and more,
+  where the head model's two ears would not be the speakers) keep the pan. A 2D camera as the listener has one more thing to know about doppler:
+  when the camera follows a target, its position changes frame by frame like a velocity, and with `dopplerLevel` above 0 that bends the pitch of
+  every sound; use an `AudioListener` on a fixed entity (or leave `dopplerLevel` at 0) when the camera follows.
 - A **stereo clip** is mixed to mono (the mean of its channels) and placed as one source, since each channel would need its own place; its stereo image is lost.
   Use a mono clip for a sound at a place.
-- A sound played at a place (`audio.play({ position })`) follows the listener's head, like a source in the scene.
-- Switching `spatialization` back to `"pan"` puts the playing voices back to the pan within a few milliseconds.
+- A sound played at a place (`audio.play({ position })`) follows the listener's head, like a source in the scene, when it started under an hrtf
+  listener, or has doppler or occlusion. One that started under a **pan** listener, with neither, is not followed: it keeps the pan, even if the
+  listener switches to `"hrtf"` while it plays (it would take a place in the 256 followed sounds for every one-shot). It is a short sound; the
+  next one is placed with the head.
+- Switching `spatialization` between `"pan"` and `"hrtf"` while a voice plays crossfades the two over 4 ms (the head model is prefilled with the
+  sound, so there is no click and no silence); a voice that ends in the middle of it is cut as any other.
+- A non-finite number (NaN, infinity) in a position, in `headRadius` or in `speedOfSound` never reaches the sound: the head model takes the
+  middle (side 0, in front) and the default head, and the warning of an out-of-range head is given once.
 
 Cost: one cubic read, one filter and two gains for each ear of a spatial voice; the mixer keeps no lock and allocates nothing.
 

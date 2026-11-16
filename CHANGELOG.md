@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **3D audio polish (M98.8):** what a game hears changes a little. The volume and the low-pass of a voice (occlusion, distance) now
+  ramp in the mixer over about 20 ms and 5 ms instead of stepping at each frame, so a moving or occluded sound has no zipper noise. With
+  more sources that ask for occlusion than the 8 rays a frame, the ones never measured go first and then the one asked longest ago
+  (none waits for good). Switching an `AudioListener` between `pan` and `hrtf` crossfades over 4 ms, and a sound that starts under the
+  head model has its delay line filled. A NaN or infinite position, `headRadius` or `speedOfSound` can no longer poison the head model
+  (the warning for a head out of range is given once). A 5.1 or 7.1 output keeps the pan, as a mono one does. A listener with many
+  colliders in its hierarchy no longer hides a wall from the occlusion ray, and a source that is switched off forgets its doppler and
+  occlusion state. A game that logs the 256-sound limit of followed `audio.play` sounds sees one warning.
 - **Example games in the release, first part (M97.5a):** every release will publish each example game (`block-push`,
   `lantern-keep`, `kindlewatch`, ...) as its own zip, plus `examples-manifest.json` with each example's title, what it
   shows, the docs to read first, and the size and SHA-256 of its zip. The new command `project.package_examples` makes

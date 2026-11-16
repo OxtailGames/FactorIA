@@ -248,6 +248,11 @@ constexpr float kHrtfFarEarDb = 3.0f;     // level difference between the ears f
 constexpr float kHrtfEarAzimuth = 100.0f * 3.14159265358979f / 180.0f;   // each ear's axis, from the front
 constexpr float kHrtfShadowMin = 0.1f;                                   // Brown and Duda's alpha_min
 constexpr float kHrtfShadowAngle = 150.0f * 3.14159265358979f / 180.0f;  // and theta_min
+constexpr float kHrtfCrossfade = 0.004f;  // seconds a voice takes to go from its pan to the head model and back
+constexpr float kHrtfDefaultHeadTime = 0.0875f / 343.0f;  // what a head time that is not a number becomes
+// A voice's own gains and filter follow what the game asked over this long, per frame, so the 60 Hz steps of occlusion do not zipper.
+constexpr float kVoiceParamRamp = 0.02f;     // seconds: the voice's volume and the gain of a blocked path
+constexpr float kVoiceLowpassSlew = 0.005f;  // seconds (time constant): the coefficient of the voice's low-pass
 
 // The Woodworth time difference of a sound whose direction has `lateral` = sin(beta) (+1 = at the right ear): seconds, positive
 // when the right ear hears it first.
@@ -257,17 +262,22 @@ inline float hrtf_itd(float lateral, float headTime) {
 }
 
 // Where a sound is in the listener's head frame (what the game side sends): the unit vector from the head to the sound as its
-// right, up and front components, and the head's size. `on` false: the voice is panned (the default).
+// right and front components (there is no elevation cue, so the up component is not sent), and the head's size. `on` false: the
+// voice is panned (the default). Finite whatever the scene held (a NaN is taken out by the game side and again by the mixer).
 struct HrtfAim {
     bool on = false;
-    float side = 0.0f, up = 0.0f, front = 1.0f;
+    float side = 0.0f, front = 1.0f;
     float headTime = 0.0f;  // radius / speed of sound, seconds (clamped by the game side to kHrtfMin/MaxHeadTime)
     bool operator==(const HrtfAim&) const = default;
 };
 
 // The state of one voice's head model: targets (set by a command) and where the audio is on its way to them.
 struct HrtfVoice {
-    bool on = false, primed = false;
+    bool on = false;      // the head model runs (it keeps running while the voice fades back to the pan)
+    bool primed = false;  // the targets below were taken as the starting point
+    bool filled = false;  // the delay line and the filters hold the sound's own samples (see hrtf_frame)
+    bool heard = false;  // the voice has been mixed without the head model: a switch to it then crossfades from the pan
+    float mix = 1.0f, mixT = 1.0f, mixStep = 1.0f;  // how much of the output is the head model: now, target, per frame
     float itdT[2] = {0, 0},
           itd[2] = {0, 0};  // the interaural delay of each ear (0 left, 1 right) in samples: target, current
     float alphaT[2] = {1, 1}, alpha[2] = {1, 1};
@@ -303,9 +313,14 @@ struct MixVoice {
     float lpCoef = 0.0f;
     float lpL1 = 0.0f, lpL2 = 0.0f, lpR1 = 0.0f, lpR2 = 0.0f;
     bool lpPrimed = false;
+    float lpTarget = 0.0f,
+          lpSlew = 0.0f;  // where `lpCoef` is going (1 = open: the filter is then taken away) and how fast
     // The gain of a sound played at a place (audio.play with a position) whose path is blocked: apart from `volume`, so a script's
     // set_voice_volume and its fade keep running. 1 = no occlusion (the product is then exactly what it was).
     float occGain = 1.0f;
+    float occTarget = 1.0f,
+          occStep = 0.0f;  // a ramp of occGain, like volume's: per frame `occGain += occStep` for occFrames
+    long occFrames = 0;
     HrtfVoice hrtf;  // the head model (a listener with spatialization "hrtf"): when `on`, `pan` is not used
     bool dead = false;
 };
@@ -471,9 +486,13 @@ public:
     void start_fade(MixVoice& v, float target, float seconds, bool stopAtEnd) const;
     void start_volume_ramp(MixVoice& v, float target, float seconds) const;
     void set_lowpass(BusRuntime& fx, float hz, float fadeSeconds) const;
-    // The voice's own low-pass at `hz`; 0 or 20000 and above = off (bit-identical to a voice that never had one).
-    void set_voice_lowpass(MixVoice& v, float hz) const;
-    // Puts the voice under the head model (aim.on) or back to the pan; the voice's delays and filters move to the new aim smoothly.
+    // The voice's own low-pass at `hz`; 0 or 20000 and above = off (bit-identical to a voice that never had one). `ramp`: the
+    // filter moves to it over kVoiceLowpassSlew (a voice that already has one; from none it opens from the first sample), else at once.
+    void set_voice_lowpass(MixVoice& v, float hz, bool ramp = false) const;
+    // The gain of a blocked path (MixVoice::occGain): at once, or over kVoiceParamRamp.
+    void set_voice_occ_gain(MixVoice& v, float gain, bool ramp) const;
+    // Puts the voice under the head model (aim.on) or back to the pan, each way by a crossfade of kHrtfCrossfade seconds; the voice's
+    // delays and filters move to the new aim smoothly. A NaN or infinite aim is taken as the centre.
     void set_voice_hrtf(MixVoice& v, const HrtfAim& aim) const;
     void set_reverb(BusRuntime& fx, float mix, float fadeSeconds, std::unique_ptr<Reverb>& spare) const;
     void set_duck(BusRuntime& fx, int by, float amount, float attack, float release) const;
