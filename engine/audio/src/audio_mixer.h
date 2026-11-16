@@ -239,6 +239,12 @@ struct MixVoice {
     float volTarget = 1.0f, volStep = 0.0f;
     long volFrames = 0;
     long delay = 0;  // output frames of silence left before it sounds (PlayParams::delayFrames)
+    // The voice's own low-pass (occlusion): two one-pole stages (12 dB/octave) on the voice before its pan. `lpCoef` is the
+    // coefficient of both stages; 0 = no filter at all (the voice is mixed exactly as without the field). The states take the
+    // first sample the filter sees, so switching it on does not click.
+    float lpCoef = 0.0f;
+    float lpL1 = 0.0f, lpL2 = 0.0f, lpR1 = 0.0f, lpR2 = 0.0f;
+    bool lpPrimed = false;
     bool dead = false;
 };
 
@@ -403,6 +409,8 @@ public:
     void start_fade(MixVoice& v, float target, float seconds, bool stopAtEnd) const;
     void start_volume_ramp(MixVoice& v, float target, float seconds) const;
     void set_lowpass(BusRuntime& fx, float hz, float fadeSeconds) const;
+    // The voice's own low-pass at `hz`; 0 or 20000 and above = off (bit-identical to a voice that never had one).
+    void set_voice_lowpass(MixVoice& v, float hz) const;
     void set_reverb(BusRuntime& fx, float mix, float fadeSeconds, std::unique_ptr<Reverb>& spare) const;
     void set_duck(BusRuntime& fx, int by, float amount, float attack, float release) const;
     void publish_music();

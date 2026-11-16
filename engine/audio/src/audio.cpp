@@ -122,6 +122,7 @@ struct GameVoice {
     std::string path, source;
     int bus = BusSfx;
     float volume = 1.0f, pitch = 1.0f, pan = 0.0f;  // as last set (the target of a ramp)
+    float lowpass = 0.0f;                           // the voice's own low-pass in Hz as last set; 0 = none (occlusion)
     bool loop = false, notify = false, music = false;
     bool stopped = false;    // stopped by the game: gone for every query, erased once the mixer confirms the end
     bool fadingOut = false;  // fading out to its end: still playing, the first a full mixer steals
@@ -151,6 +152,83 @@ struct EntityVideo {
     std::uint64_t seen = 0;
 };
 
+// A sound's motion for doppler: where it was in the last frame, and the natural log of the pitch factor it follows.
+struct DopplerTrack {
+    Vec3 prev{};
+    bool have = false;
+    float logPitch = 0.0f;
+};
+
+// A sound's occlusion: the answer of the last ray and the amount (0 open .. 1 blocked) the volume and the low-pass follow.
+struct OcclusionTrack {
+    float amount = 0.0f;
+    bool blocked = false;
+    bool measured = false;  // a ray has answered since the sound started wanting one
+    float age = 0.0f;       // seconds since that ray
+};
+
+// Moves a track one frame and returns the pitch factor to use: exactly 1 with doppler off (level <= 0).
+float doppler_step(DopplerTrack& t, Vec3 lpos, Vec3 lvel, float c, Vec3 spos, Vec3 svel, float level, float dt) {
+    if (!(level > 0.0f)) {
+        t.logPitch = 0.0f;
+        return 1.0f;
+    }
+    const float target = std::log(audio_doppler_pitch(lpos, lvel, spos, svel, c, level));
+    if (dt > 0.0f) t.logPitch += (target - t.logPitch) * (1.0f - std::exp(-dt / kDopplerSmoothing));
+    return std::exp(t.logPitch);
+}
+
+// Moves a track one frame and returns the amount blocked (0..1). `wanted`: the sound asks for occlusion and is audible. A ray is
+// asked for the first time a wanted sound is seen and then every kAudioOcclusionRecheck seconds, while `budget` has rays left (the
+// first answer sets the amount at once, so a sound that starts behind a wall starts muffled; later answers are walked towards over
+// kAudioOcclusionSmoothing seconds). Without a probe nothing is ever blocked.
+float occlusion_step(OcclusionTrack& t, bool wanted, World& world, const AudioOcclusionProbe& probe,
+                     const AudioOcclusionRay& ray, float dt, int& budget) {
+    if (wanted && probe) {
+        t.age += dt;
+        if ((!t.measured || t.age >= kAudioOcclusionRecheck) && budget > 0) {
+            --budget;
+            t.blocked = probe(world, ray);
+            t.age = 0.0f;
+            if (!t.measured) {
+                t.measured = true;
+                t.amount = t.blocked ? 1.0f : 0.0f;
+            }
+        }
+    } else if (!wanted) {
+        t.measured = false;
+        t.blocked = false;
+        t.age = 0.0f;
+    }
+    const float target = t.blocked ? 1.0f : 0.0f;
+    const float step = dt > 0.0f ? dt / kAudioOcclusionSmoothing : 0.0f;
+    if (t.amount < target)
+        t.amount = std::min(target, t.amount + step);
+    else if (t.amount > target)
+        t.amount = std::max(target, t.amount - step);
+    return t.amount;
+}
+
+// The cutoff of the low-pass an occluded sound gets: `lowpass` Hz when fully blocked, geometrically on the way (20000 = off).
+float occlusion_cutoff(float amount, float lowpass) {
+    if (!(amount > 0.0f) || !(lowpass < 19900.0f)) return 0.0f;
+    const float hz = 20000.0f * std::pow(std::max(lowpass, 20.0f) / 20000.0f, std::min(amount, 1.0f));
+    return hz > 19900.0f ? 0.0f : hz;
+}
+
+// A sound played at a place (Audio::play_at) that doppler or occlusion keeps following while it plays.
+struct SpatialShot {
+    VoiceId voice = 0;
+    Vec3 pos{}, vel{};
+    float level = 0.0f;
+    float baseVolume = 1.0f, basePitch = 1.0f;  // what the sound would have with no doppler and no occlusion
+    bool occlusion = false;
+    std::int32_t mask = -1;
+    float occGain = 0.4f, occLowpass = 1500.0f;
+    DopplerTrack dopp;
+    OcclusionTrack occl;
+};
+
 struct EntityAudio {
     Entity e;
     std::string id;
@@ -163,6 +241,8 @@ struct EntityAudio {
     Json curveSrc;            // AudioSource.rolloffCurve as it was parsed into `curve`
     Curve curve;
     bool curveOk = false;  // `curve` is the parse of curveSrc
+    DopplerTrack dopp;
+    OcclusionTrack occl;
 };
 
 // Import settings come from a file people edit: read them without assuming their types.
@@ -347,6 +427,11 @@ struct Audio::Impl {
     // gameplay-side state
     const World* lastWorld = nullptr;
     std::map<std::uint64_t, EntityAudio> ents;
+    std::vector<SpatialShot> shots;  // sounds from Audio::play_at that doppler or occlusion follow
+    AudioOcclusionProbe occlusionProbe;
+    int rayBudget = kAudioOcclusionRaysPerFrame;  // rays left for this frame (update() refills it when it is done)
+    Vec3 lastListenerPos{}, listenerVel{};        // the listener's position at the last update() and its velocity
+    bool haveLastListener = false;
     std::map<std::uint64_t, EntityVideo> videos;
     std::vector<float> videoScratch;
     std::uint64_t stamp = 0;
@@ -913,12 +998,14 @@ struct Audio::Impl {
     }
 
     // A voice's volume, pitch and pan (an AudioSource every frame).
-    void send_params(VoiceId id, float volume, float pitch, float pan) {
-        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan](Mixer& m, Cmd&) {
+    // `lowpass`: the voice's own low-pass in Hz (0 = none; occlusion).
+    void send_params(VoiceId id, float volume, float pitch, float pan, float lowpass) {
+        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan, lowpass](Mixer& m, Cmd&) {
             if (MixVoice* v = m.find_voice(id)) {
                 v->volume = volume;
                 v->pitch = pitch;
                 v->pan = pan;
+                m.set_voice_lowpass(*v, lowpass);
             }
         });
         c->sync = SyncTarget::Voice;
@@ -928,14 +1015,15 @@ struct Audio::Impl {
 
     // Everything the mirror knows of a voice's settings, at once and without a ramp (a dropped setting is sent again).
     void send_voice_state(VoiceId id, const GameVoice& gv) {
-        const float volume = gv.volume, pitch = gv.pitch, pan = gv.pan;
+        const float volume = gv.volume, pitch = gv.pitch, pan = gv.pan, lowpass = gv.lowpass;
         const int b = gv.bus;
-        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan, b](Mixer& m, Cmd&) {
+        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan, lowpass, b](Mixer& m, Cmd&) {
             MixVoice* v = m.find_voice(id);
             if (!v) return;
             m.start_volume_ramp(*v, volume, 0.0f);
             v->pitch = pitch;
             v->pan = pan;
+            m.set_voice_lowpass(*v, lowpass);
             if (b >= 0 && std::size_t(b) < m.table->bus.size() && b != kMasterBus) v->bus = b;
         });
         c->sync = SyncTarget::Voice;
@@ -3509,18 +3597,44 @@ float audio_cone_gain(Vec3 axis, Vec3 toListener, float innerAngle, float outerA
     return 1.0f + (outerGain - 1.0f) * (angle - inner) / (outer - inner);
 }
 
+Vec3 audio_velocity(Vec3 delta, float dt, float speedOfSound) {
+    if (!(dt > 0.0f)) return {0, 0, 0};
+    const Vec3 v = delta * (1.0f / dt);
+    const float jump = kDopplerJumpSpeeds * std::max(speedOfSound, 1e-3f);
+    if (!(length_sq(v) <= jump * jump)) return {0, 0, 0};  // also false for NaN
+    return v;
+}
+
+float audio_doppler_pitch(Vec3 listenerPos, Vec3 listenerVelocity, Vec3 sourcePos, Vec3 sourceVelocity,
+                          float speedOfSound, float level) {
+    if (!(level > 0.0f) || !(speedOfSound > 0.0f)) return 1.0f;
+    const Vec3 d = sourcePos - listenerPos;
+    const float dist = length(d);
+    if (!(dist > 1e-6f)) return 1.0f;
+    const Vec3 u = d * (1.0f / dist);  // from the listener to the source
+    const float limit = 0.9f * speedOfSound;
+    const float vl = clamp(dot(listenerVelocity, u), -limit, limit);  // towards the source
+    const float vs = clamp(dot(sourceVelocity, u), -limit, limit);    // away from the listener
+    const float ratio = (speedOfSound + vl) / (speedOfSound + vs);
+    return clamp(std::pow(ratio, std::min(level, 10.0f)), kDopplerMinPitch, kDopplerMaxPitch);
+}
+
 namespace {
 // The listener spatial sounds are heard from: the first active AudioListener entity, else the primary (or first) camera.
 struct ListenerPose {
     bool have = false;
+    Entity entity;  // null when there is none
     Vec3 pos{}, right{1, 0, 0};
     float volume = 1.0f, zoom = 1.0f;
+    float speedOfSound = 343.0f;
 };
 }  // namespace
 
 static ListenerPose find_listener(World& world) {
     ListenerPose l;
-    auto take = [&](Entity e, float vol, float zoom) {
+    auto take = [&](Entity e, float vol, float zoom, float speed) {
+        l.entity = e;
+        l.speedOfSound = speed;
         Mat4 m = world.world_matrix(e);
         l.pos = {m.at(3, 0), m.at(3, 1), m.at(3, 2)};
         Vec3 r{m.at(0, 0), m.at(0, 1), m.at(0, 2)};
@@ -3530,7 +3644,7 @@ static ListenerPose find_listener(World& world) {
         l.have = true;
     };
     world.each<AudioListener>([&](Entity e, AudioListener& al) {
-        if (!l.have && world.active_in_hierarchy(e)) take(e, al.volume, al.zoom);
+        if (!l.have && world.active_in_hierarchy(e)) take(e, al.volume, al.zoom, al.speedOfSound);
     });
     if (!l.have) {
         // The first camera drawn (the lowest depth of the primary ones; a split screen has several), else any camera.
@@ -3549,9 +3663,9 @@ static ListenerPose find_listener(World& world) {
             }
         });
         if (!primary.is_null())
-            take(primary, 1.0f, 1.0f);
+            take(primary, 1.0f, 1.0f, 343.0f);
         else if (!first.is_null())
-            take(first, 1.0f, 1.0f);
+            take(first, 1.0f, 1.0f, 343.0f);
     }
     return l;
 }
@@ -3569,8 +3683,13 @@ VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams
 VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position,
                        const SpatialSound& sound, bool* outOfRange) {
     if (outOfRange) *outOfRange = false;
+    Impl::Call call(*impl_);  // the play and what follows it (a low-pass) reach the mixer together
+    Impl& im = *impl_;
     const ListenerPose l = find_listener(world);
     PlayParams p = params;
+    SpatialShot shot;
+    float lowpass = 0.0f;
+    const bool follows = l.have && (sound.dopplerLevel > 0.0f || sound.occlusion);
     if (l.have) {
         // The same model as an AudioSource with spatial = true (update() below).
         const Vec3 d = position - l.pos;
@@ -3587,8 +3706,48 @@ VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams
             audio_cone_gain(sound.direction, -d, sound.coneInnerAngle, sound.coneOuterAngle, sound.coneOuterGain);
         p.volume = params.volume * gain * cone * l.volume;
         p.pan = clamp(dot(d, l.right) / (reach * 0.5f), -1.0f, 1.0f);
+        if (follows) {
+            shot.pos = position;
+            shot.vel = sound.velocity;
+            shot.level = clamp(sound.dopplerLevel, 0.0f, 10.0f);
+            shot.baseVolume = p.volume;
+            shot.basePitch = params.pitch;
+            shot.occlusion = sound.occlusion;
+            shot.mask = sound.occlusionMask;
+            shot.occGain = saturate(sound.occlusionGain);
+            shot.occLowpass = sound.occlusionLowpass;
+            if (shot.level > 0.0f) {  // a new sound has no earlier pitch to glide from
+                shot.dopp.logPitch = std::log(
+                    audio_doppler_pitch(l.pos, im.listenerVel, position, shot.vel, l.speedOfSound, shot.level));
+                p.pitch = params.pitch * std::exp(shot.dopp.logPitch);
+            }
+            if (shot.occlusion) {
+                const AudioOcclusionRay ray{l.pos, position, kNullEntity, l.entity, shot.mask};
+                const float amount = occlusion_step(shot.occl, true, world, im.occlusionProbe, ray, 0.0f, im.rayBudget);
+                if (amount > 0.0f) {
+                    p.volume *= 1.0f + (shot.occGain - 1.0f) * amount;
+                    lowpass = occlusion_cutoff(amount, shot.occLowpass);
+                }
+            }
+        }
     }
-    return play(clipPath, p);
+    const VoiceId id = im.start(clipPath, p, "");
+    if (id != 0 && follows) {
+        if (lowpass > 0.0f) {
+            if (GameVoice* gv = im.live_voice(id)) {
+                gv->lowpass = lowpass;
+                im.send_params(id, gv->volume, gv->pitch, gv->pan, lowpass);
+            }
+        }
+        shot.voice = id;
+        if (im.shots.size() < 256) im.shots.push_back(std::move(shot));
+    }
+    return id;
+}
+
+void Audio::set_occlusion_probe(AudioOcclusionProbe probe) {
+    Impl::Call call(*impl_);
+    impl_->occlusionProbe = std::move(probe);
 }
 
 void Audio::update(World& world, float dt) {
@@ -3605,6 +3764,9 @@ void Audio::update(World& world, float dt) {
         for (auto& [k, ev] : im.videos)
             if (ev.voice) stop(ev.voice);
         im.videos.clear();
+        im.shots.clear();
+        im.haveLastListener = false;
+        im.listenerVel = {0, 0, 0};
         im.lastWorld = &world;
     }
     ++im.stamp;
@@ -3628,6 +3790,21 @@ void Audio::update(World& world, float dt) {
     const bool haveListener = listener.have;
     const Vec3 lpos = listener.pos, lright = listener.right;
     const float lvol = listener.volume, lzoom = listener.zoom;
+    // The listener's velocity (doppler): its move since the last update over dt. Nothing the first time, and nothing for a jump
+    // (another listener, a scene change).
+    if (haveListener) {
+        if (dt > 0.0f) {
+            im.listenerVel = im.haveLastListener ? audio_velocity(lpos - im.lastListenerPos, dt, listener.speedOfSound)
+                                                 : Vec3{0, 0, 0};
+            im.lastListenerPos = lpos;
+            im.haveLastListener = true;
+        }
+    } else {
+        im.haveLastListener = false;
+        im.listenerVel = {0, 0, 0};
+    }
+    const Vec3 lvel = im.listenerVel;
+    const float lspeed = listener.speedOfSound;
 
     // ---- AudioSource components
     for (Entity e : world.entities_with(&World::type_of<AudioSource>())) {
@@ -3674,9 +3851,10 @@ void Audio::update(World& world, float dt) {
             ea.voice = 0;
         }
 
-        float gain = 1.0f, pan = 0.0f;
+        float gain = 1.0f, pan = 0.0f, dopplerFactor = 1.0f, lowpassHz = 0.0f;
         if (src->spatial && haveListener) {
-            Vec3 d = world.world_position(e) - lpos;
+            const Vec3 spos = world.world_position(e);
+            Vec3 d = spos - lpos;
             // The listener's zoom stretches the distance a sound is heard at: a zoom of 2 doubles the reach (and the pan's span).
             float range = std::max(src->range, 1e-3f) * lzoom;
             if (src->rolloff == AudioRolloff::Curve) {
@@ -3706,6 +3884,27 @@ void Audio::update(World& world, float dt) {
                 gain *= audio_cone_gain(axis, -d, src->coneInnerAngle, src->coneOuterAngle, src->coneOuterGain);
             }
             pan = clamp(dot(d, lright) / (range * 0.5f), -1.0f, 1.0f);
+            // Doppler: the source's velocity is its move since the last frame (RigidBody is not read), the pitch follows it smoothly.
+            if (src->dopplerLevel > 0.0f) {
+                const Vec3 svel = ea.dopp.have ? audio_velocity(spos - ea.dopp.prev, dt, lspeed) : Vec3{0, 0, 0};
+                dopplerFactor = doppler_step(ea.dopp, lpos, lvel, lspeed, spos, svel, src->dopplerLevel, dt);
+            } else {
+                ea.dopp.logPitch = 0.0f;
+            }
+            ea.dopp.prev = spos;
+            ea.dopp.have = true;
+            // Occlusion: asks the probe (a few rays per frame, see kAudioOcclusionRaysPerFrame) while the sound is audible.
+            const AudioOcclusionRay ray{lpos, spos, e, listener.entity, src->occlusionMask};
+            const float blocked =
+                occlusion_step(ea.occl, src->occlusion && src->playing && !src->clip.empty() && gain > 0.0f, world,
+                               im.occlusionProbe, ray, dt, im.rayBudget);
+            if (blocked > 0.0f) {
+                gain *= 1.0f + (saturate(src->occlusionGain) - 1.0f) * blocked;
+                lowpassHz = occlusion_cutoff(blocked, src->occlusionLowpass);
+            }
+        } else {
+            ea.dopp = DopplerTrack{};
+            ea.occl = OcclusionTrack{};
         }
         const float volume = src->volume * gain * (haveListener ? lvol : 1.0f);
 
@@ -3715,7 +3914,7 @@ void Audio::update(World& world, float dt) {
             } else {
                 PlayParams p;
                 p.volume = volume;
-                p.pitch = src->pitch;
+                p.pitch = src->pitch * dopplerFactor;
                 p.pan = pan;
                 p.loop = src->loop;
                 p.priority = src->priority;
@@ -3735,19 +3934,58 @@ void Audio::update(World& world, float dt) {
                 }
                 ea.voice = im.start(clip, p, ea.id);
                 ea.clip = src->clip;
-                if (ea.voice == 0) src->playing = false;  // load failed, or a full mixer refused it (both logged)
+                if (ea.voice == 0) {
+                    src->playing = false;       // load failed, or a full mixer refused it (both logged)
+                } else if (lowpassHz > 0.0f) {  // a sound that starts behind a wall starts muffled
+                    if (GameVoice* v = im.live_voice(ea.voice)) {
+                        v->lowpass = lowpassHz;
+                        im.send_params(ea.voice, v->volume, v->pitch, v->pan, lowpassHz);
+                    }
+                }
             }
         } else if (ea.voice != 0) {
             if (GameVoice* v = im.live_voice(ea.voice)) {
-                const float vol = std::max(volume, 0.0f), pitch = std::max(src->pitch, 0.001f);
-                if (vol != v->volume || pitch != v->pitch || pan != v->pan) {  // a command only for what changed
+                const float vol = std::max(volume, 0.0f), pitch = std::max(src->pitch * dopplerFactor, 0.001f);
+                if (vol != v->volume || pitch != v->pitch || pan != v->pan || lowpassHz != v->lowpass) {
+                    // a command only for what changed
                     v->volume = vol;
                     v->pitch = pitch;
                     v->pan = pan;
-                    im.send_params(ea.voice, vol, pitch, pan);
+                    v->lowpass = lowpassHz;
+                    im.send_params(ea.voice, vol, pitch, pan, lowpassHz);
                 }
             }
         }
+    }
+    // ---- sounds played at a place (audio.play with a position) that doppler or occlusion follow: their place does not move,
+    // their `velocity` is the one they were given, the listener's is the one measured above
+    for (auto it = im.shots.begin(); it != im.shots.end();) {
+        SpatialShot& sh = *it;
+        GameVoice* v = sh.voice != 0 && is_playing(sh.voice) ? im.live_voice(sh.voice) : nullptr;
+        if (!v) {
+            it = im.shots.erase(it);
+            continue;
+        }
+        float factor = 1.0f, lowpassHz = 0.0f, occlusionGain = 1.0f;
+        if (haveListener) {
+            if (sh.level > 0.0f) factor = doppler_step(sh.dopp, lpos, lvel, lspeed, sh.pos, sh.vel, sh.level, dt);
+            const AudioOcclusionRay ray{lpos, sh.pos, kNullEntity, listener.entity, sh.mask};
+            const float blocked =
+                occlusion_step(sh.occl, sh.occlusion, world, im.occlusionProbe, ray, dt, im.rayBudget);
+            if (blocked > 0.0f) {
+                occlusionGain = 1.0f + (sh.occGain - 1.0f) * blocked;
+                lowpassHz = occlusion_cutoff(blocked, sh.occLowpass);
+            }
+        }
+        const float vol = std::max(sh.baseVolume * occlusionGain, 0.0f),
+                    pitch = std::max(sh.basePitch * factor, 0.001f);
+        if (vol != v->volume || pitch != v->pitch || lowpassHz != v->lowpass) {
+            v->volume = vol;
+            v->pitch = pitch;
+            v->lowpass = lowpassHz;
+            im.send_params(sh.voice, vol, pitch, v->pan, lowpassHz);
+        }
+        ++it;
     }
     // sweep entities that disappeared (destroyed or component removed)
     for (auto it = im.ents.begin(); it != im.ents.end();) {
@@ -3851,6 +4089,8 @@ void Audio::update(World& world, float dt) {
             }));
         }
     }
+    im.rayBudget =
+        kAudioOcclusionRaysPerFrame;  // scripts that play a sound at a place before the next update may use these
 }
 
 // ============================================================ test access ==
@@ -3875,6 +4115,20 @@ void AudioTestAccess::render(Audio& audio, float* out, int frames, int channels)
 }
 
 std::recursive_mutex& AudioTestAccess::api_mutex(Audio& audio) { return audio.impl_->apiMu; }
+
+float AudioTestAccess::voice_lowpass(Audio& audio, VoiceId voice) {
+    Audio::Impl::Call call(*audio.impl_);
+    const GameVoice* v = audio.impl_->live_voice(voice);
+    return v ? v->lowpass : -1.0f;
+}
+
+void AudioTestAccess::set_voice_lowpass(Audio& audio, VoiceId voice, float hz) {
+    Audio::Impl::Call call(*audio.impl_);
+    if (GameVoice* v = audio.impl_->live_voice(voice)) {
+        v->lowpass = hz;
+        audio.impl_->send_params(voice, v->volume, v->pitch, v->pan, hz);
+    }
+}
 
 void AudioTestAccess::set_music_cache_budget(Audio& audio, std::size_t bytes) {
     Audio::Impl::Call call(*audio.impl_);

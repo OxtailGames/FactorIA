@@ -3383,7 +3383,11 @@ NATIVE(audioPlay) {
         sound.velocity = {num(27, 0, -1e30, 1e30), num(28, 0, -1e30, 1e30), num(29, 0, -1e30, 1e30)};
         sound.dopplerLevel = num(30, 0, 0, 10);
         sound.occlusion = arg_bool(ctx, argc, argv, 31, false);
-        sound.occlusionMask = static_cast<std::int32_t>(num(32, -1, -2147483648.0, 2147483647.0));
+        {  // in double: a float cannot hold 2147483647, and converting 2147483648.0f to int32 is undefined
+            const double mask = arg_num(ctx, argc, argv, 32, -1);
+            sound.occlusionMask =
+                std::isfinite(mask) ? static_cast<std::int32_t>(std::clamp(mask, -2147483648.0, 2147483647.0)) : -1;
+        }
         sound.occlusionGain = num(33, 0.4, 0, 1);
         sound.occlusionLowpass = num(34, 1500, 20, 20000);
         voice = I->host->audio().play_at(W, path, pp,

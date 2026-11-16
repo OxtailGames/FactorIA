@@ -1424,7 +1424,7 @@ struct AudioListener {
     float zoom = 1.0f;  // scales the distance positional sounds are heard at (AudioSource.range * zoom)
     AudioSpatialization spatialization = AudioSpatialization::Pan;  // Hrtf: headphones (M98.8c: no effect yet)
     float headRadius = 0.0875f;   // Hrtf: radius of the listener's head in world units (M98.8c: no effect yet)
-    float speedOfSound = 343.0f;  // Doppler (M98.8b): world units per second the sound travels at
+    float speedOfSound = 343.0f;  // Doppler: world units per second the sound travels at
 };
 
 // ------------------------------------------------------------- scripting ---
