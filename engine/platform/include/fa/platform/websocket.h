@@ -2,7 +2,7 @@
 // each wrapping what the system already has, so that the player carries no network library of its own.
 //
 //   Windows    WinHTTP's WebSocket API                 ("winhttp"; see "Windows" below)
-//   macOS/iOS  NSURLSessionWebSocketTask               (M98.2b)
+//   macOS/iOS  Network.framework (TCP, TLS) as the transport and fa/platform/websocket_codec.h ("network")
 //   Linux      libcurl (dlopen'ed) as the transport and fa/platform/websocket_codec.h; missing = not available
 //   Android    fa/platform/websocket_codec.h over Java's SSLSocket through JNI (wss://), over the tcp client (ws://)
 //   web        the browser's WebSocket                 (M98.2d)
@@ -134,8 +134,8 @@ private:
 };
 
 // How long a closing handshake waits for the server's close frame before the connection is dropped (Close 1006, wasClean
-// false). One value for every client that does its own waiting (the tcp client, the Android one, and the WinHTTP one for its
-// close wait and a send stuck at destruction); the other system stacks keep their own.
+// false). One value for every client that does its own waiting (the tcp, curl, Android and macOS/iOS clients, and the
+// WinHTTP one for its close wait and a send stuck at destruction).
 inline constexpr double kWebSocketCloseWaitSec = 5.0;
 
 // What connect() needs. The address is absolute ws:// or wss://, already checked against the game's declared hosts.
@@ -147,11 +147,10 @@ struct WebSocketRequest {
     double connectTimeoutSec = 15.0;  // connecting and the handshake together
     // A message longer than this fails the connection (Error, then Close 1006; the server is sent 1009); also the longest
     // message send accepts. A client that reads frame by frame checks it as the bytes arrive; where the platform buffers a
-    // whole message before it hands it over (the browser, NSURLSession) it is checked on arrival, and the platform's own
-    // limit (set to this value where it has one) may be what stops it.
+    // whole message before it hands it over (the browser) it is checked on arrival.
     std::size_t maxMessageBytes = 4u * 1024 * 1024;
     // There is no keep-alive field: pings and the answers to the server's pings are the platform's own. Every client answers
-    // the server's pings; WinHTTP also sends its own keep-alive frames, and the others (NSURLSession, the tcp, curl
+    // the server's pings; WinHTTP also sends its own keep-alive frames, and the others (the macOS/iOS, tcp, curl
     // and Android clients) send none, and the browser does what it likes, so a connection that must survive idle time needs a
     // message from the game now and then.
 };
@@ -177,11 +176,6 @@ public:
     // already have ended the attempt by then, and say Closed), and Closed from the moment its Error and Close 1006
     // (wasClean false) are in the queue, so before poll() delivers them. The Error says close() was called before the
     // connection opened.
-    //
-    // macOS and iOS (NSURLSession) differ in one place: the system reports the close as soon as it has sent the close frame, so
-    // the Close event comes at once with the code and reason asked for and wasClean true, without waiting for the server's
-    // answer and without the kWebSocketCloseWaitSec wait; and no code (0) is sent as 1000, because the system cannot send a
-    // close frame without one.
     virtual Result<void> close(int code, std::string_view reason) = 0;
     // Bytes accepted by send_* and not yet handed to the network.
     virtual std::size_t buffered_amount() const = 0;
@@ -193,7 +187,7 @@ public:
 class WebSocketClient {
 public:
     virtual ~WebSocketClient() = default;
-    // "winhttp", "nsurlsession", "curl", "socket" (Android), "browser", "memory", "tcp", or "unavailable"
+    // "winhttp", "network" (macOS, iOS), "curl", "socket" (Android), "browser", "memory", "tcp", or "unavailable"
     virtual std::string name() const = 0;
     // False when this machine cannot open WebSockets (Linux without libcurl, a platform whose client is not written yet):
     // connect() then returns the reason as its error.

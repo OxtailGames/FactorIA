@@ -6,6 +6,13 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ## Unreleased
 
+- WebSocket on macOS and iOS: the client is now a Network.framework connection (TCP, TLS with the system's certificates)
+  with the engine's own protocol code, as on Linux and Android, instead of `NSURLSessionWebSocketTask`, which on macOS 26
+  closed the TCP connection without sending the close frame. `ws.close()` now sends the code and reason (no code when none
+  is given, instead of 1000) and the `"close"` event waits for the server's answer, or comes after 5 seconds without one
+  as `"error"` and `"close"` 1006, like the other platforms. `websocket.backend` says `"network"` there instead of
+  `"nsurlsession"` (docs/NETWORKING.md, "On macOS and iOS").
+
 ## 0.30.0
 
 FactorIA 0.30.0 (M98) adds what games expect from an engine and FactorIA lacked. Saves can be encrypted, with versioned

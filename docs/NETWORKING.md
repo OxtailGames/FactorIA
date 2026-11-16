@@ -248,7 +248,7 @@ protocol code, the test server) is the same everywhere; this table says what eac
 |---|---|---|
 | Tests, headless runs, `factoria call`, the MCP server | a scripted in-memory server (`game.websocket`) | yes, nothing touches the network |
 | Windows | WinHTTP's WebSocket API, with the system's certificates and proxy (like `http.fetch`) | yes |
-| macOS, iOS | `NSURLSessionWebSocketTask` | yes (system certificates and proxy; see "On macOS and iOS" below) |
+| macOS, iOS | Network.framework opens the connection (TCP, TLS with the system's certificates, the system's proxy settings as Network.framework applies them); the engine's own WebSocket protocol code does the rest | yes (see "On macOS and iOS" below) |
 | Linux | libcurl, loaded when first needed (like `http.fetch`), opens the connection (the proxy of the environment, TCP, TLS with the system's certificates); the engine's own WebSocket protocol code does the rest | yes, with any libcurl from 7.45 (with or without its own WebSocket support). Without `libcurl.so.4` (or the Steam Runtime's `libcurl-gnutls.so.4`) `websocket.supported` is false and `websocket.unsupportedReason` says why |
 | Android | the engine's own WebSocket protocol code over a socket: `wss://` through Java's `SSLSocket` (JNI; the system's certificates, and the certificate must name the host), `ws://` (localhost only) over a plain socket | yes; built by CI, not yet run on a device. It needs the `INTERNET` permission, which the export adds when `network.hosts` is declared; without it the connection fails with an error that says so. Destroying an open `wss://` connection (a scene change) closes the socket without a close frame, so the server sees 1006 |
 | Web | the browser's `WebSocket` | yes (see below) |
@@ -263,16 +263,15 @@ first), and the server is closed with 1000 and the reason "message too big", bec
 sends 1000 and 3000 to 4999). A connection that a scene change destroys closes with no status code (the browser cannot send 1001), and `ws.close()`
 without a code sends 1000. The timeout and the 5 s wait for the server's answer to `close()` are the engine's own timers.
 
-**On macOS and iOS** the client is the system's, so it differs from the others in three small ways. Closing: `ws.close()`
-reports the `"close"` event as soon as the system has sent the close frame, with the code and reason that were asked for and
-`wasClean` true, without waiting for the server's answer (the system does not say whether it came), so a server that never
-answers a close is not reported as a failure; `close()` with no code sends 1000, because the system cannot send a close frame
-without a code. Messages: a message longer than `maxMessageBytes` ends the connection with `"error"` and `"close"` 1006 (the
-server is sent 1009), as everywhere, but the system holds the whole message first. Plain `ws://` is only allowed to your own
-computer (App Transport Security, as for `http.fetch`); use `wss://` for any other server. The system sends no pings of its
-own (it only answers the server's), and a redirect answer to the upgrade is not followed: it ends the attempt with an
-`"error"` whose `httpStatus` is the redirect's. On iOS the system suspends a game that goes to the background, and its
-connections usually break with it: the game then gets the `"error"` and `"close"` 1006 events (and `reconnect` takes over,
+**On macOS and iOS** Network.framework opens the connection (the name lookup, TCP and, for `wss://`, TLS with the
+system's certificates) and the engine's own WebSocket protocol code does the rest, as on Linux and Android: the handshake,
+the messages, the answers to the server's pings (it sends no pings of its own), the `maxMessageBytes` check as the bytes
+arrive, and the closing handshake. So `ws.close()` sends a close frame with the code and reason you gave (no code at all
+when you gave none) and the `"close"` event comes with the server's answer, or after 5 seconds without one as `"error"`
+(it says the server did not answer the close) and `"close"` 1006. A redirect answer to the upgrade is not followed: it
+ends the attempt with an `"error"` whose `httpStatus` is the redirect's. Network.framework is not under App Transport
+Security, so the `ws://` addresses the address rules allow (your own computer) work in an exported iOS app too. On iOS
+the system suspends a game that goes to the background, and its connections usually break with it: the game then gets the `"error"` and `"close"` 1006 events (and `reconnect` takes over,
 if you asked for it), at the latest when it comes back.
 
 Where there is no client (a Linux machine without a libcurl from 7.45), `websocket.supported` is `false` and

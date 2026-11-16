@@ -51,11 +51,13 @@ elseif(FA_PLATFORM STREQUAL "windows")
     target_link_libraries(fa_platform PUBLIC d3d11 dxgi dxguid ole32 advapi32 user32 gdi32 shell32 kernel32 winhttp imm32)
 elseif(FA_PLATFORM STREQUAL "macos")
     target_link_libraries(fa_platform PUBLIC "-framework Cocoa" "-framework QuartzCore" "-framework Metal"
-        "-framework MetalKit" "-framework AudioToolbox" "-framework AVFoundation" "-framework Foundation" "-framework GameController" "-framework CoreHaptics")
+        "-framework MetalKit" "-framework AudioToolbox" "-framework AVFoundation" "-framework Foundation" "-framework GameController" "-framework CoreHaptics"
+        "-framework Network" "-framework Security")
 elseif(FA_PLATFORM STREQUAL "ios")
     target_link_libraries(fa_platform PUBLIC "-framework UIKit" "-framework CoreGraphics" "-framework QuartzCore" "-framework Metal"
         "-framework MetalKit" "-framework AudioToolbox" "-framework AVFoundation" "-framework Foundation"
-        "-framework GameController" "-framework CoreHaptics")
+        "-framework GameController" "-framework CoreHaptics" "-framework Network"
+        "-framework Security")
 elseif(FA_PLATFORM STREQUAL "android")
     target_link_libraries(fa_platform PUBLIC GLESv3 EGL android log aaudio)
 endif()
