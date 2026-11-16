@@ -1012,6 +1012,16 @@ bool Engine::init(const EngineConfig& config, const GfxEnvironment* gfx, std::st
         }
         I.platform.set_http_backend(make_http_backend(std::move(client)), why);
     }
+    // websocket.connect: the platform's WebSocket client, except where the fake backend is asked for (headless runs, tests, `factoria
+    // call`, the MCP server): there a scripted in-memory server answers (game.websocket) and nothing touches the network.
+    if (config.platformBackend == "fake") {
+        I.websocketClient = std::make_unique<MemoryWebSocketClient>();
+    } else {
+        I.websocketClient = make_system_websocket_client();
+        if (!I.websocketClient->available())
+            FA_INFO("platform", "websocket.connect is not available on this computer: {}",
+                    I.websocketClient->unavailable_reason());
+    }
     std::string serr;
     if (config.scriptDebugger) I.scripts.set_debugger(config.scriptDebugger);
     I.scripts.set_exported_player(config.exportedPlayer);
@@ -1228,6 +1238,7 @@ const ProjectSettings& Engine::project() const { return impl_->project; }
 const EngineConfig& Engine::config() const { return impl_->cfg; }
 HeadlessGpu* Engine::headless_gpu() { return impl_->gpu.get(); }
 PlatformServices* Engine::platform_services() { return &impl_->platform; }
+WebSocketClient* Engine::websocket_client() { return impl_->websocketClient.get(); }
 const I18n* Engine::i18n() { return &impl_->i18n; }
 const RichTextStyle* Engine::rich_text_style() { return &impl_->richStyle; }
 std::string Engine::set_language(std::string_view language) {

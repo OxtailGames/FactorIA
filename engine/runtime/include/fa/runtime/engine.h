@@ -266,6 +266,8 @@ public:
     std::vector<std::string> take_clipboard_reads();
     WindowControl* window() override;  // nullptr unless the game owns a real window (not headless, not the editor)
     PlatformServices* platform_services() override;
+    WebSocketClient*
+    websocket_client() override;  // the platform's; a scripted in-memory one when the platform backend is "fake"
     const I18n* i18n() override;
     const RichTextStyle* rich_text_style() override;
     std::string set_language(std::string_view language) override;

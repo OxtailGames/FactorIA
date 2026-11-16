@@ -2378,7 +2378,7 @@ Make the store page images (capsules, heroes, covers, screenshots) at each store
 
 Capabilities: read, writeProject
 
-Cover-crops `keyArt` (an image in the project, e.g. a screenshot taken with game.screenshot {scale}) around `focus` to every image size the `stores` ask for and writes store/capsules/<store>/<name>_<w>x<h>.png (folders are created, files replaced). Stores: steam, epic, gog, microsoft, googleplay, appstore, itch (default: all). The sizes are in one table (docs/EXPORTING.md#store-page-material, as of 2026-10); assets with the same size in one store are one file.
+Cover-crops `keyArt` (an image in the project, e.g. a screenshot taken with game.screenshot {scale}) around `focus` to every image size the `stores` ask for and writes store/capsules/<store>/<name>_<w>x<h>.png (folders are created, files replaced). Stores: steam, epic, gog, microsoft, googleplay, appstore, itch (default: all). The sizes are in one table (docs/exporting/EXPORTING_STORES.md#store-page-material, as of 2026-10); assets with the same size in one store are one file.
 The `logo` is placed by the rule of each asset: capsules and covers get it centred (Microsoft: in the upper part, the bottom third is overlaid; Steam library capsule: low), heroes, page backgrounds and screenshots get none (Steam's library hero must have no text), and the logo-only assets (Steam library logo 1280x720, Epic logo 960x540) are a transparent PNG with just the logo. `logo` is {"image": "assets/logo.png"} (transparent PNG) or {"text": "My Game", font, fill, outline} (title drawn like assets.draw_icon draws text; fill default white, outline default a dark one, false = none).
 
 Example: {"keyArt":"store/keyart.png","focus":[0.5,0.4],"logo":{"text":"Lantern Keep"},"stores":["steam"]}.
@@ -3367,7 +3367,7 @@ List the engine documentation available offline.
 
 Capabilities: read
 
-Start here. Returns {docs:[{name, title, summary, audience[], path, bytes}]}: `summary` is one sentence on what the page is for, `audience` says who it is for (gameAi: the AI making a game, user: the person using the engine, engineDev: working on the engine itself), `bytes` its size. Pick by summary and read only what the task needs with docs.read (by `heading`). The document 'ai-guide' explains how to build games with FactorIA. Example: {"audience":"gameAi"}.
+Start here. Returns {docs:[{name, title, summary, audience[], path, bytes, family?}]}: `family` is only on a page of a big doc that is split (the name of its entry page: read the entry page first, it indexes its pages); `summary` is one sentence on what the page is for, `audience` says who it is for (gameAi: the AI making a game, user: the person using the engine, engineDev: working on the engine itself), `bytes` its size. Pick by summary and read only what the task needs with docs.read (by `heading`). The document 'ai-guide' explains how to build games with FactorIA. Example: {"audience":"gameAi"}.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3379,7 +3379,7 @@ Read a documentation page (Markdown), a section or a line range; long pages come
 
 Capabilities: read
 
-Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and `next`, the exact call that continues. Read one section by heading: {"name":"ai-guide","heading":"Platformer character"} (case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with startLine/maxLines. Names: see docs.list (e.g. ai-guide, scripting, licenses). The menu kit's files are `menu-kit/<file>` (the name "menu-kit" lists them). The component and command references are not pages: use docs.components and docs.commands. To find where something is, docs.search returns sections with their line numbers.
+Example: {"name":"scripting"}. A result is at most `maxBytes` (default 40000, about 10k tokens; an MCP client refuses much more), so a long page is cut and the result then carries `contents` (the headings with their line numbers) and `next`, the exact call that continues. Read one section by heading: {"name":"ai-guide","heading":"Platformer character"} (case-insensitive; an exact title wins, else a part of a title; several matches list them), or a range with startLine/maxLines. Names: see docs.list (e.g. ai-guide, scripting, licenses). The menu kit's files are `menu-kit/<file>` (the name "menu-kit" lists them). The component and command references are not pages: use docs.components and docs.commands. To find where something is, docs.search returns sections with their line numbers. A big doc is split: its entry page (the name you know) indexes its pages, and a read of it without `heading` carries `pages` ([{name,title,bytes,path}]; a cut read lists them in `contents` too). A `heading` that is not in the entry page but is a heading of one of its pages is served from that page: the result then has `page` (its name; `name` is the page too, so `next` continues there), `requestedName` and a `note`. A heading on two pages is an error that lists both; read the page by name.
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -3395,7 +3395,7 @@ Search the documentation by keywords.
 
 Capabilities: read
 
-Case-insensitive; every word counts, headings weigh more. Returns best sections with a snippet. Example: {"query":"input actions"}
+Case-insensitive; every word counts, headings weigh more. Returns best sections with a snippet; `doc` names the page that holds it (`family` too when that is a page of a split doc: read it with docs.read {name:doc}). Example: {"query":"input actions"}
 
 | Argument | Type | Required | Description |
 |---|---|---|---|
@@ -13604,6 +13604,269 @@ declare module "factoria" {
   }
 
   /**
+   * How websocket.connect tries again after a connection you did not close ends (the server went away, the network dropped, an attempt failed). The wait before attempt n is min(maxDelay, minDelay * factor^(n-1)) seconds, moved by up to +-jitter of itself with a pseudo-random sequence that is the same on every run (seeded by the URL and the connection's number: no rand(), no wall clock), counted on the engine clock.
+   * @since unreleased
+   */
+  export interface WebSocketReconnectOptions {
+    /**
+     * Reconnects tried in a row before the connection closes for good: a whole number of 1 or more, or Infinity. Default 10. The count starts again when a connection opens.
+     * @since unreleased
+     */
+    maxAttempts?: number;
+    /**
+     * Seconds before the first attempt, above 0. Default 1.
+     * @since unreleased
+     */
+    minDelay?: number;
+    /**
+     * The longest wait in seconds, at least minDelay. Default 30.
+     * @since unreleased
+     */
+    maxDelay?: number;
+    /**
+     * Each attempt waits this many times longer than the one before, 1 or more. Default 2.
+     * @since unreleased
+     */
+    factor?: number;
+    /**
+     * A fraction from 0 to 1 of the wait that the delay may move up or down, so that many players do not reconnect at the same instant. Default 0.25.
+     * @since unreleased
+     */
+    jitter?: number;
+  }
+
+  /**
+   * Options of websocket.connect.
+   * @since unreleased
+   */
+  export interface WebSocketOptions {
+    /**
+     * Subprotocols to offer the server, in order of preference (Sec-WebSocket-Protocol); the one it picks is WebSocketConnection.protocol. Each must be a token like "chat.v1".
+     * @since unreleased
+     */
+    protocols?: string[];
+    /**
+     * Extra headers of the handshake, string values, no line breaks. Host, Upgrade, Connection and Sec-* are set by the system and throw. The browser's WebSocket cannot send headers: a game for the web puts what the server needs in the URL or in the first message.
+     * @since unreleased
+     */
+    headers?: Record<string, string>;
+    /**
+     * Seconds to wait for the connection and the handshake together, above 0 and at most 120. Default 15; a connection that takes longer gets an "error" event and a "close" event with code 1006.
+     * @since unreleased
+     */
+    timeout?: number;
+    /**
+     * The longest message in either direction, 4194304 (4 MB) by default and at most 67108864. A longer incoming message fails the connection (an "error" event, then "close" with code 1006; the server is told 1009); send() throws for a longer outgoing one.
+     * @since unreleased
+     */
+    maxMessageBytes?: number;
+    /**
+     * true or an object: connect again after a close you did not ask for. false (default): never. A connection you close() yourself, and one that the platform cannot open at all, never reconnect.
+     * @since unreleased
+     */
+    reconnect?: boolean | WebSocketReconnectOptions;
+  }
+
+  /**
+   * The "open" event of a connection: the handshake is done and send() works.
+   * @since unreleased
+   */
+  export interface WebSocketOpenEvent {
+    /**
+     * The subprotocol the server chose, "" when none.
+     * @since unreleased
+     */
+    readonly protocol: string;
+    /**
+     * True when this is a reconnect (the connection was open before), so the game can ask the server for what it missed.
+     * @since unreleased
+     */
+    readonly reconnected: boolean;
+  }
+
+  /**
+   * The "message" event: one whole message. Messages of a connection arrive in order, at the start of an engine frame.
+   * @since unreleased
+   */
+  export interface WebSocketMessageEvent {
+    /**
+     * A text message as a string; a binary message as an ArrayBuffer (wrap it in new Uint8Array(data) to read it).
+     * @since unreleased
+     */
+    readonly data: string | ArrayBuffer;
+    /**
+     * True when data is an ArrayBuffer.
+     * @since unreleased
+     */
+    readonly binary: boolean;
+  }
+
+  /**
+   * The "error" event: something went wrong. A "close" event always follows with code 1006.
+   * @since unreleased
+   */
+  export interface WebSocketErrorEvent {
+    /**
+     * What went wrong, in a sentence that says what to do.
+     * @since unreleased
+     */
+    readonly message: string;
+    /**
+     * What to try, "" when the platform gave none.
+     * @since unreleased
+     */
+    readonly hint: string;
+    /**
+     * The HTTP status the server answered to the handshake when it refused it (403, 404...), 0 when there was none.
+     * @since unreleased
+     */
+    readonly httpStatus: number;
+  }
+
+  /**
+   * The "close" event: the end of a connection (or of one attempt, when it reconnects). Nothing more is delivered on it.
+   * @since unreleased
+   */
+  export interface WebSocketCloseEvent {
+    /**
+     * The close code: 1000 normal, 1001 going away, 1006 the connection failed or broke with no closing handshake (could not connect, a message too big, a server that breaks the protocol), 1008 the game did not read its messages, 3000 to 4999 the server's own.
+     * @since unreleased
+     */
+    readonly code: number;
+    /**
+     * The reason text the closer sent, "" when none.
+     * @since unreleased
+     */
+    readonly reason: string;
+    /**
+     * True when the closing handshake completed.
+     * @since unreleased
+     */
+    readonly wasClean: boolean;
+    /**
+     * True when websocket.connect was given reconnect and will try again: a "reconnecting" event follows. Call connection.close() in this handler to stop it.
+     * @since unreleased
+     */
+    readonly willReconnect: boolean;
+  }
+
+  /**
+   * The "reconnecting" event: the next attempt is scheduled.
+   * @since unreleased
+   */
+  export interface WebSocketReconnectingEvent {
+    /**
+     * 1 for the first reconnect since the connection was last open, 2 for the second...
+     * @since unreleased
+     */
+    readonly attempt: number;
+    /**
+     * Seconds until the attempt starts (engine time).
+     * @since unreleased
+     */
+    readonly delay: number;
+  }
+
+  /**
+   * One WebSocket connection, from websocket.connect. Events are delivered at the start of an engine frame, never in the middle of a script. A scene change or a script unload closes the connection WITHOUT events (readyState becomes "closed"): open the connections of a scene in that scene.
+   * @since unreleased
+   */
+  export interface WebSocketConnection {
+    /**
+     * The address given to websocket.connect.
+     * @since unreleased
+     */
+    readonly url: string;
+    /**
+     * "connecting" until the handshake completes and also while a connection waits to reconnect; "closing" after close() until the "close" event.
+     * @since unreleased
+     */
+    readonly readyState: "connecting" | "open" | "closing" | "closed";
+    /**
+     * The subprotocol the server chose, "" when none or not open yet.
+     * @since unreleased
+     */
+    readonly protocol: string;
+    /**
+     * Reconnects tried since the connection was last open: 0 while it is open.
+     * @since unreleased
+     */
+    readonly attempt: number;
+    /**
+     * Bytes that send() accepted and the network has not taken yet.
+     * @since unreleased
+     */
+    readonly bufferedAmount: number;
+    /**
+     * Calls fn when the connection opens (again after each reconnect). Returns a function that removes the handler. A handler that throws is reported as a script error and the others still run.
+     * @since unreleased
+     */
+    on(event: "open", fn: (e: WebSocketOpenEvent) => void): () => void;
+    /**
+     * Calls fn for every message the server sends. Example: `ws.on("message", (e) => { if (!e.binary) handle(JSON.parse(e.data)); });`.
+     * @since unreleased
+     */
+    on(event: "message", fn: (e: WebSocketMessageEvent) => void): () => void;
+    /**
+     * Calls fn when the connection fails: could not connect, refused (e.httpStatus), a broken stream, a message over maxMessageBytes. Followed by a "close" event.
+     * @since unreleased
+     */
+    on(event: "error", fn: (e: WebSocketErrorEvent) => void): () => void;
+    /**
+     * Calls fn when the connection ends, whoever ended it.
+     * @since unreleased
+     */
+    on(event: "close", fn: (e: WebSocketCloseEvent) => void): () => void;
+    /**
+     * Calls fn when a reconnect is scheduled (options.reconnect only).
+     * @since unreleased
+     */
+    on(event: "reconnecting", fn: (e: WebSocketReconnectingEvent) => void): () => void;
+    /**
+     * Removes a handler added with on(). An unknown handler does nothing.
+     * @since unreleased
+     */
+    off(event: "open" | "message" | "error" | "close" | "reconnecting", fn: Function): void;
+    /**
+     * Queues one message: a string goes as a text message, an ArrayBuffer or typed array as a binary one. Returns true when queued, false when the connection is not open (still connecting, waiting to reconnect, closing, closed): nothing is queued or kept for later. Throws for data of another type (send an object as ws.send(JSON.stringify(obj))) and for a message over maxMessageBytes. Example: `if (!ws.send(JSON.stringify({ move: "left" }))) ui.toast("Reconnecting...");`.
+     * @since unreleased
+     */
+    send(data: string | ArrayBuffer | ArrayBufferView): boolean;
+    /**
+     * Starts the closing handshake; the "close" event follows when the server answers (or after a few seconds). code is 1000 (default) or 3000 to 4999, reason at most 123 bytes of UTF-8; others throw. Never reconnects afterwards, and stops a connection that waits to reconnect. Closing twice does nothing.
+     * @since unreleased
+     */
+    close(code?: number, reason?: string): void;
+  }
+
+  /**
+   * WebSocket connections to the hosts the game declares in factoria.json "network" (docs/NETWORKING.md, "WebSocket"), the same list as http.fetch: ws:// and wss://, wss:// everywhere except plain ws:// to localhost for development. A host that is not declared throws at once with the same hint and "did you mean". At most 32 connections at once. Which platforms can connect depends on the build (docs/NETWORKING.md says which): `websocket.supported` tells; where it is false, connect() still returns a connection, which fails with an "error" and a "close" event at the next frame. In tests and headless runs a scripted in-memory server answers (game.websocket) and nothing touches the network. Replays do not record WebSocket traffic.
+   * @since unreleased
+   */
+  export interface WebSocketAPI {
+    /**
+     * Starts connecting and returns at once: attach handlers with on() before the next frame. A mistake in the call (an undeclared host, a bad scheme, an unknown option, a header the handshake refuses, more than 32 connections) throws with what to change. Example: `const ws = websocket.connect("wss://game.example.com/room", { reconnect: true }); ws.on("open", () => ws.send("hello"));`.
+     * @since unreleased
+     */
+    connect(url: string, options?: WebSocketOptions): WebSocketConnection;
+    /**
+     * True when this platform has a WebSocket client that can connect.
+     * @since unreleased
+     */
+    readonly supported: boolean;
+    /**
+     * The client in use: "memory" (tests, headless), "winhttp", "nsurlsession", "curl", "socket", "browser" or "unavailable".
+     * @since unreleased
+     */
+    readonly backend: string;
+    /**
+     * Why supported is false, "" when it is true.
+     * @since unreleased
+     */
+    readonly unsupportedReason: string;
+  }
+
+  /**
    * What analytics.status() returns, for debugging.
    * @since 0.3.0
    */
@@ -14039,6 +14302,12 @@ declare module "factoria" {
    * @since 0.3.0
    */
   export const http: HttpAPI;
+
+  /**
+   * websocket.connect(url, options): WebSocket connections to the hosts declared in factoria.json "network", with reconnects (docs/NETWORKING.md, "WebSocket").
+   * @since unreleased
+   */
+  export const websocket: WebSocketAPI;
 
   /**
    * analytics.event(name, props), setConsent(yes), consent(), flush(): anonymous usage events sent in batches after the player consented (docs/ANALYTICS.md).
@@ -19721,6 +19990,120 @@ declare module "factoria:test" {
   }
 
   /**
+   * One connection the game made, seen from the scripted server side (game.websocket.connections()).
+   * @since unreleased
+   */
+  export interface TestWebSocketConnection {
+    /**
+     * The number to pass to the other game.websocket calls: connections count in the order websocket.connect started them, reconnects included.
+     * @since unreleased
+     */
+    index: number;
+    /**
+     * The address the game asked for.
+     * @since unreleased
+     */
+    url: string;
+    /**
+     * The subprotocols the game offered.
+     * @since unreleased
+     */
+    protocols: string[];
+    /**
+     * The handshake headers the game set.
+     * @since unreleased
+     */
+    headers: Record<string, string>;
+    /**
+     * Accepted and not closed.
+     * @since unreleased
+     */
+    open: boolean;
+    /**
+     * Over, whoever closed it. A connection the game never closed but that its scene dropped counts as closed by the game with code 1001.
+     * @since unreleased
+     */
+    closed: boolean;
+    /**
+     * The game closed it (close(), or its scene ended).
+     * @since unreleased
+     */
+    closedByGame: boolean;
+    /**
+     * The code of the game's close, 0 when it did not close.
+     * @since unreleased
+     */
+    closeCode: number;
+    /**
+     * The reason of the game's close.
+     * @since unreleased
+     */
+    closeReason: string;
+    /**
+     * What the game sent, oldest first: a string for a text message, an ArrayBuffer for a binary one.
+     * @since unreleased
+     */
+    received: (string | ArrayBuffer)[];
+  }
+
+  /**
+   * The server side of the game's WebSocket connections in tests (docs/NETWORKING.md, "Testing"): every websocket.connect meets a scripted in-memory server, nothing touches the network. The events of an action reach the game at the next game.step(). Connection numbers are the `index` of game.websocket.connections(); an unknown number throws.
+   * @since unreleased
+   */
+  export interface TestWebSocket {
+    /**
+     * Every connection made since the last reset(), in order, closed ones included, with what the game sent.
+     * @since unreleased
+     */
+    connections(): TestWebSocketConnection[];
+    /**
+     * Completes the handshake: the game's "open" event. Needed only after autoAccept(false). protocol is the subprotocol the server picks: one the game offered, else it throws.
+     * @since unreleased
+     */
+    accept(i: number, protocol?: string): void;
+    /**
+     * The handshake fails: the game gets an "error" event (with httpStatus, e.g. 403) and then "close" with code 1006.
+     * @since unreleased
+     */
+    refuse(i: number, message?: string, httpStatus?: number): void;
+    /**
+     * The server sends a message to the game: text for a string, binary for an ArrayBuffer or typed array.
+     * @since unreleased
+     */
+    send(i: number, data: string | ArrayBuffer | ArrayBufferView): void;
+    /**
+     * The server closes cleanly (code 1000 by default): the game gets "close" with that code, reason and wasClean true.
+     * @since unreleased
+     */
+    close(i: number, code?: number, reason?: string): void;
+    /**
+     * The connection breaks with no closing handshake: "error" then "close" with code 1006.
+     * @since unreleased
+     */
+    drop(i: number, message?: string): void;
+    /**
+     * false: new connections wait for accept(i) or refuse(i) (default true: they open at the next step).
+     * @since unreleased
+     */
+    autoAccept(on?: boolean): void;
+    /**
+     * The next `count` connection attempts (default 1) fail like an unreachable server: "error" then "close" 1006. What a reconnect test needs.
+     * @since unreleased
+     */
+    refuseNext(count?: number, message?: string): void;
+    /**
+     * false: the server does not answer the game's close() until close(i) is called, so the game stays "closing". Default true.
+     * @since unreleased
+     */
+    autoCloseReply(i: number, on?: boolean): void;
+    /**
+     * Closes the game's connections without events, forgets every connection of the server and restores autoAccept and refuseNext. Every test file starts this way; call it at the start of a test that counts connections.
+     * @since unreleased
+     */
+    reset(): void;
+  }
+
+  /**
    * The fake store, for tests: script what it answers, send it events, look at what it holds. Each test file starts with a fresh one; the real backends are never touched by tests. Backed by the platform.* commands. See docs/PLATFORM.md.
    * @since 0.2.0
    */
@@ -20042,6 +20425,11 @@ declare module "factoria:test" {
      * @since 0.3.0
      */
     readonly remoteConfig: TestRemoteConfig;
+    /**
+     * The scripted server of the game's WebSocket connections: game.websocket.connections(), accept(i), send(i, data), close(i), drop(i), refuseNext(n), reset().
+     * @since unreleased
+     */
+    readonly websocket: TestWebSocket;
   }
 
   /**

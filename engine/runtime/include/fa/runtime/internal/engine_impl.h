@@ -17,6 +17,7 @@
 #include "fa/runtime/internal/background_loader.h"
 #include "fa/core/i18n.h"
 #include "fa/core/jobs.h"
+#include "fa/platform/websocket.h"
 #include "fa/render/text_measure.h"
 #include "fa/runtime/engine.h"
 #include "fa/runtime/input_recorder.h"
@@ -134,6 +135,8 @@ struct Engine::Impl {
         cpuText;  // text sizes when there is no renderer: the same fonts and shaping (fa/render/text_measure.h); settings kept in step either way
     std::unique_ptr<AppWindowControl> appWindow;  // windowed game only
     EngineClipboard clipboard;
+    std::unique_ptr<WebSocketClient>
+        websocketClient;     // websocket.connect: the platform's, or the memory one in headless runs and tests
     InputRecorder recorder;  // the Input observer; records only between start_input_recording and stop_input_recording
 
     // Scene props (scene.load(path, {props}), `factoria run --props`): the running scene's, and the ones the next load takes.

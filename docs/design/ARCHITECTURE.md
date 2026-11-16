@@ -1280,6 +1280,15 @@ request is `(method, args)` and gets one answer, a result or `{code, message, hi
   `fa/services/network.h` parses their `factoria.json` sections (`parse_analytics`, `parse_remote_config`) and `factoria
   validate` checks them. The script system ticks them with the unscaled frame time, and runs `app.suspend` and the quit
   flush (`request_quit` and `close_requested` wait up to 3 seconds for a pending request) through hooks of the prelude.
+- **`websocket.connect`** is not a `PlatformServices` request: a connection is a stream of events, so `ScriptHost::websocket_client()`
+  hands the script system a `WebSocketClient` of `fa_platform` (`fa/platform/websocket.h`: WinHTTP, `NSURLSessionWebSocketTask`,
+  libcurl, a socket stream through JNI on Android, the browser's WebSocket; `websocket_<platform>` files, plus the memory client of
+  headless runs and tests). The script layer checks the address against the same `network.hosts` list before `connect()`.
+  Thread rule: whatever the network does is pushed to the connection's `WebSocketEventQueue` by any thread (an OS callback, a
+  reader thread) and drained by the game thread once a frame (`dispatch_platform`), so no OS thread ever touches a script or the
+  World. The queue lives in a `std::shared_ptr` that every callback captures; the connection's destructor calls `abandon()` and
+  returns without waiting (it runs on the game thread), so a callback that comes late finds the queue ended. A scene change closes
+  every connection without events; reconnects with backoff run in `factoria.js` on the engine clock.
 Docs: [PLATFORM.md](../PLATFORM.md), [NETWORKING.md](../NETWORKING.md), [ANALYTICS.md](../ANALYTICS.md).
 
 ### Localization
@@ -1306,6 +1315,34 @@ Text lives in string tables, `locales/<language>.json`, and the engine shows the
 `HeadlessGpu` creates a window-less device: EGL (Linux; Mesa llvmpipe works
 without a GPU), Metal (macOS), D3D11 with WARP fallback (Windows). Used by
 `factoria run --headless`, tests, the MCP server and CI.
+
+### Docs: names, sizes and pages
+`docs/*.md` is embedded in the binary (not `docs/design/`, `docs/i18n/`, `docs/reference/`, `COMPONENTS.md`) and served by
+`docs.list`, `docs.read` and `docs.search` (`tools/common/src/docs.cpp`). A doc's name is its file name without the
+folder, lower case, `_` as `-` (`doc_name_from_path`), so two embedded docs must never share a file name, whatever
+their folder. Every doc has an entry in the manifest of that file (summary, audience).
+
+A doc over about 60 KB is split into an **entry page** and **pages**:
+
+- The entry page stays `docs/<NAME>.md`, so every link to it and `docs.read <name>` keep working. It says what the doc
+  covers, gives the essentials a reader needs first, and has an index of its pages, one line each, linking each by relative
+  path: `- [Input](scripting/SCRIPTING_INPUT.md): keys, actions, gamepads.`
+- Each page is `docs/<name>/<NAME>_<PART>.md` (folder = the doc's lower-case name; `docs/scripting/SCRIPTING_INPUT.md`
+  is the doc `scripting-input`). The file name starts with the doc's name so that the embedded name is unique and flat.
+  A design doc does the same under `docs/design/<name>/`.
+- The doc's **family** is its entry page plus every embedded doc in that folder. `docs.list` gives a page
+  `family` (the entry page's name). `docs.read {name:"scripting", heading:"Input"}` serves a heading that is not in the entry
+  page from the page of the family that has it (the result has `page`, `requestedName` and a `note`; two pages with it are an
+  error that lists both), so an old reference such as `docs/SCRIPTING.md, "Input"` keeps working. A read of the entry page
+  without `heading` has `pages` ([{name,title,bytes,path}]), and a cut read lists them in `contents` too.
+- `docs.read` looks for a heading in the entry page and in its pages: an exact title on the entry page wins (the result
+  lists `alsoOnPages` when a page has the same title, a longer version); otherwise an exact title on exactly one page wins;
+  a partial match in several places, or an exact title on several pages, is an error that lists them all.
+- A test (`doc_layout_problems()`, `fs_docs_test.cpp`) fails when two embedded docs share a name, when a page sits in a
+  folder without its entry page, when a page's file name does not start with its entry page's (`BIG_`), or when the entry
+  page has no Markdown link `[Title](<folder>/<FILE>.md)` to a page. The rules are the same whether the docs come from the
+  binary or from the repository; `docs/design/` is not embedded, so its names are not checked for uniqueness, but its
+  families are checked for links. A page needs a manifest entry like any doc.
 
 ## AI integration
 
