@@ -282,7 +282,7 @@ The spark, the ring and the sparkle that appear on a hit or a pickup are a sprit
 and refining it is the loop of [EFFECTS.md](EFFECTS.md), with three worked examples (an impact, a pickup, a fire loop).
 An effect made of particles, lights, sounds and these feel commands on one timeline is an effect document (`*.vfx.json`,
 [PARTICLES.md](PARTICLES.md)): its `command` parts call `feel.shake`, `feel.hitStop` and the others.
-Sky Hopper (`examples/sky-hopper`) uses it for its coins, and the shake, hit-stop, flash and squash of its stomp, hurt and jump.
+The Sky Hopper example uses it for its coins, and the shake, hit-stop, flash and squash of its stomp, hurt and jump (`examples/sky-hopper`, if you got it with `project.create {example: "sky-hopper"}`; the recipe is in this doc and in EFFECTS.md).
 
 ## Limits
 
