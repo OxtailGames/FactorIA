@@ -797,6 +797,9 @@ TEST_CASE("examples download: the packer refuses names that the unpacker refuses
     TempDir work;
     write_all(work.path / "p/factoria.json", R"({"format":"factoria.project/1"})");
     write_all(work.path / "p/ok.txt", "x");
+#ifndef _WIN32
+    // Windows cannot hold these files (con.txt is the console, ? is refused, the long path passes MAX_PATH), so only the
+    // other systems can put them in a folder to pack; the unpacker's cases above check the same names everywhere.
     SUBCASE("a Windows device name") {
         write_all(work.path / "p/con.txt", "x");
         auto r = package_example_zip(work.path / "p", work.path / "p.zip");
@@ -818,6 +821,7 @@ TEST_CASE("examples download: the packer refuses names that the unpacker refuses
         REQUIRE_FALSE(r.ok());
         CHECK(has(r.error().message, "240 bytes"));
     }
+#endif
     SUBCASE("a good folder packs and unpacks") {
         REQUIRE(package_example_zip(work.path / "p", work.path / "p.zip").ok());
         auto r = extract_example_zip(work.path / "p.zip", work.path / "out");
