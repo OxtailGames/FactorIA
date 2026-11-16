@@ -61,8 +61,14 @@ test("open, a text and a binary message, send, close", () => {
   expect(ws.send("from the game")).toBe(true);
   expect(ws.send(new Uint8Array([9, 8]))).toBe(true);
   expect(ws.send(new Uint8Array(0))).toBe(true);
+  const raw = new Uint8Array([0, 1, 2, 3, 4, 5, 6, 7]).buffer;
+  expect(ws.send(new DataView(raw, 2, 3))).toBe(true);           // a DataView sends the bytes it shows
+  expect(ws.send(new Uint16Array(raw, 2, 2))).toBe(true);        // so does a typed array with an offset
+  game.websocket.send(0, new DataView(raw, 5, 2));
   const got = game.websocket.connections()[0].received;
-  expect(got.length).toBe(3);
+  expect(got.length).toBe(5);
+  expect(Array.from(new Uint8Array(got[3]))).toEqual([2, 3, 4]);
+  expect(Array.from(new Uint8Array(got[4]))).toEqual([2, 3, 4, 5]);
   expect(got[0]).toBe("from the game");
   expect(Array.from(new Uint8Array(got[1]))).toEqual([9, 8]);
   expect(got[2].byteLength).toBe(0);
