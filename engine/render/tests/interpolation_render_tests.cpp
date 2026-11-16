@@ -4,6 +4,7 @@
 
 #include <cmath>
 
+#include "fa/scene/bounds.h"
 #include "fa/scene/interpolation.h"
 
 using namespace fa;
@@ -86,13 +87,16 @@ TEST_CASE("render interpolation: a camera under a blended parent is blended, que
     Entity cam = make(w, "cam", {0, 0, 0});
     w.add<Camera>(cam);
     w.set_parent(cam, rig);
-    Entity fixedCam = make(w, "other", {0, 0, 0});  // not used by the queries below; keeps two cameras collected
-    w.add<Camera>(fixedCam).primary = false;
+    Entity otherCam =
+        make(w, "other", {0, 0, 0});  // a second camera that is not the primary one: it must not take the queries
+    w.add<Camera>(otherCam).primary = false;
     interp_update(w, 1.0, true);
     interp_begin_step(w);
     w.get<Transform>(rig)->position.x = 40.0f;
     interp_update(w, 0.5, true);
     interp_update(w, 0.5, false);
+    REQUIRE(w.interp().pose_of(rig) !=
+            nullptr);  // the parent is blended, so the camera under it is drawn from a blended pose
     g.render(w);
     CHECK(g.renderer.world_to_screen({40, 0, 0}).x == doctest::Approx(160.0f));
 }
@@ -108,7 +112,14 @@ TEST_CASE("render interpolation: Parallax.offset follows the real camera, whatev
         s.w.add<Parallax>(layer).factor = {0.5f, 0.5f};
         g.render(s.w);
         CHECK(s.w.get<Parallax>(layer)->offset.x == doctest::Approx(20.0f));  // 40 * (1 - 0.5)
+        // entity.bounds() of the layer is moved by the same offset: a 4 x 4 sprite at the origin, centred on x = 20
+        const std::optional<Rect> box = entity_world_rect(s.w, layer);
+        REQUIRE(box.has_value());
+        CHECK(box->x + box->w * 0.5f == doctest::Approx(20.0f));
         g.renderer.update(s.w);
         CHECK(s.w.get<Parallax>(layer)->offset.x == doctest::Approx(20.0f));
+        const std::optional<Rect> again = entity_world_rect(s.w, layer);
+        REQUIRE(again.has_value());
+        CHECK(again->x + again->w * 0.5f == doctest::Approx(20.0f));
     }
 }
