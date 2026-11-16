@@ -59,14 +59,18 @@ TEST_CASE("deprecation: the version that removes something is two minors after t
 
 TEST_CASE("deprecation: the message says what, since when, what replaces it and when it goes") {
     TableGuard g(kTable);
-    const std::string cmd = deprecation_message(kDeprecatedCommands, "old.thing", *Deprecations::global().find("commands", "old.thing"));
-    CHECK(cmd == "Deprecated: command 'old.thing' (since 0.30.0) will be removed in 0.32.0. Use 'new.thing' instead. It takes the "
+    const std::string cmd =
+        deprecation_message(kDeprecatedCommands, "old.thing", *Deprecations::global().find("commands", "old.thing"));
+    CHECK(cmd == "Deprecated: command 'old.thing' (since 0.30.0) will be removed in 0.32.0. Use 'new.thing' instead. "
+                 "It takes the "
                  "same arguments.");
     const std::string field = deprecation_message(kDeprecatedComponents, "Sprite.oldField",
                                                   *Deprecations::global().find("components", "Sprite.oldField"));
-    CHECK(field.find("component field 'Sprite.oldField' (since 0.30.1) will be removed in 0.32.0. Use 'Sprite.newField'") !=
+    CHECK(field.find(
+              "component field 'Sprite.oldField' (since 0.30.1) will be removed in 0.32.0. Use 'Sprite.newField'") !=
           std::string::npos);
-    const std::string none = deprecation_message(kDeprecatedComponents, "Gone", *Deprecations::global().find("components", "Gone"));
+    const std::string none =
+        deprecation_message(kDeprecatedComponents, "Gone", *Deprecations::global().find("components", "Gone"));
     CHECK(none.find("component 'Gone'") != std::string::npos);
     CHECK(none.find("It has no replacement. Nothing replaces it") != std::string::npos);
     const std::string unreleased = deprecation_message(kDeprecatedScript, "NavAPI.oldCall",
@@ -81,6 +85,7 @@ TEST_CASE("deprecation: the message says what, since when, what replaces it and 
 
 TEST_CASE("deprecation: take_warning gives the text once per key until the warnings are reset") {
     Deprecations& d = Deprecations::global();
+    d.clear();  // no matter which test (or a tool's start-up) filled the global table before
     CHECK(d.empty());
     CHECK(d.take_warning("commands", "old.thing").empty());  // an empty table never warns
     TableGuard g(kTable);
@@ -88,7 +93,7 @@ TEST_CASE("deprecation: take_warning gives the text once per key until the warni
     CHECK(d.take_warning("commands", "other.thing").empty());  // not deprecated
     CHECK(d.take_warning("components", "old.thing").empty());  // another kind
     CHECK_FALSE(d.take_warning("commands", "old.thing").empty());
-    CHECK(d.take_warning("commands", "old.thing").empty());  // once
+    CHECK(d.take_warning("commands", "old.thing").empty());                // once
     CHECK_FALSE(d.take_warning("components", "Sprite.oldField").empty());  // each key has its own
     d.reset_warned();
     CHECK_FALSE(d.take_warning("commands", "old.thing").empty());  // a new project load warns again
@@ -122,6 +127,7 @@ TEST_CASE("deprecation: a deprecated command warns once, names the replacement a
         });
     }
     {  // nothing deprecated: no warning
+        Deprecations::global().clear();
         DeprecatedLogCapture cap;
         REQUIRE(reg.call("old.thing", Json::object()).ok);
         CHECK(cap.get().empty());
@@ -140,4 +146,42 @@ TEST_CASE("deprecation: a deprecated command warns once, names the replacement a
     CHECK(lines[0].find("command 'old.thing'") != std::string::npos);
     CHECK(lines[0].find("Use 'new.thing' instead") != std::string::npos);
     CHECK(lines[0].find("removed in 0.32.0") != std::string::npos);
+}
+
+TEST_CASE("deprecation: the lock-free pre-check never misses an entry and almost never lets another key through") {
+    Deprecations& d = Deprecations::global();
+    d.clear();
+    CHECK_FALSE(d.may_contain("commands", "old.thing"));  // an empty table: nothing may be in it
+    CHECK_FALSE(d.may_contain_component("Sprite"));
+    TableGuard g(kTable);
+    CHECK(d.may_contain("commands", "old.thing"));
+    CHECK(d.may_contain("script", "NavAPI.oldCall"));
+    CHECK(d.may_contain("components", "Gone"));
+    CHECK(
+        d.may_contain_component("Sprite"));  // "Sprite.oldField" is in the table: the component asks for the slow path
+    CHECK(d.may_contain("components", "Sprite.oldField"));
+    CHECK(d.may_contain_component("Gone"));
+    CHECK_FALSE(d.may_contain("commands", "Gone"));  // a key of another kind
+    int falsePositives = 0;
+    for (int i = 0; i < 1000; ++i) {
+        const std::string name = "Other" + std::to_string(i);
+        if (d.may_contain_component(name)) ++falsePositives;
+        if (d.may_contain("commands", "scene." + name)) ++falsePositives;
+    }
+    CHECK(falsePositives < 20);  // 2000 questions: the filter is only a shortcut, but it has to shortcut
+    // What the filter says no to, take_warning says no to without a lock; what it says yes to still gets its warning.
+    CHECK(d.take_warning("commands", "scene.Other1").empty());
+    CHECK_FALSE(d.take_warning("components", "Sprite.oldField").empty());
+
+    // Many entries: no false negative.
+    Json big = Json::object({{"commands", Json::object()}, {"components", Json::object()}});
+    for (int i = 0; i < 60; ++i) {
+        big["commands"]["area" + std::to_string(i) + ".verb"] = Json::object({{"since", "0.30.0"}, {"use", "x.y"}});
+        big["components"]["Comp" + std::to_string(i) + ".f"] = Json::object({{"since", "0.30.0"}, {"use", "Comp.g"}});
+    }
+    d.set(big);
+    for (int i = 0; i < 60; ++i) {
+        CHECK(d.may_contain("commands", "area" + std::to_string(i) + ".verb"));
+        CHECK(d.may_contain_component("Comp" + std::to_string(i)));
+    }
 }

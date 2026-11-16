@@ -209,11 +209,17 @@ std::string api_since_label(const std::string& since) {
 
 void install_deprecations(bool reload) {
     static std::once_flag once;
+    auto load = [] {
+        const Json& d = since_data();
+        Deprecations::global().set(d.contains("deprecated") ? d["deprecated"] : Json::object());
+    };
+    // The first call loads inside call_once: a second thread waits for it, so it never sees the table half way.
     bool first = false;
-    std::call_once(once, [&first] { first = true; });
-    if (!first && !reload) return;
-    const Json& d = since_data();
-    Deprecations::global().set(d.contains("deprecated") ? d["deprecated"] : Json::object());
+    std::call_once(once, [&] {
+        first = true;
+        load();
+    });
+    if (!first && reload) load();
 }
 
 Json deprecation_json(std::string_view section, std::string_view key) {

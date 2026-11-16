@@ -6,6 +6,7 @@
 #include "fa/core/deprecation.h"
 #include "fa/core/fs.h"
 #include "fa/core/json_schema.h"
+#include "fa/core/log.h"
 #include "fa/scene/serialize.h"
 
 using namespace fa;
@@ -843,4 +844,27 @@ TEST_CASE("scene: a deprecated field warns once with its replacement and still l
     Deprecations::global().reset_warned();
     World third;
     CHECK(has_message(load_scene(third, Json::parse(scene), "t.scene.json"), kWarn, "Sprite.flipX"));
+}
+
+// patch_component (scene.set_component, a script's entity.add and entity.set) does not return the load report: the deprecation
+// warning it takes from the once-per-process table goes to the log, or it would be used up unseen.
+TEST_CASE("scene: patching a deprecated field logs the warning once and still applies the value") {
+    Deprecations::global().set(Json::parse(R"({"components": {
+        "Sprite.flipX": {"since": "0.30.0", "use": "Sprite.flipY", "note": ""}}})"));
+    struct Clear {
+        ~Clear() { Deprecations::global().clear(); }
+    } clear;
+    std::vector<std::string> lines;
+    const int sink = add_log_sink([&lines](const LogEntry& e) {
+        if (e.category == "deprecated") lines.push_back(e.message);
+    });
+    World w;
+    Entity e = w.create("e", "e");
+    CHECK(patch_component(w, e, World::type_of<Sprite>(), Json::parse(R"({"flipX":true})")).ok());
+    CHECK(patch_component(w, e, World::type_of<Sprite>(), Json::parse(R"({"flipX":false})")).ok());
+    remove_log_sink(sink);
+    CHECK(w.get<Sprite>(e)->flipX == false);
+    REQUIRE(lines.size() == 1);
+    CHECK(lines[0].find("component field 'Sprite.flipX'") != std::string::npos);
+    CHECK(lines[0].find("Use 'Sprite.flipY' instead") != std::string::npos);
 }
