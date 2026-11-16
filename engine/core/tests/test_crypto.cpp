@@ -102,9 +102,9 @@ TEST_CASE("crypto: HKDF-SHA256, RFC 5869 test cases") {
     for (int i = 0xb0; i <= 0xff; ++i) info.push_back(std::uint8_t(i));
     auto b = hkdf_sha256(ikm, salt, info, 82);
     REQUIRE(b);
-    CHECK(hex(*b) == "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c59045a99cac7827271cb41c65e590e09d"
-                     "a3275600c2f09b836"
-                     "7793a9aca3db71cc30c58179ec3e87c14c01d5c1f3434f1d87");
+    CHECK(hex(*b) == "b11e398dc80327a1c8e7f78c596a49344f012eda2d4efad8a050cc4c19afa97c"
+                     "59045a99cac7827271cb41c65e590e09da3275600c2f09b8367793a9aca3db71"
+                     "cc30c58179ec3e87c14c01d5c1f3434f1d87");
 
     auto c = hkdf_sha256(repeat(0x0b, 22), {}, {}, 42);  // no salt, no info
     REQUIRE(c);
@@ -129,19 +129,18 @@ TEST_CASE("crypto: key_from_secret is stable and separates contexts") {
 TEST_CASE("crypto: ChaCha20 block function, RFC 8439 section 2.3.2") {
     std::uint8_t out[64];
     crypto::detail::chacha20_block(counting_key(0), 1, nonce_of(unhex("000000090000004a00000000")), out);
-    CHECK(hex(ByteView(out, 64)) == "10f1e7e4d13b5915500fdd1fa32071c4c7d1f4c733c068030422aa9ac3d46c4ed2826446079faa0914"
-                                    "c2d705d98b02a2b5129cd1de164eb9cb"
-                                    "d083e8a2503c4e");
+    CHECK(hex(ByteView(out, 64)) == "10f1e7e4d13b5915500fdd1fa32071c4c7d1f4c733c068030422aa9ac3d46c4e"
+                                    "d2826446079faa0914c2d705d98b02a2b5129cd1de164eb9cbd083e8a2503c4e");
 }
 
 TEST_CASE("crypto: ChaCha20 encryption, RFC 8439 section 2.4.2") {
     const Bytes pt = text(kSunscreen);
     Bytes ct(pt.size());
     crypto::detail::chacha20_xor(counting_key(0), 1, nonce_of(unhex("000000000000004a00000000")), pt, ct.data());
-    CHECK(hex(ct) == "6e2e359a2568f98041ba0728dd0d6981e97e7aec1d4360c20a27afccfd9fae0bf91b65c5524733ab8f593dabcd62b3571"
-                     "639d624e65152ab8f"
-                     "530c359f0861d807ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab77937365af90bbf74a35be6b40"
-                     "b8eedf2785e42874d");
+    CHECK(hex(ct) == "6e2e359a2568f98041ba0728dd0d6981e97e7aec1d4360c20a27afccfd9fae0b"
+                     "f91b65c5524733ab8f593dabcd62b3571639d624e65152ab8f530c359f0861d8"
+                     "07ca0dbf500d6a6156a38e088a22b65e52bc514d16ccf806818ce91ab7793736"
+                     "5af90bbf74a35be6b40b8eedf2785e42874d");
     // Decryption is the same operation, in place.
     crypto::detail::chacha20_xor(counting_key(0), 1, nonce_of(unhex("000000000000004a00000000")), ct, ct.data());
     CHECK(ct == pt);
@@ -171,10 +170,10 @@ TEST_CASE("crypto: ChaCha20-Poly1305 AEAD, RFC 8439 section 2.8.2") {
     const Nonce nonce = nonce_of(unhex("070000004041424344454647"));
     const Bytes aad = unhex("50515253c0c1c2c3c4c5c6c7");
     const Bytes pt = text(kSunscreen);
-    const std::string expectedCt = "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d63dbea45e8ca9671282f"
-                                   "afb69da92728b1a71de0a9e060b2905"
-                                   "d6a5b67ecd3b3692ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc3ff4d"
-                                   "ef08e4b7a9de576d26586cec64b6116";
+    const std::string expectedCt = "d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d6"
+                                   "3dbea45e8ca9671282fafb69da92728b1a71de0a9e060b2905d6a5b67ecd3b36"
+                                   "92ddbd7f2d778b8c9803aee328091b58fab324e4fad675945585808b4831d7bc"
+                                   "3ff4def08e4b7a9de576d26586cec64b6116";
     const std::string expectedTag = "1ae10b594f09e26a7e902ecbd0600691";
 
     auto sealed = aead_seal(key, nonce, aad, pt);

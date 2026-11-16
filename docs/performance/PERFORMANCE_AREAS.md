@@ -61,12 +61,15 @@ Advice for phones, tablets and the web (fill-rate bound GPUs):
 128-byte record each (three transforms and a few flags, in a dense list, plus 4 bytes per entity slot to find it), one pass
 before each fixed step and two per frame (after the steps, and before drawing, which finds what scripts moved), each reading
 the Transform of every entity when the project interpolates by default, and only of those with an `Interpolation` component
-when it does not (a scene of 20000 entities with five opted in costs five reads), and a blended local pose per moving entity when its matrix is built. The work on records is proportional to the interpolated
-entities. With the setting off (the default) and no `Interpolation` component there is no pass and `drawn_matrix` is what it was.
-Measured with `fa_bench --filter interpolation.` (Release, Apple silicon, CPU time): 20000 interpolated entities, every one moved by a step each frame, take about 0.29 microseconds per entity and frame in total (the passes, the move and the draw matrix of each entity), so about 5.8 ms for 20000 and well under 0.1 ms for the few hundred moving entities of a typical scene. Put `Interpolation` mode `"off"` on
-what never moves smoothly (static scenery in a project that turned it on costs no blend: a pose is only blended when a step
-moved it, but the pass still reads its Transform; in a project that leaves the default off, scenery with no component is not read
-at all).
+when it does not (a scene of 20000 entities with five opted in costs five reads), and a blended local pose per moving entity
+when its matrix is built. The work on records is proportional to the interpolated entities. With the setting off (the
+default) and no `Interpolation` component there is no pass and `drawn_matrix` is what it was. Measured with `fa_bench
+--filter interpolation.` (Release, Apple silicon, CPU time): 20000 interpolated entities, every one moved by a step each
+frame, take about 0.29 microseconds per entity and frame in total (the passes, the move and the draw matrix of each entity),
+so about 5.8 ms for 20000 and well under 0.1 ms for the few hundred moving entities of a typical scene. Put `Interpolation`
+mode `"off"` on what never moves smoothly (static scenery in a project that turned it on costs no blend: a pose is only
+blended when a step moved it, but the pass still reads its Transform; in a project that leaves the default off, scenery with
+no component is not read at all).
 
 ## Path finding on tile maps
 

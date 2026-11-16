@@ -1121,7 +1121,7 @@ TEST_CASE("fs: factoria.json with CRLF line endings keeps its real secret and it
     std::string expected = text;
     expected.replace(expected.find("\"T\""), 3, "\"U\"");
     CHECK(testing::read_all(f.tmp.path / "factoria.json") == expected);
-    // a write of the text fs.read showed (its lines end in "\n" there) still keeps the secret
+    // a write of the text fs.read showed (its lines end in "\r\n" there: fs.read keeps the \r) still keeps the secret
     REQUIRE(f.reg.call("fs.write", {{"path", "factoria.json"}, {"content", content}}).ok);
     const std::string written = testing::read_all(f.tmp.path / "factoria.json");
     CHECK(written.find(secret) != std::string::npos);
