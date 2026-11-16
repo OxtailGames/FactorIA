@@ -1,5 +1,5 @@
-// The layout places a child with World::ui_layout_offset and leaves Transform.position to the author (ui_rect.h, "Where a
-// laid-out child is").
+// The layout places a child with World::ui_layout_offset and leaves Transform.position to the author (ui_rect.h,
+// "Where a laid-out child is").
 #include <doctest.h>
 
 #include <cmath>
@@ -142,7 +142,8 @@ TEST_CASE("ui layout offset: rotation and scale of 6e compose with the offset in
     const Entity c = t.button("c", {0, 0}, {20, 20}, p);
     t.w.get<Transform>(p)->rotation = {0, 0, 90};
     t.frame(2);
-    // layout space: the slot is (110, 60) .. (130, 80); a quarter turn clockwise about (100, 50) puts it at x 70..90, y 60..80
+    // layout space: the slot is (110, 60) .. (130, 80); a quarter turn clockwise about (100, 50) puts it at
+    // x 70..90, y 60..80
     const Rect r = *ui_rect(t.w, c, t.design);
     CHECK(r.x == doctest::Approx(70.0f).epsilon(0.001));
     CHECK(r.y == doctest::Approx(60.0f).epsilon(0.001));
@@ -150,7 +151,8 @@ TEST_CASE("ui layout offset: rotation and scale of 6e compose with the offset in
     CHECK(position(t, p) == Vec3{100, 50, 0});
     CHECK(*ui_layout_rect(t.w, c, t.design) == Rect{110, 60, 20, 20});
     CHECK(ui_layout_translation(t.w, c).x == doctest::Approx(110));
-    // the author's offset is added in layout space, before the panel's turn: 10 right in layout space is 10 down on screen
+    // the author's offset is added in layout space, before the panel's turn: 10 right in layout space is 10 down on
+    // screen
     t.w.get<Transform>(c)->position = {10, 0, 0};
     t.frame(2);
     const Rect nudged = *ui_rect(t.w, c, t.design);
@@ -166,7 +168,8 @@ TEST_CASE("ui layout offset: rotation and scale of 6e compose with the offset in
     CHECK(position(t, c) == Vec3{0, 0, 0});
 }
 
-TEST_CASE("ui layout offset: a right-to-left panel and a mirrored screen place by offset, and the position nudges the mirror image") {
+TEST_CASE("ui layout offset: a right-to-left panel and a mirrored screen place by offset, and the position nudges the "
+          "mirror image") {
     Ui t;
     const Column c = column(t);
     t.w.get<Panel>(c.panel)->direction = UiDirection::Rtl;
@@ -222,10 +225,12 @@ TEST_CASE("ui layout offset: the scene file holds the author's position only, an
     CHECK(save_scene(u.w) == saved);  // saving again does not bake what the layout did
 }
 
-TEST_CASE("ui layout offset: a scene saved before 0.30 (positions baked by the layout) is migrated by reset_baked_positions") {
+TEST_CASE("ui layout offset: a scene saved before 0.30 (positions baked by the layout) is migrated by "
+          "reset_baked_positions") {
     Json old;
     {
-        // What the old engine saved: the column of `column()` with every child's position holding the delta it was moved by.
+        // What the old engine saved: the column of `column()` with every child's position holding the delta it was
+        // moved by.
         Ui t;
         const Column c = column(t);
         t.frame(2);
@@ -249,4 +254,66 @@ TEST_CASE("ui layout offset: a scene saved before 0.30 (positions baked by the l
     u.w.get<Transform>(b)->position = {3, 2, 0};
     CHECK(u.ui.reset_baked_positions(u.w).empty());
     CHECK(position(u, b) == Vec3{3, 2, 0});
+}
+
+TEST_CASE(
+    "ui layout offset: set_parent keepWorld out of a Panel keeps the world place at once and after the next layout") {
+    Ui t;
+    const Column c = column(t);
+    t.ui.layout(t.w, t.design, {});
+    const Vec3 before = t.w.world_position(c.b);  // (110, 90): the slot
+    REQUIRE(before.x == doctest::Approx(110));
+    REQUIRE(before.y == doctest::Approx(90));
+    const Entity plain = t.w.create("plain", "plain");
+    t.w.get<Transform>(plain)->position = {300, 10, 0};
+    t.w.set_parent(c.b, plain, true);
+    // the placement belonged to the old parent: the offset is gone, the whole place is in Transform.position
+    CHECK(t.w.ui_layout_offset(c.b).x == 0.0f);
+    CHECK(t.w.world_position(c.b).x == doctest::Approx(before.x));
+    CHECK(t.w.world_position(c.b).y == doctest::Approx(before.y));
+    CHECK(position(t, c.b).x == doctest::Approx(-190));
+    CHECK(position(t, c.b).y == doctest::Approx(80));
+    for (int i = 0; i < 3; ++i) t.ui.layout(t.w, t.design, {});
+    CHECK(t.w.world_position(c.b).x == doctest::Approx(before.x));  // nobody places it: it does not jump
+    CHECK(t.w.world_position(c.b).y == doctest::Approx(before.y));
+    CHECK(t.w.ui_layout_offset_entities().size() == 1);  // only a is still laid out
+
+    // without keepWorld the position stays the author's offset and the old placement is dropped too
+    Ui u;
+    const Column d = column(u);
+    u.ui.layout(u.w, u.design, {});
+    const Entity free = u.w.create("free", "free");
+    u.w.get<Transform>(free)->position = {300, 10, 0};
+    u.w.set_parent(d.b, free);
+    CHECK(u.w.ui_layout_offset(d.b).x == 0.0f);
+    CHECK(u.w.world_position(d.b).x == doctest::Approx(300));
+    CHECK(position(u, d.b) == Vec3{0, 0, 0});
+}
+
+TEST_CASE("ui layout offset: set_parent keepWorld into another Panel lands in the slot plus the nudge that keeps the "
+          "world place") {
+    Ui t;
+    const Column c = column(t);
+    const Entity q = t.add<Panel>("q", {10, 100}, {200, 100});
+    Panel& qp = *t.w.get<Panel>(q);
+    qp.layout = UiLayout::Column;
+    qp.padding = {10, 10, 10, 10};
+    qp.align = UiAlign::Start;
+    t.ui.layout(t.w, t.design, {});
+    const Vec3 before = t.w.world_position(c.b);  // (110, 90)
+    t.w.set_parent(c.b, q, true);
+    CHECK(t.w.world_position(c.b).x == doctest::Approx(before.x));
+    CHECK(t.w.world_position(c.b).y == doctest::Approx(before.y));
+    for (int i = 0; i < 3; ++i) t.ui.layout(t.w, t.design, {});
+    // The choice: keepWorld keeps the Transform meaning, so the child's position is its place relative to the new
+    // parent
+    // (110 - 10, 90 - 100) and becomes the nudge from the new slot (q's top-left + padding = (20, 110)).
+    CHECK(position(t, c.b).x == doctest::Approx(100));
+    CHECK(position(t, c.b).y == doctest::Approx(-10));
+    CHECK(t.rect(c.b) == Rect{120, 100, 60, 30});
+    CHECK(t.rect(c.a) == Rect{110, 60, 100, 20});  // a, alone in its Panel, is in its slot
+    // clearing the nudge puts it exactly in the new slot
+    t.w.get<Transform>(c.b)->position = {0, 0, 0};
+    t.ui.layout(t.w, t.design, {});
+    CHECK(t.rect(c.b) == Rect{20, 110, 60, 30});
 }
