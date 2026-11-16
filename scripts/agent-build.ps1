@@ -63,8 +63,9 @@ $script:SlotStream = $null
 
 function Get-SlotsDir {
     if ($env:FA_AGENT_SLOTS_DIR) {
-        if ([IO.Path]::IsPathRooted($env:FA_AGENT_SLOTS_DIR)) { return $env:FA_AGENT_SLOTS_DIR }
-        return [IO.Path]::GetFullPath((Join-Path $root $env:FA_AGENT_SLOTS_DIR))   # relative: to the repository root
+        # Rooted (C:\x, \x, C:x) or relative (taken from the repository root), always normalized.
+        if ([IO.Path]::IsPathRooted($env:FA_AGENT_SLOTS_DIR)) { return [IO.Path]::GetFullPath($env:FA_AGENT_SLOTS_DIR) }
+        return [IO.Path]::GetFullPath((Join-Path $root $env:FA_AGENT_SLOTS_DIR))
     }
     $base = $env:LOCALAPPDATA
     if (-not $base) { $base = Join-Path $HOME '.cache' }
@@ -86,13 +87,27 @@ function Test-SlotHeld($Err) {
     return ($PSVersionTable.PSEdition -eq 'Core' -and -not $IsWindows -and $code -in 11, 35)
 }
 
-# The build dir named by the holder of a slot ('?' when it cannot be read).
+# A path relative to the repository root when it is inside it (like agent-build.sh shows the build dirs), else the
+# absolute path. Both are normalized first: forward slashes, `..`, a drive root as the repository root.
+function Get-ShownPath([string]$Path) {
+    try {
+        $full = [IO.Path]::GetFullPath($Path)
+        $prefix = [IO.Path]::GetFullPath($root).TrimEnd('\', '/') + [IO.Path]::DirectorySeparatorChar
+        if ($full.StartsWith($prefix, [StringComparison]::OrdinalIgnoreCase) -and $full.Length -gt $prefix.Length) {
+            return $full.Substring($prefix.Length)
+        }
+        return $full
+    } catch { return $Path }
+}
+
+# The build dir named by the holder of a slot, as the waiter shows it ('?' when it cannot be read). The holder writes it
+# absolute: the waiter may be in another checkout.
 function Read-SlotOwner([string]$Path) {
     try {
         $reader = New-Object System.IO.FileStream($Path, [IO.FileMode]::Open, [IO.FileAccess]::Read, [IO.FileShare]::ReadWrite)
         try {
             $lines = @((New-Object System.IO.StreamReader($reader, [Text.Encoding]::UTF8)).ReadToEnd() -split "`r?`n")
-            if ($lines.Count -ge 2 -and $lines[1]) { return $lines[1] }
+            if ($lines.Count -ge 2 -and $lines[1]) { return (Get-ShownPath $lines[1]) }
         } finally { $reader.Dispose() }
     } catch { }
     return '?'
@@ -292,10 +307,7 @@ function Invoke-AgentJob {
     if ($Examples) { Invoke-ExampleTests }
 }
 
-# The build dir the jobs that wait are shown, relative to the repository root like agent-build.sh does.
-$shownDir = $BuildDir
-if ($BuildDir.StartsWith("$root\", [StringComparison]::OrdinalIgnoreCase)) { $shownDir = $BuildDir.Substring($root.Length + 1) }
-Enter-BuildSlot $shownDir
+Enter-BuildSlot ([IO.Path]::GetFullPath($BuildDir))   # the absolute build dir names this job to the ones that wait
 try {
     Invoke-AgentJob
 } finally {
