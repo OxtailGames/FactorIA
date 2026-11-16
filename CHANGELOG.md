@@ -8,6 +8,11 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ### Added
 
+- `fa/core/crypto.h`: authenticated encryption for save files, written in the engine with no new dependency: SHA-256 as raw bytes,
+  HMAC-SHA256, HKDF-SHA256, ChaCha20-Poly1305 (RFC 8439, checked against the RFC vectors), `seal_blob` / `open_blob` (a file
+  format with a random salt and nonce per seal; a changed byte, a wrong key or a wrong slot name fails with "the data was
+  changed or the key is wrong" and no data), a constant-time compare, `secure_zero`, and `random_bytes` from the system's random
+  source on every platform. The save slots (M98.1b) use it; it keeps casual edits out, it is not copy protection.
 - `websocket.connect(url, options)` for game scripts: WebSocket connections to the hosts `factoria.json` `network.hosts` declares (the
   same list, errors and `did you mean` as `http.fetch`), with `on`/`off`/`send`/`close`, text and binary messages, subprotocols,
   headers, and reconnects with exponential backoff and a jitter that is the same on every run. A scene change closes the
