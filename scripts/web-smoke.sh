@@ -126,7 +126,8 @@ set +e
 node "$here/platforms/web/smoke.mjs" "$dir" --timeout 90 --screenshot "$work/web-smoke.png" \
     --type hello --expect "smoke text: " --also "FA_DET_HASH " --also "smoke ws: open smoke.v1" --also "smoke ws: text hello" \
     --also "smoke ws: binary 1,2,3" --also "smoke ws: close 3001 true" \
-    --also "smoke ws: closed port error" --also "smoke ws: closed port close 1006 false" 2>&1 | tee "$work/console.log"
+    --also "smoke ws: closed port error" --also "smoke ws: closed port close 1006 false" \
+    --allow-log "WebSocket connection to 'ws://127.0.0.1:$deadport/' failed" 2>&1 | tee "$work/console.log"
 smoke_status="${PIPESTATUS[0]}"
 set -e
 "$here/scripts/det-hash-check.sh" "$work/console.log" || smoke_status=1
