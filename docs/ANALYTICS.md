@@ -39,7 +39,7 @@ requests are plain `http.fetch` calls.
 | `batch` | Events that make a batch go out at once, 1 to 100. Default 20. |
 | `flushSeconds` | The longest an event waits in the queue, 1 to 3600 (engine seconds). Default 30. Also the first wait after a failure. |
 | `timeoutSeconds` | Seconds one request may take, 0.5 to 120. Default 10. |
-| `consentFromAds` | `true`: until the player answers the analytics question, [the ad consent](PLATFORM.md#children-and-consent) decides ([section 2](#2-consent)). Default `false`. |
+| `consentFromAds` | `true`: until the player answers the analytics question, [the ad consent](platform/PLATFORM_ADS.md#children-and-consent) decides ([section 2](#2-consent)). Default `false`. |
 
 | `remoteConfig` field | Meaning |
 |---|---|

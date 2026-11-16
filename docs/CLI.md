@@ -80,22 +80,22 @@ warnings. A `.gltf`/`.glb` whose texture or buffer file is missing is an error (
 Packages the game (linux/windows/macos bundle, Android APK or AAB, iOS project, `--platform web`: a page, the web player and `game.pak` plus a zip for itch.io). Without `--platform` the
 current machine's platform is used; `--out` is the parent folder (default `<project>/build/export`); the export is written to `<out>/<slug>-<platform>/`,
 which is replaced only when it is empty or an earlier export wrote it (it holds `.factoria-export`): any other folder of
-that name is an error, never deleted ([EXPORTING.md](EXPORTING.md#replacing-an-earlier-export)).
+that name is an error, never deleted ([EXPORTING.md](exporting/EXPORTING_CONTENTS.md#replacing-an-earlier-export)).
 The exported game (and `factoria_player <game folder>`) takes `--frames N`: draw N frames, then exit 0, or 1 after a script error (a smoke test for CI, [EXPORTING.md](EXPORTING.md#ci-for-your-game)). With `--frames N` it also takes `--input <replay>`, `--dump-state <file>` and `--screenshot <file>`: a headless run like `factoria run --headless`, so a shipped build can be checked against the editor's ([EXPORTING.md](EXPORTING.md#checking-an-exported-build)).
 
-`--single-file` (web only) writes ONE html page with the player, the wasm and the game inlined, that opens from a double click; it is refused over `--single-file-max-mb` megabytes (default 64, 1 to 256, a fraction such as 1.5 is fine) or with a threaded web player ([EXPORTING.md](EXPORTING.md#one-html-file-singlefile)). `--player` selects the `factoria_player` binary to bundle (web: the folder with `factoria_player.js` and `.wasm`). Android/iOS exports are `prebuilt` (the ready-made `mobile/`
+`--single-file` (web only) writes ONE html page with the player, the wasm and the game inlined, that opens from a double click; it is refused over `--single-file-max-mb` megabytes (default 64, 1 to 256, a fraction such as 1.5 is fine) or with a threaded web player ([EXPORTING.md](exporting/EXPORTING_WEB.md#one-html-file-singlefile)). `--player` selects the `factoria_player` binary to bundle (web: the folder with `factoria_player.js` and `.wasm`). Android/iOS exports are `prebuilt` (the ready-made `mobile/`
 folder next to `factoria`, or `--mobile-dir`) or `source` (`--engine-root`, `$FACTORIA_ENGINE_DIR`, or the checkout a
 development build came from); the mode is printed and reported as `mode`, and the rule is in [EXPORTING.md](EXPORTING.md).
-A desktop export checks that the `factoria_player` comes from the same build as `factoria` and stops with an error naming both builds when it does not; `--allow-player-mismatch` bundles it anyway ([EXPORTING.md](EXPORTING.md#desktop-linux-windows-macos)). `--allow-missing-plugins` exports without the native plugins whose build for that platform is missing and lists them ([EXPORTING.md](EXPORTING.md#desktop-linux-windows-macos)).
+A desktop export checks that the `factoria_player` comes from the same build as `factoria` and stops with an error naming both builds when it does not; `--allow-player-mismatch` bundles it anyway ([EXPORTING.md](exporting/EXPORTING_DESKTOP.md#desktop-linux-windows-macos)). `--allow-missing-plugins` exports without the native plugins whose build for that platform is missing and lists them ([EXPORTING.md](exporting/EXPORTING_DESKTOP.md#desktop-linux-windows-macos)).
 Android builds the app itself with the Gradle wrapper it writes into the project: `--format apk` (default), `aab` (the
 Google Play bundle) or `gradle` (only the project; no JDK or SDK needed), `--release` for the signed release build (without a keystore it fails; `--allow-debug-key` signs with the debug key for tests on your own device); Gradle's
-output scrolls on stderr (not with `--json`) and is kept in `build.log` of the export (see [EXPORTING.md](EXPORTING.md#android)).
+output scrolls on stderr (not with `--json`) and is kept in `build.log` of the export (see [EXPORTING.md](exporting/EXPORTING_MOBILE.md#android)).
 `--release` on linux, windows and macos puts the whole game in one `game.pak` next to the executable instead of a `game/` folder, with the
-scripts compiled to bytecode unless `export.scriptBytecode` is `false` in `factoria.json` ([EXPORTING.md](EXPORTING.md#release-build-gamepak)),
-each file compressed with its type's codec and the files in the order play sessions first read them (`export.pack`, [EXPORTING.md](EXPORTING.md#compression-and-pack-order)).
+scripts compiled to bytecode unless `export.scriptBytecode` is `false` in `factoria.json` ([EXPORTING.md](exporting/EXPORTING_DESKTOP.md#release-build-gamepak)),
+each file compressed with its type's codec and the files in the order play sessions first read them (`export.pack`, [EXPORTING.md](exporting/EXPORTING_DESKTOP.md#compression-and-pack-order)).
 Linux: `--format appimage` also builds `<slug>-x86_64.AppImage`, the game as one file (Linux x86_64 or WSL, after
-`factoria setup appimage`; see [EXPORTING.md](EXPORTING.md#linux-appimage)). On a Mac, `factoria call sign.macos` signs and
-notarizes the exported app ([EXPORTING.md](EXPORTING.md#signing-and-notarizing-for-macos)), and
+`factoria setup appimage`; see [EXPORTING.md](exporting/EXPORTING_DESKTOP.md#linux-appimage)). On a Mac, `factoria call sign.macos` signs and
+notarizes the exported app ([EXPORTING.md](exporting/EXPORTING_DESKTOP.md#signing-and-notarizing-for-macos)), and
 `factoria call project.new_ci_workflow` writes a GitHub Actions workflow for the game ([EXPORTING.md](EXPORTING.md#ci-for-your-game)).
 Prints the output folder, the built file, warnings and the next steps. The command `project.export` (`platform`, `format`,
 `out`, `release`, `dryRun`) does the same for MCP clients and `factoria call`, and the editor's Export Game item in the menu bar for people; see
@@ -103,7 +103,7 @@ Prints the output folder, the built file, warnings and the next steps. The comma
 
 Uploading a build to a store has no flags of its own: the commands `publish.steam`, `publish.itch`, `publish.epic`,
 `publish.gog` (desktop exports), `publish.appstore` and `publish.googleplay` (the iOS `.ipa` and the Android `.aab`) run the store's
-uploader (`factoria call publish.itch '{"dryRun":true}'`); see [Uploading to stores](EXPORTING.md#uploading-to-stores).
+uploader (`factoria call publish.itch '{"dryRun":true}'`); see [Uploading to stores](exporting/EXPORTING_STORES.md#uploading-to-stores).
 
 ### `factoria editor [project]`
 Opens the visual editor (only in builds with the editor). It is AI-first: the viewport, the AI Assistant chat, the Console and View > Audio
@@ -141,7 +141,7 @@ installs again even when something is found.
 Progress goes to stderr; `--json` prints the report (status: components with `state`, `problems`, `licenses`). Every download is
 checked against its publisher's checksum. Details, what is trusted and what an AI may do (`setup.status` checks; `setup.install` is the
 user's call and an AI gets `capability_denied`):
-[EXPORTING.md](EXPORTING.md#setting-up-this-computer).
+[EXPORTING.md](exporting/EXPORTING_SETUP.md#setting-up-this-computer).
 ```
 factoria setup
 factoria setup android

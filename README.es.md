@@ -207,7 +207,7 @@ gratuitos o comerciales, siempre que el aviso de copyright y la licencia acompa�
 - **Tus juegos son tuyos.** Los archivos que `factoria new` pone en un proyecto son [MIT-0](templates/LICENSE) (no
   hace falta ningún aviso). Un juego exportado contiene el runtime de FactorIA, así que `factoria export` escribe
   `FACTORIA_NOTICES.txt` con las licencias del motor y del código de terceros que lleva dentro; inclúyelo en lo que
-  distribuyas ([docs/EXPORTING.md](docs/EXPORTING.md#license-notices), en inglés).
+  distribuyas ([docs/EXPORTING.md](docs/exporting/EXPORTING_CONTENTS.md#license-notices), en inglés).
 - **Código de terceros**: lo que hay en `external/` mantiene su propia licencia ([external/VERSIONS.md](external/VERSIONS.md);
   todas MIT, zlib o dominio público). `factoria docs licenses` muestra todos los avisos; las descargas los incluyen
   en `THIRD_PARTY_NOTICES.txt`.
