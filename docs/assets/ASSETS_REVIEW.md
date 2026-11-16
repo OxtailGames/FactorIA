@@ -301,7 +301,7 @@ with a JSON pointer and a suggestion.
 ```
 
 Run it with `factoria call assets.draw_icon @tools/icon.json` (keep the JSON in the project) and look at the PNGs.
-The Lantern Keep example draws a lantern this way (`examples/lantern-keep/tools/icon.json`, if you got it with `project.create {example: "lantern-keep"}`); the JSON above is the whole recipe.
+The Lantern Keep example draws a lantern this way (`examples/lantern-keep/tools/icon.json`, if you got it with `project.create {example: "lantern-keep"}`); the format above is all you need to draw your own (the example's is a lantern of 16 layers).
 
 ### Store page images without a provider: assets.draw_capsules
 

@@ -15,9 +15,15 @@
 // - No heading repeats inside one doc (two anchors with the same text: a link or docs.read picks the first).
 // - Translations record the English text they follow (a hash of it) and say so when they are behind.
 //
+// Not scanned for citations: README.md, README.es.md, feedback/ and examples/ (their texts cite docs by link, and a wrong one
+// is a link the structure test checks). A citation may name a heading or the bold lead of a paragraph ("**Planted feet.**");
+// any bold lead of a page satisfies it, so a generic label ("**Note.**") would too: name a heading where there is one.
+// No heading repeats inside a doc, whatever its level (docs/design/EXTENDING_CHECKLISTS.md, "Documentation").
+//
 // The link check (every `[..](x.md#anchor)` resolves) and the size budget are in docs_structure_test.cpp.
 #include <doctest.h>
 
+#include <chrono>
 #include <cstring>
 #include <deque>
 #include <functional>
@@ -180,7 +186,8 @@ const std::map<std::string, std::vector<Heading>>& doc_headings() {
     return all;
 }
 
-// The pages of an entry page: docs/<topic>/X_*.md for docs/X.md (docs/design/X_*.md for docs/design/X.md).
+// The pages of an entry page: docs/<topic>/X_*.md for docs/X.md (docs/design/X_*.md for docs/design/X.md). The prefix X_
+// is the whole rule: a future docs/AI.md would adopt AI_GUIDE_*.md, AI_COSTS_*.md and AI_PROVIDERS_*.md as its pages.
 std::vector<std::string> pages_of(const std::string& entryRel) {
     std::vector<std::string> out;
     const std::string name = stdfs::path(entryRel).filename().generic_string();
@@ -269,10 +276,26 @@ Flat flatten(const std::string& src) {
     return f;
 }
 
+// True when text[pos..] (after spaces) starts a JSON value: { [ " a digit or - , or true / false / null as a whole word.
+bool starts_json_value(const std::string& text, size_t pos) {
+    while (pos < text.size() && text[pos] == ' ') ++pos;
+    if (pos >= text.size()) return false;
+    const char c = text[pos];
+    if (c == '{' || c == '[' || c == '"' || c == '-' || std::isdigit(static_cast<unsigned char>(c))) return true;
+    for (const char* w : {"true", "false", "null"}) {
+        const size_t n = std::strlen(w);
+        if (text.compare(pos, n, w) == 0 &&
+            (pos + n >= text.size() || !std::isalpha(static_cast<unsigned char>(text[pos + n]))))
+            return true;
+    }
+    return false;
+}
+
 // `X.md, "Section"`, `X.md "Section"`, `X.md, \"Section\"` (in a string literal), `X.md`, "Section" (backticks),
 // [X.md](X.md), "Section" (a link), the same split across two lines, and the "and"/"or" lists of sections after the
 // first one.
-std::vector<Citation> citations_of(const std::string& source) {
+// `json`: the source is a .json file, where `"X.md", "key": value` is a key, not a citation with a colon after it.
+std::vector<Citation> citations_of(const std::string& source, bool json = false) {
     const Flat flat = flatten(source);
     const std::string& text = flat.text;
     std::vector<Citation> out;
@@ -285,6 +308,10 @@ std::vector<Citation> citations_of(const std::string& source) {
         const std::string path = text.substr(b, i + 3 - b);
         if (path.size() < 4 || path[0] == '.' || path[0] == '/') continue;  // a URL's path or a file name
         const int line = flat.lineOf[i];
+        // `[text](y.md "Title")`: a link with a title, not a citation
+        if (b >= 2 && text[b - 1] == '(' && text[b - 2] == ']' && i + 4 < text.size() && text[i + 3] == ' ' &&
+            text[i + 4] == '"')
+            continue;
         size_t j = i + 3;
         if (j < text.size() && text[j] == '`') ++j;
         if (j + 1 < text.size() && text[j] == ']' && text[j + 1] == '(') {  // [X.md](target)
@@ -313,7 +340,11 @@ std::vector<Citation> citations_of(const std::string& source) {
             while (e < text.size() && text[e] != '"' && e - q < 90) ++e;
             if (e >= text.size() || text[e] != '"') break;
             const size_t close = e;
-            if (close + 1 < text.size() && text[close + 1] == ':') break;  // a JSON key on the next line, not a title
+            // A JSON key, not a title: in a .json file, in JSON written inside a string literal, or a colon followed by
+            // a JSON value (`"text": {`). `X.md, "Title": what it says` in a doc or a comment is a citation.
+            if (close + 1 < text.size() && text[close + 1] == ':' &&
+                (json || (q >= 2 && text[q - 2] == '\\') || starts_json_value(text, close + 2)))
+                break;
             std::string section = text.substr(q, close - q);
             if (!section.empty() && section.back() == '\\') section.pop_back();
             // A quote that closes a string literal before the name ("x", "docs/X.md", ...) or opens a literal that goes
@@ -356,7 +387,8 @@ TEST_CASE("docs: every citation 'X.md, \"Section\"' names a section of that doc,
     int checked = 0;
     for (const Source& src : citing_sources()) {
         if (src.rel == "tools/common/tests/docs_links_test.cpp") continue;  // its examples of a citation
-        for (const Citation& c : citations_of(src.text)) {
+        for (const Citation& c :
+             citations_of(src.text, src.rel.size() > 5 && src.rel.compare(src.rel.size() - 5, 5, ".json") == 0)) {
             bool missing = false;
             const std::string doc = cited_doc(c.path, missing);
             if (doc.empty()) continue;
@@ -424,6 +456,18 @@ TEST_CASE("docs: the citation scanner reads what the docs and the source write")
     CHECK(w[3].section == "Split path");
     CHECK(w[3].line == 2);
     CHECK(w[4].section == "A title that breaks");
+    // `X.md, "Title": explanation` is a citation (the colon does not hide it); a JSON key after one is not
+    const std::vector<Citation> colon = citations_of("see ANIMATION.md, \"Tweens\": the steps.\n");
+    REQUIRE(colon.size() == 1);
+    CHECK(colon[0].section == "Tweens");
+    CHECK(citations_of("{\"file\": \"X.md\", \"key\": 1}\n", true).empty());
+    CHECK(citations_of("// docs/X.md, \"text\": { \"a\": 1 }\n").empty());  // a JSON key in a comment
+    // a link with a title is not a citation; a link without one still is
+    CHECK(citations_of("[x](docs/Y.md \"Title\") and [z](docs/Z.md), \"Real\"\n").size() == 1);
+    // CRLF: the citation of a line that ends in \r\n reads like the one of a \n file
+    const std::vector<Citation> crlf = citations_of("// docs/W.md,\r\n// \"Split path\" and\r\n// V.md, \"Next\".\r\n");
+    REQUIRE(crlf.size() == 2);
+    CHECK(crlf[1].section == "Next");
     CHECK(heading_matches("Sanitizers (TSan, ASan)", "Sanitizers"));
     CHECK(heading_matches("`docs.read`: reading", "docs.read"));
     CHECK(heading_matches("G. Native plugins", "Native plugins"));
@@ -673,7 +717,10 @@ TEST_CASE("docs: a translation records the English text it follows, and says so 
 }
 
 TEST_CASE("docs: the content hash of a translation's original ignores CRs") {
-    const stdfs::path tmp = stdfs::temp_directory_path() / "fa_docs_links_hash_test";
+    // a name of its own: two checkouts running ctest at once must not share (or remove) each other's files
+    const stdfs::path tmp =
+        stdfs::temp_directory_path() /
+        ("fa_docs_links_hash_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     stdfs::create_directories(tmp);
     {
         std::ofstream(tmp / "a.md", std::ios::binary) << "x\ny\n";

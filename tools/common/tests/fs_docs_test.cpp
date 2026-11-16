@@ -566,7 +566,9 @@ TEST_CASE("docs.read: a section is read by heading, exact title first, several m
 // docs/AI_GUIDE.md starts with "## Index": a short list of every section, read alone with heading "Index" (AGENTS.md and the
 // make-game prompt send agents there first). It must stay small and complete: the guide is an entry page plus pages
 // (docs/ai-guide/), so the headings are those of the whole family and an entry names its page in a trailing `[page]`.
-constexpr size_t kIndexLimit = 6656;  // the Index is 6386 bytes today; 6.5 KB (an agent reads it first)
+// The Index is 6386 bytes today; 6.5 KB (an agent reads it first). Lowered on purpose from 7 KB: the index is read by every
+// agent on every task, so a new entry past the limit must shorten another one, not raise the limit.
+constexpr size_t kIndexLimit = 6656;
 
 TEST_CASE("ai-guide: the Index at the top is under 6.5 KB and lists exactly the ## and ### headings of the guide") {
     std::string text = testing::read_all(stdfs::path(FA_REPO_ROOT) / "docs" / "AI_GUIDE.md");
@@ -1170,52 +1172,96 @@ TEST_CASE("fs: an empty storage.encryptionSecret is not hidden, so the file can 
     CHECK(testing::read_all(f.tmp.path / "factoria.json") == expected);
 }
 
+// The citations of `examples/<name>` in `text` whose paragraph or list item never mentions `project.create`: "file:line:
+// examples/<name>". Code fences are skipped, a CRLF text reads like an LF one, and every list item (`- `, `* `, `1. `) is
+// a unit of its own, so a sentence in one item does not vouch for another. `checked` counts every citation seen.
+std::vector<std::string> unguarded_example_citations(const std::string& path, const std::string& text,
+                                                     size_t& checked) {
+    std::vector<std::string> out;
+    std::vector<std::string> lines;
+    size_t pos = 0;
+    while (pos <= text.size()) {
+        size_t nl = text.find('\n', pos);
+        if (nl == std::string::npos) nl = text.size();
+        std::string l = text.substr(pos, nl - pos);
+        if (!l.empty() && l.back() == '\r') l.pop_back();
+        lines.push_back(std::move(l));
+        pos = nl + 1;
+    }
+    auto starts_item = [](const std::string& l) {
+        size_t i = 0;
+        while (i < l.size() && l[i] == ' ') ++i;
+        if (i + 1 < l.size() && (l[i] == '-' || l[i] == '*') && l[i + 1] == ' ') return true;
+        size_t d = i;
+        while (d < l.size() && std::isdigit(static_cast<unsigned char>(l[d]))) ++d;
+        return d > i && d + 1 < l.size() && l[d] == '.' && l[d + 1] == ' ';
+    };
+    bool optional = false;
+    std::vector<std::pair<size_t, std::string>> cites;
+    auto flush = [&]() {
+        checked += cites.size();
+        if (!optional)
+            for (const auto& c : cites) out.push_back(path + ":" + std::to_string(c.first) + ": " + c.second);
+        optional = false;
+        cites.clear();
+    };
+    bool inFence = false;
+    for (size_t n = 0; n < lines.size(); ++n) {
+        const std::string& l = lines[n];
+        const size_t nb = l.find_first_not_of(' ');
+        if (nb != std::string::npos && (l.compare(nb, 3, "```") == 0 || l.compare(nb, 3, "~~~") == 0)) {
+            inFence = !inFence;
+            flush();
+            continue;
+        }
+        if (inFence) continue;
+        if (l.empty() || starts_item(l)) flush();
+        if (l.find("project.create") != std::string::npos) optional = true;
+        for (size_t p = l.find("examples/"); p != std::string::npos; p = l.find("examples/", p + 1)) {
+            size_t q = p + 9, e = q;
+            while (e < l.size() && (std::islower(static_cast<unsigned char>(l[e])) ||
+                                    std::isdigit(static_cast<unsigned char>(l[e])) || l[e] == '-'))
+                ++e;
+            if (e - q >= 2)
+                cites.emplace_back(n + 1, l.substr(p, e - p));  // examples/<name>, not examples/ or examples/*
+        }
+    }
+    flush();
+    return out;
+}
+
 TEST_CASE("docs: an embedded doc names an example game only as optional (the recipe lives in the doc)") {
     // The download carries no example games (project.create {example} fetches one), so a doc a user gets must not
-    // send them to `examples/<name>` as if it were there. The rule: a paragraph (lines up to the next blank line)
-    // that cites `examples/<name>` must also mention `project.create`, e.g. "(if you got it with
+    // send them to `examples/<name>` as if it were there. The rule: a paragraph or list item that cites
+    // `examples/<name>` must also mention `project.create`, e.g. "(if you got it with
     // `project.create {example: \"gem-roller\"}`)".
     size_t checked = 0;
     for (const auto& d : list_docs()) {
         auto text = read_doc(d.path);
         REQUIRE(text.ok());
-        std::vector<std::string> lines;
-        size_t pos = 0;
-        while (pos <= text->size()) {
-            size_t nl = text->find('\n', pos);
-            if (nl == std::string::npos) nl = text->size();
-            lines.push_back(text->substr(pos, nl - pos));
-            pos = nl + 1;
-        }
-        size_t start = 0;
-        while (start < lines.size()) {
-            size_t end = start;
-            bool optional = false;
-            std::vector<std::pair<size_t, std::string>> cites;
-            for (; end < lines.size() && !lines[end].empty(); ++end) {
-                const std::string& l = lines[end];
-                if (l.find("project.create") != std::string::npos) optional = true;
-                for (size_t p = l.find("examples/"); p != std::string::npos; p = l.find("examples/", p + 1)) {
-                    size_t q = p + 9, e = q;
-                    while (e < l.size() && (std::islower(static_cast<unsigned char>(l[e])) ||
-                                            std::isdigit(static_cast<unsigned char>(l[e])) || l[e] == '-'))
-                        ++e;
-                    if (e - q >= 2)
-                        cites.emplace_back(end + 1,
-                                           l.substr(p, e - p));  // examples/<name>, not examples/ or examples/*
-                }
-            }
-            checked += cites.size();
-            if (!optional)
-                for (const auto& c : cites)
-                    FAIL_CHECK(
-                        d.path
-                        << ":" << c.first << " cites `" << c.second
-                        << "` but its paragraph never says the example is optional: a download has no examples/. "
-                           "Keep the recipe in the doc and add, in the same paragraph, \"(if you got it with "
-                           "`project.create {example: \\\"<name>\\\"}`)\".");
-            start = end + 1;
-        }
+        for (const std::string& p : unguarded_example_citations(d.path, *text, checked))
+            FAIL_CHECK(
+                p << " is cited but its paragraph or list item never says the example is optional: a download has "
+                     "no examples/. Keep the recipe in the doc and add, in the same paragraph or item, \"(if you got "
+                     "it with `project.create {example: \\\"<name>\\\"}`)\".");
     }
     CHECK(checked > 0);  // the scan found the citations it guards
+}
+
+TEST_CASE("docs: the examples/ citation rule reads CRLF text, list items and skips code fences") {
+    size_t n = 0;
+    // CRLF: the blank line is "\r\n", so the paragraph ends there and the next one is judged alone
+    CHECK(unguarded_example_citations("d.md",
+                                      "see examples/foo-bar here\r\n\r\nuse project.create {example: \"x\"}\r\n", n)
+              .size() == 1);
+    CHECK(unguarded_example_citations("d.md",
+                                      "see examples/foo-bar (project.create {example: \"foo-bar\"})\r\nmore\r\n", n)
+              .empty());
+    // a fence is not prose
+    CHECK(unguarded_example_citations("d.md", "```sh\ncd examples/foo-bar\n```\n", n).empty());
+    // each list item stands alone
+    const auto items = unguarded_example_citations(
+        "d.md", "- one: project.create {example: \"a\"} (examples/aaa)\n- two: examples/bbb\n", n);
+    REQUIRE(items.size() == 1);
+    CHECK(items[0].find("d.md:2: examples/bbb") == 0);
 }
