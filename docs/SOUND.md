@@ -62,7 +62,7 @@ A short alarm: a square wave that steps through a chord, a filtered noise burst 
 }
 ```
 
-## Pages of this doc
+## Pages
 
 - [The patch format](sound/SOUND_PATCHES.md): the format (layers, oscillators, pitch, envelopes, filters, effects, normalization), presets, commands, macros, variations, families and determinism of a sound patch.
 - [Audio documents](sound/SOUND_DOCUMENTS.md): `*.audio.json`, a non-destructive chain of steps over a sound: the steps, loops, commands, baking and a worked example.

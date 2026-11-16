@@ -19,7 +19,7 @@ call (MCP tool, `factoria call`, editor console):
 Whatever the way, `assets.json` at the project root records where each asset came from (provenance) and how the engine
 and `factoria export` treat it (import settings).
 
-**Pages**
+## Pages
 
 - [Assets: making them without a provider](assets/ASSETS_GENERATE.md): House style, sprite sheets, sounds, materials and SVG pictures.
 - [Assets: animations written as code](assets/ASSETS_ANIMATE_SVG.md): assets.animate_svg: SVG animations baked into sprite sheets.

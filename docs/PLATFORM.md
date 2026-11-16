@@ -28,7 +28,7 @@ services built on it, `analytics` (events sent after the player consents) and `r
 cached for offline play): [ANALYTICS.md](ANALYTICS.md). They are not store services either, and a store backend never
 sees them.
 
-## Pages of this doc
+## Pages
 
 - [The script API and the fake store](platform/PLATFORM_API.md): The script API of the store services and the fake store used to test with.
 - [Backends and backend plugins](platform/PLATFORM_BACKENDS.md): Which backend runs, and how to write a backend plugin.

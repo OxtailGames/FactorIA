@@ -84,7 +84,7 @@ a purpose; a guide without the markers gives a `warnings` entry in the result an
 
 Deprecations: an API that gets a better replacement is deprecated for two minor versions and then removed, never changed
 silently. The one source of truth is the `"deprecated"` section of `tools/common/api_since.json`, keyed like the sections
-above: `"commands"` (`scene.old`), `"components"` (`Sprite` or `Sprite.oldField`) and `"script"` (`oldExport`,
+above: `"commands"` (`scene.old`), `"components"` (`Sprite` or `Sprite.<oldField>`) and `"script"` (`oldExport`,
 `NavAPI.oldMember`, `test:` prefix as in the since marks). To deprecate something, keep it working, add the entry (the
 section ships empty), and write the migration in CHANGELOG.md:
 

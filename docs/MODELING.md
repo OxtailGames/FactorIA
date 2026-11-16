@@ -27,7 +27,7 @@ Blender or any other program, and the same document gives the same bytes.
 and bakes it. The schema is `schemas/model.schema.json`; `$schema` may point at it for editor completion. `model.info {}`
 returns the same catalog this page describes, with every field, range and default.
 
-**Pages**
+## Pages
 
 - [Modeling: shapes](modeling/MODELING_SHAPES.md): Primitives, profile shapes, modifiers and sdf.
 - [Modeling: editing, UVs and texturing](modeling/MODELING_EDITING.md): Selections and edits, UVs, parts, materials and texturing.
