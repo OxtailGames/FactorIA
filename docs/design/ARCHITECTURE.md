@@ -36,7 +36,7 @@ Windows, macOS, Linux, iOS and Android from one codebase.
 
 ```
 engine/            runtime modules (ship inside every game)
-  core/            fa_core     types, math, log, json, fs (VFS; sources: the project folder, Android APK assets, a game pack: pack.h), image, reflection, commands, json schema, child processes (process.h), SHA-1/SHA-256 (hash.h), crash reports (crash.h), UTF-8 decoding and encoding (utf8.h), MPEG-1 video + MP2 audio decoding (video.h, pl_mpeg), string tables, plural rules and language matching (i18n.h)
+  core/            fa_core     types, math, log, json, fs (VFS; sources: the project folder, Android APK assets, a game pack: pack.h), image, reflection, commands, json schema, child processes (process.h), SHA-1/SHA-256 (hash.h), authenticated encryption for files: HMAC, HKDF, ChaCha20-Poly1305, sealed blobs, OS random bytes (crypto.h), crash reports (crash.h), UTF-8 decoding and encoding (utf8.h), MPEG-1 video + MP2 audio decoding (video.h, pl_mpeg), string tables, plural rules and language matching (i18n.h)
   scene/           fa_scene    World (ECS), built-in components, scene/prefab JSON, 2D bounds of visuals (bounds.h), glTF skeletons and clips (skeleton.h) and the Animator system (animation.h), GPU-free model reader for colliders (mesh_geometry.h), the Video system (video.h: plays the Video components from the game clock)
   platform/        fa_platform window/app loop (sokol_app), headless GPU, input + actions, gamepads, the system languages
   render/          fa_render   2D + 3D renderer, text (HarfBuzz shaping, SheenBidi bidi), particles, debug draw, capture, KTX2 textures (Basis Universal transcoder), the picture of Video components
@@ -454,6 +454,15 @@ AI config with a key, the feedback admin token) and `fs::make_private(path)` res
 keystore). The file is created restricted from its first byte (`open` with 0600 on POSIX; on Windows a protected DACL whose only
 entry is the current user, set in `CreateFileW`) and replaces the old one with `fs::replace_file`, so no reader sees a
 half-written or a world-readable file. Do not write a secret with `fs::write_text` plus a later `chmod`.
+
+**Sealed files** (`core/crypto.h`, namespace `fa::crypto`): our own SHA-256 (`hash.h`), HMAC-SHA256, HKDF-SHA256, ChaCha20-Poly1305
+(RFC 8439) and a file format on top: `seal_blob(key, aad, data)` / `open_blob(key, aad, blob)` (magic `FASB`, version, a random salt and
+nonce from the operating system's CSPRNG per seal, ciphertext, 16-byte tag; the blob is 50 bytes larger than the data). It is for
+save files: a player cannot read or edit one, and a damaged one is reported ("the data was changed or the key is wrong", nothing
+decrypted) instead of loaded. It is not DRM: a key shipped inside the game can be extracted, and an older sealed file can be put
+back (a rollback), so a counter inside the data is the game's part. The random bytes (`random_bytes`) are I/O, not the simulation:
+never `world.rng()` for a nonce, never `rand()`. Tests check every primitive against the RFC vectors (`tests/test_crypto.cpp`).
+The save slots (M98.1b) pick the key and expose this; nothing else in the engine uses it yet.
 
 **Child environment** (`core/process.h`, `core/child_process.h`): by default a child inherits the whole environment. A child that
 runs text from a prompt, a project or a stranger (hooks, AI agents, tool servers) sets `ProcessOptions::inheritEnv` /
