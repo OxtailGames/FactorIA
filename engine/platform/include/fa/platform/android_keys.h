@@ -39,7 +39,8 @@ public:
     bool on_key(int androidKeyCode, bool down, std::uint32_t unicode, bool repeat);
 
     // Feeds everything that came in since the last call to `input`, in order: key edges, typed characters, Back. Once per
-    // frame, before the game runs.
+    // frame, before the game runs. For the tests of this class: the Android build hands its keys to take() instead, and
+    // ime_ic::Session::feed puts them in Input in the one order with the input method's calls.
     void feed(Input& input);
 
     // What one key event turned into: a key edge, a character it typed (right after the key's press), or Back.

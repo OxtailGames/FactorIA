@@ -346,6 +346,20 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   converted clause selected and its candidate window under the caret. In a browser a hidden `<input>` sits at the caret
   and its composition events become the field's composition, on desktop and phone keyboards. On both the keys the input
   method takes are not game keys, and the commit types once.
+- **IME polish of Android, Linux and the web (M98 follow-ups):** Android: a frame holds either text and composition
+  changes or one press of an editing key (Backspace, Enter, Tab, an arrow), never both, so a Tab that follows a commit
+  no longer moves the focus before the field takes the text (a commit "a\t" is the text in one frame and Tab in the
+  next; a second editing press waits a frame as well); the Back button is delivered at once, not after a long
+  `deleteSurroundingText` or a paste of many lines; with the key queue full the key releases are still kept, so no key
+  stays held; the keyboard is told the selection after each change of the pre-edit string (`updateSelection`, which
+  Gboard and Samsung Keyboard use to keep their suggestions in step); the window keeps the keyboard as it is when it
+  gets the focus back (`SOFT_INPUT_STATE_UNCHANGED`), so it is not opened by the text view alone. Linux: an input
+  context without pre-edit callbacks is reset on a click only after its input method took a key (it was a server round
+  trip on every click), and the game no longer keeps
+  `PropertyChangeMask` on the root window after the input method is detached. Web: a blur of the hidden `<input>` to
+  another page element ends the composition, Safari's `insertFromComposition` outside a composition types its text once,
+  the keys sokol_app does not know (code 0) share no state, and a phone keyboard with the IME off (a password field) gets
+  an `<input type="password">` so it turns its predictions off.
 - **Docs (M97.3a):** the docs are laid out for reading cheaply. `docs/COMPONENTS.md` (1.8 MB) is no longer inside the
   binary: `docs.read components` answers with a pointer to `docs.components`, which serves one component at a time (the
   file stays in the repository for GitHub readers). `docs/MENUS.md` no longer prints the files of the menu kit (257 KB

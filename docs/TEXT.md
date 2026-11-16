@@ -604,8 +604,10 @@ On Android:
   composition, its highlighted clause the selection; `commitText` types its text once (a line break in it is Enter, a tab
   Tab); `finishComposingText` types the pre-edit string; `deleteSurroundingText` is presses of Backspace (before the
   caret) and Delete (after it), at most 64 each way; the keyboard's action key is Enter (the field decides what it does:
-  `ui.submit`). A field reads one press of a key per frame and takes a frame's text before its keys, so three deletes
-  are three frames of Backspace, and text or a composition that comes after a key press waits for the next frame.
+  `ui.submit`). A frame holds either text and composition changes or one press of an editing key, never both: three
+  deletes are three frames of Backspace, and a key press that comes after text or a composition update waits for the
+  next frame, as does text that comes after a key press (a commit "a\t" is `a` in one frame and Tab in the next). The
+  Back button is delivered at once.
 - The connection holds only the pre-edit string, never what the field already has: a keyboard cannot read back typed text,
   so it cannot recompose a word already typed, and its suggestions start fresh at the caret.
 - When the field ends a composition itself (a tap in the field, the focus moving to another field: `ime_cancel`) the

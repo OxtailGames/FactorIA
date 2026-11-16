@@ -59,7 +59,19 @@ bool Session::push(Event e) {
 bool Session::push_keys(const std::vector<AndroidKeys::Item>& items) {
     if (items.empty()) return true;
     std::lock_guard<std::mutex> lock(mutex_);
-    if (queue_.size() + items.size() > kMaxQueued) return false;
+    if (queue_.size() + items.size() > kMaxQueued) {
+        // No room: the keys are dropped, but not the key releases: a press that got through without its release would
+        // leave the key held in Input. They have a reserve of their own, past the cap.
+        for (const AndroidKeys::Item& it : items) {
+            if (it.kind != AndroidKeys::Item::Kind::Key || it.down || queue_.size() >= kMaxQueued + kReleaseReserve)
+                continue;
+            Event e;
+            e.kind = Event::Kind::Key;
+            e.key = it.key;
+            queue_.push_back(std::move(e));
+        }
+        return false;
+    }
     for (std::size_t i = 0; i < items.size(); ++i) {
         const AndroidKeys::Item& it = items[i];
         Event e;
@@ -137,13 +149,30 @@ void Session::feed(Input& input) {
     }
     keyPressed_ = false;
     composed_ = false;
+    typed_ = false;
     while (!backlog_.empty()) {
         const Event& front = backlog_.front();
         if (!is_key_event(front.kind) && (!enabled_ || front.generation != generation_)) {
             backlog_.pop_front();  // about a composition the UI is done with, or a field that no longer has the focus
             continue;
         }
-        if (step(input)) return;
+        if (step(input)) {
+            deliver_backs(input);
+            return;
+        }
+    }
+}
+
+void Session::deliver_backs(Input& input) {
+    // The frame ends here, and the rest of the backlog may take many frames (deleteSurroundingText(64, 64), a paste of
+    // many lines): a Back button in it is not read after them.
+    for (auto it = backlog_.begin(); it != backlog_.end();) {
+        if (it->kind == Event::Kind::Back) {
+            input.on_back();
+            it = backlog_.erase(it);
+        } else {
+            ++it;
+        }
     }
 }
 
@@ -151,7 +180,7 @@ bool Session::step(Input& input) {
     Event& e = backlog_.front();
     // What a TextField would read out of order in this frame waits for the next one (feed() in ime_ic.h): text and
     // composition changes after a key press, a key press after this frame's composition update that left it open.
-    const bool pressWaits = keyPressed_ || (composed_ && input.composing());
+    const bool pressWaits = keyPressed_ || typed_ || (composed_ && input.composing());
     switch (e.kind) {
         case Event::Kind::Compose: {
             if (keyPressed_) return true;
@@ -178,13 +207,21 @@ bool Session::step(Input& input) {
             // character becomes a key press, and the rest waits in this event for the next frame.
             const std::size_t cut =
                 std::size_t(std::find_if(e.text.begin(), e.text.end(), is_control) - e.text.begin());
+            // A key press that follows text of this frame waits for the next frame (see pressWaits).
+            if (typed_ && cut == 0 && !e.text.empty() && control_key(e.text.front()) != Key::Unknown) return true;
             std::u32string typed = ime_text::utf16_to_utf32(std::u16string_view(e.text).substr(0, cut));
-            if (composing_ || !typed.empty()) input.on_composition_commit(std::move(typed));
+            const bool typedText = !typed.empty();
+            if (composing_ || typedText) input.on_composition_commit(std::move(typed));
             composing_ = false;
             compositionText_.clear();
+            if (typedText) typed_ = true;
             if (cut == e.text.size()) {
                 backlog_.pop_front();
                 return false;
+            }
+            if (typedText && control_key(e.text[cut]) != Key::Unknown) {
+                e.text.erase(0, cut);  // its press is for the next frame, after the text
+                return true;
             }
             const Key key = control_key(e.text[cut]);
             e.text.erase(0, cut + 1);
@@ -196,7 +233,10 @@ bool Session::step(Input& input) {
         }
         case Event::Kind::Finish: {
             if (keyPressed_) return true;
-            if (composing_) input.on_composition_commit(std::move(compositionText_));
+            if (composing_) {
+                if (!compositionText_.empty()) typed_ = true;
+                input.on_composition_commit(std::move(compositionText_));
+            }
             composing_ = false;
             compositionText_.clear();
             backlog_.pop_front();
@@ -238,7 +278,7 @@ bool Session::step(Input& input) {
         case Event::Kind::Key: {
             // A press that types (a letter: the character follows) and a modifier are no editing key; a release never is.
             const bool editing = e.down && !e.typing && !is_modifier(e.key);
-            if (editing && composed_ && input.composing()) return true;
+            if (editing && pressWaits) return true;
             input.on_key(e.key, e.down);
             if (editing) keyPressed_ = true;
             backlog_.pop_front();
@@ -247,6 +287,7 @@ bool Session::step(Input& input) {
         case Event::Kind::Char: {
             if (keyPressed_) return true;
             input.on_text(e.codepoint);
+            typed_ = true;
             backlog_.pop_front();
             return false;
         }

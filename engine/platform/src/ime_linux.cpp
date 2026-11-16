@@ -64,8 +64,12 @@ locale_t g_imLocale = nullptr;  // the LC_CTYPE the input method opened with: it
 bool g_localeWarned = false;
 XIM g_im = nullptr;
 XIC g_ic = nullptr;
-bool g_callbacks = false;  // the input context is on the spot (XIMPreeditCallbacks)
-bool g_focused = true;     // the window has the keyboard focus (FocusIn / FocusOut)
+bool g_callbacks = false;      // the input context is on the spot (XIMPreeditCallbacks)
+bool g_focused = true;         // the window has the keyboard focus (FocusIn / FocusOut)
+bool g_rootMaskAdded = false;  // PropertyChangeMask on the root window is ours (detach() takes it off again)
+// The input method took a key (XFilterEvent) since the last reset: an input context without callbacks shows its pre-edit
+// string in the input method's own window, which this backend cannot see, so this is what says one may be open.
+bool g_imTookKey = false;
 ic::Session g_session({.deferEnds = true});
 ic::Preedit g_preedit;
 fa::Rect g_caret;  // framebuffer pixels (on X11 the window's pixels), as ime_set_caret_rect() gave it
@@ -175,6 +179,7 @@ void reset_ic() {
     if (!g_ic) return;
     if (char* left = XmbResetIC(g_ic)) XFree(left);  // what was being composed: never typed (ime_cancel's contract)
     g_preedit.clear();
+    g_imTookKey = false;
 }
 
 void apply_focus() {
@@ -324,6 +329,14 @@ void detach() {
     reset_ic();
     close_im();
     g_session.attach(nullptr);
+    if (g_rootMaskAdded) {
+        // The display is still open here (the window is being closed, or another window is replacing this one); a failure
+        // means it is not, and then there is nothing to undo.
+        XWindowAttributes root;
+        if (XGetWindowAttributes(g_display, g_root, &root))
+            XSelectInput(g_display, g_root, root.your_event_mask & ~PropertyChangeMask);
+    }
+    g_rootMaskAdded = false;
     g_haveCaret = false;
     g_display = nullptr;
     g_window = 0;
@@ -357,6 +370,7 @@ void on_key_press(XEvent* e) {
         return;
     }
     const bool took = g_session.active() && g_focused && XFilterEvent(e, None);
+    if (took) g_imTookKey = true;
     if (g_session.key_down(k.keycode, took, static_cast<std::uint32_t>(k.time))) neutralise(e);
 }
 
@@ -438,8 +452,10 @@ void ime_linux_attach(Input* input) {
         g_root = RootWindow(display, 0);
         g_ximServers = XInternAtom(display, "XIM_SERVERS", False);
         XWindowAttributes root;
-        if (XGetWindowAttributes(display, g_root, &root))
+        if (XGetWindowAttributes(display, g_root, &root)) {
+            g_rootMaskAdded = (root.your_event_mask & PropertyChangeMask) == 0;  // an earlier user of it keeps its own
             XSelectInput(display, g_root, root.your_event_mask | PropertyChangeMask);
+        }
         open_im();
     }
     g_session.attach(input);
@@ -477,8 +493,10 @@ void ime_backend_cancel() {
     if (!g_display) return;
     const bool open = g_session.open();
     g_session.cancel();
-    // Without callbacks the session cannot know whether the input method's own window shows a composition: reset anyway.
-    if (open || !g_callbacks) reset_ic();
+    // Without callbacks the session cannot know whether the input method's own window shows a composition. XmbResetIC is
+    // a round trip to the input method's server, and every click in a field cancels: only when the input method took a
+    // key since the last reset (it cannot have a pre-edit string otherwise).
+    if (open || (!g_callbacks && g_imTookKey)) reset_ic();
 }
 
 }  // namespace fa

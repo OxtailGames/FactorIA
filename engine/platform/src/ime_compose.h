@@ -133,7 +133,10 @@ public:
     // forgotten.
     void focus_lost();
 
-    // A key down (an X keycode, a sokol_app key code on the web; taken modulo kKeys). `imeTook`: the input method used it
+    // A key down (an X keycode, a sokol_app key code on the web; taken modulo kKeys). Code 0 is no key (an X keycode is
+    // never 0 here, sokol_app's SAPP_KEYCODE_INVALID is 0: a key the browser names that sokol_app does not know): all of
+    // those would share one slot, so they keep no state: the down and the up are swallowed when the input method took
+    // them and the IME is on, delivered otherwise. `imeTook`: the input method used it
     // (XFilterEvent returned True; the browser's keyCode 229, or a composition is open). true = swallow: the game does
     // not see it, nor its key up. A key whose down reached the game always gets its up. `time` (X server milliseconds,
     // 0 = none) drops a key down that repeats one already delivered with the same time: some XIM servers send a key back

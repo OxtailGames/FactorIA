@@ -8,7 +8,8 @@
 //
 // The same <input> raises a phone's on-screen keyboard (mobile_show_keyboard, ime_web_keyboard): on a touch screen it
 // has the focus while the keyboard is wanted, also for a password field, where the IME is off and what the keyboard
-// composes is typed when it ends, as before the IME existed. What the <input> receives outside a composition goes to a
+// composes is typed when it ends, as before the IME existed; the <input> is then of type password, so the keyboard
+// turns its predictions and suggestions off. What the <input> receives outside a composition goes to a
 // queue that ime_web_poll() drains into Input: a code point >= 32 for typed text, -2 for Backspace. Keys that reach the
 // page as real key events (a hardware keyboard) are seen by sokol_app too; the <input> skips what it already delivered.
 //
@@ -37,7 +38,7 @@ EM_JS(void, fa_web_text_init, (), {
     const MARK = String.fromCharCode(0x200b);  // always in the field, so Backspace has something to delete
     const st = window.faText = {
         el: null, want: false, ime: false, moving: false, queue: [], composing: false, hardKey: false, pressAt: -1000,
-        data: "", selA: -1, selB: -1, caret: null,
+        data: "", selA: -1, selB: -1, caret: null, ended: null,
         touch: (navigator.maxTouchPoints || 0) > 0 || !!(window.matchMedia && window.matchMedia("(pointer: coarse)").matches)
     };
     const canvas = () => document.getElementById("canvas");
@@ -109,14 +110,34 @@ EM_JS(void, fa_web_text_init, (), {
         });
         el.addEventListener("compositionend", (ev) => {
             st.composing = false; st.data = clean(ev.data); st.selA = st.selB = -1;
+            st.ended = { text: st.data, at: performance.now() };
             send(3);
             st.data = "";
+            st.reset();
+        });
+        // The focus went to another element of the page (a click on an HTML overlay): the browser ends the composition,
+        // and not every browser says so with a compositionend. A focus move made here (st.move) is not that. If the
+        // compositionend comes later with the text, it is typed as a commit with no composition open.
+        el.addEventListener("blur", () => {
+            if (st.moving || !st.composing) return;
+            st.composing = false; st.data = ""; st.selA = st.selB = -1;
+            send(3);
             st.reset();
         });
         el.addEventListener("keydown", (ev) => { if (ev.key === "Backspace" && ev.keyCode !== 229) st.hardKey = true; });
         el.addEventListener("keyup", (ev) => { if (ev.key === "Backspace") st.hardKey = false; });
         el.addEventListener("input", (ev) => {
             const type = ev.inputType || "";
+            // Safari ends a composition with compositionend (which delivered its text) and then this input event with the
+            // same text; one with no compositionend just before it is text to type (a dictation, a correction).
+            if (type === "insertFromComposition" && !st.composing) {
+                const text = clean(typeof ev.data === "string" ? ev.data : el.value);
+                const dup = st.ended && st.ended.text === text && performance.now() - st.ended.at < 100;
+                if (text.length > 0 && !dup) push(text);
+                st.ended = null;
+                st.reset();
+                return;
+            }
             if (st.composing || ev.isComposing || type.indexOf("Composition") >= 0) {
                 if (st.composing) { selection(); send(2); }  // the caret inside the composition, now that the value has it
                 return;
@@ -165,6 +186,13 @@ EM_JS(void, fa_web_text_state, (int want, int ime), {
     const focus = st.ime || (st.want && st.touch);
     if (!focus && !st.el) return;
     const el = st.ensure();
+    // A phone keyboard with no IME is a password field: type password turns off its predictions and suggestions.
+    const pw = st.want && !st.ime && st.touch;
+    if ((el.type === "password") !== pw) {
+        el.type = pw ? "password" : "text";
+        el.setAttribute("autocomplete", pw ? "new-password" : "off");
+        st.reset();
+    }
     st.place();
     if (focus) {
         if (document.activeElement !== el) st.move(() => el.focus({ preventScroll: true }));
