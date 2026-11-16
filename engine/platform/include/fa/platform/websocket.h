@@ -1,7 +1,7 @@
 // WebSocket connections of a running game (`websocket.connect` in scripts, docs/NETWORKING.md): one client per platform,
 // each wrapping what the system already has, so that the player carries no network library of its own.
 //
-//   Windows    WinHTTP's WebSocket API                 (M98.2b)
+//   Windows    WinHTTP's WebSocket API                 ("winhttp"; see "Windows" below)
 //   macOS/iOS  NSURLSessionWebSocketTask               (M98.2b)
 //   Linux      libcurl's WebSocket support, dlopen'ed  (M98.2c); missing = not available
 //   Android    a socket stream through JNI with fa/platform/websocket_codec.h (M98.2c)
@@ -24,6 +24,11 @@
 //      asks the transport to stop (cancel the task, close with 1001 when that takes no waiting) and returns.
 // Destroying a WebSocket runs on the game thread (the script layer's wsRelease, a scene change), so it takes a few
 // milliseconds at most: it never joins a thread that may sit in a blocking call, never waits for the network or a DNS lookup.
+//
+// Windows. WinHTTP keeps part of the protocol to itself, so its client differs from the tcp one in what the tests can see:
+// it answers pings by itself (and may send keep-alive frames of its own), a wrong Sec-WebSocket-Accept may fail inside
+// WinHttpWebSocketCompleteUpgrade with a message that does not name the header, and a connection destroyed while a send is
+// in flight closes the handle with no close frame (WinHTTP allows one send at a time); otherwise destruction sends 1001.
 //
 // Like fa/platform/http.h, a client only sends: it does not check WHICH address a game may open. That is fa/services/
 // network.h (the hosts the game declares in factoria.json, the same list as http.fetch) and the script layer, which check
@@ -189,8 +194,8 @@ public:
     virtual Result<std::unique_ptr<WebSocket>> connect(WebSocketRequest request) = 0;
 };
 
-// The client of this platform; never null. Until the native clients of M98.2b/c/d land, every platform answers
-// available() == false with "WebSocket client for <platform> lands in M98.2b/c/d".
+// The client of this platform; never null. Windows: WinHTTP ("winhttp"). Until the other native clients of M98.2b/c/d
+// land, those platforms answer available() == false with "WebSocket client for <platform> lands in M98.2b/c/d".
 std::unique_ptr<WebSocketClient> make_system_websocket_client();
 
 // A client that is never available, with this reason (what the platform stubs return).
