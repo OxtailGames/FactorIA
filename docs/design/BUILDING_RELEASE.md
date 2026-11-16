@@ -97,7 +97,9 @@ game as its own asset, plus one manifest. The pieces and where they live:
   deflated where that is smaller, with the DOS date 1980-01-01 and no extra fields, so the same files give the same zip and
   the same hash. A folder or file that cannot be read fails the command and names it; nothing is packed from half a folder.
 - The Linux leg of the `package` job of `.github/workflows/release.yml` runs that command with the `factoria` it just
-  packed (so it also runs on a pull request that changes the workflow). It packs twice and compares the manifests,
+  packed (so it also runs on a pull request that changes the workflow or the packer: a change under `examples/` alone does not
+  start it, since that would build every package for each example edit; the doctest "every example of examples/ packs" of
+  `examples_test.cpp` packs them all in the regular CI run instead). It packs twice and compares the manifests,
   checks every zip against the manifest with `sha256sum`, `stat` and `unzip -t` (tools that share no code with the
   packer), validates the unpacked `block-push`, and uploads the files as the artifact `FactorIA-examples`; the `publish`
   job attaches them to the release with the packages.
@@ -140,9 +142,15 @@ game as its own asset, plus one manifest. The pieces and where they live:
   is also a folder, encrypted or linked entries, and size limits) before it writes any, unpacks into a hidden folder next to
   the target and renames that folder at the end, so a failure leaves nothing behind (no hidden folder, no parent folder the
   call made). An existing empty `dir` is never deleted: the entries of the project move into it one by one and are taken out
-  again if one fails (the AI may pass `.` in an empty folder that is its working directory, which Windows cannot delete). The
-  renames wait up to about five seconds while Windows reports a sharing violation (a scanner looking at the new files), and
-  `ctx.cancel` stops the call between files. A zip that did not verify and unpack is never kept in the cache.
+  again if one fails (the AI may pass `.` in an empty folder that is its working directory, which Windows cannot delete); what
+  could not be taken out again (a file something holds open) is named in the error, which then does not say the folder was left
+  empty. No move replaces: each is a rename that fails when the name is taken (Linux `renameat2` with `RENAME_NOREPLACE`, macOS
+  `renamex_np` with `RENAME_EXCL`, Windows `MoveFileExW` without replace), so a file another process puts in the folder
+  meanwhile stays and the call stops with "is not empty any more"; a file system without those (an old kernel, some network
+  shares) gets a look at the name and a plain rename, with a window of microseconds. Across file systems (`EXDEV`, or
+  `ERROR_NOT_SAME_DEVICE`, 17, on Windows) an entry is copied and the source deleted, and a copy that fails is taken away only
+  when this call made it. The renames wait up to 500 tries about 10 ms apart (about five seconds) while Windows reports a
+  sharing violation (a scanner looking at the new files), and `ctx.cancel` stops the call between files. A zip that did not verify and unpack is never kept in the cache.
   `project.package_examples` applies the same name rules, so a release never holds a zip that no one can unpack. Tests inject a `SetupContext` (a fake downloader, a home
   folder, a version: `set_examples_context`), so nothing touches the network. `project.examples` needs the `network`
   capability, and so does `project.create` with `example` (the handler checks it): an MCP client has it, the read-only one
