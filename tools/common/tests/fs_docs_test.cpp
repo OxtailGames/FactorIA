@@ -1175,6 +1175,7 @@ TEST_CASE("fs: an empty storage.encryptionSecret is not hidden, so the file can 
 // The citations of `examples/<name>` in `text` whose paragraph or list item never mentions `project.create`: "file:line:
 // examples/<name>". Code fences are skipped, a CRLF text reads like an LF one, and every list item (`- `, `* `, `1. `) is
 // a unit of its own, so a sentence in one item does not vouch for another. `checked` counts every citation seen.
+namespace {
 std::vector<std::string> unguarded_example_citations(const std::string& path, const std::string& text,
                                                      size_t& checked) {
     std::vector<std::string> out;
@@ -1229,6 +1230,7 @@ std::vector<std::string> unguarded_example_citations(const std::string& path, co
     flush();
     return out;
 }
+}  // namespace
 
 TEST_CASE("docs: an embedded doc names an example game only as optional (the recipe lives in the doc)") {
     // The download carries no example games (project.create {example} fetches one), so a doc a user gets must not

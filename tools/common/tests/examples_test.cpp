@@ -395,7 +395,7 @@ TEST_CASE("examples packaging: every example of examples/ packs (what the releas
         auto files = example_zip_files(dir);
         REQUIRE_MESSAGE(files.ok(), (files.ok() ? std::string() : files.error().to_string()));
         CHECK(std::find(files->begin(), files->end(), "factoria.json") != files->end());
-        CHECK(files->size() < 0xFFFF);  // the zip writer holds at most 65535 entries
+        CHECK(files->size() <= 0xFFFF);  // the zip writer holds at most 65535 entries
         std::vector<ExampleEntryName> names;
         for (const std::string& rel : *files) {
             names.push_back({rel, false});
@@ -410,7 +410,7 @@ TEST_CASE("examples packaging: every example of examples/ packs (what the releas
             std::error_code ec;
             const std::uint64_t size = stdfs::file_size(fs::os_path(dir / fs::path_from_utf8(rel)), ec);
             CHECK_MESSAGE(!ec, "cannot measure " << rel);
-            total += size + 30 + rel.size();
+            if (!ec) total += size + 30 + rel.size();
         }
         CHECK_MESSAGE(total < (1ull << 31), "an example this big no longer fits a release zip comfortably");
     }

@@ -27,6 +27,7 @@
 #include <cstring>
 #include <deque>
 #include <functional>
+#include <regex>
 
 #include "docs_test_util.h"
 #include "fa/core/hash.h"
@@ -277,6 +278,9 @@ Flat flatten(const std::string& src) {
 }
 
 // True when text[pos..] (after spaces) starts a JSON value: { [ " a digit or - , or true / false / null as a whole word.
+// It accepts some false negatives: a title followed by a value that starts with a digit, `-` or `"` (`X.md, "T": 5`,
+// `X.md, "T": "text"`) is taken for a JSON key and not checked, and so is a title whose closing quote is escaped
+// (the escaped-quote branch of citations_of).
 bool starts_json_value(const std::string& text, size_t pos) {
     while (pos < text.size() && text[pos] == ' ') ++pos;
     if (pos >= text.size()) return false;
@@ -461,6 +465,9 @@ TEST_CASE("docs: the citation scanner reads what the docs and the source write")
     REQUIRE(colon.size() == 1);
     CHECK(colon[0].section == "Tweens");
     CHECK(citations_of("{\"file\": \"X.md\", \"key\": 1}\n", true).empty());
+    // the `json` flag decides: `: foo` is not a JSON value, so only a .json source treats the title as a key
+    CHECK(citations_of("docs/X.md, \"Title\": foo\n", true).empty());
+    CHECK(citations_of("docs/X.md, \"Title\": foo\n", false).size() == 1);
     CHECK(citations_of("// docs/X.md, \"text\": { \"a\": 1 }\n").empty());  // a JSON key in a comment
     // a link with a title is not a citation; a link without one still is
     CHECK(citations_of("[x](docs/Y.md \"Title\") and [z](docs/Z.md), \"Real\"\n").size() == 1);
@@ -636,16 +643,24 @@ TEST_CASE("docs: no heading repeats inside one doc (its anchor would be ambiguou
 namespace {
 
 // The first 16 hex digits of the SHA-256 of a file without its CRs: the same on a CRLF checkout.
-std::string content_hash(const stdfs::path& p) {
-    std::string t = read_all(p);
+// For README.md (`readme` true) the version number of the line that starts with "Version x.y" (the pattern of
+// readme_version_test.cpp) is left out, and only the number: every version bump edits it, and it would make the hash
+// stale in each release, while the rest of that line is real Status text.
+std::string content_hash_of(std::string t, bool readme) {
     t.erase(std::remove(t.begin(), t.end(), '\r'), t.end());
+    if (readme) {
+        static const std::regex versionNumber(R"((^|\n)Version \d+\.\d+\b)");
+        t = std::regex_replace(t, versionNumber, "$1Version");
+    }
     fa::Sha256 h;
     h.update(t);
     return h.finish_hex().substr(0, 16);
 }
+std::string content_hash(const stdfs::path& p) { return content_hash_of(read_all(p), p.filename() == "README.md"); }
 
 }  // namespace
 
+// (The line of README.md that starts with "Version x.y" is not part of the hash, so a version bump keeps it valid.)
 // A translation starts with `<!-- follows <English file> sha256:<16 hex> -->`: the English text it was brought up to
 // date with. When that file changes, the hash no longer matches and the translation must be updated (and the hash with
 // it) or say it is behind: `<!-- follows <file> sha256:<hash or unknown> behind -->` (and its visible notice). A hash,
@@ -730,4 +745,16 @@ TEST_CASE("docs: the content hash of a translation's original ignores CRs") {
     CHECK(content_hash(tmp / "a.md").size() == 16);
     std::error_code ec;
     stdfs::remove_all(tmp, ec);
+}
+
+TEST_CASE("docs: the hash of README.md ignores the version number, and only that") {
+    CHECK(content_hash_of("# T\n\nVersion 0.29, alpha.\nbody\n", true) ==
+          content_hash_of("# T\n\nVersion 0.30, alpha.\nbody\n", true));
+    CHECK(content_hash_of("# T\n\nVersion 0.29, alpha.\nbody\n", true) !=
+          content_hash_of("# T\n\nVersion 0.29, beta.\nbody\n", true));
+    CHECK(content_hash_of("# T\n\nVersion 0.29\nbody\n", true) !=
+          content_hash_of("# T\n\nVersion 0.29\nbody2\n", true));
+    CHECK(content_hash_of("a\nVersion 1.2\n", true) == content_hash_of("a\r\nVersion 3.4\r\n", true));
+    // any other document keeps the number
+    CHECK(content_hash_of("a\nVersion 1.2\n", false) != content_hash_of("a\nVersion 3.4\n", false));
 }
