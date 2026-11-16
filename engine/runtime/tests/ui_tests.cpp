@@ -932,7 +932,12 @@ TEST_CASE("ui.reset_layout_positions: a scene saved before 0.30 has the layout's
     World& w = e.world();
     const auto position = [&](const char* id) { return std::as_const(w).get<Transform>(w.find_by_id(id))->position; };
     CHECK(position("play").y == 23.0f);  // the layout never writes it
-    auto r = e.commands().call("ui.reset_layout_positions", Json::object());
+    auto r = e.commands().call("ui.reset_layout_positions", Json::object({{"dryRun", true}}));
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["count"].get<int>() == 2);  // it names them and changes nothing
+    CHECK(r.result["dryRun"] == true);
+    CHECK(position("play").y == 23.0f);
+    r = e.commands().call("ui.reset_layout_positions", Json::object());
     REQUIRE_MESSAGE(r.ok, r.error.dump());
     CHECK(r.result["count"].get<int>() == 2);
     std::vector<std::string> ids = r.result["ids"].get<std::vector<std::string>>();

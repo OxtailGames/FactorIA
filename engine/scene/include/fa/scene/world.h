@@ -257,6 +257,10 @@ public:
     // blended = false leaves the render interpolation out (the game feel poses stay): what scripts, picking and UI hit tests
     // build their camera views from, so an answer never depends on how far past the last step the frame is.
     Mat4 drawn_matrix(Entity e, bool blended = true) const;
+    // The LOCAL part of drawn_matrix: e's own matrix (position + layout offset, rotation, scale) with its visual pose, relative
+    // to its parent. drawn_matrix(e) == drawn_matrix(parent) * drawn_local_matrix(e) in exact arithmetic; building it directly
+    // never inverts the parent, so a parent that scales to zero cannot turn it into garbage. Identity for a dead entity.
+    Mat4 drawn_local_matrix(Entity e, bool blended = true) const;
     void set_world_position(Entity e, Vec3 p);  // converts into the parent's space
     // How many writes dropped a cached world matrix or active-in-hierarchy answer that was valid (see world_matrix);
     // the entries below it that go with it are not counted one by one. It never goes down; reading through a const
@@ -275,6 +279,9 @@ public:
     void set_ui_layout_offset(Entity e, Vec2 offset);
     // Every entity with a non-zero offset, in no particular order.
     std::vector<Entity> ui_layout_offset_entities() const;
+    // Removes every offset except those of the entities `keep` answers true for, in place (no list of the entities is built).
+    // Returns how many it removed. The cached matrices of the removed entities and their subtrees are dropped.
+    std::size_t clear_ui_layout_offsets_except(const std::function<bool(Entity)>& keep);
 
     // --------------------------------------------------------------- misc
     SceneSettings& settings() { return settings_; }
@@ -389,6 +396,8 @@ private:
     // A mutable reference to a component of `type` of `e` is about to be given out: drops what the hierarchy cache
     // keeps when it is a Transform or an EntityInfo.
     void note_mutable_access(Entity e, const TypeInfo& type);
+    // The local matrix of `e` with its game feel and (when `ip` is not null) render interpolation poses.
+    Mat4 drawn_local(Entity e, const InterpState* ip) const;
     std::unique_ptr<Impl> impl_;
     SceneSettings settings_;
     WorldEvents events_;
