@@ -7,6 +7,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "fa/core/json.h"
@@ -64,6 +65,28 @@ Json field_edit_args(const std::string& entityId, const std::string& component, 
 Result<Json> parse_json_box(const std::string& text);
 // A short message of a failed command's `error` object ("message" and, when there is one, " " + "hint").
 std::string command_error_text(const Json& error);
+
+// ---------------------------------------------------------------------------------------------- several entities
+// The Inspector with several entities selected (docs/EDITOR.md, "Selecting things"). `perEntity[i]` is the component names of
+// the i-th selected entity; entity 0 is the primary.
+struct SharedComponents {
+    std::vector<std::string> shared;                   // on every entity, in the primary's order
+    std::vector<std::pair<std::string, int>> partial;  // on some but not all: the name and how many entities have it
+};
+SharedComponents shared_components(const std::vector<std::vector<std::string>>& perEntity);
+// How one field reads across the selected entities: `values[0]` is the primary's. A number array (a vector, a colour) is
+// compared per number, so `parts[i]` says whether number i differs; `mixed` is true when anything differs.
+struct FieldMix {
+    bool mixed = false;
+    std::vector<bool> parts;  // only for number arrays: one per number of the primary's value
+};
+FieldMix field_mix(const std::vector<Json>& values);
+// What to write to one entity when the user edited a field that showed `shown` (the primary's value) and now holds `edited`.
+// A number array is merged per number: only the numbers the user changed (edited[i] != shown[i]) replace the entity's own, so
+// editing x of a position leaves the y and z that differ between the entities alone. Anything else is `edited` as it is.
+Json multi_edit_value(const Json& entityCurrent, const Json& shown, const Json& edited);
+// "3 entities".
+std::string multi_selection_title(size_t count);
 
 // ---------------------------------------------------------------------------------------------- asset fields
 // Whether a project-relative file is of an asset type of FieldInfo::assetType ("texture", "mesh", "audio", "font", "script",

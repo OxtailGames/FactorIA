@@ -47,4 +47,33 @@ private:
     std::string primary_;
 };
 
+// ---------------------------------------------------------------------------------------------- what a click does
+// The modifier keys of a click or a marquee (Ctrl is Cmd on macOS: Dear ImGui swaps them).
+struct SelectMods {
+    bool ctrl = false;
+    bool shift = false;
+};
+
+// A click on a row of the Hierarchy. No modifier replaces the selection; Ctrl toggles the row; Shift selects the rows from
+// `anchor` (the row last clicked without Shift) to this one in the order of `ordered` (the rows as the tree shows them),
+// Ctrl+Shift adds that range to what is selected. `anchor` is updated: a click without Shift makes this row the anchor, a
+// Shift click keeps it. A Shift click with no usable anchor (empty, or not in `ordered`) starts from the primary, and
+// from this row alone when that is not shown either.
+void click_in_list(Selection& sel, const std::string& id, SelectMods mods, std::string& anchor,
+                   const std::vector<std::string>& ordered);
+
+// A click on an entity in the viewport. No modifier replaces the selection, Ctrl toggles the entity, Shift adds it (a range
+// of entities in space means nothing, so Shift is "add" here, as it is for the marquee).
+void click_in_space(Selection& sel, const std::string& id, SelectMods mods);
+
+// The end of a marquee that covered `hits` (in the order to select them; the last becomes the primary). No modifier
+// replaces the selection by the hits (nothing hit: clears it), Shift adds them, Ctrl toggles each.
+void apply_marquee(Selection& sel, const std::vector<std::string>& hits, SelectMods mods);
+
+// The ids of `ids` with no selected ancestor, in the order given: what a move, a duplicate or a delete of the selection acts
+// on (an entity whose ancestor is selected comes along with it, and would move or be copied twice). `parent_of` returns the
+// parent's id, "" for a root or an unknown id.
+std::vector<std::string> without_selected_descendants(const std::vector<std::string>& ids,
+                                                      const std::function<std::string(const std::string&)>& parent_of);
+
 }  // namespace fa::editor

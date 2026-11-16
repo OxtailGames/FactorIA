@@ -225,4 +225,27 @@ float scale_apply(float start, float factor, float snapStep) {
     return sign * mag;
 }
 
+Vec3 orbit_about(Vec3 p, Vec3 pivot, Vec3 axis, float deg) {
+    return pivot + Quat::axis_angle_deg(axis, deg).rotate(p - pivot);
+}
+
+Vec3 scale_ratio(Vec3 start, Vec3 now) {
+    auto one = [](float a, float b) { return std::fabs(a) < 1e-6f ? 1.0f : b / a; };
+    return {one(start.x, now.x), one(start.y, now.y), one(start.z, now.z)};
+}
+
+Vec3 scale_offset(Vec3 offset, const Vec3 axes[3], Vec3 ratio) {
+    Vec3 out{};
+    for (int k = 0; k < 3; ++k) out = out + axes[k] * (dot(offset, axes[k]) * axis_value(ratio, k));
+    return out;
+}
+
+bool marquee_covers(Vec2 a, Vec2 b, const std::vector<Vec2>& points) {
+    if (points.empty()) return false;
+    const float x0 = std::min(a.x, b.x), x1 = std::max(a.x, b.x), y0 = std::min(a.y, b.y), y1 = std::max(a.y, b.y);
+    for (const Vec2& p : points)
+        if (p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1) return false;
+    return true;
+}
+
 }  // namespace fa::editor

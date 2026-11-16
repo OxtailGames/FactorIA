@@ -8,6 +8,7 @@
 #include <cmath>
 
 #include "editor_internal.h"
+#include "imgui_internal.h"  // ImGuiItemFlags_MixedValue: a checkbox that shows "several values"
 
 namespace fa::editor {
 
@@ -73,6 +74,19 @@ void Editor::draw_inspector_panel() {
         return;
     }
     World& w = world();
+    {  // several entities selected: the shared components of all of them (the primary first)
+        std::vector<Entity> group{e};
+        const Selection& shown = selection_peek();
+        for (const std::string& sid : shown.ids()) {
+            const Entity o = sid == shown.primary() ? kNullEntity : w.find_by_id(sid);
+            if (!o.is_null()) group.push_back(o);
+        }
+        if (group.size() > 1) {
+            draw_inspector_multi(group);
+            ImGui::End();
+            return;
+        }
+    }
     const std::string id = w.id_of(e);
     if (id != inspEntity_) {  // a new entity: text being edited and messages of the last one do not carry over
         inspEntity_ = id;
@@ -120,6 +134,187 @@ void Editor::draw_inspector_panel() {
     }
     ImGui::EndChild();
     ImGui::End();
+}
+
+// Several entities selected. The header says how many; Add Component adds the chosen component to every selected entity that does
+// not have it (one undo step); the components every entity has are drawn once, a field where the entities differ shows "—" and an
+// edit writes to all of them (one undo step per drag); the components only some have are listed below, not editable.
+void Editor::draw_inspector_multi(const std::vector<Entity>& ents) {
+    World& w = world();
+    const std::string primaryId = w.id_of(ents[0]);
+    const std::string group = "multi:" + primaryId + ":" + std::to_string(ents.size());
+    if (group != inspEntity_) {
+        inspEntity_ = group;
+        inspErrors_.clear();
+        inspJson_.clear();
+    }
+    ImGui::Text("%s", multi_selection_title(ents.size()).c_str());
+    tooltip("The selected entities. The Inspector shows what all of them have; the primary one (the one selected last) "
+            "is " +
+            tree_label(w.info(ents[0]).name, primaryId) + ".");
+    ImGui::TextDisabled("primary: %s", tree_label(w.info(ents[0]).name, primaryId).c_str());
+    ImGui::Separator();
+
+    std::vector<std::vector<std::string>> names;
+    std::vector<const TypeInfo*> typeOf;  // every type any of them has
+    for (Entity e : ents) {
+        std::vector<std::string> list;
+        for (const TypeInfo* t : w.components_of(e)) {
+            list.push_back(t->name);
+            if (std::find(typeOf.begin(), typeOf.end(), t) == typeOf.end()) typeOf.push_back(t);
+        }
+        names.push_back(std::move(list));
+    }
+    const SharedComponents sc = shared_components(names);
+    auto type_named = [&](const std::string& n) -> const TypeInfo* {
+        for (const TypeInfo* t : typeOf)
+            if (t->name == n) return t;
+        return nullptr;
+    };
+
+    ImGui::SetNextItemWidth(-FLT_MIN);
+    if (ImGui::BeginCombo("##addcomp", "Add Component...")) {
+        std::vector<const TypeInfo*> types = TypeRegistry::global().all();
+        std::stable_sort(types.begin(), types.end(),
+                         [](const TypeInfo* a, const TypeInfo* b) { return a->category < b->category; });
+        std::string category;
+        for (const TypeInfo* t : types) {
+            if (t->name == "EntityInfo" || t->name == "Transform") continue;
+            std::vector<std::string> lacking;  // the selected entities that do not have it
+            for (Entity e : ents)
+                if (w.get(e, *t) == nullptr) lacking.push_back(w.id_of(e));
+            if (lacking.empty()) continue;
+            if (t->category != category) {
+                category = t->category;
+                ImGui::SeparatorText(category.c_str());
+            }
+            const std::string label = lacking.size() == ents.size() ? t->name
+                                                                    : t->name + " (" + std::to_string(lacking.size()) +
+                                                                          " of " + std::to_string(ents.size()) + ")";
+            if (ImGui::Selectable((label + "###" + t->name).c_str())) {
+                const std::string key =
+                    "insp:add:" + std::to_string(uiFrame_);  // one key: one undo step for all of them
+                std::string err;
+                for (const std::string& lid : lacking) {
+                    CommandResult r = edit_command(
+                        key, "scene.set_component",
+                        Json::object({{"id", lid}, {"component", t->name}, {"fields", Json::object()}}), &err);
+                    if (!r.ok) {
+                        notify("Could not add " + t->name + " to " + lid + ": " + err, 2);
+                        break;
+                    }
+                }
+            }
+            at_track("insp:add:" + t->name);
+            tooltip(t->doc + "\nAdded to the selected entities that do not have it yet.");
+        }
+        ImGui::EndCombo();
+    }
+    at_track("insp:add");
+    tooltip(
+        "Add a component with its default values to every selected entity that lacks it (scene.set_component, one undo "
+        "step). The x on a header removes it from all of them.");
+    ImGui::Spacing();
+    ImGui::BeginChild("##inspector_body", ImVec2(0, 0), ImGuiChildFlags_None);
+    for (const std::string& n : sc.shared) {
+        if (const TypeInfo* t = type_named(n)) draw_inspector_component_multi(ents, *t);
+        if (w.find_by_id(primaryId) != ents[0])
+            break;  // an edit rebuilt the scene: the handles are stale, draw again next frame
+    }
+    if (!sc.partial.empty()) {
+        ImGui::SeparatorText("Not on every selected entity");
+        for (const auto& [n, have] : sc.partial) {
+            ImGui::TextDisabled("%s  (%d of %zu)", n.c_str(), have, ents.size());
+            if (const TypeInfo* t = type_named(n))
+                tooltip(t->doc + "\nOnly some of the selected entities have it: select one to edit it.");
+        }
+    }
+    ImGui::EndChild();
+}
+
+void Editor::draw_inspector_component_multi(const std::vector<Entity>& ents, const TypeInfo& type) {
+    World& w = world();
+    const bool removable = type.name != "Transform" && type.name != "EntityInfo";
+    bool keep = true;
+    ImGui::PushID(type.name.c_str());
+    ImGui::SetNextItemOpen(true, ImGuiCond_Once);
+    const bool open =
+        ImGui::CollapsingHeader(type.name.c_str(), removable ? &keep : nullptr, ImGuiTreeNodeFlags_AllowOverlap);
+    at_track("insp:hdr:" + type.name);
+    if (removable)
+        at_track_at("insp:hdr:" + type.name + ":x",
+                    Vec2{ImGui::GetItemRectMax().x - ImGui::GetStyle().FramePadding.x - ImGui::GetFontSize() * 0.5f,
+                         (ImGui::GetItemRectMin().y + ImGui::GetItemRectMax().y) * 0.5f});
+    tooltip(type.doc);
+    if (!keep) {  // the x of the header: off every selected entity, one undo step
+        const std::string key = "insp:remove:" + std::to_string(uiFrame_);
+        std::string err;
+        for (Entity e : ents) {
+            CommandResult r = edit_command(key, "scene.remove_component",
+                                           Json::object({{"id", w.id_of(e)}, {"component", type.name}}), &err);
+            if (!r.ok) {
+                notify("Could not remove " + type.name + ": " + err, 2);
+                break;
+            }
+        }
+        ImGui::PopID();
+        return;
+    }
+    if (open) {
+        std::vector<Json> cur;
+        for (Entity e : ents) cur.push_back(component_to_json(w, e, type, true, false, kInspectorArrayEditMax));
+        if (ImGui::BeginTable("##fields", 2, ImGuiTableFlags_SizingStretchProp)) {
+            ImGui::TableSetupColumn("name", ImGuiTableColumnFlags_WidthStretch, 0.38f);
+            ImGui::TableSetupColumn("value", ImGuiTableColumnFlags_WidthStretch, 0.62f);
+            for (const FieldInfo& f : type.fields) {
+                if (!inspector_shows(f)) continue;
+                const std::string key = type.name + "." + f.name;
+                const bool disabled = f.readOnly || (type.name == "EntityInfo" && f.name == "id");
+                std::vector<Json> values;
+                for (const Json& c : cur) values.push_back(c.contains(f.name) ? c[f.name] : Json(nullptr));
+                const FieldMix mix = field_mix(values);
+                ImGui::TableNextRow();
+                ImGui::TableSetColumnIndex(0);
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextUnformatted(f.name.c_str());
+                if (inspScrollTo_ == key) {  // the autotest asks for a field low in a long component
+                    ImGui::SetScrollHereY(0.0f);
+                    inspScrollTo_.clear();
+                }
+                tooltip(field_tip(f, disabled));
+                ImGui::TableSetColumnIndex(1);
+                if (type.name == "MeshRenderer" && f.name == "materialParams") {
+                    ImGui::TextDisabled("Material params: select one entity to edit them.");
+                } else {
+                    Json out;
+                    if (draw_field_widget(key, f, values[0], disabled, out, &mix)) {
+                        // What the user saw is the primary's value rounded to 4 decimals: compare against that, so a number
+                        // they did not touch does not count as edited and leaves the other entities' own value alone.
+                        Json shown = values[0];
+                        if (shown.is_array())
+                            for (std::size_t i = 0; i < shown.size(); ++i)
+                                if (shown[i].is_number()) shown[i] = round4(shown[i].get<float>());
+                        std::string err;
+                        bool ok = true;
+                        for (std::size_t i = 0; i < ents.size() && ok; ++i) {
+                            CommandResult r = edit_command("insp:" + inspEntity_ + ":" + key, "scene.set_component",
+                                                           field_edit_args(w.id_of(ents[i]), type.name, f.name,
+                                                                           multi_edit_value(values[i], shown, out)),
+                                                           &err);
+                            ok = r.ok;
+                        }
+                        if (ok)
+                            inspErrors_.erase(key);
+                        else
+                            inspErrors_[key] = err;
+                    }
+                }
+                if (auto it = inspErrors_.find(key); it != inspErrors_.end()) error_text(it->second);
+            }
+            ImGui::EndTable();
+        }
+    }
+    ImGui::PopID();
 }
 
 void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
@@ -205,8 +400,13 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
     ImGui::PopID();
 }
 
-bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const Json& cur, bool disabled, Json& out) {
+bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const Json& cur, bool disabled, Json& out,
+                               const FieldMix* mix) {
     const FieldWidget kind = widget_for(f);
+    // With several entities selected `cur` is the primary's value and `mix` says where the others differ: the widget shows "—"
+    // (U+2014) there. A drag or a pick still starts from the primary's value.
+    const bool mixed = mix && mix->mixed;
+    const char* const dash = "\xE2\x80\x94";
     const std::string tip = field_tip(f, disabled);
     const std::string track = "insp:" + key;
     const std::string editKey = "insp:" + inspEntity_ + ":" + key;
@@ -230,10 +430,12 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
     switch (kind) {
         case FieldWidget::Checkbox: {
             bool v = cur.is_boolean() && cur.get<bool>();
+            if (mixed) ImGui::PushItemFlag(ImGuiItemFlags_MixedValue, true);
             if (ImGui::Checkbox("##v", &v)) {
                 out = v;
                 changed = true;
             }
+            if (mixed) ImGui::PopItemFlag();
             at_track(track, !disabled);
             tooltip(tip);
             break;
@@ -242,7 +444,7 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             int v = cur.is_number() ? int(std::lround(cur.get<double>())) : 0;
             const bool ranged = field_has_range(f);
             if (ImGui::DragInt("##v", &v, drag_speed_for(f, v), ranged ? int(f.minValue) : 0,
-                               ranged ? int(f.maxValue) : 0)) {
+                               ranged ? int(f.maxValue) : 0, mixed ? dash : "%d")) {
                 out = v;
                 changed = true;
             }
@@ -255,7 +457,7 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             float v = cur.is_number() ? cur.get<float>() : 0.0f;
             const bool ranged = field_has_range(f);
             if (ImGui::DragFloat("##v", &v, drag_speed_for(f, v), ranged ? f.minValue : 0.0f,
-                                 ranged ? f.maxValue : 0.0f, "%.3f")) {
+                                 ranged ? f.maxValue : 0.0f, mixed ? dash : "%.3f")) {
                 out = round4(v);
                 changed = true;
             }
@@ -276,7 +478,21 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             const float speed =
                 drag_speed_for(f, std::max({std::fabs(v[0]), std::fabs(v[1]), n > 2 ? std::fabs(v[2]) : 0.0f}));
             bool edited = false;
-            if (n == 2)
+            if (mixed) {
+                // One drag box per number, so that only the numbers that differ show "—" (DragFloat3 has one format).
+                const float total = ImGui::CalcItemWidth(), gap = ImGui::GetStyle().ItemInnerSpacing.x;
+                ImGui::BeginGroup();
+                for (int i = 0; i < n; ++i) {
+                    ImGui::PushID(i);
+                    if (i > 0) ImGui::SameLine(0.0f, gap);
+                    ImGui::SetNextItemWidth(std::max(1.0f, (total - gap * float(n - 1)) / float(n)));
+                    const bool partMixed = i < int(mix->parts.size()) ? bool(mix->parts[size_t(i)]) : true;
+                    edited |= ImGui::DragFloat("##c", &v[i], speed, lo, hi, partMixed ? dash : "%.3f");
+                    keep_step_alive();
+                    ImGui::PopID();
+                }
+                ImGui::EndGroup();
+            } else if (n == 2)
                 edited = ImGui::DragFloat2("##v", v, speed, lo, hi, "%.3f");
             else if (n == 3)
                 edited = ImGui::DragFloat3("##v", v, speed, lo, hi, "%.3f");
@@ -289,12 +505,18 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
             at_track(track, !disabled);
             track_parts(n);
             tooltip(tip);
-            keep_step_alive();
+            if (!mixed) keep_step_alive();
             break;
         }
         case FieldWidget::Color: {
             float v[4];
             read_floats(cur, v, 4, 1.0f);
+            if (mixed) {  // the swatch shows the primary's colour; the dash says the others differ
+                ImGui::AlignTextToFramePadding();
+                ImGui::TextDisabled("%s", dash);
+                ImGui::SameLine();
+                ImGui::SetNextItemWidth(-FLT_MIN);
+            }
             if (ImGui::ColorEdit4("##v", v, ImGuiColorEditFlags_AlphaBar | ImGuiColorEditFlags_Float)) {
                 out = numbers(v, 4);
                 changed = true;
@@ -306,7 +528,7 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
         }
         case FieldWidget::EnumCombo: {
             const std::string name = cur.is_string() ? cur.get<std::string>() : std::string();
-            if (ImGui::BeginCombo("##v", name.c_str())) {
+            if (ImGui::BeginCombo("##v", mixed ? dash : name.c_str())) {
                 for (const std::string& n : f.enumNames)
                     if (ImGui::Selectable(n.c_str(), n == name)) {
                         out = n;
@@ -321,7 +543,7 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
         case FieldWidget::EntityCombo: {
             World& w = world();
             const std::string name = cur.is_string() ? cur.get<std::string>() : std::string();
-            if (ImGui::BeginCombo("##v", name.empty() ? "(none)" : name.c_str())) {
+            if (ImGui::BeginCombo("##v", mixed ? dash : name.empty() ? "(none)" : name.c_str())) {
                 if (ImGui::Selectable("(none)", name.empty())) {
                     out = nullptr;
                     changed = true;
@@ -342,10 +564,10 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
         case FieldWidget::Text:
         case FieldWidget::AssetPicker: {
             JsonBox& b = inspJson_[key];
-            if (!b.dirty) b.text = cur.is_string() ? cur.get<std::string>() : std::string();
+            if (!b.dirty) b.text = !mixed && cur.is_string() ? cur.get<std::string>() : std::string();
             const bool asset = kind == FieldWidget::AssetPicker;
             if (asset) ImGui::SetNextItemWidth(-(ImGui::GetFrameHeight() + ImGui::GetStyle().ItemInnerSpacing.x));
-            ImGui::InputText("##v", &b.text);
+            ImGui::InputTextWithHint("##v", mixed ? dash : "", &b.text);
             if (ImGui::IsItemEdited()) b.dirty = true;
             const bool commit = ImGui::IsItemDeactivatedAfterEdit();
             if (ImGui::IsItemDeactivated() && !commit) b.dirty = false;  // Escape: the old value comes back
@@ -412,6 +634,12 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
         }
         case FieldWidget::JsonText: {
             const bool numbers = is_array_kind(f.kind);
+            if (mixed) {  // a JSON box has no way to show several values: edit these one entity at a time
+                ImGui::TextDisabled("%s  (differs: select one entity to edit)", dash);
+                at_track(track, false);
+                tooltip(tip);
+                break;
+            }
             const std::optional<std::size_t> longArray = inspector_array_length(cur);
             if (numbers && longArray) {
                 // Too long for a text box that is rebuilt every frame: say what it is; scripts and commands edit it.

@@ -6,6 +6,11 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **Several entities selected (M98.7b):** in the editor, Ctrl/Cmd+click toggles and Shift+click selects a range in the
+  Hierarchy, and Ctrl/Cmd+click, Shift+click and a marquee on empty space select in the Viewport. Every selected entity is
+  outlined; the gizmo moves, rotates and scales all of them about the primary as one Undo step; Delete, Duplicate and
+  drag-to-reparent act on the whole selection; the Inspector shows the components all of them share ("—" where values
+  differ) and an edit writes to all of them as one Undo step. The AI context lists the other selected ids.
 - **Render interpolation (M98.3):** `"render": { "interpolation": true }` in `factoria.json` (default `false`, so nothing
   changes for a game that does not ask) draws entities at the pose between the last two fixed steps, so a 60 Hz simulation
   looks smooth at 120-144 Hz. Only the drawing is blended (position, scale, rotation by slerp; children, cameras and physics

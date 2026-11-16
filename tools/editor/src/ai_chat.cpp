@@ -568,6 +568,23 @@ std::string selection_line(const std::string& entityName, const std::string& ent
            "\"). \"this\" and \"it\" in the request mean this entity.]";
 }
 
+std::string selection_line(const std::string& entityName, const std::string& entityId,
+                           const std::vector<std::pair<std::string, std::string>>& others) {
+    if (entityId.empty() || others.empty()) return selection_line(entityName, entityId);
+    auto shown = [](const std::string& name, const std::string& id) {
+        return "\"" + (name.empty() ? id : name) + "\" (id \"" + id + "\")";
+    };
+    std::string line = "[Viewport selection: " + std::to_string(others.size() + 1) + " entities. The primary one is " +
+                       shown(entityName, entityId) + "; the others are ";
+    for (std::size_t i = 0; i < others.size() && i < kSelectionLineMax; ++i)
+        line += (i ? ", " : "") + shown(others[i].first, others[i].second);
+    if (others.size() > kSelectionLineMax)
+        line +=
+            " and " + std::to_string(others.size() - kSelectionLineMax) + " more (scene.list_entities lists them all)";
+    line += ". \"this\" and \"it\" in the request mean the primary entity; \"these\" and \"them\" mean all of them.]";
+    return line;
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 
 namespace {
