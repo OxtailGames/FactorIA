@@ -35,7 +35,8 @@ elseif(FA_PLATFORM STREQUAL "web")
     # resolves to the module; no pthreads, so no SharedArrayBuffer and no COOP/COEP headers are needed on the host.
     #   FORCE_FILESYSTEM + idbfs.js    the save folder lives in IndexedDB (fs_web.cpp)
     #   EXPORTED_RUNTIME_METHODS       FS: the page writes /game.pak
-    #   EXPORTED_FUNCTIONS             main, the save-restored callback of fs_web.cpp, and the two stack helpers the JS runtime
+    #   EXPORTED_FUNCTIONS             main, the save-restored callback of fs_web.cpp, the callbacks of
+    #                                  http_web.cpp and websocket_web.cpp, and the two stack helpers the JS runtime
     #                                  needs (without them this Emscripten fails to link with "undefined symbol")
     #   ALLOW_MEMORY_GROWTH            the pack and the assets live in memory; the heap grows as needed
     #   STACK_SIZE                     QuickJS and the layout code recurse deeper than the 64 KB default allows
@@ -45,7 +46,7 @@ elseif(FA_PLATFORM STREQUAL "web")
         -sUSE_WEBGL2=1 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2
         -sALLOW_MEMORY_GROWTH=1 -sSTACK_SIZE=2097152 -sINITIAL_MEMORY=67108864
         -sFORCE_FILESYSTEM=1 -sEXPORTED_RUNTIME_METHODS=FS -lidbfs.js
-        -sEXPORTED_FUNCTIONS=_main,_fa_web_save_restored,_fa_web_http_done,_emscripten_stack_get_current,__emscripten_stack_restore
+        -sEXPORTED_FUNCTIONS=_main,_fa_web_save_restored,_fa_web_http_done,_fa_web_ws_ready,_emscripten_stack_get_current,__emscripten_stack_restore
         -sEXIT_RUNTIME=0)
     target_link_options(factoria_player PRIVATE "$<$<CONFIG:Debug>:-sASSERTIONS=1>")
 elseif(FA_PLATFORM STREQUAL "ios")

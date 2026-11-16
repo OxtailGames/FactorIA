@@ -252,7 +252,17 @@ platform, and this table says what works today:
 | macOS, iOS | `NSURLSessionWebSocketTask` | yes (system certificates and proxy; see "On macOS and iOS" below) |
 | Linux | libcurl's WebSocket support, loaded when first needed (like `http.fetch`) | not yet (M98.2c); without `libcurl.so.4` it stays unavailable |
 | Android | a socket stream with the engine's own WebSocket protocol code, through JNI | not yet (M98.2c) |
-| Web | the browser's `WebSocket` | not yet (M98.2d) |
+| Web | the browser's `WebSocket` | yes (see below) |
+
+**On the web** the player uses the browser's own `WebSocket`, so a few things differ. There is **no CORS** for WebSocket: the
+browser always sends the page's `Origin` header and it is the *server's* policy to accept or refuse it (a refusal is a 403
+the page cannot see, so it looks like any failed connection). A page loaded over `https://` may only open `wss://`
+addresses (mixed content; some browsers exempt `localhost`). `headers` is an error at `connect` (the browser cannot send
+any). The browser gives no reason for a failed connection, so the `"error"` event lists what to check; `httpStatus` is
+always 0. A message longer than `maxMessageBytes` is checked when the whole message has arrived (the browser buffers it
+first), and the server is closed with 1000 and the reason "message too big", because the browser cannot send 1009 (it only
+sends 1000 and 3000 to 4999). A connection that a scene change or `ws.close()` without a code ends closes with no status code (the browser cannot
+send 1001). The timeout and the 5 s wait for the server's answer to `close()` are the engine's own timers.
 
 **On macOS and iOS** the client is the system's, so it differs from the others in three small ways. Closing: `ws.close()`
 reports the `"close"` event as soon as the system has sent the close frame, with the code and reason that were asked for and
@@ -297,7 +307,7 @@ from another thread. `ws.on(event, fn)` returns a function that removes the hand
 | `"close"` | `{ code, reason, wasClean, willReconnect }` | The end. Code 1006 means no closing handshake happened. |
 | `"reconnecting"` | `{ attempt, delay }` | After a `"close"` with `willReconnect: true`: the next attempt in `delay` seconds. |
 
-`ws.send(data)` takes a string (a text message), an `ArrayBuffer` or a typed array (a binary message) and returns `true`
+`ws.send(data)` takes a string (a text message), an `ArrayBuffer`, a typed array or a `DataView` (a binary message; a view sends the bytes it shows, from its `byteOffset` for its `byteLength`) and returns `true`
 when queued, `false` when the connection is not open (nothing is kept for later; this is how a game notices it is between
 two connections). Data of another type and a message over `maxMessageBytes` throw. `ws.close(code = 1000, reason = "")`
 starts the closing handshake (`code` 1000 or 3000 to 4999, `reason` at most 123 bytes); the `"close"` event follows.
@@ -370,6 +380,6 @@ that plain `ws://` client over a POSIX socket is a tool for those tests, not wha
 | `http.fetch ... failed` with code `network` in a test | Nobody scripted an answer: `game.platform.respond("http.fetch", ...)` first. |
 | `declares no network hosts` for `websocket.connect` | The same section serves both: declare the host of the `wss://` address. |
 | `unavailable` | The platform cannot send requests (Linux without libcurl) or the backend is `none`. Check `platform.has("http")` and let the game carry on offline. |
-| Works on desktop, fails in the web build | CORS: the server must allow the page's origin. The browser's `WebSocket` cannot send `headers`: put what the server needs in the URL. |
+| Works on desktop, fails in the web build | `http.fetch`: CORS, the server must allow the page's origin. `websocket`: no CORS, but the browser sends the page's `Origin` and the server must accept it; an `https://` page needs `wss://`; the browser's `WebSocket` cannot send `headers`: put what the server needs in the URL or the first message. |
 | `websocket.supported` is false | This build has no WebSocket client for the platform yet ([section 8](#8-websocket)). |
 | Works on desktop, fails on Android | The `INTERNET` permission (declare `network.hosts`), or plain `http://` (Android blocks it). |
