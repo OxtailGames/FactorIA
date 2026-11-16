@@ -218,7 +218,8 @@ TEST_CASE("websocket web: close() while connecting is Closing until poll deliver
     CHECK(m.state() == WebSocketState::Closed);
 }
 
-TEST_CASE("websocket web: close() of a closed or closing connection does nothing; messages still arrive while closing") {
+TEST_CASE(
+    "websocket web: close() of a closed or closing connection does nothing; messages still arrive while closing") {
     Mapper m = make();
     m.on_browser(ev(Kind::Open));
     CHECK(m.on_close_requested(1000, "").startClosing);
@@ -261,7 +262,8 @@ TEST_CASE("websocket web: headers are refused with a teaching error, sends are c
 }
 
 TEST_CASE("websocket web: the browser's constructor errors become teaching errors") {
-    Text mixed = constructor_failure_text("SecurityError", "An insecure WebSocket connection may not be initiated", "ws://x.com/", true);
+    Text mixed = constructor_failure_text("SecurityError", "An insecure WebSocket connection may not be initiated",
+                                          "ws://x.com/", true);
     CHECK(contains(mixed.message, "ws://x.com/"));
     CHECK(contains(mixed.hint, "wss://"));
     CHECK(contains(mixed.hint, "mixed"));
