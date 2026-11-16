@@ -1,5 +1,9 @@
 # Burrow Brigade
 
+**What it shows:** A couch co-op mining game for up to four players: digging, lamp light, saves, Steam, shipping and four languages.
+
+**Read first:** `docs/SCRIPTING.md`, `docs/PLATFORM.md`, `docs/PUBLISHING.md` (`docs.read`, or `factoria docs read <name>`).
+
 A top-down 2D mining game for up to four players on one screen (couch co-op), for desktop first and Steam. Dig dirt and
 rock with a pick, take the ore, keep your lamp alight with oil cans, free the moles trapped in the rock, and ride the lift
 up before the dark gets you. It is the third reference game of the FactorIA engine (milestone M28), built in eight

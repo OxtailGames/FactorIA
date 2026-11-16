@@ -1,5 +1,9 @@
 # Lantern Keep
 
+**What it shows:** A 2D platformer in six levels: a lantern that lights the dark, parallax, saves, store services, accessibility and four languages.
+
+**Read first:** `docs/SCRIPTING.md`, `docs/LOCALIZATION.md`, `docs/PUBLISHING.md` (`docs.read`, or `factoria docs read <name>`).
+
 The M21 reference game of FactorIA: a small, complete 2D platformer made the way a game maker's AI makes one (only the
 project's own files, the `factoria` CLI and the AI guide). You carry a lantern through a ruined keep, find three embers in
 every level and bring the light to the keep's great lantern at the end. Six short levels (30 to 60 seconds each) in two

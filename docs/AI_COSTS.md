@@ -39,8 +39,8 @@ then generate a batch.
 
 ## 2. What a game cost
 
-These numbers come from building **Lantern Keep** (`examples/lantern-keep` in the FactorIA repository), a complete 2D
-platformer with menus, saves, achievements, accessibility options, store setup and two extra languages. Six Sonnet 5.5
+These numbers come from building **Lantern Keep** (a complete 2D
+platformer with menus, saves, achievements, accessibility options, store setup and two extra languages (if you got it with `project.create {example: "lantern-keep"}` to read it). Six Sonnet 5.5
 workers built it, one package each, on 2026-10-19. What the numbers are:
 
 - A **Claude Code subscription run**: each worker followed the game's generated `AGENTS.md` and read `factoria docs`.

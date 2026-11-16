@@ -208,9 +208,10 @@ Available templates:
 
 `factoria templates` lists the available templates with their descriptions.
 
-Or start from an **example game**. The download carries no examples (only a clone of the repository has the `examples/` folder),
-so FactorIA fetches the one you pick from the GitHub release of the version you installed. In the editor, the **Examples** tab of the Open or create a project window lists them and
-creates the project with a click (docs/EDITOR.md, "The Examples tab"); from a terminal:
+Or start from an **example game**. The download carries no examples (only a clone of the repository has the `examples/`
+folder), so FactorIA fetches the one you pick from the GitHub release of the version you installed. In the editor, the
+**Examples** tab of the Open or create a project window lists them and creates the project with a click (docs/EDITOR.md,
+"The Examples tab"); from a terminal:
 
 ```bash
 factoria call project.examples                                  # name, title, what it shows, what to read first, download size

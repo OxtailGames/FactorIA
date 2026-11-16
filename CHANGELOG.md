@@ -81,6 +81,9 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   (`"close"` 1008), `readyState` is `"closed"` as soon as that `"close"` event can be read, as it already was for every other
   end (before, a read right then could still say `"open"` for a moment). On Windows, a close frame from the server whose status
   Windows cannot read is answered with an empty close frame instead of dropping the connection.
+- **Examples are optional in the docs (M97.5d):** every example's README opens with what the game shows and which docs to read
+  first; the docs you get with the download keep each recipe in the doc and name an example only as something you may have
+  fetched with `project.create {example}`, and a test fails an embedded doc that cites `examples/<name>` without saying so.
 - **Examples tab in the start window (M97.5c):** the Open or create a project window has an Examples tab that lists the example
   games of your version (what each shows, its size, whether it is downloaded, the docs to read first) and creates a project from
   one in a folder you choose, with progress and Cancel; the list is read from a saved copy at once and refreshed in the background,

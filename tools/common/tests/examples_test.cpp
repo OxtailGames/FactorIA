@@ -85,6 +85,16 @@ TEST_CASE("examples source: every folder of examples/ has an entry and every ent
         CHECK_FALSE(e.readFirst.empty());
         for (const std::string& doc : e.readFirst)
             CHECK_MESSAGE(stdfs::exists(stdfs::path(FA_REPO_ROOT) / doc), doc << " does not exist");
+        // The README opens (before its first section) with what the example shows and the docs to read first.
+        const std::string readme = read_all(root / e.name / "README.md");
+        const std::string head = readme.substr(0, readme.find("\n## "));
+        CHECK_MESSAGE(
+            head.find("**What it shows:** " + e.shows) != std::string::npos,
+            "examples/" << e.name
+                        << "/README.md must open with \"**What it shows:** \" and the `shows` text of examples.json");
+        for (const std::string& doc : e.readFirst)
+            CHECK_MESSAGE(head.find("`" + doc + "`") != std::string::npos,
+                          "examples/" << e.name << "/README.md must open with \"**Read first:**\" naming " << doc);
     }
     // The entries stay sorted by name, so a diff of the file shows what changed.
     std::vector<std::string> names;
