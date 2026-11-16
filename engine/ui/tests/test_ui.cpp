@@ -28,7 +28,7 @@ TEST_CASE("ui layout: column places children with spacing, padding and cross-axi
     panel.layout = UiLayout::Column;
     panel.spacing = 10;
     panel.padding = {10, 10, 10, 10};
-    Entity a = t.button("a", {0, 0}, {100, 20}, p), b = t.button("b", {5, 5}, {60, 30}, p);
+    Entity a = t.button("a", {0, 0}, {100, 20}, p), b = t.button("b", {0, 0}, {60, 30}, p);
     t.ui.layout(t.w, t.design, {});
     // inner box x 110..290, y 60..; align center (default): a is 100 wide, b is 60 wide
     CHECK(t.rect(a).x == doctest::Approx(150));
@@ -62,7 +62,7 @@ TEST_CASE("ui layout: row, grid and children that are not widgets") {
     panel.spacing = 5;
     panel.padding = {0, 0, 0, 0};
     panel.align = UiAlign::Start;
-    Entity a = t.button("a", {40, 40}, {50, 20}, p), b = t.button("b", {0, 0}, {30, 40}, p);
+    Entity a = t.button("a", {0, 0}, {50, 20}, p), b = t.button("b", {0, 0}, {30, 40}, p);
     // a screen-space Text is placed by the box of its text (approximated without a renderer: 0.6 em per char)
     Entity label = t.w.create("label", "label");
     t.w.set_parent(label, p);

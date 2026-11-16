@@ -304,7 +304,10 @@ void register_builtin_components(TypeRegistry& r) {
                      "Core")
         .field("position", &Transform::position,
                "Local position relative to the parent [x, y, z]. 2D: x right, y up, z is only used for depth ordering "
-               "of 3D content. Units: world units (design pixels in 2D, meters in 3D).")
+               "of 3D content. Units: world units (design pixels in 2D, meters in 3D). A child that a Panel `layout` "
+               "or a ScrollList places is not moved by writing here: the engine keeps the layout's place apart (never "
+               "saved), so this is your own offset from the slot, 0 = exactly in it, and entity.worldPosition is "
+               "where it ends up (since 0.30.0).")
         .field("rotation", &Transform::rotation,
                "Local rotation as euler angles in DEGREES [pitch around X, yaw around Y, roll around Z], applied in "
                "the order Y, X, Z. 2D games only use the z value (counter-clockwise).")
@@ -2767,8 +2770,11 @@ void register_builtin_components(TypeRegistry& r) {
                 "How children are placed, every frame: none = they keep their own positions; row / column = one after "
                 "the other along that axis; grid = `columns` per row, every cell as large as the largest child. "
                 "Children are the active child entities that have a size (a widget, or a Text / Sprite / Shape2D in "
-                "screen space); the rest are skipped. A child's own position, anchor and pivot do not matter: layout "
-                "moves its Transform.position so it lands in its slot. A child's Transform.scale multiplies the "
+                "screen space); the rest are skipped. A child's own anchor and pivot do not matter: layout puts it in "
+                "its slot every frame without writing its Transform.position, which stays the child's own offset "
+                "from the slot (0 = exactly in it; a script or the inspector can nudge it, and the layout keeps the "
+                "nudge; since 0.30.0). A widget moved into a laid-out Panel with scene.set_parent goes to its slot "
+                "(position 0, as the layout would put it). A child's Transform.scale multiplies the "
                 "room its slot takes (a row makes room for a child at scale 2); its rotation.z does not: the slot "
                 "stays and the child turns in place around its pivot. A turned or scaled Panel lays its children out "
                 "as if it were not and then turns and scales them with it (since 0.30.0).")

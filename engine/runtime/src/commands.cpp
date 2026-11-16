@@ -396,7 +396,12 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
          "`parent` null or \"\" makes it a root. By default (`keepWorldTransform` true) the entity stays where it is "
          "on "
          "screen: its local Transform is recomputed for the new parent; with false the local Transform is kept, so the "
-         "entity moves with the new parent. The entity becomes the LAST child of its new parent unless `index` says "
+         "entity moves with the new parent. Exception: into a parent that lays its children out (a Panel with a "
+         "`layout`, "
+         "a ScrollList) a widget (or a screen-space Text, Sprite or Shape2D) goes to its slot: its Transform.position "
+         "becomes [0, 0] (rotation and scale are kept), as the layout would have put it. Moving under the SAME parent "
+         "(a new `index`) changes only the order. The entity becomes the LAST child of its new parent unless `index` "
+         "says "
          "where: 0 = first; it counts the new parent's other children, so moving within the same parent works (index 0 "
          "on the "
          "last child makes it first); an index below 0 or above the number of other children is refused, and `index` "
@@ -1189,6 +1194,30 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
                        state["uiScale"] = engine.ui_scale();
                        return state;
                    });
+
+    I.commands.add(
+        {"ui.reset_layout_positions",
+         "Migrate a scene saved before 0.30: set Transform.position x and y to 0 on the laid-out children whose "
+         "position holds "
+         "the old layout result.",
+         "Before 0.30 a Panel or ScrollList wrote where it placed a child into the child's Transform.position, and a "
+         "saved "
+         "scene kept it. Now the layout keeps its own offset and Transform.position of a laid-out child is the "
+         "author's nudge "
+         "from the slot (0 = in the slot), so such a child sits that far from where it was. This runs a layout pass "
+         "and sets "
+         "x and y of the position to 0 on every laid-out child whose position equals its layout offset (within half a "
+         "pixel), "
+         "so the picture stays what the old engine drew. It changes the open scene only: save it afterwards "
+         "(scene.save). "
+         "Returns {count, ids}. A nudge you made on purpose that happens to equal the slot offset is reset too; "
+         "the log names each such child the first time a layout sees it. Example: ui.reset_layout_positions {}",
+         parse_schema(R"({"type":"object","properties":{}})"), false, "ui"},
+        [&I](const Json&) {
+            I.ui.layout(I.world, I.design_size(), I.measure(), false);
+            const std::vector<std::string> ids = I.ui.reset_baked_positions(I.world);
+            return Json::object({{"count", ids.size()}, {"ids", ids}});
+        });
 
     I.commands.add(
         {"ui.set_slider", "Set a Slider the way a drag does: clamped, snapped to step, and ui.change is sent.",
@@ -2253,6 +2282,7 @@ void register_builtin_commands(Engine& engine, Engine::Impl& I) {
             {"ui.set_slider", capability_sets::changes_state()},
             {"ui.set_text_scale", capability_sets::changes_state()},
             {"ui.force_touch", capability_sets::changes_state()},
+            {"ui.reset_layout_positions", capability_sets::changes_state()},
             {"ui.set_scale", capability_sets::changes_state()},
             {"ui.set_mirror_rtl", capability_sets::changes_state()},
             {"ui.speak", capability_sets::changes_state()},

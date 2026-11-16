@@ -66,6 +66,16 @@ TouchStick and TouchButton with touchOnly (the default) are drawn only while the
 |---|---|---|---|
 | `enabled` | boolean | no | true: force the touch interface on; false: back to following the real last input. Default true. |
 
+## `ui.reset_layout_positions` (modifies state)
+
+Not released yet (on main after 0.29.1).
+
+Migrate a scene saved before 0.30: set Transform.position x and y to 0 on the laid-out children whose position holds the old layout result.
+
+Capabilities: read, state
+
+Before 0.30 a Panel or ScrollList wrote where it placed a child into the child's Transform.position, and a saved scene kept it. Now the layout keeps its own offset and Transform.position of a laid-out child is the author's nudge from the slot (0 = in the slot), so such a child sits that far from where it was. This runs a layout pass and sets x and y of the position to 0 on every laid-out child whose position equals its layout offset (within half a pixel), so the picture stays what the old engine drew. It changes the open scene only: save it afterwards (scene.save). Returns {count, ids}. A nudge you made on purpose that happens to equal the slot offset is reset too; the log names each such child the first time a layout sees it. Example: ui.reset_layout_positions {}
+
 ## `ui.set_mirror_rtl` (modifies state)
 
 Since 0.3.0.
