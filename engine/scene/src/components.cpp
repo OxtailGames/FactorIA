@@ -2594,23 +2594,26 @@ void register_builtin_components(TypeRegistry& r) {
         .field("dopplerLevel", &AudioSource::dopplerLevel,
                "Spatial only: how much the pitch shifts with the speed the source and the listener approach or "
                "separate at (the AudioListener's speedOfSound). 0 (default) = off, 1 = the real shift, more "
-               "exaggerates. Velocities come from the change of each one's world position between frames (not from "
-               "RigidBody), so scripted and animated movement shifts too. NOT YET: the doppler shift lands in M98.8b; "
-               "until then this field has no effect.")
+               "exaggerates (it is the exponent of the real pitch ratio). The pitch factor is limited to 0.25..4 and "
+               "glides "
+               "over about 0.05 s. Velocities come from the change of each one's world position between frames (not "
+               "from RigidBody), so scripted and animated movement shifts too; the first frame and a teleport give "
+               "velocity 0.")
         .range(0, 10)
         .field("occlusion", &AudioSource::occlusion,
                "Spatial only: true = a physics ray from the listener to the source that hits a collider of "
-               "`occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. NOT YET: the rays "
-               "land in M98.8b; until then this field has no effect.")
+               "`occlusionMask` muffles the sound (occlusionGain, occlusionLowpass). Default false. At most 8 rays per "
+               "frame "
+               "in the whole game, each source asked every 0.1 s; the change is smoothed over 0.1 s.")
         .field("occlusionMask", &AudioSource::occlusionMask,
                "Spatial only: the physics layers (bitmask, -1 = all) whose colliders block the sound when `occlusion` "
-               "is on. The source's own colliders are ignored. NOT YET (M98.8b).")
+               "is on. The source's own colliders, the listener's and triggers are ignored.")
         .field("occlusionGain", &AudioSource::occlusionGain,
-               "Spatial only: volume multiplier while the path is blocked, 0 to 1 (default 0.4). NOT YET (M98.8b).")
+               "Spatial only: volume multiplier while the path is blocked, 0 to 1 (default 0.4).")
         .range(0, 1)
         .field("occlusionLowpass", &AudioSource::occlusionLowpass,
                "Spatial only: low-pass cutoff in Hz while the path is blocked (default 1500; 20000 = no filtering): "
-               "a wall makes a sound dull. NOT YET (M98.8b).")
+               "a wall makes a sound dull. The voice gets its own 12 dB/octave low-pass.")
         .range(20, 20000)
         .field(
             "priority", &AudioSource::priority,
@@ -2733,7 +2736,7 @@ void register_builtin_components(TypeRegistry& r) {
         .field("speedOfSound", &AudioListener::speedOfSound,
                "Doppler only: the world units per second a sound travels at (default 343, meters per second in air). "
                "A 2D game in pixels sets it to the pixels per meter it uses times 343. The doppler shift of a source "
-               "is its dopplerLevel times the change of pitch this speed gives. NOT YET (M98.8b).")
+               "is its dopplerLevel as the exponent of the pitch ratio this speed gives.")
         .range(1, 10000000);
 
     // --------------------------------------------------------------- UI ---

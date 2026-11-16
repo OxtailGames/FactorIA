@@ -381,6 +381,41 @@ static inline bool step_fade(MixVoice& v) {
     return false;
 }
 
+// The voice's low-pass on one stereo frame (only called when v.lpCoef != 0).
+static inline void voice_lowpass(MixVoice& v, float& l, float& r) {
+    if (!v.lpPrimed) {
+        v.lpPrimed = true;
+        v.lpL1 = v.lpL2 = l;
+        v.lpR1 = v.lpR2 = r;
+    }
+    v.lpL1 += v.lpCoef * (l - v.lpL1);
+    v.lpL2 += v.lpCoef * (v.lpL1 - v.lpL2);
+    v.lpR1 += v.lpCoef * (r - v.lpR1);
+    v.lpR2 += v.lpCoef * (v.lpR1 - v.lpR2);
+    l = v.lpL2;
+    r = v.lpR2;
+}
+
+// A filter fed silence decays towards denormals: settle them at the end of a block.
+static inline void voice_lowpass_settle(MixVoice& v) {
+    if (v.lpCoef == 0.0f) return;
+    v.lpL1 = flush_denormal(v.lpL1);
+    v.lpL2 = flush_denormal(v.lpL2);
+    v.lpR1 = flush_denormal(v.lpR1);
+    v.lpR2 = flush_denormal(v.lpR2);
+}
+
+void Mixer::set_voice_lowpass(MixVoice& v, float hz) const {
+    if (!(hz > 0.0f) || hz >= kLowpassOpen) {
+        v.lpCoef = 0.0f;
+        v.lpPrimed = false;
+        return;
+    }
+    const float coef = 1.0f - std::exp(-6.28318530718f * std::max(hz, 20.0f) / float(deviceRate_));
+    if (v.lpCoef == 0.0f) v.lpPrimed = false;  // switched on: start from the first sample
+    v.lpCoef = std::min(coef, 1.0f);
+}
+
 void Mixer::mix_pcm(MixVoice& v, float* out, int frames) {
     PcmRing& p = *v.pcm;
     const std::uint64_t skip = p.skip();
@@ -397,8 +432,9 @@ void Mixer::mix_pcm(MixVoice& v, float* out, int frames) {
         const float* a = p.frame(i0);
         const float* b = p.frame(i0 + 1);
         const float t = float(v.pos - double(i0));
-        const float l = a[0] + (b[0] - a[0]) * t;
-        const float r = a[1] + (b[1] - a[1]) * t;
+        float l = a[0] + (b[0] - a[0]) * t;
+        float r = a[1] + (b[1] - a[1]) * t;
+        if (v.lpCoef != 0.0f) voice_lowpass(v, l, r);
         const float g = v.volume * v.fade;
         out[2 * f] += l * gl * g;
         out[2 * f + 1] += r * gr * g;
@@ -410,6 +446,7 @@ void Mixer::mix_pcm(MixVoice& v, float* out, int frames) {
         }
     }
     p.consumed(v.pos);
+    voice_lowpass_settle(v);
 }
 
 void Mixer::mix_stream(MixVoice& v, float* out, int frames, float gl, float gr, int first) {
@@ -438,6 +475,7 @@ void Mixer::mix_stream(MixVoice& v, float* out, int frames, float gl, float gr, 
             v.dead = true;
             break;
         }
+        if (v.lpCoef != 0.0f) voice_lowpass(v, l, r);
         const float g = base * v.volume * v.fade;
         out[2 * f] += l * gl * g;
         out[2 * f + 1] += r * gr * g;
@@ -449,6 +487,7 @@ void Mixer::mix_stream(MixVoice& v, float* out, int frames, float gl, float gr, 
         }
     }
     s.release_before(std::uint64_t(v.pos));
+    voice_lowpass_settle(v);
 }
 
 void Mixer::mix_voices(int frames) {
@@ -505,8 +544,9 @@ void Mixer::mix_voices(int frames) {
             else if (i1 >= c.frames)
                 i1 = i0;
             const float tt = float(v.pos - double(i0));
-            const float l = d[2 * i0] + (d[2 * i1] - d[2 * i0]) * tt;
-            const float r = d[2 * i0 + 1] + (d[2 * i1 + 1] - d[2 * i0 + 1]) * tt;
+            float l = d[2 * i0] + (d[2 * i1] - d[2 * i0]) * tt;
+            float r = d[2 * i0 + 1] + (d[2 * i1 + 1] - d[2 * i0 + 1]) * tt;
+            if (v.lpCoef != 0.0f) voice_lowpass(v, l, r);
             const float g = base * v.volume * v.fade;
             dst[2 * f] += l * gl * g;
             dst[2 * f + 1] += r * gr * g;
@@ -517,6 +557,7 @@ void Mixer::mix_voices(int frames) {
                 break;
             }
         }
+        voice_lowpass_settle(v);
     }
 }
 
