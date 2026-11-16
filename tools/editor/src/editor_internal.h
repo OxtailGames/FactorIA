@@ -252,9 +252,10 @@ public:
     // and makes it the row the next Shift click starts from and the tree scrolls to. Paste and Duplicate select what they made.
     void select_ids(const std::vector<std::string>& ids, const std::string& primary);
     const std::string& selected_id() const { return selection_.primary(); }
-    // The whole set. It first drops the ids whose entity no longer exists (deleted, or removed by an undo or a scene
-    // load), so what it returns is alive; selected() and selected_id() do not prune, so a selected entity that an
-    // undo removed and a redo brings back is still selected.
+    // The whole set. In Edit it first drops the ids whose entity no longer exists (deleted, or removed by an undo or a
+    // scene load), so what it returns is alive; in Play and Pause it does not prune (the game may destroy an entity that
+    // Stop brings back), so the readers skip an id that is gone. selected() and selected_id() never prune, so a selected
+    // entity that an undo removed and a redo brings back is still selected.
     const Selection& selection();
     // For the code that edits the set (Ctrl/Shift clicks, select all): add, toggle, range.
     Selection& selection_mut() { return selection_; }
@@ -1022,6 +1023,16 @@ public:
     std::vector<GizmoShape> gizmoShapes_;  // this frame's handles (panel pixels); empty when no gizmo shows
     GizmoHandle gizmoHover_;
     bool gizmoMixedSpace_ = false;  // the selection mixes screen-space (HUD) and world entities: no group handles
+    // What the mix check last found, kept for the same selection and undo position for half a second (it measures every
+    // selected entity): gizmo_mixed_space().
+    struct GizmoSpaceCache {
+        std::vector<std::string> ids;
+        std::string primary;
+        std::uint64_t stamp = 0;
+        double at = -1.0;
+        bool mixed = false;
+    } gizmoSpaceCache_;
+    bool gizmo_mixed_space(Entity primary);
     struct GizmoDrag {
         bool active = false;
         GizmoHandle handle;
@@ -1304,8 +1315,9 @@ public:
         bool dirty = false;  // the text differs from the value: the user is editing it (or it did not parse)
     };
     std::map<std::string, JsonBox> inspJson_;  // Json fields, by field key
-    unsigned inspTypingId_ = 0;  // the ImGui id of the mixed number being typed into (see draw_field_widget)
-    std::string inspEntity_;     // entity the inspector showed last frame (state resets when it changes)
+    unsigned inspTypingId_ = 0;      // the ImGui id of the mixed number being typed into (see draw_field_widget)
+    bool inspTypingEdited_ = false;  // ...and its text was changed since the box opened
+    std::string inspEntity_;         // entity the inspector showed last frame (state resets when it changes)
     // Prefab instances (inspector_panel.cpp): `prefab.overrides` of the selected entity, asked again twice a second and
     // after every edit the Inspector makes. `inspOvRoot_` is the instance's root ("" = not part of an instance).
     Json inspOv_;
@@ -1313,8 +1325,10 @@ public:
     double inspOvAt_ = -1.0;
     std::uint64_t inspOvStamp_ = 0;
     bool inspOvStale_ = true, inspApplyAsk_ = false;
+    bool inspOvEditing_ = false;  // a field is being edited (dragged, typed into): ask the overrides when it ends
     std::string inspApplyId_;
     long inspApplyDepth_ = -1;  // the undo depth right after the last prefab.apply (-1: none to watch)
+    size_t inspApplyLost_ = 0;  // undo_.lost() then: a clear or a cap since means the depth no longer names that entry
     void inspector_prefab_refresh(Entity e);
     void inspector_prefab_header(Entity e);
     // prefab.revert / prefab.apply through edit_command (one undo step); the Inspector reads the overrides again.

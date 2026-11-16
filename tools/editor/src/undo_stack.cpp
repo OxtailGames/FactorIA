@@ -88,6 +88,7 @@ void UndoStack::trim() {
         ++drop;
     }
     if (drop == 0) return;
+    lost_ += drop;
     v_.erase(v_.begin(), v_.begin() + std::ptrdiff_t(drop));
     bytes_ = bytes;
 }
@@ -154,6 +155,7 @@ UndoEntry UndoStack::take_back() {
 }
 
 void UndoStack::clear() {
+    lost_ += v_.size();
     v_.clear();
     bytes_ = 0;
 }

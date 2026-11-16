@@ -115,13 +115,18 @@ struct PayloadEntity {
 
 constexpr int kMaxPayloadDepth = 64;  // levels of children in a pasted text
 
-// True when `..` is a whole segment of the path ("a/../b", "..\\x"), not just part of a name ("a..b.prefab.json").
+// True when a segment of the path is `..` or would be one on Windows ("a/../b", "..\\x", ".. ", "...", ". ."): Win32
+// drops the trailing dots and spaces of a segment, so a segment of only dots and spaces with two dots or more climbs a
+// level there. A dot inside a name ("a..b.prefab.json", "..a") is fine.
 bool has_dotdot_segment(const std::string& path) {
     std::size_t start = 0;
     while (start <= path.size()) {
         std::size_t end = path.find_first_of("/\\", start);
         if (end == std::string::npos) end = path.size();
-        if (path.compare(start, end - start, "..") == 0) return true;
+        const std::string segment = path.substr(start, end - start);
+        if (segment.find_first_not_of(". ") == std::string::npos &&
+            std::count(segment.begin(), segment.end(), '.') >= 2)
+            return true;
         start = end + 1;
     }
     return false;
@@ -136,7 +141,10 @@ void check_prefab_mark(const Json& entity, const std::string& pointer) {
     if (fs::is_absolute(path) || !norm.ok() || has_dotdot_segment(path))
         bad_arg(pointer + "/$prefab: '" + path + "' is not a project-relative prefab path.",
                 "A copied text holds the entities inline and links an instance to its prefab with a path such as "
-                "prefabs/enemy.prefab.json inside this project. Copy the entities again with scene.copy_entities.");
+                "prefabs/enemy.prefab.json inside this project: no drive or leading slash, and no folder named only of "
+                "dots and "
+                "spaces (.., ..., '.. '), which Windows reads as a way up. Copy the entities again with "
+                "scene.copy_entities.");
 }
 
 void collect_payload(Json& entity, const std::string& pointer, std::size_t root, int depth,

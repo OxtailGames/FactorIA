@@ -50,14 +50,20 @@ CommandResult Editor::edit_command(const std::string& key, const std::string& na
             r = engine_->commands().call(name, args);
             after_command(name, args, r);
             if (r.ok) {
-                if (plan->noop) {  // the call left the scene as it was: no step, nothing to save
-                } else if (finish_undo_plan(world(), name, *plan, r.result)) {
-                    push_command_entry(key, std::move(plan->forward), std::move(plan->inverse), CoalesceMode::Merge);
-                } else {  // the result is not what the builder expects: the edit is done and nothing can undo it
-                    dirty_ = true;
-                    redo_.clear();  // the edit happened: a redo list from before it no longer applies
-                    lastEditKey_.clear();
-                    notify("This edit cannot be undone: " + name + " gave an unexpected result.", 1);
+                // plan->noop: the call left the scene as it was: no step, nothing to save
+                if (!plan->noop) {
+                    if (finish_undo_plan(world(), name, *plan, r.result)) {
+                        push_command_entry(key, std::move(plan->forward), std::move(plan->inverse),
+                                           CoalesceMode::Merge);
+                    } else {  // the result is not what the builder expects: the edit is done and nothing can undo it
+                        dirty_ = true;
+                        redo_.clear();  // the edit happened: a redo list from before it no longer applies
+                        lastEditKey_.clear();
+                        notify("This edit cannot be undone: " + name +
+                                   " made something Undo cannot restore (for example a prefab nested more than 64 "
+                                   "levels). Save the scene before editing on, or reload it to revert.",
+                               1);
+                    }
                 }
             } else if (error) {
                 *error = command_error_text(r.error);

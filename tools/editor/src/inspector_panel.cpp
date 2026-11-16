@@ -77,6 +77,8 @@ void error_text(const std::string& message) {
 void Editor::draw_inspector_panel() {
     // Undo of a prefab.apply puts the scene back but not the prefab file: say so, once (the other instances now show the applied
     // value as an override against the file, and the instance itself the old one).
+    if (inspApplyDepth_ >= 0 && undo_.lost() != inspApplyLost_)
+        inspApplyDepth_ = -1;  // the stack was cleared or capped
     if (inspApplyDepth_ >= 0 && long(undo_depth()) < inspApplyDepth_) {
         inspApplyDepth_ = -1;
         inspOvStale_ = true;
@@ -227,7 +229,10 @@ void Editor::inspector_prefab_edit(const std::string& command, const std::string
             if (notes.size() > 1)
                 msg += " (and " + std::to_string(notes.size() - 1) + " more in prefab.apply's answer)";
         }
-        if (files.is_array() && !files.empty()) inspApplyDepth_ = long(undo_depth());  // something was written
+        if (files.is_array() && !files.empty()) {  // something was written
+            inspApplyDepth_ = long(undo_depth());
+            inspApplyLost_ = undo_.lost();
+        }
         notify(msg, notes.is_array() && !notes.empty() ? 1 : 0);
     }
 }
@@ -634,15 +639,24 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
                         std::string err;
                         CommandResult r = edit_command("insp:" + id + ":" + key, "scene.set_component",
                                                        field_edit_args(id, type.name, f.name, out), &err);
-                        // A drag edits every frame: the overrides are asked again when the item is let go (below), not
+                        // A drag edits every frame: the overrides are asked again when the widget is let go (below), not
                         // on each frame of the drag (the diff walks the whole instance). The one-second refresh still runs.
-                        if (!ImGui::IsItemActive()) inspOvStale_ = true;
+                        // IsAnyItemActive, not IsItemActive: the last item of a composite widget (a group of drag boxes)
+                        // is not the box being edited.
+                        if (ImGui::IsAnyItemActive())
+                            inspOvEditing_ = true;
+                        else
+                            inspOvStale_ = true;
                         if (r.ok)
                             inspErrors_.erase(key);
                         else
                             inspErrors_[key] = err;
                     }
-                    if (ImGui::IsItemDeactivatedAfterEdit()) inspOvStale_ = true;
+                    if (inspOvEditing_ &&
+                        !ImGui::IsAnyItemActive()) {  // the edit ended: drag let go, Enter, Tab, a click away
+                        inspOvEditing_ = false;
+                        inspOvStale_ = true;
+                    }
                 }
                 if (auto it = inspErrors_.find(key); it != inspErrors_.end()) error_text(it->second);
                 if (type.name == "SpriteAnimator" && f.name == "clip") draw_animator_clips(e, id, value);
@@ -758,20 +772,28 @@ bool Editor::draw_field_widget(const std::string& key, const FieldInfo& f, const
                     if (forced) {
                         // The edit counts for this number even when it equals the primary's (then the other entities'
                         // own values must still be replaced): ImGui reports no change for a typed value that equals the
-                        // shown one, so Enter on the box being typed into is the commit.
+                        // shown one, so the commit is Enter on the box being typed into, or leaving the box (Tab, a click
+                        // outside) after the user changed its text; Esc cancels.
                         const ImGuiID pid = ImGui::GetItemID();
                         const bool typing = ImGui::TempInputIsActive(pid);
                         const bool enter = ImGui::IsKeyPressed(ImGuiKey_Enter, false) ||
                                            ImGui::IsKeyPressed(ImGuiKey_KeypadEnter, false);
-                        const bool committed = partEdited || (enter && inspTypingId_ == pid);
+                        const bool left = ImGui::IsItemDeactivated() && !ImGui::IsKeyPressed(ImGuiKey_Escape, false);
+                        const bool committed =
+                            partEdited || (inspTypingId_ == pid && (enter || (left && inspTypingEdited_)));
                         if (committed) {
                             (*forced)[size_t(i)] = true;
                             edited = true;
                         }
-                        if (typing)
+                        if (typing) {
+                            if (inspTypingId_ != pid) inspTypingEdited_ = false;
                             inspTypingId_ = pid;
-                        else if (inspTypingId_ == pid)
+                            const ImGuiInputTextState* st = ImGui::GetInputTextState(pid);
+                            if (st && st->EditedBefore) inspTypingEdited_ = true;
+                        } else if (inspTypingId_ == pid) {
                             inspTypingId_ = 0;
+                            inspTypingEdited_ = false;
+                        }
                     }
                     keep_step_alive();
                     ImGui::PopID();

@@ -89,6 +89,9 @@ public:
     bool empty() const { return v_.empty(); }
     size_t size() const { return v_.size(); }
     size_t bytes() const { return bytes_; }
+    // How many entries were ever lost to the caps, clear() or erase_if (not to pop_back: that is Undo). A depth noted
+    // earlier means the same entry only while this has not changed.
+    size_t lost() const { return lost_; }
     size_t max_entries() const { return maxEntries_; }
     size_t max_bytes() const { return maxBytes_; }
     UndoEntry& back() { return v_.back(); }
@@ -102,6 +105,7 @@ public:
         std::vector<UndoEntry> kept;
         for (UndoEntry& e : v_)
             if (!pred(e)) kept.push_back(std::move(e));
+        lost_ += v_.size() - kept.size();
         v_ = std::move(kept);
         recount();
     }
@@ -114,6 +118,7 @@ private:
     void recount();
     std::vector<UndoEntry> v_;
     size_t bytes_ = 0;
+    size_t lost_ = 0;
     size_t maxEntries_ = kMaxEntries;
     size_t maxBytes_ = kMaxBytes;
 };

@@ -289,11 +289,12 @@ Clicking in the viewport selects the entity under the cursor; the selection is h
 Inside the editor the selection is a set (`tools/editor/src/selection.h`): an ordered list of entity ids (the `World::id_of` strings,
 so it survives an undo or a scene load) and one primary, the id selected last. `Editor::selected()` and `selected_id()` are the
 primary, so everything that works on one entity (the Inspector, the gizmos, the AI's "this") is unchanged; `Editor::selection()` is
-the set, after dropping the ids whose entity no longer exists. The set has `replace`, `add`, `toggle` (Ctrl-click), `range`
-(Shift-click, over the ids in the order the Hierarchy lists them), `remove`, `clear` and `prune`. `Editor::selection()` prunes the set (it drops what no
-longer exists) only in Edit: while the game plays or is paused it destroys and loads entities that come back on Stop, so
-the set keeps its ids and every reader skips one that is gone (`selected()` is empty when the primary is). Code that only draws uses `selection_peek()`, which reads without changing it.
-Ctrl+click on the primary removes it and the last id left becomes the primary (the removed row stays the anchor of the next Shift click). Copy and paste build on this set (M98.7).
+the set. The set has `replace`, `add`, `toggle` (Ctrl-click), `range` (Shift-click, over the ids in the order the Hierarchy
+lists them), `remove`, `clear` and `prune`. `Editor::selection()` prunes the set (it drops the ids whose entity no longer
+exists) only in Edit: while the game plays or is paused it destroys and loads entities that come back on Stop, so the set keeps
+its ids and every reader skips one that is gone (`selected()` is empty when the primary is). Code that only draws uses
+`selection_peek()`, which reads without changing it. Ctrl+click on the primary removes it and the last id left becomes the
+primary (the removed row stays the anchor of the next Shift click). Copy and paste build on this set (M98.7).
 
 **Selecting several entities** (Ctrl is Cmd on macOS):
 
@@ -308,10 +309,11 @@ Ctrl+click on the primary removes it and the last id left becomes the primary (t
   primary.
   Copy, Cut and Paste work on the whole selection too (next section).
 - **Viewport:** a click selects the entity under the cursor; **Ctrl+click** toggles it, **Shift+click** adds it. Dragging
-  on empty space draws a **marquee**: it selects the entities whose outline (the picked bounds below) it covers completely (a 3D mesh with a corner of its box behind the camera is never covered: that corner has no
-  place on the screen) and
-  replaces the selection; with **Shift** it adds them, with **Ctrl** it toggles each. A plain click on empty space clears the
-  selection. Every selected entity is outlined: the primary in yellow, the others in orange.
+  on empty space draws a **marquee**: it selects the entities whose outline (the picked bounds below) it covers completely
+  (a 3D mesh with a corner of its box behind the camera is never covered: that corner has no place on the screen; with
+  several cameras on the screen, the camera under the centre of the marquee decides what is drawn and what is behind it)
+  and replaces the selection; with **Shift** it adds them, with **Ctrl** it toggles each. A plain click on empty space clears
+  the selection. Every selected entity is outlined: the primary in yellow, the others in orange.
 - **Gizmos:** the handles sit at the primary's world position, which is the pivot (there is no other pivot setting). Move,
   rotate and scale apply to every selected entity relative to that pivot, as ONE Undo step: move shifts all by the same world
   offset, rotate turns their positions about the pivot and their own rotation by the same angle, scale scales their offsets
@@ -328,7 +330,8 @@ Ctrl+click on the primary removes it and the last id left becomes the primary (t
   "(k of N)", and adds the component to every selected entity that lacks it (one Undo step); the x of a header removes the
   component from all of them. When one entity refuses an edit, the ones before it keep the change (it is still one Undo
   step) and the message says "Changed k of N entities" (Add Component and the x of a header say it too). In a number that
-  differs ("—") typing the primary's own value and pressing Enter writes it to all the entities.
+  differs ("—") typing the primary's own value writes it to all the entities once you press Enter, or leave the box (Tab, a
+  click outside) after changing its text; Esc cancels.
 - **AI Assistant:** "this" and "it" mean the primary; the context names it and lists the ids of the others (the first 20,
   `scene.list_entities` has the rest), and "these" and "them" mean all of them. No command or flag changed: commands still
   take entity ids.
