@@ -356,9 +356,11 @@ Kept here because later work has to respect them (the full story is in done/M1.m
 
 What the finished milestones left open and the code or docs still show today (each line checked on 2026-11-11; the
 story of each milestone is in `feedback/done/`). Hardware and accounts are in M99.
-- `TextField`: the caret stays at the end; no selection, IME composition, multiline, password or right-to-left text
-  (`engine/ui/include/fa/ui/ui.h` `TextRequest`, docs/COMPONENTS.md; [M10](done/M10.md), [M14](done/M14.md),
-  [M27](done/M27.md)).
+- `TextField` (M98.6 added caret, selection, clipboard, password and IME composition): no multiline and no right-to-left
+  caret or selection (`engine/ui/include/fa/ui/ui.h` `TextInputRequest`, docs/TEXT.md "Typing text"; [M10](done/M10.md),
+  [M14](done/M14.md), [M27](done/M27.md)). The editor's Play view has no IME: the editor's window has no `AppDesc::input`,
+  so a `TextField` there takes typed text but does not compose (`engine/platform/include/fa/platform/ime.h`). A Korean
+  input method that commits and inserts a newline on one Enter has that Enter swallowed.
 - Android does not shut the engine down in `onDestroy` and the game gets no callback (docs/MOBILE.md "Lifecycle";
   [M9](done/M9.md); planned as M98.4).
 - Line breaking is not UAX #14 (no rules for numbers with units or after hyphens), and Thai, Khmer, Lao and Burmese have

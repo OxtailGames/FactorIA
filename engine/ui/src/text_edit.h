@@ -1,17 +1,11 @@
-// The editing model of a single-line TextField as pure functions over (UTF-8 text, caret, anchor): no World, no
-// Input, no
-// clipboard (the caller moves the selection in and out). Positions are CODE POINT indices into the text; the
-// selection is
+// The editing model of a single-line TextField as pure functions over (UTF-8 text, caret, anchor): no World, no Input, no
+// clipboard (the caller moves the selection in and out). Positions are CODE POINT indices into the text; the selection is
 // the range between `anchor` and `caret` (equal = none), so a drag or Shift+arrow moves only `caret`.
 //
-// Graphemes: a caret never stops inside a cluster made of a base character and combining marks (U+0300..036F and the
-// other
-// combining blocks), variation selectors, emoji skin tones, tag characters, zero width joiner sequences (family and
-// flag
-// emoji) or a pair of regional indicators (a flag); CR LF is one too. Backspace and Delete remove the whole cluster.
-// Not
-// covered: Hangul jamo sequences, Indic conjuncts and other extended grapheme rules (they move one code point at a
-// time).
+// Graphemes: a caret never stops inside a cluster made of a base character and combining marks (U+0300..036F and the other
+// combining blocks), variation selectors, emoji skin tones, tag characters, zero width joiner sequences (family and flag
+// emoji) or a pair of regional indicators (a flag); CR LF is one too. Backspace and Delete remove the whole cluster. Not
+// covered: Hangul jamo sequences, Indic conjuncts and other extended grapheme rules (they move one code point at a time).
 #pragma once
 
 #include <cstdint>
@@ -63,8 +57,8 @@ void move_right(State& s, bool word, bool extend);
 void move_home(State& s, bool extend);
 void move_end(State& s, bool extend);
 void select_all(State& s);
-// Selects the word (a run of letters and digits, of punctuation or of spaces) around `index` (double-click).
-// Selects the word that code point `index` is part of (the character under the pointer); the whole text when oneWord.
+// Selects the word (a run of letters and digits, of punctuation or of spaces) that code point `index` is part of (the
+// character under the pointer: double-click); the whole text when the field is a password (one word).
 void select_word_at(State& s, std::int32_t index);
 // Puts the caret at `index` (a click, or a drag when `extend`: the anchor stays).
 void set_caret(State& s, std::int32_t index, bool extend);

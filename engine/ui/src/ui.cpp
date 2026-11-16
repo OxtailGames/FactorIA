@@ -333,14 +333,19 @@ namespace {
 // The UiSystem that holds the IME (fa/platform/ime.h is one global state: two UiSystems, the editor's and a play session's, would
 // step on each other). Only the game thread touches it.
 const UiSystem* g_imeHolder = nullptr;
+// How many UiSystem::update calls the process made, and how many a holder may miss while another UiSystem updates before it is
+// taken to have stopped (a UI that was left with a focused field while its owner is not running: the editor's own panels during
+// Play). A count, not a time: the result does not depend on the machine's speed.
+std::uint64_t g_imeUpdates = 0;
+constexpr std::uint64_t kImeStaleUpdates = 30;
 }  // namespace
+
+bool UiSystem::holds_ime() const { return g_imeHolder == this; }
 
 UiSystem::~UiSystem() { release_ime(); }
 
 void UiSystem::release_ime(bool cancel) {
-    if (!imeOn_) return;
-    imeOn_ = false;
-    if (g_imeHolder != this) return;
+    if (!holds_ime()) return;
     g_imeHolder = nullptr;
     if (cancel) ime_cancel();
     ime_set_enabled(false);
@@ -450,6 +455,7 @@ void UiSystem::drop_focus(World& w) {
 void UiSystem::sync_touch_controls(World& w, Input& in, Vec2 design) { touch_controls(w, in, design); }
 
 void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMeasure& measure) {
+    imeUpdate_ = ++g_imeUpdates;
     layout(w, design, measure);
     touch_controls(w, in, design);
     clock_ += dt;
@@ -785,7 +791,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
         const Entity field = focus_ && w.get<TextField>(focus_) ? focus_ : kNullEntity;
         if (field != imeField_) {
             if (in.composing()) field_commit_composition(w, imeField_, in);  // typed into the field it began in
-            if (imeField_ && imeOn_) ime_cancel();
+            if (imeField_ && holds_ime()) ime_cancel();
             imeField_ = field;
         }
     }
@@ -833,8 +839,8 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     if (textInput_) {
         const TextField* tf = focus_ ? w.get<TextField>(focus_) : nullptr;
         const bool padOnField = tf && in.last_device() == InputDevice::Gamepad;
-        const bool again =
-            padOnField && in.action_pressed("ui_submit");  // A on the field after the player closed the keyboard
+        // A on the field after the player closed the keyboard.
+        const bool again = padOnField && in.action_pressed("ui_submit");
         if (!padOnField && !platformField_) askedField_ = kNullEntity;
         if (padOnField && (focus_ != askedField_ || again)) {
             askedField_ = focus_;
@@ -858,13 +864,18 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
     const TextField* imeTf = focus_ ? w.get<TextField>(focus_) : nullptr;
     const bool imeWanted = imeTf && !imeTf->password;  // a password is never composed: the input method stays off
     if (!imeWanted) {
-        release_ime(false);                // the focus move above cancelled what was composing
-    } else if (!imeOn_ && !g_imeHolder) {  // another UiSystem that holds it keeps it until its field lets go
-        g_imeHolder = this;
-        imeOn_ = true;
-        ime_set_enabled(true);
+        release_ime(false);  // the focus move above cancelled what was composing
+    } else if (!holds_ime()) {
+        // Another UiSystem that holds it keeps it until its field lets go, unless it has stopped updating (a UI left with a
+        // focused field while its owner does not run): then what it was composing is dropped and this one takes over.
+        const bool stale = g_imeHolder && g_imeUpdates - g_imeHolder->imeUpdate_ > kImeStaleUpdates;
+        if (!g_imeHolder || stale) {
+            if (stale) ime_cancel();
+            g_imeHolder = this;
+            ime_set_enabled(true);
+        }
     }
-    if (imeOn_ && imeCaretValid_) {
+    if (holds_ime() && imeCaretValid_) {
         const Rect& c = imeCaret_;
         const Vec2 a = designToWindow_ ? designToWindow_({c.x, c.y}) : Vec2{c.x, c.y};
         const Vec2 b = designToWindow_ ? designToWindow_({c.x + c.w, c.y + c.h}) : Vec2{c.x + c.w, c.y + c.h};

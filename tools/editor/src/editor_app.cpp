@@ -1151,6 +1151,8 @@ bool Editor::command_edits_scene(const std::string& name, const Json& args) cons
         return false;  // game feel effects are a moment of the running game, not part of the scene
     if (name == "scene.import_ascii" && args.is_object() && args.contains("path"))
         return false;  // file mode: the world is not touched
+    if (name == "ui.reset_layout_positions" && args.is_object() && args.value("dryRun", false))
+        return false;  // only lists what it would reset
     return true;
 }
 

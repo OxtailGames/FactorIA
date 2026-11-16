@@ -130,7 +130,11 @@ fa::Input* g_input = nullptr;
 // ---- NSTextInputClient
 - (void)insertText:(id)string replacementRange:(NSRange)replacementRange {
     NSString* s = [string isKindOfClass:[NSAttributedString class]] ? [string string] : (NSString*)string;
-    if (![self active]) return;
+    if (!input) return;
+    if (!enabled) {  // no TextField has the focus (or a password has): the emoji picker and dictation still type
+        [self deliverPlain:s];
+        return;
+    }
     if (hasMarked) {  // the composition ends with this text: delivered once, as a commit, never also as plain text
         hasMarked = NO;
         markedLength = 0;
