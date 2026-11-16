@@ -747,15 +747,15 @@ bool Input::cut_pressed() const { return key_pressed(Key::X) && command_chord_do
 bool Input::select_all_pressed() const { return key_pressed(Key::A) && command_chord_down(); }
 bool Input::word_modifier_down() const {
 #if defined(__APPLE__)
-    constexpr bool altMoves = true;
+    return key_down(Key::LeftAlt) || key_down(Key::RightAlt);
 #elif defined(__EMSCRIPTEN__)
-    static const bool altMoves =
-        fa_web_is_apple_device() != 0;  // a web build on a Mac: Alt, like the Mac's own text fields
-#else
-    constexpr bool altMoves = false;
-#endif
+    // A web build on a Mac: Alt, like the Mac's own text fields.
+    static const bool altMoves = fa_web_is_apple_device() != 0;
     if (altMoves) return key_down(Key::LeftAlt) || key_down(Key::RightAlt);
     return key_down(Key::LeftControl) || key_down(Key::RightControl);
+#else
+    return key_down(Key::LeftControl) || key_down(Key::RightControl);
+#endif
 }
 
 void Input::end_composition() {
