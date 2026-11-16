@@ -69,6 +69,20 @@ test with its output, and the summary. Exit status 0 means everything passed. `-
 Release build of `factoria` in `<build dir>-release` and `ctest -L example` (the example games, see "Running tests" in [BUILDING_TESTS.md](BUILDING_TESTS.md#running-tests));
 `-Test -Examples` is the full check before a push, `-ExamplesOnly` skips the Debug part.
 
+Like `agent-build.sh` below, at most three jobs build or test at once on one machine, counting every checkout and worktree
+of the user (`FA_AGENT_MAX_JOBS`, default 3). A job past the limit prints `waiting for a build slot (3 jobs at most;
+running: <build dirs>)` once (a build dir is shown relative to the waiting job's repository root when it is inside it,
+else absolute), polls every five seconds and, once it has a slot, prints `waited N s for a build slot (3 jobs at most)` (N is the whole seconds
+waited). A slot is the file `slot-<n>.lock` in `%LOCALAPPDATA%\factoria\agent-build-slots` (`$HOME\.cache\factoria\agent-build-slots`
+when `LOCALAPPDATA` is not set; `FA_AGENT_SLOTS_DIR` replaces either, and a relative one is taken from the repository
+root), held open without sharing for the whole run. Windows closes it when the process ends, however it ends, so a
+killed or crashed job never leaves a slot taken. Killing only the PowerShell process leaves `cmd`, `ninja` and `cl`
+running while the slot is already free, so the limit can be exceeded for a while: stop the whole process tree.
+The script waits synchronously, so the wait counts against the timeout of whoever started it (`-TimeoutSeconds` of
+`windows-run-interactive.ps1`, the timeout of a tool): with all slots busy a job may be stopped before it began.
+Jobs in WSL are not counted here: `agent-build.sh` there keeps its own count in the distribution's `~/.cache`, and
+`ci-local.sh` takes no slot at all, so one PC can run more than the limit. `-Jobs` is not divided by the limit (default 8).
+
 ### Linux and macOS, short output: `scripts/agent-build.sh`
 
 ```bash
