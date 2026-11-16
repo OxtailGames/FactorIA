@@ -266,17 +266,20 @@ public:
     // A click on a Hierarchy row (hierarchy_panel.cpp) with the modifier keys of the moment.
     void hier_click(const std::string& id);
     // Records an undo snapshot (coalesced per key) and marks the scene dirty. Call BEFORE mutating.
-    void begin_edit(const std::string& key);
+    // Returns true when it pushed a new snapshot entry (false: coalesced into the last one, or not in edit mode).
+    bool begin_edit(const std::string& key);
     void mark_dirty() { dirty_ = true; }
     bool dirty() const { return dirty_; }
     void undo();
     void redo();
     void step_history(bool forward);
+    // One undo (forward false) or redo step of a Command entry: all of its commands or none (a failure puts the scene back).
     bool run_undo_commands(const std::vector<UndoCommand>& cmds, bool forward);
     // Records a command entry (forward and inverse command lists, nothing of the scene) as one undo step, coalesced the
-    // way begin_edit coalesces: the same key within 0.8 s merges into the previous entry if that one is a command entry.
-    // Clears redo and marks the scene dirty. Returns false (nothing recorded) outside edit mode. Call BEFORE running the
-    // forward commands, like begin_edit. Nothing calls it yet; M98.7e migrates the callers (docs/EDITOR.md, "Undo entries").
+    // way begin_edit coalesces: the same key within kEditCoalesceSeconds merges into the previous entry if that one is a
+    // command entry (a snapshot entry and a command entry never merge into each other). Clears redo and marks the scene
+    // dirty. Returns false (nothing recorded) outside edit mode. edit_command calls it AFTER the command succeeded, with
+    // the plan undo_inverse.h built before it ran (docs/EDITOR.md, "Undo entries").
     bool push_command_entry(const std::string& key, std::vector<UndoCommand> forward, std::vector<UndoCommand> inverse,
                             CoalesceMode mode = CoalesceMode::Replace);
     size_t undo_depth() const { return undo_.size(); }
@@ -709,11 +712,13 @@ public:
                          Vec2 design);  // a prefab dropped on the Viewport: scene.spawn at the point under the mouse
     void project_files_changed();       // the editor wrote or deleted a file: the Project panel rescans
     // Hierarchy (hierarchy_panel.cpp) and Inspector (inspector_panel.cpp): hand editing. Every change is a command call
-    // (scene.set_component, scene.set_parent, scene.spawn, scene.destroy...) through edit_command(), the Console's path:
-    // an undo snapshot first (one per `key` within 0.8 s, and one per drag), then the call. A refused call leaves no undo
-    // step behind. `error` gets the command's message when it failed.
+    // (scene.set_component, scene.set_parent, scene.spawn, scene.destroy...) through edit_command(), the Console's path.
+    // A command with an inverse builder (undo_inverse.h) becomes one Command undo entry after it succeeded (one per `key`
+    // within kEditCoalesceSeconds, and one per drag); every other command takes a whole-scene snapshot first. A refused call
+    // leaves no undo step behind. `error` gets the command's message when it failed. `snapshot` forces the snapshot for a
+    // caller whose edit changes more than its command says (the IK drag also turns the bones).
     CommandResult edit_command(const std::string& key, const std::string& name, const Json& args,
-                               std::string* error = nullptr);
+                               std::string* error = nullptr, bool snapshot = false);
     void draw_hierarchy_panel();
     void draw_inspector_panel();
     void draw_hierarchy_node(Entity e, const std::string& filter);
@@ -975,6 +980,9 @@ public:
     UndoStack undo_, redo_;
     std::string lastEditKey_;
     double lastEditTime_ = -100.0;
+    // What the entry of lastEditKey_ is: a snapshot (begin_edit) or a command entry (push_command_entry). An edit only
+    // coalesces into an entry of its own kind.
+    UndoEntry::Kind lastEditKind_ = UndoEntry::Kind::Snapshot;
     double time_ = 0.0;
     double fps_ = 60.0;
     std::uint64_t uiFrame_ = 0;

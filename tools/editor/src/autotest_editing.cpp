@@ -622,6 +622,166 @@ void Editor::at_section_L(AtScript& at) {
             reload_scene_from_disk();
         });
     }
+
+    // ------------------------------------------------------- L2. Command entries: field and component edits store commands
+    // An edit of a field or a component is a Command entry (two command lists, undo_inverse.h), not a copy of the scene: it undoes
+    // and redoes, a drag or a typed value is one entry, a snapshot and a command entry never merge, a refused edit leaves nothing,
+    // 100 edits cost less than one snapshot of a big scene, and a step that fails midway puts the scene back.
+    {
+        struct CmdEdit {
+            size_t depth = 0, redoDepth = 0, bytes = 0;
+        };
+        auto ce = std::make_shared<CmdEdit>();
+        auto pos_x = [this] {
+            Entity e = world().find_by_id("coin_2");
+            const Transform* t = e.is_null() ? nullptr : world().get<Transform>(e);
+            return t ? t->position.x : 9999.0f;
+        };
+        auto move_to = [this](const std::string& key, float x) {
+            std::string err;
+            return edit_command(key, "scene.set_component",
+                                field_edit_args("coin_2", "Transform", "position", Json::array({x, -160.0f, 0.0f})),
+                                &err);
+        };
+        step(2, [this, project_file] {
+            stop();
+            select_id("");
+            write_file(project_file(scenePath_), kFixtureScene);
+            reload_scene_from_disk();
+            toasts_.clear();
+        });
+        // One field edit: a Command entry with one command each way; Undo and Redo apply it.
+        step(2, [this, ce, move_to, pos_x] {
+            at_check(undo_depth() == 0, "(L2) a reloaded scene starts with an empty undo stack");
+            at_check(move_to("at:cmd:one", 40.0f).ok && pos_x() == 40.0f, "(L2) a field edit goes through");
+            at_check(undo_depth() == 1 && undo_.back().kind == UndoEntry::Kind::Command,
+                     "(L2) an edit of a field is a Command entry, not a snapshot");
+            at_check(undo_.back().forward.size() == 1 && undo_.back().inverse.size() == 1 &&
+                         undo_.back().forward[0].cmd == "scene.set_component",
+                     "(L2) ...with one forward and one inverse command");
+            at_check(undo_.back().inverse[0].args["fields"]["position"][0] == 250,
+                     "(L2) ...whose inverse holds the value the field had");
+            undo();
+            at_check(pos_x() == 250.0f && undo_depth() == 0 && redo_depth() == 1, "(L2) Undo puts the old value back");
+            redo();
+            at_check(pos_x() == 40.0f && undo_depth() == 1 && redo_depth() == 0, "(L2) Redo sets the new value again");
+            // A drag: the same key within kEditCoalesceSeconds is the same entry, which keeps the first inverse.
+            move_to("at:cmd:drag", 41.0f);
+            ce->depth = undo_depth();
+            for (float x : {42.0f, 43.0f}) move_to("at:cmd:drag", x);
+            at_check(undo_depth() == ce->depth && pos_x() == 43.0f, "(L2) the same key in a drag stays ONE entry");
+            undo();
+            at_check(pos_x() == 40.0f, "(L2) ...and Undo goes back to the value before the whole drag");
+            redo();
+            at_check(pos_x() == 43.0f, "(L2) ...Redo to the last value of it");
+            // A snapshot entry and a command entry never merge into each other, even with the same key.
+            ce->depth = undo_depth();
+            begin_edit("at:cmd:mix");
+            move_to("at:cmd:mix", 50.0f);
+            at_check(undo_depth() == ce->depth + 2 && undo_.back().kind == UndoEntry::Kind::Command,
+                     "(L2) a command edit does not merge into a snapshot entry with the same key");
+            begin_edit("at:cmd:mix");
+            at_check(undo_depth() == ce->depth + 3 && undo_.back().kind == UndoEntry::Kind::Snapshot,
+                     "(L2) ...nor a snapshot into a command entry");
+            // A refused edit leaves no entry and keeps the redo list.
+            undo();
+            undo();
+            ce->depth = undo_depth();
+            ce->redoDepth = redo_depth();
+            at_check(ce->redoDepth == 2, "(L2) two undone steps wait in the redo list");
+            std::string err;
+            const CommandResult bad = edit_command("at:cmd:bad", "scene.set_component",
+                                                   field_edit_args("coin_2", "Shape2D", "thickness", -5.0f), &err);
+            at_check(!bad.ok && undo_depth() == ce->depth && redo_depth() == ce->redoDepth,
+                     "(L2) a refused edit leaves no entry and keeps the redo list");
+            at_check(!bad.ok && err.find("thickness") != std::string::npos,
+                     "(L2) ...because the value is out of the field's range: " + err);
+            // A component that was absent: set adds it, undo removes it, redo adds it with its value; remove and undo.
+            const CommandResult added = edit_command(
+                "at:cmd:add", "scene.set_component",
+                Json::object(
+                    {{"id", "coin_2"}, {"component", "Light"}, {"fields", Json::object({{"intensity", 3.0}})}}),
+                &err);
+            Entity coin = world().find_by_id("coin_2");
+            const TypeInfo& light = *TypeRegistry::global().find("Light");
+            at_check(added.ok && world().get(coin, light) != nullptr && undo_.back().kind == UndoEntry::Kind::Command &&
+                         undo_.back().inverse[0].cmd == "scene.remove_component",
+                     "(L2) adding a component is a Command entry whose inverse removes it");
+            undo();
+            at_check(world().get(coin, light) == nullptr, "(L2) Undo removes the component again");
+            redo();
+            at_check(world().get(coin, light) != nullptr &&
+                         component_to_json(world(), coin, light, true, false)["intensity"] == 3.0,
+                     "(L2) Redo adds it back with its value");
+            edit_command("at:cmd:rm", "scene.remove_component",
+                         Json::object({{"id", "coin_2"}, {"component", "Light"}}), &err);
+            at_check(world().get(coin, light) == nullptr && undo_.back().kind == UndoEntry::Kind::Command,
+                     "(L2) removing a component is a Command entry");
+            undo();
+            at_check(world().get(coin, light) != nullptr &&
+                         component_to_json(world(), coin, light, true, false)["intensity"] == 3.0,
+                     "(L2) Undo gives the component back with its old value");
+        });
+        // 100 edits of a big scene: the stack holds commands, so it stays far below one snapshot of the scene.
+        step(2, [this, ce] {
+            for (int i = 0; i < 1000; ++i)
+                engine_->commands().call(
+                    "scene.spawn",
+                    Json::object(
+                        {{"name", "bulk" + std::to_string(i)},
+                         {"components",
+                          Json::object({{"Transform", Json::object({{"position", Json::array({i, 5, 0})}})},
+                                        {"Shape2D", Json::object({{"size", Json::array({8, 9})}})},
+                                        {"Script", Json::object({{"props", Json::object({{"speed", 3}})}})}})}}));
+            undo_.clear();
+            redo_.clear();
+            const size_t sceneBytes = estimate_json_bytes(snapshot_scene(world()));
+            for (int i = 0; i < 100; ++i) {
+                std::string err;
+                edit_command("at:cmd:bulk:" + std::to_string(i), "scene.set_component",
+                             field_edit_args("bulk" + std::to_string(i % 50), "Transform", "position",
+                                             Json::array({float(i), 1.0f, 0.0f})),
+                             &err);
+            }
+            ce->bytes = undo_.bytes();
+            at_check(undo_depth() == 100 && undo_.back().kind == UndoEntry::Kind::Command,
+                     "(L2) 100 edits are 100 command entries");
+            at_check(ce->bytes * 4 < sceneBytes,
+                     "(L2) ...that hold less than a quarter of ONE snapshot of the scene (" +
+                         std::to_string(ce->bytes) + " against " + std::to_string(sceneBytes) + " bytes)");
+        });
+        // A step that fails midway puts the scene back, drops the entry and says which command failed.
+        step(2, [this, ce, pos_x] {
+            undo_.clear();
+            redo_.clear();
+            toasts_.clear();
+            std::string err;
+            engine_->commands().call("scene.set_component", field_edit_args("coin_2", "Transform", "position",
+                                                                            Json::array({99.0f, 5.0f, 0.0f})));
+            auto call = [](const char* cmd, Json args) {
+                UndoCommand c;
+                c.cmd = cmd;
+                c.args = std::move(args);
+                return c;
+            };
+            const UndoCommand fwd = call("scene.set_component", field_edit_args("coin_2", "Transform", "position",
+                                                                                Json::array({99.0f, 5.0f, 0.0f})));
+            const UndoCommand back = call("scene.set_component", field_edit_args("coin_2", "Transform", "position",
+                                                                                 Json::array({7.0f, 5.0f, 0.0f})));
+            const UndoCommand bogus = call("no.such.command", Json::object());
+            push_command_entry("at:cmd:partial", {fwd}, {back, bogus});
+            ce->depth = undo_depth();
+            undo();
+            at_check(pos_x() == 99.0f, "(L2) a step that fails midway leaves the scene as it was, not half undone");
+            at_check(undo_depth() == ce->depth - 1 && redo_depth() == 0, "(L2) ...and drops the entry");
+            at_check(!toasts_.empty() && toasts_.back().level == 2 &&
+                         toasts_.back().text.find("no.such.command") != std::string::npos,
+                     "(L2) ...with an error that names the command");
+            toasts_.clear();
+            select_id("");
+            reload_scene_from_disk();
+        });
+    }
 }
 
 void Editor::at_section_M(AtScript& at) {
@@ -766,6 +926,8 @@ void Editor::at_section_M(AtScript& at) {
             at_check(t.position.y == g->pos.y && t.position.z == g->pos.z,
                      "...and position.y / z did not change (the drag followed the axis)");
             at_check(undo_depth() == g->undo + 1, "the whole drag is ONE undo step");
+            at_check(undo_.back().kind == UndoEntry::Kind::Command && undo_.back().forward.size() == 1,
+                     "...a Command entry holding one scene.set_component, not a copy of the scene");
             at_check(dirty_, "...and marks the scene dirty");
             undo();
             at_check(tf("player").position.x == g->pos.x, "Undo puts the position back");

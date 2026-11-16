@@ -9,11 +9,12 @@
 #include <set>
 
 #include "editor_internal.h"
+#include "undo_inverse.h"
 
 namespace fa::editor {
 
 CommandResult Editor::edit_command(const std::string& key, const std::string& name, const Json& args,
-                                   std::string* error) {
+                                   std::string* error, bool forceSnapshot) {
     CommandResult r;
     if (!engine_) {
         r.error = Json::object({{"message", "No project is open."}});
@@ -29,17 +30,35 @@ CommandResult Editor::edit_command(const std::string& key, const std::string& na
         return r;
     }
     const CommandInfo* ci = engine_->commands().info(name);
-    const bool snapshot = play_ == PlayState::Edit && ci && !ci->readOnly && command_edits_scene(name, args);
-    if (snapshot &&
+    const bool edits = play_ == PlayState::Edit && ci && !ci->readOnly && command_edits_scene(name, args);
+    if (edits &&
         anim_.posed) {  // the undo step and the file must hold rest values, not the pose; the panel poses again
         anim_unpose();
         anim_.dirtyPose = true;
     }
-    // begin_edit pushes the undo step before the call. A refused call must not leave an empty step (or lose the redo list), so
-    // what begin_edit changes is put back when the command fails.
+    // A command with an inverse builder (undo_inverse.h) is one Command entry: the inverse is built from the scene as it
+    // is now (rest values: the pose is off), and the entry is pushed once the call succeeded, so a refused call leaves
+    // nothing behind and keeps the redo list.
+    if (edits && !forceSnapshot) {
+        if (std::optional<UndoPlan> plan = plan_undo(world(), name, args)) {
+            r = engine_->commands().call(name, args);
+            after_command(name, args, r);
+            if (r.ok) {
+                finish_undo_plan(name, *plan, r.result);
+                push_command_entry(key, std::move(plan->forward), std::move(plan->inverse), CoalesceMode::Merge);
+            } else if (error) {
+                *error = command_error_text(r.error);
+            }
+            return r;
+        }
+    }
+    // Every other command takes a whole-scene snapshot. begin_edit pushes it before the call. A refused call must not leave an
+    // empty step (or lose the redo list), so what begin_edit changes is put back when the command fails.
+    const bool snapshot = edits;
     UndoStack savedRedo;
     std::string savedKey;
     double savedTime = 0;
+    UndoEntry::Kind savedKind = lastEditKind_;
     bool savedDirty = false, pushed = false;
     if (snapshot) {
         savedRedo = std::move(redo_);
@@ -47,8 +66,7 @@ CommandResult Editor::edit_command(const std::string& key, const std::string& na
         savedKey = lastEditKey_;
         savedTime = lastEditTime_;
         savedDirty = dirty_;
-        pushed = !edit_coalesces(key, lastEditKey_, time_, lastEditTime_);
-        begin_edit(key);
+        pushed = begin_edit(key);
     }
     r = engine_->commands().call(name, args);
     after_command(name, args, r);
@@ -57,6 +75,7 @@ CommandResult Editor::edit_command(const std::string& key, const std::string& na
         redo_ = std::move(savedRedo);
         lastEditKey_ = savedKey;
         lastEditTime_ = savedTime;
+        lastEditKind_ = savedKind;
         dirty_ = savedDirty;
     }
     if (!r.ok && error) *error = command_error_text(r.error);

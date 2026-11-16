@@ -120,6 +120,31 @@ gets it with `factoria setup shaders` ([SHADERS.md](SHADERS.md)). The
 [Inspector](#hierarchy-and-inspector) edits a MeshRenderer's `material` and `materialParams` and shows a build error under
 the material field.
 
+## Undo entries
+
+Ctrl/Cmd+Z and Ctrl/Cmd+Shift+Z (the toolbar and the Edit menu) walk two stacks of steps, at most 100 each and 256 MB of memory
+in all (the oldest steps go first). A step is one of three kinds:
+
+- **Command steps** hold two short lists of commands: what Redo runs and what Undo runs (the inverse, built from the scene just
+  before the edit). They store no copy of the scene, so a hundred of them cost less than one copy of a big scene. These edits are
+  command steps: an Inspector field (typing, dragging, a checkbox, a color, a material param, an animator clip), a rename or the
+  active box in the Hierarchy, a Transform gizmo drag (one entity or a group), adding a component and removing one from the
+  Inspector. Undo of a set sets the old value of exactly the fields the edit named (a component the entity did not have is
+  removed again), and Undo of a removed component adds it back with every field it had. One drag, or a value typed over a moment,
+  is ONE step: the same edit within 0.8 s replaces the newest step's Redo and keeps its Undo, so Undo goes back to the value before
+  the drag. An edit that several entities share (a field of a multi-selection, a group drag) is still one step. A step is applied
+  whole or not at all: when one of its commands fails, the scene is put back as it was, the step is dropped and a toast names the
+  command and its message.
+- **Snapshot steps** hold the whole scene. Everything else still takes one: the Console and the AI (and an AI revert), creating,
+  deleting, duplicating, pasting and reparenting entities, the Level generator's Keep, bone tools, animation recording, the
+  Project panel's drops and file commands. A snapshot step and a command step never merge into each other, even with the same key.
+- **Document steps** belong to a panel (clip, image, drawing, sound, effect, song, model); the panel undoes them.
+
+Both stacks are cleared when another scene is opened or reloaded. Play and Stop keep them: the entities keep their ids. Undo and Redo
+are off while the game runs (Play, Pause): edits then change the running game, add no step and are lost on Stop. A refused edit
+adds no step and keeps the Redo list. While an animation is posed, the step is built from the rest values, not the pose, and Undo
+and Redo put the pose off and on again around the step.
+
 ## Gizmos
 
 Select an entity and drag handles in the Viewport to move, rotate or scale it. While an entity is selected the toolbar
