@@ -1,8 +1,9 @@
 // The input method editor (IME) hook: what a text field tells the platform so the OS can show its candidate window under
 // the caret and send composition events (Input::on_composition_update / commit / cancel).
 //
-// Both calls are for the game thread and are cheap to repeat: the backend sees only the changes. The platform backends are
-// no-ops for now; M98.6c (desktop, web) and M98.6d (Android, iOS) fill them in engine/platform/src/ime_default.cpp's place.
+// Both calls are for the game thread and are cheap to repeat: the backend sees only the changes. Each platform has its
+// backend in engine/platform/src (ime_apple.mm, ime_win32.cpp, ime_linux.cpp, ime_web.cpp; ime_android.cpp is a no-op for
+// now): docs/TEXT.md, "What composes where".
 // The last values asked for are kept (ime_state()) so tests and diagnostics can read what the UI requested.
 #pragma once
 
