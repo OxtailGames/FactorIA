@@ -462,6 +462,8 @@ void Editor::at_build_tools_script() {
     at_section_S3(at);
     section("R4");
     at_section_R4(at);
+    section("P4");
+    at_section_P4(at);
 
     // ------------------------------------------------------------------------------------------------------ done
     keep = true;
