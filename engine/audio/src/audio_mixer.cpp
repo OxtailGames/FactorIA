@@ -435,7 +435,7 @@ void Mixer::mix_pcm(MixVoice& v, float* out, int frames) {
         float l = a[0] + (b[0] - a[0]) * t;
         float r = a[1] + (b[1] - a[1]) * t;
         if (v.lpCoef != 0.0f) voice_lowpass(v, l, r);
-        const float g = v.volume * v.fade;
+        const float g = v.volume * v.fade * v.occGain;
         out[2 * f] += l * gl * g;
         out[2 * f + 1] += r * gr * g;
         v.pos += step;
@@ -476,7 +476,7 @@ void Mixer::mix_stream(MixVoice& v, float* out, int frames, float gl, float gr, 
             break;
         }
         if (v.lpCoef != 0.0f) voice_lowpass(v, l, r);
-        const float g = base * v.volume * v.fade;
+        const float g = base * v.volume * v.fade * v.occGain;
         out[2 * f] += l * gl * g;
         out[2 * f + 1] += r * gr * g;
         v.pos += step;
@@ -547,7 +547,7 @@ void Mixer::mix_voices(int frames) {
             float l = d[2 * i0] + (d[2 * i1] - d[2 * i0]) * tt;
             float r = d[2 * i0 + 1] + (d[2 * i1 + 1] - d[2 * i0 + 1]) * tt;
             if (v.lpCoef != 0.0f) voice_lowpass(v, l, r);
-            const float g = base * v.volume * v.fade;
+            const float g = base * v.volume * v.fade * v.occGain;
             dst[2 * f] += l * gl * g;
             dst[2 * f + 1] += r * gr * g;
             v.pos += step;

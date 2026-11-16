@@ -63,7 +63,8 @@ TEST_CASE("doppler: the pitch ratio of a source and a listener that approach or 
     CHECK(audio_doppler_pitch({0, 0, 0}, {0, 0, 0}, {100, 0, 0}, {0, 0, 0}, c, 1.0f) == 1.0f);
     CHECK(audio_doppler_pitch({0, 0, 0}, {50, 0, 0}, {100, 0, 0}, {-50, 0, 0}, c, 0.0f) == 1.0f);
     // a source that comes at 50: c / (c - 50); one that goes away: c / (c + 50)
-    CHECK(audio_doppler_pitch({0, 0, 0}, {0, 0, 0}, {100, 0, 0}, {-50, 0, 0}, c, 1.0f) == doctest::Approx(c / (c - 50)));
+    CHECK(audio_doppler_pitch({0, 0, 0}, {0, 0, 0}, {100, 0, 0}, {-50, 0, 0}, c, 1.0f) ==
+          doctest::Approx(c / (c - 50)));
     CHECK(audio_doppler_pitch({0, 0, 0}, {0, 0, 0}, {100, 0, 0}, {50, 0, 0}, c, 1.0f) == doctest::Approx(c / (c + 50)));
     // a listener that walks towards the source: (c + 50) / c; away from it: lower
     CHECK(audio_doppler_pitch({0, 0, 0}, {50, 0, 0}, {100, 0, 0}, {0, 0, 0}, c, 1.0f) == doctest::Approx((c + 50) / c));
@@ -328,11 +329,13 @@ TEST_CASE("occlusion: audio.play at a position, blocked and not") {
     sound.occlusionLowpass = 800.0f;
     VoiceId v = fx.audio.play_at(sc.world, "sounds/sine.wav", PlayParams{}, {40, 0, 0}, sound);
     REQUIRE(v != 0);
-    CHECK(fx.audio.play_log().back().volume == doctest::Approx(0.6f * 0.5f));
+    CHECK(fx.audio.play_log().back().volume == doctest::Approx(0.6f));  // the gain of the blocked path is apart from it
+    CHECK(AudioTestAccess::voice_occlusion_gain(fx.audio, v) == doctest::Approx(0.5f));
     CHECK(AudioTestAccess::voice_lowpass(fx.audio, v) == doctest::Approx(800.0f));
     blocked = false;
     v = fx.audio.play_at(sc.world, "sounds/sine.wav", PlayParams{}, {40, 0, 0}, sound);
     CHECK(fx.audio.play_log().back().volume == doctest::Approx(0.6f));
+    CHECK(AudioTestAccess::voice_occlusion_gain(fx.audio, v) == 1.0f);
     CHECK(AudioTestAccess::voice_lowpass(fx.audio, v) == 0.0f);
 }
 
@@ -356,13 +359,15 @@ TEST_CASE("voice low-pass: off is bit-identical, and a high tone is attenuated")
     REQUIRE(plain.peak() > 0.4f);
     // never set, set to 0 and set to 20000: the same samples exactly
     for (float hz : {0.0f, 20000.0f, 44100.0f}) {
-        const Recording off = record("sounds/high.wav", [&](VoiceId v) { AudioTestAccess::set_voice_lowpass(fx.audio, v, hz); });
+        const Recording off =
+            record("sounds/high.wav", [&](VoiceId v) { AudioTestAccess::set_voice_lowpass(fx.audio, v, hz); });
         REQUIRE(off.frames() == plain.frames());
         CHECK(off.l == plain.l);
         CHECK(off.r == plain.r);
     }
     // 6 kHz through a 500 Hz low-pass of 12 dB/octave: about -43 dB
-    const Recording muffled = record("sounds/high.wav", [&](VoiceId v) { AudioTestAccess::set_voice_lowpass(fx.audio, v, 500.0f); });
+    const Recording muffled =
+        record("sounds/high.wav", [&](VoiceId v) { AudioTestAccess::set_voice_lowpass(fx.audio, v, 500.0f); });
     CHECK(muffled.peak(2000, 20000) < 0.05f * plain.peak());
     // 200 Hz through a 5 kHz low-pass passes
     const Recording low = record("sounds/low.wav", nullptr);
@@ -393,4 +398,71 @@ TEST_CASE("voice low-pass: switching it on and off does not click") {
     float biggest = 0.0f;
     for (std::size_t i = 1; i < rec.frames(); ++i) biggest = std::max(biggest, std::fabs(rec.l[i] - rec.l[i - 1]));
     CHECK(biggest < 0.03f);
+}
+
+TEST_CASE("occlusion and doppler: a script's set_voice_volume (and its fade) on a sound played at a place is kept") {
+    // The sound at the end of a fade to 0.5, measured through the mixer: a plain sound (nothing follows it) is the reference.
+    const auto level_after_fade = [](bool follows, bool blocked, float occlusionGain) {
+        Fixture fx;
+        Scene sc;
+        fx.audio.set_occlusion_probe([&](World&, const AudioOcclusionRay&) { return blocked; });
+        tick(fx, sc);
+        SpatialSound sound;
+        sound.range = 100.0f;
+        if (follows) {
+            sound.dopplerLevel = 1.0f;
+            sound.occlusion = true;
+            sound.occlusionGain = occlusionGain;
+            sound.occlusionLowpass = 20000.0f;  // volume only
+        }
+        PlayParams params;
+        params.loop = true;
+        const VoiceId v = fx.audio.play_at(sc.world, "sounds/sine.wav", params, {40, 0, 0}, sound);
+        REQUIRE(v != 0);
+        fx.audio.start_recording();
+        fx.audio.set_voice_volume(v, 0.5f, 0.2f);
+        for (int i = 0; i < 60; ++i) tick(fx, sc);  // one second: the fade (0.2 s) and the occlusion (0.1 s) are over
+        CHECK(voice_of(fx.audio)["volume"].get<float>() == doctest::Approx(0.5f));
+        const Recording rec = fx.finish();
+        REQUIRE(rec.frames() > 40000);
+        return rec.peak(rec.frames() - 4000, rec.frames());
+    };
+    const float reference = level_after_fade(false, false, 1.0f);
+    REQUIRE(reference > 0.05f);
+    // followed, not blocked: the same level (it used to snap back to the volume the sound started with)
+    CHECK(level_after_fade(true, false, 0.5f) == doctest::Approx(reference).epsilon(0.01));
+    // followed and blocked: the script's volume times the occlusion gain
+    CHECK(level_after_fade(true, true, 0.5f) == doctest::Approx(reference * 0.5f).epsilon(0.02));
+}
+
+TEST_CASE("occlusion and doppler: a fade in progress is not interrupted while the occlusion changes") {
+    Fixture fx;
+    Scene sc;
+    bool blocked = false;
+    fx.audio.set_occlusion_probe([&](World&, const AudioOcclusionRay&) { return blocked; });
+    tick(fx, sc);
+    SpatialSound sound;
+    sound.range = 100.0f;
+    sound.occlusion = true;
+    sound.occlusionGain = 0.5f;
+    sound.occlusionLowpass = 20000.0f;
+    PlayParams params;
+    params.loop = true;
+    const VoiceId v = fx.audio.play_at(sc.world, "sounds/sine.wav", params, {0, 0, -1}, sound);
+    REQUIRE(v != 0);
+    fx.audio.set_voice_volume(v, 0.0f, 1.0f);  // a one second fade out while the path gets blocked
+    fx.audio.start_recording();
+    for (int i = 0; i < 12; ++i) tick(fx, sc);
+    blocked = true;
+    for (int i = 0; i < 18; ++i) tick(fx, sc);
+    const Recording rec = fx.finish();
+    // the level falls steadily: no half-second window is louder than the one before it (a snap back to the start volume would be)
+    const std::size_t w = rec.frames() / 6;
+    float previous = rec.peak(0, w);
+    REQUIRE(previous > 0.01f);
+    for (int i = 1; i < 6; ++i) {
+        const float now = rec.peak(std::size_t(i) * w, std::size_t(i + 1) * w);
+        CHECK(now <= previous * 1.001f);
+        previous = now;
+    }
 }

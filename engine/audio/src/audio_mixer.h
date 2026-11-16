@@ -245,6 +245,9 @@ struct MixVoice {
     float lpCoef = 0.0f;
     float lpL1 = 0.0f, lpL2 = 0.0f, lpR1 = 0.0f, lpR2 = 0.0f;
     bool lpPrimed = false;
+    // The gain of a sound played at a place (audio.play with a position) whose path is blocked: apart from `volume`, so a script's
+    // set_voice_volume and its fade keep running. 1 = no occlusion (the product is then exactly what it was).
+    float occGain = 1.0f;
     bool dead = false;
 };
 

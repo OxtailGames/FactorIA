@@ -123,6 +123,8 @@ struct GameVoice {
     int bus = BusSfx;
     float volume = 1.0f, pitch = 1.0f, pan = 0.0f;  // as last set (the target of a ramp)
     float lowpass = 0.0f;                           // the voice's own low-pass in Hz as last set; 0 = none (occlusion)
+    float occGain =
+        1.0f;  // the gain of a blocked path on a sound played at a place, apart from `volume` (see MixVoice::occGain)
     bool loop = false, notify = false, music = false;
     bool stopped = false;    // stopped by the game: gone for every query, erased once the mixer confirms the end
     bool fadingOut = false;  // fading out to its end: still playing, the first a full mixer steals
@@ -221,7 +223,8 @@ struct SpatialShot {
     VoiceId voice = 0;
     Vec3 pos{}, vel{};
     float level = 0.0f;
-    float baseVolume = 1.0f, basePitch = 1.0f;  // what the sound would have with no doppler and no occlusion
+    float basePitch =
+        1.0f;  // the pitch the sound would have with no doppler (its volume is the voice's own: set_voice_volume)
     bool occlusion = false;
     std::int32_t mask = -1;
     float occGain = 0.4f, occLowpass = 1500.0f;
@@ -1013,16 +1016,32 @@ struct Audio::Impl {
         send(c);
     }
 
+    // What doppler and occlusion change on a sound played at a place: its pitch, its low-pass and the gain of a blocked path.
+    // Not its `volume`, which stays the script's (set_voice_volume and its fade).
+    void send_shaping(VoiceId id, float pitch, float lowpass, float occGain) {
+        Cmd* c = make(CmdKind::Droppable, [id, pitch, lowpass, occGain](Mixer& m, Cmd&) {
+            if (MixVoice* v = m.find_voice(id)) {
+                v->pitch = pitch;
+                v->occGain = occGain;
+                m.set_voice_lowpass(*v, lowpass);
+            }
+        });
+        c->sync = SyncTarget::Voice;
+        c->syncId = id;
+        send(c);
+    }
+
     // Everything the mirror knows of a voice's settings, at once and without a ramp (a dropped setting is sent again).
     void send_voice_state(VoiceId id, const GameVoice& gv) {
-        const float volume = gv.volume, pitch = gv.pitch, pan = gv.pan, lowpass = gv.lowpass;
+        const float volume = gv.volume, pitch = gv.pitch, pan = gv.pan, lowpass = gv.lowpass, occGain = gv.occGain;
         const int b = gv.bus;
-        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan, lowpass, b](Mixer& m, Cmd&) {
+        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan, lowpass, occGain, b](Mixer& m, Cmd&) {
             MixVoice* v = m.find_voice(id);
             if (!v) return;
             m.start_volume_ramp(*v, volume, 0.0f);
             v->pitch = pitch;
             v->pan = pan;
+            v->occGain = occGain;
             m.set_voice_lowpass(*v, lowpass);
             if (b >= 0 && std::size_t(b) < m.table->bus.size() && b != kMasterBus) v->bus = b;
         });
@@ -3688,7 +3707,7 @@ VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams
     const ListenerPose l = find_listener(world);
     PlayParams p = params;
     SpatialShot shot;
-    float lowpass = 0.0f;
+    float lowpass = 0.0f, occMul = 1.0f;
     const bool follows = l.have && (sound.dopplerLevel > 0.0f || sound.occlusion);
     if (l.have) {
         // The same model as an AudioSource with spatial = true (update() below).
@@ -3710,7 +3729,6 @@ VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams
             shot.pos = position;
             shot.vel = sound.velocity;
             shot.level = clamp(sound.dopplerLevel, 0.0f, 10.0f);
-            shot.baseVolume = p.volume;
             shot.basePitch = params.pitch;
             shot.occlusion = sound.occlusion;
             shot.mask = sound.occlusionMask;
@@ -3725,7 +3743,7 @@ VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams
                 const AudioOcclusionRay ray{l.pos, position, kNullEntity, l.entity, shot.mask};
                 const float amount = occlusion_step(shot.occl, true, world, im.occlusionProbe, ray, 0.0f, im.rayBudget);
                 if (amount > 0.0f) {
-                    p.volume *= 1.0f + (shot.occGain - 1.0f) * amount;
+                    occMul = 1.0f + (shot.occGain - 1.0f) * amount;
                     lowpass = occlusion_cutoff(amount, shot.occLowpass);
                 }
             }
@@ -3733,10 +3751,11 @@ VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams
     }
     const VoiceId id = im.start(clipPath, p, "");
     if (id != 0 && follows) {
-        if (lowpass > 0.0f) {
+        if (lowpass > 0.0f || occMul != 1.0f) {
             if (GameVoice* gv = im.live_voice(id)) {
                 gv->lowpass = lowpass;
-                im.send_params(id, gv->volume, gv->pitch, gv->pan, lowpass);
+                gv->occGain = occMul;
+                im.send_shaping(id, gv->pitch, lowpass, occMul);
             }
         }
         shot.voice = id;
@@ -3977,13 +3996,14 @@ void Audio::update(World& world, float dt) {
                 lowpassHz = occlusion_cutoff(blocked, sh.occLowpass);
             }
         }
-        const float vol = std::max(sh.baseVolume * occlusionGain, 0.0f),
-                    pitch = std::max(sh.basePitch * factor, 0.001f);
-        if (vol != v->volume || pitch != v->pitch || lowpassHz != v->lowpass) {
-            v->volume = vol;
+        // The voice's volume stays what the script made it (set_voice_volume, a fade running in the mixer): occlusion
+        // multiplies it by a gain of its own.
+        const float gain = std::max(occlusionGain, 0.0f), pitch = std::max(sh.basePitch * factor, 0.001f);
+        if (gain != v->occGain || pitch != v->pitch || lowpassHz != v->lowpass) {
+            v->occGain = gain;
             v->pitch = pitch;
             v->lowpass = lowpassHz;
-            im.send_params(sh.voice, vol, pitch, v->pan, lowpassHz);
+            im.send_shaping(sh.voice, pitch, lowpassHz, gain);
         }
         ++it;
     }
@@ -4120,6 +4140,12 @@ float AudioTestAccess::voice_lowpass(Audio& audio, VoiceId voice) {
     Audio::Impl::Call call(*audio.impl_);
     const GameVoice* v = audio.impl_->live_voice(voice);
     return v ? v->lowpass : -1.0f;
+}
+
+float AudioTestAccess::voice_occlusion_gain(Audio& audio, VoiceId voice) {
+    Audio::Impl::Call call(*audio.impl_);
+    const GameVoice* v = audio.impl_->live_voice(voice);
+    return v ? v->occGain : -1.0f;
 }
 
 void AudioTestAccess::set_voice_lowpass(Audio& audio, VoiceId voice, float hz) {
