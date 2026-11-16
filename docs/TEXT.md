@@ -496,8 +496,9 @@ On macOS and iOS:
 - When the system ends a composition without a commit (the window loses the focus, the input source changes, a click) the
   text built so far is accepted and typed, as `NSTextInputClient` says. A cancel (the focus moving to another field) and a
   marked text the input method emptied (Backspace on the last character) type nothing.
-- Text the system inserts with no key behind it (the emoji picker, dictation) is typed as `input.text` also while no
-  field has the focus or the IME is off (a password field); control characters are dropped.
+- macOS only: text the system inserts with no key behind it (the emoji picker, dictation) is typed as `input.text` also
+  while no field has the focus or the IME is off (a password field); control characters are dropped. On iOS the keyboard's
+  text reaches the game as typed characters, as before, whatever the IME does.
 - iOS: `input.showKeyboard` (the UI does it with the focus) is still what shows the keyboard; turning the IME on or off
   shows and hides nothing. The IME starts working at the first time the keyboard is shown.
 - iOS reads the keyboard's text field after each change; its text starts with a fixed first character that the engine puts

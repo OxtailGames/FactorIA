@@ -8,8 +8,9 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 - **IME and text field polish (M98):** a UI that holds the input method and stops updating (the editor's own panels with a
   focused `TextField` while a game runs) gives it up: after 30 updates of another UI without one of its own, the other takes
-  it. macOS and iOS: text the system inserts with no key behind it (the emoji picker,
-  dictation) is typed as `input.text` also while no field has the focus or the IME is off; before it was dropped. The editor's
+  it. macOS: text the system inserts with no key behind it (the emoji picker, dictation)
+  is typed as `input.text` also while no field has the focus or the IME is off; before it was dropped (iOS did not drop it:
+  its keyboard's characters go through sokol_app's own text field). The editor's
   `ui.reset_layout_positions {dryRun: true}` is no longer an undo step or a scene save. Documented limits: the editor's Play
   view has no input method (the editor window has no `AppDesc::input`), and an input method that commits and inserts a
   newline on one Enter has that Enter swallowed (docs/TEXT.md).
