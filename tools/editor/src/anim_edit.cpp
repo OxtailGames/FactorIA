@@ -228,6 +228,7 @@ bool Editor::anim_edit(const std::string& key, const std::vector<ModelCall>& cal
         }
         lastEditKey_ = key;
         lastEditTime_ = time_;
+        lastEditKind_ = UndoEntry::Kind::Special;  // a clip entry: neither a snapshot nor a command edit merges into it
         anim_.dirtyPose = true;
         anim_.ghostKey.clear();
     }

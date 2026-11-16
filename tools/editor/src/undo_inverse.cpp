@@ -134,8 +134,9 @@ std::optional<UndoPlan> plan_remove_component(const World& world, const Json& a)
     if (!world.get(t.entity, *t.type)) return std::nullopt;                                // nothing to remove
     UndoPlan plan;
     plan.forward.push_back(make_call("scene.remove_component", t));
-    plan.inverse.push_back(make_call(
-        "scene.set_component", t, Json::object({{"fields", component_to_json(world, t.entity, *t.type, true, false)}})));
+    plan.inverse.push_back(
+        make_call("scene.set_component", t,
+                  Json::object({{"fields", component_to_json(world, t.entity, *t.type, true, false)}})));
     return plan;
 }
 

@@ -29,8 +29,8 @@ const char* kScene = R"({
   "entities": [
     { "id": "hero", "name": "Hero", "tags": ["player"],
       "components": { "Transform": { "position": [10, 20, 0] }, "Shape2D": { "size": [30, 20], "color": "#cc3030" },
-                      "Script": { "props": { "speed": 3, "label": "x" } } } },
-    { "id": "target", "name": "Target", "components": { "Transform": { "position": [50, 0, 0] } } }
+                      "Script": { "props": { "speed": 3, "label": "x" } }, "UiControl": {} } },
+    { "id": "target", "name": "Target", "components": { "Transform": { "position": [50, 0, 0] }, "Joint2D": { "connected": "hero" } } }
   ]
 })";
 
@@ -91,10 +91,14 @@ Json set_args(const std::string& id, const std::string& component, Json fields, 
 
 TEST_CASE("undo inverse: set_component of a field gives the old value back") {
     Session s;
-    s.round_trip("scene.set_component", set_args("hero", "Transform", Json::object({{"position", Json::array({1, 2, 3})}})));
-    s.round_trip("scene.set_component", set_args("hero", "Shape2D", Json::object({{"color", "#00ff00"}, {"shape", "circle"}})));
-    s.round_trip("scene.set_component", set_args("hero", "EntityInfo", Json::object({{"name", "Renamed"}, {"active", false}})));
-    s.round_trip("scene.set_component", set_args("hero", "EntityInfo", Json::object({{"tags", Json::array({"a", "b"})}})));
+    s.round_trip("scene.set_component",
+                 set_args("hero", "Transform", Json::object({{"position", Json::array({1, 2, 3})}})));
+    s.round_trip("scene.set_component",
+                 set_args("hero", "Shape2D", Json::object({{"color", "#00ff00"}, {"shape", "circle"}})));
+    s.round_trip("scene.set_component",
+                 set_args("hero", "EntityInfo", Json::object({{"name", "Renamed"}, {"active", false}})));
+    s.round_trip("scene.set_component",
+                 set_args("hero", "EntityInfo", Json::object({{"tags", Json::array({"a", "b"})}})));
     // the entity named by its display name: the plan spells the id out
     const auto plan = plan_undo(s.world(), "scene.set_component",
                                 set_args("Hero", "Transform", Json::object({{"position", Json::array({1, 1, 1})}})));
@@ -108,9 +112,60 @@ TEST_CASE("undo inverse: set_component of a field gives the old value back") {
 
 TEST_CASE("undo inverse: set_component with merge restores a Json field as a whole") {
     Session s;
+    s.round_trip(
+        "scene.set_component",
+        set_args("hero", "Script", Json::object({{"props", Json::object({{"speed", 9}, {"label", nullptr}})}}), true));
     s.round_trip("scene.set_component",
-                 set_args("hero", "Script", Json::object({{"props", Json::object({{"speed", 9}, {"label", nullptr}})}}), true));
-    s.round_trip("scene.set_component", set_args("hero", "Script", Json::object({{"props", Json::object({{"extra", 1}})}})));
+                 set_args("hero", "Script", Json::object({{"props", Json::object({{"extra", 1}})}})));
+}
+
+TEST_CASE("undo inverse: an Entity field, and merge with null on a plain field") {
+    Session s;
+    const auto plan = plan_undo(s.world(), "scene.set_component",
+                                set_args("target", "Joint2D", Json::object({{"connected", "target"}})));
+    REQUIRE(plan.has_value());
+    CHECK(plan->inverse[0].args["fields"]["connected"] == "hero");  // the id, not a handle
+    s.round_trip("scene.set_component", set_args("target", "Joint2D", Json::object({{"connected", "target"}})));
+    s.round_trip("scene.set_component", set_args("target", "Joint2D", Json::object({{"connected", ""}})));
+    // merge:true with null on a plain field: the inverse still holds the whole old value
+    const auto m = plan_undo(s.world(), "scene.set_component",
+                             set_args("hero", "Shape2D", Json::object({{"color", nullptr}}), true));
+    REQUIRE(m.has_value());
+    CHECK(m->inverse[0].args["fields"]["color"].is_array());  // the whole old colour, not null
+    CHECK(m->forward[0].args["merge"] == true);
+    s.round_trip("scene.set_component", set_args("hero", "Shape2D", Json::object({{"color", nullptr}}), true));
+}
+
+TEST_CASE("undo inverse: a runtime or read-only field gives no plan") {
+    Session s;
+    CHECK_FALSE(
+        plan_undo(s.world(), "scene.set_component", set_args("hero", "UiControl", Json::object({{"focused", true}})))
+            .has_value());
+    CHECK_FALSE(
+        plan_undo(s.world(), "scene.set_component", set_args("hero", "UiControl", Json::object({{"hovered", true}})))
+            .has_value());
+}
+
+TEST_CASE("undo inverse: a call by name after a rename names the entity by its id") {
+    Session s;
+    const auto before = plan_undo(s.world(), "scene.set_component",
+                                  set_args("Hero", "Transform", Json::object({{"scale", Json::array({2, 2, 2})}})));
+    REQUIRE(before.has_value());
+    CHECK(before->forward[0].args["id"] == "hero");
+    REQUIRE(s.run(
+        plan_undo(s.world(), "scene.set_component", set_args("hero", "EntityInfo", Json::object({{"name", "Renamed"}})))
+            ->forward));
+    // the plan made before the rename still runs: it holds the id
+    CHECK(s.run(before->forward));
+    CHECK(s.run(before->inverse));
+    const auto after = plan_undo(s.world(), "scene.set_component",
+                                 set_args("Renamed", "Transform", Json::object({{"scale", Json::array({3, 3, 3})}})));
+    REQUIRE(after.has_value());
+    CHECK(after->forward[0].args["id"] == "hero");
+    CHECK(after->forward[0].target == before->forward[0].target);
+    CHECK_FALSE(plan_undo(s.world(), "scene.set_component",
+                          set_args("Hero", "Transform", Json::object({{"scale", Json::array({3, 3, 3})}})))
+                    .has_value());
 }
 
 TEST_CASE("undo inverse: a component that was absent is removed again, and a removed one comes back whole") {
@@ -132,12 +187,20 @@ TEST_CASE("undo inverse: a component that was absent is removed again, and a rem
 
 TEST_CASE("undo inverse: a call that is wrong, or has no builder, gives no plan") {
     Session s;
-    CHECK_FALSE(plan_undo(s.world(), "scene.set_component", set_args("nobody", "Transform", Json::object())).has_value());
-    CHECK_FALSE(plan_undo(s.world(), "scene.set_component", set_args("hero", "NoSuchComponent", Json::object())).has_value());
-    CHECK_FALSE(plan_undo(s.world(), "scene.set_component", set_args("hero", "Transform", Json::object({{"nope", 1}}))).has_value());
-    CHECK_FALSE(plan_undo(s.world(), "scene.set_component", set_args("hero", "EntityInfo", Json::object({{"id", "other"}}))).has_value());
-    CHECK_FALSE(plan_undo(s.world(), "scene.remove_component", Json::object({{"id", "hero"}, {"component", "Transform"}})).has_value());
-    CHECK_FALSE(plan_undo(s.world(), "scene.remove_component", Json::object({{"id", "hero"}, {"component", "Light"}})).has_value());
+    CHECK_FALSE(
+        plan_undo(s.world(), "scene.set_component", set_args("nobody", "Transform", Json::object())).has_value());
+    CHECK_FALSE(
+        plan_undo(s.world(), "scene.set_component", set_args("hero", "NoSuchComponent", Json::object())).has_value());
+    CHECK_FALSE(plan_undo(s.world(), "scene.set_component", set_args("hero", "Transform", Json::object({{"nope", 1}})))
+                    .has_value());
+    CHECK_FALSE(
+        plan_undo(s.world(), "scene.set_component", set_args("hero", "EntityInfo", Json::object({{"id", "other"}})))
+            .has_value());
+    CHECK_FALSE(
+        plan_undo(s.world(), "scene.remove_component", Json::object({{"id", "hero"}, {"component", "Transform"}}))
+            .has_value());
+    CHECK_FALSE(plan_undo(s.world(), "scene.remove_component", Json::object({{"id", "hero"}, {"component", "Light"}}))
+                    .has_value());
     CHECK_FALSE(plan_undo(s.world(), "scene.spawn", Json::object()).has_value());
     CHECK(has_undo_builder("scene.set_component"));
     CHECK(has_undo_builder("scene.remove_component"));
@@ -167,18 +230,20 @@ TEST_CASE("undo inverse: 100 plans cost far less than one snapshot of a big scen
     for (int i = 0; i < 1000; ++i)
         REQUIRE(s.engine.commands()
                     .call("scene.spawn",
-                          Json::object({{"name", "e" + std::to_string(i)},
-                                        {"components",
-                                         Json::object({{"Transform", Json::object({{"position", Json::array({i, 5, 0})}})},
-                                                       {"Shape2D", Json::object({{"size", Json::array({8, 9})},
-                                                                                 {"color", "#336699"}}) },
-                                                       {"Script", Json::object({{"props", Json::object({{"speed", 3},
-                                                                                                        {"label", "enemy"}})}})}})}}))
+                          Json::object(
+                              {{"name", "e" + std::to_string(i)},
+                               {"components",
+                                Json::object(
+                                    {{"Transform", Json::object({{"position", Json::array({i, 5, 0})}})},
+                                     {"Shape2D", Json::object({{"size", Json::array({8, 9})}, {"color", "#336699"}})},
+                                     {"Script",
+                                      Json::object({{"props", Json::object({{"speed", 3}, {"label", "enemy"}})}})}})}}))
                     .ok);
     const size_t sceneBytes = estimate_json_bytes(s.scene());
     UndoStack st;
     for (int i = 0; i < 100; ++i) {
-        const Json args = set_args("e" + std::to_string(i), "Transform", Json::object({{"position", Json::array({i, 0, 0})}}));
+        const Json args =
+            set_args("e" + std::to_string(i), "Transform", Json::object({{"position", Json::array({i, 0, 0})}}));
         std::optional<UndoPlan> plan = plan_undo(s.world(), "scene.set_component", args);
         REQUIRE(plan.has_value());
         st.push_command(std::move(plan->forward), std::move(plan->inverse), false);

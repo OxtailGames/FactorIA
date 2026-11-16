@@ -140,8 +140,10 @@ in all (the oldest steps go first). A step is one of three kinds:
   Project panel's drops and file commands. A snapshot step and a command step never merge into each other, even with the same key.
 - **Document steps** belong to a panel (clip, image, drawing, sound, effect, song, model); the panel undoes them.
 
-Both stacks are cleared when another scene is opened or reloaded. Play and Stop keep them: the entities keep their ids. A refused
-edit adds no step and keeps the Redo list. While an animation is posed, the step is built from the rest values, not the pose.
+Both stacks are cleared when another scene is opened or reloaded. Play and Stop keep them: the entities keep their ids. Undo and Redo
+are off while the game runs (Play, Pause): edits then change the running game, add no step and are lost on Stop. A refused edit
+adds no step and keeps the Redo list. While an animation is posed, the step is built from the rest values, not the pose, and Undo
+and Redo put the pose off and on again around the step.
 
 ## Gizmos
 

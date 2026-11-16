@@ -1387,7 +1387,7 @@ std::vector<std::string> Editor::selection_roots() {
 bool Editor::begin_edit(const std::string& key) {
     if (play_ != PlayState::Edit || !engine_) return false;
     const bool coalesce =
-        lastEditKind_ != UndoEntry::Kind::Command && edit_coalesces(key, lastEditKey_, time_, lastEditTime_);
+        lastEditKind_ == UndoEntry::Kind::Snapshot && edit_coalesces(key, lastEditKey_, time_, lastEditTime_);
     lastEditTime_ = time_;
     lastEditKey_ = key;
     lastEditKind_ = UndoEntry::Kind::Snapshot;
@@ -1466,6 +1466,10 @@ void Editor::step_history(bool forward) {
     if (from.back().kind == UndoEntry::Kind::Command) {  // forward and inverse command lists (M98.7e)
         UndoEntry entry = from.take_back();
         lastEditKey_.clear();
+        // The pose holds rest values (boneRest, savedClip) taken before this step: put them back first, so the step changes
+        // the rest values the panel then poses again (the snapshot path got this from the new scene generation).
+        if (anim_.posed) anim_unpose();
+        anim_.dirtyPose = true;
         // An entry that cannot be applied is dropped (after the scene was put back): it would block every older step.
         const bool ok = run_undo_commands(forward ? entry.forward : entry.inverse, forward);
         if (ok) to.push_back(std::move(entry));

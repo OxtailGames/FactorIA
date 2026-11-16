@@ -118,7 +118,11 @@ bool UndoStack::push_command(std::vector<UndoCommand> forward, std::vector<UndoC
             auto same = [&](const UndoCommand& c) { return c.target == forward[0].target; };
             auto at = std::find_if(last.forward.begin(), last.forward.end(), same);
             if (at != last.forward.end()) {
-                *at = std::move(forward[0]);
+                // The newest call goes last: an older command of another target may set the same field too (position, then
+                // position and scale, then position again), and redo must end with the newest value. The inverse list stays
+                // as it is: its oldest-first-seen values are what undo has to give back.
+                last.forward.erase(at);
+                last.forward.push_back(std::move(forward[0]));
             } else {
                 last.forward.push_back(std::move(forward[0]));
                 last.inverse.insert(last.inverse.begin(), std::move(inverse[0]));
