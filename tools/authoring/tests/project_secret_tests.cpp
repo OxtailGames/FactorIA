@@ -124,3 +124,40 @@ TEST_CASE("project.create_storage_secret: a \"storage\" section that is not an o
     CHECK_FALSE(e.init(cfg, nullptr, &err));
     CHECK(err.find("/storage") != std::string::npos);
 }
+
+TEST_CASE("project.create_storage_secret: a factoria.json that cannot be replaced is reported and nothing changes") {
+    // On Windows a file another program has open (the editor, an antivirus scan) cannot be replaced; the Windows file rules
+    // make the other platforms do the same for a file open through fs::ReadStream.
+    authoring::install();
+    TempProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(p.config(), nullptr, &err), err);
+    auto& c = e.commands();
+    const bool rulesBefore = fs::windows_rules();
+    fs::set_windows_rules(true);
+    struct Restore {
+        bool on;
+        ~Restore() { fs::set_windows_rules(on); }
+    } restoreRules{rulesBefore};
+    {
+        fs::ReadStream open(p.dir / "factoria.json", std::ios::binary);
+        REQUIRE(open);
+        auto r = c.call("project.create_storage_secret", Json::object());
+        REQUIRE_FALSE(r.ok);
+        CHECK(r.error["code"] == "write_failed");
+        CHECK(r.error["hint"].get<std::string>().find("Nothing was changed") != std::string::npos);
+    }
+    CHECK_FALSE(p.project_file().contains("storage"));  // the file is as it was
+    for (const auto& f : stdfs::directory_iterator(p.dir))
+        CHECK(f.path().filename().string().find(".fa-tmp") == std::string::npos);
+    // the running engine did not take a secret either: encrypting still fails and names the command
+    auto enc = c.call("script.eval", Json::object({{"code", "storage.set('a', 1, {encrypt: true})"}}));
+    CHECK_FALSE(enc.ok);
+    CHECK(enc.error.dump().find("project.create_storage_secret") != std::string::npos);
+    // the same call works once nobody has it open
+    auto again = c.call("project.create_storage_secret", Json::object());
+    REQUIRE_MESSAGE(again.ok, again.error.dump());
+    CHECK(again.result["created"] == true);
+    e.shutdown();
+}

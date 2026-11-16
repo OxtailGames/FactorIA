@@ -285,6 +285,10 @@ job.promise.catch(() => { if (!this.gone && !job.cancelled) scene.load("scenes/l
   `setAsync` from one of them is on disk (on the web, in the copy sent to IndexedDB) before the app is hidden or closed. In a test the write is deferred to the next `game.step`, so
   `const p = storage.setAsync("slot", data); game.step(1); await p;`. A Promise outlives nothing it needs: storage is not
   tied to a scene.
+- A write that fails (the disk is full, or, on Windows, another program holds the key's file open, which stops it from being
+  replaced: the engine tries again for about a second first) leaves the file as it was, sealed or not: `storage.set`
+  throws an Error saying the value was kept in memory but not written, `storage.setAsync` rejects and the log has a
+  warning. The value stays readable in this run; save again later, or the next run loads the older file.
 - `storage.corrupt` — `true` when a storage file (a key's file, or an older `storage.json`) did not parse at the first use
   of `storage` in this run. The damaged file is **kept** as `storage.corrupt.json` in the save folder
   (`storage.corrupt.2.json`, `.3`... when one is already there: an earlier one is never replaced), the engine logs a
@@ -318,10 +322,12 @@ job.promise.catch(() => { if (!this.gone && !job.cancelled) scene.load("scenes/l
     a vault either), so it is the same in every build and install of the game: sealed saves survive an update or a
     reinstall and can be copied between a player's devices (the cloud copy of the Slots kit is plain text). It is never
     logged, and these channels show it as `"(hidden)"`: `project.info`, `game.project`, `fs.read` and `fs.search` of
-    `factoria.json` (also of the copies a checkpoint keeps under `.factoria/checkpoints/objects`), `checkpoint.read` of
-    `factoria.json` (its `out` is refused for that file; `checkpoint.restore` brings the real file back), the MCP
+    `factoria.json` (any file of that name, also one of a project inside the project, and the copies a checkpoint keeps under
+    `.factoria/checkpoints/objects`), `checkpoint.read` of `factoria.json` (its `out` is refused for that file, so a copy over
+    256 KB cannot be read: `checkpoint.restore` brings the real file back), the MCP
     `factoria://project/factoria.json` resource and the AI assistant's prompt. `fs.write` / `fs.edit` that leave `"(hidden)"` as
-    the value keep the real secret. This is masking per channel, not a guarantee: the secret is a plain value in `factoria.json`,
+    the value keep the real secret, and `fs.edit` matches its `find` against the masked text, so it cannot be used to guess the secret.
+    This is masking per channel, not a guarantee: the secret is a plain value in `factoria.json`,
     so it is in the project's repository, in every checkpoint, in an exported game's pack, and in what any tool that reads the
     file without these commands (a shell, a git client, an editor) sees. Do not put the project folder where a person you
     would not trust with the saves' key can read it, and replace the secret (`project.create_storage_secret {"replace": true}`)
@@ -336,7 +342,8 @@ job.promise.catch(() => { if (!this.gone && !job.cancelled) scene.load("scenes/l
       a player who deletes the sealed file and writes `{"key": "slot1", "value": {...}}` by hand (the format is on this page)
       loads whatever they typed. So with `encrypt` alone a determined player CAN set their own gold.
     - `storage.get(key, fallback, {encrypted: true})` as well: a value read from a plain file is treated like one that failed
-      authentication (the file is kept aside, `storage.corrupt` is `true`, the log names the key) and `fallback` comes back. Now
+      authentication (the file is kept aside, `storage.corrupt` is `true`, the log names the key) and `fallback` comes back. Keeping
+      it aside reads the file and moves it (a copy when it cannot be moved) on the calling thread, in the frame, once per such key. Now
       a player cannot write the value of that key at all without the secret. Use it for a key the game has always sealed, or
       once every player's save is sealed (`storage.isEncrypted(key)` tells; a game that already shipped plain saves would
       refuse every one of them: read the plain value, write it again with `{encrypt: true}`, and only then ask for
