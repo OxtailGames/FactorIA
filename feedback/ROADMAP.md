@@ -1281,6 +1281,13 @@ entry of `examples/*` opens each milestone.
     at the end, did-you-mean, a non-empty `dir` is an error), both with the `network` capability, both registrations of
     `project.create`; tests inject the downloader (`set_examples_context`). The packer leaves out secrets and a folder it
     cannot read is an Error. `list_examples` / `cached_examples` / `create_example_project` are what M97.5c's Examples tab calls.
+  - M97.5c — DONE (the Examples tab of the start window): the Open or create a project dialog has an Examples tab built on
+    `cached_examples` (shown at once), `list_examples` (refreshed on a worker thread) and `create_example_project` (a worker thread
+    with progress and Cancel, then the project opens as New project does); `tools/editor/src/examples_browser.{h,cpp}` holds the
+    logic (jobs with a generation: a result after the dialog closed or after another refresh is ignored; size, read-first and
+    folder-name helpers with doctests), a stale list shows its reason and Retry, offline with no copy the teaching error and Retry.
+    The `~/FactorIA/examples` scan is gone (the current-folder detection stays). Autotest section X2 drives it against a fake
+    release (also at 1024x642). docs/EDITOR.md "The Examples tab".
 
 ## M98. What games expect and the engine lacks (L; 9 packages) — outside review, 2026-11-09
 

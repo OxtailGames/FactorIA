@@ -67,6 +67,7 @@
 #include "auto_play_job.h"
 #include "play_sessions_model.h"
 #include "child_command_job.h"
+#include "examples_browser.h"
 #include "review_loader.h"
 #include "review_model.h"
 #include "feedback_share_ui.h"
@@ -1262,6 +1263,18 @@ public:
     std::vector<std::string> detectedProjects_;
     bool dlgScanned_ = false;
     std::string dlgDelete_;  // project waiting for the "Delete project?" confirmation
+    // The Examples tab (examples_browser.h, dialogs.cpp): the list and the create run on worker threads
+    ExamplesBrowser examples_;
+    std::string dlgExampleSel_;      // the example picked in the list
+    std::string dlgExampleName_;     // the new project's folder name (Folder is dlgNewParent_, shared with New project)
+    std::string dlgExampleNameKey_;  // what the proposed name was made for: example | folder; changes -> propose again
+    bool dlgExampleNameEdited_ = false;  // the user typed a name: no more proposals
+    std::string dlgExampleError_;        // the last create's message and hint
+    SetupContext
+    make_examples_context();  // fa::examples_context(): the installed version, curl, ~/.factoria (tests inject)
+    void draw_examples_tab();
+    void poll_examples_tab();   // every frame the window is up: takes a finished create in (opens the project)
+    void close_examples_tab();  // the window is closed: cancels the jobs, forgets the list
 
     // Hierarchy / Inspector
     bool showHierarchy_ = true, showInspector_ = true;
@@ -1718,6 +1731,7 @@ public:
     void at_section_S3(AtScript& at);
     void at_section_R4(AtScript& at);
     void at_section_P4(AtScript& at);  // autotest_editing.cpp
+    void at_section_X2(AtScript& at);  // autotest_examples.cpp
     void at_run_steps(int frame);
     bool capture_window(Image& img);
     void inject_key(int type, int keyCode);
