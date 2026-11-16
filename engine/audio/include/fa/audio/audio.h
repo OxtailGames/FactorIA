@@ -179,6 +179,22 @@ Vec3 audio_velocity(Vec3 delta, float dt, float speedOfSound);
 float audio_doppler_pitch(Vec3 listenerPos, Vec3 listenerVelocity, Vec3 sourcePos, Vec3 sourceVelocity,
                           float speedOfSound, float level);
 
+// ---- HRTF for headphones (docs/SOUND.md, "Headphones"): an AudioListener with spatialization "hrtf" places a spatial sound with a
+// parametric head model instead of the pan (a delay and a head-shadow filter per ear; no measured data). The head is the listener's
+// headRadius over its speedOfSound, in seconds ("head time"); the model takes heads of kHrtfMinHeadRadius to kHrtfMaxHeadRadius meters
+// (at a speed of sound of 343 m/s): outside it the head time is clamped and Audio warns once.
+constexpr float kHrtfMinHeadRadius = 0.03f;
+constexpr float kHrtfMaxHeadRadius = 0.12f;
+
+// The head time of a listener (seconds): headRadius / speedOfSound, clamped to the heads the model takes (kHrtfMinHeadRadius ..
+// kHrtfMaxHeadRadius meters at 343 m/s). `clamped` (when given) says whether it had to be; a speedOfSound <= 0 or NaN counts as 343.
+float audio_hrtf_head_time(float headRadius, float speedOfSound, bool* clamped = nullptr);
+
+// The interaural time difference of the model (Woodworth's formula for a sphere, (a / c) (beta + sin beta)) in seconds, for a sound
+// whose direction makes the angle beta with the median plane, `lateral` = sin(beta) (+1 straight to the right, -1 to the left, 0 in
+// front, behind, above or below), and a head time a / c. Positive when the right ear hears it first.
+float audio_hrtf_itd(float lateral, float headTime);
+
 // ---- Occlusion (docs/SOUND.md, "Occlusion"). The audio module cannot cast rays (physics is above it): the engine gives it a
 // probe, and Audio decides when to ask, smooths the answer and applies it. Audio asks at most kAudioOcclusionRaysPerFrame
 // times per update(), a source at most every kAudioOcclusionRecheck seconds (a source never measured first), and the volume

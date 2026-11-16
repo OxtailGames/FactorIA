@@ -1344,7 +1344,7 @@ struct NavLink3D {
 enum class AudioRolloff : std::int32_t { Linear, Inverse, Exponential, Curve };
 
 // How an AudioListener places a spatial sound for the ears: Pan (the classic left/right pan and volume) or Hrtf (headphones; the
-// parametric head model lands in M98.8c, until then it sounds as Pan).
+// parametric head model of docs/SOUND.md, "Headphones").
 enum class AudioSpatialization : std::int32_t { Pan, Hrtf };
 
 struct AudioSource {
@@ -1422,8 +1422,9 @@ struct MusicPlayer {
 struct AudioListener {
     float volume = 1.0f;
     float zoom = 1.0f;  // scales the distance positional sounds are heard at (AudioSource.range * zoom)
-    AudioSpatialization spatialization = AudioSpatialization::Pan;  // Hrtf: headphones (M98.8c: no effect yet)
-    float headRadius = 0.0875f;   // Hrtf: radius of the listener's head in world units (M98.8c: no effect yet)
+    AudioSpatialization spatialization = AudioSpatialization::Pan;  // Hrtf: headphones (a parametric head model)
+    float headRadius =
+        0.0875f;  // Hrtf: radius of the listener's head in world units (sets the time difference between the ears)
     float speedOfSound = 343.0f;  // Doppler: world units per second the sound travels at
 };
 

@@ -30,6 +30,7 @@
 #include <optional>
 #include <set>
 #include <thread>
+#include <utility>
 
 #include "audio_decoder.h"
 #include "audio_mixer.h"
@@ -68,6 +69,7 @@ using audio_detail::BusUi;
 using audio_detail::Clip;
 using audio_detail::Cmd;
 using audio_detail::CmdKind;
+using audio_detail::HrtfAim;
 using audio_detail::kFirstProjectBus;
 using audio_detail::kMasterBus;
 using audio_detail::kMaxPlayers;
@@ -125,6 +127,7 @@ struct GameVoice {
     float lowpass = 0.0f;                           // the voice's own low-pass in Hz as last set; 0 = none (occlusion)
     float occGain =
         1.0f;  // the gain of a blocked path on a sound played at a place, apart from `volume` (see MixVoice::occGain)
+    HrtfAim hrtf;  // where the head model places it (a listener with spatialization "hrtf"); `on` false = panned
     bool loop = false, notify = false, music = false;
     bool stopped = false;    // stopped by the game: gone for every query, erased once the mixer confirms the end
     bool fadingOut = false;  // fading out to its end: still playing, the first a full mixer steals
@@ -434,6 +437,8 @@ struct Audio::Impl {
     AudioOcclusionProbe occlusionProbe;
     int rayBudget = kAudioOcclusionRaysPerFrame;  // rays left for this frame (update() refills it when it is done)
     Vec3 lastListenerPos{}, listenerVel{};        // the listener's position at the last update() and its velocity
+    std::pair<float, float> hrtfWarned{-1.0f,
+                                       -1.0f};  // the headRadius and speedOfSound the clamp warning was last given for
     bool haveLastListener = false;
     std::map<std::uint64_t, EntityVideo> videos;
     std::vector<float> videoScratch;
@@ -1031,11 +1036,22 @@ struct Audio::Impl {
         send(c);
     }
 
+    // Where the head model places a voice (aim.on = false: the pan does).
+    void send_hrtf(VoiceId id, const HrtfAim& aim) {
+        Cmd* c = make(CmdKind::Droppable, [id, aim](Mixer& m, Cmd&) {
+            if (MixVoice* v = m.find_voice(id)) m.set_voice_hrtf(*v, aim);
+        });
+        c->sync = SyncTarget::Voice;
+        c->syncId = id;
+        send(c);
+    }
+
     // Everything the mirror knows of a voice's settings, at once and without a ramp (a dropped setting is sent again).
     void send_voice_state(VoiceId id, const GameVoice& gv) {
         const float volume = gv.volume, pitch = gv.pitch, pan = gv.pan, lowpass = gv.lowpass, occGain = gv.occGain;
+        const HrtfAim aim = gv.hrtf;
         const int b = gv.bus;
-        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan, lowpass, occGain, b](Mixer& m, Cmd&) {
+        Cmd* c = make(CmdKind::Droppable, [id, volume, pitch, pan, lowpass, occGain, aim, b](Mixer& m, Cmd&) {
             MixVoice* v = m.find_voice(id);
             if (!v) return;
             m.start_volume_ramp(*v, volume, 0.0f);
@@ -1043,6 +1059,7 @@ struct Audio::Impl {
             v->pan = pan;
             v->occGain = occGain;
             m.set_voice_lowpass(*v, lowpass);
+            m.set_voice_hrtf(*v, aim);
             if (b >= 0 && std::size_t(b) < m.table->bus.size() && b != kMasterBus) v->bus = b;
         });
         c->sync = SyncTarget::Voice;
@@ -3604,6 +3621,17 @@ float audio_curve_gain(const Curve& curve, float distance, float reach) {
     return curve.empty() ? saturate(1.0f - d / reach) : saturate(curve.eval(d / reach));
 }
 
+float audio_hrtf_head_time(float headRadius, float speedOfSound, bool* clamped) {
+    const float c = speedOfSound > 0.0f ? speedOfSound : 343.0f;  // false for NaN too
+    const float lo = audio_detail::kHrtfMinHeadTime, hi = audio_detail::kHrtfMaxHeadTime;
+    const float t = headRadius / c;
+    const bool inside = t >= lo && t <= hi;  // false for NaN too
+    if (clamped) *clamped = !inside;
+    return inside ? t : (t > hi ? hi : lo);
+}
+
+float audio_hrtf_itd(float lateral, float headTime) { return audio_detail::hrtf_itd(lateral, headTime); }
+
 float audio_cone_gain(Vec3 axis, Vec3 toListener, float innerAngle, float outerAngle, float outerGain) {
     if (innerAngle >= 360.0f || length_sq(axis) < 1e-12f || length_sq(toListener) < 1e-12f) return 1.0f;
     outerGain = saturate(outerGain);
@@ -3643,9 +3671,11 @@ namespace {
 struct ListenerPose {
     bool have = false;
     Entity entity;  // null when there is none
-    Vec3 pos{}, right{1, 0, 0};
+    Vec3 pos{}, right{1, 0, 0}, up{0, 1, 0}, forward{0, 0, -1};
     float volume = 1.0f, zoom = 1.0f;
     float speedOfSound = 343.0f;
+    bool hrtf = false;  // an AudioListener entity with spatialization "hrtf" (a camera is never one)
+    float headRadius = 0.0875f;
 };
 }  // namespace
 
@@ -3658,12 +3688,23 @@ static ListenerPose find_listener(World& world) {
         l.pos = {m.at(3, 0), m.at(3, 1), m.at(3, 2)};
         Vec3 r{m.at(0, 0), m.at(0, 1), m.at(0, 2)};
         l.right = length_sq(r) > 1e-8f ? normalize(r) : Vec3{1, 0, 0};
+        // The head's other axes (the engine looks down -Z): taken from the matrix and made perpendicular to `right`.
+        Vec3 u{m.at(1, 0), m.at(1, 1), m.at(1, 2)};
+        Vec3 b{m.at(2, 0), m.at(2, 1), m.at(2, 2)};
+        u = u - l.right * dot(u, l.right);
+        l.up = length_sq(u) > 1e-8f ? normalize(u) : Vec3{0, 1, 0};
+        b = b - l.right * dot(b, l.right) - l.up * dot(b, l.up);
+        l.forward = length_sq(b) > 1e-8f ? normalize(b) * -1.0f : cross(l.right, l.up) * -1.0f;
         l.volume = vol;
         l.zoom = zoom > 1e-3f ? zoom : 1e-3f;
         l.have = true;
     };
     world.each<AudioListener>([&](Entity e, AudioListener& al) {
-        if (!l.have && world.active_in_hierarchy(e)) take(e, al.volume, al.zoom, al.speedOfSound);
+        if (!l.have && world.active_in_hierarchy(e)) {
+            take(e, al.volume, al.zoom, al.speedOfSound);
+            l.hrtf = al.spatialization == AudioSpatialization::Hrtf;
+            l.headRadius = al.headRadius;
+        }
     });
     if (!l.have) {
         // The first camera drawn (the lowest depth of the primary ones; a split screen has several), else any camera.
@@ -3699,6 +3740,48 @@ VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams
     return play_at(world, clipPath, params, position, sound, outOfRange);
 }
 
+// The head time of an HRTF listener, with the warning (once per pair of values) when its headRadius and speedOfSound make a head the
+// model does not take.
+static float listener_head_time(const ListenerPose& l, std::pair<float, float>& warned) {
+    bool clamped = false;
+    const float t = audio_hrtf_head_time(l.headRadius, l.speedOfSound, &clamped);
+    if (clamped && (warned.first != l.headRadius || warned.second != l.speedOfSound)) {
+        warned = {l.headRadius, l.speedOfSound};
+        const float c = l.speedOfSound > 0.0f ? l.speedOfSound : 343.0f;
+        FA_WARN(
+            "audio",
+            "AudioListener.headRadius {} with speedOfSound {} is a head of {:.3f} m at 343 m/s, and the head model "
+            "takes "
+            "{} to {} m; using {:.3f} m (hint: headRadius / speedOfSound is the head's size in seconds, 0.000255 for a "
+            "human head: in a world of meters leave headRadius at 0.0875, in another unit set it to speedOfSound * "
+            "0.000255)",
+            l.headRadius, l.speedOfSound, l.headRadius / c * 343.0f, kHrtfMinHeadRadius, kHrtfMaxHeadRadius,
+            t * 343.0f);
+    }
+    return t;
+}
+
+// Where `source` is in the head frame of the HRTF listener `l`: the aim the head model takes. A sound inside the head (nearer than
+// its radius) is pulled towards the middle. Off when the listener is not an HRTF one or the device is not stereo (a mono output
+// would add the two ears together: comb filters).
+static HrtfAim hrtf_aim(const ListenerPose& l, Vec3 source, int deviceChannels, std::pair<float, float>& warned) {
+    HrtfAim aim;
+    if (!l.hrtf || deviceChannels < 2) return aim;
+    aim.on = true;
+    aim.headTime = listener_head_time(l, warned);
+    const Vec3 d = source - l.pos;
+    const float dist = length(d);
+    if (!(dist > 1e-6f)) return aim;  // at the head: straight ahead, no difference between the ears
+    const Vec3 u = d * (1.0f / dist);
+    const float c = l.speedOfSound > 0.0f ? l.speedOfSound : 343.0f;
+    const float inside =
+        std::min(1.0f, dist / std::max(aim.headTime * c, 1e-6f));  // the head the model uses, in world units
+    aim.side = dot(u, l.right) * inside;
+    aim.up = dot(u, l.up) * inside;
+    aim.front = dot(u, l.forward);
+    return aim;
+}
+
 VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams& params, Vec3 position,
                        const SpatialSound& sound, bool* outOfRange) {
     if (outOfRange) *outOfRange = false;
@@ -3708,7 +3791,8 @@ VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams
     PlayParams p = params;
     SpatialShot shot;
     float lowpass = 0.0f, occMul = 1.0f;
-    const bool follows = l.have && (sound.dopplerLevel > 0.0f || sound.occlusion);
+    const HrtfAim aim = l.have ? hrtf_aim(l, position, im.deviceChannels, im.hrtfWarned) : HrtfAim{};
+    const bool follows = l.have && (sound.dopplerLevel > 0.0f || sound.occlusion || aim.on);
     if (l.have) {
         // The same model as an AudioSource with spatial = true (update() below).
         const Vec3 d = position - l.pos;
@@ -3751,6 +3835,12 @@ VoiceId Audio::play_at(World& world, std::string_view clipPath, const PlayParams
     }
     const VoiceId id = im.start(clipPath, p, "");
     if (id != 0 && follows) {
+        if (aim.on) {  // heard through the head model, which then follows the listener (update() below)
+            if (GameVoice* gv = im.live_voice(id)) {
+                gv->hrtf = aim;
+                im.send_hrtf(id, aim);
+            }
+        }
         if (lowpass > 0.0f || occMul != 1.0f) {
             if (GameVoice* gv = im.live_voice(id)) {
                 gv->lowpass = lowpass;
@@ -3871,8 +3961,10 @@ void Audio::update(World& world, float dt) {
         }
 
         float gain = 1.0f, pan = 0.0f, dopplerFactor = 1.0f, lowpassHz = 0.0f;
+        HrtfAim aim;
         if (src->spatial && haveListener) {
             const Vec3 spos = world.world_position(e);
+            aim = hrtf_aim(listener, spos, im.deviceChannels, im.hrtfWarned);
             Vec3 d = spos - lpos;
             // The listener's zoom stretches the distance a sound is heard at: a zoom of 2 doubles the reach (and the pan's span).
             float range = std::max(src->range, 1e-3f) * lzoom;
@@ -3954,11 +4046,19 @@ void Audio::update(World& world, float dt) {
                 ea.voice = im.start(clip, p, ea.id);
                 ea.clip = src->clip;
                 if (ea.voice == 0) {
-                    src->playing = false;       // load failed, or a full mixer refused it (both logged)
-                } else if (lowpassHz > 0.0f) {  // a sound that starts behind a wall starts muffled
-                    if (GameVoice* v = im.live_voice(ea.voice)) {
-                        v->lowpass = lowpassHz;
-                        im.send_params(ea.voice, v->volume, v->pitch, v->pan, lowpassHz);
+                    src->playing = false;  // load failed, or a full mixer refused it (both logged)
+                } else {
+                    if (lowpassHz > 0.0f) {  // a sound that starts behind a wall starts muffled
+                        if (GameVoice* v = im.live_voice(ea.voice)) {
+                            v->lowpass = lowpassHz;
+                            im.send_params(ea.voice, v->volume, v->pitch, v->pan, lowpassHz);
+                        }
+                    }
+                    if (aim.on) {
+                        if (GameVoice* v = im.live_voice(ea.voice)) {
+                            v->hrtf = aim;
+                            im.send_hrtf(ea.voice, aim);
+                        }
                     }
                 }
             }
@@ -3973,6 +4073,10 @@ void Audio::update(World& world, float dt) {
                     v->lowpass = lowpassHz;
                     im.send_params(ea.voice, vol, pitch, pan, lowpassHz);
                 }
+                if (!(aim == v->hrtf)) {
+                    v->hrtf = aim;
+                    im.send_hrtf(ea.voice, aim);
+                }
             }
         }
     }
@@ -3986,6 +4090,12 @@ void Audio::update(World& world, float dt) {
             continue;
         }
         float factor = 1.0f, lowpassHz = 0.0f, occlusionGain = 1.0f;
+        // The head model follows the listener (a sound played at a place does not move, but the head does).
+        const HrtfAim aim = haveListener ? hrtf_aim(listener, sh.pos, im.deviceChannels, im.hrtfWarned) : HrtfAim{};
+        if (!(aim == v->hrtf)) {
+            v->hrtf = aim;
+            im.send_hrtf(sh.voice, aim);
+        }
         if (haveListener) {
             if (sh.level > 0.0f) factor = doppler_step(sh.dopp, lpos, lvel, lspeed, sh.pos, sh.vel, sh.level, dt);
             const AudioOcclusionRay ray{lpos, sh.pos, kNullEntity, listener.entity, sh.mask};
@@ -4146,6 +4256,17 @@ float AudioTestAccess::voice_occlusion_gain(Audio& audio, VoiceId voice) {
     Audio::Impl::Call call(*audio.impl_);
     const GameVoice* v = audio.impl_->live_voice(voice);
     return v ? v->occGain : -1.0f;
+}
+
+bool AudioTestAccess::voice_hrtf(Audio& audio, VoiceId voice) {
+    Audio::Impl::Call call(*audio.impl_);
+    const GameVoice* v = audio.impl_->live_voice(voice);
+    return v && v->hrtf.on;
+}
+
+void AudioTestAccess::set_device_channels(Audio& audio, int channels) {
+    Audio::Impl::Call call(*audio.impl_);
+    audio.impl_->deviceChannels = channels;
 }
 
 void AudioTestAccess::set_voice_lowpass(Audio& audio, VoiceId voice, float hz) {

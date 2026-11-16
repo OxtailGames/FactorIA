@@ -6,6 +6,14 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
 
 ## Unreleased
 
+- **HRTF for headphones (M98.8c):** `AudioListener.spatialization: "hrtf"` places spatial sounds with a parametric head model
+  written for the engine (the structure of Brown and Duda, 1998, with Woodworth's time difference; no measured data, no library):
+  the interaural time difference follows the angle and `headRadius` (about 0.66 ms at 90 degrees for 0.0875), the far ear is a
+  little quieter and loses the high frequencies to the head's shadow, and a sound in front and its mirror behind have the same
+  time. Everything is interpolated per sample, so a moving source makes no click, and the mixer stays lock-free and allocation-free.
+  A stereo clip is mixed to mono first. A 2D camera as the listener and a mono output keep `"pan"`, which is bit-for-bit what it
+  was. A `headRadius` outside 0.03 to 0.12 m (at `speedOfSound` 343) is clamped with a warning. See docs/SOUND.md, "Headphones".
+
 - **Render interpolation (M98.3):** `"render": { "interpolation": true }` in `factoria.json` (default `false`, so nothing
   changes for a game that does not ask) draws entities at the pose between the last two fixed steps, so a 60 Hz simulation
   looks smooth at 120-144 Hz. Only the drawing is blended (position, scale, rotation by slerp; children, cameras and physics
@@ -27,7 +35,7 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   cone angles). The fields the next two packages need are in and documented as not working yet: `AudioSource.dopplerLevel` and
   occlusion (`occlusion`, `occlusionMask`, `occlusionGain`, `occlusionLowpass`), `AudioListener.speedOfSound`,
   `spatialization` (`pan` | `hrtf`) and `headRadius`, and `velocity`, `dopplerLevel` and the occlusion options of `audio.play`
-  (M98.8b doppler and occlusion by physics rays, M98.8c HRTF). With the defaults a sound is bit-for-bit what it was.
+  (M98.8b doppler and occlusion by physics rays, M98.8c HRTF, now done). With the defaults a sound is bit-for-bit what it was.
 - 3D audio, doppler and occlusion (M98.8b): `AudioSource.dopplerLevel` shifts the pitch with the speed a source and the listener
   approach or separate at (`AudioListener.speedOfSound`; velocities from the change of world position between frames, a jump
   of more than 4 speeds of sound per second counts as a teleport and shifts nothing; the factor is clamped to 0.25..4 and glides
