@@ -37,16 +37,25 @@ void visit(void* p, Entity e, const Transform& cur) {
     Walk& k = *static_cast<Walk*>(p);
     if (!k.world->alive(e) || !wanted(*k.world, e, k.byDefault, k.anyComponent)) return;
     InterpState& s = *k.state;
-    InterpRecord& r = s.records[e.index];
-    if (!r.used || r.bits != e.bits()) {  // appeared: nothing to blend from
-        r = InterpRecord{};
-        r.used = true;
-        r.bits = e.bits();
-        r.prev = r.last = cur;
-        r.seen = true;
+    std::uint32_t& slot = s.slots[e.index];
+    if (slot != 0 && s.records[slot - 1].bits != e.bits()) {  // the slot's old entity died: forget its record
+        s.records[slot - 1] = InterpRecord{};
+        s.records[slot - 1].bits = e.bits();
+        s.records[slot - 1].prev = s.records[slot - 1].last = cur;
+        s.records[slot - 1].seen = s.stamp;
         return;
     }
-    r.seen = true;
+    if (slot == 0) {  // appeared: nothing to blend from
+        InterpRecord n;
+        n.bits = e.bits();
+        n.prev = n.last = cur;
+        n.seen = s.stamp;
+        s.records.push_back(n);
+        slot = std::uint32_t(s.records.size());
+        return;
+    }
+    InterpRecord& r = s.records[slot - 1];
+    r.seen = s.stamp;
     if (k.begin) {  // the pose now is where the step starts (a teleport or an outside write needs nothing special)
         r.prev = cur;
         return;
@@ -73,10 +82,13 @@ Transform interp_blend(const Transform& a, const Transform& b, float alpha) {
     Transform out;
     out.position = lerp(a.position, b.position, alpha);
     out.scale = lerp(a.scale, b.scale, alpha);
-    out.rotation =
-        same(a.rotation, b.rotation)
-            ? b.rotation
-            : slerp(Quat::from_euler_deg(a.rotation), Quat::from_euler_deg(b.rotation), alpha).to_euler_deg();
+    const Vec3 d = b.rotation - a.rotation;
+    if (same(a.rotation, b.rotation) || std::abs(d.x) > 180.0f || std::abs(d.y) > 180.0f || std::abs(d.z) > 180.0f)
+        out.rotation = b.rotation;  // unchanged (kept bit for bit), or turned past half a turn in one step: no blend
+    else if (a.rotation.x == b.rotation.x && a.rotation.y == b.rotation.y)
+        out.rotation = Vec3{b.rotation.x, b.rotation.y, a.rotation.z + d.z * alpha};  // 2D: the angle itself
+    else
+        out.rotation = slerp(Quat::from_euler_deg(a.rotation), Quat::from_euler_deg(b.rotation), alpha).to_euler_deg();
     return out;
 }
 
@@ -88,6 +100,7 @@ void InterpState::clear_poses() {
 
 void InterpState::clear_scene() {
     records.clear();
+    slots.clear();
     poseCount = 0;
 }
 
@@ -98,7 +111,7 @@ static bool prepare(World& w, Walk& k) {
         if (!s.records.empty()) s.clear_scene();
         return false;
     }
-    if (s.records.size() < w.index_bound()) s.records.resize(w.index_bound());
+    if (s.slots.size() < w.index_bound()) s.slots.resize(w.index_bound(), 0);
     k = Walk{&w, &s, s.enabled, anyComponent, false, false, 1.0f};
     return true;
 }
@@ -117,10 +130,22 @@ void interp_update(World& w, double alpha, bool stepped) {
     if (!prepare(w, k)) return;
     k.stepped = stepped;
     k.alpha = float(std::clamp(alpha, 0.0, 1.0));
-    for (InterpRecord& r : s.records) r.seen = false;
+    ++s.stamp;
     w.walk_transforms_readonly(&k, &visit);
-    for (InterpRecord& r : s.records)
-        if (r.used && !r.seen) r = InterpRecord{};  // gone, or no longer interpolated
+    for (std::size_t i = 0; i < s.records.size();) {  // gone, or no longer interpolated: swap-remove
+        if (s.records[i].seen == s.stamp) {
+            ++i;
+            continue;
+        }
+        const Entity dead = Entity::from_bits(s.records[i].bits);
+        if (s.records[i].hasPose) --s.poseCount;
+        if (dead.index < s.slots.size() && s.slots[dead.index] == i + 1) s.slots[dead.index] = 0;
+        if (i + 1 != s.records.size()) {
+            s.records[i] = s.records.back();
+            s.slots[Entity::from_bits(s.records[i].bits).index] = std::uint32_t(i + 1);
+        }
+        s.records.pop_back();
+    }
 }
 
 }  // namespace fa

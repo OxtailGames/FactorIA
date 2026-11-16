@@ -54,6 +54,8 @@ struct OrthoView {
 
 // The view `named` gives when it is a camera that is drawn; else (a `point` in design pixels given) the last camera whose
 // viewport contains the point; else the first camera. `design` is the size of the game target in pixels.
+// It is built from the REAL pose of the camera (no render interpolation; shake included), so what scripts and UI answer with
+// never depends on the frame time.
 OrthoView ortho_view(World& w, Vec2 design, Entity named, const Vec2* point);
 
 // The camera that draws at `point` (design pixels): the last of rendering_cameras() whose viewport contains it, else the first

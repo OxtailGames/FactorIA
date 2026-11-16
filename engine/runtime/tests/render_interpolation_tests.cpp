@@ -9,6 +9,7 @@
 
 #include "fa/core/fs.h"
 #include "fa/runtime/engine.h"
+#include "fa/runtime/internal/engine_impl.h"
 #include "fa/scene/components.h"
 #include "fa/scene/world.h"
 
@@ -65,14 +66,12 @@ TEST_CASE("render.interpolation: a 2D body at constant speed is drawn in between
     World& w = e.world();
     const Entity ball = w.find_by_id("ball");
     REQUIRE(ball);
-    const double fixedDt = 1.0 / 60.0, dt = 1.0 / 144.0;  // 144 is not a multiple of 60
-    double acc = 0.0, lastDrawn = 0.0;
+    const double dt = 1.0 / 144.0;  // 144 is not a multiple of 60
+    double lastDrawn = 0.0;
     int checked = 0;
     for (int f = 0; f < 120; ++f) {
         e.frame(dt);
-        acc += dt;
-        while (acc >= fixedDt) acc -= fixedDt;
-        const double alpha = acc / fixedDt;
+        const double alpha = e.runtime_impl().interpAlpha;  // what the engine drew with
         const double real = w.get<Transform>(ball)->position.x;
         const double drawn = w.drawn_matrix(ball).translation().x;
         if (f >= 3) {
