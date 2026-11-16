@@ -13,6 +13,7 @@
 #include <string>
 #include <vector>
 
+#include "../src/audio_mixer.h"
 #include "../src/audio_testing.h"
 #include "audio_test_helpers.h"
 #include "fa/audio/audio.h"
@@ -619,4 +620,213 @@ TEST_CASE("occlusion: the 257th sound played at a place that is followed says so
     REQUIRE(lines->second.size() == 1);
     CHECK(lines->second[0].find("256") != std::string::npos);
     CHECK(lines->second[0].find("hint") != std::string::npos);
+}
+
+TEST_CASE("voice low-pass: opening twice before the mixer ran takes the filter away, and a volume that is not a number "
+          "is silence") {
+    audio_detail::Mixer mixer;
+    mixer.set_device_rate(44100);
+    audio_detail::MixVoice v;
+    mixer.set_voice_lowpass(v, 1000.0f, true);  // switched on: opens from coefficient 1 (no filter) towards the cutoff
+    CHECK(v.lpCoef == 1.0f);
+    mixer.set_voice_lowpass(v, 20000.0f,
+                            true);  // and open again before a block ran: the filter must not stay at 1 for good
+    CHECK(v.lpCoef == 0.0f);
+    CHECK(v.lpTarget == 0.0f);
+    // a filter that has run still opens by its ramp
+    mixer.set_voice_lowpass(v, 1000.0f, true);
+    v.lpCoef = 0.2f;
+    mixer.set_voice_lowpass(v, 20000.0f, true);
+    CHECK(v.lpTarget == 1.0f);
+    CHECK(v.lpCoef == 0.2f);
+
+    // a NaN volume is 0 (std::max would let it through), also in a ramp
+    audio_detail::MixVoice w;
+    mixer.start_volume_ramp(w, std::numeric_limits<float>::quiet_NaN(), 0.0f);
+    CHECK(w.volume == 0.0f);
+    w.volume = 1.0f;
+    mixer.start_volume_ramp(w, std::numeric_limits<float>::quiet_NaN(), audio_detail::kVoiceParamRamp);
+    CHECK(w.volTarget == 0.0f);
+    CHECK(std::isfinite(w.volStep));
+}
+
+TEST_CASE("voice params: a ramp already on its way to the same target is not restarted") {
+    audio_detail::Mixer mixer;
+    mixer.set_device_rate(44100);
+    audio_detail::MixVoice v;
+    mixer.start_volume_ramp(v, 0.5f, audio_detail::kVoiceParamRamp);
+    const long frames = v.volFrames;
+    REQUIRE(frames > 0);
+    v.volFrames -= 300;  // some of it has been mixed
+    v.volume = 0.8f;
+    const float step = v.volStep;
+    mixer.start_volume_ramp(v, 0.5f, audio_detail::kVoiceParamRamp);  // what doppler asks for every frame
+    CHECK(v.volFrames == frames - 300);
+    CHECK(v.volStep == step);
+    mixer.start_volume_ramp(v, 0.25f, audio_detail::kVoiceParamRamp);  // a new target does restart it
+    CHECK(v.volFrames == frames);
+    CHECK(v.volTarget == 0.25f);
+
+    mixer.set_voice_occ_gain(v, 0.3f, true);
+    const long occFrames = v.occFrames;
+    REQUIRE(occFrames > 0);
+    v.occFrames -= 200;
+    mixer.set_voice_occ_gain(v, 0.3f, true);
+    CHECK(v.occFrames == occFrames - 200);
+    mixer.set_voice_occ_gain(v, 0.6f, true);
+    CHECK(v.occFrames == occFrames);
+}
+
+TEST_CASE("occlusion: sounds that start this frame do not take the rays the plan kept for the ones that are due") {
+    Fixture fx;
+    Scene sc;
+    std::set<std::uint64_t> known;
+    int knownRays = 0, otherRays = 0;
+    fx.audio.set_occlusion_probe([&](World&, const AudioOcclusionRay& ray) {
+        (known.count(ray.source.bits()) ? knownRays : otherRays)++;
+        return true;
+    });
+    // the sources that start late are made first (so the world visits them first) and are switched off
+    std::vector<Entity> late;
+    for (int i = 0; i < 3 * kAudioOcclusionRaysPerFrame; ++i) {
+        late.push_back(sc.source("late" + std::to_string(i), {10.0f + float(i), 5, 0}, [](AudioSource& a) {
+            a.range = 1000.0f;
+            a.occlusion = true;
+        }));
+        sc.world.set_active(late.back(), false);
+    }
+    for (int i = 0; i < kAudioOcclusionRaysPerFrame;
+         ++i) {  // as many as there are rays: all measured in the first frame
+        known.insert(sc.source("known" + std::to_string(i), {10.0f + float(i), -5, 0}, [](AudioSource& a) {
+                           a.range = 1000.0f;
+                           a.occlusion = true;
+                       }).bits());
+    }
+    tick(fx, sc);
+    REQUIRE(knownRays == kAudioOcclusionRaysPerFrame);
+    // the tick (counted as the code does) where they are due again
+    float age = 0.0f;
+    int due = 0;
+    while (!(age >= kAudioOcclusionRecheck)) {
+        age += kDt;
+        ++due;
+    }
+    for (int i = 1; i < due; ++i) tick(fx, sc);
+    REQUIRE(knownRays == kAudioOcclusionRaysPerFrame);
+    REQUIRE(otherRays == 0);
+    for (Entity e : late) sc.world.set_active(e, true);  // new sounds in the frame the others are due
+    tick(fx, sc);
+    CHECK(knownRays == 2 * kAudioOcclusionRaysPerFrame);  // the ones that were due kept their rays
+    CHECK(otherRays == 0);
+    tick(fx, sc);  // and the new ones are served in the next frames
+    CHECK(otherRays == kAudioOcclusionRaysPerFrame);
+}
+
+TEST_CASE("occlusion: a ray whose sound stopped wanting it in its frame goes to another sound that is due") {
+    Fixture fx;
+    Scene sc;
+    int frame = 0;
+    std::map<std::uint64_t, int> lastAsked;
+    int rays = 0;
+    fx.audio.set_occlusion_probe([&](World&, const AudioOcclusionRay& ray) {
+        ++rays;
+        lastAsked[ray.source.bits()] = frame;
+        return true;
+    });
+    const int count = 60;  // more than the budget serves in 0.1 s: there are always sounds that are due
+    std::vector<Entity> sources;
+    for (int i = 0; i < count; ++i)
+        sources.push_back(sc.source("s" + std::to_string(i), {10.0f + float(i), 0, 0}, [](AudioSource& a) {
+            a.range = 1000.0f;
+            a.occlusion = true;
+        }));
+    for (frame = 0; frame < 60; ++frame) tick(fx, sc);
+    // the sounds the plan will grant a ray in this frame are the ones asked longest ago: they stop
+    std::vector<int> ages;
+    for (const auto& [bits, at] : lastAsked) ages.push_back(at);
+    std::sort(ages.begin(), ages.end());
+    REQUIRE(ages.size() == std::size_t(count));
+    const int cutoff = ages[std::size_t(kAudioOcclusionRaysPerFrame) - 1];
+    int stopped = 0;
+    for (Entity e : sources)
+        if (lastAsked[e.bits()] <= cutoff) {
+            sc.world.get<AudioSource>(e)->playing = false;
+            ++stopped;
+        }
+    REQUIRE(stopped >= kAudioOcclusionRaysPerFrame);
+    REQUIRE(stopped < count - 2 * kAudioOcclusionRaysPerFrame);
+    rays = 0;
+    ++frame;
+    tick(fx, sc);
+    CHECK(rays == kAudioOcclusionRaysPerFrame);  // the rays were not lost with the sounds that stopped
+}
+
+TEST_CASE("audio: a source or a sound at a place that is not a place sends no NaN to the voice") {
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    Fixture fx;
+    write_sine_wav(fx.dir / "sounds/tone.wav", 1.0, 300.0, 0.5);
+    Scene sc;
+    sc.source("far", {nan, 0, 0}, [](AudioSource& a) {
+        a.clip = "sounds/tone.wav";
+        a.dopplerLevel = 1.0f;
+        a.occlusion = true;
+    });
+    fx.audio.set_occlusion_probe([](World&, const AudioOcclusionRay&) { return false; });
+    fx.audio.start_recording();
+    for (int i = 0; i < 12; ++i) tick(fx, sc);
+    for (const Json& v : fx.audio.active_voices()) {
+        CHECK(std::isfinite(v["volume"].get<float>()));
+        CHECK(std::isfinite(v["pitch"].get<float>()));
+        CHECK(std::isfinite(v["pan"].get<float>()));
+    }
+    SpatialSound sound;
+    sound.range = 100000.0f;
+    sound.dopplerLevel = 1.0f;
+    sound.occlusion = true;
+    PlayParams params;
+    params.loop = true;
+    fx.audio.play_at(sc.world, "sounds/tone.wav", params, {nan, nan, nan}, sound);
+    for (int i = 0; i < 12; ++i) tick(fx, sc);
+    for (const Json& v : fx.audio.active_voices()) {
+        CHECK(std::isfinite(v["volume"].get<float>()));
+        CHECK(std::isfinite(v["pitch"].get<float>()));
+        CHECK(std::isfinite(v["pan"].get<float>()));
+    }
+    const Recording rec = fx.finish();
+    REQUIRE(rec.frames() > 0);
+    bool finite = true;
+    for (std::size_t i = 0; i < rec.frames(); ++i)
+        finite = finite && std::isfinite(rec.l[i]) && std::isfinite(rec.r[i]);
+    CHECK(finite);
+}
+
+TEST_CASE("occlusion: the 257th sound is told again after a world change") {
+    Fixture fx;
+    Scene sc;
+    auto lines = std::make_shared<std::pair<std::mutex, std::vector<std::string>>>();
+    const int sink = add_log_sink([lines](const LogEntry& e) {
+        if (e.level != LogLevel::Warn || e.category != "audio") return;
+        std::lock_guard<std::mutex> lk(lines->first);
+        lines->second.push_back(e.message);
+    });
+    SpatialSound sound;
+    sound.range = 100000.0f;
+    sound.dopplerLevel = 1.0f;
+    const auto fill = [&](Scene& scene, float base) {  // each sound louder than the one before: it takes a voice
+        tick(fx, scene);
+        for (int i = 0; i < 300; ++i) {
+            PlayParams p;
+            p.volume = base + 0.003f * float(i);
+            fx.audio.play_at(scene.world, "sounds/sine.wav", p, {30, 0, 0}, sound);
+        }
+    };
+    fill(sc, 0.01f);
+    Scene second;        // another World: the sounds of the first are forgotten, and so is what was said about them
+    fill(second, 1.0f);  // louder than every voice that is left of the first world
+    remove_log_sink(sink);
+    std::lock_guard<std::mutex> lk(lines->first);
+    int told = 0;
+    for (const std::string& m : lines->second)
+        if (m.find("256") != std::string::npos) ++told;
+    CHECK(told == 2);
 }

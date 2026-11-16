@@ -166,6 +166,8 @@ DeviceState query_device(JNIEnv* env, int deviceId, AndroidAxisCaps* caps, Gamep
     return DeviceState::Present;
 }
 
+void forget_gone_pad_rumble(int slot);  // defined with the rumble state below
+
 // One pass over the pads: release the unplugged ones, give the new ones their layout. The JNI calls run outside the lock.
 void check_devices() {
     int ids[kMaxGamepads];
@@ -195,9 +197,11 @@ void check_devices() {
     std::lock_guard<std::mutex> lock(g_mutex);
     for (int i = 0; i < kMaxGamepads; ++i) {
         if (ids[i] < 0) continue;
-        if (states[i] == DeviceState::Gone)
+        if (states[i] == DeviceState::Gone) {
             g_pads.release_device(ids[i]);
-        else if (wantsLayout[i]) {  // Unknown: JNI failed, ask no more and let the pad use the layout-unknown behaviour
+            forget_gone_pad_rumble(i);
+        } else if (wantsLayout[i]) {
+            // (Unknown: JNI failed, ask no more and let the pad use the layout-unknown behaviour)
             if (states[i] == DeviceState::Present)
                 g_pads.set_info(ids[i], infos[i]);
             else  // no name, no ids: the pad is "a gamepad, Android device N"
@@ -328,6 +332,12 @@ struct PadRumble {
     bool playing = false;
 };
 PadRumble g_rumble[kMaxGamepads];
+
+// A pad went (its slot is free): its answer is dropped, so a pad that comes back with a reused device id is asked again. One that
+// was shaking keeps it until the stop that apply_gamepad_rumble sends reaches the vibrator (gamepad_backend_rumble drops it then).
+void forget_gone_pad_rumble(int slot) {
+    if (!g_rumble[slot].playing) g_rumble[slot] = PadRumble{};
+}
 
 void probe_rumble(JNIEnv* env, int deviceId, PadRumble& r) {
     r = PadRumble{};
@@ -553,6 +563,12 @@ bool gamepad_backend_rumble(int slot, float low, float high, float seconds) {
     if (seconds <= 0.0f && low <= 0.0f && high <= 0.0f) {  // stop
         ok = !r.playing || cancel_rumble(env, r.deviceId, r);
         r.playing = false;
+        bool gone;
+        {
+            std::lock_guard<std::mutex> lock(g_mutex);
+            gone = g_pads.device_id(slot) < 0;
+        }
+        if (gone) r = PadRumble{};  // the stop of a pad that went has been sent: nothing is left to remember
     } else {
         const AndroidRumble plan = android_rumble(low, high, seconds, r.vibrators);
         if (plan.amplitude[0] == 0 && plan.amplitude[1] == 0) {
