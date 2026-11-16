@@ -473,6 +473,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`project.info`](commands/project.md#projectinfo): Show the project settings, input actions, current scene, scenes and scripts.
 - [`project.new_ci_workflow`](commands/project.md#projectnew_ci_workflow-modifies-state): Write a GitHub Actions workflow that validates, tests and exports the game on every push. _Since 0.2.0._
 - [`project.new_plugin`](commands/project.md#projectnew_plugin-modifies-state): Create a native plugin (C/C++) for this game and declare it in factoria.json. _Since 0.1.6._
+- [`project.package_examples`](commands/project.md#projectpackage_examples-modifies-state): Zip every example game of examples/ and write examples-manifest.json, the files a release publishes. _Not released yet._
 - [`project.serve_web`](commands/project.md#projectserve_web-modifies-state): Serve the game's web build on this computer, or on the Wi-Fi to try it on a phone; it reloads when the project changes. _Since 0.18.0._
 - [`project.templates`](commands/project.md#projecttemplates): List the project templates `project.create` can start from.
 - [`project.test`](commands/project.md#projecttest-modifies-state): Run the project's JavaScript tests (tests/*.test.js) headless and return the report.
