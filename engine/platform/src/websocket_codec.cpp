@@ -393,8 +393,10 @@ std::uint32_t Session::next_mask() {
             if (!random_) random_ = std::make_unique<std::random_device>();
             return static_cast<std::uint32_t>((*random_)());
         } catch (const std::exception&) {
-            // No entropy source (std::system_error): the keys come from a splitmix64 sequence seeded from the clock and
-            // this session's address. Masking keeps proxies from reading frames as HTTP; it is not encryption.
+            // No entropy source (std::system_error; none of the supported platforms lacks one in practice). The keys come
+            // from a splitmix64 sequence seeded from the clock and this session's address: NOT the unpredictable keys
+            // RFC 6455 5.3 asks for (a send cannot fail here, so this stays a fallback), only enough to keep proxies from
+            // reading frames as HTTP. The handshake key (begin_handshake) fails the connection instead of using it.
             const auto t = static_cast<std::uint64_t>(std::chrono::steady_clock::now().time_since_epoch().count());
             fallback_ = (t ^ static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(this))) | 1;
         }

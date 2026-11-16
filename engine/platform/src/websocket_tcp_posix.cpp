@@ -154,8 +154,8 @@ private:
         ::freeaddrinfo(list);
         if (fd < 0) {
             fail_connect(
-                timedOut ? "timed out connecting to " + url_.host
-                         : "could not connect to " + url_.host + ":" + std::to_string(url_.port) + " (" +
+                timedOut ? "timed out connecting to " + url_.host_in_brackets() + ":" + std::to_string(url_.port)
+                         : "could not connect to " + url_.host_in_brackets() + ":" + std::to_string(url_.port) + " (" +
                                std::strerror(lastErrno) + ")",
                 lastErrno == EACCES || lastErrno == EPERM
                     ? std::string("The system refused the socket.") + kPermissionHint
