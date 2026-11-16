@@ -23,6 +23,9 @@ Older versions, one file per minor version with its patch releases: [0.28](chang
   (`docs/<name>/<NAME>_<PART>.md`): `docs.read` serves a `heading` that moved to a page from it (`page`, `requestedName`,
   `note`), the entry page lists its pages (`pages`, `contents`), `docs.list` and `docs.search` carry `family`, and a test checks
   that names are unique and every page is linked from its entry page (docs/design/ARCHITECTURE.md, "Docs").
+- **Docs (M97.3e):** `AI_PROVIDERS.md`, `ASSETS.md`, `MODELING.md` and `IMAGES.md` are split into an entry page plus pages
+  (`docs/ai-providers/`, `docs/assets/`, `docs/modeling/`, `docs/images/`), each under 45 KB; a `heading` that moved is
+  still served by `docs.read <name>`.
 - A deprecation policy for commands, component fields and the script API: the `deprecated` section of
   `tools/common/api_since.json` (empty for now) says since when and what replaces each one. A deprecated command, a scene or
   prefab with a deprecated component or field, and a call of a deprecated script function log one warning that names the
