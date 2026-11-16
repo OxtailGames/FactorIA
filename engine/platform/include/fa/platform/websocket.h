@@ -26,9 +26,11 @@
 // milliseconds at most: it never joins a thread that may sit in a blocking call, never waits for the network or a DNS lookup.
 //
 // Windows. WinHTTP keeps part of the protocol to itself, so its client differs from the tcp one in what the tests can see:
-// it answers pings by itself (and may send keep-alive frames of its own), a wrong Sec-WebSocket-Accept may fail inside
-// WinHttpWebSocketCompleteUpgrade with a message that does not name the header, and a connection destroyed while a send is
-// in flight closes the handle with no close frame (WinHTTP allows one send at a time); otherwise destruction sends 1001.
+// it answers pings by itself and sends keep-alive frames of its own on an open connection (every 30 s, set explicitly), a
+// wrong Sec-WebSocket-Accept may fail inside WinHttpWebSocketCompleteUpgrade with a message that does not name the header,
+// and connect() refuses a header value that is not ASCII (WinHTTP sends header values as 8-bit text). A connection destroyed
+// while a send is in flight (WinHTTP allows one at a time) sends 1001 once that send has gone out; a send still stuck after
+// kWebSocketCloseWaitSec (a server that does not read) ends with the handle closed and no close frame.
 //
 // Like fa/platform/http.h, a client only sends: it does not check WHICH address a game may open. That is fa/services/
 // network.h (the hosts the game declares in factoria.json, the same list as http.fetch) and the script layer, which check

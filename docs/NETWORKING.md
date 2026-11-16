@@ -260,10 +260,15 @@ address checks: it fails at the next frame with an `"error"` event and a `"close
 reconnect, so a game written today runs everywhere and simply stays offline. Check `websocket.supported` to show an
 "online play not available" message instead.
 
-On Windows, WinHTTP does part of the protocol itself, which shows in three places: it answers the server's pings (and may
-send keep-alive frames of its own), a server whose handshake answer has a wrong `Sec-WebSocket-Accept` may fail with a
-message that does not name the header, and a connection destroyed (a scene change) while it is in the middle of sending a
-message is cut without a close frame; at any other moment the server gets the usual close with code 1001.
+On Windows, WinHTTP does part of the protocol itself, which shows in a few places:
+
+- It answers the server's pings, and sends keep-alive frames of its own every 30 seconds while a connection is open.
+- A server whose handshake answer has a wrong `Sec-WebSocket-Accept` may fail with a message that does not name the
+  header.
+- A header value that is not plain ASCII is refused by `websocket.connect` (WinHTTP would send it as 8-bit text, not as
+  the UTF-8 the game wrote): percent-encode it (`encodeURIComponent`) or send it in the first message instead.
+- A connection destroyed (a scene change) while it is in the middle of sending a message closes with code 1001 once
+  that message has gone out. A server that stops reading gets no close frame: after 5 seconds the connection is cut.
 
 ### Addresses and options
 

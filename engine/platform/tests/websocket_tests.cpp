@@ -1,5 +1,6 @@
-// WebSocket clients (fa/platform/websocket.h): the event queue, the memory client, the platform stubs, and the plain TCP
-// client against the loopback server of ws_test_server.h. Nothing here reaches another machine.
+// WebSocket clients (fa/platform/websocket.h): the event queue, the memory client, the platform stubs, and a real client (the
+// plain TCP client on POSIX, WinHTTP's on Windows) against the loopback server of ws_test_server.h. Nothing here reaches
+// another machine.
 #include <doctest.h>
 
 #include <cerrno>
@@ -322,7 +323,7 @@ std::unique_ptr<WebSocket> connect_to(WebSocketClient& client, const std::string
 
 }  // namespace
 
-TEST_CASE("websocket client:echo, binary, greeting, subprotocol and headers against the loopback server") {
+TEST_CASE("websocket client: echo, binary, greeting, subprotocol and headers against the loopback server") {
     fa::test::WsTestServer server;
     REQUIRE(server.ok());
     auto client = make_client_under_test();
@@ -375,7 +376,7 @@ TEST_CASE("websocket client:echo, binary, greeting, subprotocol and headers agai
     }
 }
 
-TEST_CASE("websocket client:the server closes, drops, refuses, answers wrong or says nothing") {
+TEST_CASE("websocket client: the server closes, drops, refuses, answers wrong or says nothing") {
     fa::test::WsTestServer server;
     REQUIRE(server.ok());
     auto client = make_client_under_test();
@@ -423,7 +424,7 @@ TEST_CASE("websocket client:the server closes, drops, refuses, answers wrong or 
     }
 }
 
-TEST_CASE("websocket client:fragments, a big message, pings and bad frames") {
+TEST_CASE("websocket client: fragments, a big message, pings and bad frames") {
     fa::test::WsTestServer server;
     REQUIRE(server.ok());
     auto client = make_client_under_test();
@@ -481,7 +482,7 @@ TEST_CASE("websocket client:fragments, a big message, pings and bad frames") {
     }
 }
 
-TEST_CASE("websocket client:addresses it cannot open say why") {
+TEST_CASE("websocket client: addresses it cannot open say why") {
     auto client = make_client_under_test();
     WebSocketRequest r;
 #ifndef _WIN32
@@ -493,7 +494,9 @@ TEST_CASE("websocket client:addresses it cannot open say why") {
 #endif
     r.url = "http://example.com/";
     CHECK_FALSE(client->connect(r).ok());
-    r.url = "ws://127.0.0.1:1/";  // nothing listens on port 1: refused at once, no wait for a timeout
+    // Nothing listens on port 1: the connection is refused, long before the connect timeout (15 s). POSIX refuses it at
+    // once; Windows retries a refused loopback connection for about 2 s first.
+    r.url = "ws://127.0.0.1:1/";
     auto ws = client->connect(r);
     REQUIRE(ws.ok());
     auto events = collect_until_close(*ws.value());
@@ -506,7 +509,7 @@ TEST_CASE("websocket client:addresses it cannot open say why") {
     CHECK_FALSE(client->connect(r).ok());
 }
 
-TEST_CASE("websocket client:destroying an open connection leaves nothing behind") {
+TEST_CASE("websocket client: destroying an open connection leaves nothing behind") {
     fa::test::WsTestServer server;
     REQUIRE(server.ok());
     auto client = make_client_under_test();
@@ -534,7 +537,7 @@ TEST_CASE("websocket client:destroying an open connection leaves nothing behind"
     CHECK(server.finished_connections() >= 1);
 }
 
-TEST_CASE("websocket client:destroying a connection does not wait for the network") {
+TEST_CASE("websocket client: destroying a connection does not wait for the network") {
     fa::test::WsTestServer server;
     REQUIRE(server.ok());
     auto client = make_client_under_test();
@@ -546,7 +549,7 @@ TEST_CASE("websocket client:destroying a connection does not wait for the networ
     CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(2));
 }
 
-TEST_CASE("websocket client:a client closes with an application code") {
+TEST_CASE("websocket client: a client closes with an application code") {
     fa::test::WsTestServer server;
     REQUIRE(server.ok());
     auto client = make_client_under_test();
@@ -601,5 +604,41 @@ TEST_CASE("websocket client: a handshake that never gets an answer ends at the c
     CHECK(events[1].code == 1006);
     CHECK(ws.value()->state() == WebSocketState::Closed);
 }
+
+TEST_CASE("websocket client: an IPv6 address, in brackets") {
+    fa::test::WsTestServer server(true);
+    if (!server.ok()) {
+        MESSAGE("no IPv6 loopback on this machine: skipped");  // some containers have none
+        return;
+    }
+    auto client = make_client_under_test();
+    auto ws = connect_to(*client, server.url("/echo"));  // ws://[::1]:port/echo
+    auto events = collect(*ws, 1);
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].type == WebSocketEvent::Type::Open);
+    REQUIRE(ws->send_text("over IPv6").ok());
+    events = collect(*ws, 1);
+    REQUIRE(events.size() == 1);
+    CHECK(events[0].data == "over IPv6");
+    CHECK(ws->close(1000, "").ok());
+    events = collect_until_close(*ws);
+    REQUIRE_FALSE(events.empty());
+    CHECK(events.back().code == 1000);
+    CHECK(events.back().wasClean);
+}
+
+#ifdef _WIN32
+TEST_CASE("websocket client: WinHTTP refuses a header value that is not ASCII before connecting") {
+    auto client = make_client_under_test();
+    WebSocketRequest r;
+    r.url = "ws://127.0.0.1:1/";
+    r.headers = {{"X-Player", "Jos\xc3\xa9"}};  // WinHTTP would send it as 8-bit text, not as the UTF-8 the game wrote
+    auto ws = client->connect(r);
+    REQUIRE_FALSE(ws.ok());
+    CHECK(ws.error().message.find("X-Player") != std::string::npos);
+    CHECK(ws.error().message.find("ASCII") != std::string::npos);
+    CHECK_FALSE(ws.error().hint.empty());
+}
+#endif
 
 #endif

@@ -78,6 +78,8 @@ struct Url {
     int port = 0;                     // the real port (80 or 443 when the address has none)
     std::string path;                 // path and query, always starts with "/"
     std::string host_header() const;  // "host" or "host:port" (port only when it is not the default), IPv6 in brackets
+    // The host as an address writes it: IPv6 in brackets ("[::1]"), any other host as it is. What WinHttpConnect takes.
+    std::string host_in_brackets() const;
 };
 // Relies on check_ws_url (fa/services/network.h), which the script layer runs first: it does not decide which hosts a game may
 // open, and it accepts what it can build a request from (any ws:// or wss:// address with a valid host and port).
