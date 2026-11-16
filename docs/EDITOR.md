@@ -186,14 +186,20 @@ Everything below goes through the commands, so the Console and the AI can do the
 
 - **Revert to prefab** (right-click an overridden field; right-click a component header for the whole component; **Revert all**
   in the instance's header for everything of the selected entity and below, added components and children included) calls
-  `prefab.revert`. It is one Undo step.
+  `prefab.revert`. It is one Undo step, and all or nothing: when one part cannot be put back, none is. A component the
+  instance removed is not drawn (the entity no longer has it): the header names it (`Removed from the prefab: ...`) and Revert
+  all gives it back.
 - **Apply to prefab** (the same menus; **Apply all** asks first) calls `prefab.apply`: the value is written into the prefab
   file, which keeps its own layout (nested prefabs and the parts you did not touch stay), and every other instance of that
   prefab in the open scene gets the same change, except where it overrides that very value. A child you added under an
   instance becomes a part of the prefab (and of every other instance). Undo puts the open scene back, not the prefab file
-  (use version control for that); a read-only prefab file or an instance whose differences cannot be written as overrides
-  (a prefab part removed, a child added under a part of the prefab) is refused with the reason, and `prefab.overrides` lists
-  what it cannot express. Instances of the prefab that sit inside another prefab are updated after `scene.reload`.
+  (use version control for that). A component the instance removed is deleted from the prefab file (and from the other
+  instances); a prefab child the instance removed cannot be listed (the children are paired by position, so the rest would be
+  matched with the wrong parts), so such an instance is refused, like one with a child added under a part of the prefab, with
+  the reason; a read-only prefab file is refused too, and `prefab.overrides` marks what the file has no place for
+  (`applyBlocked`). Apply is greyed out while the game plays (the running game's values are not the scene's, and the file is
+  written for good), with the reason in its tooltip; Revert stays. Instances of the prefab that sit inside another prefab are
+  updated after `scene.reload`.
 
 **While the game plays** both panels edit the running game; an orange note says the edits are lost on Stop (and they add no
 Undo step).

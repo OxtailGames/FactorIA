@@ -1937,6 +1937,11 @@ void Editor::at_section_P4(AtScript& at) {
             at_check(r.ok, "scene.set_component on the instance: " + err);
         };
         auto undos = std::make_shared<size_t>(0);
+        // A small window shows only the top of the Inspector, and the field is below Transform and the prefab header.
+        auto scroll_to_layer = [this, &step] {
+            step(2, [this] { inspScrollTo_ = "Shape2D.layer"; });
+            step(3, [] {});
+        };
 
         step(2, [this, project_file] {
             stop();
@@ -1975,6 +1980,7 @@ void Editor::at_section_P4(AtScript& at) {
             *undos = undo_depth();
             set_layer("panel_1", 7);
         });
+        scroll_to_layer();
         step(8, [this, undos] {
             at_check(undo_depth() == *undos + 1, "the edit is one undo step");
             at_check(prefab_field_override(inspOv_, "panel_1", "Shape2D", "layer") != nullptr &&
@@ -1987,6 +1993,7 @@ void Editor::at_section_P4(AtScript& at) {
         snap("editor_prefab_override.png");
 
         // 2. Revert to prefab from the field's menu.
+        scroll_to_layer();
         right_click("insp:label:Shape2D.layer");
         step(4, [this] {
             at_check(at_enabled("insp:ctx:revert") && at_enabled("insp:ctx:apply"),
@@ -2006,6 +2013,7 @@ void Editor::at_section_P4(AtScript& at) {
         });
 
         // 3. Apply to prefab: the file is written, the other instance follows.
+        scroll_to_layer();
         right_click("insp:label:Shape2D.layer");
         step(4, [this] { at_check(at_enabled("insp:ctx:apply"), "the menu is open again"); });
         click("insp:ctx:apply");
@@ -2043,6 +2051,42 @@ void Editor::at_section_P4(AtScript& at) {
                      "Apply writes the instance's layer");
             at_check(layer_of("panel_2") == 1,
                      "...and the other instance keeps its own layer (after the Undo above it overrides the file's 7)");
+        });
+
+        // 5. A component the instance lost is named in the header and counted; Revert gives it back.
+        step(2, [this, undos] {
+            *undos = undo_depth();
+            std::string err;
+            const CommandResult r = edit_command("at:p4:rm", "scene.remove_component",
+                                                 Json::object({{"id", "panel_1"}, {"component", "Shape2D"}}), &err);
+            at_check(r.ok, "scene.remove_component on the instance: " + err);
+        });
+        step(8, [this] {
+            at_check(prefab_removed_components(inspOv_, "panel_1") == std::vector<std::string>{"Shape2D"},
+                     "prefab.overrides lists the lost Shape2D as removedComponent");
+            at_check(at_visible("insp:prefab:removed") && at_enabled("insp:prefab:revert"),
+                     "the header names the removed component and Revert all is enabled");
+        });
+        click("insp:prefab:revert");
+        step(8, [this] {
+            at_check(world().get<Shape2D>(world().find_by_id("panel_1")) != nullptr, "Revert all gives it back");
+            at_check(prefab_override_count(inspOv_) == 0, "...and nothing is left to override");
+        });
+
+        // 6. While the game runs Apply is not offered (the running game's values are not the scene's); Revert still is.
+        step(2, [this, set_layer] {
+            set_layer("panel_1", 3);
+            play();
+        });
+        step(10, [this] {
+            at_check(play_state() != PlayState::Edit, "the game runs");
+            at_check(at_visible("insp:prefab:apply") && !at_enabled("insp:prefab:apply"),
+                     "Apply all is disabled while the game runs");
+            at_check(at_enabled("insp:prefab:revert"), "...and Revert all is not");
+            stop();
+        });
+        step(6, [this] {
+            at_check(play_state() == PlayState::Edit, "Stop returns to edit mode");
             select_id("");
         });
     }

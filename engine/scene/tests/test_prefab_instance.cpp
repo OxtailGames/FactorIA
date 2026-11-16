@@ -343,10 +343,28 @@ TEST_CASE("prefab instances: PrefabDiff::list names every difference one by one,
     CHECK(sawComponent);
     CHECK(sawChild);
 
-    // What a prefab cannot say lists nothing.
+    // A component the instance lost cannot be said in a scene file, but it is listed (to give back or delete from the file).
+    w.remove(a, *TypeRegistry::global().find("Sprite"));
+    const PrefabDiff lost = diff_entity_with_prefab(w, a, "prefabs/panel.prefab.json", opts);
+    CHECK_FALSE(lost.expressible);
+    CHECK(lost.listable);
+    CHECK(lost.reason.find("Sprite") != std::string::npos);
+    const PrefabChange* removed = nullptr;
+    for (const PrefabChange& c : lost.list)
+        if (c.kind == PrefabChange::Kind::RemovedComponent) removed = &c;
+    REQUIRE(removed != nullptr);
+    CHECK(removed->entity == a);
+    CHECK(removed->component == "Sprite");
+    CHECK(removed->prefabValue["layer"] == 1);
+    CHECK(removed->nodeInFile);
+    CHECK(removed->fileError.empty());
+    CHECK(lost.list.size() > 1);  // the other differences are listed too
+
+    // What a prefab cannot say and the list cannot hold either lists nothing: a removed child.
     w.destroy(title);
     w.flush();
     const PrefabDiff gone = diff_entity_with_prefab(w, a, "prefabs/panel.prefab.json", opts);
     CHECK_FALSE(gone.expressible);
+    CHECK_FALSE(gone.listable);
     CHECK(gone.list.empty());
 }

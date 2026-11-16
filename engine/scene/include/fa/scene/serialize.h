@@ -227,7 +227,11 @@ struct PrefabChange {
     enum class Kind {
         Field,      // one serialized field of a component, or name / tags / active (component "EntityInfo")
         Component,  // a component the prefab does not have
-        Child       // a child added under the instance root
+        Child,      // a child added under the instance root
+        // A component the prefab has and the instance lost. A scene file has no way to say it (PrefabDiff::expressible
+        // stays false), but it can be given back (revert: `prefabValue`) or written into the prefab file (apply: the
+        // component is deleted from the file's node).
+        RemovedComponent
     };
     Kind kind = Kind::Field;
     Entity entity;  // the entity of the world that differs (for Child: the added child)
@@ -240,8 +244,11 @@ struct PrefabChange {
     bool placement = false;
     std::string component;
     std::string field;  // a JSON pointer inside the component: "/position", "/name"; empty for Component and Child
-    Json value;         // the entity's value (Component: the whole component as a scene file writes it; Child: null)
-    Json prefabValue;   // the prefab's value, with the ids of this world's entities (null: none, or not a Field)
+    Json value;         // the entity's value (Component: the whole component as a scene file writes it; Child and
+                        // RemovedComponent: null)
+    // The prefab's value, with the ids of this world's entities (null: none, or not a Field / RemovedComponent; a
+    // RemovedComponent's is the whole component, as patch_component takes it).
+    Json prefabValue;
     // `value` as the PREFAB FILE would hold it: an Entity field names the prefab's own id of its target. When `fileError`
     // is not empty the change cannot be written to the file (a reference to an entity outside the prefab).
     Json fileValue;
@@ -253,6 +260,11 @@ struct PrefabDiff {
     // ...). `reason` says which; `entry` is empty.
     bool expressible = false;
     std::string reason;
+    // `list` holds every difference although the scene file cannot say them: true when `expressible`, and when the only
+    // thing it cannot say is a component the prefab has and the instance lost (those are in `list` as RemovedComponent).
+    // A removed child or a removed part is not listed: the children are paired by position, so the rest would be paired
+    // with the wrong parts of the prefab.
+    bool listable = false;
     // The scene entry: {"id", "prefab", "name"/"tags"/"active" when they differ, "components": only the fields that differ
     // (a component the prefab lacks is written whole), "overrides": the same for the prefab's descendants keyed by id (or
     // name, or path), "children": the children added to the instance}.
@@ -260,7 +272,7 @@ struct PrefabDiff {
     // How many things differ: fields, name/tags/active values, components and children added. 0 = the entity is the
     // prefab's content (apart from its id).
     std::size_t changes = 0;
-    // The same differences one by one, in the order of a walk of the tree (empty when not expressible).
+    // The same differences one by one, in the order of a walk of the tree (empty when not `listable`).
     std::vector<PrefabChange> list;
 };
 // The root of the prefab instance `e` belongs to: `e` itself, or the entity above it that a prefab made `e` part of

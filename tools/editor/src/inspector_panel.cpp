@@ -37,6 +37,21 @@ void tooltip(const std::string& text) {
     ImGui::EndTooltip();
 }
 
+// For a widget that is greyed out: the reason, shown on hover (BeginItemTooltip stays silent on a disabled item).
+void tooltip_disabled(const std::string& text) {
+    if (!ImGui::IsItemHovered(ImGuiHoveredFlags_AllowWhenDisabled | ImGuiHoveredFlags_ForTooltip) ||
+        !ImGui::BeginTooltip())
+        return;
+    ImGui::PushTextWrapPos(ImGui::GetFontSize() * 28.0f);
+    ImGui::TextUnformatted(text.c_str());
+    ImGui::PopTextWrapPos();
+    ImGui::EndTooltip();
+}
+
+// prefab.apply writes a file for good, and while the game runs the scene holds what scripts did to it: not offered then.
+constexpr const char* kApplyWhilePlaying = "The game is running: its values are not the scene's, and applying writes "
+                                           "the prefab file for good. Stop the game first.";
+
 std::string field_tip(const FieldInfo& f, bool disabled) {
     std::string tip = f.doc;
     if (field_has_range(f)) {
@@ -227,6 +242,16 @@ void Editor::inspector_prefab_header(Entity e) {
     else
         ImGui::Text("%d override%s", count, count == 1 ? "" : "s");
     at_track("insp:prefab:count");
+    if (const auto removed = prefab_removed_components(inspOv_, id); !removed.empty()) {
+        std::string names;
+        for (const std::string& n : removed) names += (names.empty() ? "" : ", ") + n;
+        ImGui::PushStyleColor(ImGuiCol_Text, kProjectBlue);
+        ImGui::TextWrapped("Removed from the prefab: %s", names.c_str());
+        ImGui::PopStyleColor();
+        at_track("insp:prefab:removed");
+        tooltip("This instance lost these components. Revert all (or Revert) gives them back; Apply all deletes them "
+                "from the prefab file, and so from its other instances.");
+    }
     ImGui::BeginDisabled(count == 0);
     if (ImGui::SmallButton("Revert all")) inspector_prefab_edit("prefab.revert", id, "", "");
     ImGui::EndDisabled();
@@ -235,17 +260,21 @@ void Editor::inspector_prefab_header(Entity e) {
                      "added children (prefab.revert). Ctrl+Z undoes it."
                    : "Put every overridden value of this part back to the prefab's (prefab.revert). Ctrl+Z undoes it.");
     ImGui::SameLine();
-    ImGui::BeginDisabled(count == 0);
+    const bool playing = play_ != PlayState::Edit;
+    ImGui::BeginDisabled(count == 0 || playing);
     if (ImGui::SmallButton("Apply all")) {
         inspApplyAsk_ = true;
         inspApplyId_ = id;
     }
     ImGui::EndDisabled();
-    at_track("insp:prefab:apply", count != 0);
-    tooltip(
-        "Write these values into the prefab file (prefab.apply). The other instances of the prefab in this scene get "
-        "them too, except where they override the same thing.");
-    if (inspApplyAsk_) {
+    at_track("insp:prefab:apply", count != 0 && !playing);
+    if (playing)
+        tooltip_disabled(kApplyWhilePlaying);
+    else
+        tooltip(
+            "Write these values into the prefab file (prefab.apply). The other instances of the prefab in this scene "
+            "get them too, except where they override the same thing.");
+    if (inspApplyAsk_ && !playing) {
         ImGui::OpenPopup("Apply to prefab?##insp");
         inspApplyAsk_ = false;
     }
@@ -491,11 +520,13 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
             left = true;
         }
         at_track("insp:hdrctx:revert", any);
-        if (ImGui::MenuItem(added ? "Add to prefab" : "Apply component to prefab", nullptr, false, any)) {
+        const bool playing = play_ != PlayState::Edit;
+        if (ImGui::MenuItem(added ? "Add to prefab" : "Apply component to prefab", nullptr, false, any && !playing)) {
             inspector_prefab_edit("prefab.apply", id, type.name, "");
             left = true;
         }
-        at_track("insp:hdrctx:apply", any);
+        at_track("insp:hdrctx:apply", any && !playing);
+        if (playing) tooltip_disabled(kApplyWhilePlaying);
         ImGui::EndPopup();
     }
     if (left) {
@@ -542,9 +573,11 @@ void Editor::draw_inspector_component(Entity e, const TypeInfo& type) {
                     if (ImGui::MenuItem("Revert to prefab", nullptr, false, overriddenField != nullptr))
                         inspector_prefab_edit("prefab.revert", id, type.name, f.name);
                     at_track("insp:ctx:revert", overriddenField != nullptr);
-                    if (ImGui::MenuItem("Apply to prefab", nullptr, false, overriddenField != nullptr))
+                    const bool playing = play_ != PlayState::Edit;
+                    if (ImGui::MenuItem("Apply to prefab", nullptr, false, overriddenField != nullptr && !playing))
                         inspector_prefab_edit("prefab.apply", id, type.name, f.name);
-                    at_track("insp:ctx:apply", overriddenField != nullptr);
+                    at_track("insp:ctx:apply", overriddenField != nullptr && !playing);
+                    if (playing) tooltip_disabled(kApplyWhilePlaying);
                     ImGui::EndPopup();
                 }
                 ImGui::PopID();

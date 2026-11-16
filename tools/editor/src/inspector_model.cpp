@@ -316,6 +316,15 @@ bool prefab_component_added(const Json& overrides, std::string_view entity, std:
     return false;
 }
 
+std::vector<std::string> prefab_removed_components(const Json& overrides, std::string_view entity) {
+    std::vector<std::string> names;
+    if (!overrides.is_array()) return names;
+    for (const Json& item : overrides)
+        if (json_text(item, "kind") == "removedComponent" && json_text(item, "entity") == entity)
+            names.push_back(json_text(item, "component"));
+    return names;
+}
+
 int prefab_component_override_count(const Json& overrides, std::string_view entity, std::string_view component) {
     int n = 0;
     if (!overrides.is_array()) return 0;

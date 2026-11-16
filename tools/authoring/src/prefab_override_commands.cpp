@@ -38,6 +38,7 @@ const char* kind_name(PrefabChange::Kind k) {
         case PrefabChange::Kind::Field: return "field";
         case PrefabChange::Kind::Component: return "component";
         case PrefabChange::Kind::Child: return "child";
+        case PrefabChange::Kind::RemovedComponent: return "removedComponent";
     }
     return "field";
 }
@@ -62,6 +63,8 @@ Json change_json(const World& w, const PrefabChange& c) {
         j["prefabValue"] = c.prefabValue;
     } else if (c.kind == PrefabChange::Kind::Component) {
         j["value"] = c.value;
+    } else if (c.kind == PrefabChange::Kind::RemovedComponent) {
+        j["prefabValue"] = c.prefabValue;
     }
     if (c.placement) j["placement"] = true;
     if (const std::string blocker = apply_blocker(w, c); !blocker.empty()) j["applyBlocked"] = blocker;
@@ -98,11 +101,11 @@ Instance need_instance(Engine::Impl& I, const Json& a, bool mustBeExpressible, c
             "instance's root, or use prefab.save to make a prefab of it).");
     inst.path = w.info(inst.root).prefab;
     inst.diff = diff_instance(w, inst.root, inst.path);
-    if (mustBeExpressible && !inst.diff.expressible)
+    if (mustBeExpressible && !inst.diff.listable)
         throw CommandError("not_expressible",
                            "Cannot " + std::string(what) + " '" + w.id_of(inst.scope) + "': its differences from '" +
                                inst.path + "' cannot be listed one by one: " + inst.diff.reason + ".",
-                           "Fix what the sentence names (restore the removed part, or move the added child under the "
+                           "Fix what the sentence names (restore the removed child, or move the added child under the "
                            "instance's root), or use prefab.save to save the entity as a new prefab.");
     return inst;
 }
@@ -149,12 +152,15 @@ Selection select_changes(const World& w, const Instance& inst, const Json& a) {
         component = t->name;
         if (!rawField.empty()) {
             field = field_pointer(rawField);
-            const bool known = std::any_of(t->fields.begin(), t->fields.end(),
+            // EntityInfo reflects id, name and active; its tags are handled by the scene serializer, and listed too.
+            const bool known = (t->name == "EntityInfo" && field == "/tags") ||
+                               std::any_of(t->fields.begin(), t->fields.end(),
                                            [&](const FieldInfo& f) { return f.serialized && "/" + f.name == field; });
             if (!known) {
                 std::vector<std::string> names;
                 for (const FieldInfo& f : t->fields)
                     if (f.serialized) names.push_back(f.name);
+                if (t->name == "EntityInfo") names.push_back("tags");
                 bad_arg(t->name + " has no field '" + field.substr(1) + "'. " + did_you_mean(field.substr(1), names),
                         "api.components lists the fields of " + t->name + ".");
             }
@@ -189,10 +195,10 @@ Json prefab_overrides(Engine::Impl& I, const Json& a) {
     out["id"] = w.id_of(inst.scope);
     out["root"] = w.id_of(inst.root);
     out["prefab"] = inst.path;
-    out["expressible"] = inst.diff.expressible;
+    out["expressible"] = inst.diff.listable;
     Json list = Json::array();
     std::size_t count = 0;
-    if (!inst.diff.expressible) {
+    if (!inst.diff.listable) {
         out["reason"] = inst.diff.reason;
     } else {
         for (const PrefabChange& c : inst.diff.list) {
@@ -207,19 +213,51 @@ Json prefab_overrides(Engine::Impl& I, const Json& a) {
 }
 
 // ------------------------------------------------------------------------------------------------------------ revert
-void revert_change(Engine::Impl& I, const PrefabChange& c) {
-    World& w = I.world;
+[[noreturn]] void revert_failed(const World& w, const PrefabChange& c, const std::string& message) {
+    throw CommandError("invalid_argument",
+                       "Could not put the prefab's " + c.component + c.field + " back into '" + w.id_of(c.entity) +
+                           "': " + message,
+                       "Nothing was changed. Fix the value named above, or revert the other parts one by one (name "
+                       "`component` and `field`).");
+}
+
+void patch_back(World& w, const PrefabChange& c, const TypeInfo& t, const Json& fields) {
+    auto r = patch_component(w, c.entity, t, fields);
+    if (!r.ok()) revert_failed(w, c, r.error().message);
+}
+
+// Puts the prefab's value of one change back into the instance. Child changes are not handled here (they are destroyed
+// last, once nothing that can fail is left).
+void revert_change(World& w, const PrefabChange& c) {
+    const TypeInfo* t = find_type(c.component);
+    if (!t && c.kind != PrefabChange::Kind::Child) revert_failed(w, c, "the component type does not exist");
     switch (c.kind) {
         case PrefabChange::Kind::Field: {
             Json fields = Json::object();
             fields[c.field.substr(1)] = c.prefabValue;
-            set_component(w, Json::object({{"id", w.id_of(c.entity)}, {"component", c.component}, {"fields", fields}}));
+            patch_back(w, c, *t, fields);
             break;
         }
-        case PrefabChange::Kind::Component:
-            if (const TypeInfo* t = find_type(c.component)) w.remove(c.entity, *t);
+        case PrefabChange::Kind::Component: w.remove(c.entity, *t); break;
+        case PrefabChange::Kind::RemovedComponent: patch_back(w, c, *t, c.prefabValue); break;
+        case PrefabChange::Kind::Child: break;
+    }
+}
+
+// Takes revert_change back (best effort: it is only used after a later change failed).
+void undo_revert(World& w, const PrefabChange& c) {
+    const TypeInfo* t = find_type(c.component);
+    if (!t || !w.alive(c.entity)) return;
+    switch (c.kind) {
+        case PrefabChange::Kind::Field: {
+            Json fields = Json::object();
+            fields[c.field.substr(1)] = c.value;
+            (void)patch_component(w, c.entity, *t, fields);
             break;
-        case PrefabChange::Kind::Child: w.destroy(c.entity); break;
+        }
+        case PrefabChange::Kind::Component: (void)patch_component(w, c.entity, *t, c.value); break;
+        case PrefabChange::Kind::RemovedComponent: w.remove(c.entity, *t); break;
+        case PrefabChange::Kind::Child: break;
     }
 }
 
@@ -229,7 +267,18 @@ Json prefab_revert(Engine::Impl& I, const Json& a) {
     Selection sel = select_changes(w, inst, a);
     Json reverted = Json::array();
     for (const PrefabChange* c : sel.changes) reverted.push_back(change_json(w, *c));  // before the entities go
-    for (const PrefabChange* c : sel.changes) revert_change(I, *c);
+    // All or nothing: when a change cannot be put back, the ones before it are taken back and the call fails (the editor
+    // would otherwise drop its undo step while the scene had changed).
+    std::size_t done = 0;
+    try {
+        for (; done < sel.changes.size(); ++done) revert_change(w, *sel.changes[done]);
+    } catch (...) {
+        for (std::size_t i = done; i-- > 0;) undo_revert(w, *sel.changes[i]);
+        if (!I.inFrame) w.flush();
+        throw;
+    }
+    for (const PrefabChange* c : sel.changes)
+        if (c->kind == PrefabChange::Kind::Child) w.destroy(c->entity);
     if (!I.inFrame) w.flush();
     Json out = Json::object();
     out["id"] = w.id_of(inst.scope);
@@ -246,10 +295,12 @@ std::string join_path(const std::vector<std::size_t>& p) {
     for (std::size_t i : p) s += std::to_string(i) + "/";
     return s;
 }
-// The key a change has in the set of what an instance overrides: the same place of the prefab, the same field.
+// The key a change has in the set of what an instance overrides: the same place of the prefab, the same field. A child an
+// instance added has no place of the prefab (they all stand at the end of the root), so no key: another instance's own
+// children never stand in the way of a new one.
 std::string change_key(const PrefabChange& c) {
-    return join_path(c.nodePath) + "|" + c.component + "|" + (c.kind == PrefabChange::Kind::Component ? "" : c.field) +
-           "|" + kind_name(c.kind);
+    return join_path(c.nodePath) + "|" + c.component + "|" +
+           (c.kind == PrefabChange::Kind::Field ? c.field : std::string()) + "|" + kind_name(c.kind);
 }
 
 // The node of the prefab file's entity JSON that `path` names (child indexes); null when the file does not have it.
@@ -283,6 +334,16 @@ void patch_node(Json& node, const PrefabChange& c, const Json& childJson) {
             }
             break;
         case PrefabChange::Kind::Component: components_of(node)[c.component] = c.fileValue; break;
+        case PrefabChange::Kind::RemovedComponent: {
+            Json& comps = components_of(node);
+            for (auto it = comps.begin(); it != comps.end(); ++it)
+                if (to_lower(it.key()) == to_lower(c.component)) {
+                    comps.erase(it);
+                    break;
+                }
+            if (comps.empty()) node.erase("components");
+            break;
+        }
         case PrefabChange::Kind::Child:
             if (!node.contains("children") || !node["children"].is_array()) node["children"] = Json::array();
             node["children"].push_back(childJson);
@@ -344,6 +405,21 @@ Json localize_component(const World& w, Entity root, const TypeInfo& t, Json val
     return value;
 }
 
+// The same prefab file: the spellings are the project's own and Windows and macOS do not tell cases apart
+// ("Prefabs/Panel.prefab.json" and "prefabs/panel.prefab.json").
+std::string prefab_key(const std::string& path) {
+    std::string key = path;
+    try {
+        key = resolve_caller_project_path(path, "prefab.apply");
+    } catch (const CommandError&) {
+    }
+#if defined(_WIN32) || defined(__APPLE__)
+    key = to_lower(key);
+#endif
+    return key;
+}
+bool same_prefab(const std::string& a, const std::string& b) { return a == b || prefab_key(a) == prefab_key(b); }
+
 // Another instance of the prefab as it was before the file changed.
 struct OtherInstance {
     Entity root;
@@ -355,7 +431,7 @@ struct OtherInstance {
 bool update_other(Engine::Impl& I, const OtherInstance& other, const PrefabChange& c, const Json& childJson,
                   std::string& note) {
     World& w = I.world;
-    if (c.placement || other.overridden.count(change_key(c))) return true;
+    if (c.placement || (c.kind != PrefabChange::Kind::Child && other.overridden.count(change_key(c)))) return true;
     const std::string where = "'" + w.id_of(other.root) + "'";
     try {
         if (c.kind == PrefabChange::Kind::Child) {
@@ -377,6 +453,10 @@ bool update_other(Engine::Impl& I, const OtherInstance& other, const PrefabChang
         }
         const TypeInfo* t = find_type(c.component);
         if (!t) return true;
+        if (c.kind == PrefabChange::Kind::RemovedComponent) {
+            w.remove(target, *t);
+            return true;
+        }
         if (c.kind == PrefabChange::Kind::Component) {
             if (w.get(target, *t)) return true;  // it added the same component itself
             auto r = patch_component(w, target, *t, localize_component(w, other.root, *t, c.fileValue));
@@ -467,19 +547,20 @@ Json prefab_apply(Engine::Impl& I, const Json& a) {
     std::size_t nested = 0;
     for (Entity x : w.entities()) {
         const EntityInfo& inf = w.info(x);
-        if (inf.prefab != inst.path || x == inst.root) continue;
+        if (x == inst.root || inf.prefab.empty() || !same_prefab(inf.prefab, inst.path)) continue;
         if (inf.fromPrefab) {
             ++nested;
             continue;
         }
-        PrefabDiff d = diff_instance(w, x, inst.path);
-        if (!d.expressible) {
+        PrefabDiff d = diff_instance(w, x, inf.prefab);
+        if (!d.listable) {
             out["skipped"].push_back(Json::object({{"id", inf.id}, {"reason", d.reason}}));
             continue;
         }
         OtherInstance o;
         o.root = x;
-        for (const PrefabChange& c : d.list) o.overridden.insert(change_key(c));
+        for (const PrefabChange& c : d.list)
+            if (c.kind != PrefabChange::Kind::Child) o.overridden.insert(change_key(c));
         others.push_back(std::move(o));
     }
 
@@ -547,14 +628,16 @@ void register_prefab_override_commands(Engine& engine, Engine::Impl& I) {
          "entity, component, field, value, prefabValue}]}: kind \"field\" (a field of a component, as a JSON pointer: "
          "\"/position\"; name, tags and active are fields of EntityInfo), \"component\" (one the prefab lacks, with "
          "its "
-         "whole value) or \"child\" (added under the instance's root). Example: prefab.overrides "
+         "whole value), \"removedComponent\" (one the prefab has and the instance lost; prefabValue comes back) or "
+         "\"child\" (added under the instance's root). Example: prefab.overrides "
          "{\"id\":\"enemy_1\"}" FA_COMMAND_DETAILS "`prefabValue` is what prefab.revert puts back; an Entity field "
          "gives the id of the instance's own entity. The "
          "root's Transform.position is listed with placement: true and not counted: where an instance stands is not "
          "an override of the prefab. An entry with `applyBlocked` cannot be written to the prefab file by prefab.apply "
          "(it points at an entity outside the prefab, or at a part that a prefab inside the prefab made): the text "
          "says "
-         "why. When the differences cannot be listed (a part of the prefab was removed, a child was added under a part "
+         "why. When the differences cannot be listed (a child of the prefab was removed, a child was added under a "
+         "part "
          "of it) `expressible` is false, `reason` says what to fix and the list is empty. It reads the prefab file and "
          "changes nothing.",
          parse_schema(R"({"type":"object","required":["id"],"properties":{
@@ -572,9 +655,12 @@ void register_prefab_override_commands(Engine& engine, Engine::Impl& I) {
          "{\"id\":\"enemy_1\",\"component\":\"Sprite\","
          "\"field\":\"/color\"}" FA_COMMAND_DETAILS
          "Where the instance stands (the root's Transform.position) is not reverted unless named: {\"component\": "
-         "\"Transform\", \"field\": \"/position\"}. A component the prefab lacks is removed, a child added under the "
-         "instance is destroyed. Returns {id, root, prefab, reverted: [the entries prefab.overrides lists], notes?}. "
-         "Refuses (code not_expressible) an instance whose differences cannot be listed; prefab.overrides says why. "
+         "\"Transform\", \"field\": \"/position\"}. A component the prefab lacks is removed, one it lost comes back, a "
+         "child added under the "
+         "instance is destroyed. All or nothing: when one change cannot be put back, none is. Returns {id, root, "
+         "prefab, reverted: [the entries prefab.overrides lists], notes?}. "
+         "Refuses (code not_expressible) an instance whose differences cannot be listed (a removed child); "
+         "prefab.overrides says why. "
          "The editor calls it through its command undo, so Ctrl+Z puts the values back.",
          parse_schema(R"({"type":"object","required":["id"],"properties":{
                "id":{"type":"string","description":"Id (or name) of the instance's root or of a part of it."},
@@ -588,7 +674,9 @@ void register_prefab_override_commands(Engine& engine, Engine::Impl& I) {
          "Write an instance's values into its prefab file: one field, one component, or everything; the other "
          "instances follow.",
          "`id` is the instance's root or a part of it; `component` and `field` narrow it as in prefab.revert (without "
-         "them: everything the entity and what is below it overrides, added components and children included). The "
+         "them: everything the entity and what is below it overrides, added components and children included; a "
+         "component "
+         "the instance lost is deleted from the file). The "
          "prefab file keeps its own layout (its nested prefabs and the parts you did not touch stay), and every other "
          "instance of the prefab in the open scene gets the same change, except where it overrides that thing itself. "
          "Example: prefab.apply {\"id\":\"enemy_1\",\"component\":\"Sprite\",\"field\":\"/color\"}" FA_COMMAND_DETAILS
@@ -600,7 +688,8 @@ void register_prefab_override_commands(Engine& engine, Engine::Impl& I) {
          "prefab that does not exist, an instance whose differences cannot be listed (not_expressible) and changes the "
          "file has no place for (cannot_apply; each entry of prefab.overrides says so in `applyBlocked`). The "
          "file is written for good (the editor's Ctrl+Z puts the open scene back, not the file: use version control "
-         "to go back), and instances of this prefab inside other prefabs are only updated after a scene.reload.",
+         "to go back), and instances of this prefab inside other prefabs are only updated after a scene.reload. The "
+         "editor does not offer it while the game runs: a call made then writes what the running game holds.",
          parse_schema(R"({"type":"object","required":["id"],"properties":{
                "id":{"type":"string","description":"Id (or name) of the instance's root or of a part of it."},
                "component":{"type":"string","description":"Only this component of the entity (e.g. Sprite, Transform, EntityInfo). Without it: everything of the entity and below."},
