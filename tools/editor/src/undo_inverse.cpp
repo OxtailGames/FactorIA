@@ -1,6 +1,8 @@
 #include "undo_inverse.h"
 
 #include <algorithm>
+#include <cstdint>
+#include <set>
 
 #include "fa/core/reflect.h"
 #include "fa/scene/components.h"
@@ -11,7 +13,9 @@ namespace fa::editor {
 namespace {
 
 using Builder = std::optional<UndoPlan> (*)(const World&, const Json&);
-using Finisher = void (*)(UndoPlan&, const Json& result);
+// Completes a plan with what only the finished command knows (the id a spawn got); the world is the one AFTER the command.
+// False when the result does not hold what the plan needs.
+using Finisher = bool (*)(const World&, UndoPlan&, const Json& result);
 
 struct BuilderRow {
     const char* name;
@@ -140,10 +144,242 @@ std::optional<UndoPlan> plan_remove_component(const World& world, const Json& a)
     return plan;
 }
 
-// The table: one row per command that has an inverse. M98.7e2 adds the structural commands here.
+// ------------------------------------------------------------------------------------------------ structure ----
+// The structural commands (spawn, destroy, paste, reparent) are undone by re-creating entities through
+// scene.paste_entities, which keeps the id of every entity of its text that is free in the scene: after a destroy (or an
+// undone spawn) the ids are free, so the entities come back with the SAME ids, components, prefab links and children. The
+// text is what scene.copy_entities writes (PrefabSave::Marks, as the old whole-scene snapshots did).
+
+std::vector<Entity> subtree_of(const World& w, Entity e) {
+    std::vector<Entity> out{e};
+    for (size_t i = 0; i < out.size(); ++i)
+        for (Entity c : w.children(out[i])) out.push_back(c);
+    return out;
+}
+
+UndoCommand destroy_call(const std::string& id) {
+    UndoCommand c;
+    c.cmd = "scene.destroy";
+    c.args = Json::object({{"id", id}});
+    return c;
+}
+
+// Commands that re-create `roots` (each with its subtree) where they are now: one paste (so the references between the
+// roots stay), then a set_parent for every root that was not the last child of its parent.
+std::vector<UndoCommand> restore_commands(const World& w, const std::vector<Entity>& roots) {
+    EntityJsonOptions o;
+    o.prefabs = PrefabSave::Marks;
+    Json entries = Json::array();
+    for (Entity e : roots) {
+        Json entry = Json::object();
+        if (Entity p = w.parent(e); !p.is_null()) entry["parent"] = w.id_of(p);
+        entry["entity"] = entity_to_json(w, e, o);
+        entries.push_back(std::move(entry));
+    }
+    const Json payload = Json::object({{"format", "factoria.entities/1"}, {"entities", std::move(entries)}});
+    std::vector<UndoCommand> cmds;
+    UndoCommand paste;
+    paste.cmd = "scene.paste_entities";
+    paste.args =
+        Json::object({{"text", payload.dump(-1, ' ', false, Json::error_handler_t::replace)}, {"keepParents", true}});
+    cmds.push_back(std::move(paste));
+    for (Entity e : roots) {
+        const Entity p = w.parent(e);
+        if (p.is_null()) continue;  // the top level keeps no order the commands can set
+        const std::vector<Entity>& sib = w.children(p);
+        const auto at = size_t(std::find(sib.begin(), sib.end(), e) - sib.begin());
+        if (at + 1 >= sib.size()) continue;  // last: where a paste puts it
+        UndoCommand c;
+        c.cmd = "scene.set_parent";
+        c.args = Json::object(
+            {{"id", w.id_of(e)}, {"parent", w.id_of(p)}, {"index", int64_t(at)}, {"keepWorldTransform", false}});
+        cmds.push_back(std::move(c));
+    }
+    return cmds;
+}
+
+// The Entity fields of entities OUTSIDE `inside` that name an entity of it: a destroy leaves them dead, and a paste cannot
+// bring them back (they are not in its text), so the inverse sets them again once the entities exist.
+std::vector<UndoCommand> outside_reference_commands(const World& w, const std::vector<Entity>& inside) {
+    std::set<uint64_t> in;
+    for (Entity e : inside) in.insert(e.bits());
+    std::vector<UndoCommand> cmds;
+    for (const TypeInfo* type : TypeRegistry::global().all()) {
+        std::vector<const FieldInfo*> fields;
+        for (const FieldInfo& f : type->fields)
+            if (f.kind == FieldKind::Entity && f.serialized && !f.readOnly) fields.push_back(&f);
+        if (fields.empty()) continue;
+        for (Entity owner : w.entities_with(type)) {
+            if (in.count(owner.bits())) continue;
+            const void* obj = w.get(owner, *type);
+            if (!obj) continue;
+            Json set = Json::object();
+            for (const FieldInfo* f : fields) {
+                const Entity target = *static_cast<const Entity*>(f->ptr(obj));
+                if (!target.is_null() && in.count(target.bits()) && w.alive(target)) set[f->name] = w.id_of(target);
+            }
+            if (set.empty()) continue;
+            UndoCommand c;
+            c.cmd = "scene.set_component";
+            c.args = Json::object({{"id", w.id_of(owner)}, {"component", type->name}, {"fields", std::move(set)}});
+            cmds.push_back(std::move(c));
+        }
+    }
+    return cmds;
+}
+
+Entity live_entity(const World& w, const Json& a, const char* key) {
+    if (!a.is_object() || !a.contains(key) || !a[key].is_string()) return kNullEntity;
+    const Entity e = w.find(a[key].get<std::string>());
+    return !e.is_null() && w.alive(e) && !w.pending_destroy(e) ? e : kNullEntity;
+}
+
+// A top-level entity that has other top-level entities after it: the commands cannot give it that place back (the order of
+// the roots is the order the entities were created in, and a paste creates last), and that order is saved in the file and
+// decides what a tie in drawing order shows first. Destroying one takes a snapshot instead. A set_parent keeps the entity
+// in the pool, so moving a root under a parent and back keeps its place.
+bool root_before_other_roots(const World& w, Entity e) {
+    if (!w.parent(e).is_null()) return false;
+    const std::vector<Entity> roots = w.roots();
+    return !roots.empty() && roots.back() != e;
+}
+
+// scene.destroy {id}: undo pastes the entity and its subtree back, puts it at its place among its siblings and sets the
+// references other entities held to it. A top-level entity with other top-level entities after it has no plan (see above).
+std::optional<UndoPlan> plan_destroy(const World& w, const Json& a) {
+    const Entity e = live_entity(w, a, "id");
+    if (e.is_null() || root_before_other_roots(w, e)) return std::nullopt;
+    UndoPlan plan;
+    plan.forward.push_back(destroy_call(w.id_of(e)));
+    plan.inverse = restore_commands(w, {e});
+    for (UndoCommand& c : outside_reference_commands(w, subtree_of(w, e))) plan.inverse.push_back(std::move(c));
+    return plan;
+}
+
+// scene.spawn: redo re-creates what the spawn made (the same ids, whatever the call left to chance), undo destroys it.
+std::optional<UndoPlan> plan_spawn(const World&, const Json& a) {
+    if (!a.is_object() || a.empty()) return std::nullopt;
+    UndoPlan plan;
+    UndoCommand fwd;
+    fwd.cmd = "scene.spawn";
+    fwd.args = a;
+    plan.forward.push_back(std::move(fwd));
+    return plan;  // finish_spawn fills the rest from the result
+}
+
+bool finish_spawn(const World& w, UndoPlan& plan, const Json& result) {
+    if (!result.is_object() || !result.contains("id") || !result["id"].is_string()) return false;
+    const Entity e = w.find_by_id(result["id"].get<std::string>());
+    if (e.is_null() || !w.alive(e)) return false;
+    plan.forward = restore_commands(w, {e});
+    plan.inverse = {destroy_call(w.id_of(e))};
+    return true;
+}
+
+// scene.paste_entities: redo pastes the same entities again (with the ids the paste gave them), undo destroys the roots.
+std::optional<UndoPlan> plan_paste(const World&, const Json& a) {
+    if (!a.is_object()) return std::nullopt;
+    UndoPlan plan;
+    UndoCommand fwd;
+    fwd.cmd = "scene.paste_entities";
+    fwd.args = a;
+    plan.forward.push_back(std::move(fwd));
+    return plan;
+}
+
+bool finish_paste(const World& w, UndoPlan& plan, const Json& result) {
+    if (!result.is_object() || !result.contains("ids") || !result["ids"].is_array() || result["ids"].empty())
+        return false;
+    std::vector<Entity> roots;
+    for (const Json& id : result["ids"]) {
+        const Entity e = id.is_string() ? w.find_by_id(id.get<std::string>()) : kNullEntity;
+        if (e.is_null() || !w.alive(e)) return false;
+        roots.push_back(e);
+    }
+    plan.forward = restore_commands(w, roots);
+    plan.inverse.clear();
+    for (auto it = roots.rbegin(); it != roots.rend(); ++it) plan.inverse.push_back(destroy_call(w.id_of(*it)));
+    return true;
+}
+
+// bones.create: the chain is new, and nests (bone 1 holds bone 2...), so one root stands for all of it.
+bool finish_bones_create(const World& w, UndoPlan& plan, const Json& result) {
+    if (!result.is_object() || !result.contains("bones") || !result["bones"].is_array() || result["bones"].empty() ||
+        !result["bones"][0].is_object() || !result["bones"][0].contains("id") || !result["bones"][0]["id"].is_string())
+        return false;
+    const Entity first = w.find_by_id(result["bones"][0]["id"].get<std::string>());
+    if (first.is_null() || !w.alive(first)) return false;
+    plan.forward = restore_commands(w, {first});
+    plan.inverse = {destroy_call(w.id_of(first))};
+    return true;
+}
+
+std::optional<UndoPlan> plan_bones_create(const World& w, const Json& a) {
+    if (live_entity(w, a, "parent").is_null()) return std::nullopt;
+    UndoPlan plan;
+    UndoCommand fwd;
+    fwd.cmd = "bones.create";
+    fwd.args = a;
+    plan.forward.push_back(std::move(fwd));
+    return plan;
+}
+
+// scene.set_parent {id, parent?, keepWorldTransform?, index?}: undo puts the entity back under its old parent at its old
+// place and, when the parent changed, gives the old local Transform back exactly (a keepWorldTransform move rewrote it).
+// The UI layout's slot is not part of it: the layout puts a child in its slot again on the next frame.
+std::optional<UndoPlan> plan_set_parent(const World& w, const Json& a) {
+    const Entity e = live_entity(w, a, "id");
+    if (e.is_null()) return std::nullopt;
+    Entity newParent = kNullEntity;
+    if (a.contains("parent") && !a["parent"].is_null()) {
+        if (!a["parent"].is_string()) return std::nullopt;
+        if (!a["parent"].get<std::string>().empty()) {
+            newParent = live_entity(w, a, "parent");
+            if (newParent.is_null()) return std::nullopt;
+        }
+    }
+    const Entity oldParent = w.parent(e);
+    UndoPlan plan;
+    UndoCommand fwd;
+    fwd.cmd = "scene.set_parent";
+    fwd.args =
+        Json::object({{"id", w.id_of(e)}, {"parent", newParent.is_null() ? Json(nullptr) : Json(w.id_of(newParent))}});
+    if (a.contains("keepWorldTransform")) fwd.args["keepWorldTransform"] = a["keepWorldTransform"];
+    if (a.contains("index") && !a["index"].is_null()) fwd.args["index"] = a["index"];
+    plan.forward.push_back(std::move(fwd));
+
+    UndoCommand back;
+    back.cmd = "scene.set_parent";
+    back.args = Json::object({{"id", w.id_of(e)},
+                              {"parent", oldParent.is_null() ? Json(nullptr) : Json(w.id_of(oldParent))},
+                              {"keepWorldTransform", false}});
+    if (!oldParent.is_null()) {
+        const std::vector<Entity>& sib = w.children(oldParent);
+        back.args["index"] = int64_t(std::find(sib.begin(), sib.end(), e) - sib.begin());
+    }
+    plan.inverse.push_back(std::move(back));
+    if (oldParent != newParent) {
+        const TypeInfo* transform = TypeRegistry::global().find("Transform");
+        if (!transform || !w.get(e, *transform)) return std::nullopt;
+        UndoCommand t;
+        t.cmd = "scene.set_component";
+        t.args = Json::object({{"id", w.id_of(e)},
+                               {"component", "Transform"},
+                               {"fields", component_to_json(w, e, *transform, true, false)}});
+        plan.inverse.push_back(std::move(t));
+    }
+    return plan;
+}
+
+// The table: one row per command that has an inverse.
 const BuilderRow kBuilders[] = {
     {"scene.set_component", &plan_set_component, nullptr},
     {"scene.remove_component", &plan_remove_component, nullptr},
+    {"scene.spawn", &plan_spawn, &finish_spawn},
+    {"scene.destroy", &plan_destroy, nullptr},
+    {"scene.set_parent", &plan_set_parent, nullptr},
+    {"scene.paste_entities", &plan_paste, &finish_paste},
+    {"bones.create", &plan_bones_create, &finish_bones_create},
 };
 
 const BuilderRow* find_row(const std::string& name) {
@@ -161,9 +397,9 @@ std::optional<UndoPlan> plan_undo(const World& world, const std::string& name, c
 
 bool has_undo_builder(const std::string& name) { return find_row(name) != nullptr; }
 
-void finish_undo_plan(const std::string& name, UndoPlan& plan, const Json& result) {
+bool finish_undo_plan(const World& world, const std::string& name, UndoPlan& plan, const Json& result) {
     const BuilderRow* row = find_row(name);
-    if (row && row->finish) row->finish(plan, result);
+    return !row || !row->finish || row->finish(world, plan, result);
 }
 
 }  // namespace fa::editor

@@ -716,9 +716,10 @@ public:
     // A command with an inverse builder (undo_inverse.h) becomes one Command undo entry after it succeeded (one per `key`
     // within kEditCoalesceSeconds, and one per drag); every other command takes a whole-scene snapshot first. A refused call
     // leaves no undo step behind. `error` gets the command's message when it failed. `snapshot` forces the snapshot for a
-    // caller whose edit changes more than its command says (the IK drag also turns the bones).
+    // caller whose edit changes more than its command says (the IK drag also turns the bones). `record` false never turns a
+    // field edit into a key of the Animation panel's record mode: the Console and the AI edit the scene itself.
     CommandResult edit_command(const std::string& key, const std::string& name, const Json& args,
-                               std::string* error = nullptr, bool snapshot = false);
+                               std::string* error = nullptr, bool snapshot = false, bool record = true);
     void draw_hierarchy_panel();
     void draw_inspector_panel();
     void draw_hierarchy_node(Entity e, const std::string& filter);

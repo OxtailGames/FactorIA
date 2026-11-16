@@ -129,15 +129,34 @@ in all (the oldest steps go first). A step is one of three kinds:
   before the edit). They store no copy of the scene, so a hundred of them cost less than one copy of a big scene. These edits are
   command steps: an Inspector field (typing, dragging, a checkbox, a color, a material param, an animator clip), a rename or the
   active box in the Hierarchy, a Transform gizmo drag (one entity or a group), adding a component and removing one from the
-  Inspector. Undo of a set sets the old value of exactly the fields the edit named (a component the entity did not have is
-  removed again), and Undo of a removed component adds it back with every field it had. One drag, or a value typed over a moment,
-  is ONE step: the same edit within 0.8 s replaces the newest step's Redo and keeps its Undo, so Undo goes back to the value before
-  the drag. An edit that several entities share (a field of a multi-selection, a group drag) is still one step. A step is applied
-  whole or not at all: when one of its commands fails, the scene is put back as it was, the step is dropped and a toast names the
-  command and its message.
-- **Snapshot steps** hold the whole scene. Everything else still takes one: the Console and the AI (and an AI revert), creating,
-  deleting, duplicating, pasting and reparenting entities, the Level generator's Keep, bone tools, animation recording, the
-  Project panel's drops and file commands. A snapshot step and a command step never merge into each other, even with the same key.
+  Inspector, and the structural edits: creating an entity (`scene.spawn`, also from the Project panel's drops), deleting one or
+  a multi-selection, Duplicate, Cut and Paste (`scene.paste_entities`), dragging an entity onto another parent
+  (`scene.set_parent`) and creating a bone chain (`bones.create`). Undo of a set sets the old value of exactly the fields the edit
+  named (a component the entity did not have is removed again), and Undo of a removed component adds it back with every field it
+  had. Undo of a destroy pastes the entity back with its components and its whole subtree under the SAME ids, in the same parent
+  and at the same sibling index, with the references that pointed at it from outside the subtree (a Joint, a UI target) set
+  again, and a prefab instance comes back linked to its prefab with its overrides (`prefab.overrides` shows the same ones).
+  Undo of a spawn or a paste destroys the created entities, and Redo creates them again with the same ids. Undo of a
+  reparent puts the old parent, the old index and the exact old local Transform back (not a recomputed one), so a widget that
+  was nudged inside a layout Panel returns with its nudge and the layout pass recomputes the slot. One drag, or a value typed over
+  a moment, is ONE step: the same edit within 0.8 s replaces the newest step's Redo and keeps its Undo, so Undo goes back to the
+  value before the drag. An edit that several entities share (a field of a multi-selection, a group drag, deleting or reparenting
+  a selection, Paste of several entities) is still one step. The Console and the AI panel go through the same path: a command
+  that has an inverse is a command step. A step is applied whole or not at all: when one of its commands fails, the scene is put
+  back as it was, the step is dropped and a toast names the command and its message. One exception: the order of the top-level
+  entities is the order they were created in (it is the order of `entities[]` in the scene file, and it decides which of
+  two top-level entities that tie in layer or depth is drawn first), and commands can only create an entity last. So
+  deleting a top-level entity that has other top-level entities after it is a snapshot step; deleting the last one, or a
+  child at any depth, is a command step. A multi-selection delete is one step of one kind: a snapshot as soon as one of its
+  entities needs it. Moving an entity under another parent and back keeps its place, so a reparent is always a command step.
+- **Snapshot steps** hold the whole scene. What is left takes one because its change is too large or is not a scene edit
+  through a command with an inverse: deleting a top-level entity that is not the last one (see above); `scene.import_ascii` (the Level generator's Keep) and `scene.ascii_edit`, which
+  replace many entities at once; `script.eval` (the Console's `>` line), whose effect cannot be known; `prefab.revert` and
+  `prefab.apply`, which rewrite instances or the prefab file; `skin.*` weight edits (bone tools painting weights and
+  auto-weights) and other commands without an inverse; asset file commands of the Project panel (`fs.*`,
+  `assets.regenerate`); and an AI revert (it restores the scene the AI started from). Animation clip edits are document steps
+  of the clip (`$clip`), not scene snapshots. A snapshot step and a command step never merge into each other, even with the
+  same key.
 - **Document steps** belong to a panel (clip, image, drawing, sound, effect, song, model); the panel undoes them.
 
 Both stacks are cleared when another scene is opened or reloaded. Play and Stop keep them: the entities keep their ids. Undo and Redo
