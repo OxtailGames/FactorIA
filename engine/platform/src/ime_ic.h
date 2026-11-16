@@ -35,9 +35,14 @@ struct Event {
         Compose,  // setComposingText: the pre-edit string is now `text` (empty: the composition is gone)
         Commit,   // commitText: `text` replaces the composition (if any) and is typed
         Finish,   // finishComposingText: the pre-edit string is typed as it is
-        Delete,   // deleteSurroundingText: `before` presses of Backspace, then `after` presses of Delete
-        Action,   // performEditorAction: the keyboard's Enter key
-        Close,    // closeConnection: the connection is gone, its composition with it (nothing is typed)
+        // deleteSurroundingText: `before` presses of Backspace, then `after` presses of Delete. The input method counts UTF-16
+        // units here (deleteSurroundingTextInCodePoints counts code points, and Ime.java passes both on as they are): the
+        // connection holds no text to tell a surrogate pair from two characters, so an emoji deleted in units is two
+        // presses, and the second one takes the character before it. A keyboard that means one character asks in code
+        // points (or sends the Backspace key).
+        Delete,
+        Action,  // performEditorAction: the keyboard's Enter key
+        Close,   // closeConnection: the connection is gone, its composition with it (nothing is typed)
         // The keys of the activity's input queue (push_keys), in the same sequence: every key, also while the IME is off.
         Key,   // a key edge (`key`, `down`); `typing`: a press that types a character (the Char that follows it)
         Char,  // the character a key typed (`codepoint`)
@@ -58,7 +63,9 @@ struct Event {
 inline constexpr std::size_t kMaxText = 65536;   // UTF-16 units of one event's text; the rest is cut (a paste that big)
 inline constexpr std::size_t kMaxClauses = 64;   // highlighted runs read from one composition
 inline constexpr std::size_t kMaxQueued = 4096;  // events waiting for the game thread; more are dropped (and logged)
-inline constexpr int kMaxDeletes = 64;           // presses of one deleteSurroundingText, each way
+// Key releases still queued with the queue full (push_keys): a release that is lost leaves its key held in Input.
+inline constexpr std::size_t kReleaseReserve = 256;
+inline constexpr int kMaxDeletes = 64;  // presses of one deleteSurroundingText, each way
 
 // The caret inside a pre-edit string of `length` UTF-16 units for setComposingText's newCursorPosition: > 0 counts from
 // the end of the text (1 = right after it), <= 0 from its start (0 = right before it). Clamped to the text.
@@ -73,7 +80,8 @@ public:
     bool push(Event e);
     // The game thread (mobile_native_event): the keys one key event became (AndroidKeys::take), queued behind what the
     // input method sent before them. An input method that commits a word and then sends a digit as a key event gets
-    // "word1", never "1word". All or nothing: false when the queue has no room for them.
+    // "word1", never "1word". All or nothing: false when the queue has no room for them, and then only the key releases
+    // among them are kept (up to kReleaseReserve past the cap), so that no key stays held in Input.
     bool push_keys(const std::vector<AndroidKeys::Item>& items);
 
     // ---- the game thread
@@ -96,11 +104,15 @@ public:
     // order they came. Commits and updates go to on_composition_*; control characters in a commit become keys (a line
     // break is Enter, a tab Tab); Delete and Action are presses of Backspace / Delete / Enter. Nothing of the input method
     // is delivered while the IME is off; keys always are.
-    // A TextField takes a frame's text before its keys, reads one press of a key per frame and ignores editing keys while
-    // a composition is open, so a frame never holds what it would read out of order: after a key press (Backspace, Enter,
-    // an arrow: a key that types no character, modifiers aside) text and composition changes wait for the next frame, and
-    // so does a second press from the input method (deleteSurroundingText(3, 0) is three frames of Backspace); a key press
-    // that comes after a composition update of this frame, with the composition still open, waits too.
+    // The UI reads a frame in its own order (Tab moves the focus before a TextField takes the frame's text; a TextField
+    // takes the text before its keys, reads one press of a key per frame and ignores editing keys while a composition is
+    // open), so a frame holds either typed text and composition changes or ONE press of an editing key (Backspace, Delete,
+    // Enter, Tab, an arrow: a key that types no character, modifiers aside), never both: after a key press, text and
+    // composition changes wait for the next frame; so does a second key press (deleteSurroundingText(3, 0) is three frames
+    // of Backspace) and a key press that follows text typed in this frame (a commit "a\t" is the text in one frame and Tab
+    // in the next) or a composition update that left the composition open. Key releases and modifiers never wait. A Back
+    // button behind them does not wait either: when a frame ends with events still queued, the Back events among them are
+    // delivered at once, ahead of the events queued before them.
     void feed(Input& input);
     // Events waiting (queued or behind a key press): for tests.
     std::size_t pending();
@@ -108,6 +120,8 @@ public:
 private:
     // Handles the front of backlog_; true when it pressed a key (the frame's feed ends).
     bool step(Input& input);
+    // Delivers the Back events of backlog_ now (a frame ended with events still waiting).
+    void deliver_backs(Input& input);
     bool has_open_compose();
 
     std::mutex mutex_;
@@ -120,6 +134,7 @@ private:
     bool endInput_ = false;           // set_enabled(false) with a composition open: the next feed() cancels it in Input
     bool keyPressed_ = false;         // this feed(): a key press was delivered
     bool composed_ = false;           // this feed(): a composition update was delivered
+    bool typed_ = false;              // this feed(): text was typed (a key, a commit, a finished composition)
 };
 
 }  // namespace fa::ime_ic

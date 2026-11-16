@@ -595,7 +595,17 @@ const Json* json_at(const Json& root, std::string_view pointer) {
     if (pointer.empty()) return &root;
     try {
         Json::json_pointer ptr{std::string(pointer)};
-        if (!root.contains(ptr)) return nullptr;
+        // contains(json_pointer) makes the compiler check nlohmann's own deprecated operator==(string, json_pointer) while
+        // it picks the overload; the NDK's libc++ (r27) reports that as a use of a deprecated function (-Werror in CI).
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
+        const bool found = root.contains(ptr);
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+        if (!found) return nullptr;
         return &root.at(ptr);
     } catch (const Json::exception&) {
         return nullptr;

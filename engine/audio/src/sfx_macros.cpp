@@ -79,13 +79,16 @@ Result<Json> sfx_apply_macro_binds(const Json& patchJson, const SfxPatch& parsed
                 return make_error("macro " + def.name + ": '" + b.pointer + "' is not a JSON pointer",
                                   "Write it like \"/layers/0/filter/cutoff\".");
             }
-            if (!out.contains(ptr) || !out[ptr].is_number())
+            // Not out.contains(ptr) / out[ptr]: with the NDK's libc++ they make the compiler look at nlohmann's deprecated
+            // operator==(string, json_pointer), a -Werror in CI's Android build. json_at (json.cpp) finds the element.
+            const Json* target = json_at(out, b.pointer);
+            if (!target || !target->is_number())
                 return make_error("macro " + def.name + ": '" + b.pointer + "' is not a number of this patch",
                                   "A bind sets an existing number: write the key in the patch first (for example the "
                                   "layer's filter cutoff), then bind it.");
             const double v =
                 b.exponential ? b.atMin * sfx_math::pow(b.atMax / b.atMin, t) : b.atMin + (b.atMax - b.atMin) * t;
-            out[ptr] = v;
+            const_cast<Json&>(*target) = v;  // an element of `out`, which is not const
         }
     }
     return out;

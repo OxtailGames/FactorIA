@@ -27,6 +27,7 @@
 #include <android/native_activity.h>
 
 #include "activity_end.h"
+#include "ime_android.h"
 #endif
 #include "sokol_window.h"
 #include "sokol_gfx.h"
@@ -197,6 +198,9 @@ void on_init() {
 #if defined(__linux__) && !defined(__ANDROID__)
     ime_linux_attach(g.desc.input);  // Linux: the same, through XIM on sokol_app's X11 window
 #endif
+#if defined(__ANDROID__)
+    ime_android_attach(true);  // Android: the keyboard's composition, through an InputConnection (ime_android.cpp)
+#endif
 #if defined(__EMSCRIPTEN__)
     fa_sapp_web_route_events();    // the web: the keys the browser's input method takes are not the game's
     ime_web_attach(g.desc.input);  // and its compositions go to this Input, through a hidden <input>
@@ -248,6 +252,9 @@ void on_cleanup() {
 #endif
 #if defined(__EMSCRIPTEN__)
     ime_web_attach(nullptr);
+#endif
+#if defined(__ANDROID__)
+    ime_android_attach(false);
 #endif
     if (g.desc.cleanup) g.desc.cleanup();
     g.active = false;

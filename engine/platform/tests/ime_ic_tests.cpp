@@ -3,6 +3,7 @@
 // the JNI glue itself only builds for Android.
 #include <doctest.h>
 
+#include <atomic>
 #include <string>
 #include <thread>
 #include <vector>
@@ -55,6 +56,16 @@ Frame frame(Session& s, Input& in) {
     in.begin_frame();
     return f;
 }
+}  // namespace
+
+namespace {
+// The keys of one key event of the activity's input queue, into the session (what mobile_native_event does).
+void key(Session& s, AndroidKeys& keys, int code, bool down, std::uint32_t unicode = 0) {
+    keys.on_key(code, down, unicode, false);
+    REQUIRE(s.push_keys(keys.take()));
+}
+constexpr int kKeycode1 = 8, kKeycodeLeft = 21, kKeycodeRight = 22, kKeycodeEnter = 66, kKeycodeDel = 67,
+              kKeycodeA = 29, kKeycodeShiftLeft = 59;
 }  // namespace
 
 TEST_CASE("Android IME: setComposingText's newCursorPosition") {
@@ -160,7 +171,7 @@ TEST_CASE("Android IME: a commit with no composition types (punctuation, a sugge
     CHECK_FALSE(in.composing());
 }
 
-TEST_CASE("Android IME: a line break in a commit is Enter, a tab is Tab, one key per frame") {
+TEST_CASE("Android IME: a line break in a commit is Enter, a tab is Tab; text and a key press never share a frame") {
     Input in;
     Session s;
     const std::int32_t g = s.set_enabled(true);
@@ -169,18 +180,87 @@ TEST_CASE("Android IME: a line break in a commit is Enter, a tab is Tab, one key
     s.push(commit(g, u"x"));
     Frame f = frame(s, in);
     CHECK(f.text == U"ok");
+    CHECK_FALSE(f.enter);  // the UI would read Enter before the text it follows: the press is for the next frame
+    f = frame(s, in);
     CHECK(f.enter);
-    f = frame(s, in);  // what came after the key press: the next frame
+    CHECK(f.text.empty());  // what came after the key press waits too
+    f = frame(s, in);
     CHECK(f.text == U"x");
     CHECK_FALSE(f.enter);
     s.push(commit(g, u"a\tb\x01"));
     f = frame(s, in);
     CHECK(f.text == U"a");
+    CHECK_FALSE(f.tab);  // Tab moves the focus before the field takes the frame's text: it must not come with "a"
+    f = frame(s, in);
     CHECK(f.tab);
+    CHECK(f.text.empty());
     f = frame(s, in);
     CHECK(f.text == U"b");  // the other control characters are dropped
     CHECK_FALSE(f.tab);
     CHECK(s.pending() == 0);
+}
+
+TEST_CASE("Android IME: a key press after text of the frame, or a second press, waits for the next frame") {
+    Input in;
+    Session s;
+    AndroidKeys keys;
+    // A physical keyboard: "a", then Left, then Right, all in one burst.
+    key(s, keys, kKeycodeA, true, 'a');
+    key(s, keys, kKeycodeA, false);
+    key(s, keys, kKeycodeLeft, true);
+    key(s, keys, kKeycodeLeft, false);
+    key(s, keys, kKeycodeRight, true);
+    key(s, keys, kKeycodeRight, false);
+    s.feed(in);
+    CHECK(in.text_input() == U"a");
+    CHECK_FALSE(in.key_pressed(Key::Left));
+    in.begin_frame();
+    s.feed(in);
+    CHECK(in.key_pressed(Key::Left));
+    CHECK_FALSE(in.key_pressed(Key::Right));  // one editing press per frame
+    in.begin_frame();
+    s.feed(in);
+    CHECK(in.key_pressed(Key::Right));
+    in.begin_frame();
+    CHECK(s.pending() == 0);
+    CHECK_FALSE(in.key_down(Key::Left));
+    CHECK_FALSE(in.key_down(Key::Right));
+}
+
+TEST_CASE("Android IME: Back is delivered at once, not after a long input method sequence") {
+    Input in;
+    Session s;
+    AndroidKeys keys;
+    const std::int32_t g = s.set_enabled(true);
+    s.push(del(g, 64, 64));
+    s.push(commit(g, u"z"));
+    keys.on_key(kAndroidKeyBack, true, 0, false);
+    REQUIRE(s.push_keys(keys.take()));
+    s.feed(in);  // the first Backspace ends the frame; Back was behind the whole sequence
+    CHECK(in.key_pressed(Key::Backspace));
+    CHECK(in.back_pressed());
+    CHECK(s.pending() == 2);  // the rest of the deletes and the commit still wait
+    in.begin_frame();
+    s.feed(in);
+    CHECK_FALSE(in.back_pressed());  // delivered once
+}
+
+TEST_CASE("Android IME: with the queue full the key releases still get through") {
+    Input in;
+    Session s;
+    AndroidKeys keys;
+    key(s, keys, kKeycodeShiftLeft, true);
+    s.feed(in);
+    REQUIRE(in.key_down(Key::LeftShift));
+    const std::int32_t g = s.set_enabled(true);
+    for (std::size_t i = 0; i < kMaxQueued; ++i) REQUIRE(s.push(simple(Event::Kind::Finish, g)));
+    keys.on_key(kKeycode1, true, '1', false);
+    CHECK_FALSE(s.push_keys(keys.take()));  // dropped: no room
+    keys.on_key(kKeycodeShiftLeft, false, 0, false);
+    CHECK_FALSE(s.push_keys(keys.take()));  // dropped, except the release
+    s.feed(in);
+    CHECK_FALSE(in.key_down(Key::LeftShift));
+    CHECK(in.text_input().empty());
 }
 
 TEST_CASE("Android IME: deleteSurroundingText presses Backspace and Delete, one per frame") {
@@ -327,11 +407,23 @@ TEST_CASE("Android IME: events pushed from another thread arrive in order; a ful
     Input in;
     Session s;
     const std::int32_t g = s.set_enabled(true);
+    // The UI thread pushes while the game thread feeds: no join before the first frame.
+    std::atomic<bool> done{false};
     std::thread ui([&] {
-        for (char16_t c = u'a'; c <= u'z'; ++c) s.push(commit(g, std::u16string(1, c)));
+        for (char16_t c = u'a'; c <= u'z'; ++c) {
+            s.push(commit(g, std::u16string(1, c)));
+            if (c % 4 == 0) std::this_thread::yield();
+        }
+        done = true;
     });
+    std::u32string typed;
+    while (!done) {
+        typed += frame(s, in).text;
+        std::this_thread::yield();
+    }
     ui.join();
-    CHECK(frame(s, in).text == U"abcdefghijklmnopqrstuvwxyz");
+    while (s.pending() > 0) typed += frame(s, in).text;
+    CHECK(typed == U"abcdefghijklmnopqrstuvwxyz");
     for (std::size_t i = 0; i < kMaxQueued; ++i) REQUIRE(s.push(simple(Event::Kind::Finish, g)));
     CHECK_FALSE(s.push(commit(g, u"lost")));
     frame(s, in);
@@ -356,15 +448,6 @@ TEST_CASE("Android IME: ime_cancel with the composition's commit still queued ty
     CHECK(frame(s, in).text.empty());
     CHECK(s.pending() == 0);
 }
-
-namespace {
-// The keys of one key event of the activity's input queue, into the session (what mobile_native_event does).
-void key(Session& s, AndroidKeys& keys, int code, bool down, std::uint32_t unicode = 0) {
-    keys.on_key(code, down, unicode, false);
-    REQUIRE(s.push_keys(keys.take()));
-}
-constexpr int kKeycode1 = 8, kKeycodeEnter = 66, kKeycodeDel = 67, kKeycodeA = 29, kKeycodeShiftLeft = 59;
-}  // namespace
 
 TEST_CASE("Android IME: keys and the input method's calls reach Input in the order they came") {
     Input in;

@@ -328,6 +328,14 @@ TEST_CASE("IME compose: keys the input method took are swallowed with their key 
         CHECK_FALSE(s.key_down(kA, false, 0xFFFFFFF0u));
         CHECK_FALSE(s.key_down(kA, false, 0x10u));
     }
+    SUBCASE("keys that sokol_app does not know (code 0) share no state") {
+        CHECK(s.key_down(0, true));
+        CHECK(s.key_down(0, true));  // a second composed key of the same kind
+        CHECK(s.key_up(0, true));
+        CHECK(s.key_up(0, true));  // its own up is swallowed too, not delivered as the first one's up left it
+        CHECK_FALSE(s.key_down(0, false));
+        CHECK_FALSE(s.key_up(0, false));
+    }
     SUBCASE("losing the focus forgets held keys") {
         CHECK(s.key_down(kA, true));
         s.focus_lost();
