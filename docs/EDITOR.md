@@ -143,11 +143,14 @@ in all (the oldest steps go first). A step is one of three kinds:
   value before the drag. An edit that several entities share (a field of a multi-selection, a group drag, deleting or reparenting
   a selection, Paste of several entities) is still one step. The Console and the AI panel go through the same path: a command
   that has an inverse is a command step. A step is applied whole or not at all: when one of its commands fails, the scene is put
-  back as it was, the step is dropped and a toast names the command and its message. One limit: the entities of the top level
-  have no index to restore (their order is the order of the entity pool), so a root entity that was deleted comes back after
-  the other roots; children return to their exact index.
+  back as it was, the step is dropped and a toast names the command and its message. One exception: the order of the top-level
+  entities is the order they were created in (it is the order of `entities[]` in the scene file, and it decides which of
+  two top-level entities that tie in layer or depth is drawn first), and commands can only create an entity last. So
+  deleting a top-level entity that has other top-level entities after it is a snapshot step; deleting the last one, or a
+  child at any depth, is a command step. A multi-selection delete is one step of one kind: a snapshot as soon as one of its
+  entities needs it. Moving an entity under another parent and back keeps its place, so a reparent is always a command step.
 - **Snapshot steps** hold the whole scene. What is left takes one because its change is too large or is not a scene edit
-  through a command with an inverse: `scene.import_ascii` (the Level generator's Keep) and `scene.ascii_edit`, which
+  through a command with an inverse: deleting a top-level entity that is not the last one (see above); `scene.import_ascii` (the Level generator's Keep) and `scene.ascii_edit`, which
   replace many entities at once; `script.eval` (the Console's `>` line), whose effect cannot be known; `prefab.revert` and
   `prefab.apply`, which rewrite instances or the prefab file; `skin.*` weight edits (bone tools painting weights and
   auto-weights) and other commands without an inverse; asset file commands of the Project panel (`fs.*`,

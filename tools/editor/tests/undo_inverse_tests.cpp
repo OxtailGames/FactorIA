@@ -43,13 +43,13 @@ const char* kStructScene = R"({
   "format": "factoria.scene/1",
   "entities": [
     { "id": "anchor", "name": "Anchor", "components": { "Transform": { "position": [5, 0, 0] } } },
+    { "id": "link", "name": "Link", "components": { "Joint3D": { "connected": "gunner" } } },
     { "id": "squad", "name": "Squad", "tags": ["enemy"],
       "components": { "Transform": { "position": [120, 40, 0], "rotation": [0, 0, 30], "scale": [2, 2, 1] }, "Shape2D": { "size": [30, 20] } },
       "children": [
         { "id": "gunner", "name": "Gunner", "components": { "Transform": { "position": [10, 5, 0] }, "Joint3D": { "connected": "anchor" } } },
         { "id": "medic", "name": "Medic", "components": { "Transform": { "position": [-10, 5, 0] }, "Joint3D": { "connected": "gunner" } } }
       ] },
-    { "id": "link", "name": "Link", "components": { "Joint3D": { "connected": "gunner" } } },
     { "id": "holder", "name": "Holder", "components": { "Transform": { "position": [-40, 10, 0], "scale": [0.5, 0.5, 1] } }, "children": [
       { "id": "pair_a", "name": "A", "components": { "Joint3D": { "connected": "pair_b" } },
         "children": [ { "id": "pair_c", "components": { "Joint3D": { "connected": "pair_a" } } } ] },
@@ -105,7 +105,24 @@ struct Session {
             if (!engine.commands().call(c.cmd, c.args).ok) return false;
         return true;
     }
-    // The scene with its top-level entities sorted by id: a destroyed top-level entity comes back last among them.
+    // Destroys the top-level entities after `id`, so that `id` is the last one: only the last top-level entity (or a child)
+    // gets a destroy plan, since the others would come back last among the roots.
+    void trim_roots_after(const char* id) {
+        const std::vector<Entity> roots = world().roots();
+        bool after = false;
+        for (Entity r : roots) {
+            const std::string rid = world().id_of(r);
+            if (after) REQUIRE(engine.commands().call("scene.destroy", Json::object({{"id", rid}})).ok);
+            if (rid == id) after = true;
+        }
+        REQUIRE(after);
+    }
+    std::vector<std::string> root_ids() {
+        std::vector<std::string> out;
+        for (Entity r : world().roots()) out.push_back(world().id_of(r));
+        return out;
+    }
+    // The scene with its top-level entities sorted by id.
     Json sorted_scene() {
         Json j = scene();
         std::vector<Json> ents(j["entities"].begin(), j["entities"].end());
@@ -336,14 +353,28 @@ TEST_CASE("undo inverse: structural commands have builders, the large ones stay 
 }
 
 TEST_CASE("undo inverse: destroy brings the subtree back with its ids, order, components and references") {
+    {
+        // a subtree: the children, a Joint3D that names an entity outside it and one inside, and a reference from OUTSIDE into it
+        Session s(kStructScene);
+        s.trim_roots_after("squad");
+        s.edit_round_trip("scene.destroy", Json::object({{"id", "squad"}}));
+    }
+    {
+        Session s(kStructScene);
+        // a child in the middle of its siblings goes back to its place (index 0 of holder)
+        s.edit_round_trip("scene.destroy", Json::object({{"id", "pair_a"}}));
+        s.edit_round_trip("scene.destroy", Json::object({{"id", "pair_b"}}));
+    }
+    {
+        Session s(kStructScene);
+        s.trim_roots_after("holder");
+        s.edit_round_trip("scene.destroy", Json::object({{"id", "holder"}}));
+    }
+    {
+        Session s(kStructScene);
+        s.edit_round_trip("scene.destroy", Json::object({{"id", "Free"}}));  // by name; the last top-level entity
+    }
     Session s(kStructScene);
-    // a subtree: the children, a Joint3D that names an entity outside it and one inside, and a reference from OUTSIDE into it
-    s.edit_round_trip("scene.destroy", Json::object({{"id", "squad"}}), true);
-    // a child in the middle of its siblings goes back to its place (index 0 of holder)
-    s.edit_round_trip("scene.destroy", Json::object({{"id", "pair_a"}}));
-    s.edit_round_trip("scene.destroy", Json::object({{"id", "pair_b"}}));
-    s.edit_round_trip("scene.destroy", Json::object({{"id", "holder"}}), true);
-    s.edit_round_trip("scene.destroy", Json::object({{"id", "Free"}}), true);  // by name
     // the reference from outside is set again, with the entity itself
     const auto plan = plan_undo(s.world(), "scene.destroy", Json::object({{"id", "gunner"}}));
     REQUIRE(plan.has_value());
@@ -356,8 +387,31 @@ TEST_CASE("undo inverse: destroy brings the subtree back with its ids, order, co
     CHECK(plan->inverse[0].args["text"].is_string());
 }
 
+TEST_CASE(
+    "undo inverse: a top-level entity before other top-level ones has no plan, so the order of the roots is kept") {
+    Session s(kStructScene);
+    const std::vector<std::string> order = s.root_ids();
+    REQUIRE(order.size() >= 4);
+    // not the last root: an inverse would put it last (the order of the roots is the file's order and the drawing ties')
+    for (size_t i = 0; i + 1 < order.size(); ++i)
+        CHECK_FALSE(plan_undo(s.world(), "scene.destroy", Json::object({{"id", order[i]}})).has_value());
+    // the last root and a child have one
+    CHECK(plan_undo(s.world(), "scene.destroy", Json::object({{"id", order.back()}})).has_value());
+    CHECK(plan_undo(s.world(), "scene.destroy", Json::object({{"id", "gunner"}})).has_value());
+    // undo of the last one, and of a child, leaves the roots exactly in the order they had (no sorting)
+    s.edit_round_trip("scene.destroy", Json::object({{"id", order.back()}}));
+    CHECK(s.root_ids() == order);
+    s.edit_round_trip("scene.destroy", Json::object({{"id", "gunner"}}));
+    CHECK(s.root_ids() == order);
+    // a root moved under a parent and back keeps its place
+    const UndoPlan plan = s.edit_round_trip("scene.set_parent", Json::object({{"id", order[1]}, {"parent", "anchor"}}));
+    (void)plan;
+    CHECK(s.root_ids() == order);
+}
+
 TEST_CASE("undo inverse: the ids and handles are the same after undo, and a field names the entity again") {
     Session s(kStructScene);
+    s.trim_roots_after("squad");
     const std::string squad = "squad";
     auto plan = plan_undo(s.world(), "scene.destroy", Json::object({{"id", squad}}));
     REQUIRE(plan.has_value());
@@ -384,7 +438,8 @@ TEST_CASE("undo inverse: a destroyed prefab instance comes back linked to its pr
     const Entity inst = s.world().find_by_id("inst");
     REQUIRE_FALSE(inst.is_null());
     REQUIRE(s.world().info(inst).prefab == "prefabs/pair.prefab.json");
-    s.edit_round_trip("scene.destroy", Json::object({{"id", "inst"}}), true);
+    s.trim_roots_after("inst");
+    s.edit_round_trip("scene.destroy", Json::object({{"id", "inst"}}));
     auto plan = plan_undo(s.world(), "scene.destroy", Json::object({{"id", "inst"}}));
     REQUIRE(plan.has_value());
     REQUIRE(s.run(plan->forward));
@@ -415,16 +470,10 @@ TEST_CASE("undo inverse: a destroyed prefab instance comes back linked to its pr
     CHECK(s.world().find_by_id("inst").is_null());
     REQUIRE(s.run(plan->inverse));
     CHECK(call("prefab.overrides", Json::object({{"id", "inst"}})) == overrides);
-    CHECK(s.sorted_scene()["entities"] == [&] {
-        Json b = before;
-        std::vector<Json> ents(b["entities"].begin(), b["entities"].end());
-        std::sort(ents.begin(), ents.end(), [](const Json& x, const Json& y) { return x["id"] < y["id"]; });
-        return Json(ents);
-    }());
+    CHECK(s.scene() == before);
     REQUIRE(s.run(plan->forward));
     REQUIRE(s.run(plan->inverse));
     CHECK(call("prefab.overrides", Json::object({{"id", "inst"}})) == overrides);
-    s.edit_round_trip("scene.destroy", Json::object({{"id", "inst"}}), true);
 }
 
 TEST_CASE("undo inverse: a spawn is undone by destroying it and redone with the same ids") {
@@ -533,7 +582,8 @@ TEST_CASE("undo inverse: a widget moved out of a laid-out Panel and undone is wh
 
 TEST_CASE("undo inverse: a widget with a UI target in a destroyed Panel comes back with the target") {
     Session s(kStructScene);
-    s.edit_round_trip("scene.destroy", Json::object({{"id", "hud"}}), true);
+    s.trim_roots_after("hud");
+    s.edit_round_trip("scene.destroy", Json::object({{"id", "hud"}}));
     s.edit_round_trip("scene.destroy", Json::object({{"id", "ok"}}));  // `tint` names it from outside the subtree
 }
 
