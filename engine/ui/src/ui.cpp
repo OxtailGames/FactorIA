@@ -818,7 +818,7 @@ void UiSystem::update(World& w, Input& in, Vec2 design, float dt, const VisualMe
             tf->composition.clear();  // the IME's pre-edit string belongs to the focused field only
             tf->compositionCaret = tf->compositionSelection = 0;
             if (it.e == focus_ && in.composing())
-                for (const char32_t c : in.composition_text()) utf8_append(tf->composition, c);
+                for (const char32_t ch : in.composition_text()) utf8_append(tf->composition, ch);
             if (it.e == focus_) field_frame(w, it.e, *tf, in, design, measure);
         }
     }
