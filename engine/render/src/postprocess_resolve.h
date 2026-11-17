@@ -18,7 +18,8 @@ namespace fa::render {
 struct PostStack {
     PostProcess fx = postprocess_neutral();
     std::uint32_t mask = 0;  // bit i is set when the effect PostEffect(i) runs (the same as fx.<effect>Enabled)
-    int sources = 0;         // how many components contributed: the camera's own (if any) plus the volumes with an influence above 0
+    int sources =
+        0;  // how many components contributed: the camera's own (if any) plus the volumes with an influence above 0
 
     bool has(PostEffect e) const { return (mask >> int(e)) & 1u; }
     bool any() const { return mask != 0; }
@@ -43,6 +44,8 @@ float post_volume_influence(const PostProcess& vol, const Mat4& world, Vec3 poin
 //  - everything else (switches, modes, textures and LUTs, curves, the autofocus entity, strings) switches to the component's value
 //    when s >= 0.5 and stays when below.
 // Entities that are not active in the hierarchy contribute nothing. Costs one count when the world has no PostProcess.
-PostStack resolve_post_stack(World& world, const CameraGeometry& cam);
+// `implicitOwn` (optional) stands in for the camera's own component when it has none (or it is disabled): the renderer passes one made
+// of the deprecated Camera.bloom* and Camera.colorFilter fields, so a camera that uses them still gets its bloom and filter.
+PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const PostProcess* implicitOwn = nullptr);
 
 }  // namespace fa::render

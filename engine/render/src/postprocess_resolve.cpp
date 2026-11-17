@@ -84,7 +84,7 @@ void copy_field(const FieldInfo& f, PostProcess& dst, const PostProcess& src) {
 
 template <class T>
 void mix_members(T* d, const T* o, float s, std::initializer_list<float T::*> members) {
-    for (float T::*m : members)
+    for (float T::* m : members)
         if (std::isfinite(o->*m)) d->*m = mix(d->*m, o->*m, s);
 }
 
@@ -105,23 +105,24 @@ void blend_field(const FieldInfo& f, PostProcess& dst, const PostProcess& src, f
             break;
         }
         case FieldKind::Vec2:
-            mix_members(static_cast<Vec2*>(f.ptr(&dst)), static_cast<const Vec2*>(f.ptr(&src)), s, {&Vec2::x, &Vec2::y});
+            mix_members(static_cast<Vec2*>(f.ptr(&dst)), static_cast<const Vec2*>(f.ptr(&src)), s,
+                        {&Vec2::x, &Vec2::y});
             break;
         case FieldKind::Vec3:
             mix_members(static_cast<Vec3*>(f.ptr(&dst)), static_cast<const Vec3*>(f.ptr(&src)), s,
-                       {&Vec3::x, &Vec3::y, &Vec3::z});
+                        {&Vec3::x, &Vec3::y, &Vec3::z});
             break;
         case FieldKind::Vec4:
             mix_members(static_cast<Vec4*>(f.ptr(&dst)), static_cast<const Vec4*>(f.ptr(&src)), s,
-                       {&Vec4::x, &Vec4::y, &Vec4::z, &Vec4::w});
+                        {&Vec4::x, &Vec4::y, &Vec4::z, &Vec4::w});
             break;
         case FieldKind::Color:
             mix_members(static_cast<Color*>(f.ptr(&dst)), static_cast<const Color*>(f.ptr(&src)), s,
-                       {&Color::r, &Color::g, &Color::b, &Color::a});
+                        {&Color::r, &Color::g, &Color::b, &Color::a});
             break;
         case FieldKind::Rect:
             mix_members(static_cast<Rect*>(f.ptr(&dst)), static_cast<const Rect*>(f.ptr(&src)), s,
-                       {&Rect::x, &Rect::y, &Rect::w, &Rect::h});
+                        {&Rect::x, &Rect::y, &Rect::w, &Rect::h});
             break;
         default:
             if (s >= 0.5f) copy_field(f, dst, src);
@@ -188,8 +189,8 @@ float post_volume_influence(const PostProcess& v, const Mat4& m, Vec3 point, boo
             break;
         }
         case PostShape::Sphere: {
-            const float radius = size[0] * (perspective ? std::max({scale[0], scale[1], scale[2]})
-                                                        : std::max(scale[0], scale[1]));
+            const float radius =
+                size[0] * (perspective ? std::max({scale[0], scale[1], scale[2]}) : std::max(scale[0], scale[1]));
             dist = std::max(0.0f, std::sqrt(local[0] * local[0] + local[1] * local[1] + local[2] * local[2]) - radius);
             break;
         }
@@ -201,9 +202,9 @@ float post_volume_influence(const PostProcess& v, const Mat4& m, Vec3 point, boo
     return std::clamp(1.0f - dist / blend, 0.0f, 1.0f);
 }
 
-PostStack resolve_post_stack(World& world, const CameraGeometry& cam) {
+PostStack resolve_post_stack(World& world, const CameraGeometry& cam, const PostProcess* implicitOwn) {
     PostStack out;
-    if (!world.any<PostProcess>()) return out;
+    if (!world.any<PostProcess>() && !implicitOwn) return out;
 
     struct Volume {
         Entity entity;
@@ -225,6 +226,9 @@ PostStack resolve_post_stack(World& world, const CameraGeometry& cam) {
         if (s > 0.0f) volumes.push_back({e, &p, s});
     });
 
+    if (!own)
+        own =
+            implicitOwn;  // the Camera.bloom* / Camera.colorFilter fields of a camera that has no PostProcess of its own
     if (own) {
         const float s = strength_of(*own);
         if (s > 0.0f) {

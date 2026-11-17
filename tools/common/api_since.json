@@ -2840,7 +2840,38 @@
   },
   "deprecated": {
     "commands": {},
-    "components": {},
+    "components": {
+      "Camera.bloom": {
+        "since": "unreleased",
+        "use": "PostProcess.bloomEnabled",
+        "note": "Add a PostProcess to the camera's entity and switch bloomEnabled on; Camera.bloom still draws the same bloom (a hard knee, no lens dirt)."
+      },
+      "Camera.bloomIntensity": {
+        "since": "unreleased",
+        "use": "PostProcess.bloomIntensity",
+        "note": "Same meaning and range."
+      },
+      "Camera.bloomRadius": {
+        "since": "unreleased",
+        "use": "PostProcess.bloomRadius",
+        "note": "Same meaning and range."
+      },
+      "Camera.bloomScreenSpace": {
+        "since": "unreleased",
+        "use": "PostProcess.bloomScreenSpace",
+        "note": "Same meaning: whether the screen-space UI glows too."
+      },
+      "Camera.bloomThreshold": {
+        "since": "unreleased",
+        "use": "PostProcess.bloomThreshold",
+        "note": "Same meaning and range; PostProcess.bloomKnee softens the start of the glow."
+      },
+      "Camera.colorFilter": {
+        "since": "unreleased",
+        "use": "PostProcess.colorFilterMode",
+        "note": "Switch PostProcess.colorFilterEnabled on and set colorFilterMode to the same value."
+      }
+    },
     "script": {}
   }
 }

@@ -27,6 +27,7 @@
 #include "fa/scene/text_fit.h"
 #include "fa/scene/ui_rect.h"
 #include "bloom.h"
+#include "postprocess.h"
 #include "shaders/colorfilter.glsl.h"
 #include "frame.h"
 #include "mesh_batch.h"
@@ -84,6 +85,15 @@ struct Renderer::Impl {
     // while `filterActive` (the last frame was filtered).
     Target filterTarget;
     bool filterActive = false;
+    // The post-processing stack (postprocess.h). hudTarget is the game-like image the final pass writes when screen-space items are drawn
+    // over it in display space (made on first use: a frame without exposure, tonemap or linear colour never makes it); the HUD draws into
+    // it with the game target's formats and sample count, so the pipelines of the game fit. hudActive: the last frame's picture is in it
+    // (when filterActive is false). finalEncoded: the last frame's final pass already encoded the picture for the display (a linear scene),
+    // so present() and the captures copy it as it is.
+    AutoExposure autoExposure;
+    Target hudTarget;
+    bool hudActive = false;
+    bool finalEncoded = false;
     bool shadowTargetFailed = false;  // the shadow map could not be made: no shadows until a resize
     Target shadowTarget;  // the shadow map: R32F colour + depth (shadowTarget.texView is what the mesh programs sample)
     static constexpr int kShadowSize = 2048;
@@ -184,10 +194,16 @@ struct Renderer::Impl {
     void create_targets(int w, int h);
     void make_game_targets();  // the images and views of the game target, at physW x physH in gpu.scene_format()
     void destroy_targets();
-    // The colour-filter pass: draws the finished game target through colorfilter.glsl into filterTarget (made by
-    // ensure_filter_target; false, with one logged error, when the GPU cannot make it) and sets filterActive.
+    // The final images of the post-processing stack: filterTarget (what the final pass or the colour filter writes; made by
+    // ensure_filter_target) and hudTarget (ensure_hud_target). False, with one logged error, when the GPU cannot make them: the
+    // frame is then drawn without the stack.
     bool ensure_filter_target();
-    void color_filter_pass(int mode);
+    bool ensure_hud_target();
+    // One full-screen pass of post.glsl: `src` (a texture view of the finished picture) through the plan's conversion (`convert`) and the
+    // colour filter `filter` into `dst`; `expo` is the adapted exposure or a dummy image. `keepMsaa`: an MSAA destination keeps its
+    // multisampled image (a pass that draws over it follows).
+    void post_pass(const PostPlan& pp, bool convert, int filter, bool autoExposure, sg_view src, sg_view expo,
+                   Target& dst, const char* label, bool keepMsaa);
     // The 8-bit picture of a game or view image (top row first). In a float scene format the image is first drawn into an
     // RGBA8 copy (clamped at white, as the screen shows it), because the per-backend readbacks read RGBA8 only.
     bool read_rgba8(sg_image image, sg_view view, int w, int h, std::vector<std::uint8_t>& out, std::string* error);
@@ -196,8 +212,10 @@ struct Renderer::Impl {
     // True when the images and views of the game target were made (create_targets) and the GPU accepted them.
     bool game_targets_valid() const;
     int readW = 0, readH = 0;
-    sg_image final_image() const { return filterActive ? filterTarget.color : gameTarget.texture_image(); }
-    sg_view final_view() const { return filterActive ? filterTarget.texView : gameTarget.texView; }
+    // The image of the finished frame: the final pass's (or the colour filter's) picture when the last frame had one, else the game target.
+    const Target& final_target() const { return filterActive ? filterTarget : hudActive ? hudTarget : gameTarget; }
+    sg_image final_image() const { return final_target().texture_image(); }
+    sg_view final_view() const { return final_target().texView; }
     bool create_shadow_targets();
     bool ensure_light_target(float scale);
     sg_view upload_shadow_rows(const Frame& fr);
@@ -299,7 +317,7 @@ struct Renderer::Impl {
     void draw_group(DrawContext& ctx, const std::vector<QuadBatch>& batches, const Mat4& vp, bool depthTest,
                     const Px& base, int flatMode = 0);
     void main_pass(DrawContext& ctx);
-    void hud_pass(DrawContext& ctx);
+    void hud_pass(DrawContext& ctx, const Target& into, const char* label);
     // Declares the job's passes in `graph` (plan_job).
     void build_graph(DrawContext& ctx);
 

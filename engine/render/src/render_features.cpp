@@ -11,9 +11,8 @@ namespace fa::render {
 namespace {
 
 constexpr unsigned bit(FeatureBackend b) { return 1u << unsigned(b); }
-constexpr unsigned kEveryGpu =
-    bit(FeatureBackend::Gl) | bit(FeatureBackend::Gles3) | bit(FeatureBackend::WebGl2) | bit(FeatureBackend::D3d11) |
-    bit(FeatureBackend::Metal);
+constexpr unsigned kEveryGpu = bit(FeatureBackend::Gl) | bit(FeatureBackend::Gles3) | bit(FeatureBackend::WebGl2) |
+                               bit(FeatureBackend::D3d11) | bit(FeatureBackend::Metal);
 
 struct EffectRow {
     const char* needs;
@@ -46,30 +45,41 @@ constexpr EffectRow kEffectRows[kPostEffectCount] = {
 static_assert(sizeof(kEffectRows) / sizeof(kEffectRows[0]) == std::size_t(kPostEffectCount),
               "one row of kEffectRows per effect of kPostEffectOrder");
 
+// The effects the renderer draws today (postprocess.cpp, bloom.cpp, post.glsl); each M71 package adds its own here.
+constexpr bool effect_drawn(PostEffect e) {
+    return e == PostEffect::Exposure || e == PostEffect::Bloom || e == PostEffect::Tonemap ||
+           e == PostEffect::ColorFilter;
+}
+
 std::vector<FeatureDef> build_table() {
     std::vector<FeatureDef> t;
     // The capabilities: facts about the GPU, answered from what it reports.
-    t.push_back({"floatTargets", FeatureKind::Capability, kEveryGpu, "half", nullptr,
-                 "Render targets of 16-bit float colour (RGBA16F) that blend and filter: the frame keeps colours above white. "
-                 "Without them the frame is RGBA8 and clips at white."});
-    t.push_back({"r11g11b10", FeatureKind::Capability, kEveryGpu, "r11g11b10", nullptr,
-                 "The packed float render target R11G11B10 (half the memory of RGBA16F, no alpha), for HDR frames on phones."});
-    t.push_back({"sampledDepth", FeatureKind::Capability, kEveryGpu, "depth", nullptr,
-                 "A depth buffer that a later pass can sample as a texture: what ambient occlusion, depth of field, fog, "
-                 "reflections and motion blur read."});
+    t.push_back(
+        {"floatTargets", FeatureKind::Capability, kEveryGpu, "half", nullptr,
+         "Render targets of 16-bit float colour (RGBA16F) that blend and filter: the frame keeps colours above white. "
+         "Without them the frame is RGBA8 and clips at white."});
+    t.push_back(
+        {"r11g11b10", FeatureKind::Capability, kEveryGpu, "r11g11b10", nullptr,
+         "The packed float render target R11G11B10 (half the memory of RGBA16F, no alpha), for HDR frames on phones."});
+    t.push_back(
+        {"sampledDepth", FeatureKind::Capability, kEveryGpu, "depth", nullptr,
+         "A depth buffer that a later pass can sample as a texture: what ambient occlusion, depth of field, fog, "
+         "reflections and motion blur read."});
     t.push_back({"computeShaders", FeatureKind::Capability,
                  bit(FeatureBackend::Gl) | bit(FeatureBackend::D3d11) | bit(FeatureBackend::Metal), "compute", nullptr,
                  "Compute shaders and storage buffers (D3D11, Metal, OpenGL 4.3; never GLES3 or WebGL2)."});
     // The engine features built on them.
-    t.push_back({"linearColor", FeatureKind::Engine, kEveryGpu, "", "M71",
-                 "Lighting and blending in linear light (SceneSettings.colorSpace linear). Float targets where the GPU has "
-                 "them, RGBA8 with dithering elsewhere, so every GPU can."});
-    t.push_back({"hdrOutput", FeatureKind::Engine, bit(FeatureBackend::D3d11) | bit(FeatureBackend::Metal), "", "M71",
-                 "Showing the picture on a high dynamic range display (SceneSettings.hdrOutput auto: Windows HDR10 or scRGB, "
-                 "macOS EDR); the display and the OS must allow it."});
+    t.push_back(
+        {"linearColor", FeatureKind::Engine, kEveryGpu, "", "M71",
+         "Lighting and blending in linear light (SceneSettings.colorSpace linear). Float targets where the GPU has "
+         "them, RGBA8 with dithering elsewhere, so every GPU can."});
+    t.push_back(
+        {"hdrOutput", FeatureKind::Engine, bit(FeatureBackend::D3d11) | bit(FeatureBackend::Metal), "", "M71",
+         "Showing the picture on a high dynamic range display (SceneSettings.hdrOutput auto: Windows HDR10 or scRGB, "
+         "macOS EDR); the display and the OS must allow it."});
     for (int i = 0; i < kPostEffectCount; ++i)
-        t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs, "M71",
-                     kEffectRows[i].doc});
+        t.push_back({kPostEffectOrder[std::size_t(i)].data(), FeatureKind::Effect, kEveryGpu, kEffectRows[i].needs,
+                     effect_drawn(PostEffect(i)) ? nullptr : "M71", kEffectRows[i].doc});
     return t;
 }
 
@@ -135,9 +145,9 @@ bool feature_supported(const FeatureEnv& env, int index, std::string* why) {
     if (!(f.backends & bit(env.backend))) {
         if (why)
             *why = std::string("the ") + feature_backend_label(env.backend) + " backend cannot do this (" +
-                   (std::strcmp(f.name, "hdrOutput") == 0 ? "it has no HDR output here"
+                   (std::strcmp(f.name, "hdrOutput") == 0        ? "it has no HDR output here"
                     : std::strcmp(f.name, "computeShaders") == 0 ? "it has no compute shaders"
-                                                                  : "it is not available there") +
+                                                                 : "it is not available there") +
                    ")";
         return false;
     }
@@ -168,7 +178,9 @@ FeatureEnv feature_env_from_sokol() {
         case SG_BACKEND_METAL_IOS:
         case SG_BACKEND_METAL_MACOS:
         case SG_BACKEND_METAL_SIMULATOR: env.backend = FeatureBackend::Metal; break;
-        default: env.backend = FeatureBackend::Headless; break;  // the dummy backend (and any sokol backend the engine never builds)
+        default:
+            env.backend = FeatureBackend::Headless;
+            break;  // the dummy backend (and any sokol backend the engine never builds)
     }
     const sg_pixelformat_info half = sg_query_pixelformat(SG_PIXELFORMAT_RGBA16F);
     env.halfTargets = half.render && half.blend && half.filter;
@@ -192,7 +204,9 @@ Json feature_report(const FeatureEnv& env, const char* backendName) {
         const bool ok = feature_supported(env, int(i), &why);
         Json row = Json::object();
         row["name"] = f.name;
-        row["kind"] = f.kind == FeatureKind::Capability ? "capability" : f.kind == FeatureKind::Engine ? "engine" : "effect";
+        row["kind"] = f.kind == FeatureKind::Capability ? "capability"
+                      : f.kind == FeatureKind::Engine   ? "engine"
+                                                        : "effect";
         row["supported"] = ok;
         row["status"] = ok ? std::string("supported") : why;
         row["doc"] = f.doc;

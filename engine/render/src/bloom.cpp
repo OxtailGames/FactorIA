@@ -50,7 +50,7 @@ void apply_uniforms(int slot, const T& u) {
 // (optional) goes to slot `fsSlot`.
 template <class U>
 void run_pass(Gpu& gpu, sg_pixel_format fmt, BloomStage stage, sg_view srcTex, const BloomTarget& dst, bool additive,
-              const U* fsParams, int fsSlot, const char* label) {
+              const U* fsParams, int fsSlot, const char* label, sg_view dirt = {}) {
     PassDesc p;
     p.label = label;
     p.color = dst.att;
@@ -63,6 +63,7 @@ void run_pass(Gpu& gpu, sg_pixel_format fmt, BloomStage stage, sg_view srcTex, c
     sg_bindings b{};
     b.vertex_buffers[0] = gpu.fullscreen_triangle();
     b.views[VIEW_bloom_tex] = srcTex;
+    if (dirt.id) b.views[VIEW_bloom_dirt_tex] = dirt;  // the composite program only
     b.samplers[SMP_bloom_smp] = gpu.sampler(SamplerKind::LinearClamp);
     sg_apply_bindings(&b);
     bloom_bloom_vs_params_t vu{};
@@ -94,8 +95,8 @@ void Bloom::release() { failed_.clear(); }
 #pragma warning(disable : 4324)
 #endif
 int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, const BloomSettings& s, int targetW,
-                      int targetH, ResourceId game, sg_view srcTex, const BloomTarget& dst, int* drawCalls,
-                      const std::string& job) {
+                      int targetH, ResourceId game, sg_view srcTex, const BloomTarget& dst, sg_view dirtView,
+                      int* drawCalls, const std::string& job) {
     if (!s.enabled || s.intensity <= 0.0f || targetW < 1 || targetH < 1) return 0;
     if (!gpu.bloom_ready()) return 0;
     const sg_pixel_format fmt = gpu.scene_format();  // the game target's format, and the one of every level
@@ -180,8 +181,10 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
         u.p[0] = 1.0f / float(targetW);
         u.p[1] = 1.0f / float(targetH);
         u.p[2] = s.threshold;
-        u.p[3] = 1.0f / std::max(1.0f - s.threshold, 1.0f / 255.0f);
+        u.p[3] =
+            1.0f / std::max(1.0f - s.threshold, 0.01f);  // a threshold above 0.99 (a linear scene) is a cut 0.01 wide
         u.q[0] = plan.first == 0 ? 2.0f : 4.0f;
+        u.q[1] = s.knee * 0.5f;  // the half-width of the soft knee
         const ResourceId out = a[plan.first];
         add("bloom-bright", {game}, {out}, [=](const PassContext& c) {
             run_pass(*g, fmt, BloomStage::Bright, srcTex, BloomTarget{att(c, out)}, false, &u,
@@ -225,10 +228,13 @@ int Bloom::add_passes(FrameGraph& graph, TransientTargets& targets, Gpu& gpu, co
     {
         bloom_bloom_composite_params_t u{};
         u.p[0] = s.intensity;
+        u.p[1] = s.dirt.empty()
+                     ? 0.0f
+                     : s.dirtIntensity;  // no lens dirt: the glow is added as it is (the dirt image is a dummy)
         const ResourceId wa = a[plan.level];
         add("bloom-composite", {wa, game}, {game}, [=](const PassContext& c) {
             run_pass(*g, fmt, BloomStage::Composite, tex(c, wa), dst, true, &u, UB_bloom_bloom_composite_params,
-                     "bloom-composite");
+                     "bloom-composite", dirtView);
             ++*drawCalls;
         });
     }

@@ -49,7 +49,7 @@ Read one section with `docs_read {"name":"ai-guide","heading":"<title>"}` (CLI: 
 - 9.17 3D chase camera [recipes-world]
 - 9.18 3D rolling ball and moving platforms [recipes-world]
 - 9.19 3D ground checks and raycasts [recipes-world]
-- 9.20 Neon glow: additive blend and camera bloom [recipes-world]
+- 9.20 Neon glow, exposure and tonemap: additive blend and the PostProcess stack [recipes-world]
 - 9.20.1 Colour-blind players: the colour filter and the colour-blind check [recipes-world]
 - 9.21 Sweep a shape instead of a ray: will it fit, how far can it go [recipes-world]
 - 9.22 A menu: buttons, sliders, focus and the gamepad [recipes-ui-assets]

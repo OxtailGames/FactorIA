@@ -35,7 +35,8 @@ void main() {
 @include_block source
 layout(binding=1) uniform bloom_bright_params {
     vec4 p;         // xy = one SOURCE texel in uv units, z = threshold, w = 1 / max(1 - threshold, 1/255)
-    vec4 q;         // x = taps per axis: 2 (writes 1/2 res) or 4 (writes 1/4 res); the n x n source pixels are covered exactly
+    vec4 q;         // x = taps per axis: 2 (writes 1/2 res) or 4 (writes 1/4 res); the n x n source pixels are covered exactly,
+                    // y = half-width of the soft knee in units of the ramp (PostProcess.bloomKnee / 2; 0 = the hard start of Camera.bloom)
 };
 in vec2 uv;
 out vec4 frag_color;
@@ -56,7 +57,12 @@ float sane(float x) {
 vec3 bright(vec3 c) {
     c = vec3(sane(c.r), sane(c.g), sane(c.b));
     float v = max(c.r, max(c.g, c.b));
-    float f = clamp((v - p.z) * p.w, 0.0, 1.0);
+    // The ramp x runs from 0 at the threshold to 1 at full brightness. A soft knee of half-width w rounds its start: below -w nothing,
+    // above w the ramp itself, and between them the parabola (x + w)^2 / 4w that meets both with the same slope.
+    float x = (v - p.z) * p.w;
+    float w = q.y;
+    float f = clamp(x, 0.0, 1.0);
+    if (w > 1e-5 && x > -w && x < w) f = (x + w) * (x + w) / (4.0 * w);
     return c * f;
 }
 
@@ -121,13 +127,17 @@ void main() {
 // ---- composite (additive, see Gpu::bloom_pipeline) --------------------------------------------------------
 @fs fs_composite
 @include_block source
+layout(binding=1) uniform texture2D dirt_tex;   // the lens dirt (PostProcess.bloomLensDirt), stretched over the picture; a white image when unused
 layout(binding=1) uniform bloom_composite_params {
-    vec4 p;         // x = intensity
+    vec4 p;         // x = intensity, y = lens dirt intensity (0 = none: the glow is added as it is)
 };
 in vec2 uv;
 out vec4 frag_color;
 void main() {
-    frag_color = vec4(fetch(uv) * p.x, 0.0);
+    vec3 glow = fetch(uv) * p.x;
+    // A dirty lens scatters more light where the dirt is: the glow is multiplied by 1 + dirt * intensity.
+    vec3 dirt = textureLod(sampler2D(dirt_tex, smp), uv, 0.0).rgb;
+    frag_color = vec4(glow * (1.0 + dirt * p.y), 0.0);
 }
 @end
 

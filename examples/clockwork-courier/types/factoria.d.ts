@@ -6093,27 +6093,33 @@ declare module "factoria" {
     studioIntensity: number;
     /**
      * Bloom (glow) post-process: bright pixels bleed light into their surroundings, the neon / laser / fire / explosion look. Works for 2D and 3D cameras, is applied to the whole finished frame (screen-space HUD included, unless bloomScreenSpace is false) and shows in screenshots. Combine with blend "additive" on Sprite, Shape2D or ParticleEmitter instead of hand-drawing blurred halo sprites. Off by default; costs a few extra render passes per frame (cheap on a GPU, about 5 ms at 1280x720 on the software renderer used for headless runs). Tune with bloomThreshold, bloomIntensity and bloomRadius; keep the HUD crisp with bloomScreenSpace. With several cameras the bloom settings of the lowest-depth camera apply to the whole frame.
+     * @deprecated unreleased: use `PostProcess.bloomEnabled`. Add a PostProcess to the camera's entity and switch bloomEnabled on; Camera.bloom still draws the same bloom (a hard knee, no lens dirt).
      */
     bloom: boolean;
     /**
      * Only used when bloom is true. Brightness (0..1, the largest of a pixel's r, g, b) at which glow starts: pixels at or below it do not glow, the glow ramps up linearly to full strength at 1 (white / fully saturated). Lower it (0.3-0.6) to make dim colors glow too; raise it (0.9+) so only the brightest pixels do (values above 0.99 behave like 0.99).
+     * @deprecated unreleased: use `PostProcess.bloomThreshold`. Same meaning and range; PostProcess.bloomKnee softens the start of the glow.
      */
     bloomThreshold: number;
     /**
      * Only used when bloom is true. Strength of the glow that is added back onto the frame: 0 = none, 1 = the blurred bright pixels are added once, 2 = twice (brighter, saturates sooner). Limited to 0..10.
+     * @deprecated unreleased: use `PostProcess.bloomIntensity`. Same meaning and range.
      */
     bloomIntensity: number;
     /**
      * Only used when bloom is true. How far the glow reaches, in design pixels (1280x720 by default): a gaussian blur whose visible halo fades out roughly this far from the bright pixels. Values below ~5 behave like 5 (the glow is computed at reduced resolution, and larger radii at even lower resolution, so wide glows are softer). Limited to 1..128.
+     * @deprecated unreleased: use `PostProcess.bloomRadius`. Same meaning and range.
      */
     bloomRadius: number;
     /**
      * Only used when bloom is true. true (default): the whole finished frame glows, screen-space items (Sprite, Shape2D, Text with space "screen", and debug text) included, so a bright neon title or HUD icon glows too. false: screen-space items are drawn AFTER the bloom, so the HUD (score, lives, menus) stays crisp and never glows while the world still does. Set it to false whenever the HUD has white or bright text over a glowing world; leave it true to make a screen-space title or logo glow.
+     * @deprecated unreleased: use `PostProcess.bloomScreenSpace`. Same meaning: whether the screen-space UI glows too.
      */
     bloomScreenSpace: boolean;
     /**
      * Accessibility colour filter, the LAST post-process pass: it is applied to the whole finished frame (HUD included, after the bloom) on every graphics backend, so screenshots, factoria run --screenshot-at and --record-video show it too. A game's options screen sets it from the player's choice (it is not saved by itself). none (default): no pass, no cost. greyscale: Rec. 709 luminance in linear light. highContrast: contrast stretched 1.8x around mid grey, clipped. protanopia, deuteranopia, tritanopia: a daltonize correction for a player who lacks that cone: the loss is estimated with the Machado 2009 matrix (severity 1.0) and the lost information is shifted into the channels the player still sees (Fidaner's method), so colours that collapse together (red vs green) differ in brightness or in the remaining hue. To CHECK a game without changing what the player sees, use the `simulate` option of game.screenshot / --screenshot-simulate instead. With several cameras the lowest-depth camera's filter covers the whole frame.
      * @since 0.2.0
+     * @deprecated unreleased: use `PostProcess.colorFilterMode`. Switch PostProcess.colorFilterEnabled on and set colorFilterMode to the same value.
      */
     colorFilter: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia";
     /**
@@ -10343,7 +10349,7 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
-   * A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: render.supports {"feature": "<effect>"} says which ones this build draws on this GPU, until then the fields only store the values. Camera.bloom* and Camera.colorFilter keep working unchanged.
+   * A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: render.supports {"feature": "<effect>"} says which ones this build draws on this GPU (exposure, bloom, tonemap and colorFilter today), until then the fields only store the values. Only the stack of the camera that draws first is drawn (the frame has one). Camera.bloom* and Camera.colorFilter are deprecated and keep working unchanged: they stand in for a PostProcess with bloom and the colour filter. A frame without any stack costs nothing: no pass, no target. Screen-space items (the HUD) are drawn over the finished picture, so exposure, tonemap and the output encode never touch them; the colour filter does.
    * 
    * Category: Camera
    * @since unreleased
@@ -10381,7 +10387,7 @@ declare module "factoria" {
      */
     weight: number;
     /**
-     * Switches the tonemap on: it brings the HDR colour of a linear scene (SceneSettings.colorSpace "linear") to the range of the display. Cost: one cheap pass (shared with colour grading).
+     * Switches the tonemap on: it brings the HDR colour of a linear scene (SceneSettings.colorSpace "linear") to the range of the display. Cost: none of its own: it is folded into the one final pass that also does the exposure, the colour filter and the encode for the display (one full-screen pass).
      * @since unreleased
      */
     tonemapEnabled: boolean;
@@ -10391,7 +10397,7 @@ declare module "factoria" {
      */
     tonemapMode: "none" | "neutral" | "aces" | "agx" | "reinhard";
     /**
-     * Switches the exposure on: the brightness the picture is scaled to before the other effects. Auto exposure needs a measure of the scene's brightness (a small reduction pass).
+     * Switches the exposure on: the brightness the picture is scaled to before the tonemap. Cost: manual exposure is folded into the one final pass (free); auto exposure adds two tiny passes (a 32x32 brightness reduction and a 1x1 adaptation, no read back to the CPU) and needs float render targets, else it stays at exposureEv.
      * @since unreleased
      */
     exposureEnabled: boolean;
@@ -10421,7 +10427,7 @@ declare module "factoria" {
      */
     exposureAdaptationSpeed: number;
     /**
-     * Switches the bloom on: a glow around bright pixels. The same effect as Camera.bloom, moved into the stack. Cost: a few passes at reduced resolution.
+     * Switches the bloom on: a glow around bright pixels. The same effect as Camera.bloom, moved into the stack. Cost: a bright pass, a few down-sampling and blur passes at reduced resolution (lower for a wider bloomRadius) and one composite pass over the frame; see docs/RENDERING.md for the measured cost.
      * @since unreleased
      */
     bloomEnabled: boolean;
@@ -10431,7 +10437,7 @@ declare module "factoria" {
      */
     bloomIntensity: number;
     /**
-     * Only used when bloomEnabled. Brightness (the largest of r, g, b) where the glow starts. In a linear scene it can be above 1.
+     * Only used when bloomEnabled. Brightness (the largest of r, g, b) where the glow starts; the glow reaches full strength at 1 (or 0.01 above the threshold when that is higher). In a linear scene it can be above 1.
      * @since unreleased
      */
     bloomThreshold: number;
@@ -10446,7 +10452,7 @@ declare module "factoria" {
      */
     bloomRadius: number;
     /**
-     * Only used when bloomEnabled. true: the HUD glows too. false: screen-space items are drawn after the bloom and stay crisp.
+     * Only used when bloomEnabled. true: the HUD glows too. false: screen-space items are drawn after the bloom and stay crisp. When the final pass runs (exposure, tonemap or a linear scene) the HUD is drawn after it and never glows, whatever this says.
      * @since unreleased
      */
     bloomScreenSpace: boolean;
@@ -10538,7 +10544,7 @@ declare module "factoria" {
      */
     colorGradingLutContribution: number;
     /**
-     * Switches the accessibility colour filter on. The same filters as Camera.colorFilter, in the stack; it is the last pass of the frame.
+     * Switches the accessibility colour filter on. The same filters as Camera.colorFilter, in the stack; it is the last pass of the frame and covers the HUD. Cost: one full-screen pass; none of its own when the final pass runs and there is no HUD (it is fused into it).
      * @since unreleased
      */
     colorFilterEnabled: boolean;
