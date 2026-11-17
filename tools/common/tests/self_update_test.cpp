@@ -161,6 +161,27 @@ TEST_CASE("self update: update_status_json reports an update on disk with both b
     CHECK(j["summary"].get<std::string>().find("updated on disk") != std::string::npos);
 }
 
+TEST_CASE("self update: file_mtime_ms gives the same milliseconds every time for the same file time") {
+    TempDir dir;
+    const std::string path = dir.sub("stamp.txt");
+    write_bytes(path, "x");
+    // A time that is a whole number of seconds since 1970 in system time (and so in the file clock's own epoch): the
+    // reading must not lose a millisecond to the nanoseconds between the two clock reads inside file_mtime_ms.
+    const std::int64_t wantedMs = 1'700'000'000'000;
+    const auto sysNow = std::chrono::system_clock::now().time_since_epoch();
+    const auto fileNow = std::filesystem::file_time_type::clock::now().time_since_epoch();
+    const auto skew = std::chrono::round<std::chrono::seconds>(sysNow - fileNow);
+    std::error_code ec;
+    std::filesystem::last_write_time(
+        path,
+        std::filesystem::file_time_type(std::chrono::duration_cast<std::filesystem::file_time_type::duration>(
+            std::chrono::milliseconds(wantedMs) - skew)),
+        ec);
+    REQUIRE_FALSE(ec);
+    for (int i = 0; i < 50; ++i) CHECK(file_mtime_ms(path) == wantedMs);
+    CHECK(file_mtime_ms(dir.sub("missing.txt")) == 0);
+}
+
 TEST_CASE("mcp config: read_claude_code_mcp_state and ensure_claude_code_mcp_timeout") {
     TempDir dir;
     ClaudeCodeMcpState none = read_claude_code_mcp_state(dir.str());
