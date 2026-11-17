@@ -453,6 +453,8 @@ GfxEnvironment app_gfx_environment() {
 GfxSwapchain app_gfx_swapchain() {
     GfxSwapchain out{};
     sg_swapchain sc = sglue_swapchain();
+    // HDR10 (hdr_output.cpp): sokol_app knows only its 8-bit and 16-bit float formats, so the 10-bit one is said here.
+    if (fa_sapp_swapchain_kind() == 2) sc.color_format = SG_PIXELFORMAT_RGB10A2;
     std::memcpy(out.storage, &sc, sizeof(sc));
     return out;
 }

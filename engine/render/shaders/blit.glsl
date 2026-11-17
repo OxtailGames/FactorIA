@@ -22,7 +22,9 @@ in vec2 uv;
 out vec4 frag_color;
 void main() {
     vec4 c = texture(sampler2D(tex, smp), uv);
-    frag_color = vec4(c.rgb, 1.0);
+    // Within white: what an 8-bit swapchain does by itself, and what keeps an HDR swapchain (EDR, docs/RENDERING.md, "HDR
+    // output") showing the same picture until the HDR encode of M71 decides what goes above white.
+    frag_color = vec4(clamp(c.rgb, 0.0, 1.0), 1.0);
 }
 @end
 

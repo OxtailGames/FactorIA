@@ -1,4 +1,4 @@
-// M71: postprocess.get, postprocess.set, postprocess.presets and render.supports.
+// M71: postprocess.get, postprocess.set, postprocess.presets, render.supports and render.output.
 #include <doctest.h>
 
 #include <filesystem>
@@ -193,5 +193,42 @@ TEST_CASE("render.supports answers with a status, or says there is no renderer, 
         CHECK(r.result["supported"] == false);  // M71 in progress: the renderer does not draw it yet
         CHECK(r.result["status"].is_string());
     }
+    e.shutdown();
+}
+
+TEST_CASE("render.output: a headless run shows the standard range, says why and teaches an unknown argument") {
+    TempProject p;
+    Engine e;
+    std::string err;
+    REQUIRE_MESSAGE(e.init(cfg(p), nullptr, &err), err);
+    auto& c = e.commands();
+    const CommandInfo* info = c.info("render.output");
+    REQUIRE(info != nullptr);
+    CHECK(info->readOnly);
+    CHECK(info->description.find("Example") != std::string::npos);
+    CHECK(info->inputSchema["additionalProperties"] == false);
+
+    auto r = c.call("render.output", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["hdrActive"] == false);
+    CHECK(r.result["encoding"] == "sdr");
+    CHECK(r.result["swapchainFormat"] == "");
+    CHECK(r.result["requested"] == false);
+    CHECK(r.result["headroom"] == 1.0);
+    CHECK(r.result["display"]["known"] == false);
+    CHECK(r.result["display"]["offers"] == Json::array());
+    CHECK(r.result["status"].get<std::string>().find("no window") != std::string::npos);
+
+    // The scene asks for HDR: requested, with its paper white, and still the standard range without a window.
+    e.world().settings().hdrOutput = HdrOutput::Auto;
+    e.world().settings().paperWhiteNits = 320.0f;
+    r = c.call("render.output", Json::object());
+    REQUIRE_MESSAGE(r.ok, r.error.dump());
+    CHECK(r.result["requested"] == true);
+    CHECK(r.result["paperWhiteNits"] == doctest::Approx(320.0));
+    CHECK(r.result["hdrActive"] == false);
+
+    r = c.call("render.output", Json::parse(R"({"display":0})"));
+    CHECK_FALSE(r.ok);
     e.shutdown();
 }

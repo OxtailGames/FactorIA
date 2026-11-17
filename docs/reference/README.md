@@ -399,6 +399,7 @@ Every command is a CLI call (`factoria call <name> '<json>'`), an MCP tool (dots
 - [`input.record`](commands/game.md#inputrecord-modifies-state): Record the input the game receives as an input replay (start / stop). _Since 0.3.0._
 - [`render.frame_graph`](commands/game.md#renderframe_graph): Where the last frame's time went, pass by pass: the frame graph with the CPU and GPU time of every pass. _Since 0.28.0._
 - [`render.inspect`](commands/game.md#renderinspect): Luminance profile of the current picture along a line, with the hard steps (seams, bands) in it. _Since 0.4.0._
+- [`render.output`](commands/game.md#renderoutput): What the game window shows: the standard range or HDR, in which encoding, and what the display can do. _Not released yet._
 - [`render.pick`](commands/game.md#renderpick): Which entities draw a design-space pixel of the picture, topmost first. _Since 0.4.0._
 - [`render.supports`](commands/game.md#rendersupports): What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post effects. _Not released yet._
 - [`vfx.budget`](commands/game.md#vfxbudget): What an effect document costs on a phone: live particles and the screen they cover, with the fixes. _Since 0.17.0._

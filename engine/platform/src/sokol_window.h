@@ -52,6 +52,23 @@ void* fa_sapp_ios_textfield(void);
 void fa_sapp_macos_key_down(const void* nsevent, bool chars);
 // Linux: sets the window's WM_CLASS to `name` (AppDesc::appName). false: not available here.
 bool fa_sapp_set_class_name(const char* name);
+// HDR output (hdr_output.cpp). The kind of pixels the window's swapchain holds: 0 = sokol_app's standard 8-bit format, 1 = 16-bit
+// float (D3D11: R16G16B16A16_FLOAT for scRGB; Metal: RGBA16Float with EDR on, in extended sRGB, or extended LINEAR sRGB when
+// `linear`), 2 = 10-bit (D3D11 only: R10G10B10A2_UNORM for HDR10, never with MSAA). Switches between frames (before the
+// swapchain of the next one is taken) and returns the kind in effect: the old one when the platform cannot (no window, not D3D11
+// or Metal, Windows before 10, a buffer resize the driver refused). D3D11 sets only the buffers; the colour space is
+// hdr_output_win32.cpp's (IDXGISwapChain3::SetColorSpace1).
+int fa_sapp_set_swapchain_kind(int kind, bool linear);
+int fa_sapp_swapchain_kind(void);
+// Apple: the EDR headroom of the screen the window is on (NSScreen; UIScreen from iOS 16). false: no window yet, or `old_os`
+// (iOS before 16 has no EDR headroom to read).
+typedef struct fa_sapp_edr_screen {
+    char name[64];
+    float max_headroom;  // maximumPotentialExtendedDynamicRangeColorComponentValue / potentialEDRHeadroom
+    float headroom;      // maximumExtendedDynamicRangeColorComponentValue / currentEDRHeadroom
+    bool old_os;
+} fa_sapp_edr_screen;
+bool fa_sapp_edr(fa_sapp_edr_screen* out);
 // The web only: sokol_app's key, focus and blur handlers on the window go through the IME backend first (ime_web.cpp:
 // what the browser's input method takes is not a game key, and the focus moving to the hidden <input> is not the page
 // losing it). app.cpp calls it once, when the app starts.
