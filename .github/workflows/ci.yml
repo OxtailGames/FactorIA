@@ -230,7 +230,9 @@ jobs:
         id: build
         run: |
           ccache --zero-stats
-          cmake --preset linux-asan -DFA_WARNINGS_AS_ERRORS=ON
+          # ASan test executables are large to link too, and GitHub lost a runner of this job while it built (0.30.0): links
+          # go through a pool of two, as in the coverage job; compiles keep every core.
+          cmake --preset linux-asan -DFA_WARNINGS_AS_ERRORS=ON -DCMAKE_JOB_POOLS=link=2 -DCMAKE_JOB_POOL_LINK=link
           cmake --build --preset linux-asan -- -k 0
           ccache --show-stats --verbose
 
@@ -1712,10 +1714,13 @@ jobs:
         run: |
           ccache --zero-stats
           # Instrumented test executables take gigabytes each to link: four links at once ran the runner out of memory and
-          # GitHub lost it twice (M93), so links go through a pool of two; compiles keep every core.
+          # GitHub lost it twice (M93), and two at once lost it again while linking the editor's binaries (0.30.0, 0.30.1).
+          # So links run one at a time, and the objects carry line tables only (-gline-tables-only): llvm-cov reads the
+          # coverage mapping, not the debug info, and full Debug info is most of what the linker holds in memory.
           cmake -S . -B build/coverage -G Ninja -DCMAKE_BUILD_TYPE=Debug \
               -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ -DFA_COVERAGE=ON \
-              -DCMAKE_JOB_POOLS=link=2 -DCMAKE_JOB_POOL_LINK=link
+              -DCMAKE_C_FLAGS_DEBUG="-O0 -gline-tables-only" -DCMAKE_CXX_FLAGS_DEBUG="-O0 -gline-tables-only" \
+              -DCMAKE_JOB_POOLS=link=1 -DCMAKE_JOB_POOL_LINK=link
           cmake --build build/coverage -- -k 0
           ccache --show-stats --verbose
 
