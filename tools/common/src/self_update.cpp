@@ -124,9 +124,15 @@ std::int64_t file_mtime_ms(const stdfs::path& file) {
     if (!stdfs::exists(file, ec)) return 0;
     const auto time = stdfs::last_write_time(file, ec);
     if (ec) return 0;
-    // file_clock -> system_clock without clock_cast (not in every standard library yet).
-    const auto sys = std::chrono::system_clock::now() + (time - stdfs::file_time_type::clock::now());
-    return std::chrono::duration_cast<std::chrono::milliseconds>(sys.time_since_epoch()).count();
+    // file_clock -> system_clock without clock_cast (not in every standard library yet). The two clocks differ by a
+    // whole number of seconds (the epoch of the file clock: 0, 1601 or 2174), so the difference of two readings, which
+    // carries the nanoseconds between them, is rounded to seconds: the same file time then always gives the same
+    // milliseconds, instead of one more or less from one call to the next (a caller compares two readings for equality).
+    const auto sysNow = std::chrono::system_clock::now().time_since_epoch();
+    const auto fileNow = stdfs::file_time_type::clock::now().time_since_epoch();
+    const auto skew = std::chrono::round<std::chrono::seconds>(sysNow - fileNow);
+    const auto sys = time.time_since_epoch() + skew;
+    return std::chrono::duration_cast<std::chrono::milliseconds>(sys).count();
 }
 
 UpdateWatch::UpdateWatch(stdfs::path executable, BuildId running)
