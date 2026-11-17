@@ -247,6 +247,22 @@ Lists the 2D visuals (Sprite, Shape2D, Text, Tilemap, UI widgets) whose drawn bo
 | `position` | array | yes | [x, y] in design pixels (origin top-left). |
 | `max` | integer | no | At most this many hits. Default 20. |
 
+## `render.supports`
+
+Not released yet (on main after 0.30.1).
+
+What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post effects.
+
+Capabilities: read
+
+Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, backend, supported, status}. A feature the renderer does not draw yet is false with the status "planned (M71)": this command never claims what is not drawn. Example: render.supports {"feature":"floatTargets"}
+
+`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders), engine (linearColor, hdrOutput) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends the feature can ever run. `status` is "supported", "planned (M71)" for an engine feature or effect the renderer does not draw yet, or one sentence that names the backend or the missing GPU capability. The headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) in C++.
+
+| Argument | Type | Required | Description |
+|---|---|---|---|
+| `feature` | string | no | One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, linearColor, hdrOutput, or a post effect such as bloom or ssao). Omitted: every feature. |
+
 ## `vfx.budget`
 
 Since 0.17.0.

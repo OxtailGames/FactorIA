@@ -10343,6 +10343,533 @@ declare module "factoria" {
     enabled: boolean;
   }
   /**
+   * A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: render.supports {"feature": "<effect>"} says which ones this build draws on this GPU, until then the fields only store the values. Camera.bloom* and Camera.colorFilter keep working unchanged.
+   * 
+   * Category: Camera
+   * @since unreleased
+   */
+  export interface PostProcessComponent {
+    /**
+     * false: this component contributes nothing (all its effects are ignored), without losing its values.
+     * @since unreleased
+     */
+    enabled: boolean;
+    /**
+     * Volume shape (an entity without a Camera). global: every camera, size and blendDistance are ignored. box: the cameras inside the box (an orthographic camera is tested in x and y only; a perspective one in x, y and z), turned and scaled with the entity. circle: a disc in x and y, radius size.x. sphere: a ball, radius size.x. On an entity with a Camera the shape is ignored: it is that camera's own stack.
+     * @since unreleased
+     */
+    shape: "global" | "box" | "circle" | "sphere";
+    /**
+     * Box: full width, height and depth in world units (before the entity's scale). circle and sphere: size.x is the radius. Pixels in a 2D game, metres in 3D.
+     * @since unreleased
+     */
+    get size(): Vec3;
+    set size(value: Vec3Like);
+    /**
+     * World units outside the shape over which the influence fades from 1 (at the edge) to 0. 0 = a hard edge. A camera inside the shape always has influence 1.
+     * @since unreleased
+     */
+    blendDistance: number;
+    /**
+     * Order of the volumes: a volume with a higher priority is applied later, so it wins where two disagree. Equal priorities are applied in the order of the entity ids, so a result never changes between runs.
+     * @since unreleased
+     */
+    priority: number;
+    /**
+     * 0..1: the overall strength of this component, multiplied with its distance influence. 0 = as if it were disabled.
+     * @since unreleased
+     */
+    weight: number;
+    /**
+     * Switches the tonemap on: it brings the HDR colour of a linear scene (SceneSettings.colorSpace "linear") to the range of the display. Cost: one cheap pass (shared with colour grading).
+     * @since unreleased
+     */
+    tonemapEnabled: boolean;
+    /**
+     * Only used when tonemapEnabled. none: clamp at white. neutral (default): keeps colours close to the scene and rolls the highlights off gently. aces: the filmic curve with high contrast and saturated highlights. agx: a filmic curve that desaturates very bright colours toward white. reinhard: the simplest, flattest curve.
+     * @since unreleased
+     */
+    tonemapMode: "none" | "neutral" | "aces" | "agx" | "reinhard";
+    /**
+     * Switches the exposure on: the brightness the picture is scaled to before the other effects. Auto exposure needs a measure of the scene's brightness (a small reduction pass).
+     * @since unreleased
+     */
+    exposureEnabled: boolean;
+    /**
+     * manual: the picture is scaled by exposureEv. auto: the exposure follows the measured brightness of the scene (adaptation speed exposureAdaptationSpeed, between exposureMinEv and exposureMaxEv), plus exposureEv.
+     * @since unreleased
+     */
+    exposureMode: "manual" | "auto";
+    /**
+     * Exposure in stops (each +1 doubles the brightness). In auto mode it is a compensation added to what is measured.
+     * @since unreleased
+     */
+    exposureEv: number;
+    /**
+     * Auto exposure only: the lowest exposure the adaptation may choose, in stops.
+     * @since unreleased
+     */
+    exposureMinEv: number;
+    /**
+     * Auto exposure only: the highest exposure the adaptation may choose, in stops.
+     * @since unreleased
+     */
+    exposureMaxEv: number;
+    /**
+     * Auto exposure only: how fast the exposure follows the scene, per second (2 = most of the way in a second); higher adapts faster.
+     * @since unreleased
+     */
+    exposureAdaptationSpeed: number;
+    /**
+     * Switches the bloom on: a glow around bright pixels. The same effect as Camera.bloom, moved into the stack. Cost: a few passes at reduced resolution.
+     * @since unreleased
+     */
+    bloomEnabled: boolean;
+    /**
+     * Only used when bloomEnabled. Strength of the glow added back, 0..10 (0 = none).
+     * @since unreleased
+     */
+    bloomIntensity: number;
+    /**
+     * Only used when bloomEnabled. Brightness (the largest of r, g, b) where the glow starts. In a linear scene it can be above 1.
+     * @since unreleased
+     */
+    bloomThreshold: number;
+    /**
+     * Only used when bloomEnabled. 0..1: how softly the glow starts above the threshold (0 = a hard cut, 1 = a wide ramp).
+     * @since unreleased
+     */
+    bloomKnee: number;
+    /**
+     * Only used when bloomEnabled. How far the glow reaches, in design pixels (1..128).
+     * @since unreleased
+     */
+    bloomRadius: number;
+    /**
+     * Only used when bloomEnabled. true: the HUD glows too. false: screen-space items are drawn after the bloom and stay crisp.
+     * @since unreleased
+     */
+    bloomScreenSpace: boolean;
+    /**
+     * Only used when bloomEnabled. A texture that dirties the glow like smudges on a lens (the glow shows it where the texture is bright). Empty = none. (asset path: texture)
+     * @since unreleased
+     */
+    bloomLensDirt: string;
+    /**
+     * Only used with a bloomLensDirt texture. How much the dirt shows in the glow, 0..10.
+     * @since unreleased
+     */
+    bloomLensDirtIntensity: number;
+    /**
+     * Switches the colour grading on: lift/gamma/gain, white balance, saturation, contrast, curves and a LUT. Cost: one pass, shared with the tonemap.
+     * @since unreleased
+     */
+    colorGradingEnabled: boolean;
+    /**
+     * Only used when colorGradingEnabled. Colour added to the shadows (rgb; alpha ignored). [0, 0, 0] = unchanged; a blue tint here gives cold shadows.
+     * @since unreleased
+     */
+    get colorGradingLift(): Color;
+    set colorGradingLift(value: ColorLike);
+    /**
+     * Only used when colorGradingEnabled. Midtones per channel (rgb; alpha ignored). [1, 1, 1] = unchanged; above 1 lightens that channel's midtones.
+     * @since unreleased
+     */
+    get colorGradingGamma(): Color;
+    set colorGradingGamma(value: ColorLike);
+    /**
+     * Only used when colorGradingEnabled. Multiplies the highlights per channel (rgb; alpha ignored). [1, 1, 1] = unchanged.
+     * @since unreleased
+     */
+    get colorGradingGain(): Color;
+    set colorGradingGain(value: ColorLike);
+    /**
+     * Only used when colorGradingEnabled. White balance, -100 (cooler, blue) to 100 (warmer, orange). 0 = unchanged.
+     * @since unreleased
+     */
+    colorGradingTemperature: number;
+    /**
+     * Only used when colorGradingEnabled. White balance, -100 (green) to 100 (magenta). 0 = unchanged.
+     * @since unreleased
+     */
+    colorGradingTint: number;
+    /**
+     * Only used when colorGradingEnabled. 0 = greyscale, 1 = unchanged, above 1 more vivid.
+     * @since unreleased
+     */
+    colorGradingSaturation: number;
+    /**
+     * Only used when colorGradingEnabled. 1 = unchanged, above 1 more contrast around mid grey, below 1 flatter.
+     * @since unreleased
+     */
+    colorGradingContrast: number;
+    /**
+     * Only used when colorGradingEnabled. A tone curve on all channels as a flat list of points [x0, y0, x1, y1, ...], x and y in 0..1 with x ascending (input brightness to output brightness). Empty = the straight line. Example: [0, 0, 0.5, 0.4, 1, 1] darkens the midtones. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since unreleased
+     */
+    get colorGradingCurveMaster(): Float32Array;
+    set colorGradingCurveMaster(value: Float32Array | readonly number[]);
+    /**
+     * Only used when colorGradingEnabled. A curve on the red channel only (same format as colorGradingCurveMaster), applied after the master curve. Empty = unchanged. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since unreleased
+     */
+    get colorGradingCurveRed(): Float32Array;
+    set colorGradingCurveRed(value: Float32Array | readonly number[]);
+    /**
+     * Only used when colorGradingEnabled. A curve on the green channel only (same format as colorGradingCurveMaster). Empty = unchanged. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since unreleased
+     */
+    get colorGradingCurveGreen(): Float32Array;
+    set colorGradingCurveGreen(value: Float32Array | readonly number[]);
+    /**
+     * Only used when colorGradingEnabled. A curve on the blue channel only (same format as colorGradingCurveMaster). Empty = unchanged. Reading returns a typed-array COPY (writing into it changes nothing); assign a typed array or an array of numbers to write the whole field.
+     * @since unreleased
+     */
+    get colorGradingCurveBlue(): Float32Array;
+    set colorGradingCurveBlue(value: Float32Array | readonly number[]);
+    /**
+     * Only used when colorGradingEnabled. Project path of a .cube 3D lookup table (the file a colour grading tool exports) applied last. Empty = none. (asset path: any)
+     * @since unreleased
+     */
+    colorGradingLut: string;
+    /**
+     * Only used with a colorGradingLut. 0..1: how much of the LUT is mixed in (1 = fully).
+     * @since unreleased
+     */
+    colorGradingLutContribution: number;
+    /**
+     * Switches the accessibility colour filter on. The same filters as Camera.colorFilter, in the stack; it is the last pass of the frame.
+     * @since unreleased
+     */
+    colorFilterEnabled: boolean;
+    /**
+     * Only used when colorFilterEnabled. The filter, with the meaning of Camera.colorFilter.
+     * @since unreleased
+     */
+    colorFilterMode: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia";
+    /**
+     * Switches the vignette on: darkened corners. Cost: folded into a shared pass.
+     * @since unreleased
+     */
+    vignetteEnabled: boolean;
+    /**
+     * Only used when vignetteEnabled. 0..1: how dark the corners get (0 = none).
+     * @since unreleased
+     */
+    vignetteIntensity: number;
+    /**
+     * Only used when vignetteEnabled. 0..1: how soft the transition from the clear centre to the dark corners is.
+     * @since unreleased
+     */
+    vignetteSmoothness: number;
+    /**
+     * Only used when vignetteEnabled. 0..1: 1 = a circle, 0 = follows the shape of the screen.
+     * @since unreleased
+     */
+    vignetteRoundness: number;
+    /**
+     * Only used when vignetteEnabled. Colour of the darkened edge (rgb; alpha ignored). Black by default.
+     * @since unreleased
+     */
+    get vignetteColor(): Color;
+    set vignetteColor(value: ColorLike);
+    /**
+     * Switches the chromatic aberration on: red and blue are shifted apart toward the edges like a cheap lens. Cost: folded into a shared pass.
+     * @since unreleased
+     */
+    chromaticAberrationEnabled: boolean;
+    /**
+     * Only used when chromaticAberrationEnabled. 0..1: how far the channels separate at the screen's edge (0 = none).
+     * @since unreleased
+     */
+    chromaticAberrationIntensity: number;
+    /**
+     * Switches the film grain on: noise over the picture. Cost: folded into a shared pass.
+     * @since unreleased
+     */
+    filmGrainEnabled: boolean;
+    /**
+     * Only used when filmGrainEnabled. 0..1: how strong the noise is (0 = none).
+     * @since unreleased
+     */
+    filmGrainIntensity: number;
+    /**
+     * Only used when filmGrainEnabled. Grain size in design pixels, 0.5 to 4.
+     * @since unreleased
+     */
+    filmGrainSize: number;
+    /**
+     * Only used when filmGrainEnabled. true: the pattern changes every frame (from the frame number, so a recorded run is the same every time). false: a still pattern.
+     * @since unreleased
+     */
+    filmGrainAnimated: boolean;
+    /**
+     * Switches the lens distortion on: the picture bulges (barrel) or pinches (pincushion) like a lens. Cost: folded into a shared pass.
+     * @since unreleased
+     */
+    lensDistortionEnabled: boolean;
+    /**
+     * Only used when lensDistortionEnabled. -1 (pincushion) to 1 (barrel). 0 = none.
+     * @since unreleased
+     */
+    lensDistortionIntensity: number;
+    /**
+     * Only used when lensDistortionEnabled. 0.5..2: zooms the picture; raise it to hide the empty edges a barrel distortion leaves.
+     * @since unreleased
+     */
+    lensDistortionScale: number;
+    /**
+     * Switches the sharpening on: it brings out the detail the picture lost to scaling or antialiasing. Cost: one pass of five samples.
+     * @since unreleased
+     */
+    sharpenEnabled: boolean;
+    /**
+     * Only used when sharpenEnabled. 0..2: strength (0 = none; above 1 shows halos).
+     * @since unreleased
+     */
+    sharpenIntensity: number;
+    /**
+     * Switches the outline on: lines drawn at the edges of things. Depth mode needs the depth buffer (3D).
+     * @since unreleased
+     */
+    outlineEnabled: boolean;
+    /**
+     * Only used when outlineEnabled. depth: edges found where depth or surface direction jump (3D models). sprite: the border of 2D sprites, found from their alpha.
+     * @since unreleased
+     */
+    outlineMode: "depth" | "sprite";
+    /**
+     * Only used when outlineEnabled. Colour of the lines (alpha = opacity).
+     * @since unreleased
+     */
+    get outlineColor(): Color;
+    set outlineColor(value: ColorLike);
+    /**
+     * Only used when outlineEnabled. Line width in design pixels, 0.5 to 8 (0 = none).
+     * @since unreleased
+     */
+    outlineWidth: number;
+    /**
+     * Only used in depth mode. The relative jump of depth that makes an edge; smaller finds more edges.
+     * @since unreleased
+     */
+    outlineDepthThreshold: number;
+    /**
+     * Only used in depth mode. The change of surface direction (0..1) that makes an edge; smaller finds more edges.
+     * @since unreleased
+     */
+    outlineNormalThreshold: number;
+    /**
+     * Only used in sprite mode. The alpha level (0..1) that counts as the sprite's border.
+     * @since unreleased
+     */
+    outlineAlphaThreshold: number;
+    /**
+     * Switches the pixelation on: the picture is drawn in blocks. Cost: one cheap pass.
+     * @since unreleased
+     */
+    pixelateEnabled: boolean;
+    /**
+     * Only used when pixelateEnabled. Size of a block in design pixels, 1 to 64 (1 = unchanged).
+     * @since unreleased
+     */
+    pixelateSize: number;
+    /**
+     * Switches the posterization on: each colour channel is cut to a few levels. Cost: folded into a shared pass.
+     * @since unreleased
+     */
+    posterizeEnabled: boolean;
+    /**
+     * Only used when posterizeEnabled. Levels per colour channel, 2 to 256 (256 = unchanged).
+     * @since unreleased
+     */
+    posterizeLevels: number;
+    /**
+     * Switches the ambient occlusion on: creases and contact points of 3D models get darker. Needs the depth buffer (3D); it costs the most of the effects at high quality.
+     * @since unreleased
+     */
+    ssaoEnabled: boolean;
+    /**
+     * Only used when ssaoEnabled. The number of directions and steps (GTAO): low is for phones and the web; each level costs about twice the one before.
+     * @since unreleased
+     */
+    ssaoQuality: "low" | "medium" | "high" | "ultra";
+    /**
+     * Only used when ssaoEnabled. 0..4: how dark the occlusion is.
+     * @since unreleased
+     */
+    ssaoIntensity: number;
+    /**
+     * Only used when ssaoEnabled. World units: how far from a point an occluder still darkens it.
+     * @since unreleased
+     */
+    ssaoRadius: number;
+    /**
+     * Switches the depth of field on: things away from the focus distance are blurred. Needs the depth buffer (3D).
+     * @since unreleased
+     */
+    depthOfFieldEnabled: boolean;
+    /**
+     * Only used when depthOfFieldEnabled. World units from the camera that are in focus (ignored while depthOfFieldTarget is set).
+     * @since unreleased
+     */
+    depthOfFieldFocusDistance: number;
+    /**
+     * Only used when depthOfFieldEnabled. Autofocus: the focus follows the distance to this entity. Empty = use depthOfFieldFocusDistance.
+     * @since unreleased
+     */
+    get depthOfFieldTarget(): Entity | null;
+    set depthOfFieldTarget(value: EntityLike);
+    /**
+     * Only used with an autofocus target. How fast the focus moves to it, per second; higher is quicker.
+     * @since unreleased
+     */
+    depthOfFieldFocusSpeed: number;
+    /**
+     * Only used when depthOfFieldEnabled. World units around the focus distance that stay fully sharp.
+     * @since unreleased
+     */
+    depthOfFieldFocusRange: number;
+    /**
+     * Only used when depthOfFieldEnabled. The largest blur, in design pixels, in front of the focus (0..32).
+     * @since unreleased
+     */
+    depthOfFieldNearBlur: number;
+    /**
+     * Only used when depthOfFieldEnabled. The largest blur, in design pixels, behind the focus (0..32).
+     * @since unreleased
+     */
+    depthOfFieldFarBlur: number;
+    /**
+     * Only used when depthOfFieldEnabled. true: a disc-shaped blur where bright points become discs (more expensive). false: a smooth blur.
+     * @since unreleased
+     */
+    depthOfFieldBokeh: boolean;
+    /**
+     * Switches the camera motion blur on: the picture smears along the camera's movement, computed from the depth buffer (3D).
+     * @since unreleased
+     */
+    motionBlurEnabled: boolean;
+    /**
+     * Only used when motionBlurEnabled. 0..1: the fraction of the frame the shutter stays open (1 = the whole movement).
+     * @since unreleased
+     */
+    motionBlurIntensity: number;
+    /**
+     * Only used when motionBlurEnabled. 4..32 taps along the movement; more is smoother and costs more.
+     * @since unreleased
+     */
+    motionBlurSamples: number;
+    /**
+     * Switches the screen-space reflections on: shiny surfaces reflect what is on the screen. Needs the depth buffer (3D); it only reflects what is visible, so the edges of the screen fade out.
+     * @since unreleased
+     */
+    ssrEnabled: boolean;
+    /**
+     * Only used when ssrEnabled. 0..1: how much reflection is mixed in.
+     * @since unreleased
+     */
+    ssrIntensity: number;
+    /**
+     * Only used when ssrEnabled. World units a reflected ray travels before it gives up.
+     * @since unreleased
+     */
+    ssrMaxDistance: number;
+    /**
+     * Only used when ssrEnabled. World units behind a surface that still count as a hit.
+     * @since unreleased
+     */
+    ssrThickness: number;
+    /**
+     * Only used when ssrEnabled. 8..128 steps along the ray; more is more accurate and costs more.
+     * @since unreleased
+     */
+    ssrSteps: number;
+    /**
+     * Switches the stack's fog on: distance and height fog drawn from the depth buffer (3D). It replaces SceneSettings.fogColor and fogDensity where it is on.
+     * @since unreleased
+     */
+    fogEnabled: boolean;
+    /**
+     * Only used when fogEnabled. Colour distant things fade to.
+     * @since unreleased
+     */
+    get fogColor(): Color;
+    set fogColor(value: ColorLike);
+    /**
+     * Only used when fogEnabled. Fog thickness with distance (the same scale as SceneSettings.fogDensity); 0 = none.
+     * @since unreleased
+     */
+    fogDensity: number;
+    /**
+     * Only used when fogEnabled. World units from the camera before the fog begins.
+     * @since unreleased
+     */
+    fogStart: number;
+    /**
+     * Only used when fogEnabled. Extra fog thickness near fogHeightBase (a ground mist); 0 = no height fog.
+     * @since unreleased
+     */
+    fogHeightDensity: number;
+    /**
+     * Only used when fogEnabled. World y where the height fog is thickest.
+     * @since unreleased
+     */
+    fogHeightBase: number;
+    /**
+     * Only used when fogEnabled. How fast the height fog thins going up, per world unit (larger = a thinner layer).
+     * @since unreleased
+     */
+    fogHeightFalloff: number;
+    /**
+     * Switches the sun shafts on: rays of light spreading from the sun through gaps in the scene (3D, needs the depth buffer).
+     * @since unreleased
+     */
+    sunShaftsEnabled: boolean;
+    /**
+     * Only used when sunShaftsEnabled. 0..2: strength.
+     * @since unreleased
+     */
+    sunShaftsIntensity: number;
+    /**
+     * Only used when sunShaftsEnabled. Brightness the sky needs to cast rays.
+     * @since unreleased
+     */
+    sunShaftsThreshold: number;
+    /**
+     * Only used when sunShaftsEnabled. 0..1: how far the rays reach, as a fraction of the screen.
+     * @since unreleased
+     */
+    sunShaftsLength: number;
+    /**
+     * Only used when sunShaftsEnabled. Tint of the rays (rgb).
+     * @since unreleased
+     */
+    get sunShaftsColor(): Color;
+    set sunShaftsColor(value: ColorLike);
+    /**
+     * Switches the radial blur on: the picture streaks away from a point (speed, impact, a dash).
+     * @since unreleased
+     */
+    radialBlurEnabled: boolean;
+    /**
+     * Only used when radialBlurEnabled. 0..1: how far the streaks reach.
+     * @since unreleased
+     */
+    radialBlurIntensity: number;
+    /**
+     * Only used when radialBlurEnabled. The centre of the blur [x, y] as fractions of the picture, (0, 0) the top-left corner and (0.5, 0.5) the middle.
+     * @since unreleased
+     */
+    get radialBlurCenter(): Vec2;
+    set radialBlurCenter(value: Vec2Like);
+    /**
+     * Only used when radialBlurEnabled. 4..32 taps; more is smoother and costs more.
+     * @since unreleased
+     */
+    radialBlurSamples: number;
+  }
+  /**
    * Scene-wide settings stored under "settings" in the scene file: lighting, fog, gravity and background music.
    * 
    * Category: Scene
@@ -10395,6 +10922,21 @@ declare module "factoria" {
      * @since 0.3.0
      */
     lightScale: number;
+    /**
+     * How lighting, blending and the post effects are computed. gamma (default, what every project made before M71 uses, so old projects keep their exact look): on the sRGB-encoded values, with 8-bit targets. linear: in linear light with float render targets (RGBA16F, or RGBA8 with dithering where the GPU cannot), textures marked as sRGB decoded when read and the result encoded for the display: lights add up and fade as they do in the world, and values above 1 survive to the bloom and the tonemap (PostProcess). Costs a bigger render target (twice the memory of RGBA8) and looks different: colours picked by eye in gamma space need a second look, so switch it on deliberately. render.supports {"feature": "linearColor"} says whether this build and GPU can. M71 is in progress: until its linear pipeline lands the value is stored and the picture stays in gamma.
+     * @since unreleased
+     */
+    colorSpace: "gamma" | "linear";
+    /**
+     * off (default): the picture is shown in the standard range. auto: use a high dynamic range display where the platform allows it (Windows HDR10 or scRGB, macOS EDR); on any other display it is the standard range, with no error. It needs colorSpace linear to show anything above white. render.supports {"feature": "hdrOutput"} says whether this backend can; it is false until M71 draws to HDR displays.
+     * @since unreleased
+     */
+    hdrOutput: "off" | "auto";
+    /**
+     * Only used with hdrOutput auto on an HDR display: the brightness of white (1.0) in nits (cd/m2), 80..1000. 200 is comfortable indoors, 400 and more suits a bright room; the display shows brighter highlights above it.
+     * @since unreleased
+     */
+    paperWhiteNits: number;
   }
   /** Component views by name, as returned by entity.get(name). */
   export interface Components {
@@ -10447,6 +10989,7 @@ declare module "factoria" {
     CameraView: CameraViewComponent;
     Chart: ChartComponent;
     Script: ScriptComponent;
+    PostProcess: PostProcessComponent;
     SceneSettings: SceneSettingsComponent;
   }
   /** Field objects accepted by entity.add(name, fields) / entity.set(name, fields) and world.spawn. */
@@ -10500,7 +11043,8 @@ declare module "factoria" {
     CameraView: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; camera?: string; tint?: ColorLike; pointerEvents?: boolean; captureWheel?: boolean; resolution?: number };
     Chart: { size?: Vec2Like; pivot?: Vec2Like; anchor?: Vec2Like; safeArea?: boolean; layer?: number; color?: ColorLike; texture?: string; slice?: readonly number[] | { x: number; y: number; z: number; w: number }; tooltip?: any; draggable?: any; mirror?: boolean; values?: any; kind?: "bar" | "line"; colors?: any; min?: any; max?: any; baseline?: number; showBaseline?: boolean; includeBaseline?: boolean; slots?: number; marks?: any; baselineColor?: ColorLike; markColor?: ColorLike; lineWidth?: number; barGap?: number; padding?: number; showLabels?: boolean; decimals?: number; font?: string; fontSize?: number; textColor?: ColorLike };
     Script: { path?: string; props?: any; enabled?: boolean };
-    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number };
+    PostProcess: { enabled?: boolean; shape?: "global" | "box" | "circle" | "sphere"; size?: Vec3Like; blendDistance?: number; priority?: number; weight?: number; tonemapEnabled?: boolean; tonemapMode?: "none" | "neutral" | "aces" | "agx" | "reinhard"; exposureEnabled?: boolean; exposureMode?: "manual" | "auto"; exposureEv?: number; exposureMinEv?: number; exposureMaxEv?: number; exposureAdaptationSpeed?: number; bloomEnabled?: boolean; bloomIntensity?: number; bloomThreshold?: number; bloomKnee?: number; bloomRadius?: number; bloomScreenSpace?: boolean; bloomLensDirt?: string; bloomLensDirtIntensity?: number; colorGradingEnabled?: boolean; colorGradingLift?: ColorLike; colorGradingGamma?: ColorLike; colorGradingGain?: ColorLike; colorGradingTemperature?: number; colorGradingTint?: number; colorGradingSaturation?: number; colorGradingContrast?: number; colorGradingCurveMaster?: Float32Array; colorGradingCurveRed?: Float32Array; colorGradingCurveGreen?: Float32Array; colorGradingCurveBlue?: Float32Array; colorGradingLut?: string; colorGradingLutContribution?: number; colorFilterEnabled?: boolean; colorFilterMode?: "none" | "greyscale" | "highContrast" | "protanopia" | "deuteranopia" | "tritanopia"; vignetteEnabled?: boolean; vignetteIntensity?: number; vignetteSmoothness?: number; vignetteRoundness?: number; vignetteColor?: ColorLike; chromaticAberrationEnabled?: boolean; chromaticAberrationIntensity?: number; filmGrainEnabled?: boolean; filmGrainIntensity?: number; filmGrainSize?: number; filmGrainAnimated?: boolean; lensDistortionEnabled?: boolean; lensDistortionIntensity?: number; lensDistortionScale?: number; sharpenEnabled?: boolean; sharpenIntensity?: number; outlineEnabled?: boolean; outlineMode?: "depth" | "sprite"; outlineColor?: ColorLike; outlineWidth?: number; outlineDepthThreshold?: number; outlineNormalThreshold?: number; outlineAlphaThreshold?: number; pixelateEnabled?: boolean; pixelateSize?: number; posterizeEnabled?: boolean; posterizeLevels?: number; ssaoEnabled?: boolean; ssaoQuality?: "low" | "medium" | "high" | "ultra"; ssaoIntensity?: number; ssaoRadius?: number; depthOfFieldEnabled?: boolean; depthOfFieldFocusDistance?: number; depthOfFieldTarget?: EntityLike; depthOfFieldFocusSpeed?: number; depthOfFieldFocusRange?: number; depthOfFieldNearBlur?: number; depthOfFieldFarBlur?: number; depthOfFieldBokeh?: boolean; motionBlurEnabled?: boolean; motionBlurIntensity?: number; motionBlurSamples?: number; ssrEnabled?: boolean; ssrIntensity?: number; ssrMaxDistance?: number; ssrThickness?: number; ssrSteps?: number; fogEnabled?: boolean; fogColor?: ColorLike; fogDensity?: number; fogStart?: number; fogHeightDensity?: number; fogHeightBase?: number; fogHeightFalloff?: number; sunShaftsEnabled?: boolean; sunShaftsIntensity?: number; sunShaftsThreshold?: number; sunShaftsLength?: number; sunShaftsColor?: ColorLike; radialBlurEnabled?: boolean; radialBlurIntensity?: number; radialBlurCenter?: Vec2Like; radialBlurSamples?: number };
+    SceneSettings: { ambientLight?: ColorLike; gravity2D?: Vec2Like; gravity3D?: Vec3Like; fogColor?: ColorLike; fogDensity?: number; skyColor?: ColorLike; horizonColor?: ColorLike; music?: string; musicVolume?: number; lightScale?: number; colorSpace?: "gamma" | "linear"; hdrOutput?: "off" | "auto"; paperWhiteNits?: number };
   }
   /**
    * The native plugins of this game (factoria.json "plugins"): plugins.<plugin>.<function>(...args).

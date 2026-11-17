@@ -634,8 +634,64 @@ void register_shot_commands(Engine& engine, Engine::Impl& I) {
             return j;
         });
 
+    I.commands.add(
+        {"render.supports",
+         "What this renderer can do on this graphics backend and GPU: float targets, linear colour, HDR output, post "
+         "effects.",
+         "Answers from the renderer's table per backend (GL, GLES3, WebGL2, D3D11, Metal, headless) and from what the "
+         "GPU reports, so a game or a tool can ask before it relies on a feature. Without `feature`: {backend, "
+         "backendLabel, features: [{name, kind, supported, status, doc, backends}]}; with `feature`: {feature, "
+         "backend, "
+         "supported, status}. A feature the renderer does not draw yet is false with the status \"planned (M71)\": "
+         "this command never claims what is not drawn. Example: render.supports "
+         "{\"feature\":\"floatTargets\"}" FA_COMMAND_DETAILS
+         "`kind` is capability (a fact of the GPU: floatTargets, r11g11b10, sampledDepth, computeShaders), engine "
+         "(linearColor, hdrOutput) or effect (one per PostProcess effect: ssao, ssr, fog, sunShafts, exposure, "
+         "depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom, tonemap, colorGrading, "
+         "vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter); `backends` says on which backends "
+         "the feature can ever run. `status` is \"supported\", \"planned (M71)\" for an engine feature or effect the "
+         "renderer does not draw yet, or one sentence that names the backend or the missing GPU capability. The "
+         "headless dummy backend (no GPU) answers false to everything; a headless run with Mesa/EGL is a GL or GLES3 "
+         "backend like any other. Errors: `invalid_argument` for a `feature` that is not in the list (with a "
+         "did-you-mean); `unavailable` without graphics (graphics=false). The same answer is Renderer::supports(name) "
+         "in C++.",
+         parse_schema(R"({"type":"object","properties":{
+               "feature":{"type":"string","description":"One feature name (floatTargets, r11g11b10, sampledDepth, computeShaders, linearColor, hdrOutput, or a post effect such as bloom or ssao). Omitted: every feature."}}})"),
+         true, "game"},
+        [&I](const Json& a) {
+            check_args_known(a, {"feature"}, "render.supports");
+            std::string feature;
+            const bool one = a.is_object() && a.contains("feature");
+            if (one) {
+                if (!a["feature"].is_string())
+                    throw CommandError(
+                        "invalid_argument", "feature: " + describe_json_value(a["feature"]) + " is not a string.",
+                        "Pass one feature name, e.g. \"floatTargets\" or \"bloom\"; leave it out for the whole list.");
+                feature = a["feature"].get<std::string>();
+                const std::vector<std::string> names = Renderer::feature_names();
+                if (std::find(names.begin(), names.end(), feature) == names.end())
+                    throw CommandError("invalid_argument",
+                                       "feature: unknown feature '" + feature + "'. " + did_you_mean(feature, names),
+                                       "Leave `feature` out to list every name with its status.");
+            }
+            if (!I.renderer || !I.renderer->initialized())
+                throw CommandError("unavailable",
+                                   "No renderer: the engine runs with graphics=false, so there is no GPU to ask.",
+                                   "Run with graphics (headless needs Mesa/EGL on Linux), not graphics=false.");
+            Json report = I.renderer->supports_report();
+            if (!one) return report;
+            for (const Json& f : report["features"])
+                if (f["name"] == feature)
+                    return Json::object({{"feature", feature},
+                                         {"backend", report["backend"]},
+                                         {"supported", f["supported"]},
+                                         {"status", f["status"]}});
+            throw CommandError("unavailable", "The renderer reported no feature '" + feature + "'.");
+        });
+
     // Capabilities (capability.h): what each command does outside the engine's memory.
     declare_command_capabilities(I.commands, {
+                                                 {"render.supports", capability_sets::reads()},
                                                  {"game.screenshot", capability_sets::changes_state()},
                                                  {"render.inspect", capability_sets::reads()},
                                                  {"render.pick", capability_sets::reads()},

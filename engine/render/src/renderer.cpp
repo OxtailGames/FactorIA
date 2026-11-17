@@ -1,5 +1,6 @@
 #include "renderer_impl.h"
 #include "scene2d.h"
+#include "render_features.h"
 
 #include <map>
 
@@ -95,6 +96,7 @@ CameraInfo Renderer::Impl::build_camera(World& world, Entity best, const Vec2* v
     ci.clear = cam.clear || viewSize != nullptr;
     ci.colorFilter = std::clamp(int(cam.colorFilter), 0, 5);
     ci.bloom = sanitize_bloom(cam.bloom, cam.bloomThreshold, cam.bloomIntensity, cam.bloomRadius, cam.bloomScreenSpace);
+    ci.postStack = resolve_post_stack(world, ci);
     return ci;
 }
 
@@ -448,6 +450,17 @@ void Renderer::take_gpu_ms(std::vector<double>& out) {
     impl_->gpuTimer.poll(impl_->gpuFrames);  // render() polls too: what it read waits in gpuFrames for this call
     out.insert(out.end(), impl_->gpuFrames.begin(), impl_->gpuFrames.end());
     impl_->gpuFrames.clear();
+}
+
+bool Renderer::supports(std::string_view feature) const {
+    if (!initialized()) return false;
+    const int index = render::find_feature(feature);
+    return index >= 0 && render::feature_supported(render::feature_env_from_sokol(), index);
+}
+std::vector<std::string> Renderer::feature_names() { return fa::render::feature_names(); }
+Json Renderer::supports_report() const {
+    if (!initialized()) return Json::object();
+    return render::feature_report(render::feature_env_from_sokol(), backend_name());
 }
 
 Json Renderer::frame_graph_report() const {

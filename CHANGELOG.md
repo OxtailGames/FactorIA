@@ -6,6 +6,21 @@ Older versions, one file per minor version with its patch releases: [0.29](chang
 
 ## Unreleased
 
+### M71 (in progress): linear HDR and a post-processing stack
+
+- **Scene settings:** `SceneSettings.colorSpace` (`gamma`, the default, or `linear`), `hdrOutput` (`off` or `auto`) and
+  `paperWhiteNits` (200) are stored and saved with the scene. They change nothing yet: the picture stays in gamma until the linear
+  pipeline lands, and an old project keeps its exact look.
+- **PostProcess component:** one reflected component for a camera's own post-processing stack or for a volume (shape `global`, `box`,
+  `circle` or `sphere`, `size`, `blendDistance`, `priority`, `weight`), with 20 effects (`ssao`, `ssr`, `fog`, `sunShafts`,
+  `exposure`, `depthOfField`, `motionBlur`, `radialBlur`, `lensDistortion`, `chromaticAberration`, `bloom`, `tonemap`,
+  `colorGrading`, `vignette`, `sharpen`, `outline`, `pixelate`, `posterize`, `filmGrain`, `colorFilter`). All are off by default and
+  none is drawn yet: the fields are stored and saved. The renderer resolves the volumes at each camera on the CPU
+  (docs/design/ARCHITECTURE_RENDERING.md, "PostProcess").
+- **Commands:** `render.supports` says what the renderer can do on this graphics backend and GPU (float targets, R11G11B10, sampled
+  depth, compute shaders, linear colour, HDR output and each post effect; false for what is not drawn yet); `postprocess.get`,
+  `postprocess.set` and `postprocess.presets` read and write the PostProcess component.
+
 ## 0.30.1
 
 FactorIA 0.30.1 polishes WebSocket closing and fixes a once-only editor notice that could repeat. Every WebSocket client
