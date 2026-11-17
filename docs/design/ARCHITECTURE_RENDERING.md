@@ -321,3 +321,40 @@ SheenBidi reordering, line breaking), so tests can look at glyph ids and positio
 for tools. Fallback fonts and the text size option live on the `Renderer` (`set_fallback_fonts`, `set_text_scale`). Details for
 game makers: [TEXT.md](../TEXT.md).
 
+
+## PostProcess (M71, in progress)
+M71 adds a linear HDR frame and a stack of post effects. The first package lands the shared interface; no pixel changes yet.
+
+- **Data, in `engine/scene`.** `SceneSettings.colorSpace` (`gamma`, the default, or `linear`), `hdrOutput` (`off` or `auto`) and
+  `paperWhiteNits` (200) are stored and saved with the scene; an old scene without them loads as gamma. The `PostProcess` component
+  (`fa/scene/postprocess.h`) is flat: the meta fields `enabled`, `shape` (`global`, `box`, `circle`, `sphere`), `size`,
+  `blendDistance`, `priority`, `weight`, then for each effect `<effect>Enabled` and its parameters (`bloomIntensity`,
+  `tonemapMode`, ...). A field belongs to the effect whose name its own starts with (`post_field_effect`), so the resolver blends a
+  parameter added later without being edited. Everything is off by default. On a Camera it is that camera's own stack; on any other
+  entity it is a volume.
+- **Effect order, one list.** `kPostEffectOrder` (and `enum PostEffect`, same order) is the order the passes run, HDR effects first,
+  display effects after the tonemap: `ssao`, `ssr`, `fog`, `sunShafts`, `exposure`, `depthOfField`, `motionBlur`, `radialBlur`,
+  `lensDistortion`, `chromaticAberration`, `bloom`, `tonemap`, `colorGrading`, `vignette`, `sharpen`, `outline`, `pixelate`,
+  `posterize`, `filmGrain`, `colorFilter`. A pass never reorders it; `post_effect_is_hdr` tells the effects that run before the
+  tonemap (up to `bloom`).
+- **The CPU resolve, in `engine/render` (`src/postprocess_resolve.h`).** `resolve_post_stack(world, camera)` returns the one
+  `PostStack` of a frame: `fx` (a PostProcess whose values are already blended), `mask` (bit i = effect `PostEffect(i)` runs),
+  `sources` (how many components contributed). `build_camera` fills `CameraInfo::postStack`; no pass reads it yet. It is pure CPU and
+  deterministic: it starts from the neutral stack (`postprocess_neutral()`, every effect off at its identity values), applies the
+  camera's own PostProcess, then the enabled volumes active in the hierarchy in ascending `priority`, equal priorities by entity id
+  (so the last id wins), each with strength `weight * influence`. The influence is 1 inside the shape and falls linearly to 0 over
+  `blendDistance` outside it (box: half extents `size * scale / 2` in the entity's rotated frame; circle: radius `size.x`; sphere:
+  radius `size.x`; scale by the largest axis; a 2D camera tests x and y only). A component switching an effect on that the stack has
+  off first sets it to the neutral values, so it fades in; numbers, vectors and colours are mixed `stack * (1 - s) + value * s`
+  (integers rounded); switches, modes, textures, curves and the autofocus entity switch at `s >= 0.5`. A component that leaves an
+  effect off never switches it off. A world without a PostProcess costs one count.
+- **What the GPU can do, `Renderer::supports(name)` and the `render.supports` command (`src/render_features.h`).** One table of
+  named features: the GPU capabilities `floatTargets` (RGBA16F renders, blends and filters), `r11g11b10`, `sampledDepth`,
+  `computeShaders`; the engine features `linearColor` and `hdrOutput`; and one per effect (the names above). Each row says the
+  backends it can ever run on (GL, GLES3, WebGL2, D3D11, Metal; the headless dummy backend has none), what it needs from the GPU
+  (read with `sg_query_pixelformat` / `sg_query_features`), and whether the engine draws it yet. A feature the engine does not draw
+  answers false with the status "planned (M71)": each M71 package turns its own on, so `supports` never claims what the renderer
+  cannot do. Compute shaders exist on GL, D3D11 and Metal, never on GLES3 or WebGL2; `hdrOutput` only on D3D11 and Metal.
+  The decision is a pure function of a `FeatureEnv` (backend + what the GPU reported), so a test asks what D3D11 would say.
+- **Commands.** `postprocess.get`, `postprocess.set` (thin wrappers of `scene.set_component` for `PostProcess`) and
+  `postprocess.presets` (empty until the effects exist) are in `engine/runtime/src/postprocess_commands.cpp`.

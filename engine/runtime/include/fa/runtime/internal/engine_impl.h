@@ -279,6 +279,9 @@ void register_ui_check_commands(Engine& engine, Engine::Impl& impl);  // ui_chec
 void register_shot_commands(Engine& engine,
                             Engine::Impl& impl);  // shot_commands.cpp: game.screenshot, render.inspect, render.pick
 void register_music_commands(Engine& engine, Engine::Impl& impl);  // music_commands.cpp: audio.music_state, audio.music
+void register_postprocess_commands(
+    Engine& engine,
+    Engine::Impl& impl);  // postprocess_commands.cpp: postprocess.get, postprocess.set, postprocess.presets
 void register_vfx_commands(Engine& engine,
                            Engine::Impl& impl);  // vfx_commands.cpp: vfx.play, vfx.stop, vfx.list; fills vfxHost
 void register_feel_commands(

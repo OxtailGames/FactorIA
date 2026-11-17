@@ -32,3 +32,113 @@ Renders the scene to the screen. Every active camera with primary=true draws its
 | `showTags` | json | `[]` | Culling mask, the allow list: an array of tag names (EntityInfo "tags"), default [] = no restriction. When it is not empty the camera draws only the entities that have one of these tags OR have an ancestor that does, so tagging the root of a page covers its Sprites, Text, Shape2D and every other child. Applies to what the camera draws in world space, on a screen camera and on one with renderTarget alike: Sprite, Shape2D, Text, Tilemap, ParticleEmitter and MeshRenderer (a world-space item; screen-space UI and items with space "screen" belong to the screen and ignore it). Lights are not filtered: a Light still lights everything its camera draws. An entity the camera does not draw casts no shadow in that camera's view, takes no click through it and is not picked by it: the pointer, Interactable hit tests (also through a mesh that shows a render target) and game.click only reach what the camera draws. Combine with hideTags: an entity is drawn when it passes showTags AND is not in hideTags. `factoria validate` warns about a tag no entity carries (with a did-you-mean) and rejects a tag in both lists. Example: the camera of a page, showTags ["page_left"]. Assign a whole new array to change it from a script (cam.showTags = ["page_right"]); a tag added with entity.addTag(...) takes effect on the next frame drawn. (since 0.12.0) |
 | `hideTags` | json | `[]` | Culling mask, the block list: an array of tag names (EntityInfo "tags"), default [] = nothing hidden. The camera does not draw the entities that have one of these tags or have an ancestor that does, whatever showTags says; it applies to the same things (world-space Sprite, Shape2D, Text, Tilemap, ParticleEmitter, MeshRenderer; shadows, pointer and game.click follow) and spares screen-space UI. Use it on the camera that draws a 3D model with render-target pages so it does not also see the pages' own content: hideTags ["page_left", "page_right"]. A tag in both showTags and hideTags is an error for `factoria validate`. (since 0.12.0) |
 
+## PostProcess
+
+Not released yet (on main after 0.30.1).
+
+A stack of screen effects (tonemap, exposure, bloom, colour grading, vignette, chromatic aberration, film grain, lens distortion, sharpen, outline, pixelate, posterize, ambient occlusion, depth of field, motion blur, reflections, fog, sun shafts, radial blur, colour filter), every one off by default. On the entity of a Camera it is that camera's own stack. On any other entity it is a VOLUME: shape "global" applies to every camera, "box", "circle" (2D, x and y) and "sphere" to the cameras whose position is inside it or within blendDistance of it, blended into the camera's stack by priority (a higher one wins) and by weight. Numbers and colours are interpolated by the volume's influence; switches, modes, textures and curves switch over when the influence reaches 0.5. A volume only adds to or changes the effects it switches on: to remove an effect inside a volume switch it on with its neutral values (bloomIntensity 0, vignetteIntensity 0, ...). Each effect has a `<effect>Enabled` switch and parameters named `<effect><Parameter>`. The effects run in a fixed order: ssao, ssr, fog, sunShafts, exposure, depthOfField, motionBlur, radialBlur, lensDistortion, chromaticAberration, bloom (all on HDR colour), tonemap, colorGrading, vignette, sharpen, outline, pixelate, posterize, filmGrain, colorFilter (the last pass). M71 is in progress: the component, the volumes, the postprocess.* commands and render.supports exist, and each effect is drawn as its M71 package lands: render.supports {"feature": "<effect>"} says which ones this build draws on this GPU, until then the fields only store the values. Camera.bloom* and Camera.colorFilter keep working unchanged.
+
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `enabled` | bool | `true` | false: this component contributes nothing (all its effects are ignored), without losing its values. |
+| `shape` | enum: global \| box \| circle \| sphere | `"global"` | Volume shape (an entity without a Camera). global: every camera, size and blendDistance are ignored. box: the cameras inside the box (an orthographic camera is tested in x and y only; a perspective one in x, y and z), turned and scaled with the entity. circle: a disc in x and y, radius size.x. sphere: a ball, radius size.x. On an entity with a Camera the shape is ignored: it is that camera's own stack. |
+| `size` | vec3 | `[10.0,10.0,10.0]` | Box: full width, height and depth in world units (before the entity's scale). circle and sphere: size.x is the radius. Pixels in a 2D game, metres in 3D. |
+| `blendDistance` | float | `0.0` | World units outside the shape over which the influence fades from 1 (at the edge) to 0. 0 = a hard edge. A camera inside the shape always has influence 1. Range 0.0..100000.0. |
+| `priority` | int | `0` | Order of the volumes: a volume with a higher priority is applied later, so it wins where two disagree. Equal priorities are applied in the order of the entity ids, so a result never changes between runs. |
+| `weight` | float | `1.0` | 0..1: the overall strength of this component, multiplied with its distance influence. 0 = as if it were disabled. Range 0.0..1.0. |
+| `tonemapEnabled` | bool | `false` | Switches the tonemap on: it brings the HDR colour of a linear scene (SceneSettings.colorSpace "linear") to the range of the display. Cost: one cheap pass (shared with colour grading). |
+| `tonemapMode` | enum: none \| neutral \| aces \| agx \| reinhard | `"neutral"` | Only used when tonemapEnabled. none: clamp at white. neutral (default): keeps colours close to the scene and rolls the highlights off gently. aces: the filmic curve with high contrast and saturated highlights. agx: a filmic curve that desaturates very bright colours toward white. reinhard: the simplest, flattest curve. |
+| `exposureEnabled` | bool | `false` | Switches the exposure on: the brightness the picture is scaled to before the other effects. Auto exposure needs a measure of the scene's brightness (a small reduction pass). |
+| `exposureMode` | enum: manual \| auto | `"manual"` | manual: the picture is scaled by exposureEv. auto: the exposure follows the measured brightness of the scene (adaptation speed exposureAdaptationSpeed, between exposureMinEv and exposureMaxEv), plus exposureEv. |
+| `exposureEv` | float | `0.0` | Exposure in stops (each +1 doubles the brightness). In auto mode it is a compensation added to what is measured. Range -10.0..10.0. |
+| `exposureMinEv` | float | `-4.0` | Auto exposure only: the lowest exposure the adaptation may choose, in stops. Range -10.0..10.0. |
+| `exposureMaxEv` | float | `4.0` | Auto exposure only: the highest exposure the adaptation may choose, in stops. Range -10.0..10.0. |
+| `exposureAdaptationSpeed` | float | `2.0` | Auto exposure only: how fast the exposure follows the scene, per second (2 = most of the way in a second); higher adapts faster. Range 0.0..20.0. |
+| `bloomEnabled` | bool | `false` | Switches the bloom on: a glow around bright pixels. The same effect as Camera.bloom, moved into the stack. Cost: a few passes at reduced resolution. |
+| `bloomIntensity` | float | `1.2` | Only used when bloomEnabled. Strength of the glow added back, 0..10 (0 = none). Range 0.0..10.0. |
+| `bloomThreshold` | float | `0.7` | Only used when bloomEnabled. Brightness (the largest of r, g, b) where the glow starts. In a linear scene it can be above 1. Range 0.0..20.0. |
+| `bloomKnee` | float | `0.5` | Only used when bloomEnabled. 0..1: how softly the glow starts above the threshold (0 = a hard cut, 1 = a wide ramp). Range 0.0..1.0. |
+| `bloomRadius` | float | `20.0` | Only used when bloomEnabled. How far the glow reaches, in design pixels (1..128). Range 1.0..128.0. |
+| `bloomScreenSpace` | bool | `true` | Only used when bloomEnabled. true: the HUD glows too. false: screen-space items are drawn after the bloom and stay crisp. |
+| `bloomLensDirt` | asset (texture) | `""` | Only used when bloomEnabled. A texture that dirties the glow like smudges on a lens (the glow shows it where the texture is bright). Empty = none. |
+| `bloomLensDirtIntensity` | float | `1.0` | Only used with a bloomLensDirt texture. How much the dirt shows in the glow, 0..10. Range 0.0..10.0. |
+| `colorGradingEnabled` | bool | `false` | Switches the colour grading on: lift/gamma/gain, white balance, saturation, contrast, curves and a LUT. Cost: one pass, shared with the tonemap. |
+| `colorGradingLift` | color | `[0.0,0.0,0.0,1.0]` | Only used when colorGradingEnabled. Colour added to the shadows (rgb; alpha ignored). [0, 0, 0] = unchanged; a blue tint here gives cold shadows. |
+| `colorGradingGamma` | color | `[1.0,1.0,1.0,1.0]` | Only used when colorGradingEnabled. Midtones per channel (rgb; alpha ignored). [1, 1, 1] = unchanged; above 1 lightens that channel's midtones. |
+| `colorGradingGain` | color | `[1.0,1.0,1.0,1.0]` | Only used when colorGradingEnabled. Multiplies the highlights per channel (rgb; alpha ignored). [1, 1, 1] = unchanged. |
+| `colorGradingTemperature` | float | `0.0` | Only used when colorGradingEnabled. White balance, -100 (cooler, blue) to 100 (warmer, orange). 0 = unchanged. Range -100.0..100.0. |
+| `colorGradingTint` | float | `0.0` | Only used when colorGradingEnabled. White balance, -100 (green) to 100 (magenta). 0 = unchanged. Range -100.0..100.0. |
+| `colorGradingSaturation` | float | `1.0` | Only used when colorGradingEnabled. 0 = greyscale, 1 = unchanged, above 1 more vivid. Range 0.0..3.0. |
+| `colorGradingContrast` | float | `1.0` | Only used when colorGradingEnabled. 1 = unchanged, above 1 more contrast around mid grey, below 1 flatter. Range 0.0..3.0. |
+| `colorGradingCurveMaster` | arrayF32 | `[]` | Only used when colorGradingEnabled. A tone curve on all channels as a flat list of points [x0, y0, x1, y1, ...], x and y in 0..1 with x ascending (input brightness to output brightness). Empty = the straight line. Example: [0, 0, 0.5, 0.4, 1, 1] darkens the midtones. |
+| `colorGradingCurveRed` | arrayF32 | `[]` | Only used when colorGradingEnabled. A curve on the red channel only (same format as colorGradingCurveMaster), applied after the master curve. Empty = unchanged. |
+| `colorGradingCurveGreen` | arrayF32 | `[]` | Only used when colorGradingEnabled. A curve on the green channel only (same format as colorGradingCurveMaster). Empty = unchanged. |
+| `colorGradingCurveBlue` | arrayF32 | `[]` | Only used when colorGradingEnabled. A curve on the blue channel only (same format as colorGradingCurveMaster). Empty = unchanged. |
+| `colorGradingLut` | asset (any) | `""` | Only used when colorGradingEnabled. Project path of a .cube 3D lookup table (the file a colour grading tool exports) applied last. Empty = none. |
+| `colorGradingLutContribution` | float | `1.0` | Only used with a colorGradingLut. 0..1: how much of the LUT is mixed in (1 = fully). Range 0.0..1.0. |
+| `colorFilterEnabled` | bool | `false` | Switches the accessibility colour filter on. The same filters as Camera.colorFilter, in the stack; it is the last pass of the frame. |
+| `colorFilterMode` | enum: none \| greyscale \| highContrast \| protanopia \| deuteranopia \| tritanopia | `"none"` | Only used when colorFilterEnabled. The filter, with the meaning of Camera.colorFilter. |
+| `vignetteEnabled` | bool | `false` | Switches the vignette on: darkened corners. Cost: folded into a shared pass. |
+| `vignetteIntensity` | float | `0.4` | Only used when vignetteEnabled. 0..1: how dark the corners get (0 = none). Range 0.0..1.0. |
+| `vignetteSmoothness` | float | `0.5` | Only used when vignetteEnabled. 0..1: how soft the transition from the clear centre to the dark corners is. Range 0.0..1.0. |
+| `vignetteRoundness` | float | `1.0` | Only used when vignetteEnabled. 0..1: 1 = a circle, 0 = follows the shape of the screen. Range 0.0..1.0. |
+| `vignetteColor` | color | `[0.0,0.0,0.0,1.0]` | Only used when vignetteEnabled. Colour of the darkened edge (rgb; alpha ignored). Black by default. |
+| `chromaticAberrationEnabled` | bool | `false` | Switches the chromatic aberration on: red and blue are shifted apart toward the edges like a cheap lens. Cost: folded into a shared pass. |
+| `chromaticAberrationIntensity` | float | `0.3` | Only used when chromaticAberrationEnabled. 0..1: how far the channels separate at the screen's edge (0 = none). Range 0.0..1.0. |
+| `filmGrainEnabled` | bool | `false` | Switches the film grain on: noise over the picture. Cost: folded into a shared pass. |
+| `filmGrainIntensity` | float | `0.2` | Only used when filmGrainEnabled. 0..1: how strong the noise is (0 = none). Range 0.0..1.0. |
+| `filmGrainSize` | float | `1.0` | Only used when filmGrainEnabled. Grain size in design pixels, 0.5 to 4. Range 0.5..4.0. |
+| `filmGrainAnimated` | bool | `true` | Only used when filmGrainEnabled. true: the pattern changes every frame (from the frame number, so a recorded run is the same every time). false: a still pattern. |
+| `lensDistortionEnabled` | bool | `false` | Switches the lens distortion on: the picture bulges (barrel) or pinches (pincushion) like a lens. Cost: folded into a shared pass. |
+| `lensDistortionIntensity` | float | `0.3` | Only used when lensDistortionEnabled. -1 (pincushion) to 1 (barrel). 0 = none. Range -1.0..1.0. |
+| `lensDistortionScale` | float | `1.0` | Only used when lensDistortionEnabled. 0.5..2: zooms the picture; raise it to hide the empty edges a barrel distortion leaves. Range 0.5..2.0. |
+| `sharpenEnabled` | bool | `false` | Switches the sharpening on: it brings out the detail the picture lost to scaling or antialiasing. Cost: one pass of five samples. |
+| `sharpenIntensity` | float | `0.3` | Only used when sharpenEnabled. 0..2: strength (0 = none; above 1 shows halos). Range 0.0..2.0. |
+| `outlineEnabled` | bool | `false` | Switches the outline on: lines drawn at the edges of things. Depth mode needs the depth buffer (3D). |
+| `outlineMode` | enum: depth \| sprite | `"depth"` | Only used when outlineEnabled. depth: edges found where depth or surface direction jump (3D models). sprite: the border of 2D sprites, found from their alpha. |
+| `outlineColor` | color | `[0.0,0.0,0.0,1.0]` | Only used when outlineEnabled. Colour of the lines (alpha = opacity). |
+| `outlineWidth` | float | `1.0` | Only used when outlineEnabled. Line width in design pixels, 0.5 to 8 (0 = none). Range 0.0..8.0. |
+| `outlineDepthThreshold` | float | `0.1` | Only used in depth mode. The relative jump of depth that makes an edge; smaller finds more edges. Range 0.0..1.0. |
+| `outlineNormalThreshold` | float | `0.4` | Only used in depth mode. The change of surface direction (0..1) that makes an edge; smaller finds more edges. Range 0.0..1.0. |
+| `outlineAlphaThreshold` | float | `0.5` | Only used in sprite mode. The alpha level (0..1) that counts as the sprite's border. Range 0.0..1.0. |
+| `pixelateEnabled` | bool | `false` | Switches the pixelation on: the picture is drawn in blocks. Cost: one cheap pass. |
+| `pixelateSize` | float | `4.0` | Only used when pixelateEnabled. Size of a block in design pixels, 1 to 64 (1 = unchanged). Range 1.0..64.0. |
+| `posterizeEnabled` | bool | `false` | Switches the posterization on: each colour channel is cut to a few levels. Cost: folded into a shared pass. |
+| `posterizeLevels` | int | `8` | Only used when posterizeEnabled. Levels per colour channel, 2 to 256 (256 = unchanged). Range 2..256. |
+| `ssaoEnabled` | bool | `false` | Switches the ambient occlusion on: creases and contact points of 3D models get darker. Needs the depth buffer (3D); it costs the most of the effects at high quality. |
+| `ssaoQuality` | enum: low \| medium \| high \| ultra | `"medium"` | Only used when ssaoEnabled. The number of directions and steps (GTAO): low is for phones and the web; each level costs about twice the one before. |
+| `ssaoIntensity` | float | `1.0` | Only used when ssaoEnabled. 0..4: how dark the occlusion is. Range 0.0..4.0. |
+| `ssaoRadius` | float | `0.5` | Only used when ssaoEnabled. World units: how far from a point an occluder still darkens it. Range 0.01..20.0. |
+| `depthOfFieldEnabled` | bool | `false` | Switches the depth of field on: things away from the focus distance are blurred. Needs the depth buffer (3D). |
+| `depthOfFieldFocusDistance` | float | `10.0` | Only used when depthOfFieldEnabled. World units from the camera that are in focus (ignored while depthOfFieldTarget is set). Range 0.01..100000.0. |
+| `depthOfFieldTarget` | entity |  | Only used when depthOfFieldEnabled. Autofocus: the focus follows the distance to this entity. Empty = use depthOfFieldFocusDistance. |
+| `depthOfFieldFocusSpeed` | float | `5.0` | Only used with an autofocus target. How fast the focus moves to it, per second; higher is quicker. Range 0.0..100.0. |
+| `depthOfFieldFocusRange` | float | `5.0` | Only used when depthOfFieldEnabled. World units around the focus distance that stay fully sharp. Range 0.0..100000.0. |
+| `depthOfFieldNearBlur` | float | `6.0` | Only used when depthOfFieldEnabled. The largest blur, in design pixels, in front of the focus (0..32). Range 0.0..32.0. |
+| `depthOfFieldFarBlur` | float | `8.0` | Only used when depthOfFieldEnabled. The largest blur, in design pixels, behind the focus (0..32). Range 0.0..32.0. |
+| `depthOfFieldBokeh` | bool | `true` | Only used when depthOfFieldEnabled. true: a disc-shaped blur where bright points become discs (more expensive). false: a smooth blur. |
+| `motionBlurEnabled` | bool | `false` | Switches the camera motion blur on: the picture smears along the camera's movement, computed from the depth buffer (3D). |
+| `motionBlurIntensity` | float | `0.5` | Only used when motionBlurEnabled. 0..1: the fraction of the frame the shutter stays open (1 = the whole movement). Range 0.0..1.0. |
+| `motionBlurSamples` | int | `8` | Only used when motionBlurEnabled. 4..32 taps along the movement; more is smoother and costs more. Range 4..32. |
+| `ssrEnabled` | bool | `false` | Switches the screen-space reflections on: shiny surfaces reflect what is on the screen. Needs the depth buffer (3D); it only reflects what is visible, so the edges of the screen fade out. |
+| `ssrIntensity` | float | `1.0` | Only used when ssrEnabled. 0..1: how much reflection is mixed in. Range 0.0..1.0. |
+| `ssrMaxDistance` | float | `50.0` | Only used when ssrEnabled. World units a reflected ray travels before it gives up. Range 1.0..1000.0. |
+| `ssrThickness` | float | `0.3` | Only used when ssrEnabled. World units behind a surface that still count as a hit. Range 0.01..10.0. |
+| `ssrSteps` | int | `32` | Only used when ssrEnabled. 8..128 steps along the ray; more is more accurate and costs more. Range 8..128. |
+| `fogEnabled` | bool | `false` | Switches the stack's fog on: distance and height fog drawn from the depth buffer (3D). It replaces SceneSettings.fogColor and fogDensity where it is on. |
+| `fogColor` | color | `[0.5,0.6,0.7,1.0]` | Only used when fogEnabled. Colour distant things fade to. |
+| `fogDensity` | float | `0.02` | Only used when fogEnabled. Fog thickness with distance (the same scale as SceneSettings.fogDensity); 0 = none. Range 0.0..10.0. |
+| `fogStart` | float | `0.0` | Only used when fogEnabled. World units from the camera before the fog begins. Range 0.0..100000.0. |
+| `fogHeightDensity` | float | `0.0` | Only used when fogEnabled. Extra fog thickness near fogHeightBase (a ground mist); 0 = no height fog. Range 0.0..10.0. |
+| `fogHeightBase` | float | `0.0` | Only used when fogEnabled. World y where the height fog is thickest. |
+| `fogHeightFalloff` | float | `0.1` | Only used when fogEnabled. How fast the height fog thins going up, per world unit (larger = a thinner layer). Range 0.0..10.0. |
+| `sunShaftsEnabled` | bool | `false` | Switches the sun shafts on: rays of light spreading from the sun through gaps in the scene (3D, needs the depth buffer). |
+| `sunShaftsIntensity` | float | `0.5` | Only used when sunShaftsEnabled. 0..2: strength. Range 0.0..2.0. |
+| `sunShaftsThreshold` | float | `0.8` | Only used when sunShaftsEnabled. Brightness the sky needs to cast rays. Range 0.0..20.0. |
+| `sunShaftsLength` | float | `0.5` | Only used when sunShaftsEnabled. 0..1: how far the rays reach, as a fraction of the screen. Range 0.0..1.0. |
+| `sunShaftsColor` | color | `[1.0,0.95,0.8,1.0]` | Only used when sunShaftsEnabled. Tint of the rays (rgb). |
+| `radialBlurEnabled` | bool | `false` | Switches the radial blur on: the picture streaks away from a point (speed, impact, a dash). |
+| `radialBlurIntensity` | float | `0.3` | Only used when radialBlurEnabled. 0..1: how far the streaks reach. Range 0.0..1.0. |
+| `radialBlurCenter` | vec2 | `[0.5,0.5]` | Only used when radialBlurEnabled. The centre of the blur [x, y] as fractions of the picture, (0, 0) the top-left corner and (0.5, 0.5) the middle. |
+| `radialBlurSamples` | int | `12` | Only used when radialBlurEnabled. 4..32 taps; more is smoother and costs more. Range 4..32. |
+
